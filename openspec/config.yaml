@@ -1,0 +1,71 @@
+schema: spec-driven
+githubCopilot:
+  cloudAgent: true
+
+context: |
+  SocAlytics is a planned polyglot monorepo in its governance-only phase. Do
+  not select an application stack, create product code, or invent component
+  boundaries until an approved change establishes the requirements.
+
+  Authority boundaries:
+  - docs/architecture/ is authoritative for the coherent current system design.
+  - openspec/specs/ is authoritative for accepted behavioral requirements.
+  - openspec/changes/ contains active change intent, deltas, design, and tasks.
+  - openspec/changes/archive/ preserves completed change history.
+  - Component-local executable contracts and implementation documentation
+    belong with their eventual component.
+  - Preserve unresolved values and choices explicitly; do not convert them into
+    adopted decisions or implementation facts.
+
+  OpenSpec owns the change lifecycle. Every implementation task must declare
+  exactly one dispatch-only SocAlytics specialist as Owner:
+  - soca-strategist: intent, outcomes, scope, priorities, constraints, and
+    acceptance framing.
+  - soca-designer: user journeys, interaction behavior, accessibility, client
+    states, and UX acceptance.
+  - soca-architect: architecture narratives, boundaries, contracts, durable
+    design decisions, and ADRs.
+  - soca-developer: product code, tests, executable schemas, build files, and
+    implementation configuration.
+  - soca-verifier: independent completeness, correctness, coherence, tests,
+    documentation, and architecture-conformance verification.
+  - soca-auditor: independent security, privacy, governance, provenance, and
+    control-evidence review.
+
+  Specialists return results to OpenSpec and never dispatch one another.
+  Routing is advisory and model-executed; task ownership makes it explicit and
+  auditable rather than claiming deterministic enforcement.
+
+rules:
+  proposal:
+    - State intent, scope, non-goals, affected artifact categories, and unresolved decisions.
+    - Do not imply that unresolved choices or target-state descriptions are approved implementation facts.
+  specs:
+    - Express behavioral requirements with scenarios and observable outcomes.
+    - Do not duplicate architecture narratives or component-local executable contracts.
+  design:
+    - Identify UX, architecture, security and governance, implementation, and documentation impacts, including explicitly unaffected categories.
+    - Flag durable, consequential changes to established or implemented architecture as ADR candidates.
+    - Keep current architecture authority in docs/architecture/ and describe which narratives must be synchronized during apply.
+  tasks:
+    - "Every task must contain exactly one `Owner: soca-*` declaration using a specialist listed in project context."
+    - Split work when ownership or artifact category differs; do not assign multiple specialists to one task.
+    - Include the narrowest relevant validation and required synchronization evidence in each task.
+    - soca-verifier may verify but must not author implementation work.
+    - soca-auditor may report findings but must not silently remediate its own findings.
+
+operations:
+  apply:
+    guidance:
+      - Read each task's Owner declaration and dispatch that exact soca-* specialist; stop when ownership is missing, invalid, or conflicting.
+      - Preserve user changes and stay within the task's artifact category and approved scope.
+      - Run the narrowest relevant validation immediately after each substantive edit.
+      - Mark a task complete only when its requested artifacts, synchronization, and validation evidence are present.
+      - Specialists return results to OpenSpec and must not dispatch another specialist.
+  archive:
+    guidance:
+      - Require all tasks to be complete and supported by validation evidence.
+      - Require accepted behavioral specs and current architecture narratives to be synchronized.
+      - Require independent soca-verifier review and a soca-auditor review when security, privacy, governance, provenance, or control evidence is affected.
+      - Confirm ADR candidates are resolved and references connect ADRs, affected specs, current architecture narratives, and the archived change where applicable.
+      - Do not archive while blocking decisions, validation failures, or required synchronization remain unresolved.
