@@ -1,0 +1,3 @@
+# .NET build outputs (including Aspire artifacts generated under obj/)
+bin/
+obj/

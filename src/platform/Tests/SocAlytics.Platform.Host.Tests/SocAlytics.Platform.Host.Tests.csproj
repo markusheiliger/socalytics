@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\SocAlytics.Platform.AgentOrchestration\SocAlytics.Platform.AgentOrchestration.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Analysis\SocAlytics.Platform.Analysis.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.AppHost\SocAlytics.Platform.AppHost.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Club\SocAlytics.Platform.Club.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.IdentityAccess\SocAlytics.Platform.IdentityAccess.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Recordings\SocAlytics.Platform.Recordings.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Registry\SocAlytics.Platform.Registry.csproj" />
+  </ItemGroup>
+</Project>

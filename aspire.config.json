@@ -1,0 +1,5 @@
+{
+  "appHost": {
+    "path": "src/platform/SocAlytics.Platform.AppHost/SocAlytics.Platform.AppHost.csproj"
+  }
+}

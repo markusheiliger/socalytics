@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="NetArchTest.Rules" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\SocAlytics.Platform.AgentOrchestration\SocAlytics.Platform.AgentOrchestration.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Analysis\SocAlytics.Platform.Analysis.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Club\SocAlytics.Platform.Club.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.IdentityAccess\SocAlytics.Platform.IdentityAccess.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Recordings\SocAlytics.Platform.Recordings.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Registry\SocAlytics.Platform.Registry.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\SocAlytics.Platform.AgentOrchestration\SocAlytics.Platform.AgentOrchestration.csproj" Link="InspectedProjects\SocAlytics.Platform.AgentOrchestration.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\SocAlytics.Platform.Analysis\SocAlytics.Platform.Analysis.csproj" Link="InspectedProjects\SocAlytics.Platform.Analysis.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\SocAlytics.Platform.Club\SocAlytics.Platform.Club.csproj" Link="InspectedProjects\SocAlytics.Platform.Club.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\SocAlytics.Platform.IdentityAccess\SocAlytics.Platform.IdentityAccess.csproj" Link="InspectedProjects\SocAlytics.Platform.IdentityAccess.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\SocAlytics.Platform.Recordings\SocAlytics.Platform.Recordings.csproj" Link="InspectedProjects\SocAlytics.Platform.Recordings.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\SocAlytics.Platform.Registry\SocAlytics.Platform.Registry.csproj" Link="InspectedProjects\SocAlytics.Platform.Registry.csproj" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,13 +1,14 @@
 # socAlytics
 
 socAlytics is a planned polyglot monorepo. The repository currently contains
-its governance and documentation foundation plus a non-executable source-area
-scaffold; product components will be added through approved changes.
+its governance and documentation foundation, a source-area scaffold, and the
+first executable .NET platform host. Further product components will be added
+through approved changes.
 
 ## Repository Structure
 
-- [`src/platform/`](src/platform/README.md) records the planned control-plane
-    platform ownership boundary.
+- [`src/platform/`](src/platform/README.md) contains the executable control-plane
+    platform host and its ownership guidance.
 - [`src/clients/`](src/clients/README.md) records the planned Web UI and Electron
     Coach Client ownership boundary.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
@@ -20,16 +21,32 @@ scaffold; product components will be added through approved changes.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
 
-Each source area currently contains only its ownership README. There are no
-application projects, dependency manifests, product implementations, tests,
-deployment manifests, or product automation yet.
+The clients, agents, and analysts source areas remain non-executable ownership
+scaffolds. The platform area contains the repository's current application
+projects and tests. No deployment manifests or product automation exist yet.
 
 ## Development
 
-The platform technology baseline is adopted in the architecture, but no
-application project or dependency manifest exists and no executable product
-build, lint, or test command is available. Add and document those commands here
-when the first executable component is introduced.
+### Platform Host
+
+The platform uses the .NET 10 SDK. Run these commands from the repository root:
+
+```powershell
+dotnet restore src/platform/SocAlytics.Platform.slnx
+dotnet build src/platform/SocAlytics.Platform.slnx --no-restore
+dotnet test src/platform/SocAlytics.Platform.slnx --no-build
+dotnet run --project src/platform/SocAlytics.Platform.AppHost
+```
+
+The current executable evidence covers the ASP.NET Core API and Aspire AppHost,
+liveness at `/alive`, readiness at `/health`, the `v1` OpenAPI document at
+`/openapi/v1.json`, six capability composition boundaries, and focused host and
+architecture tests.
+
+Domain behavior, PostgreSQL persistence with Dapper and DbUp, NATS messaging,
+S3-compatible storage, identity and authentication, client applications,
+Docker support, and production deployment remain deferred. This executable
+host scaffold does not claim production readiness.
 
 ### OpenSpec
 

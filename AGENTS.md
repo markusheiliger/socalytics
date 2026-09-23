@@ -3,9 +3,10 @@
 ## Current State
 
 - Treat this folder as the repository root.
-- This is a planned polyglot monorepo with a governance and documentation foundation plus a non-executable source-area scaffold. See [README.md](README.md) for the current structure and [docs/README.md](docs/README.md) for the documentation index.
-- The only first-level source areas are [platform](src/platform/README.md), [clients](src/clients/README.md), [agents](src/agents/README.md), and [analysts](src/analysts/README.md). Their READMEs define planned ownership boundaries; no nested product structure is implied.
-- The architecture adopts a platform technology baseline, but no application projects, dependency manifests, executable build, test, or lint commands, product implementation, or deployment configuration exist yet. Do not present planned tooling or components as available.
+- This is a planned polyglot monorepo with a governance and documentation foundation plus an initial executable .NET 10 platform-host scaffold. See [README.md](README.md) for the current structure and [docs/README.md](docs/README.md) for the documentation index.
+- The only first-level source areas are [platform](src/platform/README.md), [clients](src/clients/README.md), [agents](src/agents/README.md), and [analysts](src/analysts/README.md). The platform area is executable; the other source-area READMEs define non-executable planned ownership boundaries.
+- `src/platform/SocAlytics.Platform.slnx` contains peer production projects for Api, AppHost, ServiceDefaults, Club, IdentityAccess, Recordings, Registry, Analysis, and AgentOrchestration. Host and architecture test projects are under `src/platform/Tests`.
+- Current executable evidence is limited to the dependency-free API host, `/alive`, `/health`, the built-in `/openapi/v1.json` document, Aspire local composition of the API alone, six public capability DI boundaries with internal markers, and host and architecture tests. No domain behavior, PostgreSQL/Dapper/DbUp, NATS, S3, authentication or authorization, clients, deployment configuration, or production-readiness evidence exists.
 - OpenSpec is the only user-facing change workflow. Use the generated `opsx-*` prompts for exploration, proposal, application, synchronization, verification, and archive.
 - Keep this file current when the repository gains documented build, test, architecture, or contribution conventions.
 
@@ -29,6 +30,18 @@
 ## Repository Setup
 
 - Use `main` as the default branch when initializing Git.
+- Use the .NET 10 SDK selected by `src/platform/global.json` for platform work.
+- From the repository root, the supported platform commands are:
+
+  ```powershell
+  dotnet restore src/platform/SocAlytics.Platform.slnx
+  dotnet build src/platform/SocAlytics.Platform.slnx --no-restore
+  dotnet test src/platform/SocAlytics.Platform.slnx --no-build
+  dotnet run --project src/platform/SocAlytics.Platform.AppHost
+  ```
+
+- Restore before using the documented `--no-restore` build command, and build before using the documented `--no-build` test command. The AppHost is the supported local entry point. Stop it with `Ctrl+C`.
+- There is no supported product lint command yet. Do not infer deployment support or production readiness from successful local restore, build, test, or AppHost execution.
 - Add only files justified by the adopted architecture and an approved change. Generate `.gitignore` from the actual stack and local tooling rather than using a generic catch-all.
 - Preserve `src/platform/`, `src/clients/`, `src/agents/`, and `src/analysts/` as the approved first-level ownership areas. Do not add another immediate child of `src` without an accepted architecture change.
 - Add nested source, test, or documentation directories only with their first meaningful artifacts; do not create empty placeholders or infer planned child paths from the source-area READMEs.

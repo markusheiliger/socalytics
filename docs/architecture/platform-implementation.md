@@ -6,24 +6,47 @@ without changing their domain responsibilities. The source and runtime choices
 in this profile are adopted architecture; production readiness and operational
 values remain **Provisional / Blocking production** as governed by
 [Production Deployment and Operations](production-operations.md). Only the
-first-level source-area READMEs exist: there are no application projects,
-package or deployment manifests, build or test commands, containers, or
-implementation or deployment evidence yet.
+platform host scaffold is executable: it provides the .NET 10 solution, local
+Aspire composition, operational API surface, capability composition boundaries,
+and host and architecture tests described below. It provides no domain behavior,
+external infrastructure integration, security implementation, client runtime,
+deployment configuration, or production-readiness evidence.
 
 ## Source And Runtime Baseline
 
 SocAlytics uses one `src` root with these first-level ownership areas:
 
-- `src/platform` owns the future platform API, control plane, and supporting
-  platform services
+- `src/platform` owns the platform API, control plane, and supporting platform
+  services; its initial executable host scaffold is implemented
 - `src/clients` owns the future Web UI and Electron Coach Client source
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
 - `src/analysts` owns the future Analyst Manager, Analyst SDK, and Analyst
   capability implementations across their required runtimes
 
-Future executable components will use the native workspace and dependency
-tools of each ecosystem:
+The executable platform projects are peers under `src/platform`, except for the
+two test projects grouped under `src/platform/Tests`:
+
+- `SocAlytics.Platform.Api`
+- `SocAlytics.Platform.AppHost`
+- `SocAlytics.Platform.ServiceDefaults`
+- `SocAlytics.Platform.Club`
+- `SocAlytics.Platform.IdentityAccess`
+- `SocAlytics.Platform.Recordings`
+- `SocAlytics.Platform.Registry`
+- `SocAlytics.Platform.Analysis`
+- `SocAlytics.Platform.AgentOrchestration`
+- `Tests/SocAlytics.Platform.Host.Tests`
+- `Tests/SocAlytics.Platform.Architecture.Tests`
+
+`src/platform/SocAlytics.Platform.slnx` is the .NET 10 solution. The six
+capability projects expose one public dependency-injection composition boundary
+each and otherwise keep their initial marker types internal. They do not
+reference one another. The naming and peer-layout refinement does not change
+the capabilities' ownership or runtime boundaries and does not require an ADR.
+
+Executable components use or will use the native workspace and dependency tools
+of each ecosystem:
 
 - .NET solution and projects for C# components
 - `pnpm` workspace for the separately packaged TypeScript client applications
@@ -32,7 +55,9 @@ tools of each ecosystem:
 - `uv`, `pyproject.toml`, and committed lockfiles for Python projects
 - future versioned OpenAPI and JSON Schema documents for cross-language contracts
 
-The platform API and control-plane baseline is ASP.NET Core on .NET 10 LTS.
+The platform API and control-plane baseline is ASP.NET Core on .NET 10 LTS; the
+initial host implements that runtime choice. The remaining ecosystem tooling is
+future until its owning source area gains executable projects.
 Future deployables will use cloud-neutral OCI images. .NET Aspire owns local
 development composition, service discovery, health checks, OpenTelemetry
 defaults, and developer dependencies. Aspire is not the production
@@ -51,8 +76,18 @@ does not make Aspire a production dependency or select a cloud provider.
 
 ## Control Plane
 
-The control plane starts as one ASP.NET Core modular-monolith deployment. Its
-modules include identity and authorization; club, season, team, and match
+The current control-plane evidence is a dependency-free ASP.NET Core host that
+registers all six capability projects through their public composition
+boundaries. It exposes only `/alive`, `/health`, and the built-in `v1` OpenAPI
+document at `/openapi/v1.json`; it has no domain paths. The Aspire AppHost
+composes only the API resource and uses `/health` for readiness. Architecture
+tests enforce capability isolation and the intended public surface. This is
+development-host evidence, not an implemented domain API, infrastructure
+topology, deployment mechanism, security posture, or production ingress
+contract.
+
+The target control plane starts as one ASP.NET Core modular-monolith deployment.
+Its modules include identity and authorization; club, season, team, and match
 management; recordings and uploads; segments; analysis scheduling and durable
 job state; capability and model registration; result ingestion and indexing;
 Analyst Manager registration; and MCP-facing application tools.
@@ -70,12 +105,12 @@ operational evidence justifies extraction.
 
 The planned PostgreSQL ownership map is:
 
-- `SocAlytics.Modules.Club` owns schema `club`;
-- `SocAlytics.Modules.IdentityAccess` owns schema `identity_access`;
-- `SocAlytics.Modules.Recordings` owns schema `recordings`;
-- `SocAlytics.Modules.Registry` owns schema `registry`;
-- `SocAlytics.Modules.Analysis` owns schema `analysis`;
-- `SocAlytics.Modules.AgentOrchestration` owns schema `agent_orchestration`; and
+- `SocAlytics.Platform.Club` owns schema `club`;
+- `SocAlytics.Platform.IdentityAccess` owns schema `identity_access`;
+- `SocAlytics.Platform.Recordings` owns schema `recordings`;
+- `SocAlytics.Platform.Registry` owns schema `registry`;
+- `SocAlytics.Platform.Analysis` owns schema `analysis`;
+- `SocAlytics.Platform.AgentOrchestration` owns schema `agent_orchestration`; and
 - shared migration infrastructure owns `socalytics_migrations.history`, which
   records module sequence and checksum but contains no domain state.
 
@@ -89,7 +124,11 @@ control-plane deployment unless measured scaling later justifies extraction.
 
 ### Persistence And CQRS
 
-Each deployment stamp uses one logical PostgreSQL database. Npgsql and Dapper
+This persistence and messaging baseline remains unimplemented; the current host
+has no PostgreSQL, Npgsql, Dapper, DbUp, NATS JetStream, S3-compatible storage,
+migrations, outbox, or infrastructure integration.
+
+Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Dapper
 provide database access; Entity Framework Core is not part of the baseline.
 DbUp applies ordered, versioned PostgreSQL SQL scripts grouped by owning module.
 
@@ -112,6 +151,12 @@ and backups are governed by
 [Security and Data Governance](security-and-data-governance.md).
 
 ## API And Identity
+
+The current dependency-free API implements only the operational and OpenAPI
+surface described under [Control Plane](#control-plane). It implements no
+accounts, authentication, authorization, BFF session, generated client, or
+domain API behavior. Exposure and access policy for operational endpoints in a
+production ingress remain unresolved.
 
 REST with JSON will be the primary platform protocol. ASP.NET Core will publish
 a versioned OpenAPI description, and Kiota will generate TypeScript, C#, and Python
@@ -218,7 +263,13 @@ than selected as a separate job artifact.
 
 ## Test And Observability Baseline
 
-The default test tools are:
+The executable platform scaffold uses xUnit v3 and Shouldly for the Aspire host
+smoke test and NetArchTest.Rules plus project-reference and reflection assertions
+for architecture tests. ServiceDefaults provides the standard Aspire
+service-discovery, resilience, OpenTelemetry, liveness, and readiness wiring;
+this is local host instrumentation evidence, not production telemetry evidence.
+
+The broader default test tools are:
 
 - xUnit v3, Shouldly, and NSubstitute for .NET
 - Vitest and Testing Library for React and TypeScript
@@ -235,14 +286,17 @@ Telemetry payload minimization and lifecycle follow
 
 ## Planned Acceptance Evidence
 
-The first implementation increments must produce executable evidence for this
-profile:
+The initial platform-host change provides this executable evidence:
 
-- root `dotnet restore`, `dotnet build`, and `dotnet test` pass for the .NET 10
-  solution and its unit, architecture, and PostgreSQL/NATS integration suites;
-- architecture tests enforce module references, API-host write boundaries,
-  cross-schema isolation, internal implementation visibility, and the absence
-  of an internal `club_id` discriminator;
+- `src/platform/SocAlytics.Platform.slnx` restores, builds, and tests on .NET 10;
+- Aspire starts the API as its sole resource and reports `/health` readiness;
+- host tests exercise `/alive`, `/health`, and `/openapi/v1.json` and verify all
+  six capability registrations; and
+- architecture tests enforce capability project-reference isolation, API use of
+  public composition boundaries, and internal implementation visibility.
+
+The following remain validation targets rather than claims of current evidence:
+
 - PostgreSQL integration tests cover ordered checksum-aware migrations, Dapper
   mappings, explicit transactions, optimistic concurrency, idempotency,
   authorization, immutable lineage, registry versions, analysis recovery, and
@@ -256,8 +310,6 @@ profile:
 - telemetry tests cover correlation and operational signals while excluding
   recording, result, and outbox payload bodies.
 
-These criteria are validation targets, not claims of current evidence.
-
 ### Architecture Reassessment
 
 The architecture must be revisited when implementation evidence contradicts a
@@ -270,28 +322,28 @@ choice or reveals a material operational tradeoff:
   identity, client sharing, Analyst Manager UI/runtime, or Analyst
   image/runtime choices.
 - **Consequences and operational tradeoffs understood — partially met.**
-  Module ownership, transaction boundaries, duplicate delivery, restart
-  recovery, and local dependency failure are exercised. Production
-  database-role isolation, backup/restore, lifecycle controls, service
-  objectives, capacity, and complete workflow failure behavior remain
-  unevidenced.
+  Capability project isolation, host composition, and dependency-free startup
+  are exercised. Transaction boundaries, duplicate delivery, restart recovery,
+  local infrastructure failure, production database-role isolation,
+  backup/restore, lifecycle controls, service objectives, capacity, and complete
+  workflow failure behavior remain unevidenced.
 - **Prototype, measurement, or implementation evidence supports the choice —
-  not yet met.** Future implementation and tests must support its persistence
-  and publication boundaries. The evidence listed below for secure
-  BFF identity, both client shells, cross-runtime schema agreement,
-  reproducible Analyst images, and the Avalonia/OCI platform matrix is still
-  missing.
+  partially met.** The .NET 10 host, Aspire-only local composition, operational
+  API surface, capability registration boundaries, and structural tests are
+  implemented. Persistence, publication, secure BFF identity, both client
+  shells, cross-runtime schema agreement, reproducible Analyst images, and the
+  Avalonia/OCI platform matrix remain unsupported by implementation evidence.
 - **Mature enough to govern subsequent implementation — not met for
   promotion.** The foundation can guide further reversible implementation, but
   the incomplete identity, client, Scheduler, Analyst runtime, production
   operations, and security/lifecycle evidence prevents the production profile
   from becoming production-ready or implementation-proven.
 
-Before treating these choices as implementation-proven, evidence must
-demonstrate:
+The host scaffold has demonstrated that Aspire starts the local API with health
+and telemetry defaults and that architecture tests enforce the initial
+capability dependency and visibility boundaries. Before treating the remaining
+choices as implementation-proven, evidence must demonstrate:
 
-- Aspire starts the local application topology with health and telemetry
-- architecture tests enforce module dependency and data-ownership boundaries
 - PostgreSQL integration tests cover Dapper mappings, migrations, optimistic
   concurrency, outbox recovery, and duplicate delivery
 - local and optional OIDC login share a secure BFF session, including CSRF,

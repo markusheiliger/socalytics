@@ -1,0 +1,9 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.4.6">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" />
+  </ItemGroup>
+</Project>
