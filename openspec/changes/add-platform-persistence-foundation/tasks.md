@@ -1,0 +1,35 @@
+# Platform Persistence Foundation Tasks
+
+## 1. Architecture Decision And Project Setup
+
+- [ ] 1.1 **Owner: soca-architect.** Resolve the shared persistence boundary and PostgreSQL owner/runtime-role ADR candidate: add and link an ADR if it meets the repository threshold, otherwise record the rationale in the synchronized architecture narrative; verify Markdown diagnostics and relative links for the delivered architecture artifact.
+- [ ] 1.2 **Owner: soca-developer.** Add centrally managed versions for Aspire PostgreSQL hosting/client integration, Npgsql, Dapper, DbUp PostgreSQL support, and PostgreSQL Testcontainers; add `SocAlytics.Platform.Persistence` and `Tests/SocAlytics.Platform.Persistence.Tests` to `SocAlytics.Platform.slnx`; verify `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore` succeed before adding behavior.
+
+## 2. Shared Persistence Infrastructure
+
+- [ ] 2.1 **Owner: soca-developer.** Implement the module-neutral persistence registration, adopted module identities, migration descriptors, embedded-resource checksum calculation, and restricted bootstrap/runtime connection boundaries in `SocAlytics.Platform.Persistence`; verify focused unit or architecture tests prove module keys are fixed, duplicate identities/sequences are rejected, and the bootstrap connection is not available to module services.
+- [ ] 2.2 **Owner: soca-developer.** Implement `socalytics_migrations.history` and DbUp orchestration with full checksum preflight, deterministic module/sequence ordering, same-transaction history writes, repeat-run skipping, and sanitized failures; verify focused PostgreSQL tests cover clean ordered migration, unchanged repeat startup, checksum conflict before later work, and failed-script rollback while retaining earlier committed scripts.
+- [ ] 2.3 **Owner: soca-developer.** Implement local/test owner and runtime role bootstrap plus module-scoped Npgsql sessions with peer-schema privileges revoked; verify PostgreSQL tests prove each role owns or accesses only its module schema, cross-schema reads and writes fail, and no failed access commits a change.
+- [ ] 2.4 **Owner: soca-developer.** Implement explicit transaction execution and the narrow affected-row optimistic-concurrency primitive without ambient transactions, generic repositories, or domain models; verify PostgreSQL tests cover atomic commit, exception and cancellation rollback, reusable clean connections, matching-version updates, and stale-version conflicts with no partial commit.
+
+## 3. Module Ownership And Architecture Enforcement
+
+- [ ] 3.1 **Owner: soca-developer.** Add an internal embedded initial migration contributor to each of Club, Identity Access, Recordings, Registry, Analysis, and Agent Orchestration that creates only its adopted schema and grants, and register it through the existing public composition method; verify the persistence integration tests create all six schemas plus `socalytics_migrations` without adding domain tables.
+- [ ] 3.2 **Owner: soca-developer.** Extend `SocAlytics.Platform.Architecture.Tests` to enforce capability reference isolation, composition-only module exports, API access limits, one-owner SQL/migration resources, prohibited cross-schema SQL, restricted shared-persistence public surface, and no `club_id` in product persistence types or resources; verify `dotnet test src/platform/Tests/SocAlytics.Platform.Architecture.Tests/SocAlytics.Platform.Architecture.Tests.csproj` passes.
+- [ ] 3.3 **Owner: soca-developer.** Complete catalog-level PostgreSQL tests for exact schema ownership, migration-history fields, runtime privilege denial, and absence of `club_id` from schemas, tables, views, columns, and function arguments; verify `dotnet test src/platform/Tests/SocAlytics.Platform.Persistence.Tests/SocAlytics.Platform.Persistence.Tests.csproj` passes against disposable containers and never falls back to an external database.
+
+## 4. API And Aspire Composition
+
+- [ ] 4.1 **Owner: soca-developer.** Register shared persistence and all internal module contributors in the API, run orchestration during startup, and gate readiness on successful migrations while preserving sanitized diagnostics and the existing liveness/OpenAPI surface; verify focused API or host tests prove readiness remains unavailable on migration failure and no domain route is introduced.
+- [ ] 4.2 **Owner: soca-developer.** Add one Aspire PostgreSQL server/database resource, reference it from the API, and wait for database availability; update host tests for PostgreSQL health, successful migrations, repeat host startup, all six module registrations, `/alive`, `/health`, and `/openapi/v1.json`; verify `dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests/SocAlytics.Platform.Host.Tests.csproj` passes with a supported container runtime.
+
+## 5. Architecture And Development Documentation
+
+- [ ] 5.1 **Owner: soca-architect.** Synchronize `docs/architecture/platform-implementation.md` and `docs/architecture/tenancy-and-technology.md` with the implemented shared boundary, role-based schema isolation, migration/readiness behavior, executable evidence, and still-deferred production values; link the ADR disposition from task 1.1 and verify Markdown diagnostics and relative links.
+- [ ] 5.2 **Owner: soca-developer.** Update `README.md`, `src/platform/README.md`, and `AGENTS.md` with the container-runtime prerequisite, supported restore/build/test/AppHost commands, PostgreSQL integration evidence, and truthful exclusions; run the documented commands from the repository root and verify they match actual behavior.
+
+## 6. Independent Validation And Governance Review
+
+- [ ] 6.1 **Owner: soca-verifier.** Independently trace every `platform-persistence` and modified `platform-host` scenario to architecture, host, or PostgreSQL evidence; run restore, `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore`, and `dotnet test src/platform/SocAlytics.Platform.slnx --no-build`; report any missing, flaky, or unproven scenario without authoring fixes.
+- [ ] 6.2 **Owner: soca-auditor.** Audit bootstrap privilege containment, module role grants, cross-schema denial, connection-string and diagnostic redaction, disposable-test isolation, and the absence of invented production security/governance values; record findings and blocking status without silently remediating them.
+- [ ] 6.3 **Owner: soca-verifier.** Validate final planning and synchronization coherence with `openspec doctor --json`, `openspec schema validate spec-driven --json`, `openspec validate --all --json`, and `openspec status --all --json`; confirm accepted specs, current architecture narratives, ADR disposition, implementation, and test evidence agree before recommending archive.
