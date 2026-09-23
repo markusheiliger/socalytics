@@ -1,22 +1,35 @@
 # socAlytics
 
-socAlytics is a planned polyglot monorepo. The repository currently contains its governance and documentation foundation; technology-specific components will be added when their requirements are defined.
+socAlytics is a planned polyglot monorepo. The repository currently contains
+its governance and documentation foundation plus a non-executable source-area
+scaffold; product components will be added through approved changes.
 
 ## Repository Structure
 
+- [`src/platform/`](src/platform/README.md) records the planned control-plane
+    platform ownership boundary.
+- [`src/clients/`](src/clients/README.md) records the planned Web UI and Electron
+    Coach Client ownership boundary.
+- [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
+    runtime and tooling ownership boundary.
+- [`src/analysts/`](src/analysts/README.md) records the planned Analyst Manager,
+    Analyst SDK, and Analyst capability ownership boundary.
 - [`docs/`](docs/README.md) indexes architecture, component, and operational documentation.
 - [`openspec/`](openspec/) contains accepted behavioral specifications, active changes, and archived change history.
 - [`AGENTS.md`](AGENTS.md) defines repository guidance for coding agents.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
 
-Code, test, infrastructure, and automation directories will be introduced with their first meaningful artifacts rather than as empty placeholders.
+Each source area currently contains only its ownership README. There are no
+application projects, dependency manifests, product implementations, tests,
+deployment manifests, or product automation yet.
 
 ## Development
 
-No application stack, dependency manager, build, lint, or test command has been
-selected yet. Add and document those commands here when the first component is
-introduced.
+The platform technology baseline is adopted in the architecture, but no
+application project or dependency manifest exists and no executable product
+build, lint, or test command is available. Add and document those commands here
+when the first executable component is introduced.
 
 ### OpenSpec
 
@@ -44,13 +57,13 @@ Start work through the generated GitHub Copilot prompts:
 - `/opsx-verify` independently checks the completed change and evidence.
 - `/opsx-archive` archives a verified change and updates accepted specs.
 
-Useful repository checks are:
+Useful OpenSpec repository checks are:
 
 ```powershell
 openspec doctor --json
 openspec schema validate spec-driven --json
 openspec validate --all --json
-openspec status --json
+openspec status --all --json
 ```
 
 Architecture narratives remain authoritative for current system design;

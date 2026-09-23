@@ -1,15 +1,29 @@
-# Platform Implementation Profile (Provisional)
+# Platform Implementation Profile
 
-This document defines the provisional implementation baseline for SocAlytics.
+This document defines the implementation baseline for SocAlytics.
 It refines the logical components in the [architecture overview](overview.md)
-without changing their domain responsibilities. The choices remain
-**Provisional** unless their owning architecture topic marks them Accepted.
-No application projects or executable implementation exist yet.
+without changing their domain responsibilities. The source and runtime choices
+in this profile are adopted architecture; production readiness and operational
+values remain **Provisional / Blocking production** as governed by
+[Production Deployment and Operations](production-operations.md). Only the
+first-level source-area READMEs exist: there are no application projects,
+package or deployment manifests, build or test commands, containers, or
+implementation or deployment evidence yet.
 
 ## Source And Runtime Baseline
 
-SocAlytics will use one monorepo with the native workspace and dependency tools
-of each ecosystem:
+SocAlytics uses one `src` root with these first-level ownership areas:
+
+- `src/platform` owns the future platform API, control plane, and supporting
+  platform services
+- `src/clients` owns the future Web UI and Electron Coach Client source
+- `src/agents` owns future intelligence-agent runtimes and agent-specific
+  integration code
+- `src/analysts` owns the future Analyst Manager, Analyst SDK, and Analyst
+  capability implementations across their required runtimes
+
+Future executable components will use the native workspace and dependency
+tools of each ecosystem:
 
 - .NET solution and projects for C# components
 - `pnpm` workspace for the separately packaged TypeScript client applications
@@ -18,17 +32,20 @@ of each ecosystem:
 - `uv`, `pyproject.toml`, and committed lockfiles for Python projects
 - future versioned OpenAPI and JSON Schema documents for cross-language contracts
 
-C# components will target .NET 10 LTS. Production deployables will be
-cloud-neutral OCI images. .NET Aspire will provide local development
-composition, service discovery,
-health checks, OpenTelemetry defaults, and developer dependencies. Aspire is
-not the production orchestrator.
+The platform API and control-plane baseline is ASP.NET Core on .NET 10 LTS.
+Future deployables will use cloud-neutral OCI images. .NET Aspire owns local
+development composition, service discovery, health checks, OpenTelemetry
+defaults, and developer dependencies. Aspire is not the production
+orchestrator.
 
-The initial production orchestrator is Provisional Docker Compose with
-Compose-managed PostgreSQL, NATS JetStream, and S3-compatible storage on
-durable stamp-dedicated logical resources. Topology, configuration, secrets,
-persistence, recovery, objectives, telemetry, capacity, and promotion evidence
-are governed by
+Docker Compose is the initial deployment mechanism. It will compose the
+platform API and Web UI as separate OCI containers: the API container will be
+built from the platform source area, while the Web UI container will be built
+from the client source area and release-coupled to the platform API. Future
+Compose deployments will also include PostgreSQL, NATS JetStream, and
+S3-compatible storage on durable stamp-dedicated logical resources. Production
+topology, configuration, secrets, persistence, recovery, objectives, telemetry,
+capacity, and promotion evidence remain unresolved and are governed by
 [Production Deployment and Operations](production-operations.md); this profile
 does not make Aspire a production dependency or select a cloud provider.
 
@@ -163,12 +180,15 @@ with Vite. React Router handles navigation, TanStack Query manages remote server
 state, and MUI supplies accessible components under a SocAlytics theme.
 
 The Web UI and Electron Coach Client keep separate application shells,
-packages, builds, and release lifecycles. A `pnpm` workspace allows generated
-API clients, domain-neutral validation, design tokens, and selected MUI
-components to be shared while workflow-specific screens and security-sensitive
-shell integrations remain application-owned. Shared packages cannot import
-Electron, Node built-ins, preload/main modules, local-store adapters, shell
-routing, or privileged IPC implementations. See
+packages, and builds. The Web UI release is coordinated with the platform API
+and remains a separately containerized deployment unit built from
+`src/clients`; the Coach Client retains an independent release lifecycle. A
+future `pnpm` workspace may allow generated API clients, domain-neutral
+validation, design tokens, and selected MUI components to be shared while
+workflow-specific screens and security-sensitive shell integrations remain
+application-owned. Shared packages cannot import Electron, Node built-ins,
+preload/main modules, local-store adapters, shell routing, or privileged IPC
+implementations. See
 [Client Applications](client-applications.md).
 
 Future offline Coach Client implementation follows the decisions in
@@ -264,8 +284,8 @@ choice or reveals a material operational tradeoff:
 - **Mature enough to govern subsequent implementation — not met for
   promotion.** The foundation can guide further reversible implementation, but
   the incomplete identity, client, Scheduler, Analyst runtime, production
-  operations, and security/lifecycle evidence prevents the technology bundle
-  from becoming an Accepted contract.
+  operations, and security/lifecycle evidence prevents the production profile
+  from becoming production-ready or implementation-proven.
 
 Before treating these choices as implementation-proven, evidence must
 demonstrate:

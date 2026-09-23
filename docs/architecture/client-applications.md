@@ -3,6 +3,27 @@
 SocAlytics has two client applications with deliberately different scopes. The
 clients follow the shared [API-first principle](terminology-and-principles.md#1-api-first).
 
+## Source Ownership And Delivery
+
+The future React and TypeScript sources for both client applications are owned
+under `src/clients`. This shared source area supports a future `pnpm` workspace
+without making runtime composition a source-ownership boundary. Only the
+first-level source-area README exists today; there are no client projects,
+packages, manifests, containers, or builds yet.
+
+The Web UI release is coordinated with the platform API and will be built and
+deployed as a separate OCI container from `src/clients`. Future Docker Compose
+deployment and Aspire local composition may compose that container with the
+platform API without moving Web UI source under `src/platform`. The Electron
+Coach Client retains an independent build and release lifecycle.
+
+Only environment-neutral generated API clients, validation, design assets and
+tokens, selected MUI components, and agent-access transport or domain-neutral
+logic may be shared. Browser authentication, Electron and Node dependencies,
+preload, main-process and IPC code, offline storage, shell routing,
+workflow-specific UI, and privileged integrations remain owned by the
+application that uses them.
+
 ## Web UI
 
 The React web UI supports connected platform and club workflows, including:
@@ -25,17 +46,12 @@ protection for state-changing requests.
 
 ## Coach Client
 
-The coach client is a cross-platform desktop application built with Electron
-and React. It is scoped to the signed-in user and only exposes teams and matches
-that user may access. It does not provide club administration or match
-recording uploads.
-
-The clients keep separate application shells, packages, and release lifecycles
-in a shared `pnpm` workspace. Generated API clients, domain-neutral validation,
-design tokens, and selected MUI components may be shared, while workflow-
-specific UI and privileged Electron integration remain application-owned.
-The [client decision evidence](client-decision-evidence.md) records the review
-that established this boundary.
+The coach client is planned as a cross-platform desktop application built with
+Electron and React. It is scoped to the signed-in user and only exposes teams
+and matches that user may access. It does not provide club administration or
+match recording uploads. The
+[client decision evidence](client-decision-evidence.md) records the review that
+established its application and sharing boundaries.
 
 The first delivery may require continuous API access. The architecture must
 nevertheless preserve offline operation as the target state for unreliable
@@ -90,8 +106,9 @@ The accepted delivery and workspace design establishes:
 
 - an online-only first Coach Client release using application-owned repository
   interfaces and explicit connectivity state
-- separate Web UI and Coach Client shells and releases, with only selected
-  environment-neutral packages shared
+- Web UI release coordination with the platform API and separate
+  containerization, while the Coach Client retains an independent release
+  lifecycle and only selected environment-neutral packages are shared
 - Windows 11 x64 as the initial Coach Client platform, with signed packaging,
   controlled updates, forward-fix by default, explicit uninstall/local-data
   behavior, and evidence required before adding another platform
