@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install OpenSpec CLI
         run: npm install -g @fission-ai/openspec@1.13.0
