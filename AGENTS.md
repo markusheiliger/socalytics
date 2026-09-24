@@ -27,14 +27,6 @@
 - Every task must declare exactly one `Owner: soca-*`. Split tasks when ownership or artifact category differs, and stop when ownership is missing, invalid, or conflicting.
 - `soca-verifier` verifies independently and does not author implementation work. `soca-auditor` reports independent findings and does not silently remediate them.
 
-## OpenSpec Changeset Orchestration
-
-- Changeset orchestration is repository tooling and may be maintained directly without creating an OpenSpec change for the tooling itself. Product changes scheduled by it remain governed by the complete OpenSpec lifecycle.
-- One GitHub issue owns each changeset's immutable dependency graph. The controller starts each runnable OpenSpec change from fresh `main`, reconciles native Agent Task session state, never waits for a cloud agent, and enables GitHub auto-merge only for the final pull request that declares the complete lifecycle marker.
-- Each dispatched change must apply, verify, synchronize, and archive through the existing generated OpenSpec skills, including independent verifier and conditional auditor review required by `openspec/config.yaml`, before opening its single pull request.
-- A task needing human correction commits and pushes coherent work, asks through its native session, and opens no pull request. The same task continues after the user responds; only explicit controller `recover` may replace a terminal task on its validated preserved branch. A change is complete only after its final pull request is merged and its archive exists on `main`; closed pull requests do not release dependents.
-- Changeset workflows are repository-tooling automation, not product CI. Do not customize OpenSpec-managed `opsx-*` prompts or `openspec-*` skill bodies to implement orchestration.
-
 ## Repository Setup
 
 - Use `main` as the default branch when initializing Git.
