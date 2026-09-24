@@ -22,6 +22,7 @@
 
 - `openspec/config.yaml` contains project context, artifact rules, and advisory apply/archive routing policy. Do not duplicate that policy in generated prompt bodies.
 - `.github/agents/openspec.agent.md` is OpenSpec-managed cloud-agent guidance. It is distinct from the SocAlytics specialists.
+- `.github/agents/openspec-cloud.agent.md` is the repository-owned GitHub cloud orchestrator. It executes one controller-selected OpenSpec operation, follows the matching generated skill, and delegates apply tasks to their hidden declared owners through the `agent` tool.
 - All `soca-*` agents are dispatch-only (`user-invocable: false`). OpenSpec dispatches the one owner declared by each task; specialists return results and never dispatch one another.
 - Supported owners are `soca-strategist`, `soca-designer`, `soca-architect`, `soca-developer`, `soca-verifier`, and `soca-auditor`.
 - Every task must declare exactly one `Owner: soca-*`. Split tasks when ownership or artifact category differs, and stop when ownership is missing, invalid, or conflicting.
@@ -47,6 +48,18 @@
 - Add nested source, test, or documentation directories only with their first meaningful artifacts; do not create empty placeholders or infer planned child paths from the source-area READMEs.
 - Add product CI workflows only after executable build, lint, or test commands exist. The OpenSpec Copilot setup workflow is repository-tooling setup, not product CI.
 - Never commit, push, configure remotes, or publish without an explicit request.
+
+## OpenSpec Change Queue
+
+- Issue twins are non-authoritative projections of active changes on `main`. The canonical change ref is stable identity; active and dated archive paths are mutable projections.
+- `openspec:enqueued` records queue intent. Native GitHub issue dependencies are the only blocked-state authority.
+- The controller uses the Agent Tasks API rather than native Copilot issue assignment because assignment immediately starts an uncontrolled duplicate session.
+- The queue runs apply, verify, sync, and archive on one durable draft pull request. One Agent Task may run per change at a time.
+- Reconciliation validates branch-visible evidence and append-only operation ledger entries. It does not treat Agent Task completion alone as success.
+- Cross-change inference runs in the read-only `openspec-change-dependencies.md` Agentic Workflow. Only its typed custom safe-output job may invoke the privileged dependency reconciler; edit the source and regenerate the lock file with `gh aw compile`.
+- Failed or timed-out work receives one retry. Cancellation and `waiting_for_user` always stop for human attention.
+- Automation stops after validated archive. A human approves workflows, marks the pull request ready, reviews it, and enables auto-merge.
+- Run `node --test .github/scripts/*.test.mjs` for the queue tooling tests.
 
 ## Changes and Validation
 

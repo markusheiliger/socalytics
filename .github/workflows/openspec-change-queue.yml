@@ -1,0 +1,46 @@
+name: OpenSpec change queue
+
+on:
+  issues:
+    types: [labeled, unlabeled, closed, reopened]
+  push:
+    branches: [main]
+    paths:
+      - "openspec/changes/**"
+  pull_request_target:
+    types: [opened, synchronize, ready_for_review, closed]
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: openspec-change-queue
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Install OpenSpec CLI
+        run: npm install --global @fission-ai/openspec@1.13.0
+
+      - name: Reconcile enqueued changes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+        run: node .github/scripts/openspec-change-reconcile.mjs

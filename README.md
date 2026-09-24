@@ -83,6 +83,23 @@ openspec validate --all --json
 openspec status --all --json
 ```
 
+The repository-owned OpenSpec change queue has focused contract tests:
+
+```powershell
+node --test .github/scripts/*.test.mjs
+gh aw validate openspec-change-dependencies.md
+gh aw lint .github/workflows/openspec-change-dependencies.lock.yml
+```
+
+The `gh aw` commands require the official `github/gh-aw` GitHub CLI extension.
+The dependency workflow source and generated lock workflow are both committed;
+edit the Markdown source and run `gh aw compile
+openspec-change-dependencies.md` rather than editing the lock file.
+
+See the [OpenSpec change queue operations guide](docs/operations/openspec-change-queue.md)
+for its issue projection, dependency, cloud-agent, recovery, and human review
+contracts. This automation is repository tooling rather than product CI.
+
 Architecture narratives remain authoritative for current system design;
 `openspec/specs/` is authoritative for accepted behavioral requirements.
 
