@@ -168,7 +168,13 @@ export class GitHubClient {
 }
 
 export function taskBranchArtifact(task) {
-  const artifact = task?.artifacts?.find((candidate) => candidate?.provider === 'github' && candidate?.type === 'branch');
+  const source = Array.isArray(task) ? task[0] : task;
+  const sessions = Array.isArray(source?.sessions) ? source.sessions : [];
+  const artifacts = [
+    ...(Array.isArray(source?.artifacts) ? source.artifacts : []),
+    ...sessions.flatMap((session) => Array.isArray(session?.artifacts) ? session.artifacts : []),
+  ];
+  const artifact = artifacts.find((candidate) => candidate?.provider === 'github' && candidate?.type === 'branch');
   if (!artifact?.data?.head_ref || !artifact?.data?.base_ref) {
     return null;
   }
@@ -187,9 +193,20 @@ export function repositoryParts(repository) {
 }
 
 export function normalizeAgentTask(task) {
+  const source = Array.isArray(task) ? task[0] : task;
+  const sessions = Array.isArray(source?.sessions) ? source.sessions : [];
+  const latestSession = sessions.at(-1);
+  const taskState = source?.state ?? source?.status ?? source?.task?.state ?? null;
+  const sessionState = latestSession?.state ?? latestSession?.status ?? null;
+  const effectiveState = ['completed', 'failed', 'timed_out', 'cancelled', 'idle'].includes(taskState)
+    ? taskState
+    : sessionState ?? taskState;
   return {
-    id: task?.id ?? task?.task_id ?? task?.task?.id ?? null,
-    state: task?.state ?? task?.status ?? task?.task?.state ?? null,
-    branch: taskBranchArtifact(task),
+    id: source?.id ?? source?.task_id ?? source?.task?.id ?? null,
+    state: effectiveState,
+    taskState,
+    sessionId: latestSession?.id ?? latestSession?.session_id ?? null,
+    sessionState,
+    branch: taskBranchArtifact(source),
   };
 }

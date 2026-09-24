@@ -74,7 +74,6 @@ The user may provide change refs or neither. Generate the changeset name from th
    Idempotently ensure these labels exist:
 
    - `openspec:changeset`
-   - `openspec:change-blocker`
    - `changeset:ready`
    - `changeset:running`
    - `changeset:attention`
@@ -99,5 +98,6 @@ The user may provide change refs or neither. Generate the changeset name from th
 - Never put mutable processing state inside the authoritative JSON block.
 - Never place one active change in multiple open changesets without explicit resolution.
 - Never close the issue or dispatch an agent directly; the controller owns both actions.
-- A blocked cloud task preserves its pushed branch and creates or updates one marked child issue; it never opens a partial pull request.
+- A cloud task that needs human correction preserves its pushed branch and asks through its native session; it never opens a partial pull request.
+- Only the controller's explicit `recover` operation may replace a terminal task on its preserved branch.
 - Product changes continue to follow the full OpenSpec lifecycle.

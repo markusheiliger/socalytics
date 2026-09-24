@@ -1,13 +1,15 @@
 # OpenSpec Change Blocker Issue Contract
 
-A blocker issue is a child of one changeset issue and represents human correction required before one OpenSpec change can continue on its existing branch. It is not mutable workflow state and uses only the classification label `openspec:change-blocker`.
+> Deprecated compatibility contract for tasks dispatched before native Agent Task attention was adopted. New tasks must ask the user through their native session and must not create blocker issues.
+
+A legacy blocker issue is a child of one changeset issue and records human correction required before one OpenSpec change can continue on its existing branch. It is not mutable workflow state and uses only the classification label `openspec:change-blocker`.
 
 ## Identity
 
 - Title: `OpenSpec blocker: <change-ref>`
 - Required label: `openspec:change-blocker`
 - Parent: the owning changeset issue
-- State: open until the resumed task creates its completed final pull request
+- State: open until a recovered task creates its completed final pull request
 - Assignee: the changeset creator when assignable; otherwise mention that user in the issue body
 
 ## Authoritative Marker
@@ -39,6 +41,6 @@ After the marker, include:
 - the exact artifact correction required;
 - an exact prompt to run with `openspec-update-change` on `headRef`;
 - commands that validate the correction;
-- the recovery command `/soca-changeset-fixed <parentIssue>`.
+- the parent changeset issue and change ref needed for the processing workflow's manual `recover` operation.
 
 Never include secrets or mutable status labels. Update the existing open child blocker for the same change instead of creating duplicates. Human correction commits must be pushed to `headRef`; they do not replace or rewrite the recorded checkpoint.

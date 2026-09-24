@@ -120,12 +120,10 @@ controller. The controller then uses these mutually exclusive state labels:
 Dependencies are released only when the prerequisite pull request is merged and
 its dated archive exists on `main`. A closed pull request does not release
 dependents. When human correction is required, the agent commits and pushes its
-coherent work, creates a marked child blocker issue, and leaves the branch without
-a pull request. After corrections are pushed to that branch, invoke
-`/soca-changeset-fixed <changeset-issue>` to validate the checkpoint and resume
-processing on the same branch. The blocker closes when the completed final pull
-request appears. Cloud-agent sessions are limited to approximately 59 minutes,
-so oversized changes should be split before adding them to a changeset.
+coherent work, asks through the native Agent Task session, and leaves the branch
+without a pull request. Reply in that session; the same task continues on the
+same branch. Cloud-agent sessions are limited to approximately 59 minutes, so
+oversized changes should be split before adding them to a changeset.
 
 Run the dependency-free tooling locally with Node.js 24 or later:
 
@@ -137,10 +135,12 @@ node .github/scripts/openspec-changeset-controller.mjs dry-run --issue <issue-nu
 ```
 
 The controller dry run needs `GITHUB_REPOSITORY` and `GITHUB_TOKEN` in the local
-environment but does not mutate GitHub. For failed or expired technical dispatches,
-run the **OpenSpec Changeset Processing** workflow manually with the affected issue
-and `retry`. Use `soca-changeset-fixed` for a human-fixed blocker; it dispatches
-`resume` with the parent changeset issue and selected child blocker.
+environment but does not mutate GitHub. For a technical dispatch failure before a
+usable task branch exists, run the **OpenSpec Changeset Processing** workflow
+manually with the affected issue and `retry`. If a task is terminal and cannot
+continue through its native session, run the workflow with `recover`, the parent
+changeset issue, and the affected change ref. Recovery validates the recorded
+checkpoint and starts a replacement session on the same branch.
 Use `accept-graph` only after intentionally reviewing a changed authoritative
 JSON graph. Scheduled reconciliation runs twice per hour as a fallback.
 

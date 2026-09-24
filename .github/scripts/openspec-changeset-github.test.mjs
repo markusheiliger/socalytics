@@ -33,7 +33,7 @@ test('starts branch-only agent tasks by default', async () => {
   });
 });
 
-test('resumes agent tasks on an existing branch', async () => {
+test('starts agent tasks on an existing branch', async () => {
   let request;
   const client = new GitHubClient({
     repository: 'owner/repository',
@@ -46,14 +46,14 @@ test('resumes agent tasks on an existing branch', async () => {
   });
 
   await client.createAgentTask({
-    prompt: 'Resume the change',
+    prompt: 'Recover the change',
     baseRef: 'main',
     headRef: 'copilot/add-first',
     createPullRequest: true,
   });
 
   assert.deepEqual(JSON.parse(request.options.body), {
-    prompt: 'Resume the change',
+    prompt: 'Recover the change',
     base_ref: 'main',
     head_ref: 'copilot/add-first',
     create_pull_request: true,
@@ -92,17 +92,79 @@ test('extracts GitHub branch artifacts from agent tasks', () => {
 
 test('normalizes nested agent task identity and state', () => {
   assert.deepEqual(normalizeAgentTask({
-    task: { id: 'task-1', state: 'waiting_for_user' },
-    artifacts: [{
-      provider: 'github',
-      type: 'branch',
-      data: { head_ref: 'copilot/add-first', base_ref: 'main' },
+    task: { id: 'task-1', state: 'in_progress' },
+    sessions: [{
+      id: 'session-1',
+      state: 'waiting_for_user',
+      artifacts: [{
+        provider: 'github',
+        type: 'branch',
+        data: { head_ref: 'copilot/add-first', base_ref: 'main' },
+      }],
     }],
   }), {
     id: 'task-1',
     state: 'waiting_for_user',
+    taskState: 'in_progress',
+    sessionId: 'session-1',
+    sessionState: 'waiting_for_user',
     branch: { headRef: 'copilot/add-first', baseRef: 'main' },
   });
+});
+
+test('uses the latest agent session as the effective state', () => {
+  assert.deepEqual(normalizeAgentTask({
+    id: 'task-1',
+    state: 'in_progress',
+    sessions: [
+      { id: 'session-1', state: 'waiting_for_user' },
+      { id: 'session-2', state: 'completed' },
+    ],
+  }), {
+    id: 'task-1',
+    state: 'completed',
+    taskState: 'in_progress',
+    sessionId: 'session-2',
+    sessionState: 'completed',
+    branch: null,
+  });
+});
+
+test('preserves a terminal top-level task state over a stale session', () => {
+  assert.deepEqual(normalizeAgentTask({
+    id: 'task-1',
+    state: 'failed',
+    sessions: [{ id: 'session-1', state: 'in_progress' }],
+  }), {
+    id: 'task-1',
+    state: 'failed',
+    taskState: 'failed',
+    sessionId: 'session-1',
+    sessionState: 'in_progress',
+    branch: null,
+  });
+});
+
+test('preserves top-level idle over a stale active session', () => {
+  const normalized = normalizeAgentTask({
+    id: 'task-1',
+    state: 'idle',
+    sessions: [{ id: 'session-1', state: 'in_progress' }],
+  });
+
+  assert.equal(normalized.state, 'idle');
+});
+
+test('normalizes the one-element task envelope returned by the API', () => {
+  const normalized = normalizeAgentTask([{
+    id: 'task-1',
+    state: 'in_progress',
+    sessions: [{ id: 'session-1', state: 'waiting_for_user' }],
+  }]);
+
+  assert.equal(normalized.id, 'task-1');
+  assert.equal(normalized.state, 'waiting_for_user');
+  assert.equal(normalized.sessionId, 'session-1');
 });
 
 test('lists child blocker issues', async () => {

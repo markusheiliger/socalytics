@@ -13,8 +13,8 @@ on:
         description: Changeset issue number; blank processes all active changesets
         required: false
         type: string
-      blocker:
-        description: Child blocker issue number; used only with resume
+      change:
+        description: OpenSpec change ref; required only with recover
         required: false
         type: string
       command:
@@ -25,7 +25,7 @@ on:
         options:
           - reconcile
           - retry
-          - resume
+          - recover
           - accept-graph
           - dry-run
 
@@ -42,7 +42,7 @@ jobs:
     outputs:
       issues: ${{ steps.discover.outputs.issues }}
       command: ${{ steps.discover.outputs.command }}
-      blocker: ${{ steps.discover.outputs.blocker }}
+      change: ${{ steps.discover.outputs.change }}
     steps:
       - name: Check out trusted controller
         uses: actions/checkout@v5
@@ -60,21 +60,25 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           REQUESTED_ISSUE: ${{ inputs.issue }}
-          REQUESTED_BLOCKER: ${{ inputs.blocker }}
+          REQUESTED_CHANGE: ${{ inputs.change }}
           REQUESTED_COMMAND: ${{ inputs.command }}
           GITHUB_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           command="${REQUESTED_COMMAND:-reconcile}"
-          blocker="${REQUESTED_BLOCKER:-}"
-          if [[ "$command" == "resume" && -z "${REQUESTED_ISSUE:-}" ]]; then
-            echo "Resume requires one parent changeset issue" >&2
+          change="${REQUESTED_CHANGE:-}"
+          if [[ "$command" == "recover" && -z "${REQUESTED_ISSUE:-}" ]]; then
+            echo "Recover requires one parent changeset issue" >&2
             exit 1
           fi
-          if [[ -n "$blocker" ]]; then
-            [[ "$command" == "resume" ]] || { echo "Blocker may be supplied only with resume" >&2; exit 1; }
-            [[ "$blocker" =~ ^[1-9][0-9]*$ ]] || { echo "Blocker must be a positive integer" >&2; exit 1; }
+          if [[ "$command" == "recover" && -z "$change" ]]; then
+            echo "Recover requires one OpenSpec change ref" >&2
+            exit 1
+          fi
+          if [[ -n "$change" ]]; then
+            [[ "$command" == "recover" ]] || { echo "Change may be supplied only with recover" >&2; exit 1; }
+            [[ "$change" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || { echo "Change must be a kebab-case OpenSpec ref" >&2; exit 1; }
           fi
           case "$EVENT_NAME" in
             issues)
@@ -120,7 +124,7 @@ jobs:
           esac
           echo "issues=$issues" >> "$GITHUB_OUTPUT"
           echo "command=$command" >> "$GITHUB_OUTPUT"
-          echo "blocker=$blocker" >> "$GITHUB_OUTPUT"
+          echo "change=$change" >> "$GITHUB_OUTPUT"
 
   reconcile:
     needs: discover
@@ -159,7 +163,7 @@ jobs:
         run: |
           set -euo pipefail
           args=("${{ needs.discover.outputs.command }}" --issue "${{ matrix.issue }}")
-          if [[ -n "${{ needs.discover.outputs.blocker }}" ]]; then
-            args+=(--blocker "${{ needs.discover.outputs.blocker }}")
+          if [[ -n "${{ needs.discover.outputs.change }}" ]]; then
+            args+=(--change "${{ needs.discover.outputs.change }}")
           fi
           node .github/scripts/openspec-changeset-controller.mjs "${args[@]}"

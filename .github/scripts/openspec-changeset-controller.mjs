@@ -182,9 +182,9 @@ export async function reconcileChangeset({
   mode = 'reconcile',
   now = new Date(),
   taskTemplate,
-  resumeTemplate,
+  recoveryTemplate,
   defaultBranch = 'main',
-  blockerIssue,
+  changeRef,
 }) {
   const issue = await client.getIssue(issueNumber);
   const changeset = parseChangesetIssue(issue.body);
@@ -220,98 +220,97 @@ export async function reconcileChangeset({
     }));
   }
 
-  if (invalidBlockers.length > 0 && mode !== 'resume') {
+  if (invalidBlockers.length > 0) {
     if (mode !== 'dry-run') {
       await setState(client, issue, 'changeset:attention');
     }
     return { issueNumber, graphHash, state: 'attention', reason: 'invalid-blocker', frontier: [] };
   }
 
-  if (mode === 'resume') {
-    if (!resumeTemplate) {
-      throw new Error('Cloud-agent resume template is required');
+  if (mode === 'recover') {
+    if (!recoveryTemplate) {
+      throw new Error('Cloud-agent recovery template is required');
     }
-    const blockers = classifiedBlockers
-      .map(parseBlockerIssue)
-      .filter((blocker) => blocker?.version === 1 && blocker.parentIssue === issueNumber)
-      .filter((blocker) => blockerIssue ? blocker.issue.number === blockerIssue : true);
-    if (blockers.length !== 1) {
-      throw new Error(blockers.length === 0
-        ? 'No matching open change blocker was found'
-        : 'Multiple open change blockers were found; specify --blocker');
+    if (!changeRef) {
+      throw new Error('Terminal recovery requires --change');
     }
-
-    const blocker = blockers[0];
-    const change = changeset.changes.find((candidate) => candidate.ref === blocker.change);
+    const change = changeset.changes.find((candidate) => candidate.ref === changeRef);
     if (!change) {
-      throw new Error(`Blocker references a change outside this changeset: ${blocker.change}`);
+      throw new Error(`Change is outside this changeset: ${changeRef}`);
     }
     if (isArchived(root, change.ref)) {
-      throw new Error(`Blocked change is already archived: ${change.ref}`);
+      throw new Error(`Change is already archived: ${change.ref}`);
     }
     const incompleteDependency = change.dependsOn.find((dependency) => !isArchived(root, dependency));
     if (incompleteDependency) {
-      throw new Error(`Blocked change dependency is not archived: ${incompleteDependency}`);
-    }
-    if (!blocker.headRef || !blocker.checkpointSha || blocker.baseRef !== defaultBranch) {
-      throw new Error('Blocker marker is missing a valid branch checkpoint');
+      throw new Error(`Change dependency is not archived: ${incompleteDependency}`);
     }
     const previousRecord = latestByChange(records).get(change.ref);
-    if (previousRecord?.status === 'reserved' && !expired(previousRecord, now)) {
-      throw new Error(`Change already has an active reservation: ${change.ref}`);
+    if (previousRecord?.status !== 'dispatched' || !previousRecord.taskId || previousRecord.taskId === 'unknown') {
+      throw new Error(`Change has no recoverable dispatched task: ${change.ref}`);
     }
-    if (previousRecord?.status === 'dispatched' && previousRecord.taskId && previousRecord.taskId !== 'unknown') {
-      const previousTask = normalizeAgentTask(await client.getAgentTask(previousRecord.taskId));
-      if (['queued', 'in_progress', 'idle'].includes(previousTask.state)) {
-        throw new Error(`Change already has an active task: ${previousRecord.taskId}`);
-      }
+    const previousTask = normalizeAgentTask(await client.getAgentTask(previousRecord.taskId));
+    if (['queued', 'in_progress', 'waiting_for_user'].includes(previousTask.state)) {
+      throw new Error(`Change task can still continue: ${previousRecord.taskId} (${previousTask.state})`);
+    }
+    if (!['failed', 'timed_out', 'cancelled', 'completed', 'idle'].includes(previousTask.state)) {
+      throw new Error(`Change task is not eligible for recovery: ${previousTask.state ?? 'unknown'}`);
     }
     const existingPull = pullState(pulls, issueNumber, change.ref)?.pullRequest;
-    if (existingPull?.state === 'open') {
-      throw new Error(`Change already has an open pull request: #${existingPull.number}`);
+    if (existingPull) {
+      throw new Error(`Change already has a lifecycle pull request: #${existingPull.number}`);
     }
-    const comparison = await client.compareCommits(blocker.checkpointSha, blocker.headRef);
+    const legacyBlockers = parsedBlockers.filter((blocker) => blocker?.change === change.ref);
+    if (legacyBlockers.length > 1) {
+      throw new Error(`Change has multiple legacy blockers: ${change.ref}`);
+    }
+    const legacyBlocker = legacyBlockers[0];
+    const baseRef = previousTask.branch?.baseRef ?? previousRecord.baseRef ?? legacyBlocker?.baseRef;
+    const headRef = previousTask.branch?.headRef ?? previousRecord.headRef ?? legacyBlocker?.headRef;
+    let checkpointSha = previousRecord.checkpointSha ?? legacyBlocker?.checkpointSha;
+    if (!headRef || baseRef !== defaultBranch) {
+      throw new Error('Recoverable task is missing a valid branch artifact');
+    }
+    const branch = await client.getBranch(headRef);
+    checkpointSha ??= branch?.commit?.sha;
+    if (!checkpointSha) {
+      throw new Error('Recoverable task is missing a branch checkpoint');
+    }
+    const comparison = await client.compareCommits(checkpointSha, headRef);
     if (!['ahead', 'identical'].includes(comparison.status)) {
-      throw new Error(`Checkpoint ${blocker.checkpointSha} is not reachable from ${blocker.headRef}`);
+      throw new Error(`Checkpoint ${checkpointSha} is not reachable from ${headRef}`);
     }
 
-    const previousAttempt = latestByChange(records).get(change.ref)?.attempt ?? 0;
     const reservation = {
       version: 1,
       change: change.ref,
       status: 'reserved',
       graphHash,
-      attempt: previousAttempt + 1,
-      blockerIssue: blocker.issue.number,
-      headRef: blocker.headRef,
-      checkpointSha: blocker.checkpointSha,
+      attempt: (previousRecord.attempt ?? 0) + 1,
+      recoveryOfTaskId: previousRecord.taskId,
+      baseRef,
+      headRef,
+      checkpointSha,
       createdAt: now.toISOString(),
     };
     const comment = await client.createIssueComment(issueNumber, formatLedger(reservation));
+    let task;
     try {
-      const prompt = replaceTemplate(resumeTemplate, {
+      const prompt = replaceTemplate(recoveryTemplate, {
         CHANGE_REF: change.ref,
         CHANGESET_ISSUE: issueNumber,
-        BLOCKER_ISSUE: blocker.issue.number,
         DEFAULT_BRANCH: defaultBranch,
-        HEAD_REF: blocker.headRef,
-        CHECKPOINT_SHA: blocker.checkpointSha,
+        HEAD_REF: headRef,
+        CHECKPOINT_SHA: checkpointSha,
+        PREVIOUS_TASK_ID: previousRecord.taskId,
         PR_MARKER: `<!-- ${PR_MARKER} {"changeset":${issueNumber},"change":"${change.ref}"} -->`,
         AUTO_MERGE_MARKER,
       });
-      const task = await client.createAgentTask({
+      task = await client.createAgentTask({
         prompt,
         baseRef: defaultBranch,
-        headRef: blocker.headRef,
+        headRef,
       });
-      const taskId = task?.id ?? task?.task_id ?? task?.task?.id;
-      await client.updateIssueComment(comment.id, formatLedger({
-        ...reservation,
-        status: 'dispatched',
-        taskId: taskId ?? 'unknown',
-      }));
-      await setState(client, issue, 'changeset:running');
-      return { issueNumber, graphHash, state: 'running', resumed: change.ref, blockerIssue: blocker.issue.number };
     } catch (error) {
       await client.updateIssueComment(comment.id, formatLedger({
         ...reservation,
@@ -319,8 +318,16 @@ export async function reconcileChangeset({
         error: error.message,
       }));
       await setState(client, issue, 'changeset:attention');
-      return { issueNumber, graphHash, state: 'attention', resumed: change.ref, blockerIssue: blocker.issue.number };
+      return { issueNumber, graphHash, state: 'attention', recovered: change.ref, headRef };
     }
+    const taskId = normalizeAgentTask(task).id;
+    await client.updateIssueComment(comment.id, formatLedger({
+      ...reservation,
+      status: 'dispatched',
+      taskId: taskId ?? 'unknown',
+    }));
+    await setState(client, issue, 'changeset:running');
+    return { issueNumber, graphHash, state: 'running', recovered: change.ref, headRef };
   }
 
   const latest = latestByChange(records);
@@ -387,15 +394,39 @@ export async function reconcileChangeset({
         ? normalizeAgentTask(await client.getAgentTask(record.taskId))
         : null;
       const terminalFailure = ['failed', 'timed_out', 'cancelled'].includes(task?.state);
-      const missingOutcome = ['completed', 'idle', 'waiting_for_user'].includes(task?.state);
-      if ((terminalFailure || expired(record, now)) && mode === 'retry') {
-        states.set(ref, 'ready-for-retry');
+      const missingOutcome = ['completed', 'idle'].includes(task?.state);
+      const awaitingUser = task?.state === 'waiting_for_user';
+      if (task && (awaitingUser || terminalFailure || missingOutcome) && mode !== 'dry-run') {
+        const baseRef = task.branch?.baseRef ?? record.baseRef ?? blocker?.baseRef;
+        const headRef = task.branch?.headRef ?? record.headRef ?? blocker?.headRef;
+        const branch = headRef ? await client.getBranch(headRef) : null;
+        const { commentId, ...ledgerRecord } = record;
+        const observedRecord = {
+          ...ledgerRecord,
+          taskState: task.taskState,
+          sessionId: task.sessionId,
+          sessionState: task.sessionState,
+          observedState: task.state,
+          ...(baseRef ? { baseRef } : {}),
+          ...(headRef ? { headRef } : {}),
+          ...(branch?.commit?.sha ? { checkpointSha: branch.commit.sha } : {}),
+        };
+        const changed = ['taskState', 'sessionId', 'sessionState', 'observedState', 'baseRef', 'headRef', 'checkpointSha']
+          .some((key) => observedRecord[key] !== record[key]);
+        if (changed) {
+          await client.updateIssueComment(commentId, formatLedger(observedRecord));
+        }
+      }
+      if (awaitingUser) {
+        active.push(ref);
+        attention.push(ref);
+        states.set(ref, 'awaiting-user');
       } else if (terminalFailure) {
         attention.push(ref);
         states.set(ref, `task-${task.state}`);
       } else if (missingOutcome) {
         attention.push(ref);
-        states.set(ref, `task-${task.state}-without-outcome`);
+        states.set(ref, `task-${task.state}-without-final-pr`);
       } else if (expired(record, now)) {
         attention.push(ref);
         states.set(ref, 'dispatched-expired');
@@ -475,26 +506,16 @@ export async function reconcileChangeset({
       createdAt: now.toISOString(),
     };
     const comment = await client.createIssueComment(issueNumber, formatLedger(reservation));
+    const prompt = replaceTemplate(taskTemplate, {
+      CHANGE_REF: ref,
+      CHANGESET_ISSUE: issueNumber,
+      DEFAULT_BRANCH: defaultBranch,
+      PR_MARKER: `<!-- ${PR_MARKER} {"changeset":${issueNumber},"change":"${ref}"} -->`,
+      AUTO_MERGE_MARKER,
+    });
+    let task;
     try {
-      const prompt = replaceTemplate(taskTemplate, {
-        CHANGE_REF: ref,
-        CHANGESET_ISSUE: issueNumber,
-        DEFAULT_BRANCH: defaultBranch,
-        PR_MARKER: `<!-- ${PR_MARKER} {"changeset":${issueNumber},"change":"${ref}"} -->`,
-        AUTO_MERGE_MARKER,
-      });
-      const task = await client.createAgentTask({ prompt, baseRef: defaultBranch });
-      const normalizedTask = normalizeAgentTask(task);
-      await client.updateIssueComment(comment.id, formatLedger({
-        ...reservation,
-        status: 'dispatched',
-        taskId: normalizedTask.id ?? 'unknown',
-        ...(normalizedTask.branch ? {
-          baseRef: normalizedTask.branch.baseRef,
-          headRef: normalizedTask.branch.headRef,
-        } : {}),
-      }));
-      states.set(ref, 'dispatched');
+      task = await client.createAgentTask({ prompt, baseRef: defaultBranch });
     } catch (error) {
       failed = true;
       await client.updateIssueComment(comment.id, formatLedger({
@@ -503,7 +524,19 @@ export async function reconcileChangeset({
         error: error.message,
       }));
       states.set(ref, 'dispatch-failed');
+      continue;
     }
+    const normalizedTask = normalizeAgentTask(task);
+    await client.updateIssueComment(comment.id, formatLedger({
+      ...reservation,
+      status: 'dispatched',
+      taskId: normalizedTask.id ?? 'unknown',
+      ...(normalizedTask.branch ? {
+        baseRef: normalizedTask.branch.baseRef,
+        headRef: normalizedTask.branch.headRef,
+      } : {}),
+    }));
+    states.set(ref, 'dispatched');
   }
 
   await setState(client, issue, failed ? 'changeset:attention' : 'changeset:running');
@@ -544,11 +577,11 @@ async function main() {
   if (!values.issue) {
     throw new Error('--issue is required');
   }
-  if (!['validate', 'dry-run', 'reconcile', 'retry', 'resume', 'accept-graph'].includes(command)) {
+  if (!['validate', 'dry-run', 'reconcile', 'retry', 'recover', 'accept-graph'].includes(command)) {
     throw new Error(`Unknown command: ${command}`);
   }
 
-  if (['reconcile', 'retry', 'resume', 'accept-graph'].includes(command)) {
+  if (['reconcile', 'retry', 'recover', 'accept-graph'].includes(command)) {
     for (const definition of LABEL_DEFINITIONS) {
       await client.ensureLabel(...definition);
     }
@@ -556,16 +589,16 @@ async function main() {
 
   const taskTemplatePath = resolve(process.cwd(), '.github/skills/soca-changeset/references/cloud-agent-task.md');
   const taskTemplate = existsSync(taskTemplatePath) ? readFileSync(taskTemplatePath, 'utf8') : undefined;
-  const resumeTemplatePath = resolve(process.cwd(), '.github/skills/soca-changeset/references/cloud-agent-resume-task.md');
-  const resumeTemplate = existsSync(resumeTemplatePath) ? readFileSync(resumeTemplatePath, 'utf8') : undefined;
+  const recoveryTemplatePath = resolve(process.cwd(), '.github/skills/soca-changeset/references/cloud-agent-recovery-task.md');
+  const recoveryTemplate = existsSync(recoveryTemplatePath) ? readFileSync(recoveryTemplatePath, 'utf8') : undefined;
   const result = await reconcileChangeset({
     client,
     issueNumber: Number(values.issue),
     mode: command === 'validate' ? 'dry-run' : command,
     taskTemplate,
-    resumeTemplate,
+    recoveryTemplate,
     defaultBranch: values['default-branch'] ?? process.env.GITHUB_DEFAULT_BRANCH ?? 'main',
-    blockerIssue: values.blocker ? Number(values.blocker) : undefined,
+    changeRef: values.change,
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
 }

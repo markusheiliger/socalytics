@@ -36,7 +36,7 @@ function repositoryRoot({ archived = [] } = {}) {
 }
 
 class FakeClient {
-  constructor({ comments = [], pulls = [], subIssues = [], comparison = { status: 'ahead' }, agentTasks = {}, dispatchError } = {}) {
+  constructor({ comments = [], pulls = [], subIssues = [], comparison = { status: 'ahead' }, branch = { commit: { sha: 'def456' } }, agentTasks = {}, dispatchError, updateCommentError } = {}) {
     this.issue = {
       number: 42,
       body: renderChangesetIssue(changeset),
@@ -46,8 +46,10 @@ class FakeClient {
     this.pulls = pulls;
     this.subIssues = subIssues;
     this.comparison = comparison;
+    this.branch = branch;
     this.agentTasks = agentTasks;
     this.dispatchError = dispatchError;
+    this.updateCommentError = updateCommentError;
     this.calls = [];
   }
 
@@ -63,6 +65,10 @@ class FakeClient {
     this.calls.push(['compare', base, head]);
     return this.comparison;
   }
+  async getBranch(head) {
+    this.calls.push(['get-branch', head]);
+    return this.branch;
+  }
   async setIssueLabels(number, labels) { this.calls.push(['labels', number, labels]); }
   async updateIssue(number, body) { this.calls.push(['issue', number, body]); }
   async createIssueComment(number, body) {
@@ -72,6 +78,7 @@ class FakeClient {
     return comment;
   }
   async updateIssueComment(id, body) {
+    if (this.updateCommentError) throw this.updateCommentError;
     const comment = this.comments.find((candidate) => candidate.id === id);
     if (comment) comment.body = body;
     this.calls.push(['update-comment', id, body]);
@@ -85,7 +92,36 @@ class FakeClient {
 }
 
 const taskTemplate = 'Handle {{CHANGE_REF}} for #{{CHANGESET_ISSUE}} from {{DEFAULT_BRANCH}}.\n{{PR_MARKER}}';
-const resumeTemplate = 'Resume {{CHANGE_REF}} on {{HEAD_REF}} from {{CHECKPOINT_SHA}}.\n{{PR_MARKER}}';
+const recoveryTemplate = 'Recover {{CHANGE_REF}} on {{HEAD_REF}} from {{CHECKPOINT_SHA}} after {{PREVIOUS_TASK_ID}}.\n{{PR_MARKER}}';
+
+function dispatchedRecord(overrides = {}) {
+  return {
+    id: 1,
+    body: formatLedger({
+      version: 1,
+      change: 'add-first',
+      status: 'dispatched',
+      graphHash: hashChangeset(changeset),
+      attempt: 1,
+      taskId: 'task-1',
+      createdAt: '2026-09-23T11:30:00Z',
+      ...overrides,
+    }),
+  };
+}
+
+function agentTask(state, overrides = {}) {
+  return {
+    id: 'task-1',
+    state,
+    artifacts: [{
+      provider: 'github',
+      type: 'branch',
+      data: { head_ref: 'copilot/add-first', base_ref: 'main' },
+    }],
+    ...overrides,
+  };
+}
 
 function blockerIssue(overrides = {}) {
   const marker = {
@@ -112,29 +148,35 @@ test('parses blocker issue markers', () => {
   assert.equal(parsed.issue.number, 84);
 });
 
-test('resume dispatches on the preserved branch after checkpoint validation', async () => {
-  const client = new FakeClient({ subIssues: [blockerIssue()] });
+test('recover dispatches on the preserved branch after checkpoint validation', async () => {
+  const client = new FakeClient({
+    comments: [dispatchedRecord({ checkpointSha: 'abc123' })],
+    agentTasks: { 'task-1': agentTask('failed') },
+  });
   const result = await reconcileChangeset({
     client,
     issueNumber: 42,
     root: repositoryRoot(),
-    mode: 'resume',
-    resumeTemplate,
+    mode: 'recover',
+    recoveryTemplate,
+    changeRef: 'add-first',
   });
 
-  assert.equal(result.resumed, 'add-first');
+  assert.equal(result.recovered, 'add-first');
   assert.deepEqual(client.calls.find(([name]) => name === 'compare'), ['compare', 'abc123', 'copilot/add-first']);
   assert.deepEqual(client.calls.find(([name]) => name === 'dispatch')[1], {
-    prompt: 'Resume add-first on copilot/add-first from abc123.\n<!-- openspec-changeset-pr:v1 {"changeset":42,"change":"add-first"} -->',
+    prompt: 'Recover add-first on copilot/add-first from abc123 after task-1.\n<!-- openspec-changeset-pr:v1 {"changeset":42,"change":"add-first"} -->',
     baseRef: 'main',
     headRef: 'copilot/add-first',
   });
-  assert.match(client.comments.at(-1).body, /"blockerIssue": 84/);
+  assert.match(client.comments.at(-1).body, /"attempt": 2/);
+  assert.match(client.comments.at(-1).body, /"recoveryOfTaskId": "task-1"/);
 });
 
-test('resume rejects a checkpoint that is not in the preserved branch history', async () => {
+test('recover rejects a checkpoint that is not in the preserved branch history', async () => {
   const client = new FakeClient({
-    subIssues: [blockerIssue()],
+    comments: [dispatchedRecord({ checkpointSha: 'abc123' })],
+    agentTasks: { 'task-1': agentTask('failed') },
     comparison: { status: 'diverged' },
   });
 
@@ -143,29 +185,19 @@ test('resume rejects a checkpoint that is not in the preserved branch history', 
       client,
       issueNumber: 42,
       root: repositoryRoot(),
-      mode: 'resume',
-      resumeTemplate,
+      mode: 'recover',
+      recoveryTemplate,
+      changeRef: 'add-first',
     }),
     /not reachable/,
   );
   assert.equal(client.calls.some(([name]) => name === 'dispatch'), false);
 });
 
-test('resume rejects a concurrent active task', async () => {
+test('recover rejects a task that can still continue', async () => {
   const client = new FakeClient({
-    subIssues: [blockerIssue()],
-    comments: [{
-      id: 1,
-      body: formatLedger({
-        version: 1,
-        change: 'add-first',
-        status: 'dispatched',
-        graphHash: hashChangeset(changeset),
-        attempt: 1,
-        taskId: 'task-1',
-        createdAt: new Date().toISOString(),
-      }),
-    }],
+    comments: [dispatchedRecord()],
+    agentTasks: { 'task-1': agentTask('in_progress') },
   });
 
   await assert.rejects(
@@ -173,11 +205,127 @@ test('resume rejects a concurrent active task', async () => {
       client,
       issueNumber: 42,
       root: repositoryRoot(),
-      mode: 'resume',
-      resumeTemplate,
+      mode: 'recover',
+      recoveryTemplate,
+      changeRef: 'add-first',
     }),
-    /active task/,
+    /can still continue/,
   );
+  assert.equal(client.calls.some(([name]) => name === 'dispatch'), false);
+});
+
+test('recover rejects a terminal task without preserved branch evidence', async () => {
+  const client = new FakeClient({
+    comments: [dispatchedRecord()],
+    agentTasks: { 'task-1': { id: 'task-1', state: 'failed' } },
+  });
+
+  await assert.rejects(
+    reconcileChangeset({
+      client,
+      issueNumber: 42,
+      root: repositoryRoot(),
+      mode: 'recover',
+      recoveryTemplate,
+      changeRef: 'add-first',
+    }),
+    /missing a valid branch artifact/,
+  );
+  assert.equal(client.calls.some(([name]) => name === 'dispatch'), false);
+});
+
+test('recover accepts deprecated blocker evidence for a pre-migration task', async () => {
+  const client = new FakeClient({
+    comments: [dispatchedRecord()],
+    subIssues: [blockerIssue()],
+    agentTasks: { 'task-1': { id: 'task-1', state: 'failed' } },
+  });
+
+  const result = await reconcileChangeset({
+    client,
+    issueNumber: 42,
+    root: repositoryRoot(),
+    mode: 'recover',
+    recoveryTemplate,
+    changeRef: 'add-first',
+  });
+
+  assert.equal(result.recovered, 'add-first');
+  assert.deepEqual(client.calls.find(([name]) => name === 'compare'), ['compare', 'abc123', 'copilot/add-first']);
+});
+
+test('recover rejects duplicate deprecated blocker evidence', async () => {
+  const client = new FakeClient({
+    comments: [dispatchedRecord()],
+    subIssues: [blockerIssue(), { ...blockerIssue(), number: 85 }],
+    agentTasks: { 'task-1': { id: 'task-1', state: 'failed' } },
+  });
+
+  await assert.rejects(
+    reconcileChangeset({
+      client,
+      issueNumber: 42,
+      root: repositoryRoot(),
+      mode: 'recover',
+      recoveryTemplate,
+      changeRef: 'add-first',
+    }),
+    /multiple legacy blockers/,
+  );
+});
+
+test('waiting-for-user requests attention without redispatch and records recovery evidence', async () => {
+  const client = new FakeClient({
+    comments: [dispatchedRecord()],
+    agentTasks: {
+      'task-1': agentTask('in_progress', {
+        sessions: [{ id: 'session-1', state: 'waiting_for_user' }],
+      }),
+    },
+  });
+
+  const result = await reconcileChangeset({
+    client,
+    issueNumber: 42,
+    root: repositoryRoot(),
+    now: new Date('2026-09-23T12:00:00Z'),
+    taskTemplate,
+  });
+
+  assert.equal(result.state, 'attention');
+  assert.equal(client.calls.some(([name]) => name === 'dispatch'), false);
+  assert.match(client.comments[0].body, /"observedState": "waiting_for_user"/);
+  assert.match(client.comments[0].body, /"sessionId": "session-1"/);
+  assert.match(client.comments[0].body, /"headRef": "copilot\/add-first"/);
+  assert.match(client.comments[0].body, /"checkpointSha": "def456"/);
+  assert.doesNotMatch(client.comments[0].body, /"commentId"/);
+});
+
+test('same task returns to running after the user continues its session', async () => {
+  const client = new FakeClient({
+    comments: [dispatchedRecord({
+      observedState: 'waiting_for_user',
+      sessionId: 'session-1',
+      headRef: 'copilot/add-first',
+      baseRef: 'main',
+      checkpointSha: 'def456',
+    })],
+    agentTasks: {
+      'task-1': agentTask('in_progress', {
+        sessions: [{ id: 'session-1', state: 'in_progress' }],
+      }),
+    },
+  });
+
+  const result = await reconcileChangeset({
+    client,
+    issueNumber: 42,
+    root: repositoryRoot(),
+    now: new Date('2026-09-23T12:00:00Z'),
+    taskTemplate,
+  });
+
+  assert.equal(result.state, 'running');
   assert.equal(client.calls.some(([name]) => name === 'dispatch'), false);
 });
 
@@ -323,6 +471,18 @@ test('records dispatch failures and requests attention', async () => {
   assert.equal(result.state, 'attention');
   assert.match(client.comments[0].body, /"status": "failed"/);
   assert.match(client.comments[0].body, /agent unavailable/);
+});
+
+test('leaves a reservation intact when recording a successful dispatch fails', async () => {
+  const client = new FakeClient({ updateCommentError: new Error('comment unavailable') });
+
+  await assert.rejects(
+    reconcileChangeset({ client, issueNumber: 42, root: repositoryRoot(), taskTemplate }),
+    /comment unavailable/,
+  );
+
+  assert.equal(client.calls.filter(([name]) => name === 'dispatch').length, 1);
+  assert.match(client.comments[0].body, /"status": "reserved"/);
 });
 
 test('enables auto-merge for a completed open pull request', async () => {
@@ -491,5 +651,24 @@ test('retry does not duplicate an in-progress task', async () => {
   });
 
   assert.equal(result.state, 'running');
+  assert.equal(client.calls.some(([name]) => name === 'dispatch'), false);
+});
+
+test('retry does not replace explicit recovery for a terminal task', async () => {
+  const client = new FakeClient({
+    comments: [dispatchedRecord()],
+    agentTasks: { 'task-1': agentTask('failed') },
+  });
+
+  const result = await reconcileChangeset({
+    client,
+    issueNumber: 42,
+    root: repositoryRoot(),
+    mode: 'retry',
+    now: new Date('2026-09-23T12:00:00Z'),
+    taskTemplate,
+  });
+
+  assert.equal(result.state, 'attention');
   assert.equal(client.calls.some(([name]) => name === 'dispatch'), false);
 });

@@ -39,9 +39,8 @@ The auto-merge marker authorizes the controller to enable squash auto-merge. Git
 If human correction is required or the full lifecycle cannot finish, do not open a pull request, force archive, or claim completion.
 
 1. Finish the current coherent unit, run its focused validation, update only task checkboxes supported by evidence, commit all coherent work, and push the branch.
-2. Record the pushed branch name and exact pushed commit SHA. Never publish a blocker for an unpushed checkpoint.
-3. Read [blocker-issue-contract.md](blocker-issue-contract.md). Search the child issues of #{{CHANGESET_ISSUE}} for an existing open blocker for `{{CHANGE_REF}}`; update it when found, otherwise create one with label `openspec:change-blocker` and attach it as a child of #{{CHANGESET_ISSUE}}.
-4. Include the branch, pushed checkpoint SHA, remaining tasks, observed evidence, focused validation commands, and an exact prompt for `openspec-update-change` that describes the artifact correction required. Assign the changeset creator when GitHub permits; otherwise mention them explicitly.
-5. Keep the blocker issue open. The controller closes it only after resumed processing creates the fully completed pull request.
+2. Ask the user for the exact decision or correction through this task's native session. Include the pushed branch and commit SHA, remaining tasks, observed evidence, focused validation commands, and the precise artifact correction required.
+3. Wait in the same task. Do not create a child blocker issue, start another cloud task, or use changeset labels as conversation state.
+4. After the user responds, continue in this same session and branch through Apply, Verify, conditional Audit, Sync, Archive, and final validation.
 
-Do not use labels as mutable blocker state. The marked child issue, branch history, OpenSpec task checkboxes, and controller ledger are the recovery record.
+If this task becomes terminal and cannot continue natively, leave the coherent checkpoint pushed. An operator may use the changeset controller's explicit `recover` operation to start a new session on this branch.
