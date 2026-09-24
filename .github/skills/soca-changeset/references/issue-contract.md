@@ -7,6 +7,8 @@
 - Activation label: `changeset:ready`
 - Contract version: `1`
 
+The skill generates the name after final dependency closure. A single-change changeset uses its sole change ref unchanged. A multi-change changeset uses a concise lowercase kebab-case umbrella name derived from the included change refs and proposal outcomes; it must describe shared evidenced scope and must not be a generic label such as `changes`, `changeset`, or `updates`.
+
 ## Authoritative Block
 
 The issue body must contain exactly one ordered marker pair. The fenced JSON between the markers is authoritative.
@@ -39,6 +41,7 @@ Rules:
 - Root fields are exactly `version`, `name`, and `changes`.
 - `version` is the integer `1`.
 - `name` and every `ref` use lowercase kebab case.
+- `name` reflects the complete finalized membership and does not depend on selection order.
 - `changes` is a non-empty array with unique refs.
 - Each change has exactly `ref` and `dependsOn`.
 - Every dependency references another change in the same issue.
