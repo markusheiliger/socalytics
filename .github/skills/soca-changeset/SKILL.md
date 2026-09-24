@@ -6,7 +6,7 @@ license: MIT
 compatibility: Requires OpenSpec 1.13.0, Node.js 24 or later, GitHub CLI authentication, and a published GitHub repository.
 metadata:
   author: SocAlytics
-   version: "1.1"
+   version: "1.2"
 ---
 
 Create one GitHub issue that defines a dependency-ordered set of active OpenSpec changes. The issue's marked JSON block is the authoritative graph. Mermaid is generated display only.
@@ -67,7 +67,7 @@ The user may provide change refs or neither. Generate the changeset name from th
    node .github/scripts/openspec-changeset-core.mjs render <temporary-json-file>
    ```
 
-   Present the generated name, final membership, dependency edges, initial runnable frontier, and rendered Mermaid diagram. Ask for final confirmation before any GitHub write. Do not ask a separate naming question. If the user rejects only the name, generate a new name from the unchanged finalized membership, revalidate the graph, and repeat final confirmation.
+   Present the generated name, final membership, dependency edges, initial runnable frontier, and rendered Mermaid diagram for traceability. When validation passes, continue directly to issue creation without asking for another confirmation or requiring the user to submit the generated name or graph.
 
 6. **Create and activate the issue**
 
@@ -80,7 +80,7 @@ The user may provide change refs or neither. Generate the changeset name from th
    - `changeset:attention`
    - `changeset:complete`
 
-   Search for an open issue with the exact title `OpenSpec changeset: <name>` before creating another. Parse any match's authoritative graph. If its graph is identical, treat creation as idempotent and report the existing issue. If the title belongs to a different graph, generate a more specific name from distinguishing change refs or proposal outcomes, revalidate the graph, and return to final confirmation before any GitHub write.
+   Search for an open issue with the exact title `OpenSpec changeset: <name>` before creating another. Parse any match's authoritative graph. If its graph is identical, treat creation as idempotent and report the existing issue. If the title belongs to a different graph, generate a more specific name from distinguishing change refs or proposal outcomes, revalidate the graph, and continue automatically with the non-conflicting name.
 
    Otherwise, create one issue titled `OpenSpec changeset: <name>` using the rendered body and only the `openspec:changeset` label. Add `changeset:ready` in a separate final operation so the controller never sees a partial issue.
 
@@ -95,6 +95,7 @@ The user may provide change refs or neither. Generate the changeset name from th
 - The JSON graph, not Mermaid or prose, controls scheduling.
 - Never silently add, remove, or reorder semantic dependencies.
 - Generate the name only from finalized membership; never request or accept a name that introduces scope absent from the selected changes.
+- After selected membership and any dependency questions are resolved, create and activate a valid non-conflicting changeset automatically without a redundant final confirmation.
 - Never put mutable processing state inside the authoritative JSON block.
 - Never place one active change in multiple open changesets without explicit resolution.
 - Never close the issue or dispatch an agent directly; the controller owns both actions.
