@@ -5,6 +5,7 @@ on:
     paths:
       - .github/scripts/openspec-changeset-*.mjs
       - .github/skills/soca-changeset/**
+      - .github/skills/soca-changeset-fixed/**
       - .github/workflows/openspec-changeset*.yml
       - AGENTS.md
       - README.md
@@ -13,6 +14,7 @@ on:
     paths:
       - .github/scripts/openspec-changeset-*.mjs
       - .github/skills/soca-changeset/**
+      - .github/skills/soca-changeset-fixed/**
       - .github/workflows/openspec-changeset*.yml
       - AGENTS.md
       - README.md

@@ -72,11 +72,13 @@ A fully completed pull request also includes:
 <!-- openspec-changeset-auto-merge:v1 -->
 ```
 
-The controller enables squash auto-merge only when both markers are present. A partial or blocked pull request omits the auto-merge marker and moves the changeset to attention. The pull request uses `Refs #42`, never `Closes #42`. Only the controller closes the issue after every change is archived on `main`.
+The controller enables squash auto-merge only when both markers are present. The pull request uses `Refs #42`, never `Closes #42`. Only the controller closes the issue after every change is archived on `main`.
+
+A cloud task opens no pull request until the full lifecycle is complete. Blocked work remains committed and pushed on the task branch and is represented by one open child issue following [blocker-issue-contract.md](blocker-issue-contract.md). The dedicated `soca-changeset-fixed` skill authorizes same-branch resume after human correction.
 
 ## Labels
 
 - `changeset:ready`: validated and available for initial reconciliation.
 - `changeset:running`: at least one change is reserved, dispatched, or represented by an open pull request.
-- `changeset:attention`: graph mutation, failed/expired dispatch, or incomplete pull-request outcome requires intervention.
+- `changeset:attention`: graph mutation, failed/expired dispatch, missing task outcome, or an open child blocker requires intervention.
 - `changeset:complete`: every included change is archived on merged `main`.

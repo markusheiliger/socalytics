@@ -90,9 +90,9 @@ Architecture narratives remain authoritative for current system design;
 
 A changeset schedules multiple approved OpenSpec changes from one GitHub issue.
 Its versioned JSON block is the dependency graph; the accompanying Mermaid
-diagram is generated display only. Each runnable change receives one cloud-agent
-task and one pull request covering Apply, Verify, conditional Audit, Sync, and
-Archive. The controller enables squash auto-merge for a pull request only after
+diagram is generated display only. Each runnable change starts with one branch-only
+cloud-agent task. It opens the change's only pull request after Apply, Verify,
+conditional Audit, Sync, and Archive all succeed. The controller enables squash auto-merge for a pull request only after
 the cloud task declares its lifecycle complete; GitHub then waits for configured
 checks and required reviews. The controller never merges directly or waits for
 an agent.
@@ -118,9 +118,14 @@ controller. The controller then uses these mutually exclusive state labels:
 - `changeset:complete` means every change is archived on merged `main`.
 
 Dependencies are released only when the prerequisite pull request is merged and
-its dated archive exists on `main`. A closed or partial pull request does not
-release dependents. Cloud-agent sessions are limited to approximately 59
-minutes, so oversized changes should be split before adding them to a changeset.
+its dated archive exists on `main`. A closed pull request does not release
+dependents. When human correction is required, the agent commits and pushes its
+coherent work, creates a marked child blocker issue, and leaves the branch without
+a pull request. After corrections are pushed to that branch, invoke
+`/soca-changeset-fixed <changeset-issue>` to validate the checkpoint and resume
+processing on the same branch. The blocker closes when the completed final pull
+request appears. Cloud-agent sessions are limited to approximately 59 minutes,
+so oversized changes should be split before adding them to a changeset.
 
 Run the dependency-free tooling locally with Node.js 24 or later:
 
@@ -132,8 +137,10 @@ node .github/scripts/openspec-changeset-controller.mjs dry-run --issue <issue-nu
 ```
 
 The controller dry run needs `GITHUB_REPOSITORY` and `GITHUB_TOKEN` in the local
-environment but does not mutate GitHub. For recovery, run the **OpenSpec
-Changeset Processing** workflow manually with the affected issue and `retry`.
+environment but does not mutate GitHub. For failed or expired technical dispatches,
+run the **OpenSpec Changeset Processing** workflow manually with the affected issue
+and `retry`. Use `soca-changeset-fixed` for a human-fixed blocker; it dispatches
+`resume` with the parent changeset issue and selected child blocker.
 Use `accept-graph` only after intentionally reviewing a changed authoritative
 JSON graph. Scheduled reconciliation runs twice per hour as a fallback.
 

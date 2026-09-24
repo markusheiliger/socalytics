@@ -56,6 +56,10 @@ export class GitHubClient {
     return this.request(`/repos/${this.repository}/issues/${issueNumber}`);
   }
 
+  listSubIssues(issueNumber) {
+    return this.request(`/repos/${this.repository}/issues/${issueNumber}/sub_issues?per_page=100`);
+  }
+
   listIssueComments(issueNumber) {
     return this.request(`/repos/${this.repository}/issues/${issueNumber}/comments?per_page=100`);
   }
@@ -85,6 +89,14 @@ export class GitHubClient {
     });
   }
 
+  getBranch(branch) {
+    return this.request(`/repos/${this.repository}/branches/${encodeURIComponent(branch)}`);
+  }
+
+  compareCommits(base, head) {
+    return this.request(`/repos/${this.repository}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}`);
+  }
+
   async ensureLabel(name, color, description) {
     try {
       await this.request(`/repos/${this.repository}/labels`, {
@@ -105,7 +117,7 @@ export class GitHubClient {
     });
   }
 
-  createAgentTask({ prompt, baseRef = 'main' }) {
+  createAgentTask({ prompt, baseRef = 'main', headRef, createPullRequest = false }) {
     if (!this.agentToken) {
       throw new Error('COPILOT_AGENT_TOKEN is required to dispatch cloud-agent tasks');
     }
@@ -115,8 +127,18 @@ export class GitHubClient {
       body: {
         prompt,
         base_ref: baseRef,
-        create_pull_request: true,
+        ...(headRef ? { head_ref: headRef } : {}),
+        create_pull_request: createPullRequest,
       },
+    });
+  }
+
+  getAgentTask(taskId) {
+    if (!this.agentToken) {
+      throw new Error('COPILOT_AGENT_TOKEN is required to read cloud-agent tasks');
+    }
+    return this.request(`/agents/repos/${this.repository}/tasks/${encodeURIComponent(taskId)}`, {
+      token: this.agentToken,
     });
   }
 
@@ -145,10 +167,29 @@ export class GitHubClient {
   }
 }
 
+export function taskBranchArtifact(task) {
+  const artifact = task?.artifacts?.find((candidate) => candidate?.provider === 'github' && candidate?.type === 'branch');
+  if (!artifact?.data?.head_ref || !artifact?.data?.base_ref) {
+    return null;
+  }
+  return {
+    headRef: artifact.data.head_ref,
+    baseRef: artifact.data.base_ref,
+  };
+}
+
 export function repositoryParts(repository) {
   const [owner, name, extra] = repository.split('/');
   if (!owner || !name || extra) {
     throw new Error('Repository must be in owner/name form');
   }
   return { owner: encodePath(owner), name: encodePath(name) };
+}
+
+export function normalizeAgentTask(task) {
+  return {
+    id: task?.id ?? task?.task_id ?? task?.task?.id ?? null,
+    state: task?.state ?? task?.status ?? task?.task?.state ?? null,
+    branch: taskBranchArtifact(task),
+  };
 }
