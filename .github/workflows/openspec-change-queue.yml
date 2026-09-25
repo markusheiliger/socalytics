@@ -24,6 +24,7 @@ concurrency:
 
 jobs:
   reconcile:
+    name: Reconcile the OpenSpec change queue
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -89,14 +89,22 @@ The repository-owned OpenSpec change queue has focused contract tests:
 node --test .github/scripts/*.test.mjs
 gh aw validate .github/workflows/openspec-change-reconciliation.md
 gh aw lint .github/workflows/openspec-change-reconciliation.lock.yml
+node .github/scripts/openspec-change-workflow-names.mjs --check
 ```
 
 The `gh aw` commands require the official `github/gh-aw` GitHub CLI extension.
 The approved tooling combines deterministic issue synchronization and AI
 dependency inference in one Agentic Workflow. The paths above are the expected
 source and generated-lock names; if implementation settles different names,
-use the committed pair. Edit only the Markdown source and regenerate its lock
-file with `gh aw compile`.
+use the committed pair. Edit only the Markdown source, regenerate its lock file
+with `gh aw compile`, then apply the required generated-job display names with:
+
+```powershell
+node .github/scripts/openspec-change-workflow-names.mjs
+```
+
+The naming step is deterministic and must not be replaced with manual lock-file
+edits.
 
 See the [OpenSpec change queue operations guide](docs/operations/openspec-change-queue.md)
 for its issue projection, reconciliation cadence, dependency checkpoint,

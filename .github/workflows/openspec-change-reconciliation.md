@@ -77,9 +77,14 @@ jobs:
       - name: Prepare dependency reconciliation
         id: prepare
         env:
+          GH_TOKEN: ${{ github.token }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'dry-run' }}
           REQUESTED_MODE: ${{ github.event_name == 'schedule' && 'full' || (github.event_name == 'workflow_dispatch' && inputs.mode == 'full' && 'full' || 'auto') }}
         run: |
+          authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)"
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
           args=(prepare --context "$RUNNER_TEMP/openspec-change-reconciliation/agent-context.json" --mode "$REQUESTED_MODE")
           if [[ "$DRY_RUN" == "true" ]]; then
             args+=(--dry-run)
@@ -115,14 +120,20 @@ pre-agent-steps:
       path: ${{ runner.temp }}/openspec-change-reconciliation
   - name: Check out the prepared repository commit
     env:
+      GH_TOKEN: ${{ github.token }}
       CONTEXT_PATH: ${{ runner.temp }}/openspec-change-reconciliation/agent-context.json
     run: |
+      authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)"
+      export GIT_CONFIG_COUNT=1
+      export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+      export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
       target_head="$(node -e "const fs=require('fs'); console.log(JSON.parse(fs.readFileSync(process.env.CONTEXT_PATH,'utf8')).targetHead)")"
       git fetch --no-tags origin "$target_head"
       git checkout --detach "$target_head"
 safe-outputs:
   jobs:
     reconcile-openspec-dependencies:
+      name: Reconcile dependencies and persist the checkpoint
       description: Validate an incremental OpenSpec dependency patch, reconcile native blockers, and persist the Git-note checkpoint.
       runs-on: ubuntu-latest
       output: OpenSpec issue twins and dependency state were reconciled.
@@ -157,12 +168,17 @@ safe-outputs:
             node-version: 24
         - name: Validate, reconcile, and checkpoint dependency state
           env:
+            GH_TOKEN: ${{ github.token }}
             GITHUB_TOKEN: ${{ github.token }}
             CONTEXT_PATH: ${{ runner.temp }}/openspec-change-reconciliation/agent-context.json
-          run: >-
-            node .github/scripts/openspec-change-reconciliation.mjs reconcile
-            --context "$CONTEXT_PATH"
-            --safe-output "$GH_AW_AGENT_OUTPUT"
+          run: |
+            authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)"
+            export GIT_CONFIG_COUNT=1
+            export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+            export GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $authorization"
+            node .github/scripts/openspec-change-reconciliation.mjs reconcile \
+              --context "$CONTEXT_PATH" \
+              --safe-output "$GH_AW_AGENT_OUTPUT"
   noop:
     report-as-issue: false
   missing-tool:

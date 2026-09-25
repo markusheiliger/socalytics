@@ -59,7 +59,7 @@
 - The controller uses the Agent Tasks API rather than native Copilot issue assignment because assignment immediately starts an uncontrolled duplicate session.
 - The queue runs apply, verify, sync, and archive on one durable draft pull request. One Agent Task may run per change at a time.
 - Reconciliation validates branch-visible evidence and append-only operation ledger entries. It does not treat Agent Task completion alone as success.
-- Cross-change inference is read-only until its typed custom safe output invokes the privileged validator and reconciler. Edit the combined Agentic Workflow source and regenerate its lock file with `gh aw compile`; do not hand-edit the lock.
+- Cross-change inference is read-only until its typed custom safe output invokes the privileged validator and reconciler. Edit the combined Agentic Workflow source, regenerate its lock file with `gh aw compile`, and run `node .github/scripts/openspec-change-workflow-names.mjs` to apply generated-job display names; do not hand-edit the lock.
 - Failed or timed-out work receives one retry. Cancellation and `waiting_for_user` always stop for human attention.
 - Automation stops after validated archive. A human approves workflows, marks the pull request ready, reviews it, and enables auto-merge.
 - Run `node --test .github/scripts/*.test.mjs` for the queue tooling tests.

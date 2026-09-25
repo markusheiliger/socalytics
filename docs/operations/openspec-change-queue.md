@@ -208,11 +208,15 @@ Run the pure queue contract tests from the repository root:
 node --test .github/scripts/*.test.mjs
 gh aw validate .github/workflows/openspec-change-reconciliation.md
 gh aw lint .github/workflows/openspec-change-reconciliation.lock.yml
+node .github/scripts/openspec-change-workflow-names.mjs --check
 ```
 
 The workflow paths are the approved likely names, not a requirement to rename
 an implementation that settles another committed source/lock pair. Compile the
-Markdown source with `gh aw compile`; never hand-edit the generated lock file.
+Markdown source with `gh aw compile`, then run
+`node .github/scripts/openspec-change-workflow-names.mjs` to apply the
+repository's deterministic display names for compiler-generated jobs. Never
+hand-edit the generated lock file.
 
 OpenSpec validation remains:
 
