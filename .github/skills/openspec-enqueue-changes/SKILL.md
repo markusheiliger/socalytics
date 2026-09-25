@@ -1,7 +1,6 @@
 ---
 name: openspec-enqueue-changes
 description: Enqueue one or more committed OpenSpec changes through their GitHub issue twins. Use when the user invokes /opsx-enqueue or asks to enqueue, queue, or batch-process OpenSpec changes.
-user-invocable: false
 license: MIT
 compatibility: Requires the openspec, git, and gh CLIs, an authenticated GitHub CLI session, and the client question tool.
 metadata:
