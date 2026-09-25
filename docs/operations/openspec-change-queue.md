@@ -59,6 +59,48 @@ Inferred dependencies never overwrite unowned native relationships. The queue
 records the exact inferred edges it manages and may remove only those edges.
 Manual edges remain intact.
 
+## Client-side batch enqueue
+
+The repository-owned `/opsx-enqueue [<change-ref> ...]` prompt uses the
+`openspec-enqueue-changes` skill to request initial queue admission. This is
+client-side repository tooling; it does not invoke the queue scripts, dispatch
+an Agent Task, assign an issue to Copilot, or create or repair issue twins and
+dependencies.
+
+With explicit refs, the skill validates those changes. Without refs, it uses
+the client question tool in multi-select mode to present every eligible active
+change in one list. It does not substitute repeated single selection or
+freeform input.
+
+A change is eligible only when:
+
+- strict OpenSpec validation passes;
+- its local directory is tracked and has no modified or untracked paths;
+- its contents match `origin/main` and its latest affecting commit is reachable
+  from `origin/main`;
+- exactly one open active issue twin projects its canonical path from `main`;
+  and
+- it is not already enqueued, processing, awaiting review, completed, or
+  stopped for human attention.
+
+Eligible changes remain selectable when blocked. The skill walks native GitHub
+`blocked by` relationships transitively. Closed OpenSpec blockers count as
+satisfied only when their dated archive is confirmed on `main`; blockers
+already admitted to the queue need not be selected again. If eligible blockers
+are missing, the user may add the complete missing set or cancel. A manual,
+malformed, cyclic, or otherwise ineligible unresolved blocker stops the batch.
+The skill never edits dependency relationships.
+
+After dependency closure, the skill shows the blocker-first order and requires
+explicit confirmation. It then repeats the complete read-only preflight to
+detect stale local or GitHub state before adding any label.
+
+Label updates are idempotent but not atomic across issues. The skill applies
+`openspec:enqueued` blocker-first, reports each issue result, skips dependents
+whose selected blocker failed, and leaves successful labels in place because
+the controller may already have consumed them. Rerunning `/opsx-enqueue` is the
+recovery path for a partial failure.
+
 ## Combined issue reconciliation
 
 One OpenSpec issue reconciliation Agentic Workflow replaces the separate issue

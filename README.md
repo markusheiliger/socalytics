@@ -74,6 +74,24 @@ Start work through the generated GitHub Copilot prompts:
 - `/opsx-verify` independently checks the completed change and evidence.
 - `/opsx-archive` archives a verified change and updates accepted specs.
 
+The repository also provides `/opsx-enqueue [<change-ref> ...]` to admit one or
+more committed changes to the GitHub-backed OpenSpec queue. With no refs it
+uses one true multi-select list of eligible changes; the client must support a
+multi-select question tool. The command validates that selected change
+directories are clean, strictly valid, and present on `origin/main`, expands
+native GitHub blockers as one dependency-complete batch, asks for confirmation,
+and adds `openspec:enqueued` to the matching issue twins.
+
+`/opsx-enqueue` requires `git`, OpenSpec `1.13.0`, the GitHub CLI, and an
+authenticated GitHub CLI session:
+
+```powershell
+gh auth status
+```
+
+The repository-owned enqueue skill is independent of the queue scripts under
+`.github/scripts/`.
+
 Useful OpenSpec repository checks are:
 
 ```powershell
