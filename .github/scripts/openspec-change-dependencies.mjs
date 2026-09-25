@@ -4,9 +4,13 @@ import { pathToFileURL } from 'node:url';
 import {
   DEPENDENCY_SUMMARY_START,
   calculateManagedEdgeChanges,
+  mergeManagedDependencyGraph,
+  mergeManagedEdgeProvenance,
   parseChangeMarker,
   parseDependencySummary,
   renderDependencySummary,
+  validateDependencyGraphPatch,
+  validateMergedDependencyGraph,
   validateDependencyOutput,
 } from './openspec-change-core.mjs';
 import { GitHubChangeClient } from './openspec-change-github.mjs';
@@ -62,6 +66,7 @@ export async function reconcileDependencies({
   client,
   output,
   minimumConfidence = 0.85,
+  checkpoint = null,
 }) {
   const issues = await client.listIssueTwins();
   const activeByRef = new Map();
@@ -80,7 +85,7 @@ export async function reconcileDependencies({
 
   const activeRefs = [...activeByRef.keys()].sort();
   const commentsByRef = new Map();
-  const previousManaged = [];
+  const legacyCommentManaged = [];
   const nativeEdges = [];
   const nativeByRef = new Map();
   for (const ref of activeRefs) {
@@ -91,7 +96,7 @@ export async function reconcileDependencies({
     ]);
     const summary = latestDependencySummary(comments, ref);
     commentsByRef.set(ref, summary);
-    previousManaged.push(...summary.summary.managedEdges);
+    legacyCommentManaged.push(...summary.summary.managedEdges);
 
     const edges = [];
     for (const blocker of blockers) {
@@ -110,15 +115,40 @@ export async function reconcileDependencies({
     nativeByRef.set(ref, edges);
   }
 
-  const validated = validateDependencyOutput(
-    output,
-    activeRefs,
+  const previousManaged = mergeManagedEdgeProvenance({
+    checkpointEdges: checkpoint?.managedEdges ?? [],
+    legacyCommentEdges: legacyCommentManaged,
     nativeEdges,
-    minimumConfidence,
-  );
+  });
+  let validated;
+  let desiredManaged;
+  if (output?.version === 2) {
+    validated = validateDependencyGraphPatch(
+      output,
+      activeRefs,
+      [],
+      minimumConfidence,
+    );
+    desiredManaged = mergeManagedDependencyGraph(previousManaged, validated)
+      .filter((edge) => activeByRef.has(edge.changeRef) && activeByRef.has(edge.dependsOn));
+    validateMergedDependencyGraph({
+      knownRefs: activeRefs,
+      previousManagedEdges: previousManaged,
+      managedEdges: desiredManaged,
+      nativeEdges,
+    });
+  } else {
+    validated = validateDependencyOutput(
+      output,
+      activeRefs,
+      nativeEdges,
+      minimumConfidence,
+    );
+    desiredManaged = validated.accepted;
+  }
   const changes = calculateManagedEdgeChanges(
     previousManaged,
-    validated.accepted,
+    desiredManaged,
     nativeEdges,
   );
 
@@ -139,7 +169,7 @@ export async function reconcileDependencies({
   }
 
   for (const ref of activeRefs) {
-    const managedEdges = validated.accepted.filter((edge) => edge.changeRef === ref);
+    const managedEdges = desiredManaged.filter((edge) => edge.changeRef === ref);
     const body = renderDependencySummary({ version: 1, managedEdges });
     const current = commentsByRef.get(ref);
     if (current.comment) {
@@ -152,9 +182,14 @@ export async function reconcileDependencies({
   }
 
   return {
-    accepted: validated.accepted,
+    accepted: desiredManaged,
     review: validated.review,
     changes,
+    ...(output?.version === 2 ? {
+      evaluationMode: validated.evaluationMode,
+      evaluatedRefs: validated.evaluatedRefs,
+      summaries: validated.summaries,
+    } : {}),
   };
 }
 

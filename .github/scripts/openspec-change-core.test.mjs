@@ -4,7 +4,10 @@ import test from 'node:test';
 import {
   calculateManagedEdgeChanges,
   deriveReadiness,
+  mergeManagedDependencyGraph,
+  mergeManagedEdgeProvenance,
   parseChangeMarker,
+  parseDependencyCheckpoint,
   parseDependencySummary,
   parseLedgerEntry,
   parseCloudOperationResult,
@@ -17,7 +20,10 @@ import {
   retryDecision,
   selectNextOperation,
   selectNextTask,
+  serializeDependencyCheckpoint,
   validateDependencyOutput,
+  validateDependencyGraphPatch,
+  validateMergedDependencyGraph,
   validateOperationEvidence,
   validateSynchronizedDeltas,
 } from './openspec-change-core.mjs';
@@ -177,6 +183,197 @@ test('round-trips managed dependency provenance and detects updates', () => {
   const summary = { version: 1, managedEdges: desired };
   assert.deepEqual(parseDependencySummary(renderDependencySummary(summary)), summary);
   assert.deepEqual(calculateManagedEdgeChanges(previous, desired, previous).update, desired);
+});
+
+test('validates explicit incremental graph patches and merges deterministically', () => {
+  const patch = validateDependencyGraphPatch({
+    version: 2,
+    evaluationMode: 'incremental',
+    evaluatedRefs: ['three'],
+    summaries: [{ ref: 'three', summary: 'Third change' }],
+    upsert: [{
+      changeRef: 'three',
+      dependsOn: 'two',
+      confidence: 0.95,
+      evidence: ['new', 'new'],
+    }],
+    remove: [{
+      changeRef: 'three',
+      dependsOn: 'one',
+      evidence: ['obsolete', 'obsolete'],
+    }],
+  }, ['one', 'two', 'three']);
+  assert.deepEqual(patch, {
+    version: 2,
+    evaluationMode: 'incremental',
+    evaluatedRefs: ['three'],
+    summaries: [{ ref: 'three', summary: 'Third change' }],
+    upsert: [{
+      changeRef: 'three',
+      dependsOn: 'two',
+      confidence: 0.95,
+      evidence: ['new'],
+    }],
+    review: [],
+    remove: [{
+      changeRef: 'three',
+      dependsOn: 'one',
+      evidence: ['obsolete'],
+    }],
+  });
+  assert.deepEqual(mergeManagedDependencyGraph([
+    {
+      changeRef: 'two',
+      dependsOn: 'one',
+      confidence: 0.9,
+      evidence: ['unrelated'],
+    },
+    {
+      changeRef: 'three',
+      dependsOn: 'one',
+      confidence: 0.9,
+      evidence: ['old'],
+    },
+  ], patch), [
+    {
+      changeRef: 'three',
+      dependsOn: 'two',
+      confidence: 0.95,
+      evidence: ['new'],
+    },
+    {
+      changeRef: 'two',
+      dependsOn: 'one',
+      confidence: 0.9,
+      evidence: ['unrelated'],
+    },
+  ]);
+});
+
+test('requires complete full evaluations and scopes mutations to evaluated endpoints', () => {
+  const base = {
+    version: 2,
+    evaluationMode: 'incremental',
+    evaluatedRefs: ['one'],
+    summaries: [{ ref: 'one', summary: 'First change' }],
+    upsert: [],
+    remove: [{
+      changeRef: 'two',
+      dependsOn: 'one',
+      evidence: ['The evaluated prerequisite changed.'],
+    }],
+  };
+  assert.deepEqual(
+    validateDependencyGraphPatch(base, ['one', 'two']).remove,
+    base.remove,
+  );
+  assert.throws(() => validateDependencyGraphPatch({
+    ...base,
+    evaluatedRefs: ['three'],
+    summaries: [{ ref: 'three', summary: 'Third change' }],
+  }, ['one', 'two', 'three']), /does not touch an evaluated change/);
+  assert.throws(
+    () => validateDependencyGraphPatch({
+      ...base,
+      evaluationMode: 'full',
+      remove: [],
+    }, ['one', 'two']),
+    /evaluate every active change/,
+  );
+});
+
+test('validates cycles across the complete merged managed and manual graph', () => {
+  assert.throws(() => validateMergedDependencyGraph({
+    knownRefs: ['one', 'two', 'three'],
+    previousManagedEdges: [{ changeRef: 'two', dependsOn: 'one' }],
+    managedEdges: [
+      {
+        changeRef: 'two',
+        dependsOn: 'one',
+        confidence: 0.9,
+        evidence: ['retained'],
+      },
+      {
+        changeRef: 'three',
+        dependsOn: 'two',
+        confidence: 0.95,
+        evidence: ['inferred'],
+      },
+    ],
+    nativeEdges: [
+      { changeRef: 'two', dependsOn: 'one' },
+      { changeRef: 'one', dependsOn: 'three' },
+    ],
+  }), /Dependency cycle/);
+});
+
+test('migrates only legacy comment edges that still exist natively', () => {
+  const checkpointEdge = {
+    changeRef: 'two',
+    dependsOn: 'one',
+    confidence: 0.99,
+    evidence: ['checkpoint'],
+  };
+  const commentEdge = {
+    changeRef: 'three',
+    dependsOn: 'one',
+    confidence: 0.9,
+    evidence: ['comment'],
+  };
+  assert.deepEqual(mergeManagedEdgeProvenance({
+    checkpointEdges: [checkpointEdge],
+    legacyCommentEdges: [
+      { ...checkpointEdge, confidence: 0.5, evidence: ['stale'] },
+      commentEdge,
+      {
+        changeRef: 'three',
+        dependsOn: 'two',
+        confidence: 0.9,
+        evidence: ['orphan'],
+      },
+    ],
+    nativeEdges: [
+      { changeRef: 'two', dependsOn: 'one' },
+      { changeRef: 'three', dependsOn: 'one' },
+    ],
+  }), [commentEdge, checkpointEdge]);
+});
+
+test('round-trips strict deterministic dependency checkpoints', () => {
+  const checkpoint = {
+    version: 1,
+    commit: 'a'.repeat(40),
+    changes: [
+      { ref: 'two', digest: '2'.repeat(64), summary: 'Second change' },
+      { ref: 'one', digest: '1'.repeat(64), summary: 'First change' },
+    ],
+    managedEdges: [{
+      changeRef: 'two',
+      dependsOn: 'one',
+      confidence: 0.95,
+      evidence: ['design.md'],
+    }],
+    inference: {
+      mode: 'full',
+      evaluatedRefs: ['two', 'one'],
+      baseCommit: null,
+      minimumConfidence: 0.85,
+    },
+  };
+  const parsed = parseDependencyCheckpoint(serializeDependencyCheckpoint(checkpoint));
+  assert.deepEqual(parsed.changes.map(({ ref }) => ref), ['one', 'two']);
+  assert.deepEqual(parsed.inference.evaluatedRefs, ['one', 'two']);
+  assert.throws(
+    () => parseDependencyCheckpoint(JSON.stringify({ ...checkpoint, extra: true })),
+    /unknown field/,
+  );
+  assert.throws(
+    () => serializeDependencyCheckpoint({
+      ...checkpoint,
+      inference: { ...checkpoint.inference, evaluatedRefs: ['one'] },
+    }),
+    /evaluate every summarized change/,
+  );
 });
 
 test('derives runnable state only for open unblocked archived-safe issues', () => {

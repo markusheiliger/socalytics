@@ -1,5 +1,6 @@
 const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const GIT_SHA = /^[a-f0-9]{40}$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 const SUPPORTED_OWNERS = new Set([
   'soca-strategist',
   'soca-designer',
@@ -16,6 +17,8 @@ export const CHANGE_MARKER_START = '<!-- openspec-change:v1';
 export const COMMENT_MARKER_END = '-->';
 export const LEDGER_MARKER_START = '<!-- openspec-operation:v1';
 export const DEPENDENCY_SUMMARY_START = '<!-- openspec-dependencies:v1';
+export const DEPENDENCY_CHECKPOINT_VERSION = 1;
+export const DEPENDENCY_PATCH_VERSION = 2;
 export const QUEUE_STATE_START = '<!-- openspec-queue-state:v1';
 export const CLOUD_RESULT_PREFIX = 'OPEN_SPEC_CLOUD_OPERATION_V1=';
 
@@ -210,6 +213,41 @@ function edgeKey(edge) {
   return `${edge.changeRef}\0${edge.dependsOn}`;
 }
 
+function normalizeManagedEdge(edge, path) {
+  assertObject(edge, path);
+  assertKnownKeys(edge, new Set(['changeRef', 'dependsOn', 'confidence', 'evidence']), path);
+  assertKebabCase(edge.changeRef, `${path}.changeRef`);
+  assertKebabCase(edge.dependsOn, `${path}.dependsOn`);
+  if (edge.changeRef === edge.dependsOn) throw new Error(`${path} cannot be a self dependency`);
+  if (typeof edge.confidence !== 'number' || edge.confidence < 0 || edge.confidence > 1) {
+    throw new Error(`${path}.confidence must be between 0 and 1`);
+  }
+  if (!Array.isArray(edge.evidence) || edge.evidence.length === 0) {
+    throw new Error(`${path}.evidence must be a non-empty array`);
+  }
+  edge.evidence.forEach((entry, evidenceIndex) => {
+    assertMarkerSafeString(entry, `${path}.evidence[${evidenceIndex}]`);
+  });
+  return {
+    changeRef: edge.changeRef,
+    dependsOn: edge.dependsOn,
+    confidence: edge.confidence,
+    evidence: [...new Set(edge.evidence)].sort(),
+  };
+}
+
+function normalizeManagedEdges(edges, path) {
+  if (!Array.isArray(edges)) throw new Error(`${path} must be an array`);
+  const seen = new Set();
+  return edges.map((edge, index) => {
+    const normalized = normalizeManagedEdge(edge, `${path}[${index}]`);
+    const key = edgeKey(normalized);
+    if (seen.has(key)) throw new Error(`${path}[${index}] duplicates a managed edge`);
+    seen.add(key);
+    return normalized;
+  }).sort((left, right) => edgeKey(left).localeCompare(edgeKey(right)));
+}
+
 export function validateDependencyOutput(value, knownRefs, existingEdges = [], minimumConfidence = 0.85) {
   assertObject(value, 'Dependency output');
   assertKnownKeys(value, new Set(['version', 'candidates']), 'Dependency output');
@@ -301,6 +339,175 @@ export function calculateManagedEdgeChanges(previousManagedEdges, desiredManaged
   };
 }
 
+export function validateDependencyGraphPatch(
+  value,
+  knownRefs,
+  existingEdges = [],
+  minimumConfidence = 0.85,
+) {
+  assertObject(value, 'Dependency graph patch');
+  assertKnownKeys(
+    value,
+    new Set(['version', 'evaluationMode', 'evaluatedRefs', 'summaries', 'upsert', 'remove']),
+    'Dependency graph patch',
+  );
+  if (value.version !== DEPENDENCY_PATCH_VERSION) {
+    throw new Error(`Dependency graph patch version must be ${DEPENDENCY_PATCH_VERSION}`);
+  }
+  if (!['incremental', 'full'].includes(value.evaluationMode)) {
+    throw new Error('Dependency graph patch.evaluationMode must be incremental or full');
+  }
+
+  const known = new Set(knownRefs);
+  if (!Array.isArray(value.evaluatedRefs)) {
+    throw new Error('Dependency graph patch.evaluatedRefs must be an array');
+  }
+  const evaluatedRefs = [...new Set(value.evaluatedRefs)];
+  if (evaluatedRefs.length !== value.evaluatedRefs.length) {
+    throw new Error('Dependency graph patch.evaluatedRefs must not contain duplicates');
+  }
+  evaluatedRefs.forEach((ref, index) => {
+    assertKebabCase(ref, `Dependency graph patch.evaluatedRefs[${index}]`);
+    if (!known.has(ref)) {
+      throw new Error(`Dependency graph patch.evaluatedRefs[${index}] references an unknown change`);
+    }
+  });
+  evaluatedRefs.sort();
+  if (value.evaluationMode === 'full'
+    && (evaluatedRefs.length !== known.size || evaluatedRefs.some((ref) => !known.has(ref)))) {
+    throw new Error('Full dependency graph patches must evaluate every active change');
+  }
+
+  if (!Array.isArray(value.summaries)) {
+    throw new Error('Dependency graph patch.summaries must be an array');
+  }
+  const summaryRefs = new Set();
+  const summaries = value.summaries.map((summary, index) => {
+    const path = `Dependency graph patch.summaries[${index}]`;
+    assertObject(summary, path);
+    assertKnownKeys(summary, new Set(['ref', 'summary']), path);
+    assertKebabCase(summary.ref, `${path}.ref`);
+    assertString(summary.summary, `${path}.summary`);
+    if (summaryRefs.has(summary.ref)) throw new Error(`${path} duplicates ref ${summary.ref}`);
+    summaryRefs.add(summary.ref);
+    return { ref: summary.ref, summary: summary.summary };
+  }).sort((left, right) => left.ref.localeCompare(right.ref));
+  if (summaryRefs.size !== evaluatedRefs.length
+    || evaluatedRefs.some((ref) => !summaryRefs.has(ref))) {
+    throw new Error('Dependency graph patch.summaries must cover exactly the evaluated refs');
+  }
+
+  const upsertCandidates = normalizeManagedEdges(value.upsert, 'Dependency graph patch.upsert');
+  if (!Array.isArray(value.remove)) {
+    throw new Error('Dependency graph patch.remove must be an array');
+  }
+  const remove = value.remove.map((edge, index) => {
+    const path = `Dependency graph patch.remove[${index}]`;
+    assertObject(edge, path);
+    assertKnownKeys(edge, new Set(['changeRef', 'dependsOn', 'evidence']), path);
+    assertKebabCase(edge.changeRef, `${path}.changeRef`);
+    assertKebabCase(edge.dependsOn, `${path}.dependsOn`);
+    if (edge.changeRef === edge.dependsOn) throw new Error(`${path} cannot be a self dependency`);
+    if (!Array.isArray(edge.evidence) || edge.evidence.length === 0) {
+      throw new Error(`${path}.evidence must be a non-empty array`);
+    }
+    edge.evidence.forEach((entry, evidenceIndex) => {
+      assertString(entry, `${path}.evidence[${evidenceIndex}]`);
+    });
+    return {
+      changeRef: edge.changeRef,
+      dependsOn: edge.dependsOn,
+      evidence: [...new Set(edge.evidence)].sort(),
+    };
+  }).sort((left, right) => edgeKey(left).localeCompare(edgeKey(right)));
+
+  const evaluated = new Set(evaluatedRefs);
+  const operationKeys = new Set();
+  for (const [operation, edges] of [['upsert', upsertCandidates], ['remove', remove]]) {
+    for (const edge of edges) {
+      if (!known.has(edge.changeRef) || !known.has(edge.dependsOn)) {
+        throw new Error(`Dependency graph patch.${operation} references an unknown change`);
+      }
+      if (!evaluated.has(edge.changeRef) && !evaluated.has(edge.dependsOn)) {
+        throw new Error(
+          `Dependency graph patch.${operation} does not touch an evaluated change`,
+        );
+      }
+      const key = edgeKey(edge);
+      if (operationKeys.has(key)) {
+        throw new Error(`Dependency graph patch repeats operation for ${edge.changeRef} -> ${edge.dependsOn}`);
+      }
+      operationKeys.add(key);
+    }
+  }
+
+  const validated = validateDependencyOutput(
+    { version: 1, candidates: upsertCandidates },
+    knownRefs,
+    existingEdges,
+    minimumConfidence,
+  );
+  return {
+    version: DEPENDENCY_PATCH_VERSION,
+    evaluationMode: value.evaluationMode,
+    evaluatedRefs,
+    summaries,
+    upsert: validated.accepted,
+    review: validated.review,
+    remove,
+  };
+}
+
+export function mergeManagedDependencyGraph(previousManagedEdges, patch) {
+  const merged = new Map(
+    normalizeManagedEdges(previousManagedEdges, 'Previous managed edges')
+      .map((edge) => [edgeKey(edge), edge]),
+  );
+  for (const edge of patch.remove) merged.delete(edgeKey(edge));
+  for (const edge of patch.upsert) merged.set(edgeKey(edge), edge);
+  return [...merged.values()]
+    .sort((left, right) => edgeKey(left).localeCompare(edgeKey(right)));
+}
+
+export function mergeManagedEdgeProvenance({
+  checkpointEdges = [],
+  legacyCommentEdges = [],
+  nativeEdges = [],
+}) {
+  const nativeKeys = new Set(nativeEdges.map(edgeKey));
+  const merged = new Map(
+    normalizeManagedEdges(checkpointEdges, 'Checkpoint managed edges')
+      .map((edge) => [edgeKey(edge), edge]),
+  );
+  for (const edge of normalizeManagedEdges(
+    legacyCommentEdges,
+    'Legacy comment managed edges',
+  )) {
+    const key = edgeKey(edge);
+    if (nativeKeys.has(key) && !merged.has(key)) merged.set(key, edge);
+  }
+  return [...merged.values()]
+    .sort((left, right) => edgeKey(left).localeCompare(edgeKey(right)));
+}
+
+export function validateMergedDependencyGraph({
+  knownRefs,
+  previousManagedEdges,
+  managedEdges,
+  nativeEdges,
+}) {
+  const previousKeys = new Set(previousManagedEdges.map(edgeKey));
+  const unrelatedNative = nativeEdges.filter((edge) => !previousKeys.has(edgeKey(edge)));
+  const graph = new Map();
+  for (const edge of [...unrelatedNative, ...managedEdges]) {
+    if (knownRefs.includes(edge.changeRef) && knownRefs.includes(edge.dependsOn)) {
+      graph.set(edgeKey(edge), edge);
+    }
+  }
+  assertAcyclicGraph(knownRefs, [...graph.values()]);
+  return [...graph.values()].sort((left, right) => edgeKey(left).localeCompare(edgeKey(right)));
+}
+
 export function validateDependencySummary(value) {
   assertObject(value, 'Dependency summary');
   assertKnownKeys(value, new Set(['version', 'managedEdges']), 'Dependency summary');
@@ -309,39 +516,123 @@ export function validateDependencySummary(value) {
     throw new Error('Dependency summary.managedEdges must be an array');
   }
 
-  const seen = new Set();
-  const managedEdges = value.managedEdges.map((edge, index) => {
-    const path = `Dependency summary.managedEdges[${index}]`;
-    assertObject(edge, path);
-    assertKnownKeys(edge, new Set(['changeRef', 'dependsOn', 'confidence', 'evidence']), path);
-    assertKebabCase(edge.changeRef, `${path}.changeRef`);
-    assertKebabCase(edge.dependsOn, `${path}.dependsOn`);
-    if (edge.changeRef === edge.dependsOn) throw new Error(`${path} cannot be a self dependency`);
-    if (typeof edge.confidence !== 'number' || edge.confidence < 0 || edge.confidence > 1) {
-      throw new Error(`${path}.confidence must be between 0 and 1`);
-    }
-    if (!Array.isArray(edge.evidence) || edge.evidence.length === 0) {
-      throw new Error(`${path}.evidence must be a non-empty array`);
-    }
-    edge.evidence.forEach((entry, evidenceIndex) => {
-      assertMarkerSafeString(entry, `${path}.evidence[${evidenceIndex}]`);
-    });
-    const normalized = {
-      changeRef: edge.changeRef,
-      dependsOn: edge.dependsOn,
-      confidence: edge.confidence,
-      evidence: [...new Set(edge.evidence)].sort(),
-    };
-    const key = edgeKey(normalized);
-    if (seen.has(key)) throw new Error(`${path} duplicates a managed edge`);
-    seen.add(key);
-    return normalized;
-  });
-
   return {
     version: 1,
-    managedEdges: managedEdges.sort((left, right) => edgeKey(left).localeCompare(edgeKey(right))),
+    managedEdges: normalizeManagedEdges(value.managedEdges, 'Dependency summary.managedEdges'),
   };
+}
+
+export function validateDependencyCheckpoint(value) {
+  assertObject(value, 'Dependency checkpoint');
+  assertKnownKeys(
+    value,
+    new Set(['version', 'commit', 'changes', 'managedEdges', 'inference']),
+    'Dependency checkpoint',
+  );
+  if (value.version !== DEPENDENCY_CHECKPOINT_VERSION) {
+    throw new Error(`Dependency checkpoint version must be ${DEPENDENCY_CHECKPOINT_VERSION}`);
+  }
+  if (typeof value.commit !== 'string' || !GIT_SHA.test(value.commit)) {
+    throw new Error('Dependency checkpoint.commit must be a full Git SHA');
+  }
+  if (!Array.isArray(value.changes)) throw new Error('Dependency checkpoint.changes must be an array');
+  const changeRefs = new Set();
+  const changes = value.changes.map((change, index) => {
+    const path = `Dependency checkpoint.changes[${index}]`;
+    assertObject(change, path);
+    assertKnownKeys(change, new Set(['ref', 'digest', 'summary']), path);
+    assertKebabCase(change.ref, `${path}.ref`);
+    if (changeRefs.has(change.ref)) throw new Error(`${path} duplicates change ${change.ref}`);
+    changeRefs.add(change.ref);
+    if (typeof change.digest !== 'string' || !SHA256.test(change.digest)) {
+      throw new Error(`${path}.digest must be a SHA-256 digest`);
+    }
+    assertString(change.summary, `${path}.summary`);
+    return { ref: change.ref, digest: change.digest, summary: change.summary };
+  }).sort((left, right) => left.ref.localeCompare(right.ref));
+
+  assertObject(value.inference, 'Dependency checkpoint.inference');
+  assertKnownKeys(
+    value.inference,
+    new Set(['mode', 'evaluatedRefs', 'baseCommit', 'minimumConfidence']),
+    'Dependency checkpoint.inference',
+  );
+  if (!['incremental', 'full'].includes(value.inference.mode)) {
+    throw new Error('Dependency checkpoint.inference.mode must be incremental or full');
+  }
+  if (!Array.isArray(value.inference.evaluatedRefs)) {
+    throw new Error('Dependency checkpoint.inference.evaluatedRefs must be an array');
+  }
+  const evaluatedRefs = [...new Set(value.inference.evaluatedRefs)];
+  if (evaluatedRefs.length !== value.inference.evaluatedRefs.length) {
+    throw new Error('Dependency checkpoint.inference.evaluatedRefs must not contain duplicates');
+  }
+  evaluatedRefs.forEach((ref, index) => {
+    assertKebabCase(ref, `Dependency checkpoint.inference.evaluatedRefs[${index}]`);
+    if (!changeRefs.has(ref)) {
+      throw new Error(`Dependency checkpoint.inference.evaluatedRefs[${index}] is not summarized`);
+    }
+  });
+  evaluatedRefs.sort();
+  if (value.inference.mode === 'full'
+    && (evaluatedRefs.length !== changeRefs.size
+      || evaluatedRefs.some((ref) => !changeRefs.has(ref)))) {
+    throw new Error('Full dependency checkpoints must evaluate every summarized change');
+  }
+  if (value.inference.baseCommit !== null
+    && (typeof value.inference.baseCommit !== 'string'
+      || !GIT_SHA.test(value.inference.baseCommit))) {
+    throw new Error('Dependency checkpoint.inference.baseCommit must be null or a full Git SHA');
+  }
+  if (typeof value.inference.minimumConfidence !== 'number'
+    || value.inference.minimumConfidence < 0
+    || value.inference.minimumConfidence > 1) {
+    throw new Error('Dependency checkpoint.inference.minimumConfidence must be between 0 and 1');
+  }
+
+  const managedEdges = normalizeManagedEdges(
+    value.managedEdges,
+    'Dependency checkpoint.managedEdges',
+  );
+  for (const edge of managedEdges) {
+    if (!changeRefs.has(edge.changeRef) || !changeRefs.has(edge.dependsOn)) {
+      throw new Error(
+        `Dependency checkpoint managed edge references an unsummarized change: ${edge.changeRef} -> ${edge.dependsOn}`,
+      );
+    }
+  }
+  assertAcyclicGraph([...changeRefs], managedEdges);
+
+  return {
+    version: DEPENDENCY_CHECKPOINT_VERSION,
+    commit: value.commit,
+    changes,
+    managedEdges,
+    inference: {
+      mode: value.inference.mode,
+      evaluatedRefs,
+      baseCommit: value.inference.baseCommit,
+      minimumConfidence: value.inference.minimumConfidence,
+    },
+  };
+}
+
+export function serializeDependencyCheckpoint(value) {
+  return `${JSON.stringify(validateDependencyCheckpoint(value))}\n`;
+}
+
+export function parseDependencyCheckpoint(text) {
+  if (typeof text !== 'string' || text.trim() === '') {
+    throw new Error('Dependency checkpoint note must be a non-empty JSON string');
+  }
+  try {
+    return validateDependencyCheckpoint(JSON.parse(text));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Dependency checkpoint note contains invalid JSON: ${error.message}`);
+    }
+    throw error;
+  }
 }
 
 export function renderDependencySummary(value) {

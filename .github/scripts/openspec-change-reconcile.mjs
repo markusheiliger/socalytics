@@ -26,9 +26,83 @@ import {
 } from './openspec-change-sync.mjs';
 
 const ACTIVE_STATES = ['queued', 'in_progress', 'idle', 'waiting_for_user'];
+const STAGE_LABEL_PREFIX = 'openspec:stage:';
+
+export const QUEUE_LABEL_DEFINITIONS = Object.freeze([
+  {
+    name: 'openspec:processing',
+    color: '1d76db',
+    description: 'OpenSpec change queue operation is in progress',
+  },
+  ...['apply', 'verify', 'sync', 'archive'].map((stage) => ({
+    name: `${STAGE_LABEL_PREFIX}${stage}`,
+    color: 'bfdadc',
+    description: `OpenSpec change queue is in the ${stage} stage`,
+  })),
+  {
+    name: 'openspec:needs-attention',
+    color: 'd93f0b',
+    description: 'OpenSpec change queue requires human attention',
+  },
+  {
+    name: 'openspec:awaiting-review',
+    color: 'fbca04',
+    description: 'OpenSpec change queue completed and awaits pull request review',
+  },
+]);
+
+const MANAGED_QUEUE_LABELS = new Set([
+  'openspec:enqueued',
+  ...QUEUE_LABEL_DEFINITIONS.map(({ name }) => name),
+]);
 
 function labelsOf(issue) {
   return issue.labels.map((label) => typeof label === 'string' ? label : label.name);
+}
+
+function labelsForState(state) {
+  if (state.status === 'dispatched') {
+    return new Set(['openspec:processing', `${STAGE_LABEL_PREFIX}${state.operation}`]);
+  }
+  if (state.status === 'needs_attention') {
+    return new Set(['openspec:needs-attention', `${STAGE_LABEL_PREFIX}${state.operation}`]);
+  }
+  if (state.status === 'awaiting_human_review') {
+    return new Set(['openspec:awaiting-review']);
+  }
+  return null;
+}
+
+export async function reconcileQueueLabels(client, issue, desiredLabels) {
+  const desired = new Set(desiredLabels);
+  for (const label of desired) {
+    if (!MANAGED_QUEUE_LABELS.has(label)) {
+      throw new Error(`Cannot reconcile unmanaged queue label: ${label}`);
+    }
+  }
+
+  const existing = new Set(labelsOf(issue));
+  for (const label of MANAGED_QUEUE_LABELS) {
+    if (existing.has(label) && !desired.has(label)) {
+      await client.removeIssueLabel(issue.number, label);
+      issue.labels = issue.labels.filter(
+        (value) => (typeof value === 'string' ? value : value.name) !== label,
+      );
+      existing.delete(label);
+    }
+  }
+  for (const label of desired) {
+    if (!existing.has(label)) {
+      await client.addIssueLabel(issue.number, label);
+      issue.labels.push({ name: label });
+      existing.add(label);
+    }
+  }
+}
+
+async function reconcileStateLabels(client, issue, state) {
+  const desired = labelsForState(state);
+  if (desired) await reconcileQueueLabels(client, issue, desired);
 }
 
 function branchArtifact(task) {
@@ -215,6 +289,7 @@ async function dispatchOperation({
     updatedAt: now().toISOString(),
   };
   await upsertQueueState(client, issue.number, persisted, nextState);
+  await reconcileStateLabels(client, issue, nextState);
   return { action: 'dispatched', operation, attempt, taskId: task.id };
 }
 
@@ -425,17 +500,20 @@ export async function reconcileIssue({
       archivedOnMain,
     });
   }
-  const readiness = deriveReadiness({
-    issueState: issue.state,
-    labels: labelsOf(issue),
-    lifecycle: marker.lifecycle,
-    blockers: blockerStates,
-    activeTaskState: state?.status === 'dispatched' ? 'in_progress' : null,
-    activeTaskAttempt: state?.attempt ?? 1,
-    needsDecision: state?.status === 'needs_attention',
-  });
 
   if (!state) {
+    const queued = labelsOf(issue).includes('openspec:enqueued');
+    await reconcileQueueLabels(
+      client,
+      issue,
+      queued ? new Set(['openspec:enqueued']) : new Set(),
+    );
+    const readiness = deriveReadiness({
+      issueState: issue.state,
+      labels: labelsOf(issue),
+      lifecycle: marker.lifecycle,
+      blockers: blockerStates,
+    });
     if (!readiness.runnable) return { action: 'waiting', reasons: readiness.reasons };
     const main = await client.getBranch('main');
     const tasks = await client.getTextContent(
@@ -462,17 +540,31 @@ export async function reconcileIssue({
     const pull = await client.getPullRequest(state.pullRequestNumber);
     if (pull.state === 'closed' && !pull.merged_at) {
       await projectActiveOnMain(client, issue, state.changeRef);
-      await upsertQueueState(client, issue.number, current, {
+      const nextState = {
         ...state,
         status: 'needs_attention',
         updatedAt: now().toISOString(),
-      });
+      };
+      await upsertQueueState(client, issue.number, current, nextState);
+      await reconcileStateLabels(client, issue, nextState);
       return { action: 'needs_attention', reason: 'pull-request-closed-unmerged' };
+    }
+    if (pull.merged_at && marker.lifecycle === 'archived') {
+      try {
+        await client.getRepositoryContent(marker.path, 'main');
+        await reconcileQueueLabels(client, issue, new Set());
+        return { action: 'complete', reason: 'archive-merged' };
+      } catch {
+        await reconcileStateLabels(client, issue, state);
+        return { action: 'waiting', reasons: ['archive-not-on-main'] };
+      }
     }
   }
   if (state.status !== 'dispatched') {
+    await reconcileStateLabels(client, issue, state);
     return { action: 'waiting', reasons: [state.status] };
   }
+  await reconcileStateLabels(client, issue, state);
 
   const task = await client.getAgentTask(state.taskId);
   const artifact = branchArtifact(task);
@@ -490,13 +582,15 @@ export async function reconcileIssue({
       recovery: 'Respond to the Agent Task, then explicitly repair or replay the queue state.',
       now,
     });
-    await upsertQueueState(client, issue.number, current, {
+    const nextState = {
       ...state,
       status: 'needs_attention',
       headRef,
       sessionId,
       updatedAt: now().toISOString(),
-    });
+    };
+    await upsertQueueState(client, issue.number, current, nextState);
+    await reconcileStateLabels(client, issue, nextState);
     return { action: 'needs_attention', reason: 'waiting_for_user' };
   }
   if (ACTIVE_STATES.includes(task.state)) {
@@ -526,8 +620,7 @@ export async function reconcileIssue({
       recovery: decision === 'retry' ? 'Automatic retry dispatched.' : 'Human recovery required.',
       now,
     });
-    const stillAuthorized = issue.state === 'open'
-      && labelsOf(issue).includes('openspec:enqueued');
+    const stillAuthorized = issue.state === 'open';
     if (decision === 'retry' && stillAuthorized) {
       const pull = await pullRequestForHead(client, resolvedHead);
       return dispatchOperation({
@@ -544,13 +637,15 @@ export async function reconcileIssue({
         now,
       });
     }
-    await upsertQueueState(client, issue.number, current, {
+    const nextState = {
       ...state,
       status: 'needs_attention',
       headRef: resolvedHead,
       sessionId,
       updatedAt: now().toISOString(),
-    });
+    };
+    await upsertQueueState(client, issue.number, current, nextState);
+    await reconcileStateLabels(client, issue, nextState);
     return { action: 'needs_attention', reason: task.state };
   }
 
@@ -576,13 +671,15 @@ export async function reconcileIssue({
       recovery: 'Human inspection is required because durable result validation failed.',
       now,
     });
-    await upsertQueueState(client, issue.number, current, {
+    const nextState = {
       ...state,
       status: 'needs_attention',
       headRef: resolvedHead,
       sessionId,
       updatedAt: now().toISOString(),
-    });
+    };
+    await upsertQueueState(client, issue.number, current, nextState);
+    await reconcileStateLabels(client, issue, nextState);
     return { action: 'needs_attention', reason: 'invalid-result' };
   }
 
@@ -596,13 +693,15 @@ export async function reconcileIssue({
     now,
   });
   if (!completed.valid) {
-    await upsertQueueState(client, issue.number, current, {
+    const nextState = {
       ...state,
       status: 'needs_attention',
       headRef: completed.headRef,
       sessionId: completed.sessionId,
       updatedAt: now().toISOString(),
-    });
+    };
+    await upsertQueueState(client, issue.number, current, nextState);
+    await reconcileStateLabels(client, issue, nextState);
     return { action: 'needs_attention', reason: completed.validation };
   }
 
@@ -615,14 +714,16 @@ export async function reconcileIssue({
       completed.archivePath,
       completed.headRef,
     );
-    await upsertQueueState(client, issue.number, current, {
+    const nextState = {
       ...state,
       status: 'awaiting_human_review',
       headRef: completed.headRef,
       sessionId: completed.sessionId,
       pullRequestNumber: pull?.number ?? state.pullRequestNumber,
       updatedAt: now().toISOString(),
-    });
+    };
+    await upsertQueueState(client, issue.number, current, nextState);
+    await reconcileStateLabels(client, issue, nextState);
     return {
       action: 'awaiting_human_review',
       pullRequestNumber: pull?.number ?? state.pullRequestNumber,
@@ -630,16 +731,18 @@ export async function reconcileIssue({
     };
   }
 
-  if (issue.state !== 'open' || !labelsOf(issue).includes('openspec:enqueued')) {
-    await upsertQueueState(client, issue.number, current, {
+  if (issue.state !== 'open') {
+    const nextState = {
       ...state,
       status: 'needs_attention',
       headRef: completed.headRef,
       sessionId: completed.sessionId,
       pullRequestNumber: pull?.number ?? state.pullRequestNumber,
       updatedAt: now().toISOString(),
-    });
-    return { action: 'needs_attention', reason: 'enqueue-authorization-removed' };
+    };
+    await upsertQueueState(client, issue.number, current, nextState);
+    await reconcileStateLabels(client, issue, nextState);
+    return { action: 'needs_attention', reason: 'issue-closed' };
   }
 
   const nextOperation = {
@@ -669,6 +772,9 @@ export async function reconcileAll({
   validateBranch = defaultBranchValidation,
   now = () => new Date(),
 }) {
+  for (const definition of QUEUE_LABEL_DEFINITIONS) {
+    await client.ensureLabel(definition);
+  }
   const issues = await client.listIssueTwins();
   const refs = new Set();
   for (const issue of issues) {

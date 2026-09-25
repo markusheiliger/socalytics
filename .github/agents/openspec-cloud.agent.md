@@ -44,12 +44,15 @@ Do not bypass a prompt, warning, ambiguity, incomplete state, or failed
 validation. If a new human decision is required, stop and report it rather than
 choosing a success-shaped default.
 
-The issue's `openspec:enqueued` authorization covers only the normal,
-already-decided lifecycle path. During archive, when all artifacts and tasks are
-complete and the generated workflow proves every delta spec is already synced,
-select `Archive now`. This is not a new decision. Stop for every incomplete
-artifact or task, unsynced or mismatched delta, overwrite conflict, warning that
-requires confirmation, or any other choice not fixed by this rule.
+`openspec:enqueued` is a one-shot request consumed when queue processing starts.
+For this operation, the controller-selected operation and validated checkpoint
+in the prompt are the authorization to continue the normal, already-decided
+lifecycle path; do not require the issue to retain `openspec:enqueued`. During
+archive, when all artifacts and tasks are complete and the generated workflow
+proves every delta spec is already synced, select `Archive now`. This is not a
+new decision. Stop for every incomplete artifact or task, unsynced or mismatched
+delta, overwrite conflict, warning that requires confirmation, or any other
+choice not fixed by this rule.
 
 Run the narrowest validation required by the operation and repository guidance.
 Repository mutations must remain on the existing controller-provided branch.

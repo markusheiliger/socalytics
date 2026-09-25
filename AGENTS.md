@@ -52,11 +52,14 @@
 ## OpenSpec Change Queue
 
 - Issue twins are non-authoritative projections of active changes on `main`. The canonical change ref is stable identity; active and dated archive paths are mutable projections.
-- `openspec:enqueued` records queue intent. Native GitHub issue dependencies are the only blocked-state authority.
+- One combined issue reconciliation Agentic Workflow performs deterministic issue synchronization before AI dependency inference. Change-driven runs are incremental; weekly and manually requested full runs rebuild the complete inference view, and manual dry runs make no mutations.
+- Dependency inference checkpoints are a rebuildable cache in `refs/notes/openspec-change-dependencies`. Fetch that ref explicitly when inspecting incremental behavior; the notes are not accepted state or queue authority.
+- `openspec:change` classifies twins. `openspec:enqueued` is a one-shot queue request consumed when processing begins; `openspec:processing`, `openspec:stage:*`, `openspec:needs-attention`, and `openspec:awaiting-review` expose the reconciled lifecycle. There is no paused state.
+- Native GitHub issue dependencies are the only blocked-state authority.
 - The controller uses the Agent Tasks API rather than native Copilot issue assignment because assignment immediately starts an uncontrolled duplicate session.
 - The queue runs apply, verify, sync, and archive on one durable draft pull request. One Agent Task may run per change at a time.
 - Reconciliation validates branch-visible evidence and append-only operation ledger entries. It does not treat Agent Task completion alone as success.
-- Cross-change inference runs in the read-only `openspec-change-dependencies.md` Agentic Workflow. Only its typed custom safe-output job may invoke the privileged dependency reconciler; edit the source and regenerate the lock file with `gh aw compile`.
+- Cross-change inference is read-only until its typed custom safe output invokes the privileged validator and reconciler. Edit the combined Agentic Workflow source and regenerate its lock file with `gh aw compile`; do not hand-edit the lock.
 - Failed or timed-out work receives one retry. Cancellation and `waiting_for_user` always stop for human attention.
 - Automation stops after validated archive. A human approves workflows, marks the pull request ready, reviews it, and enables auto-merge.
 - Run `node --test .github/scripts/*.test.mjs` for the queue tooling tests.

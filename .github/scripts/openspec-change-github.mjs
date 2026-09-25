@@ -112,6 +112,20 @@ export class GitHubChangeClient {
     });
   }
 
+  addIssueLabel(issueNumber, label) {
+    return this.request(`${this.repositoryPath}/issues/${issueNumber}/labels`, {
+      method: 'POST',
+      body: { labels: [label] },
+    });
+  }
+
+  removeIssueLabel(issueNumber, label) {
+    return this.request(
+      `${this.repositoryPath}/issues/${issueNumber}/labels/${encodeURIComponent(label)}`,
+      { method: 'DELETE', expected: [200, 204, 404] },
+    );
+  }
+
   createIssueComment(issueNumber, body) {
     return this.request(`${this.repositoryPath}/issues/${issueNumber}/comments`, {
       method: 'POST',

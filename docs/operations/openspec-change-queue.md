@@ -27,27 +27,94 @@ archive state. It links to those artifacts without copying them.
 
 ## Queue and dependency states
 
-- `openspec:enqueued` records user authorization to process the normal
-  no-warning OpenSpec lifecycle.
+- `openspec:change` classifies an issue twin.
+- `openspec:enqueued` is a one-shot request to enter the queue. The controller
+  consumes it when processing begins; it is not a persistent lifecycle state.
+- `openspec:processing` marks an operation in progress.
+- `openspec:stage:apply`, `openspec:stage:verify`, `openspec:stage:sync`, and
+  `openspec:stage:archive` expose the current operation.
+- `openspec:needs-attention` marks a stopped lifecycle that requires a human
+  decision or recovery.
+- `openspec:awaiting-review` marks a validated archive pull request awaiting
+  the human merge gate.
 - Native GitHub `blocked by` relationships are the only dependency state.
-- An issue is runnable only when it is open, enqueued, active on `main`, has no
-  active Agent Task, needs no human decision, and every native blocker is closed
-  with its archive confirmed on `main`.
+- An unstarted issue is initially runnable only when it is open, enqueued,
+  active on `main`, needs no human decision, and every native blocker is closed
+  with its archive confirmed on `main`. After admission, the persisted queue
+  checkpoint—not a retained enqueue label—governs later operations, and no
+  second Agent Task may overlap the active one.
 - Open issues represent active or in-progress changes.
 - Issues close as completed only after the archived pull request merges and the
   dated archive is observed on `main`.
 - Closing as not planned is reserved for explicit cancellation or retirement.
 
+There is no paused label or paused queue state. A run is processing, waiting on
+authoritative blockers, awaiting review, complete, or stopped with
+`openspec:needs-attention`. Reconciliation removes stale managed state and stage
+labels. After the archived pull request merges and the archive is confirmed on
+`main`, it removes the remaining transient queue labels and closes the issue;
+`openspec:change` remains the issue-twin classifier.
+
 Inferred dependencies never overwrite unowned native relationships. The queue
 records the exact inferred edges it manages and may remove only those edges.
 Manual edges remain intact.
 
-Dependency candidates come from the read-only GitHub Agentic Workflow source in
-`.github/workflows/openspec-change-dependencies.md`. Its generated
-`.lock.yml` is committed with the source. The model can submit only one typed
-custom safe output; the privileged job then applies the repository validator,
-confidence threshold, whole-graph cycle check, and managed-edge provenance
-rules before changing native relationships.
+## Combined issue reconciliation
+
+One OpenSpec issue reconciliation Agentic Workflow replaces the separate issue
+sync and dependency-inference workflows. References currently use the likely
+source and generated names
+`.github/workflows/openspec-change-reconciliation.md` and
+`.github/workflows/openspec-change-reconciliation.lock.yml`; use the committed
+source/lock pair if the implementation settles different names.
+
+Every invocation performs deterministic issue synchronization first. This
+creates or updates twins from authoritative state on `main`, projects active or
+archived paths, and normalizes managed labels before any model is asked to infer
+dependencies. AI inference therefore receives the synchronized active-change
+set rather than stale issue projections.
+
+Normal change-driven runs are incremental. They compare `openspec/changes/`
+since the nearest valid dependency checkpoint and ask the model to evaluate only
+affected active change refs while preserving unrelated managed edges. A weekly
+scheduled run performs a full reconciliation of every active change. A manual
+dispatch can request either full reconciliation or dry-run mode; dry-run reports
+the deterministic and inferred actions without mutating issues, native
+dependencies, labels, or the checkpoint.
+
+The model has read-only repository and issue access and returns one typed custom
+safe output. A privileged postprocessor independently validates identities,
+evaluation coverage, evidence, confidence, duplicates, the complete graph for
+cycles, and managed-edge provenance before changing native relationships.
+Inference remains advisory: native GitHub `blocked by` relationships are the
+only queue authority.
+
+### Dependency checkpoint
+
+Incremental inference uses the Git notes ref
+`refs/notes/openspec-change-dependencies` as a rebuildable checkpoint and cache.
+A note is attached to the exact reconciled commit and records summarized active
+changes, the managed edge set, and inference metadata. It is not accepted
+behavioral state, queue authority, or the sole record of a dependency.
+
+Fetch the notes explicitly after cloning or before investigating an incremental
+run:
+
+```powershell
+git fetch --no-tags origin refs/notes/openspec-change-dependencies:refs/notes/openspec-change-dependencies
+```
+
+Inspect the checkpoint attached to a commit with:
+
+```powershell
+git notes --ref=refs/notes/openspec-change-dependencies show <commit-sha>
+```
+
+The workflow may search ancestors for the nearest valid checkpoint. A missing,
+stale, or invalid note causes a full rebuild; it must never cause native manual
+blockers to be removed. Notes are produced by reconciliation and pushed
+explicitly, not merged through pull requests or treated as human-authored
+history.
 
 The controller starts Agent Tasks through the Agent Tasks API rather than
 assigning the issue to Copilot. Native Copilot assignment is itself an immediate
@@ -79,9 +146,13 @@ change at a time. Before each API dispatch, the controller persists a
 `dispatching` checkpoint. An interrupted dispatch therefore stops safely
 instead of starting an untracked duplicate task.
 
-`openspec:enqueued` does not authorize bypassing warnings or making new product,
-architecture, security, or archive decisions. A required interaction stops
-processing for human attention.
+The controller consumes `openspec:enqueued` when it starts processing. Each
+later controller-selected operation on the same durable lifecycle is authorized
+by the validated queue checkpoint and explicit dispatch; the cloud agent must
+not require the one-shot label to remain. Neither initial queueing nor a later
+dispatch authorizes bypassing warnings or making new product, architecture,
+security, or archive decisions. A required interaction stops processing for
+human attention.
 
 ## Durable evidence
 
@@ -135,9 +206,13 @@ Run the pure queue contract tests from the repository root:
 
 ```powershell
 node --test .github/scripts/*.test.mjs
-gh aw validate openspec-change-dependencies.md
-gh aw lint .github/workflows/openspec-change-dependencies.lock.yml
+gh aw validate .github/workflows/openspec-change-reconciliation.md
+gh aw lint .github/workflows/openspec-change-reconciliation.lock.yml
 ```
+
+The workflow paths are the approved likely names, not a requirement to rename
+an implementation that settles another committed source/lock pair. Compile the
+Markdown source with `gh aw compile`; never hand-edit the generated lock file.
 
 OpenSpec validation remains:
 

@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  QUEUE_LABEL_DEFINITIONS,
   reconcileAll,
   reconcileIssue,
+  reconcileQueueLabels,
 } from './openspec-change-reconcile.mjs';
 
 const sha = (character) => character.repeat(40);
@@ -39,15 +41,65 @@ function initialClient(overrides = {}) {
       return { id: 99 };
     },
     updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
+    addIssueLabel: async (...args) => calls.push(['addIssueLabel', ...args]),
+    removeIssueLabel: async (...args) => calls.push(['removeIssueLabel', ...args]),
+    ensureLabel: async (...args) => calls.push(['ensureLabel', ...args]),
     ...overrides,
   };
 }
 
+test('defines every visible processing, stage, attention, and review label', () => {
+  assert.deepEqual(
+    QUEUE_LABEL_DEFINITIONS.map(({ name }) => name),
+    [
+      'openspec:processing',
+      'openspec:stage:apply',
+      'openspec:stage:verify',
+      'openspec:stage:sync',
+      'openspec:stage:archive',
+      'openspec:needs-attention',
+      'openspec:awaiting-review',
+    ],
+  );
+});
+
+test('reconciles managed labels idempotently without replacing unrelated labels', async () => {
+  const issue = baseIssue({
+    labels: [
+      { name: 'openspec:change' },
+      { name: 'openspec:enqueued' },
+      { name: 'team:platform' },
+    ],
+  });
+  const client = initialClient();
+  const desired = new Set(['openspec:processing', 'openspec:stage:apply']);
+
+  await reconcileQueueLabels(client, issue, desired);
+  await reconcileQueueLabels(client, issue, desired);
+
+  assert.deepEqual(client.calls, [
+    ['removeIssueLabel', 12, 'openspec:enqueued'],
+    ['addIssueLabel', 12, 'openspec:processing'],
+    ['addIssueLabel', 12, 'openspec:stage:apply'],
+  ]);
+  assert.deepEqual(labels(issue), [
+    'openspec:change',
+    'team:platform',
+    'openspec:processing',
+    'openspec:stage:apply',
+  ]);
+});
+
+function labels(issue) {
+  return issue.labels.map((label) => typeof label === 'string' ? label : label.name);
+}
+
 test('dispatches apply for a newly enqueued unblocked issue', async () => {
   const client = initialClient();
+  const issue = baseIssue();
   const result = await reconcileIssue({
     client,
-    issue: baseIssue(),
+    issue,
     agentToken: 'agent-token',
     now,
   });
@@ -58,8 +110,20 @@ test('dispatches apply for a newly enqueued unblocked issue', async () => {
   assert.equal(start[1].createPullRequest, true);
   assert.deepEqual(
     client.calls.map(([name]) => name),
-    ['createIssueComment', 'startAgentTask', 'updateIssueComment'],
+    [
+      'createIssueComment',
+      'startAgentTask',
+      'updateIssueComment',
+      'removeIssueLabel',
+      'addIssueLabel',
+      'addIssueLabel',
+    ],
   );
+  assert.deepEqual(labels(issue), [
+    'openspec:change',
+    'openspec:processing',
+    'openspec:stage:apply',
+  ]);
 });
 
 test('does not dispatch while a native blocker is unresolved', async () => {
@@ -171,6 +235,7 @@ test('stops waiting-for-user tasks with a durable ledger entry', async () => {
 test('stops at awaiting human review after archive passes', async () => {
   const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"archive","attempt":1,"taskId":"task-4","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
+  const issue = baseIssue();
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
     getAgentTask: async () => ({
@@ -192,7 +257,7 @@ test('stops at awaiting human review after archive passes', async () => {
 
   const result = await reconcileIssue({
     client,
-    issue: baseIssue(),
+    issue,
     agentToken: 'agent-token',
     getSessionLog: async () => 'OPEN_SPEC_CLOUD_OPERATION_V1={"changeRef":"add-platform","operation":"archive","verdict":"pass","validation":"Archived."}',
     now,
@@ -201,9 +266,14 @@ test('stops at awaiting human review after archive passes', async () => {
   assert.equal(result.pullRequestNumber, 30);
   assert.equal(calls.some(([name]) => name === 'startAgentTask'), false);
   assert.equal(calls.some(([name]) => name === 'updateIssue'), true);
+  assert.equal(client.calls.some(([name]) => name === 'addIssueLabel'), true);
+  assert.deepEqual(labels(issue), [
+    'openspec:change',
+    'openspec:awaiting-review',
+  ]);
 });
 
-test('does not advance after enqueue authorization is removed', async () => {
+test('advances after one-shot enqueue intent is removed by durable dispatch', async () => {
   const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"verify","attempt":1,"taskId":"task-2","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
@@ -226,11 +296,8 @@ test('does not advance after enqueue authorization is removed', async () => {
     validateBranch: async () => {},
     now,
   });
-  assert.deepEqual(result, {
-    action: 'needs_attention',
-    reason: 'enqueue-authorization-removed',
-  });
-  assert.equal(calls.some(([name]) => name === 'startAgentTask'), false);
+  assert.equal(result.action, 'dispatched');
+  assert.equal(result.operation, 'sync');
 });
 
 test('ignores forged queue-state comments from non-bot authors', async () => {
@@ -318,6 +385,11 @@ test('stops after a second failed operation attempt', async () => {
 test('restores the active projection when the archive pull request closes unmerged', async () => {
   const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"awaiting_human_review","operation":"archive","attempt":1,"taskId":"task-4","sessionId":"session-4","baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const archivedIssue = baseIssue({
+    labels: [
+      { name: 'openspec:change' },
+      { name: 'openspec:awaiting-review' },
+      { name: 'team:platform' },
+    ],
     body: marker
       .replace('"lifecycle":"active"', '"lifecycle":"archived"')
       .replace('"gitRef":"main"', '"gitRef":"copilot/add-platform"')
@@ -342,6 +414,82 @@ test('restores the active projection when the archive pull request closes unmerg
   });
   assert.match(updates[0][1].body, /"lifecycle":"active"/);
   assert.match(updates[0][1].body, /"gitRef":"main"/);
+  assert.deepEqual(labels(archivedIssue), [
+    'openspec:change',
+    'team:platform',
+    'openspec:needs-attention',
+    'openspec:stage:archive',
+  ]);
+});
+
+test('cleans visible queue labels after the archive pull request merges to main', async () => {
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"awaiting_human_review","operation":"archive","attempt":1,"taskId":"task-4","sessionId":"session-4","baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const issue = baseIssue({
+    labels: [
+      { name: 'openspec:change' },
+      { name: 'openspec:awaiting-review' },
+      { name: 'team:platform' },
+    ],
+    body: marker
+      .replace('"lifecycle":"active"', '"lifecycle":"archived"')
+      .replace('"gitRef":"main"', '"gitRef":"copilot/add-platform"')
+      .replace('"path":"openspec/changes/add-platform"', '"path":"openspec/changes/archive/2026-09-24-add-platform"'),
+  });
+  const client = initialClient({
+    listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
+    getPullRequest: async () => ({
+      state: 'closed',
+      merged_at: '2026-09-24T18:00:00Z',
+    }),
+    getRepositoryContent: async (path, ref) => {
+      assert.equal(path, 'openspec/changes/archive/2026-09-24-add-platform');
+      assert.equal(ref, 'main');
+      return [{ name: 'tasks.md' }];
+    },
+  });
+
+  const result = await reconcileIssue({
+    client,
+    issue,
+    agentToken: 'agent-token',
+    now,
+  });
+
+  assert.deepEqual(result, { action: 'complete', reason: 'archive-merged' });
+  assert.deepEqual(labels(issue), ['openspec:change', 'team:platform']);
+  assert.equal(client.calls.some(([name]) => name === 'startAgentTask'), false);
+});
+
+test('event re-entry preserves an active stage without duplicate dispatch or label calls', async () => {
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"verify","attempt":1,"taskId":"task-2","sessionId":"session-2","baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const client = initialClient({
+    listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
+    getAgentTask: async () => ({
+      state: 'in_progress',
+      artifacts: [{ type: 'branch', data: { head_ref: 'copilot/add-platform' } }],
+      sessions: [{ id: 'session-2' }],
+    }),
+  });
+  const issue = baseIssue({
+    labels: [
+      { name: 'openspec:change' },
+      { name: 'openspec:processing' },
+      { name: 'openspec:stage:verify' },
+    ],
+  });
+
+  const result = await reconcileIssue({
+    client,
+    issue,
+    agentToken: 'agent-token',
+    now,
+  });
+
+  assert.deepEqual(result, {
+    action: 'waiting',
+    reasons: ['agent-task-in_progress'],
+  });
+  assert.deepEqual(client.calls, []);
 });
 
 test('rejects duplicate twins before reconciling any issue', async () => {
@@ -358,4 +506,21 @@ test('rejects duplicate twins before reconciling any issue', async () => {
     /Duplicate issue twins for add-platform/,
   );
   assert.equal(commentsRead, 0);
+});
+
+test('ensures visible queue label definitions before reconciliation', async () => {
+  const client = initialClient({
+    listIssueTwins: async () => [],
+  });
+
+  assert.deepEqual(
+    await reconcileAll({ client, agentToken: 'agent-token', now }),
+    [],
+  );
+  assert.deepEqual(
+    client.calls
+      .filter(([name]) => name === 'ensureLabel')
+      .map(([, definition]) => definition.name),
+    QUEUE_LABEL_DEFINITIONS.map(({ name }) => name),
+  );
 });

@@ -92,6 +92,43 @@ test('uses native issue dependency request shapes', async () => {
   assert.match(calls[1].url, /blocked_by\/42$/);
 });
 
+test('adds and removes only the requested issue label', async () => {
+  const calls = [];
+  const client = clientWith(async (url, options) => {
+    calls.push({ url, options });
+    return options.method === 'DELETE'
+      ? new Response(null, { status: 204 })
+      : jsonResponse([{ name: 'openspec:processing' }]);
+  });
+
+  await client.addIssueLabel(12, 'openspec:processing');
+  await client.removeIssueLabel(12, 'openspec:stage:apply');
+
+  assert.equal(
+    calls[0].url,
+    'https://api.github.com/repos/markusheiliger/socalytics/issues/12/labels',
+  );
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    labels: ['openspec:processing'],
+  });
+  assert.equal(
+    calls[1].url,
+    'https://api.github.com/repos/markusheiliger/socalytics/issues/12/labels/openspec%3Astage%3Aapply',
+  );
+  assert.equal(calls[1].options.body, undefined);
+});
+
+test('treats removing an absent issue label as idempotent', async () => {
+  const client = clientWith(async () => new Response(
+    JSON.stringify({ message: 'Label does not exist' }),
+    { status: 404, headers: { 'Content-Type': 'application/json' } },
+  ));
+
+  await assert.doesNotReject(
+    client.removeIssueLabel(12, 'openspec:awaiting-review'),
+  );
+});
+
 test('redacts both tokens from GitHub API errors', async () => {
   const client = clientWith(async () => new Response(
     'repo-secret and agent-secret must not escape',
