@@ -19,6 +19,13 @@ the current architecture narratives it governs. The archived change should link
 back to the ADR. If the change is not ready to archive, keep the ADR candidate
 explicit in the active change rather than creating an untraceable record.
 
+## Records
+
+1. [0001 Shared Persistence Boundary And Database Roles](0001-shared-persistence-boundary-and-database-roles.md)
+   establishes the shared platform persistence project as the single owner of
+   module-neutral database infrastructure and makes PostgreSQL owner and runtime
+   roles the enforcement authority for module schema isolation.
+
 ## Naming
 
 Use a zero-padded sequence followed by a lowercase kebab-case title, such as `0001-example-decision.md`.
