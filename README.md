@@ -89,8 +89,10 @@ authenticated GitHub CLI session:
 gh auth status
 ```
 
-The repository-owned enqueue skill is independent of the queue scripts under
-`.github/scripts/`.
+The repository-owned `openspec-enqueue-change` skill is an equivalent,
+host-neutral entry point and is independent of the queue scripts under
+`.github/scripts/`. A host without true multi-select interaction can run it
+with explicit refs; a no-ref invocation stops without mutation.
 
 Useful OpenSpec repository checks are:
 

@@ -1,8 +1,8 @@
 ---
-name: openspec-enqueue-changes
-description: Enqueue one or more committed OpenSpec changes through their GitHub issue twins. Use when the user invokes /opsx-enqueue or asks to enqueue, queue, or batch-process OpenSpec changes.
+name: openspec-enqueue-change
+description: Enqueue one or more committed OpenSpec changes through their GitHub issue twins. Use when the user invokes /opsx-enqueue, invokes this skill directly, or asks to enqueue, queue, or batch-process OpenSpec changes.
 license: MIT
-compatibility: Requires the openspec, git, and gh CLIs, an authenticated GitHub CLI session, and the client question tool.
+compatibility: Requires the openspec, git, and gh CLIs, an authenticated GitHub CLI session, and a true multi-select interaction when no refs are supplied.
 metadata:
   author: SocAlytics
   version: "1.0"
@@ -17,15 +17,20 @@ issue dependencies, dispatch Agent Tasks, or assign issues to Copilot.
 
 ## Input
 
-Accept zero or more exact kebab-case OpenSpec change refs after
-`/opsx-enqueue`.
+Accept zero or more exact kebab-case OpenSpec change refs supplied with the
+operation.
 
 - With refs, validate exactly those initial selections.
-- Without refs, discover every eligible change and present them in one true
-  multi-select question by enabling multi-select mode on the client question
-  tool.
+- Without refs, discover every eligible change and ask one structured question
+  that presents one option per eligible change, permits multiple options to be
+  selected before submission, and returns a set of one or more stable change
+  refs.
 - A repeated single-select loop, freeform list, or comma-separated fallback is
   not a multi-select question.
+- Use the host's native true multi-select interaction or an equivalent
+  structured elicitation mechanism. If the host cannot provide one and no refs
+  were supplied, stop without mutation and tell the user to rerun the operation
+  with explicit refs.
 
 ## Safety boundary
 
@@ -119,12 +124,16 @@ question and summarize the rejection reasons.
 
 When refs were supplied, use them as the initial selection.
 
-Otherwise, use the client question tool in true multi-select mode. Present one
-choice per eligible change. Each choice should show the ref and issue number;
-include direct blocker refs in the description when available. Require at least
-one selection.
+Otherwise, ask one structured question that presents one option per eligible
+change and permits multiple options to be selected before submission. Each
+option should use the stable change ref as its value, show the ref and issue
+number, and include direct blocker refs in the description when available.
+Require a result containing a set of at least one stable change ref.
 
 Do not emulate multi-select with repeated single-selection or freeform input.
+Use the host's native true multi-select interaction or an equivalent structured
+elicitation mechanism. If neither is available, stop without mutation and tell
+the user to rerun the operation with explicit refs.
 
 ## Phase 5: Compute dependency closure
 
@@ -202,4 +211,4 @@ Report a table containing change ref, issue number, and one of:
 
 Report full success only when every selected issue is enqueued or already
 enqueued. For partial failure, state that GitHub label mutations are not atomic
-and that rerunning `/opsx-enqueue` is safe because labeling is idempotent.
+and that rerunning the operation is safe because labeling is idempotent.

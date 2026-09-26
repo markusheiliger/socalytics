@@ -61,16 +61,21 @@ Manual edges remain intact.
 
 ## Client-side batch enqueue
 
-The repository-owned `/opsx-enqueue [<change-ref> ...]` prompt uses the
-`openspec-enqueue-changes` skill to request initial queue admission. This is
+The repository-owned `/opsx-enqueue [<change-ref> ...]` prompt and
+`openspec-enqueue-change` skill provide equivalent entry points for initial
+queue admission. Each contains the complete workflow, following the same
+prompt-and-skill structure as the OpenSpec-provided operations. This is
 client-side repository tooling; it does not invoke the queue scripts, dispatch
 an Agent Task, assign an issue to Copilot, or create or repair issue twins and
 dependencies.
 
-With explicit refs, the skill validates those changes. Without refs, it uses
-the client question tool in multi-select mode to present every eligible active
-change in one list. It does not substitute repeated single selection or
-freeform input.
+With explicit refs, the operation validates those changes. Without refs, it
+uses one host-native structured interaction to present every eligible active
+change, permit multiple selections before submission, and return a set of one
+or more stable change refs. An equivalent structured elicitation mechanism is
+acceptable. It does not substitute repeated single selection or freeform input.
+If the host cannot provide true multi-select interaction, the operation stops
+without mutation and requires explicit refs.
 
 A change is eligible only when:
 
