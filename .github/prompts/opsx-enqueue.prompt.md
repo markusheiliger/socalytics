@@ -15,16 +15,10 @@ Accept zero or more exact kebab-case OpenSpec change refs after
 `/opsx-enqueue`.
 
 - With refs, validate exactly those initial selections.
-- Without refs, discover every eligible change and ask one structured question
-  that presents one option per eligible change, permits multiple options to be
-  selected before submission, and returns a set of one or more stable change
-  refs.
-- A repeated single-select loop, freeform list, or comma-separated fallback is
-  not a multi-select question.
-- Use the host's native true multi-select interaction or an equivalent
-  structured elicitation mechanism. If the host cannot provide one and no refs
-  were supplied, stop without mutation and tell the user to rerun the operation
-  with explicit refs.
+- Without refs, discover every eligible change and use the complete eligible
+  set as the initial selection. Do not ask the user to select changes
+  individually.
+- Users who want a subset must supply its exact refs with the operation.
 
 ## Safety boundary
 
@@ -87,8 +81,9 @@ repository.
 
 ## Phase 3: Determine admission eligibility
 
-Evaluate every supplied ref, or every active ref when building the picker. A
-change is eligible for initial admission only when all checks pass:
+Evaluate every supplied ref, or every active ref when building the
+no-argument selection. A change is eligible for initial admission only when all
+checks pass:
 
 1. `openspec validate <ref> --type change --strict --json --no-interactive`
    reports exactly one valid item and zero failures.
@@ -107,9 +102,9 @@ change is eligible for initial admission only when all checks pass:
    - `openspec:awaiting-review`;
    - any `openspec:stage:*` label.
 
-Keep a reason for every rejected change. Supplied refs fail the operation when
-ineligible. Picker candidates contain all eligible changes, including changes
-that currently have native blockers.
+Keep a reason for every rejected change. Supplied refs fail the operation when ineligible. The no-argument selection
+contains all eligible changes, including changes that currently have native
+blockers.
 
 If the no-argument candidate set is empty, stop without showing an empty
 question and summarize the rejection reasons.
@@ -118,16 +113,9 @@ question and summarize the rejection reasons.
 
 When refs were supplied, use them as the initial selection.
 
-Otherwise, ask one structured question that presents one option per eligible
-change and permits multiple options to be selected before submission. Each
-option should use the stable change ref as its value, show the ref and issue
-number, and include direct blocker refs in the description when available.
-Require a result containing a set of at least one stable change ref.
-
-Do not emulate multi-select with repeated single-selection or freeform input.
-Use the host's native true multi-select interaction or an equivalent structured
-elicitation mechanism. If neither is available, stop without mutation and tell
-the user to rerun the operation with explicit refs.
+Otherwise, use every eligible change as the initial selection. Selection is
+automatic at this phase; the user reviews the dependency-complete ordered set
+and explicitly confirms it in Phase 6.
 
 ## Phase 5: Compute dependency closure
 
@@ -177,11 +165,11 @@ Ask for explicit confirmation with exactly:
 
 On cancellation, stop without mutation.
 
-After confirmation, repeat Phases 1 through 5 for the final set. Do not show
-the initial picker again. Allow an issue that gained `openspec:enqueued` during
-revalidation as an idempotent success, but otherwise stop before the first
-write if repository state, issue identity, eligibility, or dependency closure
-changed.
+After confirmation, repeat Phases 1 through 5 for the final set. Do not add
+newly discovered eligible changes during revalidation. Allow an issue that
+gained `openspec:enqueued` during revalidation as an idempotent success, but
+otherwise stop before the first write if repository state, issue identity,
+eligibility, or dependency closure changed.
 
 ## Phase 7: Enqueue
 

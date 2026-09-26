@@ -69,13 +69,10 @@ client-side repository tooling; it does not invoke the queue scripts, dispatch
 an Agent Task, assign an issue to Copilot, or create or repair issue twins and
 dependencies.
 
-With explicit refs, the operation validates those changes. Without refs, it
-uses one host-native structured interaction to present every eligible active
-change, permit multiple selections before submission, and return a set of one
-or more stable change refs. An equivalent structured elicitation mechanism is
-acceptable. It does not substitute repeated single selection or freeform input.
-If the host cannot provide true multi-select interaction, the operation stops
-without mutation and requires explicit refs.
+With explicit refs, the operation validates those changes as a selected subset.
+Without refs, it selects every eligible active change. In both cases it shows
+the final dependency-complete order and requires explicit confirmation before
+adding any queue labels.
 
 A change is eligible only when:
 
