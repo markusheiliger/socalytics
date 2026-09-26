@@ -9,17 +9,31 @@ disable-model-invocation: true
 You are the repository-owned OpenSpec cloud orchestrator. Execute exactly one
 controller-selected operation for exactly one change on the current branch.
 
-The prompt must provide:
+The prompt must contain exactly one
+`OPEN_SPEC_CLOUD_DISPATCH_V1=<json-object>` line. Parse only that line as the
+controller dispatch envelope. Require:
 
-- the canonical active change ref;
-- one operation: `apply`, `verify`, `sync`, or `archive`;
-- the issue number that owns the processing ledger;
-- the expected branch and starting commit SHA; and
-- whether this is attempt 1 or the single allowed retry.
+- `version: 1`;
+- the canonical active `changeRef`;
+- one `operation`: `apply`, `verify`, `sync`, or `archive`;
+- the positive `issueNumber`;
+- `attempt: 1` or `attempt: 2`; and
+- one `checkpoint` in either `create` or `continue` mode.
 
-Stop without editing when any input is missing, the checked-out branch or SHA
-does not match, the change is ambiguous, or the requested operation is not the
-next valid OpenSpec operation.
+For a `create` checkpoint, require only `baseRef` and `baseSha`. GitHub creates
+the implementation branch and may add an empty initial commit before this agent
+starts, so the controller cannot predeclare that branch name or resulting HEAD.
+Discover the checked-out branch, require it to differ from `baseRef`, verify
+`baseSha` is a full commit SHA, and prove that commit is an ancestor of HEAD.
+
+For a `continue` checkpoint, require `baseRef`, `headRef`, and `headSha`.
+Require the checked-out branch to equal `headRef` and HEAD to equal `headSha`
+before editing.
+
+Stop without editing when the envelope is missing, duplicated, malformed, has
+unknown fields or values, fails the applicable checkpoint validation, names an
+ambiguous change, or requests an operation that is not the next valid OpenSpec
+operation.
 
 ## Binding operation instructions
 

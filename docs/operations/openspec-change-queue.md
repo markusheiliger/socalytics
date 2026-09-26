@@ -184,11 +184,21 @@ The operation sequence is:
 4. archive;
 5. await human review and merge.
 
-Every later Agent Task continues on the same open draft pull request by
-providing both its base and head refs. Exactly one Agent Task may run for a
-change at a time. Before each API dispatch, the controller persists a
-`dispatching` checkpoint. An interrupted dispatch therefore stops safely
-instead of starting an untracked duplicate task.
+Every Agent Task receives one versioned
+`OPEN_SPEC_CLOUD_DISPATCH_V1=<json-object>` envelope. The initial apply uses a
+`create` checkpoint containing the validated base ref and SHA. GitHub chooses
+the implementation branch and may add an empty initial commit before the agent
+starts, so the agent discovers that branch and proves the base SHA is an
+ancestor of its HEAD. The controller does not guess a generated branch name or
+HEAD SHA.
+
+Every later Agent Task uses a `continue` checkpoint and continues on the same
+open draft pull request by providing the exact base ref, head ref, and starting
+head SHA. The agent requires its checked-out branch and HEAD to match before
+editing. Exactly one Agent Task may run for a change at a time. Before each API
+dispatch, the controller persists a `dispatching` checkpoint. An interrupted
+dispatch therefore stops safely instead of starting an untracked duplicate
+task.
 
 The controller consumes `openspec:enqueued` when it starts processing. Each
 later controller-selected operation on the same durable lifecycle is authorized
@@ -231,6 +241,11 @@ contract. Reconciliation therefore validates persisted repository evidence.
 - A second failure records recovery guidance and stops.
 - Closing the archive pull request without merging restores the issue projection
   to the active change on `main` and records a human-attention state.
+- Recovering a failed initial dispatch requires preserving its immutable ledger
+  evidence, closing its empty draft pull request without merging, deleting only
+  that generated branch, clearing only the mutable checkpoint and transient
+  queue labels, and explicitly re-enqueuing the active change after the
+  controller fix is present on `main`.
 - Reconciliation is level-triggered and idempotent; events wake it but do not
   authorize transitions by themselves.
 

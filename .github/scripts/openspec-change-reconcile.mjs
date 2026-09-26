@@ -127,19 +127,31 @@ function operationPrompt({
   beforeSha,
   attempt,
 }) {
+  const checkpoint = headRef === null
+    ? {
+      mode: 'create',
+      baseRef,
+      baseSha: beforeSha,
+    }
+    : {
+      mode: 'continue',
+      baseRef,
+      headRef,
+      headSha: beforeSha,
+    };
+  const dispatch = {
+    version: 1,
+    changeRef,
+    operation,
+    issueNumber,
+    attempt,
+    checkpoint,
+  };
   return [
-    `Execute exactly one OpenSpec cloud operation.`,
-    ``,
-    `Change ref: ${changeRef}`,
-    `Operation: ${operation}`,
-    `Issue number: ${issueNumber}`,
-    `Expected base ref: ${baseRef}`,
-    `Expected head ref: ${headRef ?? '<create from base>'}`,
-    `Expected starting SHA: ${beforeSha}`,
-    `Attempt: ${attempt}`,
-    ``,
-    `Follow the OpenSpec Cloud profile and its binding generated skill.`,
-    `Do not open, ready, approve, or merge a pull request.`,
+    'Execute exactly one OpenSpec cloud operation.',
+    `OPEN_SPEC_CLOUD_DISPATCH_V1=${JSON.stringify(dispatch)}`,
+    'Follow the OpenSpec Cloud profile and its binding generated skill.',
+    'Do not open, ready, approve, or merge a pull request.',
   ].join('\n');
 }
 

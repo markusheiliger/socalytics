@@ -93,6 +93,12 @@ The repository-owned `openspec-enqueue-change` skill is an equivalent,
 host-neutral entry point and is independent of the queue scripts under
 `.github/scripts/`.
 
+The queue controller dispatches separate `apply`, `verify`, `sync`, and
+`archive` Agent Tasks on one durable draft pull request. Initial dispatch
+validates the `main` checkpoint by ancestry because GitHub chooses the generated
+branch and may add an empty initial commit. Every later task validates the exact
+durable branch and starting SHA before continuing.
+
 Useful OpenSpec repository checks are:
 
 ```powershell

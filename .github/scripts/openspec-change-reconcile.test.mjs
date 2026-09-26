@@ -94,6 +94,13 @@ function labels(issue) {
   return issue.labels.map((label) => typeof label === 'string' ? label : label.name);
 }
 
+function dispatchEnvelope(prompt) {
+  const prefix = 'OPEN_SPEC_CLOUD_DISPATCH_V1=';
+  const lines = prompt.split(/\r?\n/).filter((line) => line.startsWith(prefix));
+  assert.equal(lines.length, 1);
+  return JSON.parse(lines[0].slice(prefix.length));
+}
+
 test('dispatches apply for a newly enqueued unblocked issue', async () => {
   const client = initialClient();
   const issue = baseIssue();
@@ -108,6 +115,19 @@ test('dispatches apply for a newly enqueued unblocked issue', async () => {
   const start = client.calls.find(([name]) => name === 'startAgentTask');
   assert.equal(start[1].customAgent, 'openspec-cloud');
   assert.equal(start[1].createPullRequest, true);
+  assert.equal(start[1].prompt.includes('<'), false);
+  assert.deepEqual(dispatchEnvelope(start[1].prompt), {
+    version: 1,
+    changeRef: 'add-platform',
+    operation: 'apply',
+    issueNumber: 12,
+    attempt: 1,
+    checkpoint: {
+      mode: 'create',
+      baseRef: 'main',
+      baseSha: sha('a'),
+    },
+  });
   assert.deepEqual(
     client.calls.map(([name]) => name),
     [
@@ -174,6 +194,179 @@ test('continues from apply to verify after durable apply evidence passes', async
   const start = calls.find(([name]) => name === 'startAgentTask');
   assert.equal(start[1].headRef, 'copilot/add-platform');
   assert.equal(start[1].createPullRequest, false);
+  assert.deepEqual(dispatchEnvelope(start[1].prompt), {
+    version: 1,
+    changeRef: 'add-platform',
+    operation: 'verify',
+    issueNumber: 12,
+    attempt: 1,
+    checkpoint: {
+      mode: 'continue',
+      baseRef: 'main',
+      headRef: 'copilot/add-platform',
+      headSha: sha('b'),
+    },
+  });
+});
+
+test('advances apply through archive on one durable pull request', async () => {
+  const issue = baseIssue();
+  const comments = [];
+  const tasks = new Map();
+  const requests = [];
+  const operationsBySession = new Map();
+  let nextCommentId = 20;
+  let nextTaskId = 1;
+  let branchSha = sha('a');
+
+  const client = initialClient({
+    listIssueComments: async () => comments,
+    getAgentTask: async (taskId) => tasks.get(taskId),
+    getBranch: async (branch) => ({
+      commit: { sha: branch === 'main' ? sha('a') : branchSha },
+    }),
+    getTextContent: async () => '- [x] 1.1 Done. Owner: soca-developer.',
+    getRepositoryContent: async (path) => path === 'openspec/changes/archive'
+      ? [{
+        type: 'dir',
+        name: '2026-09-24-add-platform',
+        path: 'openspec/changes/archive/2026-09-24-add-platform',
+      }]
+      : [
+        { name: 'proposal.md' },
+        { name: 'design.md' },
+        { name: 'tasks.md' },
+        { name: 'specs' },
+      ],
+    listOpenPullRequestsForHead: async () => [{ number: 30 }],
+    createIssueComment: async (issueNumber, body) => {
+      const comment = {
+        id: nextCommentId,
+        body,
+        updated_at: now().toISOString(),
+        user: { login: 'github-actions[bot]' },
+      };
+      nextCommentId += 1;
+      comments.push(comment);
+      return comment;
+    },
+    updateIssueComment: async (commentId, body) => {
+      const comment = comments.find(({ id }) => id === commentId);
+      comment.body = body;
+      comment.updated_at = now().toISOString();
+    },
+    updateIssue: async (issueNumber, update) => {
+      assert.equal(issueNumber, issue.number);
+      issue.body = update.body;
+    },
+    startAgentTask: async (request) => {
+      const taskId = `task-${nextTaskId}`;
+      nextTaskId += 1;
+      requests.push(request);
+      tasks.set(taskId, { id: taskId, state: 'queued' });
+      return { id: taskId };
+    },
+  });
+
+  const completeTask = (taskId, operation, shaCharacter) => {
+    branchSha = sha(shaCharacter);
+    const sessionId = `session-${operation}`;
+    operationsBySession.set(sessionId, operation);
+    tasks.set(taskId, {
+      id: taskId,
+      state: 'completed',
+      artifacts: [{
+        type: 'branch',
+        data: { head_ref: 'copilot/add-platform', base_ref: 'main' },
+      }],
+      sessions: [{ id: sessionId }],
+    });
+  };
+  const getSessionLog = async (sessionId) => {
+    const operation = operationsBySession.get(sessionId);
+    return `OPEN_SPEC_CLOUD_OPERATION_V1={"changeRef":"add-platform","operation":"${operation}","verdict":"pass","validation":"${operation} passed."}`;
+  };
+  const reconcile = () => reconcileIssue({
+    client,
+    issue,
+    agentToken: 'agent-token',
+    getSessionLog,
+    validateBranch: async () => {},
+    now,
+  });
+
+  assert.deepEqual(
+    await reconcile(),
+    { action: 'dispatched', operation: 'apply', attempt: 1, taskId: 'task-1' },
+  );
+  completeTask('task-1', 'apply', 'b');
+  assert.deepEqual(
+    await reconcile(),
+    { action: 'dispatched', operation: 'verify', attempt: 1, taskId: 'task-2' },
+  );
+  completeTask('task-2', 'verify', 'b');
+  assert.deepEqual(
+    await reconcile(),
+    { action: 'dispatched', operation: 'sync', attempt: 1, taskId: 'task-3' },
+  );
+  completeTask('task-3', 'sync', 'c');
+  assert.deepEqual(
+    await reconcile(),
+    { action: 'dispatched', operation: 'archive', attempt: 1, taskId: 'task-4' },
+  );
+  completeTask('task-4', 'archive', 'd');
+  assert.deepEqual(
+    await reconcile(),
+    {
+      action: 'awaiting_human_review',
+      pullRequestNumber: 30,
+      archivePath: 'openspec/changes/archive/2026-09-24-add-platform',
+    },
+  );
+
+  assert.deepEqual(
+    requests.map((request) => ({
+      operation: dispatchEnvelope(request.prompt).operation,
+      mode: dispatchEnvelope(request.prompt).checkpoint.mode,
+      headRef: request.headRef ?? null,
+      createPullRequest: request.createPullRequest,
+      attempt: dispatchEnvelope(request.prompt).attempt,
+    })),
+    [
+      {
+        operation: 'apply',
+        mode: 'create',
+        headRef: null,
+        createPullRequest: true,
+        attempt: 1,
+      },
+      {
+        operation: 'verify',
+        mode: 'continue',
+        headRef: 'copilot/add-platform',
+        createPullRequest: false,
+        attempt: 1,
+      },
+      {
+        operation: 'sync',
+        mode: 'continue',
+        headRef: 'copilot/add-platform',
+        createPullRequest: false,
+        attempt: 1,
+      },
+      {
+        operation: 'archive',
+        mode: 'continue',
+        headRef: 'copilot/add-platform',
+        createPullRequest: false,
+        attempt: 1,
+      },
+    ],
+  );
+  assert.deepEqual(labels(issue), [
+    'openspec:change',
+    'openspec:awaiting-review',
+  ]);
 });
 
 test('retries a failed operation exactly once on the same branch', async () => {
