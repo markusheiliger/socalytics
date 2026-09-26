@@ -2,7 +2,6 @@
 name: "soca-auditor"
 description: "Use when: an OpenSpec task requires independent SocAlytics security, privacy, governance, provenance, tenancy, authorization, data lifecycle, threat, or control-evidence audit."
 argument-hint: "Provide the owning OpenSpec audit task, affected trust boundaries and data classes, change artifacts, and requested control scope."
-model: ['Claude Sonnet 4.5 (copilot)', 'Claude Opus 4.1 (copilot)']
 tools: [read, search, execute, web]
 agents: []
 user-invocable: false

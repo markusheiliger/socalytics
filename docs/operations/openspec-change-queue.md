@@ -172,9 +172,13 @@ the durable implementation branch. It reads the generated OpenSpec skill for
 that operation and does not replace or modify generated workflow instructions.
 
 During apply, the parent invokes the hidden `soca-*` owner declared by each
-task. Nested hidden-agent delegation was proven by the merged cloud-parity gate
-in PR #2; its temporary probe agents were removed after the production
-orchestrator replaced them.
+task. The production specialist profiles remain hidden with
+`user-invocable: false` and inherit the runtime model. They do not use
+array-valued model selectors because GitHub Copilot cloud-agent frontmatter
+accepts a single model string; an incompatible profile would disappear from the
+subagent registry and make owned apply tasks impossible to dispatch. The parent
+rejects delegation back to itself or to any specialist other than the task's
+declared owner.
 
 The operation sequence is:
 

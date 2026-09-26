@@ -2,7 +2,6 @@
 name: "soca-architect"
 description: "Use when: an OpenSpec task requires SocAlytics architecture analysis, cross-document reconciliation, boundary or contract design, security or tenancy architecture, architecture narrative changes, or ADR preparation."
 argument-hint: "Provide the owning OpenSpec task, architecture question, affected documents, and expected evidence."
-model: ['Claude Opus 4.1 (copilot)', 'Claude Sonnet 4.5 (copilot)']
 tools: [read, search, edit, agent]
 agents: [Explore]
 user-invocable: false

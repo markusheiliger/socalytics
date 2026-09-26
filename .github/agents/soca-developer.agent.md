@@ -2,7 +2,6 @@
 name: "soca-developer"
 description: "Use when: an OpenSpec task requires SocAlytics product code, tests, executable schemas, migrations, build files, implementation configuration, or focused executable validation."
 argument-hint: "Provide the owning OpenSpec task, approved design, target component, acceptance criteria, and validation command."
-model: ['Claude Sonnet 4.5 (copilot)', 'Claude Opus 4.1 (copilot)']
 tools: [read, search, edit, execute]
 agents: []
 user-invocable: false

@@ -2,7 +2,6 @@
 name: "soca-designer"
 description: "Use when: an OpenSpec task requires SocAlytics user journeys, interaction behavior, accessibility, information hierarchy, client states, error or recovery UX, or UX acceptance criteria."
 argument-hint: "Provide the owning OpenSpec task, target users, workflow, states, and affected client documentation."
-model: ['Claude Sonnet 4.5 (copilot)', 'Claude Opus 4.1 (copilot)']
 tools: [read, search, edit]
 agents: []
 user-invocable: false

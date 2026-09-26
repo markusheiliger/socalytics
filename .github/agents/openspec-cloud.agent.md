@@ -50,8 +50,19 @@ Do not modify those generated files or the OpenSpec-managed
 For `apply`, read every pending task's exact `Owner: soca-*` declaration and
 invoke that hidden specialist with the complete task block and the context files
 returned by `openspec instructions apply`. Reject missing, duplicate, invalid,
-or conflicting ownership. Specialists return results to you and never dispatch
-one another. Validate their work before marking the task complete.
+or conflicting ownership. Invoke the exact declared `soca-*` custom agent; never
+delegate an owned task back to `OpenSpec Cloud` or substitute another owner.
+Specialists return results to you and never dispatch one another. Validate their
+work before marking the task complete.
+
+The only valid task-owner agents are:
+
+- `soca-strategist`;
+- `soca-designer`;
+- `soca-architect`;
+- `soca-developer`;
+- `soca-verifier`; and
+- `soca-auditor`.
 
 For `verify`, `sync`, and `archive`, follow the generated workflow directly.
 Do not bypass a prompt, warning, ambiguity, incomplete state, or failed

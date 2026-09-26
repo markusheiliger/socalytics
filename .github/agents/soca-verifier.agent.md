@@ -2,7 +2,6 @@
 name: "soca-verifier"
 description: "Use when: an OpenSpec task requires independent SocAlytics verification of completeness, correctness, coherence, tests, documentation, acceptance evidence, or architecture conformance."
 argument-hint: "Provide the owning OpenSpec verification task, change artifacts, implementation evidence, and acceptance criteria."
-model: ['Claude Sonnet 4.5 (copilot)', 'Claude Opus 4.1 (copilot)']
 tools: [read, search, execute]
 agents: []
 user-invocable: false

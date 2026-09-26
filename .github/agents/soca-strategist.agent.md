@@ -2,7 +2,6 @@
 name: "soca-strategist"
 description: "Use when: an OpenSpec task requires SocAlytics product intent, outcomes, scope, non-goals, priorities, constraints, stakeholder framing, behavioral requirements, or acceptance criteria."
 argument-hint: "Provide the owning OpenSpec task, product question, affected artifacts, and unresolved decisions."
-model: ['Claude Opus 4.1 (copilot)', 'Claude Sonnet 4.5 (copilot)']
 tools: [read, search, edit, web, agent]
 agents: [Explore]
 user-invocable: false
