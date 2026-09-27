@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "capability-result-v1.schema.json",
+  "title": "SocAlytics execution capability result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "changeRef",
+    "operation",
+    "taskId",
+    "capabilities",
+    "verdict",
+    "startingSha",
+    "resultingSha",
+    "artifactsChanged",
+    "validation",
+    "summary",
+    "blockingFindings"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "changeRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "operation": {
+      "const": "apply"
+    },
+    "taskId": {
+      "type": "string",
+      "pattern": "^\\d+(?:\\.\\d+)*$"
+    },
+    "capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9]*$"
+      }
+    },
+    "verdict": {
+      "enum": ["pass", "blocked", "fail"]
+    },
+    "startingSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "resultingSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "artifactsChanged": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "validation": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "outcome"],
+        "properties": {
+          "command": {
+            "type": "string",
+            "minLength": 1
+          },
+          "outcome": {
+            "enum": ["passed", "failed", "not-run"]
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "blockingFindings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

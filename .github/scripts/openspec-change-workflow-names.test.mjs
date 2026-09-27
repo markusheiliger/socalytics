@@ -61,6 +61,8 @@ test('repository workflows expose useful names, scoped Git auth, and the safe DA
 
   assert.match(setup, /copilot-setup-steps:\n    name: Prepare the Copilot coding agent environment/);
   assert.match(queue, /reconcile:\n    name: Reconcile the OpenSpec change queue/);
+  assert.match(queue, /timeout-minutes: 330/);
+  assert.match(queue, /node \.github\/scripts\/openspec-change-reconcile\.mjs --watch/);
   assert.equal(applyWorkflowJobNames(lock), lock);
   assert.match(source, /group: openspec-change-reconciliation[\s\S]*queue: max/);
   assert.equal((source.match(/GIT_CONFIG_VALUE_0="AUTHORIZATION: basic \$authorization"/g) ?? []).length, 3);

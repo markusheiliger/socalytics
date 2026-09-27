@@ -67,8 +67,9 @@ Start work through the generated GitHub Copilot prompts:
 
 - `/opsx-explore` investigates an idea without creating change artifacts.
 - `/opsx-propose` creates a proposal, behavioral specification delta, design,
-  and owned task list.
-- `/opsx-apply` implements approved tasks through their declared `soca-*` owner.
+  and capability-backed task list.
+- `/opsx-apply` implements approved tasks under their declared execution
+  capability contracts.
 - `/opsx-update` continues or refreshes change artifacts.
 - `/opsx-sync` synchronizes accepted behavioral requirements.
 - `/opsx-verify` independently checks the completed change and evidence.
@@ -93,11 +94,18 @@ The repository-owned `openspec-enqueue-change` skill is an equivalent,
 host-neutral entry point and is independent of the queue scripts under
 `.github/scripts/`.
 
-The queue controller dispatches separate `apply`, `verify`, `sync`, and
-`archive` Agent Tasks on one durable draft pull request. Initial dispatch
+The queue controller dispatches one Agent Task per numbered OpenSpec apply task,
+then separate `verify`, `sync`, and `archive` Agent Tasks, all on one durable
+draft pull request. Each apply dispatch names exactly one task and its
+compatible capability set from `openspec/capabilities/`; successful tasks are
+checkpointed before the next apply task is started. The unchanged generated
+OpenSpec agent executes both local and cloud workflows. Initial dispatch
 validates the `main` checkpoint by ancestry because GitHub chooses the generated
 branch and may add an empty initial commit. Every later task validates the exact
-durable branch and starting SHA before continuing.
+durable branch and starting SHA before continuing. While a cloud task is active,
+the controller workflow polls its state and continues the lifecycle immediately;
+pull-request events and the scheduled trigger are recovery wake-ups rather than
+the primary progression path.
 
 Useful OpenSpec repository checks are:
 

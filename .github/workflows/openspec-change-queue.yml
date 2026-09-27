@@ -26,7 +26,7 @@ jobs:
   reconcile:
     name: Reconcile the OpenSpec change queue
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 330
     steps:
       - name: Check out trusted controller
         uses: actions/checkout@v5
@@ -44,4 +44,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
-        run: node .github/scripts/openspec-change-reconcile.mjs
+        run: node .github/scripts/openspec-change-reconcile.mjs --watch

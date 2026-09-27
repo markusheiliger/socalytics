@@ -9,13 +9,16 @@ import {
   LEDGER_MARKER_START,
   QUEUE_STATE_START,
   deriveReadiness,
+  parseCapabilityDefinition,
+  parseCapabilityResult,
+  parseCapabilityTasks,
   parseChangeMarker,
   parseCloudOperationResult,
-  parseOwnedTasks,
   parseQueueState,
   renderLedgerEntry,
   renderQueueState,
   retryDecision,
+  validateCapabilitySet,
   validateOperationEvidence,
   validateSynchronizedDeltas,
 } from './openspec-change-core.mjs';
@@ -121,6 +124,7 @@ function latestQueueState(comments) {
 function operationPrompt({
   changeRef,
   operation,
+  applyTask,
   issueNumber,
   baseRef,
   headRef,
@@ -143,16 +147,48 @@ function operationPrompt({
     version: 1,
     changeRef,
     operation,
+    ...(applyTask ? {
+      applyTask: {
+        id: applyTask.id,
+        capabilities: applyTask.capabilities,
+        capabilityPaths: applyTask.capabilities.map(
+          (capability) => `openspec/capabilities/${capability}.md`,
+        ),
+        block: applyTask.block,
+        policy: applyTask.policy,
+      },
+    } : {}),
     issueNumber,
     attempt,
     checkpoint,
   };
-  return [
-    'Execute exactly one OpenSpec cloud operation.',
+  const bindingSkill = {
+    apply: '.github/skills/openspec-apply-change/SKILL.md',
+    verify: '.github/skills/openspec-verify-change/SKILL.md',
+    sync: '.github/skills/openspec-sync-specs/SKILL.md',
+    archive: '.github/skills/openspec-archive-change/SKILL.md',
+  }[operation];
+  const instructions = [
+    'Execute exactly one controller-selected OpenSpec operation as the OOTB OpenSpec agent.',
     `OPEN_SPEC_CLOUD_DISPATCH_V1=${JSON.stringify(dispatch)}`,
-    'Follow the OpenSpec Cloud profile and its binding generated skill.',
+    `Read and follow ${bindingSkill} as the binding workflow.`,
+    'Validate the dispatch checkpoint before editing: create requires the base SHA to be an ancestor of the generated branch HEAD; continue requires the exact head ref and HEAD SHA.',
+  ];
+  if (applyTask) {
+    instructions.push(
+      'Execute only applyTask.id in this bounded invocation; do not begin or mark any other task even though the generated workflow normally loops.',
+      'Read every applyTask.capabilityPaths file and obey the complete compatible capability set.',
+      'After validation, mark only the selected task complete and emit exactly one OPEN_SPEC_CAPABILITY_RESULT_V1 line conforming to openspec/capabilities/schemas/capability-result-v1.schema.json.',
+    );
+  } else {
+    instructions.push(
+      'Emit exactly one OPEN_SPEC_CLOUD_OPERATION_V1 line with changeRef, operation, verdict, and concise validation.',
+    );
+  }
+  instructions.push(
     'Do not open, ready, approve, or merge a pull request.',
-  ].join('\n');
+  );
+  return instructions.join('\n');
 }
 
 function defaultSessionLog(sessionId, agentToken) {
@@ -251,6 +287,8 @@ async function dispatchOperation({
   marker,
   current,
   operation,
+  applyTaskId = null,
+  completedApplyTaskIds = null,
   attempt,
   baseRef,
   headRef,
@@ -258,6 +296,43 @@ async function dispatchOperation({
   pullRequestNumber,
   now,
 }) {
+  let applyTask = null;
+  let completedTaskIds = null;
+  if (operation === 'apply') {
+    const ref = headRef ?? baseRef;
+    const tasks = parseCapabilityTasks(await client.getTextContent(
+      `openspec/changes/${marker.ref}/tasks.md`,
+      ref,
+    ));
+    completedTaskIds = completedApplyTaskIds
+      ?? tasks.filter((taskEntry) => taskEntry.completed).map((taskEntry) => taskEntry.id);
+    const regressedTask = completedTaskIds.find((taskId) => {
+      const taskEntry = tasks.find((candidate) => candidate.id === taskId);
+      return !taskEntry?.completed;
+    });
+    if (regressedTask) {
+      throw new Error(`Previously completed apply task ${regressedTask} is no longer complete`);
+    }
+    applyTask = applyTaskId === null
+      ? tasks.find((taskEntry) => !taskEntry.completed)
+      : tasks.find((taskEntry) => taskEntry.id === applyTaskId);
+    if (!applyTask) {
+      throw new Error(`No pending apply task found for ${marker.ref}`);
+    }
+    if (applyTask.completed) {
+      throw new Error(`Apply task ${applyTask.id} is already complete`);
+    }
+    const definitions = await Promise.all(applyTask.capabilities.map(async (capability) => (
+      parseCapabilityDefinition(
+        await client.getTextContent(`openspec/capabilities/${capability}.md`, ref),
+        capability,
+      )
+    )));
+    applyTask = {
+      ...applyTask,
+      policy: validateCapabilitySet(definitions, operation),
+    };
+  }
   const pendingState = {
     version: 1,
     changeRef: marker.ref,
@@ -267,6 +342,9 @@ async function dispatchOperation({
     attempt,
     taskId: `pending-${randomUUID()}`,
     sessionId: null,
+    applyTaskId: applyTask?.id ?? null,
+    applyTaskCapabilities: applyTask?.capabilities ?? null,
+    ...(completedTaskIds ? { completedApplyTaskIds: completedTaskIds } : {}),
     baseRef,
     headRef,
     beforeSha,
@@ -283,13 +361,14 @@ async function dispatchOperation({
     prompt: operationPrompt({
       changeRef: marker.ref,
       operation,
+      applyTask,
       issueNumber: issue.number,
       baseRef,
       headRef,
       beforeSha,
       attempt,
     }),
-    customAgent: 'openspec-cloud',
+    customAgent: 'openspec',
     baseRef,
     headRef,
     createPullRequest: !headRef,
@@ -321,6 +400,10 @@ async function appendLedger(client, issueNumber, state, {
     attempt: state.attempt,
     taskId: state.taskId,
     sessionId,
+    applyTaskId: state.applyTaskId ?? null,
+    ...(state.applyTaskOwner
+      ? { applyTaskOwner: state.applyTaskOwner }
+      : { applyTaskCapabilities: state.applyTaskCapabilities ?? null }),
     branch: headRef,
     beforeSha: state.beforeSha,
     afterSha,
@@ -408,14 +491,36 @@ async function validateCompletedOperation({
   const session = task.sessions?.at(-1);
   if (!session?.id) throw new Error('Completed Agent Task has no session');
   const log = await getSessionLog(session.id, agentToken);
-  const result = parseCloudOperationResult(log);
+  const result = state.operation === 'apply'
+    ? parseCapabilityResult(log)
+    : parseCloudOperationResult(log);
   if (result.changeRef !== state.changeRef || result.operation !== state.operation) {
     throw new Error('Cloud operation result does not match queue state');
   }
+  if (state.operation === 'apply'
+    && state.applyTaskId
+    && result.taskId !== state.applyTaskId) {
+    throw new Error('Cloud operation result does not match the selected apply task');
+  }
+  if (state.operation === 'apply'
+    && state.applyTaskCapabilities
+    && JSON.stringify(result.capabilities) !== JSON.stringify(state.applyTaskCapabilities)) {
+    throw new Error('Capability result does not match the selected capability set');
+  }
+  if (state.operation === 'apply' && result.startingSha !== state.beforeSha) {
+    throw new Error('Capability result starting SHA does not match queue state');
+  }
+  if (state.operation === 'apply' && result.resultingSha !== afterSha) {
+    throw new Error('Capability result resulting SHA does not match branch state');
+  }
+  const validationSummary = state.operation === 'apply'
+    ? (result.validation.map(({ command, outcome }) => `${command}: ${outcome}`).join('; ')
+      || result.summary)
+    : result.validation;
   if (result.verdict !== 'pass') {
     return {
       valid: false,
-      validation: result.validation,
+      validation: validationSummary,
       afterSha,
       headRef,
       sessionId: session.id,
@@ -428,13 +533,71 @@ async function validateCompletedOperation({
   let specsSynchronized;
   let lifecycle = 'active';
   let archivePath = null;
+  let nextApplyTask = null;
   if (state.operation === 'apply') {
+    const comparison = await client.compareCommits(state.beforeSha, afterSha);
+    const changedPaths = comparison.files.map(({ filename }) => filename).sort();
+    const reportedPaths = [...result.artifactsChanged].sort();
+    if (JSON.stringify(changedPaths) !== JSON.stringify(reportedPaths)) {
+      throw new Error('Capability result changed paths do not match repository evidence');
+    }
     const tasks = await client.getTextContent(
       `openspec/changes/${state.changeRef}/tasks.md`,
       headRef,
     );
-    tasksComplete = parseOwnedTasks(tasks).every((taskEntry) => taskEntry.completed);
+    const parsedTasks = parseCapabilityTasks(tasks);
+    if (state.applyTaskId) {
+      const previouslyCompleted = state.completedApplyTaskIds ?? [];
+      const regressedTask = previouslyCompleted.find((taskId) => {
+        const taskEntry = parsedTasks.find((candidate) => candidate.id === taskId);
+        return !taskEntry?.completed;
+      });
+      if (regressedTask) {
+        throw new Error(`Previously completed apply task ${regressedTask} regressed`);
+      }
+      const selectedTask = parsedTasks.find((taskEntry) => taskEntry.id === state.applyTaskId);
+      if (!selectedTask
+        || JSON.stringify(selectedTask.capabilities) !== JSON.stringify(state.applyTaskCapabilities)) {
+        throw new Error('Selected apply task identity changed during execution');
+      }
+      const unexpectedTask = parsedTasks.find((taskEntry) => taskEntry.completed
+        && taskEntry.id !== selectedTask.id
+        && !previouslyCompleted.includes(taskEntry.id));
+      if (unexpectedTask) {
+        throw new Error(`Apply task ${unexpectedTask.id} completed outside the selected work item`);
+      }
+      const definitions = await Promise.all(selectedTask.capabilities.map(async (capability) => (
+        parseCapabilityDefinition(
+          await client.getTextContent(`openspec/capabilities/${capability}.md`, headRef),
+          capability,
+        )
+      )));
+      const policy = validateCapabilitySet(definitions, 'apply');
+      if (policy.mutation === 'checkbox-only') {
+        const taskPath = `openspec/changes/${state.changeRef}/tasks.md`;
+        if (changedPaths.length !== 1 || changedPaths[0] !== taskPath) {
+          throw new Error(`Capability set may change only ${taskPath}`);
+        }
+        const beforeTasks = await client.getTextContent(taskPath, state.beforeSha);
+        const escapedId = state.applyTaskId.replaceAll('.', '\\.');
+        const checkbox = new RegExp(`^(\\s*- \\[) \\](\\s+${escapedId}\\s+)`, 'm');
+        if ((beforeTasks.match(checkbox) ?? []).length === 0) {
+          throw new Error('Selected task was not unchecked at the starting checkpoint');
+        }
+        const expectedTasks = beforeTasks.replace(checkbox, '$1x]$2');
+        if (tasks !== expectedTasks) {
+          throw new Error('Checkbox-only capability changed content beyond its selected checkbox');
+        }
+      }
+      tasksComplete = selectedTask.completed;
+    } else {
+      tasksComplete = parsedTasks.every((taskEntry) => taskEntry.completed);
+    }
+    nextApplyTask = parsedTasks.find((taskEntry) => !taskEntry.completed) ?? null;
   } else if (state.operation === 'verify') {
+    if (afterSha !== state.beforeSha) {
+      throw new Error('Lifecycle verify must not change the branch SHA');
+    }
     verificationPassed = true;
   } else if (state.operation === 'sync') {
     specsSynchronized = true;
@@ -456,11 +619,12 @@ async function validateCompletedOperation({
   });
   return {
     valid: evidence.valid,
-    validation: evidence.valid ? result.validation : evidence.reason,
+    validation: evidence.valid ? validationSummary : evidence.reason,
     afterSha,
     headRef,
     sessionId: session.id,
     archivePath,
+    nextApplyTask,
   };
 }
 
@@ -528,11 +692,6 @@ export async function reconcileIssue({
     });
     if (!readiness.runnable) return { action: 'waiting', reasons: readiness.reasons };
     const main = await client.getBranch('main');
-    const tasks = await client.getTextContent(
-      `openspec/changes/${marker.ref}/tasks.md`,
-      'main',
-    );
-    parseOwnedTasks(tasks);
     return dispatchOperation({
       client,
       issue,
@@ -635,13 +794,18 @@ export async function reconcileIssue({
     const stillAuthorized = issue.state === 'open';
     if (decision === 'retry' && stillAuthorized) {
       const pull = await pullRequestForHead(client, resolvedHead);
+      const retryAttempt = state.operation === 'apply' && !state.applyTaskId
+        ? 1
+        : state.attempt + 1;
       return dispatchOperation({
         client,
         issue,
         marker,
         current,
         operation: state.operation,
-        attempt: state.attempt + 1,
+        applyTaskId: state.applyTaskId ?? null,
+        completedApplyTaskIds: state.completedApplyTaskIds ?? null,
+        attempt: retryAttempt,
         baseRef: state.baseRef,
         headRef: resolvedHead,
         beforeSha: afterSha,
@@ -758,7 +922,7 @@ export async function reconcileIssue({
   }
 
   const nextOperation = {
-    apply: 'verify',
+    apply: completed.nextApplyTask ? 'apply' : 'verify',
     verify: 'sync',
     sync: 'archive',
   }[state.operation];
@@ -768,6 +932,7 @@ export async function reconcileIssue({
     marker,
     current,
     operation: nextOperation,
+    applyTaskId: nextOperation === 'apply' ? completed.nextApplyTask.id : null,
     attempt: 1,
     baseRef: state.baseRef,
     headRef: completed.headRef,
@@ -811,6 +976,25 @@ export async function reconcileAll({
   return results;
 }
 
+function hasActiveAgentTask(results) {
+  return results.some((result) => result.action === 'dispatched'
+    || (result.action === 'waiting'
+      && result.reasons?.some((reason) => reason.startsWith('agent-task-'))));
+}
+
+export async function reconcileUntilSettled({
+  reconcile,
+  wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+  intervalMilliseconds = 60_000,
+}) {
+  let results = await reconcile();
+  while (hasActiveAgentTask(results)) {
+    await wait(intervalMilliseconds);
+    results = await reconcile();
+  }
+  return results;
+}
+
 async function main() {
   const repository = process.env.GITHUB_REPOSITORY;
   const repositoryToken = process.env.GITHUB_TOKEN;
@@ -825,7 +1009,10 @@ async function main() {
     repositoryToken,
     agentToken,
   });
-  const results = await reconcileAll({ client, agentToken });
+  const reconcile = () => reconcileAll({ client, agentToken });
+  const results = process.argv.includes('--watch')
+    ? await reconcileUntilSettled({ reconcile })
+    : await reconcile();
   process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
 }
 

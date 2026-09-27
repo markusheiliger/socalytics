@@ -18,23 +18,15 @@ context: |
     adopted decisions or implementation facts.
 
   OpenSpec owns the change lifecycle. Every implementation task must declare
-  exactly one dispatch-only SocAlytics specialist as Owner:
-  - soca-strategist: intent, outcomes, scope, priorities, constraints, and
-    acceptance framing.
-  - soca-designer: user journeys, interaction behavior, accessibility, client
-    states, and UX acceptance.
-  - soca-architect: architecture narratives, boundaries, contracts, durable
-    design decisions, and ADRs.
-  - soca-developer: product code, tests, executable schemas, build files, and
-    implementation configuration.
-  - soca-verifier: independent completeness, correctness, coherence, tests,
-    documentation, and architecture-conformance verification.
-  - soca-auditor: independent security, privacy, governance, provenance, and
-    control-evidence review.
+  exactly one unordered `Capabilities:` set. Capability ids resolve directly
+  to `openspec/capabilities/<id>.md`; there is no registry and no inferred
+  routing. The supported execution capabilities are strategy, design,
+  architecture, implementation, verification, and audit.
 
-  Specialists return results to OpenSpec and never dispatch one another.
-  Routing is advisory and model-executed; task ownership makes it explicit and
-  auditable rather than claiming deterministic enforcement.
+  Multiple composable capabilities may govern one indivisible task. Exclusive
+  capabilities must be used alone. The controller validates operation support,
+  composition, mutation, isolation, and result-schema compatibility before
+  dispatching the unchanged generated OpenSpec agent.
 
 rules:
   proposal:
@@ -48,24 +40,25 @@ rules:
     - Flag durable, consequential changes to established or implemented architecture as ADR candidates.
     - Keep current architecture authority in docs/architecture/ and describe which narratives must be synchronized during apply.
   tasks:
-    - "Every task must contain exactly one `Owner: soca-*` declaration using a specialist listed in project context."
-    - Split work when ownership or artifact category differs; do not assign multiple specialists to one task.
+    - "Every task must contain exactly one plural `Capabilities: <id>[, <id>...]` declaration using supported capability ids."
+    - Capability order has no precedence; use multiple capabilities only when the work is one indivisible task and every contract is compatible.
+    - Split work when capabilities are exclusive, contracts are incompatible, or artifacts can be completed independently.
     - Include the narrowest relevant validation and required synchronization evidence in each task.
-    - soca-verifier may verify but must not author implementation work.
-    - soca-auditor may report findings but must not silently remediate its own findings.
+    - verification may verify but must not author implementation work.
+    - audit may report findings but must not silently remediate its own findings.
 
 operations:
   apply:
     guidance:
-      - Read each task's Owner declaration and dispatch that exact soca-* specialist; stop when ownership is missing, invalid, or conflicting.
-      - Preserve user changes and stay within the task's artifact category and approved scope.
+      - Read the selected task's exact Capabilities declaration and every directly resolved capability contract; stop when the declaration or composition is invalid.
+      - Execute only the controller-selected task, preserve user changes, and obey the intersection of all selected capability boundaries.
       - Run the narrowest relevant validation immediately after each substantive edit.
       - Mark a task complete only when its requested artifacts, synchronization, and validation evidence are present.
-      - Specialists return results to OpenSpec and must not dispatch another specialist.
+      - Return the structured capability result required by the controller.
   archive:
     guidance:
       - Require all tasks to be complete and supported by validation evidence.
       - Require accepted behavioral specs and current architecture narratives to be synchronized.
-      - Require independent soca-verifier review and a soca-auditor review when security, privacy, governance, provenance, or control evidence is affected.
+      - Require independent verification and an audit when security, privacy, governance, provenance, or control evidence is affected.
       - Confirm ADR candidates are resolved and references connect ADRs, affected specs, current architecture narratives, and the archived change where applicable.
       - Do not archive while blocking decisions, validation failures, or required synchronization remain unresolved.

@@ -1,14 +1,8 @@
 const KEBAB_CASE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const CAPABILITY_ID = /^[a-z][a-z0-9]*$/;
 const GIT_SHA = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
-const SUPPORTED_OWNERS = new Set([
-  'soca-strategist',
-  'soca-designer',
-  'soca-architect',
-  'soca-developer',
-  'soca-verifier',
-  'soca-auditor',
-]);
+const CAPABILITY_OPERATIONS = new Set(['propose', 'update', 'apply', 'verify', 'archive']);
 const TERMINAL_TASK_STATES = new Set(['completed', 'failed', 'timed_out', 'cancelled']);
 const ACTIVE_TASK_STATES = new Set(['queued', 'in_progress', 'idle', 'waiting_for_user']);
 const RETRYABLE_TASK_STATES = new Set(['failed', 'timed_out']);
@@ -21,6 +15,7 @@ export const DEPENDENCY_CHECKPOINT_VERSION = 1;
 export const DEPENDENCY_PATCH_VERSION = 2;
 export const QUEUE_STATE_START = '<!-- openspec-queue-state:v1';
 export const CLOUD_RESULT_PREFIX = 'OPEN_SPEC_CLOUD_OPERATION_V1=';
+export const CAPABILITY_RESULT_PREFIX = 'OPEN_SPEC_CAPABILITY_RESULT_V1=';
 
 function assertObject(value, path) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -86,6 +81,62 @@ function assertMarkerSafeString(value, path) {
   }
 }
 
+function assertCapabilityIds(value, path) {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${path} must be a non-empty array`);
+  }
+  const uniqueIds = new Set(value);
+  if (uniqueIds.size !== value.length
+    || value.some((id) => typeof id !== 'string' || !CAPABILITY_ID.test(id))
+    || value.some((id, index) => index > 0 && value[index - 1].localeCompare(id) >= 0)) {
+    throw new Error(`${path} must contain unique sorted capability identifiers`);
+  }
+}
+
+function assertApplyTask(value, path) {
+  if (value.applyTaskId === undefined
+    && value.applyTaskOwner === undefined
+    && value.applyTaskCapabilities === undefined) return;
+  const hasId = typeof value.applyTaskId === 'string';
+  const hasLegacyOwner = typeof value.applyTaskOwner === 'string';
+  const hasCapabilities = Array.isArray(value.applyTaskCapabilities);
+  if (hasId !== (hasLegacyOwner || hasCapabilities) || (hasLegacyOwner && hasCapabilities)) {
+    throw new Error(`${path} apply task id and exactly one capability contract must be present`);
+  }
+  if (!hasId) {
+    if (value.applyTaskId !== null
+      || (value.applyTaskOwner !== undefined && value.applyTaskOwner !== null)
+      || (value.applyTaskCapabilities !== undefined && value.applyTaskCapabilities !== null)) {
+      throw new Error(`${path} apply task fields must be populated together or null`);
+    }
+    return;
+  }
+  if (!/^\d+(?:\.\d+)*$/.test(value.applyTaskId)) {
+    throw new Error(`${path}.applyTaskId is invalid`);
+  }
+  if (hasLegacyOwner && !/^soca-[a-z-]+$/.test(value.applyTaskOwner)) {
+    throw new Error(`${path}.applyTaskOwner is invalid`);
+  }
+  if (hasCapabilities) {
+    assertCapabilityIds(value.applyTaskCapabilities, `${path}.applyTaskCapabilities`);
+  }
+  if (value.operation !== 'apply') {
+    throw new Error(`${path} apply task is valid only for apply operations`);
+  }
+}
+
+function assertCompletedApplyTasks(value, path) {
+  if (value.completedApplyTaskIds === undefined) return;
+  if (value.operation !== 'apply' || !Array.isArray(value.completedApplyTaskIds)) {
+    throw new Error(`${path}.completedApplyTaskIds is invalid`);
+  }
+  const uniqueIds = new Set(value.completedApplyTaskIds);
+  if (uniqueIds.size !== value.completedApplyTaskIds.length
+    || value.completedApplyTaskIds.some((id) => !/^\d+(?:\.\d+)*$/.test(id))) {
+    throw new Error(`${path}.completedApplyTaskIds is invalid`);
+  }
+}
+
 export function validateChangeMarker(value) {
   assertObject(value, 'Change marker');
   assertKnownKeys(
@@ -127,13 +178,106 @@ export function renderChangeMarker(value) {
   return renderJsonMarker(CHANGE_MARKER_START, validateChangeMarker(value));
 }
 
-export function parseOwnedTasks(tasksMarkdown) {
+export function parseCapabilityDefinition(content, expectedId = null) {
+  if (typeof content !== 'string') {
+    throw new Error('Capability definition must be a string');
+  }
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) throw new Error('Capability definition must have YAML frontmatter');
+  const value = {};
+  for (const [index, line] of match[1].split(/\r?\n/).entries()) {
+    if (line.trim() === '') continue;
+    const entry = line.match(/^([A-Za-z][A-Za-z0-9]*):\s*(.+)$/);
+    if (!entry) {
+      throw new Error(`Capability frontmatter line ${index + 1} is unsupported`);
+    }
+    const [, key, rawValue] = entry;
+    if (key in value) throw new Error(`Capability frontmatter contains duplicate key: ${key}`);
+    if (/^\[.*\]$/.test(rawValue)) {
+      const inner = rawValue.slice(1, -1).trim();
+      value[key] = inner === '' ? [] : inner.split(',').map((item) => item.trim());
+    } else if (/^\d+$/.test(rawValue)) {
+      value[key] = Number(rawValue);
+    } else {
+      value[key] = rawValue.trim();
+    }
+  }
+  assertKnownKeys(
+    value,
+    new Set([
+      'id',
+      'version',
+      'operations',
+      'composition',
+      'mutation',
+      'isolation',
+      'resultSchema',
+    ]),
+    'Capability definition',
+  );
+  if (typeof value.id !== 'string' || !CAPABILITY_ID.test(value.id)) {
+    throw new Error('Capability definition.id is invalid');
+  }
+  if (expectedId !== null && value.id !== expectedId) {
+    throw new Error(`Capability definition id ${value.id} does not match ${expectedId}`);
+  }
+  if (value.version !== 1) throw new Error('Capability definition.version must be 1');
+  if (!Array.isArray(value.operations)
+    || value.operations.length === 0
+    || new Set(value.operations).size !== value.operations.length
+    || value.operations.some((operation) => !CAPABILITY_OPERATIONS.has(operation))) {
+    throw new Error('Capability definition.operations is invalid');
+  }
+  if (!['composable', 'exclusive'].includes(value.composition)) {
+    throw new Error('Capability definition.composition is invalid');
+  }
+  if (!['scoped', 'checkbox-only', 'none'].includes(value.mutation)) {
+    throw new Error('Capability definition.mutation is invalid');
+  }
+  if (!['shared', 'required'].includes(value.isolation)) {
+    throw new Error('Capability definition.isolation is invalid');
+  }
+  if (value.resultSchema !== 'schemas/capability-result-v1.schema.json') {
+    throw new Error('Capability definition.resultSchema is invalid');
+  }
+  return { ...value };
+}
+
+export function validateCapabilitySet(definitions, operation = 'apply') {
+  if (!Array.isArray(definitions) || definitions.length === 0) {
+    throw new Error('Capability set must not be empty');
+  }
+  const ids = definitions.map(({ id }) => id).sort();
+  assertCapabilityIds(ids, 'Capability set');
+  for (const definition of definitions) {
+    if (!definition.operations.includes(operation)) {
+      throw new Error(`Capability ${definition.id} does not support ${operation}`);
+    }
+  }
+  if (definitions.length > 1) {
+    const exclusive = definitions.find(({ composition }) => composition === 'exclusive');
+    if (exclusive) throw new Error(`Capability ${exclusive.id} is exclusive`);
+    for (const field of ['mutation', 'isolation', 'resultSchema']) {
+      if (new Set(definitions.map((definition) => definition[field])).size !== 1) {
+        throw new Error(`Capability set has incompatible ${field} contracts`);
+      }
+    }
+  }
+  return {
+    ids,
+    mutation: definitions[0].mutation,
+    isolation: definitions[0].isolation,
+    resultSchema: definitions[0].resultSchema,
+  };
+}
+
+export function parseCapabilityTasks(tasksMarkdown) {
   if (typeof tasksMarkdown !== 'string') {
     throw new Error('Tasks content must be a string');
   }
 
   const matches = [...tasksMarkdown.matchAll(/^\s*- \[([ xX])\]\s+(\d+(?:\.\d+)*)\s+(.+)$/gm)];
-  return matches.map((match, index) => {
+  const tasks = matches.map((match, index) => {
     const start = match.index;
     const candidateEnd = matches[index + 1]?.index ?? tasksMarkdown.length;
     const candidateBlock = tasksMarkdown.slice(start, candidateEnd);
@@ -142,29 +286,38 @@ export function parseOwnedTasks(tasksMarkdown) {
       ? candidateEnd
       : start + match[0].length + heading.index;
     const block = tasksMarkdown.slice(start, end).trimEnd();
-    const owners = [...block.matchAll(/\bOwner:\s*(soca-[a-z-]+)\b/gi)]
-      .map((ownerMatch) => ownerMatch[1].toLowerCase());
-    const uniqueOwners = [...new Set(owners)];
-
-    if (uniqueOwners.length !== 1 || owners.length !== 1) {
-      throw new Error(`Task ${match[2]} must declare exactly one Owner: soca-*`);
+    const declarations = [...block.matchAll(
+      /\bCapabilities:\s*([a-z][a-z0-9]*(?:\s*,\s*[a-z][a-z0-9]*)*)\b/gi,
+    )];
+    if (declarations.length !== 1) {
+      throw new Error(`Task ${match[2]} must declare exactly one Capabilities set`);
     }
-    if (!SUPPORTED_OWNERS.has(uniqueOwners[0])) {
-      throw new Error(`Task ${match[2]} has unsupported owner: ${uniqueOwners[0]}`);
-    }
+    const capabilities = declarations[0][1]
+      .split(',')
+      .map((capability) => capability.trim().toLowerCase())
+      .sort();
+    assertCapabilityIds(capabilities, `Task ${match[2]} capabilities`);
 
     return {
       id: match[2],
       completed: match[1].toLowerCase() === 'x',
       title: match[3].trim(),
-      owner: uniqueOwners[0],
+      capabilities,
       block,
     };
   });
+  const taskIds = new Set();
+  for (const task of tasks) {
+    if (taskIds.has(task.id)) {
+      throw new Error(`Task ${task.id} is duplicated`);
+    }
+    taskIds.add(task.id);
+  }
+  return tasks;
 }
 
 export function selectNextTask(tasksMarkdown) {
-  return parseOwnedTasks(tasksMarkdown).find((task) => !task.completed) ?? null;
+  return parseCapabilityTasks(tasksMarkdown).find((task) => !task.completed) ?? null;
 }
 
 export function assertAcyclicGraph(refs, edges) {
@@ -716,6 +869,9 @@ export function validateLedgerEntry(value) {
       'attempt',
       'taskId',
       'sessionId',
+      'applyTaskId',
+      'applyTaskOwner',
+      'applyTaskCapabilities',
       'branch',
       'beforeSha',
       'afterSha',
@@ -736,6 +892,7 @@ export function validateLedgerEntry(value) {
   }
   assertMarkerSafeString(value.taskId, 'Ledger entry.taskId');
   assertMarkerSafeString(value.sessionId, 'Ledger entry.sessionId');
+  assertApplyTask(value, 'Ledger entry');
   assertMarkerSafeString(value.branch, 'Ledger entry.branch');
   if (!GIT_SHA.test(value.beforeSha) || !GIT_SHA.test(value.afterSha)) {
     throw new Error('Ledger entry SHAs must be 40-character lowercase Git SHAs');
@@ -777,6 +934,10 @@ export function validateQueueState(value) {
       'attempt',
       'taskId',
       'sessionId',
+      'applyTaskId',
+      'applyTaskOwner',
+      'applyTaskCapabilities',
+      'completedApplyTaskIds',
       'baseRef',
       'headRef',
       'beforeSha',
@@ -801,6 +962,8 @@ export function validateQueueState(value) {
   }
   assertMarkerSafeString(value.taskId, 'Queue state.taskId');
   if (value.sessionId !== null) assertMarkerSafeString(value.sessionId, 'Queue state.sessionId');
+  assertApplyTask(value, 'Queue state');
+  assertCompletedApplyTasks(value, 'Queue state');
   assertMarkerSafeString(value.baseRef, 'Queue state.baseRef');
   if (value.headRef !== null) assertMarkerSafeString(value.headRef, 'Queue state.headRef');
   if (!GIT_SHA.test(value.beforeSha)) throw new Error('Queue state.beforeSha is invalid');
@@ -841,17 +1004,108 @@ export function parseCloudOperationResult(log) {
   assertObject(value, 'Cloud operation result');
   assertKnownKeys(
     value,
-    new Set(['changeRef', 'operation', 'verdict', 'validation']),
+    new Set(['changeRef', 'operation', 'applyTaskId', 'verdict', 'validation']),
     'Cloud operation result',
   );
   assertKebabCase(value.changeRef, 'Cloud operation result.changeRef');
   if (!['apply', 'verify', 'sync', 'archive'].includes(value.operation)) {
     throw new Error('Cloud operation result.operation is invalid');
   }
+  if (value.applyTaskId !== undefined) {
+    if (value.operation !== 'apply' || !/^\d+(?:\.\d+)*$/.test(value.applyTaskId)) {
+      throw new Error('Cloud operation result.applyTaskId is invalid');
+    }
+  }
   if (!['pass', 'blocked', 'fail'].includes(value.verdict)) {
     throw new Error('Cloud operation result.verdict is invalid');
   }
   assertMarkerSafeString(value.validation, 'Cloud operation result.validation');
+  return { ...value };
+}
+
+function assertGitPath(value, path) {
+  assertMarkerSafeString(value, path);
+  if (value.includes('\\')
+    || value.startsWith('/')
+    || value.split('/').some((segment) => segment === '' || segment === '..')) {
+    throw new Error(`${path} must be a normalized repository-relative path`);
+  }
+}
+
+export function parseCapabilityResult(log) {
+  if (typeof log !== 'string') throw new Error('Capability result log must be a string');
+  const lines = log.split(/\r?\n/)
+    .filter((line) => line.trim().startsWith(CAPABILITY_RESULT_PREFIX));
+  if (lines.length !== 1) {
+    throw new Error('Capability result log must contain exactly one result marker');
+  }
+  let value;
+  try {
+    value = JSON.parse(lines[0].trim().slice(CAPABILITY_RESULT_PREFIX.length));
+  } catch (error) {
+    throw new Error(`Capability result contains invalid JSON: ${error.message}`);
+  }
+  assertObject(value, 'Capability result');
+  assertKnownKeys(
+    value,
+    new Set([
+      'version',
+      'changeRef',
+      'operation',
+      'taskId',
+      'capabilities',
+      'verdict',
+      'startingSha',
+      'resultingSha',
+      'artifactsChanged',
+      'validation',
+      'summary',
+      'blockingFindings',
+    ]),
+    'Capability result',
+  );
+  if (value.version !== 1) throw new Error('Capability result.version must be 1');
+  assertKebabCase(value.changeRef, 'Capability result.changeRef');
+  if (value.operation !== 'apply') throw new Error('Capability result.operation must be apply');
+  if (typeof value.taskId !== 'string' || !/^\d+(?:\.\d+)*$/.test(value.taskId)) {
+    throw new Error('Capability result.taskId is invalid');
+  }
+  assertCapabilityIds(value.capabilities, 'Capability result.capabilities');
+  if (!['pass', 'blocked', 'fail'].includes(value.verdict)) {
+    throw new Error('Capability result.verdict is invalid');
+  }
+  if (!GIT_SHA.test(value.startingSha) || !GIT_SHA.test(value.resultingSha)) {
+    throw new Error('Capability result SHAs are invalid');
+  }
+  if (!Array.isArray(value.artifactsChanged)
+    || new Set(value.artifactsChanged).size !== value.artifactsChanged.length) {
+    throw new Error('Capability result.artifactsChanged is invalid');
+  }
+  value.artifactsChanged.forEach((artifact, index) => {
+    assertGitPath(artifact, `Capability result.artifactsChanged[${index}]`);
+  });
+  if (!Array.isArray(value.validation)) {
+    throw new Error('Capability result.validation must be an array');
+  }
+  value.validation.forEach((entry, index) => {
+    assertObject(entry, `Capability result.validation[${index}]`);
+    assertKnownKeys(
+      entry,
+      new Set(['command', 'outcome']),
+      `Capability result.validation[${index}]`,
+    );
+    assertMarkerSafeString(entry.command, `Capability result.validation[${index}].command`);
+    if (!['passed', 'failed', 'not-run'].includes(entry.outcome)) {
+      throw new Error(`Capability result.validation[${index}].outcome is invalid`);
+    }
+  });
+  assertMarkerSafeString(value.summary, 'Capability result.summary');
+  if (!Array.isArray(value.blockingFindings)) {
+    throw new Error('Capability result.blockingFindings must be an array');
+  }
+  value.blockingFindings.forEach((finding, index) => {
+    assertMarkerSafeString(finding, `Capability result.blockingFindings[${index}]`);
+  });
   return { ...value };
 }
 

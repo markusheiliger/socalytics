@@ -239,6 +239,16 @@ export class GitHubChangeClient {
     return this.request(`${this.repositoryPath}/branches/${encodeURIComponent(branch)}`);
   }
 
+  async compareCommits(baseSha, headSha) {
+    const value = await this.request(
+      `${this.repositoryPath}/compare/${encodeURIComponent(baseSha)}...${encodeURIComponent(headSha)}`,
+    );
+    if (!Array.isArray(value.files)) {
+      throw new Error('GitHub compare response did not contain changed files');
+    }
+    return value;
+  }
+
   getRepositoryContent(path, ref) {
     return this.request(
       `${this.repositoryPath}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`,

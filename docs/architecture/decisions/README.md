@@ -9,8 +9,8 @@ design.
 Add an ADR only when preserving the rationale for a consequential change to an
 established or implemented architecture would be useful. OpenSpec design work
 identifies ADR candidates. Once approved, ADR creation is a separate apply task
-with exactly `Owner: soca-architect`; neither proposal nor design approval alone
-creates an ADR.
+with exactly `Capabilities: architecture`; neither proposal nor design approval
+alone creates an ADR.
 
 Before verification and archive, synchronize the current architecture narrative
 and accepted behavioral specifications. An ADR must link to the originating

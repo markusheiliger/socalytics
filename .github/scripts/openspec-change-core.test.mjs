@@ -7,12 +7,14 @@ import {
   mergeManagedDependencyGraph,
   mergeManagedEdgeProvenance,
   parseChangeMarker,
+  parseCapabilityDefinition,
+  parseCapabilityResult,
+  parseCapabilityTasks,
   parseDependencyCheckpoint,
   parseDependencySummary,
   parseLedgerEntry,
   parseCloudOperationResult,
   parseQueueState,
-  parseOwnedTasks,
   renderChangeMarker,
   renderDependencySummary,
   renderLedgerEntry,
@@ -24,6 +26,7 @@ import {
   validateDependencyOutput,
   validateDependencyGraphPatch,
   validateMergedDependencyGraph,
+  validateCapabilitySet,
   validateOperationEvidence,
   validateSynchronizedDeltas,
 } from './openspec-change-core.mjs';
@@ -58,37 +61,98 @@ test('rejects malformed, duplicate, and inconsistent change markers', () => {
   );
 });
 
-test('parses owned multiline tasks and selects the first unchecked task', () => {
+test('parses capability-backed multiline tasks and selects the first unchecked task', () => {
   const markdown = [
     '## Tasks',
     '',
-    '- [x] 1.1 Implement the parser. Owner: soca-developer.',
+    '- [x] 1.1 Implement the parser. Capabilities: implementation, architecture.',
     '  Validation: run the focused tests.',
-    '- [ ] 1.2 **Owner: soca-verifier.** Verify the parser independently.',
+    '- [ ] 1.2 **Capabilities: verification.** Verify the parser independently.',
     '  Do not edit implementation files.',
     '',
   ].join('\n');
-  const tasks = parseOwnedTasks(markdown);
+  const tasks = parseCapabilityTasks(markdown);
   assert.equal(tasks.length, 2);
   assert.deepEqual(
-    tasks.map(({ id, completed, owner }) => ({ id, completed, owner })),
+    tasks.map(({ id, completed, capabilities }) => ({ id, completed, capabilities })),
     [
-      { id: '1.1', completed: true, owner: 'soca-developer' },
-      { id: '1.2', completed: false, owner: 'soca-verifier' },
+      { id: '1.1', completed: true, capabilities: ['architecture', 'implementation'] },
+      { id: '1.2', completed: false, capabilities: ['verification'] },
     ],
   );
   assert.equal(selectNextTask(markdown).id, '1.2');
 });
 
-test('rejects tasks with missing, duplicate, or unsupported owners', () => {
-  assert.throws(() => parseOwnedTasks('- [ ] 1.1 Missing owner'), /exactly one/);
+test('rejects tasks with missing, duplicate, or malformed capabilities', () => {
+  assert.throws(() => parseCapabilityTasks('- [ ] 1.1 Missing capabilities'), /exactly one/);
   assert.throws(
-    () => parseOwnedTasks('- [ ] 1.1 Owner: soca-developer. Owner: soca-verifier.'),
+    () => parseCapabilityTasks(
+      '- [ ] 1.1 Capabilities: implementation. Capabilities: verification.',
+    ),
     /exactly one/,
   );
   assert.throws(
-    () => parseOwnedTasks('- [ ] 1.1 Owner: soca-unknown.'),
-    /unsupported owner/,
+    () => parseCapabilityTasks('- [ ] 1.1 Capabilities: implementation, implementation.'),
+    /unique sorted/,
+  );
+});
+
+test('validates capability definitions and composition', () => {
+  const definition = (id, overrides = {}) => parseCapabilityDefinition([
+    '---',
+    `id: ${id}`,
+    'version: 1',
+    `operations: [${overrides.operations ?? 'apply'}]`,
+    `composition: ${overrides.composition ?? 'composable'}`,
+    `mutation: ${overrides.mutation ?? 'scoped'}`,
+    `isolation: ${overrides.isolation ?? 'shared'}`,
+    'resultSchema: schemas/capability-result-v1.schema.json',
+    '---',
+    '',
+    `# ${id}`,
+  ].join('\n'), id);
+  const architecture = definition('architecture');
+  const implementation = definition('implementation');
+  assert.deepEqual(
+    validateCapabilitySet([implementation, architecture]),
+    {
+      ids: ['architecture', 'implementation'],
+      mutation: 'scoped',
+      isolation: 'shared',
+      resultSchema: 'schemas/capability-result-v1.schema.json',
+    },
+  );
+  assert.throws(
+    () => validateCapabilitySet([
+      architecture,
+      definition('verification', {
+        composition: 'exclusive',
+        mutation: 'checkbox-only',
+        isolation: 'required',
+      }),
+    ]),
+    /exclusive/,
+  );
+  assert.throws(
+    () => validateCapabilitySet([
+      architecture,
+      definition('design', { isolation: 'required' }),
+    ]),
+    /incompatible isolation/,
+  );
+  assert.throws(
+    () => parseCapabilityDefinition([
+      '---',
+      'id: wrong',
+      'version: 1',
+      'operations: [apply]',
+      'composition: composable',
+      'mutation: scoped',
+      'isolation: shared',
+      'resultSchema: schemas/capability-result-v1.schema.json',
+      '---',
+    ].join('\n'), 'architecture'),
+    /does not match/,
   );
 });
 
@@ -517,6 +581,9 @@ test('round-trips queue state and parses one cloud result marker', () => {
     attempt: 1,
     taskId: 'task-1',
     sessionId: null,
+    applyTaskId: '1.1',
+    applyTaskCapabilities: ['implementation'],
+    completedApplyTaskIds: [],
     baseRef: 'main',
     headRef: null,
     beforeSha: 'a'.repeat(40),
@@ -526,12 +593,12 @@ test('round-trips queue state and parses one cloud result marker', () => {
   assert.deepEqual(parseQueueState(renderQueueState(state)), state);
   assert.deepEqual(parseCloudOperationResult([
     'other log output',
-    'OPEN_SPEC_CLOUD_OPERATION_V1={"changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"No critical findings."}',
+    'OPEN_SPEC_CLOUD_OPERATION_V1={"changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"Verification complete."}',
   ].join('\n')), {
     changeRef: 'add-platform',
     operation: 'verify',
     verdict: 'pass',
-    validation: 'No critical findings.',
+    validation: 'Verification complete.',
   });
   assert.throws(
     () => parseCloudOperationResult('no marker'),
@@ -539,20 +606,53 @@ test('round-trips queue state and parses one cloud result marker', () => {
   );
 });
 
-test('does not absorb trailing sections or nested tasks into the preceding owner block', () => {
+test('parses one structured capability result', () => {
+  assert.deepEqual(parseCapabilityResult([
+    'other log output',
+    `OPEN_SPEC_CAPABILITY_RESULT_V1=${JSON.stringify({
+      version: 1,
+      changeRef: 'add-platform',
+      operation: 'apply',
+      taskId: '1.1',
+      capabilities: ['architecture', 'implementation'],
+      verdict: 'pass',
+      startingSha: 'a'.repeat(40),
+      resultingSha: 'b'.repeat(40),
+      artifactsChanged: ['src/platform/file.cs'],
+      validation: [{ command: 'dotnet test', outcome: 'passed' }],
+      summary: 'Task complete.',
+      blockingFindings: [],
+    })}`,
+  ].join('\n')), {
+    version: 1,
+    changeRef: 'add-platform',
+    operation: 'apply',
+    taskId: '1.1',
+    capabilities: ['architecture', 'implementation'],
+    verdict: 'pass',
+    startingSha: 'a'.repeat(40),
+    resultingSha: 'b'.repeat(40),
+    artifactsChanged: ['src/platform/file.cs'],
+    validation: [{ command: 'dotnet test', outcome: 'passed' }],
+    summary: 'Task complete.',
+    blockingFindings: [],
+  });
+});
+
+test('does not absorb trailing sections or nested tasks into the preceding capability block', () => {
   const markdown = [
-    '- [ ] 1.1 Parent. Owner: soca-developer.',
-    '  - [ ] 1.1.1 Child. Owner: soca-verifier.',
+    '- [ ] 1.1 Parent. Capabilities: implementation.',
+    '  - [ ] 1.1.1 Child. Capabilities: verification.',
     '',
     '## Notes',
     '',
-    'Owner: soca-auditor reviews later.',
+    'Capabilities: audit is considered later.',
   ].join('\n');
   assert.deepEqual(
-    parseOwnedTasks(markdown).map(({ id, owner }) => ({ id, owner })),
+    parseCapabilityTasks(markdown).map(({ id, capabilities }) => ({ id, capabilities })),
     [
-      { id: '1.1', owner: 'soca-developer' },
-      { id: '1.1.1', owner: 'soca-verifier' },
+      { id: '1.1', capabilities: ['implementation'] },
+      { id: '1.1.1', capabilities: ['verification'] },
     ],
   );
 });

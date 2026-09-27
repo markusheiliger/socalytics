@@ -167,18 +167,25 @@ the dependency and serialization checks.
 
 ## Cloud execution
 
-The repository-owned `OpenSpec Cloud` agent executes one selected operation on
-the durable implementation branch. It reads the generated OpenSpec skill for
-that operation and does not replace or modify generated workflow instructions.
+The generated OOTB `openspec` agent executes one selected operation on the
+durable implementation branch. The controller names the binding generated
+OpenSpec skill in its prompt and does not replace or modify generated agent or
+skill instructions.
 
-During apply, the parent invokes the hidden `soca-*` owner declared by each
-task. The production specialist profiles remain hidden with
-`user-invocable: false` and inherit the runtime model. They do not use
-array-valued model selectors because GitHub Copilot cloud-agent frontmatter
-accepts a single model string; an incompatible profile would disappear from the
-subagent registry and make owned apply tasks impossible to dispatch. The parent
-rejects delegation back to itself or to any specialist other than the task's
-declared owner.
+During apply, the controller selects one unchecked numbered OpenSpec task and
+persists its task id, normalized capability set, and the ids of tasks that were
+already complete. Capability ids resolve directly to
+`openspec/capabilities/<id>.md`; no registry, inference, or specialist agent is
+involved. The controller rejects unknown capabilities, unsupported operations,
+exclusive multi-capability sets, and incompatible mutation, isolation, or
+result-schema contracts before dispatch.
+
+One Agent Task executes that exact task under the complete compatible
+capability set, validates its structured result, and marks only that task
+complete. If unchecked tasks remain, the controller dispatches another apply
+Agent Task on the same branch and pull request before advancing to verify. This
+task-level checkpoint keeps each cloud session bounded and makes completed work
+durable before the next task starts.
 
 The operation sequence is:
 
@@ -196,6 +203,23 @@ starts, so the agent discovers that branch and proves the base SHA is an
 ancestor of its HEAD. The controller does not guess a generated branch name or
 HEAD SHA.
 
+Apply envelopes also contain the selected task block, sorted capability ids,
+direct capability paths, and validated effective policy. Apply emits one
+`OPEN_SPEC_CAPABILITY_RESULT_V1=<json-object>` marker conforming to
+`openspec/capabilities/schemas/capability-result-v1.schema.json`.
+Reconciliation accepts a result only when the task and capability set match,
+reported SHAs and changed paths match repository evidence, that exact task
+changed to complete, every task that was previously complete remains complete,
+and no other pending task was completed by the operation. A successful
+intermediate apply result stays in the apply stage with attempt 1 for the next
+selected task. A retry retains the same selected task and increments only that
+task's attempt.
+
+`verification` and `audit` are exclusive, isolated capabilities. Their
+task-level operation may change only the selected checkbox in the active
+`tasks.md`; any other mutation is rejected. Lifecycle verify runs in a fresh
+Agent Task and must leave the branch SHA unchanged.
+
 Every later Agent Task uses a `continue` checkpoint and continues on the same
 open draft pull request by providing the exact base ref, head ref, and starting
 head SHA. The agent requires its checked-out branch and HEAD to match before
@@ -203,6 +227,15 @@ editing. Exactly one Agent Task may run for a change at a time. Before each API
 dispatch, the controller persists a `dispatching` checkpoint. An interrupted
 dispatch therefore stops safely instead of starting an untracked duplicate
 task.
+
+The workflow runs reconciliation in watch mode while an Agent Task is queued,
+in progress, or idle. It polls the Agent Tasks API once per minute, dispatches
+the next task or lifecycle operation as soon as durable evidence passes, and
+exits when the queue reaches human review, blocking, or attention. This is the
+primary progression mechanism. Pull-request events and the scheduled trigger
+remain recovery wake-ups; lifecycle progress does not depend on Copilot-created
+pull-request events being approved or on scheduled workflows running exactly at
+their requested cron interval.
 
 The controller consumes `openspec:enqueued` when it starts processing. Each
 later controller-selected operation on the same durable lifecycle is authorized
@@ -218,7 +251,7 @@ Agent Task state alone is not success evidence. After every attempt, the
 controller re-reads branch-visible OpenSpec state and appends an immutable
 operation ledger comment containing:
 
-- operation and attempt;
+- operation, selected apply task when applicable, and attempt;
 - Agent Task and session identifiers;
 - branch and commit SHA before and after;
 - outcome and validation summary; and

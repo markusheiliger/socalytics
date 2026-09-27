@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import { GitHubChangeClient } from './openspec-change-github.mjs';
 
+const sha = (character) => character.repeat(40);
+
 function jsonResponse(value, status = 200) {
   return new Response(JSON.stringify(value), {
     status,
@@ -46,14 +48,14 @@ test('uses the user agent token only for Agent Tasks endpoints', async () => {
 
   await client.startAgentTask({
     prompt: 'Apply change add-platform.',
-    customAgent: 'openspec-cloud',
+    customAgent: 'openspec',
     baseRef: 'main',
     createPullRequest: true,
   });
   assert.equal(calls[0].options.headers.Authorization, 'Bearer agent-secret');
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     prompt: 'Apply change add-platform.',
-    custom_agent: 'openspec-cloud',
+    custom_agent: 'openspec',
     base_ref: 'main',
     create_pull_request: true,
   });
@@ -68,7 +70,7 @@ test('continues an Agent Task on an existing pull request branch', async () => {
 
   await client.startAgentTask({
     prompt: 'Verify change add-platform.',
-    customAgent: 'openspec-cloud',
+    customAgent: 'openspec',
     baseRef: 'main',
     headRef: 'copilot/add-platform',
   });
@@ -157,4 +159,22 @@ test('decodes repository text content', async () => {
     content: Buffer.from('hello').toString('base64'),
   }));
   assert.equal(await client.getTextContent('README.md', 'main'), 'hello');
+});
+
+test('compares commits and requires changed-file evidence', async () => {
+  const calls = [];
+  const client = clientWith(async (url) => {
+    calls.push(url);
+    return jsonResponse({ files: [{ filename: 'src/example.cs' }] });
+  });
+
+  const comparison = await client.compareCommits(sha('a'), sha('b'));
+  assert.deepEqual(comparison.files, [{ filename: 'src/example.cs' }]);
+  assert.match(calls[0], new RegExp(`/compare/${sha('a')}\\.\\.\\.${sha('b')}$`));
+
+  const malformed = clientWith(async () => jsonResponse({ files: null }));
+  await assert.rejects(
+    malformed.compareCommits(sha('a'), sha('b')),
+    /did not contain changed files/,
+  );
 });

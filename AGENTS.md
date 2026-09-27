@@ -18,15 +18,15 @@
 - Component-local executable contracts and implementation guidance belong with the component that owns and validates them.
 - Preserve unresolved decisions explicitly. Do not present provisional values, target-state descriptions, or missing production evidence as adopted facts.
 
-## OpenSpec and Specialists
+## OpenSpec and Execution Capabilities
 
-- `openspec/config.yaml` contains project context, artifact rules, and advisory apply/archive routing policy. Do not duplicate that policy in generated prompt bodies.
-- `.github/agents/openspec.agent.md` is OpenSpec-managed cloud-agent guidance. It is distinct from the SocAlytics specialists.
-- `.github/agents/openspec-cloud.agent.md` is the repository-owned GitHub cloud orchestrator. It executes one controller-selected OpenSpec operation, follows the matching generated skill, and delegates apply tasks to their hidden declared owners through the `agent` tool.
-- All `soca-*` agents are dispatch-only (`user-invocable: false`). OpenSpec dispatches the one owner declared by each task; specialists return results and never dispatch one another.
-- Supported owners are `soca-strategist`, `soca-designer`, `soca-architect`, `soca-developer`, `soca-verifier`, and `soca-auditor`.
-- Every task must declare exactly one `Owner: soca-*`. Split tasks when ownership or artifact category differs, and stop when ownership is missing, invalid, or conflicting.
-- `soca-verifier` verifies independently and does not author implementation work. `soca-auditor` reports independent findings and does not silently remediate them.
+- `openspec/config.yaml` contains project context, artifact rules, and apply/archive policy. Do not duplicate that policy in generated prompt or skill bodies.
+- `.github/agents/openspec.agent.md` is OpenSpec-managed cloud-agent guidance and must remain generated.
+- Repository execution contracts live under `openspec/capabilities/`. Capability ids resolve directly to same-named Markdown files; there is no registry or specialist-agent routing.
+- Supported execution capabilities are `strategy`, `design`, `architecture`, `implementation`, `verification`, and `audit`.
+- Every task must declare exactly one unordered plural `Capabilities:` set. Multiple capabilities are allowed only when every selected contract is composable and compatible.
+- The queue executes one capability-backed task per Agent Task through the OOTB `openspec` agent and validates structured result evidence before advancing.
+- `verification` and `audit` are exclusive, isolated, checkbox-only capabilities. They report independently and do not author or remediate implementation work.
 
 ## Repository Setup
 
