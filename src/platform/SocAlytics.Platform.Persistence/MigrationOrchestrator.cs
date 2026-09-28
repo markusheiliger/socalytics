@@ -3,6 +3,7 @@ using System.Text;
 using Dapper;
 using DbUp;
 using DbUp.Engine;
+using Npgsql;
 using SocAlytics.Platform.Persistence.Connections;
 
 namespace SocAlytics.Platform.Persistence;
@@ -35,6 +36,7 @@ public sealed class MigrationOrchestrator(
                     UNIQUE (module_key, sequence)
                 );
                 """);
+            ModuleRoles.Bootstrap(connection, new NpgsqlConnectionStringBuilder(options.RuntimeConnectionString).Username);
 
             var history = connection.Query<HistoryEntry>(
                 "SELECT module_key AS ModuleKey, sequence AS Sequence, script_identity AS ScriptIdentity, checksum AS Checksum FROM socalytics_migrations.history")
@@ -58,8 +60,13 @@ public sealed class MigrationOrchestrator(
                 return;
             }
 
+            // Each script runs as its owning module's owner role so it can only create or alter
+            // objects in that module's schema; the journal resets the role before recording history.
             var scripts = pending.Select((migration, index) =>
-                new SqlScript(index.ToString("D8"), new UTF8Encoding(false, true).GetString(migration.Content))).ToArray();
+                new SqlScript(
+                    index.ToString("D8"),
+                    $"SET LOCAL ROLE {ModuleRoles.Quote(ModuleRoles.OwnerRoleName(migration.ModuleKey))};\n" +
+                    new UTF8Encoding(false, true).GetString(migration.Content))).ToArray();
             var journal = new HistoryJournal(pending);
             var result = DeployChanges.To
                 .PostgresqlDatabase(options.BootstrapConnectionString)
@@ -115,6 +122,12 @@ public sealed class MigrationOrchestrator(
         public void StoreExecutedScript(SqlScript script, Func<IDbCommand> dbCommandFactory)
         {
             var migration = migrations[int.Parse(script.Name, System.Globalization.CultureInfo.InvariantCulture)];
+            using (var resetRole = dbCommandFactory())
+            {
+                resetRole.CommandText = "RESET ROLE";
+                resetRole.ExecuteNonQuery();
+            }
+
             using var command = dbCommandFactory();
             command.CommandText = """
                 INSERT INTO socalytics_migrations.history (module_key, sequence, script_identity, checksum)

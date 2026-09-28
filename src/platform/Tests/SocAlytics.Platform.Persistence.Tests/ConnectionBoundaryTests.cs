@@ -43,6 +43,7 @@ public sealed class ConnectionBoundaryTests
         using var connection = connectionFactory.CreateConnection(ModuleKey.Registry);
 
         connection.ConnectionString.ShouldContain("Search Path=registry");
+        new Npgsql.NpgsqlConnectionStringBuilder(connection.ConnectionString).Options.ShouldBe("-c role=socalytics_registry_runtime");
     }
 
     [Fact]
