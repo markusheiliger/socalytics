@@ -82,9 +82,6 @@ export function decodeAgentSessionFinalResponse(eventStream) {
     }
     for (const choice of contentChoices) {
       if (choice.delta?.role === 'assistant' && current !== '') {
-        if (!currentComplete) {
-          throw new Error('Agent session log contains an incomplete assistant response');
-        }
         completeCurrent();
       }
       if (typeof choice.delta?.content === 'string') {

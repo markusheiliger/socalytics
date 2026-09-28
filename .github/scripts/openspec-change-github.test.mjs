@@ -106,6 +106,15 @@ test('requires an unambiguous completed Agent Task response', () => {
     ].join('\n')),
     '{}',
   );
+  assert.equal(
+    decodeAgentSessionFinalResponse([
+      'data: {"choices":[{"delta":{"content":"intermediate"}}]}',
+      'data: {"choices":[{"delta":{"role":"assistant"}}]}',
+      'data: {"choices":[{"delta":{"content":"final"}}]}',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+    ].join('\n')),
+    'final',
+  );
   assert.throws(
     () => decodeAgentSessionFinalResponse(
       'data: {"choices":[{"delta":{"content":"{}"}}]}\n',
