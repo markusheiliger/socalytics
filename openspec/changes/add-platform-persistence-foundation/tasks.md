@@ -25,7 +25,7 @@
 
 ## 5. Architecture And Development Documentation
 
-- [ ] 5.1 **Capabilities: architecture.** Synchronize `docs/architecture/platform-implementation.md` and `docs/architecture/tenancy-and-technology.md` with the implemented shared boundary, role-based schema isolation, migration/readiness behavior, executable evidence, and still-deferred production values; link the ADR disposition from task 1.1 and verify Markdown diagnostics and relative links.
+- [x] 5.1 **Capabilities: architecture.** Synchronize `docs/architecture/platform-implementation.md` and `docs/architecture/tenancy-and-technology.md` with the implemented shared boundary, role-based schema isolation, migration/readiness behavior, executable evidence, and still-deferred production values; link the ADR disposition from task 1.1 and verify Markdown diagnostics and relative links.
 - [ ] 5.2 **Capabilities: implementation.** Update `README.md`, `src/platform/README.md`, and `AGENTS.md` with the container-runtime prerequisite, supported restore/build/test/AppHost commands, PostgreSQL integration evidence, and truthful exclusions; run the documented commands from the repository root and verify they match actual behavior.
 
 ## 6. Independent Validation And Governance Review

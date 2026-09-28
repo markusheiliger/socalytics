@@ -6,11 +6,13 @@ without changing their domain responsibilities. The source and runtime choices
 in this profile are adopted architecture; production readiness and operational
 values remain **Provisional / Blocking production** as governed by
 [Production Deployment and Operations](production-operations.md). Only the
-platform host scaffold is executable: it provides the .NET 10 solution, local
-Aspire composition, operational API surface, capability composition boundaries,
-and host and architecture tests described below. It provides no domain behavior,
-external infrastructure integration, security implementation, client runtime,
-deployment configuration, or production-readiness evidence.
+platform host and local persistence foundation are executable: they provide the
+.NET 10 solution, Aspire composition with PostgreSQL, migration-gated readiness,
+the operational API surface, capability composition boundaries, and host,
+architecture, and PostgreSQL integration tests described below. They provide no
+domain behavior, messaging or object-storage integration, identity or
+authorization implementation, client runtime, production deployment
+configuration, or production-readiness evidence.
 
 ## Source And Runtime Baseline
 
@@ -30,6 +32,7 @@ two test projects grouped under `src/platform/Tests`:
 - `SocAlytics.Platform.Api`
 - `SocAlytics.Platform.AppHost`
 - `SocAlytics.Platform.ServiceDefaults`
+- `SocAlytics.Platform.Persistence`
 - `SocAlytics.Platform.Club`
 - `SocAlytics.Platform.IdentityAccess`
 - `SocAlytics.Platform.Recordings`
@@ -38,6 +41,7 @@ two test projects grouped under `src/platform/Tests`:
 - `SocAlytics.Platform.AgentOrchestration`
 - `Tests/SocAlytics.Platform.Host.Tests`
 - `Tests/SocAlytics.Platform.Architecture.Tests`
+- `Tests/SocAlytics.Platform.Persistence.Tests`
 
 `src/platform/SocAlytics.Platform.slnx` is the .NET 10 solution. The six
 capability projects expose one public dependency-injection composition boundary
@@ -76,14 +80,16 @@ does not make Aspire a production dependency or select a cloud provider.
 
 ## Control Plane
 
-The current control-plane evidence is a dependency-free ASP.NET Core host that
-registers all six capability projects through their public composition
-boundaries. It exposes only `/alive`, `/health`, and the built-in `v1` OpenAPI
-document at `/openapi/v1.json`; it has no domain paths. The Aspire AppHost
-composes only the API resource and uses `/health` for readiness. Architecture
-tests enforce capability isolation and the intended public surface. This is
-development-host evidence, not an implemented domain API, infrastructure
-topology, deployment mechanism, security posture, or production ingress
+The current control-plane evidence is an ASP.NET Core host that registers all
+six capability projects through their public composition boundaries and runs
+their registered migrations before reporting readiness. It exposes only
+`/alive`, `/health`, and the built-in `v1` OpenAPI document at
+`/openapi/v1.json`; it has no domain paths. The Aspire AppHost composes the API
+with a PostgreSQL resource and uses `/health` for readiness. Host tests verify
+successful migration startup, unhealthy readiness on migration failure, and
+the unchanged operational and OpenAPI surface. Architecture tests enforce
+capability isolation and the intended public surface. This is local-development
+evidence, not a production deployment topology, security posture, or ingress
 contract.
 
 The target control plane starts as one ASP.NET Core modular-monolith deployment.
@@ -101,9 +107,9 @@ the owning module's command boundary rather than direct table writes. A module
 becomes a separate deployment only when measured scaling, fault-isolation, or
 operational evidence justifies extraction.
 
-### Planned Control-Plane Ownership
+### Current Module-Schema Ownership
 
-The planned PostgreSQL ownership map is:
+The local persistence foundation creates only these module schemas and grants:
 
 - `SocAlytics.Platform.Club` owns schema `club`;
 - `SocAlytics.Platform.IdentityAccess` owns schema `identity_access`;
@@ -112,25 +118,40 @@ The planned PostgreSQL ownership map is:
 - `SocAlytics.Platform.Analysis` owns schema `analysis`;
 - `SocAlytics.Platform.AgentOrchestration` owns schema `agent_orchestration`; and
 - shared migration infrastructure owns `socalytics_migrations.history`, which
-  records module sequence and checksum but contains no domain state.
+  records module, sequence, script identity, checksum, and successful
+  application time but contains no domain state.
 
-Module schema definitions and SQL remain internal to their owning assemblies.
-The API host references public registration and application contracts rather
-than module persistence types. The Registry module includes the queryable
-Analyst manifest cache keyed by immutable image digest. The Analysis module
-owns durable runs, DAG state, logical jobs, attempts, and accepted-result
-references. The segments boundary owns on-demand materialization within the
-control-plane deployment unless measured scaling later justifies extraction.
+Each module owns its embedded schema-creation migration and its SQL; it cannot
+register migrations for another module. For local and test databases, each
+module has a schema owner role and a restricted runtime role. Runtime sessions
+use only their module's schema, and PostgreSQL denies peer-schema access. The
+bootstrap connection is restricted to migration orchestration. The API host
+uses public module composition boundaries rather than module persistence types.
+These initial migrations create schemas and grants only, not domain tables.
+The planned Registry, Analysis, and segments data remains unimplemented.
 
 ### Persistence And CQRS
 
-This persistence and messaging baseline remains unimplemented; the current host
-has no PostgreSQL, Npgsql, Dapper, DbUp, NATS JetStream, S3-compatible storage,
-migrations, outbox, or infrastructure integration.
+The module-neutral local persistence foundation is implemented. It provides
+Npgsql connection boundaries, Dapper integration, explicit transaction
+execution, a narrow optimistic-concurrency primitive, and DbUp migration
+orchestration with deterministic ordering, SHA-256 checksum preflight,
+transactional per-script history writes, repeat-run skipping, and sanitized
+failures. Testcontainers-backed PostgreSQL tests verify migration order,
+checksum conflicts, repeat startup, rollback, schema ownership and role
+isolation, cross-schema denial, transaction and concurrency behavior, and the
+absence of `club_id` from persistence artifacts and database catalogs.
 
-Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Dapper
-provide database access; Entity Framework Core is not part of the baseline.
-DbUp applies ordered, versioned PostgreSQL SQL scripts grouped by owning module.
+Aspire composes one PostgreSQL database for local development. The API runs the
+registered migrations during startup and remains unready when the database or
+migrations are unavailable or fail. `/alive`, `/health`, and
+`/openapi/v1.json` remain the only exposed operational routes. This local
+foundation does not select production database names, hosts, ports, identities,
+credentials, secret sources, or role-to-identity mappings.
+
+The accepted architecture uses one logical PostgreSQL database per deployment
+stamp, with module-owned schemas; this is not evidence of a production
+deployment. Entity Framework Core is not part of the baseline.
 
 CQRS is logical rather than physical:
 
@@ -140,10 +161,9 @@ CQRS is logical rather than physical:
 - command and query paths share the stamp database
 - event sourcing and separate read and write databases are not implied
 
-Optimistic concurrency protects contested writes. Database changes and outgoing
-events commit atomically through a PostgreSQL transactional outbox. A background
-publisher delivers outbox records to NATS JetStream with retries; consumers and
-completion handlers remain idempotent.
+Logical CQRS, domain persistence, and optimistic-concurrency use by domain
+handlers remain future work. A PostgreSQL transactional outbox, NATS JetStream
+publisher, retries, and idempotent consumers are also unimplemented.
 
 Encryption, retention, deletion, copy propagation, residency, and audit
 requirements for the database, outbox, generated indexes, telemetry, replicas,
@@ -174,12 +194,13 @@ implementing this baseline and carries two durable architecture decisions:
   are governed by
   [Production Deployment and Operations](production-operations.md).
 
-Per the [architecture decision record threshold](decisions/README.md), an ADR
-is created only once its originating OpenSpec change is ready to archive.
-Both decisions therefore remain ADR candidates recorded here and in the
-change's `design.md` until `add-platform-persistence-foundation` is archived,
-at which point an ADR will be added and linked from this narrative if the
-decisions still meet the threshold.
+Task 1.1 resolved the ADR candidate by recording its rationale in this
+narrative rather than adding an ADR while the OpenSpec change is active. Under
+the [architecture decision record threshold](decisions/README.md), the shared
+boundary and role semantics remain candidates for reconsideration when the
+change is ready to archive; an ADR will be added only if they still meet that
+threshold. Production identity and secret mapping remain unresolved and are
+governed by [Production Deployment and Operations](production-operations.md).
 
 ## API And Identity
 
@@ -315,23 +336,27 @@ other runtimes emit compatible telemetry with the same correlation context.
 Telemetry payload minimization and lifecycle follow
 [Security and Data Governance](security-and-data-governance.md).
 
-## Planned Acceptance Evidence
+## Executable Evidence and Remaining Validation
 
-The initial platform-host change provides this executable evidence:
+The platform host and persistence foundation provide this executable evidence:
 
 - `src/platform/SocAlytics.Platform.slnx` restores, builds, and tests on .NET 10;
-- Aspire starts the API as its sole resource and reports `/health` readiness;
-- host tests exercise `/alive`, `/health`, and `/openapi/v1.json` and verify all
-  six capability registrations; and
+- Aspire starts PostgreSQL and the API, and the API reports readiness only
+  after successful migrations;
+- host tests verify migration success and failure, `/alive`, `/health`,
+  `/openapi/v1.json`, and all six capability registrations;
+- PostgreSQL tests exercise ordered checksum-aware migrations and rollback,
+  role-based schema ownership and cross-schema denial, explicit transactions,
+  optimistic concurrency, and the absence of `club_id`; and
 - architecture tests enforce capability project-reference isolation, API use of
-  public composition boundaries, and internal implementation visibility.
+  public composition boundaries, internal implementation visibility, module
+  migration ownership, and persistence constraints.
 
-The following remain validation targets rather than claims of current evidence:
+The following remain unimplemented validation targets rather than claims of
+current evidence:
 
-- PostgreSQL integration tests cover ordered checksum-aware migrations, Dapper
-  mappings, explicit transactions, optimistic concurrency, idempotency,
-  authorization, immutable lineage, registry versions, analysis recovery, and
-  state-plus-outbox atomicity;
+- domain Dapper mappings, idempotency, authorization, immutable lineage,
+  registry versions, analysis recovery, and state-plus-outbox atomicity;
 - NATS recovery tests cover broker outage, retry, publisher restart,
   expired-lease recovery, duplicate notification handling, and PostgreSQL
   revalidation;
@@ -353,16 +378,18 @@ choice or reveals a material operational tradeoff:
   identity, client sharing, Analyst Manager UI/runtime, or Analyst
   image/runtime choices.
 - **Consequences and operational tradeoffs understood — partially met.**
-  Capability project isolation, host composition, and dependency-free startup
-  are exercised. Transaction boundaries, duplicate delivery, restart recovery,
-  local infrastructure failure, production database-role isolation,
-  backup/restore, lifecycle controls, service objectives, capacity, and complete
-  workflow failure behavior remain unevidenced.
+  Capability project isolation, PostgreSQL-backed local host composition,
+  migration-gated readiness, transaction boundaries, and local/test
+  database-role isolation are exercised. Duplicate delivery, restart recovery,
+  production identity mapping, backup/restore, lifecycle controls, service
+  objectives, capacity, and complete workflow failure behavior remain
+  unevidenced.
 - **Prototype, measurement, or implementation evidence supports the choice —
-  partially met.** The .NET 10 host, Aspire-only local composition, operational
-  API surface, capability registration boundaries, and structural tests are
-  implemented. Persistence, publication, secure BFF identity, both client
-  shells, cross-runtime schema agreement, reproducible Analyst images, and the
+  partially met.** The .NET 10 host, Aspire PostgreSQL composition, operational
+  API surface, shared persistence foundation, capability registration
+  boundaries, and structural and PostgreSQL tests are implemented. Domain
+  persistence, publication, secure BFF identity, both client shells,
+  cross-runtime schema agreement, reproducible Analyst images, and the
   Avalonia/OCI platform matrix remain unsupported by implementation evidence.
 - **Mature enough to govern subsequent implementation — not met for
   promotion.** The foundation can guide further reversible implementation, but
@@ -370,13 +397,13 @@ choice or reveals a material operational tradeoff:
   operations, and security/lifecycle evidence prevents the production profile
   from becoming production-ready or implementation-proven.
 
-The host scaffold has demonstrated that Aspire starts the local API with health
-and telemetry defaults and that architecture tests enforce the initial
-capability dependency and visibility boundaries. Before treating the remaining
-choices as implementation-proven, evidence must demonstrate:
+The platform foundation has demonstrated that Aspire starts the local API with
+PostgreSQL, readiness follows migration success, and architecture tests enforce
+the capability dependency and visibility boundaries. Before treating the
+remaining choices as implementation-proven, evidence must demonstrate:
 
-- PostgreSQL integration tests cover Dapper mappings, migrations, optimistic
-  concurrency, outbox recovery, and duplicate delivery
+- PostgreSQL integration tests cover domain Dapper mappings, outbox recovery,
+  and duplicate delivery in addition to the implemented foundation scenarios
 - local and optional OIDC login share a secure BFF session, including CSRF,
   reset, lockout, MFA, logout, and authorization tests
 - Kiota-generated TypeScript, C#, and Python clients compile and pass contract

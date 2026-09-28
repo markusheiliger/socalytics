@@ -50,35 +50,49 @@ Requirements:
 - stamp-specific analytics and model tracking
 - stamp-registered Analyst Managers
 
-### Planned Stamp Persistence
+### Implemented Local Persistence Foundation
 
-The control-plane foundation will implement the stamp's database side as
-one PostgreSQL database with module-owned schemas: `club` for the singleton
-Club root and `Club > Season > Team > Match` hierarchy, `identity_access` for
-membership and Club/Team grants, `recordings` for immutable recording lineage,
-`registry` for immutable capability and model metadata, and `analysis` for
-durable run and result lineage. Shared migration history is isolated in
-`socalytics_migrations`; it owns no domain records.
+Aspire local composition provisions one PostgreSQL database for the platform.
+The shared `SocAlytics.Platform.Persistence` boundary owns module-neutral
+connection, transaction, concurrency, and migration infrastructure, including
+the `socalytics_migrations.history` journal; it owns no domain records. The six
+modules own their schemas: `club`, `identity_access`, `recordings`, `registry`,
+`analysis`, and `agent_orchestration`. Their initial embedded migrations create
+only their schema and grants, not domain tables.
 
-Architecture and PostgreSQL tests must verify that the Club row is a singleton,
-hierarchy parents are required, protected resources resolve to Team scope,
-revoked and cross-Team grants do not authorize access, and internal tables,
-commands, and events carry no `club_id`. These checks will validate the planned
-single-club invariant only. They do not approve shared physical production
-infrastructure, credentials, residency, encryption, retention, or other
-production-policy values.
+Local and test databases use a schema-owner role and a narrower runtime role
+for each module. Runtime roles cannot read or write peer schemas, and the
+bootstrap connection is restricted to migration orchestration. DbUp applies
+registered migrations in deterministic module and sequence order after
+preflighting applied SHA-256 checksums; each script and its history record are
+committed together. API readiness depends on the database and successful
+migrations, while `/alive`, `/health`, and `/openapi/v1.json` remain the only
+operational routes.
+
+PostgreSQL integration and architecture tests verify schema ownership,
+cross-schema denial, migration behavior, and the absence of `club_id` in
+product persistence artifacts and database catalogs. This foundation does not
+implement a singleton Club row, hierarchy, membership, authorization, or other
+domain tables. It preserves the single-club stamp invariant without introducing
+a `club_id` discriminator. The local/test role semantics do not select
+production identities or credentials, and these tests do not approve shared
+physical production infrastructure, residency, encryption, retention, or
+other production-policy values.
 
 ## Initial Production Profile
 
-The initial production orchestrator is **Provisional Docker Compose**. One
-Compose project namespace represents one deployment stamp and uses
+The initial production orchestrator remains **Provisional Docker Compose** and
+is not implemented or validated by the local Aspire composition. The proposed
+profile assigns one Compose project namespace to a deployment stamp and uses
 Compose-managed PostgreSQL, NATS JetStream, and S3-compatible storage on
 durable, stamp-dedicated logical volumes and networks. Physical hosts may be
 shared only when database, storage, messaging, credentials, configuration,
 network, volume, and resource isolation remain independently verifiable.
 
 .NET Aspire remains the local-development composition and is not the
-production orchestrator. The complete environment inventory, persistence,
+production orchestrator. Production database and service names, hosts, ports,
+role-to-identity mapping, credentials, secret sources, and deployment values
+remain unresolved. The complete environment inventory, persistence,
 backup/restore, service-objective, telemetry, capacity, incident, upgrade, and
 readiness contract is defined in
 [Production Deployment and Operations](production-operations.md). Host,
@@ -100,7 +114,7 @@ entry keeps production promotion blocked.
 
 The detailed planned implementation baseline and validation criteria are
 defined in the
-[Platform Implementation Profile](platform-implementation.md#planned-acceptance-evidence).
+[Platform Implementation Profile](platform-implementation.md#executable-evidence-and-remaining-validation).
 
 ### Client Applications
 
