@@ -150,6 +150,44 @@ requirements for the database, outbox, generated indexes, telemetry, replicas,
 and backups are governed by
 [Security and Data Governance](security-and-data-governance.md).
 
+### Shared Persistence Boundary And Schema Roles
+
+The adopted persistence refinement, which remains unimplemented until the
+active `add-platform-persistence-foundation` change delivers its evidence, adds
+one peer production project, `SocAlytics.Platform.Persistence`. It owns only
+module-neutral infrastructure: Npgsql data-source configuration, Dapper
+support, explicit transaction execution, the optimistic-concurrency
+affected-row signal, migration descriptors, checksum verification, migration
+orchestration, and the `socalytics_migrations` schema. It owns no capability
+schema, domain SQL, or domain record.
+
+Each capability project may reference the shared persistence project but still
+never references another capability. Capabilities register internal migration
+contributors and module-scoped persistence services through their existing
+public composition method and export no persistence type. The API may call the
+shared registration and startup boundary but does not consume module
+persistence implementations. ServiceDefaults remains limited to hosting and
+telemetry defaults, and the API does not own migration details.
+
+Schema isolation is database-enforced rather than advisory. Each adopted module
+has a stable NOLOGIN owner role that owns only its schema and migration objects
+and a runtime role with only the privileges its normal access needs; public and
+peer-module access is revoked. Migrations run as the owning module's owner role,
+normal module sessions run as its runtime role, and the bootstrap connection is
+restricted to migration orchestration and is not available to module services.
+These are local and test role semantics. Production login names, identity
+mapping, credential delivery, and secret sources remain unresolved and are
+governed by [Production Deployment and Operations](production-operations.md)
+and [Security and Data Governance](security-and-data-governance.md).
+
+**ADR disposition: no ADR.** This refinement implements the already adopted
+single stamp database, module-owned schemas and migrations, module boundary
+enforcement, and shared `socalytics_migrations.history` without reversing or
+replacing an established or implemented choice, so it does not meet the
+[architecture decision threshold](decisions/README.md). This narrative is the
+authoritative record of the decision and its rationale; rejected alternatives
+remain in the originating OpenSpec change design.
+
 ## API And Identity
 
 The current dependency-free API implements only the operational and OpenAPI
