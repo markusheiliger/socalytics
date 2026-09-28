@@ -1,0 +1,1 @@
+GRANT USAGE ON SCHEMA agent_orchestration TO socalytics_agent_orchestration_runtime;
