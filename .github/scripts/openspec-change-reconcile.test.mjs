@@ -247,7 +247,7 @@ test('does not dispatch while a native blocker is unresolved', async () => {
 });
 
 test('accepts a rewritten initial branch checkpoint using durable repository evidence', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":null,"beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
