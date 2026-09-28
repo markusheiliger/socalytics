@@ -150,6 +150,39 @@ requirements for the database, outbox, generated indexes, telemetry, replicas,
 and backups are governed by
 [Security and Data Governance](security-and-data-governance.md).
 
+### Shared Persistence Boundary And Database Roles
+
+One shared peer project under `src/platform` owns persistence infrastructure
+instead of ServiceDefaults, the API host, or duplicated module code. That
+boundary owns only module-neutral concerns: connection creation, explicit
+transaction execution, the optimistic-concurrency primitive, migration
+descriptors, checksum verification, and the shared `socalytics_migrations`
+journal. It owns no capability schema, domain record, or module SQL. Each
+capability project references the shared boundary and never another capability,
+and it registers its internal migration and persistence services through its
+existing public composition boundary. The API host uses the shared registration
+and startup boundary rather than module persistence types.
+
+Module schema ownership is enforced by database roles rather than by convention
+alone. Each adopted module has an owner role that owns only its schema and
+migration objects and a runtime role that holds only the privileges its normal
+access requires, with public and peer-module access revoked. Migrations run
+under the owning module's owner role, normal module sessions run under its
+runtime role, and the bootstrap connection stays with migration orchestration
+instead of module services. This establishes role semantics only. Production
+identities, login names, credential delivery, and secret sources remain
+unresolved and are governed by
+[Production Deployment and Operations](production-operations.md).
+
+These two refinements extend the persistence baseline above and have no
+implementation evidence yet. Their rationale is recorded in this narrative
+rather than in an [architecture decision record](decisions/README.md): the
+repository reserves ADRs for consequential changes to an established or
+implemented architecture, and an ADR must reference an archived OpenSpec change.
+The shared-boundary and owner/runtime-role candidate therefore stays explicit in
+the active `add-platform-persistence-foundation` change, and this disposition is
+reassessed if implementation evidence contradicts the narrative.
+
 ## API And Identity
 
 The current dependency-free API implements only the operational and OpenAPI
