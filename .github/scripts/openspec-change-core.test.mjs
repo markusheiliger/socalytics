@@ -607,23 +607,7 @@ test('round-trips queue state and parses one cloud result marker', () => {
 });
 
 test('parses one structured capability result', () => {
-  assert.deepEqual(parseCapabilityResult([
-    'other log output',
-    `OPEN_SPEC_CAPABILITY_RESULT_V1=${JSON.stringify({
-      version: 1,
-      changeRef: 'add-platform',
-      operation: 'apply',
-      taskId: '1.1',
-      capabilities: ['architecture', 'implementation'],
-      verdict: 'pass',
-      startingSha: 'a'.repeat(40),
-      resultingSha: 'b'.repeat(40),
-      artifactsChanged: ['src/platform/file.cs'],
-      validation: [{ command: 'dotnet test', outcome: 'passed' }],
-      summary: 'Task complete.',
-      blockingFindings: [],
-    })}`,
-  ].join('\n')), {
+  const expected = {
     version: 1,
     changeRef: 'add-platform',
     operation: 'apply',
@@ -636,7 +620,16 @@ test('parses one structured capability result', () => {
     validation: [{ command: 'dotnet test', outcome: 'passed' }],
     summary: 'Task complete.',
     blockingFindings: [],
-  });
+  };
+  const result = JSON.stringify(expected);
+  assert.deepEqual(parseCapabilityResult([
+    'other log output',
+    `OPEN_SPEC_CAPABILITY_RESULT_V1=${result}`,
+  ].join('\n')), expected);
+  assert.deepEqual(
+    parseCapabilityResult(`OPEN_SPEC_CAPABILITY_RESULT_V1 ${result}`),
+    expected,
+  );
 });
 
 test('does not absorb trailing sections or nested tasks into the preceding capability block', () => {

@@ -1034,14 +1034,16 @@ function assertGitPath(value, path) {
 
 export function parseCapabilityResult(log) {
   if (typeof log !== 'string') throw new Error('Capability result log must be a string');
-  const lines = log.split(/\r?\n/)
-    .filter((line) => line.trim().startsWith(CAPABILITY_RESULT_PREFIX));
-  if (lines.length !== 1) {
+  const marker = /^OPEN_SPEC_CAPABILITY_RESULT_V1(?:=|\s+)(.+)$/;
+  const matches = log.split(/\r?\n/)
+    .map((line) => line.trim().match(marker))
+    .filter(Boolean);
+  if (matches.length !== 1) {
     throw new Error('Capability result log must contain exactly one result marker');
   }
   let value;
   try {
-    value = JSON.parse(lines[0].trim().slice(CAPABILITY_RESULT_PREFIX.length));
+    value = JSON.parse(matches[0][1]);
   } catch (error) {
     throw new Error(`Capability result contains invalid JSON: ${error.message}`);
   }

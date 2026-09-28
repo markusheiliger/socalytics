@@ -58,9 +58,41 @@ const MANAGED_QUEUE_LABELS = new Set([
   'openspec:enqueued',
   ...QUEUE_LABEL_DEFINITIONS.map(({ name }) => name),
 ]);
+const ATTENTION_MARKER = '<!-- openspec-queue-attention:v1 -->';
 
 function labelsOf(issue) {
   return issue.labels.map((label) => typeof label === 'string' ? label : label.name);
+}
+
+async function publishAttention(client, issueNumber, state, reason, recovery) {
+  const comments = await client.listIssueComments(issueNumber);
+  const existing = comments.find((comment) => comment.body?.includes(ATTENTION_MARKER));
+  const task = state.applyTaskId
+    ? `\n- **Task:** ${state.applyTaskId}`
+    : '';
+  const capabilities = state.applyTaskCapabilities
+    ? `\n- **Capabilities:** ${state.applyTaskCapabilities.join(', ')}`
+    : '';
+  const body = [
+    ATTENTION_MARKER,
+    '## OpenSpec queue requires attention',
+    '',
+    `- **Change:** \`${state.changeRef}\``,
+    `- **Operation:** ${state.operation}${task}${capabilities}`,
+    `- **Attempt:** ${state.attempt}`,
+    `- **Reason:** ${reason}`,
+    `- **Agent Task:** https://github.com/${client.owner}/${client.repo}/tasks/${state.taskId}`,
+    state.pullRequestNumber ? `- **Pull request:** #${state.pullRequestNumber}` : null,
+    '',
+    `**Recommended recovery:** ${recovery}`,
+    '',
+    'The immutable machine-readable operation ledger remains in the issue history.',
+  ].filter((line) => line !== null).join('\n');
+  if (existing) {
+    await client.updateIssueComment(existing.id, body);
+  } else {
+    await client.createIssueComment(issueNumber, body);
+  }
 }
 
 function labelsForState(state) {
@@ -178,7 +210,7 @@ function operationPrompt({
     instructions.push(
       'Execute only applyTask.id in this bounded invocation; do not begin or mark any other task even though the generated workflow normally loops.',
       'Read every applyTask.capabilityPaths file and obey the complete compatible capability set.',
-      'After validation, mark only the selected task complete and emit exactly one OPEN_SPEC_CAPABILITY_RESULT_V1 line conforming to openspec/capabilities/schemas/capability-result-v1.schema.json.',
+      'After validation, mark only the selected task complete and emit exactly one single-line marker beginning with the literal prefix OPEN_SPEC_CAPABILITY_RESULT_V1= followed immediately by the JSON object. The equals sign is required. The JSON object must conform to openspec/capabilities/schemas/capability-result-v1.schema.json.',
     );
   } else {
     instructions.push(
@@ -855,6 +887,13 @@ export async function reconcileIssue({
     };
     await upsertQueueState(client, issue.number, current, nextState);
     await reconcileStateLabels(client, issue, nextState);
+    await publishAttention(
+      client,
+      issue.number,
+      nextState,
+      error.message,
+      'Inspect the selected task result and correct or retry only that bounded operation.',
+    );
     return { action: 'needs_attention', reason: 'invalid-result' };
   }
 
