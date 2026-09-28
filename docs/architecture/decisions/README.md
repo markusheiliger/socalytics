@@ -38,4 +38,8 @@ specifications, and current architecture narratives. Record unresolved or
 rejected alternatives in the originating OpenSpec design rather than expanding
 the ADR into a full change history.
 
+## Records
+
+1. [0001. Shared Platform Persistence Boundary And Module Database Roles](0001-shared-platform-persistence-boundary.md)
+
 Return to the [architecture index](../README.md).
