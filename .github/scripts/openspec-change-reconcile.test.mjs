@@ -7,6 +7,7 @@ import {
   reconcileIssue,
   reconcileQueueLabels,
   reconcileUntilSettled,
+  resetQueueIssue,
 } from './openspec-change-reconcile.mjs';
 
 const sha = (character) => character.repeat(40);
@@ -50,6 +51,22 @@ const capabilityResult = ({
   summary: `Task ${taskId} complete.`,
   blockingFindings: [],
 });
+const checkpointMessage = ({
+  changeRef = 'add-platform',
+  operation = 'apply',
+  taskId = '1.1',
+  verdict = 'pass',
+  validation = 'Validated.',
+} = {}) => `OpenSpec queue checkpoint
+
+OpenSpec-Queue-Checkpoint: ${JSON.stringify({
+  version: 1,
+  changeRef,
+  operation,
+  ...(operation === 'apply' ? { taskId } : {}),
+  verdict,
+  validation,
+})}`;
 
 function baseIssue(overrides = {}) {
   return {
@@ -70,6 +87,12 @@ function initialClient(overrides = {}) {
     listIssueComments: async () => [],
     listBlockedBy: async () => [],
     getBranch: async () => ({ commit: { sha: sha('a') } }),
+    getCommit: async () => ({ commit: { message: checkpointMessage() } }),
+    listOpenPullRequestsForHead: async () => [{
+      number: 30,
+      base: { ref: 'main' },
+      draft: true,
+    }],
     compareCommits: async () => ({
       status: 'ahead',
       files: [{ filename: 'openspec/changes/add-platform/tasks.md' }],
@@ -599,7 +622,7 @@ test('accepts only the selected checkbox mutation for an isolated capability', a
   assert.equal(result.operation, 'verify');
 });
 
-test('rejects lifecycle verify when the branch SHA changes', async () => {
+test('rejects lifecycle verify without a matching checkpoint commit', async () => {
   const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"verify","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":null,"applyTaskCapabilities":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
@@ -634,12 +657,16 @@ test('advances apply through archive on one durable pull request', async () => {
   let nextTaskId = 1;
   let branchSha = sha('a');
   let tasksMarkdown = '- [ ] 1.1 Done. Capabilities: implementation.';
+  let completedOperation = 'apply';
 
   const client = initialClient({
     listIssueComments: async () => comments,
     getAgentTask: async (taskId) => tasks.get(taskId),
     getBranch: async (branch) => ({
       commit: { sha: branch === 'main' ? sha('a') : branchSha },
+    }),
+    getCommit: async () => ({
+      commit: { message: checkpointMessage({ operation: completedOperation }) },
     }),
     getTextContent: async (path) => repositoryContent(path, tasksMarkdown),
     getRepositoryContent: async (path) => path === 'openspec/changes/archive'
@@ -686,6 +713,7 @@ test('advances apply through archive on one durable pull request', async () => {
 
   const completeTask = (taskId, operation, shaCharacter) => {
     branchSha = sha(shaCharacter);
+    completedOperation = operation;
     if (operation === 'apply') {
       tasksMarkdown = '- [x] 1.1 Done. Capabilities: implementation.';
     }
@@ -730,17 +758,17 @@ test('advances apply through archive on one durable pull request', async () => {
     await reconcile(),
     { action: 'dispatched', operation: 'verify', attempt: 1, taskId: 'task-2' },
   );
-  completeTask('task-2', 'verify', 'b');
+  completeTask('task-2', 'verify', 'c');
   assert.deepEqual(
     await reconcile(),
     { action: 'dispatched', operation: 'sync', attempt: 1, taskId: 'task-3' },
   );
-  completeTask('task-3', 'sync', 'c');
+  completeTask('task-3', 'sync', 'd');
   assert.deepEqual(
     await reconcile(),
     { action: 'dispatched', operation: 'archive', attempt: 1, taskId: 'task-4' },
   );
-  completeTask('task-4', 'archive', 'd');
+  completeTask('task-4', 'archive', 'e');
   assert.deepEqual(
     await reconcile(),
     {
@@ -805,7 +833,7 @@ test('retries a failed operation exactly once on the same branch', async () => {
       artifacts: [{ type: 'branch', data: { head_ref: 'copilot/add-platform', base_ref: 'main' } }],
       sessions: [{ id: 'session-1' }],
     }),
-    getBranch: async () => ({ commit: { sha: sha('b') } }),
+    getBranch: async () => ({ commit: { sha: sha('a') } }),
     listOpenPullRequestsForHead: async () => [{ number: 30 }],
     createIssueComment: async (...args) => calls.push(['createIssueComment', ...args]),
     updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
@@ -840,7 +868,7 @@ test('retries a failed operation exactly once on the same branch', async () => {
   });
 });
 
-test('stops with structured recovery when a failed task already checked its work', async () => {
+test('accepts a valid pushed checkpoint when the outer Agent Task failed', async () => {
   const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
@@ -860,8 +888,46 @@ test('stops with structured recovery when a failed task already checked its work
       return { id: 99 };
     },
     updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
+    listOpenPullRequestsForHead: async () => [{ number: 30 }],
+    startAgentTask: async (request) => {
+      calls.push(['startAgentTask', request]);
+      return { id: 'task-2' };
+    },
+  });
+
+  const result = await reconcileIssue({
+    client,
+    issue: baseIssue(),
+    agentToken: 'agent-token',
+    now,
+  });
+
+  assert.deepEqual(
+    { action: result.action, operation: result.operation, attempt: result.attempt },
+    { action: 'dispatched', operation: 'verify', attempt: 1 },
+  );
+  assert.equal(calls.filter(([name]) => name === 'startAgentTask').length, 1);
+});
+
+test('does not retry an advanced branch without a valid checkpoint', async () => {
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const calls = [];
+  const client = initialClient({
+    listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
+    getAgentTask: async () => ({
+      state: 'failed',
+      artifacts: [{ type: 'branch', data: { head_ref: 'copilot/add-platform', base_ref: 'main' } }],
+      sessions: [{ id: 'session-1' }],
+    }),
+    getBranch: async () => ({ commit: { sha: sha('b') } }),
+    getCommit: async () => ({ commit: { message: 'Implementation without checkpoint' } }),
+    createIssueComment: async (...args) => {
+      calls.push(['createIssueComment', ...args]);
+      return { id: 99 };
+    },
+    updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
     startAgentTask: async () => {
-      throw new Error('must not retry a checked task');
+      throw new Error('must not retry an advanced uncheckpointed branch');
     },
   });
 
@@ -877,10 +943,34 @@ test('stops with structured recovery when a failed task already checked its work
     .filter(([name]) => name === 'createIssueComment')
     .map(([, , body]) => body)
     .find((body) => body.includes('openspec-queue-attention:v1'));
-  assert.match(attention, /Failure code:\*\* `failed-task-already-complete`/);
-  assert.match(attention, /task 1\.1 is checked/);
-  assert.match(attention, /restore only its checkbox to unchecked/);
-  assert.match(attention, /issues\/12#issuecomment-99/);
+  assert.match(attention, /Failure code:\*\* `checkpoint-invalid`/);
+});
+
+test('rejects a different pull request on the durable queue branch', async () => {
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const client = initialClient({
+    listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
+    getAgentTask: async () => ({
+      state: 'completed',
+      artifacts: [{ type: 'branch', data: { head_ref: 'copilot/add-platform', base_ref: 'main' } }],
+      sessions: [{ id: 'session-1' }],
+    }),
+    getBranch: async () => ({ commit: { sha: sha('b') } }),
+    listOpenPullRequestsForHead: async () => [{
+      number: 31,
+      base: { ref: 'main' },
+      draft: true,
+    }],
+  });
+
+  const result = await reconcileIssue({
+    client,
+    issue: baseIssue(),
+    agentToken: 'agent-token',
+    now,
+  });
+
+  assert.deepEqual(result, { action: 'needs_attention', reason: 'invalid-result' });
 });
 
 test('stops waiting-for-user tasks with a durable ledger entry', async () => {
@@ -925,6 +1015,9 @@ test('stops at awaiting human review after archive passes', async () => {
       sessions: [{ id: 'session-4' }],
     }),
     getBranch: async () => ({ commit: { sha: sha('b') } }),
+    getCommit: async () => ({
+      commit: { message: checkpointMessage({ operation: 'archive' }) },
+    }),
     getRepositoryContent: async () => [{
       type: 'dir',
       name: '2026-09-24-add-platform',
@@ -964,7 +1057,10 @@ test('advances after one-shot enqueue intent is removed by durable dispatch', as
       artifacts: [{ type: 'branch', data: { head_ref: 'copilot/add-platform', base_ref: 'main' } }],
       sessions: [{ id: 'session-2' }],
     }),
-    getBranch: async () => ({ commit: { sha: sha('a') } }),
+    getBranch: async () => ({ commit: { sha: sha('b') } }),
+    getCommit: async () => ({
+      commit: { message: checkpointMessage({ operation: 'verify' }) },
+    }),
     listOpenPullRequestsForHead: async () => [{ number: 30 }],
     createIssueComment: async (...args) => calls.push(['createIssueComment', ...args]),
     updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
@@ -1199,6 +1295,39 @@ test('rejects duplicate twins before reconciling any issue', async () => {
     /Duplicate issue twins for add-platform/,
   );
   assert.equal(commentsRead, 0);
+});
+
+test('resets only mutable state after an unmerged queue pull request is closed', async () => {
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"needs_attention","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const issue = baseIssue({
+    labels: [
+      { name: 'openspec:change' },
+      { name: 'openspec:needs-attention' },
+      { name: 'openspec:stage:apply' },
+    ],
+  });
+  const deleted = [];
+  const client = initialClient({
+    getIssue: async () => issue,
+    listIssueComments: async () => [
+      { id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } },
+      { id: 21, body: '<!-- openspec-operation:v1\n{}\n-->', updated_at: '2026-09-24T17:01:00Z', user: { login: 'github-actions[bot]' } },
+      { id: 22, body: '<!-- openspec-queue-attention:v1 -->', updated_at: '2026-09-24T17:02:00Z', user: { login: 'github-actions[bot]' } },
+    ],
+    getPullRequest: async () => ({ number: 30, state: 'closed', merged_at: null }),
+    getAgentTask: async () => ({ state: 'failed' }),
+    deleteIssueComment: async (commentId) => deleted.push(commentId),
+  });
+
+  const result = await resetQueueIssue({ client, issueNumber: 12 });
+
+  assert.deepEqual(result, {
+    action: 'reset',
+    issueNumber: 12,
+    removedCommentIds: [20, 22],
+  });
+  assert.deepEqual(deleted, [20, 22]);
+  assert.deepEqual(labels(issue), ['openspec:change']);
 });
 
 test('ensures visible queue label definitions before reconciliation', async () => {

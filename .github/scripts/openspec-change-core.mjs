@@ -14,6 +14,7 @@ export const DEPENDENCY_SUMMARY_START = '<!-- openspec-dependencies:v1';
 export const DEPENDENCY_CHECKPOINT_VERSION = 1;
 export const DEPENDENCY_PATCH_VERSION = 2;
 export const QUEUE_STATE_START = '<!-- openspec-queue-state:v1';
+export const QUEUE_CHECKPOINT_TRAILER = 'OpenSpec-Queue-Checkpoint:';
 
 function assertObject(value, path) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -133,6 +134,60 @@ function assertCompletedApplyTasks(value, path) {
     || value.completedApplyTaskIds.some((id) => !/^\d+(?:\.\d+)*$/.test(id))) {
     throw new Error(`${path}.completedApplyTaskIds is invalid`);
   }
+}
+
+export function validateQueueCheckpoint(value) {
+  assertObject(value, 'Queue checkpoint');
+  assertKnownKeys(
+    value,
+    new Set(['version', 'changeRef', 'operation', 'taskId', 'verdict', 'validation']),
+    'Queue checkpoint',
+  );
+  if (value.version !== 1) {
+    throw new Error('Queue checkpoint.version must equal 1');
+  }
+  assertKebabCase(value.changeRef, 'Queue checkpoint.changeRef');
+  if (!['apply', 'verify', 'sync', 'archive'].includes(value.operation)) {
+    throw new Error('Queue checkpoint.operation is invalid');
+  }
+  if (value.operation === 'apply') {
+    if (typeof value.taskId !== 'string' || !/^\d+(?:\.\d+)*$/.test(value.taskId)) {
+      throw new Error('Queue checkpoint.taskId is required for apply');
+    }
+  } else if (value.taskId !== undefined) {
+    throw new Error('Queue checkpoint.taskId is valid only for apply');
+  }
+  if (!['pass', 'fail', 'blocked'].includes(value.verdict)) {
+    throw new Error('Queue checkpoint.verdict is invalid');
+  }
+  assertString(value.validation, 'Queue checkpoint.validation');
+  if (value.validation.includes('\r') || value.validation.includes('\n')) {
+    throw new Error('Queue checkpoint.validation must be a single line');
+  }
+  return value;
+}
+
+export function parseQueueCheckpoint(commitMessage) {
+  if (typeof commitMessage !== 'string') {
+    throw new Error('Queue checkpoint commit message must be a string');
+  }
+  const checkpointLines = commitMessage
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith(QUEUE_CHECKPOINT_TRAILER));
+  if (checkpointLines.length !== 1) {
+    throw new Error(`Queue checkpoint commit must contain exactly one ${QUEUE_CHECKPOINT_TRAILER} trailer`);
+  }
+  const content = checkpointLines[0].slice(QUEUE_CHECKPOINT_TRAILER.length).trim();
+  if (!content) {
+    throw new Error('Queue checkpoint trailer is empty');
+  }
+  let value;
+  try {
+    value = JSON.parse(content);
+  } catch (error) {
+    throw new Error(`Queue checkpoint trailer contains invalid JSON: ${error.message}`);
+  }
+  return validateQueueCheckpoint(value);
 }
 
 export function validateChangeMarker(value) {
@@ -1130,6 +1185,9 @@ export function validateOperationEvidence({
 
   if (outcome !== 'succeeded') {
     return { valid: false, reason: `operation-${outcome}` };
+  }
+  if (beforeSha === afterSha) {
+    return { valid: false, reason: 'checkpoint-not-advanced' };
   }
   if (filesChanged && beforeSha === afterSha) {
     return { valid: false, reason: 'changed-files-without-checkpoint' };

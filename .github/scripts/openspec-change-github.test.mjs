@@ -208,6 +208,22 @@ test('adds and removes only the requested issue label', async () => {
   assert.equal(calls[1].options.body, undefined);
 });
 
+test('reads an issue and deletes a mutable issue comment', async () => {
+  const calls = [];
+  const client = clientWith(async (url, options) => {
+    calls.push([url, options]);
+    return options?.method === 'DELETE'
+      ? new Response(null, { status: 204 })
+      : jsonResponse({ number: 12 });
+  });
+
+  assert.equal((await client.getIssue(12)).number, 12);
+  await client.deleteIssueComment(99);
+  assert.match(calls[0][0], /\/issues\/12$/);
+  assert.match(calls[1][0], /\/issues\/comments\/99$/);
+  assert.equal(calls[1][1].method, 'DELETE');
+});
+
 test('treats removing an absent issue label as idempotent', async () => {
   const client = clientWith(async () => new Response(
     JSON.stringify({ message: 'Label does not exist' }),
@@ -247,6 +263,17 @@ test('decodes repository text content', async () => {
     content: Buffer.from('hello').toString('base64'),
   }));
   assert.equal(await client.getTextContent('README.md', 'main'), 'hello');
+});
+
+test('reads commit metadata for a durable queue checkpoint', async () => {
+  const calls = [];
+  const client = clientWith(async (url) => {
+    calls.push(url);
+    return jsonResponse({ sha: sha('b'), commit: { message: 'checkpoint' } });
+  });
+  const commit = await client.getCommit(sha('b'));
+  assert.equal(commit.commit.message, 'checkpoint');
+  assert.match(calls[0], new RegExp(`/commits/${sha('b')}$`));
 });
 
 test('compares commits and requires changed-file evidence', async () => {

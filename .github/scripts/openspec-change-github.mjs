@@ -194,6 +194,10 @@ export class GitHubChangeClient {
     });
   }
 
+  getIssue(issueNumber) {
+    return this.request(`${this.repositoryPath}/issues/${issueNumber}`);
+  }
+
   addIssueLabel(issueNumber, label) {
     return this.request(`${this.repositoryPath}/issues/${issueNumber}/labels`, {
       method: 'POST',
@@ -224,6 +228,13 @@ export class GitHubChangeClient {
     return this.request(`${this.repositoryPath}/issues/comments/${commentId}`, {
       method: 'PATCH',
       body: { body },
+    });
+  }
+
+  deleteIssueComment(commentId) {
+    return this.request(`${this.repositoryPath}/issues/comments/${commentId}`, {
+      method: 'DELETE',
+      expected: [204],
     });
   }
 
@@ -339,6 +350,10 @@ export class GitHubChangeClient {
 
   getBranch(branch) {
     return this.request(`${this.repositoryPath}/branches/${encodeURIComponent(branch)}`);
+  }
+
+  getCommit(commitSha) {
+    return this.request(`${this.repositoryPath}/commits/${encodeURIComponent(commitSha)}`);
   }
 
   async compareCommits(baseSha, headSha) {

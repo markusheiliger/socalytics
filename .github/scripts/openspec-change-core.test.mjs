@@ -12,6 +12,7 @@ import {
   parseDependencyCheckpoint,
   parseDependencySummary,
   parseLedgerEntry,
+  parseQueueCheckpoint,
   parseQueueOperationResult,
   parseQueueState,
   renderChangeMarker,
@@ -548,7 +549,7 @@ test('requires operation-specific persisted evidence and coherent checkpoints', 
     operation: 'verify',
     outcome: 'succeeded',
     beforeSha: 'a'.repeat(40),
-    afterSha: 'a'.repeat(40),
+    afterSha: 'b'.repeat(40),
     filesChanged: false,
     verificationPassed: false,
   }), { valid: false, reason: 'verify-evidence-missing' });
@@ -559,7 +560,7 @@ test('requires operation-specific persisted evidence and coherent checkpoints', 
     afterSha: 'a'.repeat(40),
     filesChanged: true,
     specsSynchronized: true,
-  }), { valid: false, reason: 'changed-files-without-checkpoint' });
+  }), { valid: false, reason: 'checkpoint-not-advanced' });
   assert.deepEqual(validateOperationEvidence({
     operation: 'archive',
     outcome: 'succeeded',
@@ -568,6 +569,32 @@ test('requires operation-specific persisted evidence and coherent checkpoints', 
     filesChanged: false,
     lifecycle: 'archived',
   }), { valid: false, reason: 'invalid-checkpoint' });
+});
+
+test('parses one strict queue checkpoint trailer from a commit message', () => {
+  const checkpoint = {
+    version: 1,
+    changeRef: 'add-platform',
+    operation: 'apply',
+    taskId: '1.2',
+    verdict: 'pass',
+    validation: 'dotnet build: passed',
+  };
+  assert.deepEqual(
+    parseQueueCheckpoint(`Implement task\n\nOpenSpec-Queue-Checkpoint: ${JSON.stringify(checkpoint)}`),
+    checkpoint,
+  );
+  assert.throws(
+    () => parseQueueCheckpoint('No checkpoint'),
+    /exactly one OpenSpec-Queue-Checkpoint:/,
+  );
+  assert.throws(
+    () => parseQueueCheckpoint(`OpenSpec-Queue-Checkpoint: ${JSON.stringify({
+      ...checkpoint,
+      operation: 'verify',
+    })}`),
+    /taskId is valid only for apply/,
+  );
 });
 
 test('round-trips queue state and parses an operation result envelope', () => {

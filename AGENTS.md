@@ -57,10 +57,10 @@
 - `openspec:change` classifies twins. `openspec:enqueued` is a one-shot queue request consumed when processing begins; `openspec:processing`, `openspec:stage:*`, `openspec:needs-attention`, and `openspec:awaiting-review` expose the reconciled lifecycle. There is no paused state.
 - Native GitHub issue dependencies are the only blocked-state authority.
 - The controller uses the Agent Tasks API rather than native Copilot issue assignment because assignment immediately starts an uncontrolled duplicate session.
-- The queue runs apply, verify, sync, and archive on one durable draft pull request. One Agent Task may run per change at a time.
-- Reconciliation validates branch-visible evidence and append-only operation ledger entries. It does not treat Agent Task completion alone as success.
+- The queue runs apply, verify, sync, and archive on one durable draft pull request. One Agent Task may run per change at a time, and every successful operation must end at a new pushed checkpoint commit on that branch.
+- Reconciliation validates the checkpoint commit, remote branch state, and append-only operation ledger entries. Agent Task status and final chat output are supplemental evidence rather than success authority.
 - Cross-change inference is read-only until its typed custom safe output invokes the privileged validator and reconciler. Edit the combined Agentic Workflow source, regenerate its lock file with `gh aw compile`, and run `node .github/scripts/openspec-change-workflow-names.mjs` to apply generated-job display names; do not hand-edit the lock.
-- Failed or timed-out work receives one retry. Cancellation and `waiting_for_user` always stop for human attention.
+- Failed or timed-out work receives one retry only when the branch did not advance. A valid pushed checkpoint may succeed despite failed outer task status; an advanced branch without a valid checkpoint stops for attention. Cancellation and `waiting_for_user` always stop.
 - Automation stops after validated archive. A human approves workflows, marks the pull request ready, reviews it, and enables auto-merge.
 - Run `node --test .github/scripts/*.test.mjs` for the queue tooling tests.
 

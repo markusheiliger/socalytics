@@ -7,11 +7,13 @@ import { pathToFileURL } from 'node:url';
 
 import {
   LEDGER_MARKER_START,
+  QUEUE_CHECKPOINT_TRAILER,
   QUEUE_STATE_START,
   deriveReadiness,
   parseCapabilityDefinition,
   parseCapabilityTasks,
   parseChangeMarker,
+  parseQueueCheckpoint,
   parseQueueOperationResult,
   parseQueueState,
   renderLedgerEntry,
@@ -276,6 +278,16 @@ function operationPrompt({
     `OPEN_SPEC_CLOUD_DISPATCH_V1=${JSON.stringify(dispatch)}`,
     `Read and follow ${bindingSkill} as the binding workflow.`,
     'Validate the dispatch checkpoint before editing: create requires the base SHA to be an ancestor of the generated branch HEAD; continue requires the exact head ref and HEAD SHA.',
+    'A successful operation is not complete until the current branch has a new final checkpoint commit and that exact commit is pushed to origin.',
+    `The final checkpoint commit message must contain exactly one trailer named "${QUEUE_CHECKPOINT_TRAILER}" followed by one-line JSON matching ${JSON.stringify({
+      version: 1,
+      changeRef,
+      operation,
+      ...(applyTask ? { taskId: applyTask.id } : {}),
+      verdict: 'pass',
+      validation: 'replace with a single-line validation summary',
+    })}.`,
+    'Create the final checkpoint commit with git commit --allow-empty when the operation has no remaining file changes, push the current HEAD to its existing origin branch, and verify origin reports the same SHA before responding.',
   ];
   if (applyTask) {
     instructions.push(
@@ -591,6 +603,77 @@ async function validateCompletedOperation({
   }
   const branch = await client.getBranch(headRef);
   const afterSha = branch.commit.sha;
+  const pull = await pullRequestForHead(client, headRef);
+  if (!pull) {
+    throw new QueueValidationError(
+      'pull-request-missing',
+      'Queue branch has no open pull request',
+      { expected: state.pullRequestNumber ?? 'one open draft pull request', observed: 'none' },
+    );
+  }
+  if (state.pullRequestNumber !== null
+    && state.pullRequestNumber !== undefined
+    && pull.number !== state.pullRequestNumber) {
+    throw new QueueValidationError(
+      'pull-request-identity-changed',
+      'Queue branch pull request changed during processing',
+      { expected: state.pullRequestNumber, observed: pull.number },
+    );
+  }
+  if (pull.base?.ref && pull.base.ref !== state.baseRef) {
+    throw new QueueValidationError(
+      'pull-request-base-changed',
+      'Queue pull request no longer targets the creator branch',
+      { expected: state.baseRef, observed: pull.base.ref },
+    );
+  }
+  if (pull.draft === false) {
+    throw new QueueValidationError(
+      'pull-request-not-draft',
+      'Queue pull request became ready before lifecycle completion',
+      { expected: 'draft', observed: 'ready for review' },
+    );
+  }
+  const comparison = await client.compareCommits(state.beforeSha, afterSha);
+  if (comparison.status !== 'ahead') {
+    throw new QueueValidationError(
+      'branch-ancestry-invalid',
+      'Final branch state does not descend from the controller checkpoint',
+      { expected: 'ahead', observed: comparison.status },
+    );
+  }
+  const commit = await client.getCommit(afterSha);
+  let checkpoint;
+  try {
+    checkpoint = parseQueueCheckpoint(commit.commit?.message);
+  } catch (error) {
+    throw new QueueValidationError(
+      'checkpoint-invalid',
+      'Final branch commit does not contain a valid queue checkpoint',
+      {
+        expected: `${QUEUE_CHECKPOINT_TRAILER} with matching operation identity`,
+        observed: error instanceof Error ? error.message : String(error),
+        recovery: 'Create and push a new final checkpoint commit for only this bounded operation.',
+      },
+    );
+  }
+  const expectedCheckpoint = {
+    changeRef: state.changeRef,
+    operation: state.operation,
+    ...(state.operation === 'apply' ? { taskId: state.applyTaskId } : {}),
+  };
+  const observedCheckpoint = {
+    changeRef: checkpoint.changeRef,
+    operation: checkpoint.operation,
+    ...(checkpoint.operation === 'apply' ? { taskId: checkpoint.taskId } : {}),
+  };
+  if (JSON.stringify(observedCheckpoint) !== JSON.stringify(expectedCheckpoint)) {
+    throw new QueueValidationError(
+      'checkpoint-identity-mismatch',
+      'Final branch checkpoint does not match the selected operation',
+      { expected: expectedCheckpoint, observed: observedCheckpoint },
+    );
+  }
   if (state.operation === 'verify' || state.operation === 'sync') {
     try {
       await validateBranch(state.changeRef, state.operation, headRef, afterSha);
@@ -606,42 +689,33 @@ async function validateCompletedOperation({
       );
     }
   }
-  const session = task.sessions?.at(-1);
-  if (!session?.id) {
-    throw new QueueValidationError(
-      'agent-session-missing',
-      'Completed Agent Task has no session',
-      { expected: 'one completed session', observed: 'none' },
-    );
-  }
-  const response = await getSessionLog(session.id, agentToken, client);
-  let result;
-  try {
-    result = parseQueueOperationResult(response);
-  } catch (error) {
-    throw new QueueValidationError(
-      'result-envelope-invalid',
-      'The final assistant response does not satisfy a trusted queue result contract',
-      {
-        expected: state.operation === 'apply'
-          ? 'capability-result-v1'
-          : 'operation-result-v1',
-        observed: error instanceof Error ? error.message : String(error),
-        recovery: 'Inspect the Agent Task final response, correct the result contract, and retry only this bounded operation.',
-      },
-    );
+  const sessionId = task.sessions?.at(-1)?.id ?? 'unavailable';
+  let result = null;
+  let supplementalResultDiagnostic = null;
+  if (sessionId !== 'unavailable') {
+    try {
+      result = parseQueueOperationResult(
+        await getSessionLog(sessionId, agentToken, client),
+      );
+    } catch (error) {
+      supplementalResultDiagnostic = boundedDiagnostic(
+        error instanceof Error ? error.message : String(error),
+      );
+      result = null;
+    }
   }
   const expectedSchema = state.operation === 'apply'
     ? 'capability-result-v1'
     : 'operation-result-v1';
-  if (result.schema !== expectedSchema) {
+  if (result && result.schema !== expectedSchema) {
     throw new QueueValidationError(
       'result-schema-mismatch',
       `Queue operation result schema does not match ${state.operation}`,
       { expected: expectedSchema, observed: result.schema },
     );
   }
-  if (result.changeRef !== state.changeRef || result.operation !== state.operation) {
+  if (result
+    && (result.changeRef !== state.changeRef || result.operation !== state.operation)) {
     throw new QueueValidationError(
       'result-operation-mismatch',
       'Queue operation result does not match queue state',
@@ -651,7 +725,8 @@ async function validateCompletedOperation({
       },
     );
   }
-  if (state.operation === 'apply'
+  if (result
+    && state.operation === 'apply'
     && state.applyTaskId
     && result.taskId !== state.applyTaskId) {
     throw new QueueValidationError(
@@ -660,7 +735,8 @@ async function validateCompletedOperation({
       { expected: state.applyTaskId, observed: result.taskId },
     );
   }
-  if (state.operation === 'apply'
+  if (result
+    && state.operation === 'apply'
     && state.applyTaskCapabilities
     && JSON.stringify(result.capabilities) !== JSON.stringify(state.applyTaskCapabilities)) {
     throw new QueueValidationError(
@@ -669,23 +745,22 @@ async function validateCompletedOperation({
       { expected: state.applyTaskCapabilities, observed: result.capabilities },
     );
   }
-  const validationSummary = state.operation === 'apply'
-    ? (result.validation.map(({ command, outcome }) => `${command}: ${outcome}`).join('; ')
-      || result.summary)
-    : result.validation;
-  if (result.verdict !== 'pass') {
+  const validationSummary = supplementalResultDiagnostic
+    ? `${checkpoint.validation}; supplemental response ignored: ${supplementalResultDiagnostic}`
+    : checkpoint.validation;
+  if (checkpoint.verdict !== 'pass') {
     return {
       valid: false,
       validation: validationSummary,
       afterSha,
       headRef,
-      sessionId: session.id,
+      sessionId,
       archivePath: null,
       diagnostic: {
-        code: `agent-verdict-${result.verdict}`,
-        reason: `Agent reported a ${result.verdict} verdict`,
+        code: `checkpoint-verdict-${checkpoint.verdict}`,
+        reason: `Checkpoint reported a ${checkpoint.verdict} verdict`,
         expected: 'pass',
-        observed: result.verdict,
+        observed: checkpoint.verdict,
         recovery: 'Inspect the reported validation and blocking findings, then retry only this bounded operation after remediation.',
       },
     };
@@ -698,17 +773,9 @@ async function validateCompletedOperation({
   let archivePath = null;
   let nextApplyTask = null;
   if (state.operation === 'apply') {
-    const comparison = await client.compareCommits(state.beforeSha, afterSha);
-    if (comparison.status !== 'ahead') {
-      throw new QueueValidationError(
-        'branch-ancestry-invalid',
-        'Final branch state does not descend from the controller checkpoint',
-        { expected: 'ahead', observed: comparison.status },
-      );
-    }
     const changedPaths = comparison.files.map(({ filename }) => filename).sort();
-    const reportedPaths = [...result.artifactsChanged].sort();
-    if (JSON.stringify(changedPaths) !== JSON.stringify(reportedPaths)) {
+    const reportedPaths = result ? [...result.artifactsChanged].sort() : changedPaths;
+    if (result && JSON.stringify(changedPaths) !== JSON.stringify(reportedPaths)) {
       throw new QueueValidationError(
         'changed-paths-mismatch',
         'Capability result changed paths do not match repository evidence',
@@ -801,13 +868,6 @@ async function validateCompletedOperation({
     }
     nextApplyTask = parsedTasks.find((taskEntry) => !taskEntry.completed) ?? null;
   } else if (state.operation === 'verify') {
-    if (afterSha !== state.beforeSha) {
-      throw new QueueValidationError(
-        'verify-branch-mutated',
-        'Lifecycle verify must not change the branch SHA',
-        { expected: state.beforeSha, observed: afterSha },
-      );
-    }
     verificationPassed = true;
   } else if (state.operation === 'sync') {
     specsSynchronized = true;
@@ -833,7 +893,8 @@ async function validateCompletedOperation({
       validation: evidence.reason,
       afterSha,
       headRef,
-      sessionId: session.id,
+      sessionId,
+      pullRequestNumber: pull.number,
       archivePath,
       nextApplyTask,
       diagnostic: {
@@ -854,7 +915,8 @@ async function validateCompletedOperation({
     validation: evidence.valid ? validationSummary : evidence.reason,
     afterSha,
     headRef,
-    sessionId: session.id,
+    sessionId,
+    pullRequestNumber: pull.number,
     archivePath,
     nextApplyTask,
   };
@@ -1024,13 +1086,48 @@ export async function reconcileIssue({
     return { action: 'waiting', reasons: [`agent-task-${task.state}`] };
   }
 
-  if (task.state !== 'completed') {
-    const decision = retryDecision(task.state, state.attempt);
+  let durableCompletion = null;
+  let durableFailure = null;
+  if (task.state !== 'completed' && headRef) {
+    const branch = await client.getBranch(headRef);
+    if (branch.commit.sha !== state.beforeSha) {
+      try {
+        durableCompletion = await validateCompletedOperation({
+          client,
+          state,
+          task,
+          getSessionLog,
+          agentToken,
+          validateBranch,
+        });
+      } catch (error) {
+        if (error instanceof BranchSettlingError) {
+          return {
+            action: 'waiting',
+            reasons: ['branch-settling'],
+            expectedSha: error.expected,
+            observedSha: error.observed,
+          };
+        }
+        durableFailure = publicFailure(error);
+      }
+    }
+  }
+
+  if (task.state !== 'completed' && durableCompletion === null) {
+    const decision = durableFailure ? 'stop' : retryDecision(task.state, state.attempt);
     const resolvedHead = headRef ?? state.headRef;
     const checkpointRef = resolvedHead ?? state.baseRef;
     const branch = await client.getBranch(checkpointRef);
     const afterSha = branch.commit.sha;
-    let retryBlock = null;
+    let retryBlock = durableFailure
+      ? {
+        code: durableFailure.code,
+        reason: durableFailure.reason,
+        expected: durableFailure.expected,
+        observed: durableFailure.observed,
+      }
+      : null;
     if (decision === 'retry' && state.operation === 'apply' && state.applyTaskId) {
       try {
         const tasks = parseCapabilityTasks(await client.getTextContent(
@@ -1127,9 +1224,9 @@ export async function reconcileIssue({
     return { action: 'needs_attention', reason: task.state };
   }
 
-  let completed;
+  let completed = durableCompletion;
   try {
-    completed = await validateCompletedOperation({
+    completed ??= await validateCompletedOperation({
       client,
       state,
       task,
@@ -1207,7 +1304,7 @@ export async function reconcileIssue({
     return { action: 'needs_attention', reason: completed.validation };
   }
 
-  const pull = await pullRequestForHead(client, completed.headRef);
+  const pull = { number: completed.pullRequestNumber };
   if (state.operation === 'archive') {
     await projectArchiveOnBranch(
       client,
@@ -1311,6 +1408,43 @@ export async function reconcileAll({
   return results;
 }
 
+export async function resetQueueIssue({ client, issueNumber }) {
+  const issue = await client.getIssue(issueNumber);
+  parseChangeMarker(issue.body ?? '');
+  const comments = await client.listIssueComments(issueNumber);
+  const current = latestQueueState(comments);
+  if (!current) {
+    throw new Error(`Issue #${issueNumber} has no mutable queue state to reset`);
+  }
+  if (current.state.status !== 'needs_attention') {
+    throw new Error(`Issue #${issueNumber} queue state must be needs_attention before reset`);
+  }
+  if (current.state.pullRequestNumber) {
+    const pull = await client.getPullRequest(current.state.pullRequestNumber);
+    if (pull.state !== 'closed' || pull.merged_at) {
+      throw new Error(`Issue #${issueNumber} pull request must be closed without merging before reset`);
+    }
+  }
+  const task = await client.getAgentTask(current.state.taskId);
+  if (ACTIVE_STATES.includes(task.state)) {
+    throw new Error(`Issue #${issueNumber} Agent Task is still ${task.state}`);
+  }
+  const mutableComments = comments.filter((comment) => (
+    comment.user?.login === 'github-actions[bot]'
+      && (comment.body?.includes(QUEUE_STATE_START)
+        || comment.body?.includes(ATTENTION_MARKER))
+  ));
+  for (const comment of mutableComments) {
+    await client.deleteIssueComment(comment.id);
+  }
+  await reconcileQueueLabels(client, issue, new Set());
+  return {
+    action: 'reset',
+    issueNumber,
+    removedCommentIds: mutableComments.map(({ id }) => id),
+  };
+}
+
 function hasActiveAgentTask(results) {
   return results.some((result) => result.action === 'dispatched'
     || (result.action === 'waiting'
@@ -1344,10 +1478,20 @@ async function main() {
     repositoryToken,
     agentToken,
   });
-  const reconcile = () => reconcileAll({ client, agentToken });
-  const results = process.argv.includes('--watch')
-    ? await reconcileUntilSettled({ reconcile })
-    : await reconcile();
+  const resetIndex = process.argv.indexOf('--reset-issue');
+  let results;
+  if (resetIndex >= 0) {
+    const issueNumber = Number.parseInt(process.argv[resetIndex + 1], 10);
+    if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+      throw new Error('--reset-issue requires a positive issue number');
+    }
+    results = await resetQueueIssue({ client, issueNumber });
+  } else {
+    const reconcile = () => reconcileAll({ client, agentToken });
+    results = process.argv.includes('--watch')
+      ? await reconcileUntilSettled({ reconcile })
+      : await reconcile();
+  }
   process.stdout.write(`${JSON.stringify(results, null, 2)}\n`);
 }
 

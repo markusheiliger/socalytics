@@ -42,8 +42,10 @@ tested, documented, and conformant with accepted requirements and architecture.
 
 Run in a fresh execution session. Trace every applicable criterion to exact
 artifact or executable evidence and lead with findings ordered by impact.
-Lifecycle verify must leave the branch SHA unchanged. A task-level verification
-may change only its own checkbox.
+Lifecycle verify must not change repository files, but after a passing
+assessment it must create and push the required empty queue checkpoint commit.
+A task-level verification may change only its own checkbox and must include
+that change in its pushed checkpoint sequence.
 
 ## Evidence
 

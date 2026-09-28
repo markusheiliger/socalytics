@@ -181,11 +181,12 @@ exclusive multi-capability sets, and incompatible mutation, isolation, or
 result-schema contracts before dispatch.
 
 One Agent Task executes that exact task under the complete compatible
-capability set, validates its structured result, and marks only that task
-complete. If unchecked tasks remain, the controller dispatches another apply
-Agent Task on the same branch and pull request before advancing to verify. This
-task-level checkpoint keeps each cloud session bounded and makes completed work
-durable before the next task starts.
+capability set, marks only that task complete, validates it, and ends at a new
+checkpoint commit pushed to the remote pull-request branch. If unchecked tasks
+remain, the controller dispatches another apply Agent Task from that exact
+checkpoint on the same branch and pull request before advancing to verify.
+This task-level checkpoint keeps each cloud session bounded and makes completed
+work durable before the next task starts.
 
 The operation sequence is:
 
@@ -204,32 +205,35 @@ ancestor of its HEAD. The controller does not guess a generated branch name or
 HEAD SHA.
 
 Apply envelopes also contain the selected task block, sorted capability ids,
-direct capability paths, and validated effective policy. Apply's final
-assistant response contains only one JSON object with
+direct capability paths, and validated effective policy. Every operation must
+create a final commit with exactly one `OpenSpec-Queue-Checkpoint:` trailer
+whose one-line versioned JSON identifies the change, operation, selected apply
+task when applicable, verdict, and validation summary. The agent pushes that
+commit and verifies the remote head before responding. Apply's final assistant
+response also contains only one JSON object with
 `"schema": "capability-result-v1"` conforming to
 `openspec/capabilities/schemas/capability-result-v1.schema.json`. Verify, sync,
 and archive use the same JSON-only transport with
 `"schema": "operation-result-v1"` conforming to
 `.github/scripts/schemas/operation-result-v1.schema.json`. These schema IDs are
-controller-owned identifiers, not agent-supplied paths or URLs. The controller
-rejects prose, Markdown fences, prefixes, suffixes, arrays, multiple objects,
-unknown schemas, and incomplete or ambiguous final responses.
-Reconciliation accepts a result only when the task and capability set match,
-the reported changed paths match repository evidence, that exact task changed
-to complete, every task that was previously complete remains complete, and no
-other pending task was completed by the operation. The controller owns both Git
-checkpoints: it proves the durable final branch is ahead of its pre-task
-checkpoint and reads validation evidence at that immutable final commit. The
-result does not report either checkpoint because GitHub may finalize or rewrite
-agent-observed commits during publication. A successful
+controller-owned identifiers, not agent-supplied paths or URLs. Chat output is
+supplemental diagnostics: malformed or unavailable output is recorded but does
+not override a valid pushed checkpoint. Reconciliation accepts a result only
+when the checkpoint identity matches, the remote branch is strictly ahead of
+the controller checkpoint, that exact task changed to complete, every task that
+was previously complete remains complete, and no other pending task was
+completed by the operation. The controller reads changed paths and validation
+evidence at the immutable final commit and rechecks the remote head before
+crediting it. A successful
 intermediate apply result stays in the apply stage with attempt 1 for the next
 selected task. A retry retains the same selected task and increments only that
 task's attempt.
 
 `verification` and `audit` are exclusive, isolated capabilities. Their
 task-level operation may change only the selected checkbox in the active
-`tasks.md`; any other mutation is rejected. Lifecycle verify runs in a fresh
-Agent Task and must leave the branch SHA unchanged.
+`tasks.md`; any other file mutation is rejected. Lifecycle verify runs in a
+fresh Agent Task, changes no files, and creates and pushes an explicit empty
+checkpoint commit after a passing assessment.
 
 Every later Agent Task uses a `continue` checkpoint and continues on the same
 open draft pull request by providing the exact base ref, head ref, and starting
@@ -268,19 +272,17 @@ operation ledger comment containing:
 - outcome and validation summary; and
 - recovery guidance for unsuccessful attempts.
 
-A changed SHA is required when files changed. Read-only or already-satisfied
-operations may retain the SHA only when operation-specific evidence proves the
-result. Verify and sync also run strict OpenSpec validation in a detached
-worktree at the exact recorded branch SHA. Sync additionally compares every
+A new pushed SHA is required for every successful operation. Read-only or
+already-satisfied operations use an empty checkpoint commit. Verify and sync
+also run strict OpenSpec validation in a detached worktree at the exact
+recorded branch SHA. Sync additionally compares every
 added, modified, or removed delta requirement and scenario with the accepted
 specs on that branch before archive may start.
 
-The controller reconstructs ordered assistant responses from the Copilot
-session event stream and parses only the final completed response. A valid JSON
-result remains supporting evidence: reconciliation still validates persisted
-repository state, changed paths, task transitions, and commit checkpoints
-before advancing. Agent results do not report Git SHAs. After an Agent Task
-completes, the controller captures the branch head, reads all task and
+The controller may reconstruct the final assistant response as supplemental
+diagnostics, but the pushed checkpoint commit and controller-owned repository
+validation are authoritative. After any terminal Agent Task state, the
+controller captures the branch head, validates its checkpoint, reads task and
 capability evidence at that immutable commit, and rechecks the branch head
 before crediting the operation. A branch that moves during this validation is
 treated as transient settling: reconciliation waits and retries without
@@ -292,14 +294,13 @@ consuming the operation retry, writing a failure ledger, or applying
 - `queued`, `in_progress`, `idle`, and `waiting_for_user` prohibit another
   dispatch. `waiting_for_user` is persisted as human attention rather than
   retried.
-- `failed` and `timed_out` receive one automatic retry from the same observed
-  checkpoint.
-- A failed or timed-out apply task that already marked its selected checkbox
-  complete is not retried automatically. Replaying it as an unchecked task
-  would otherwise fail dispatch and silently change the evidence baseline.
-  The controller records structured attention so an operator can inspect the
-  committed work, restore only that checkbox before an explicit bounded
-  replay, or discard the branch and restart from `main`.
+- `failed` and `timed_out` receive one automatic retry only when the branch did
+  not advance.
+- A terminal Agent Task with a valid pushed checkpoint is credited after normal
+  controller validation even when GitHub's outer task or post-processing state
+  is failed.
+- A terminal Agent Task whose branch advanced without a valid checkpoint stops
+  for attention and is never retried from a stale SHA.
 - `cancelled` and `waiting_for_user` are never retried automatically.
 - A second failure records recovery guidance and stops.
 - Terminal evidence failures update one managed attention comment with a stable
@@ -321,6 +322,12 @@ consuming the operation retry, writing a failure ledger, or applying
   transient queue labels and mutable queue-state or attention comments, and
   preserve issue twins, native dependencies, and immutable operation ledgers
   before explicitly re-enqueuing.
+- After the failed pull request is closed without merging, run the queue
+  workflow manually with `reset_issue` set to the issue number. The guarded
+  reset accepts only `needs_attention`, a closed unmerged PR, and a terminal
+  Agent Task; it deletes only bot-owned mutable state and attention comments
+  and removes managed queue labels. It never removes ledger comments or
+  re-enqueues the issue.
 - Reconciliation is level-triggered and idempotent; events wake it but do not
   authorize transitions by themselves.
 
