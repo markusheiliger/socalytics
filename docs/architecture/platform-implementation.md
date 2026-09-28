@@ -150,6 +150,37 @@ requirements for the database, outbox, generated indexes, telemetry, replicas,
 and backups are governed by
 [Security and Data Governance](security-and-data-governance.md).
 
+### Persistence Foundation Decisions (ADR Candidates)
+
+The active `add-platform-persistence-foundation` OpenSpec change is
+implementing this baseline and carries two durable architecture decisions:
+
+- **Shared peer persistence project.** `SocAlytics.Platform.Persistence` is a
+  peer project under `src/platform` that owns only module-neutral connection
+  creation, explicit transaction execution, optimistic-concurrency primitives,
+  migration descriptors, checksum verification, and migration orchestration,
+  including `socalytics_migrations.history`. It owns no capability schema or
+  domain record. Each capability module keeps ownership of its own SQL,
+  migrations, and schema, and references Persistence rather than another
+  capability module.
+- **PostgreSQL owner and runtime roles per module.** Local and test databases
+  bootstrap a stable `NOLOGIN` owner role and a narrower runtime role for each
+  adopted module schema. The owner role owns only its schema and migration
+  objects; its runtime role receives only the schema usage and object
+  privileges required by normal module access, with public and peer-module
+  access revoked. Migration execution assumes the module's owner role, while
+  normal module sessions assume its runtime role. This establishes role
+  semantics only; production identity and secret mapping remain unresolved and
+  are governed by
+  [Production Deployment and Operations](production-operations.md).
+
+Per the [architecture decision record threshold](decisions/README.md), an ADR
+is created only once its originating OpenSpec change is ready to archive.
+Both decisions therefore remain ADR candidates recorded here and in the
+change's `design.md` until `add-platform-persistence-foundation` is archived,
+at which point an ADR will be added and linked from this narrative if the
+decisions still meet the threshold.
+
 ## API And Identity
 
 The current dependency-free API implements only the operational and OpenAPI
