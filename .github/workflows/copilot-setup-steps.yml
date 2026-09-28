@@ -26,8 +26,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Install OpenSpec CLI
-        run: npm install -g @fission-ai/openspec@1.13.0
+      - name: Install repository tooling
+        run: >-
+          npm install --global
+          @fission-ai/openspec@1.13.0
+          markdownlint-cli2@0.23.3
+          markdown-link-check@3.15.0
 
-      - name: Verify OpenSpec CLI
-        run: openspec --version
+      - name: Verify repository tooling
+        run: |
+          openspec --version
+          markdownlint-cli2 --version
+          markdown-link-check --version

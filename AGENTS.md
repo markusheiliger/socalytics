@@ -42,7 +42,7 @@
   ```
 
 - Restore before using the documented `--no-restore` build command, and build before using the documented `--no-build` test command. The AppHost is the supported local entry point. Stop it with `Ctrl+C`.
-- There is no supported product lint command yet. Do not infer deployment support or production readiness from successful local restore, build, test, or AppHost execution.
+- There is no supported product lint command yet. Repository Markdown validation is available through `node .github/scripts/check-markdown.mjs`; do not treat it as product linting. Do not infer deployment support or production readiness from successful local restore, build, test, Markdown validation, or AppHost execution.
 - Add only files justified by the adopted architecture and an approved change. Generate `.gitignore` from the actual stack and local tooling rather than using a generic catch-all.
 - Preserve `src/platform/`, `src/clients/`, `src/agents/`, and `src/analysts/` as the approved first-level ownership areas. Do not add another immediate child of `src` without an accepted architecture change.
 - Add nested source, test, or documentation directories only with their first meaningful artifacts; do not create empty placeholders or infer planned child paths from the source-area READMEs.
@@ -70,6 +70,6 @@
 - Document every supported setup, build, test, and lint command in `README.md` when it becomes available.
 - After each substantive edit, run the narrowest relevant check before widening scope.
 - Validate OpenSpec with `openspec doctor --json`, `openspec schema validate spec-driven --json`, `openspec validate --all --json`, and `openspec status --all --json` as applicable.
-- Validate customization frontmatter, Markdown diagnostics, and relative links when changing agents, prompts, skills, or documentation.
+- Run `node .github/scripts/check-markdown.mjs` to validate Markdown diagnostics and repository-relative links when changing agents, prompts, skills, or documentation; validate customization frontmatter separately where applicable.
 - Run `openspec update` after changing the selected workflow profile; do not customize OpenSpec-managed prompt or skill bodies.
 - Preserve user changes in a dirty worktree and do not use destructive Git commands.

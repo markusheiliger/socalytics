@@ -50,13 +50,15 @@ host scaffold does not claim production readiness.
 
 ### OpenSpec
 
-The repository uses OpenSpec `1.13.0` as its user-facing change workflow. The
-CLI is a global development tool and does not require an application
-`package.json`:
+The repository uses OpenSpec `1.13.0` as its user-facing change workflow and
+provides pinned Markdown validation tools. These CLIs are global development
+tools and do not require an application `package.json`:
 
 ```powershell
-npm install --global @fission-ai/openspec@1.13.0
+npm install --global @fission-ai/openspec@1.13.0 markdownlint-cli2@0.23.3 markdown-link-check@3.15.0
 openspec --version
+markdownlint-cli2 --version
+markdown-link-check --version
 ```
 
 After cloning, run `openspec update` to refresh the generated GitHub Copilot
@@ -146,6 +148,21 @@ repository tooling rather than product CI.
 
 Architecture narratives remain authoritative for current system design;
 `openspec/specs/` is authoritative for accepted behavioral requirements.
+
+### Markdown
+
+Run the supported Markdown validation command from the repository root:
+
+```powershell
+node .github/scripts/check-markdown.mjs
+```
+
+The command runs Markdown diagnostics on repository-authored files and checks
+repository-relative links in all tracked or unignored Markdown files. It
+excludes OpenSpec-generated Copilot agent, prompt, and skill bodies from style
+rules because `openspec update` owns their formatting. Relative links in those
+generated files are still checked. External URLs are ignored so validation
+does not depend on network availability or third-party uptime.
 
 ## License
 

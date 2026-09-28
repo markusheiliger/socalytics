@@ -60,6 +60,11 @@ test('repository workflows expose useful names, scoped Git auth, and the safe DA
   const [setup, queue, source, lock] = files.map((content) => content.replaceAll('\r\n', '\n'));
 
   assert.match(setup, /copilot-setup-steps:\n    name: Prepare the Copilot coding agent environment/);
+  assert.match(setup, /@fission-ai\/openspec@1\.13\.0/);
+  assert.match(setup, /markdownlint-cli2@0\.23\.3/);
+  assert.match(setup, /markdown-link-check@3\.15\.0/);
+  assert.match(setup, /markdownlint-cli2 --version/);
+  assert.match(setup, /markdown-link-check --version/);
   assert.match(queue, /reconcile:\n    name: Reconcile the OpenSpec change queue/);
   assert.match(queue, /timeout-minutes: 330/);
   assert.match(queue, /node \.github\/scripts\/openspec-change-reconcile\.mjs --watch/);
