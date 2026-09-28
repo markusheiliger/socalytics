@@ -285,6 +285,8 @@ function operationPrompt({
     JSON.stringify(dispatch),
     `Read and follow ${bindingSkill} as the binding workflow.`,
     'Validate the dispatch checkpoint before editing: create requires the base SHA to be an ancestor of the generated branch HEAD; continue requires the exact head ref and HEAD SHA.',
+    'Work implementation-first under the fixed execution limit. Before lengthy broad validation, commit and push the smallest coherent task-scoped progress.',
+    'If the selected task cannot be completed in this invocation, stop before timeout, leave its checkbox unchecked, omit the queue checkpoint trailer, and commit and push coherent partial progress so the controller can continue from that exact SHA.',
     'A successful operation is not complete until the current branch has a new final checkpoint commit and that exact commit is pushed to origin.',
     `The final checkpoint commit message must contain exactly one trailer named "${QUEUE_CHECKPOINT_TRAILER}" followed by one-line JSON matching ${JSON.stringify({
       $schema: JSON_CONTRACTS.queueCheckpoint,
@@ -1501,9 +1503,6 @@ export async function resumeQueueIssue({
     throw new Error(`Issue #${issueNumber} Agent Task is still ${task.state}`);
   }
   const branch = await client.getBranch(state.headRef);
-  if (branch.commit.sha === state.beforeSha) {
-    throw new Error(`Issue #${issueNumber} branch has no pushed progress to resume`);
-  }
   if (state.operation !== 'apply' || !state.applyTaskId) {
     throw new Error(`Issue #${issueNumber} resume currently requires a selected apply task`);
   }
@@ -1533,6 +1532,9 @@ export async function resumeQueueIssue({
     await client.deleteIssueComment(comment.id);
   }
   if (selectedTask.completed) {
+    if (branch.commit.sha === state.beforeSha) {
+      throw new Error(`Issue #${issueNumber} checked task has no pushed checkpoint to revalidate`);
+    }
     const nextState = {
       ...state,
       status: 'dispatched',
@@ -1554,7 +1556,7 @@ export async function resumeQueueIssue({
     operation: state.operation,
     applyTaskId: state.applyTaskId,
     completedApplyTaskIds: state.completedApplyTaskIds ?? null,
-    attempt: state.attempt + 1,
+    attempt: 1,
     baseRef: state.baseRef,
     headRef: state.headRef,
     beforeSha: branch.commit.sha,

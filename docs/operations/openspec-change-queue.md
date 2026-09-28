@@ -300,6 +300,11 @@ consuming the operation retry, writing a failure ledger, or applying
   pushed partial progress but no final checkpoint, the controller first proves
   the selected task remains unchecked, credited tasks did not regress, and the
   capability identity is unchanged, then retries from the new branch head.
+- Apply dispatches require implementation-first work under the fixed execution
+  limit. Before broad validation, the agent commits and pushes coherent
+  task-scoped progress. If it cannot complete the task in the invocation, it
+  leaves the checkbox unchecked, omits the final checkpoint trailer, and
+  pushes that partial progress before timeout.
 - A terminal Agent Task with a valid pushed checkpoint is credited after normal
   controller validation even when GitHub's outer task or post-processing state
   is failed.
@@ -338,14 +343,15 @@ consuming the operation retry, writing a failure ledger, or applying
 - For a useful open pull request stopped after pushed partial progress, run the
   queue workflow manually with `resume_issue` set to the issue number. The
   guarded resume accepts only an open `needs_attention` issue, its existing
-  open durable PR, a terminal Agent Task, a branch head newer than the
-  controller checkpoint, and the same apply task with no credited-task
-  regression. It removes the mutable attention comment. An unchecked task
-  dispatches the next attempt from the observed branch head; an already-checked
-  task returns to `dispatched` only for controller revalidation of its durable
-  checkpoint. Both paths remain in the normal watch/reconcile loop so
-  successful completion is credited and the remaining apply and lifecycle
-  operations continue in the same sequence.
+  open durable PR, a terminal Agent Task, and the same apply task with no
+  credited-task regression. It removes the mutable attention comment. An
+  unchecked task starts a new explicit replay cycle with one automatic retry,
+  from either its unchanged checkpoint or its observed partial-progress head.
+  An already-checked task requires a newer branch head and returns to
+  `dispatched` only for controller revalidation of its durable checkpoint. Both
+  paths remain in the normal watch/reconcile loop so successful completion is
+  credited and the remaining apply and lifecycle operations continue in the
+  same sequence.
 - Reconciliation is level-triggered and idempotent; events wake it but do not
   authorize transitions by themselves.
 

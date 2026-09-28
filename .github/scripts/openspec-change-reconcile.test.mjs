@@ -231,6 +231,7 @@ test('dispatches apply for a newly enqueued unblocked issue', async () => {
   assert.equal(start[1].customAgent, 'openspec');
   assert.equal(start[1].createPullRequest, true);
   assert.equal(start[1].prompt.includes('<'), false);
+  assert.match(start[1].prompt, /commit and push coherent partial progress/);
   assert.deepEqual(dispatchEnvelope(start[1].prompt), {
     $schema: JSON_CONTRACTS.queueDispatch,
     changeRef: 'add-platform',
@@ -1391,7 +1392,7 @@ test('resets only mutable state after an unmerged queue pull request is closed',
   assert.deepEqual(labels(issue), ['openspec:change']);
 });
 
-test('explicitly resumes an unchecked task from pushed partial progress', async () => {
+test('explicitly replays an unchecked task with a fresh retry budget', async () => {
   const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"needs_attention","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":[],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const issue = baseIssue({
     labels: [
@@ -1415,7 +1416,7 @@ test('explicitly resumes an unchecked task from pushed partial progress', async 
       head: { ref: 'copilot/add-platform' },
     }),
     getAgentTask: async () => ({ state: 'failed' }),
-    getBranch: async () => ({ commit: { sha: sha('b') } }),
+    getBranch: async () => ({ commit: { sha: sha('a') } }),
     getTextContent: async (path) => repositoryContent(
       path,
       '- [ ] 1.1 Work. Capabilities: implementation.',
@@ -1428,7 +1429,7 @@ test('explicitly resumes an unchecked task from pushed partial progress', async 
 
   assert.deepEqual(
     { action: result.action, operation: result.operation, attempt: result.attempt },
-    { action: 'dispatched', operation: 'apply', attempt: 2 },
+    { action: 'dispatched', operation: 'apply', attempt: 1 },
   );
   assert.deepEqual(deleted, [21]);
   assert.deepEqual(labels(issue).sort(), [
