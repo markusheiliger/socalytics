@@ -3,7 +3,7 @@
 ## Current State
 
 - Treat this folder as the repository root.
-- This is a planned polyglot monorepo with a governance and documentation foundation plus an initial executable .NET 10 platform-host scaffold. See [README.md](README.md) for the current structure and [docs/README.md](docs/README.md) for the documentation index.
+- This is a planned polyglot monorepo with a governance and documentation foundation plus an executable .NET 10 platform host and local PostgreSQL persistence foundation. See [README.md](README.md) for the current structure and [docs/README.md](docs/README.md) for the documentation index.
 - The only first-level source areas are [platform](src/platform/README.md), [clients](src/clients/README.md), [agents](src/agents/README.md), and [analysts](src/analysts/README.md). The platform area is executable; the other source-area READMEs define non-executable planned ownership boundaries.
 - `src/platform/SocAlytics.Platform.slnx` contains peer production projects for Api, AppHost, ServiceDefaults, Persistence, Club, IdentityAccess, Recordings, Registry, Analysis, and AgentOrchestration. Host, architecture, and PostgreSQL integration test projects are under `src/platform/Tests`.
 - Current executable evidence includes the Aspire AppHost composing the API with PostgreSQL, readiness gated on migrations, `/alive`, `/health`, the built-in `/openapi/v1.json` document, six public capability DI boundaries with internal markers, PostgreSQL integration tests using disposable containers, and host and architecture tests. Domain behavior and domain tables, NATS, S3, identity and authentication, clients, production database or deployment configuration, and production-readiness evidence are not implemented.
