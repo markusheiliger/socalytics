@@ -1512,8 +1512,8 @@ export async function resumeQueueIssue({
     branch.commit.sha,
   ));
   const selectedTask = tasks.find(({ id }) => id === state.applyTaskId);
-  if (!selectedTask || selectedTask.completed) {
-    throw new Error(`Issue #${issueNumber} selected task must remain present and unchecked`);
+  if (!selectedTask) {
+    throw new Error(`Issue #${issueNumber} selected task must remain present`);
   }
   if (JSON.stringify(selectedTask.capabilities)
     !== JSON.stringify(state.applyTaskCapabilities)) {
@@ -1531,6 +1531,20 @@ export async function resumeQueueIssue({
   ));
   for (const comment of attentionComments) {
     await client.deleteIssueComment(comment.id);
+  }
+  if (selectedTask.completed) {
+    const nextState = {
+      ...state,
+      status: 'dispatched',
+      updatedAt: now().toISOString(),
+    };
+    await upsertQueueState(client, issueNumber, current, nextState);
+    await reconcileStateLabels(client, issue, nextState);
+    return {
+      action: 'revalidate',
+      operation: state.operation,
+      attempt: state.attempt,
+    };
   }
   return dispatchOperation({
     client,
@@ -1597,7 +1611,6 @@ async function main() {
     if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
       throw new Error('--resume-issue requires a positive issue number');
     }
-    const resumed = await resumeQueueIssue({ client, issueNumber });
     const reconcile = async () => {
       const issue = await client.getIssue(issueNumber);
       return [{
@@ -1605,9 +1618,13 @@ async function main() {
         ...(await reconcileIssue({ client, issue, agentToken })),
       }];
     };
+    const resumed = await resumeQueueIssue({ client, issueNumber });
+    const initialResults = resumed.action === 'revalidate'
+      ? await reconcile()
+      : [{ issueNumber, ...resumed }];
     results = await reconcileUntilSettled({
       reconcile,
-      initialResults: [{ issueNumber, ...resumed }],
+      initialResults,
     });
   } else {
     const reconcile = () => reconcileAll({ client, agentToken });

@@ -1438,6 +1438,56 @@ test('explicitly resumes an unchecked task from pushed partial progress', async 
   ].sort());
 });
 
+test('explicitly revalidates a checked task from its pushed checkpoint', async () => {
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"needs_attention","operation":"apply","attempt":2,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":[],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const issue = baseIssue({
+    labels: [
+      { name: 'openspec:change' },
+      { name: 'openspec:needs-attention' },
+      { name: 'openspec:stage:apply' },
+    ],
+  });
+  const comments = [
+    { id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } },
+    { id: 21, body: '<!-- openspec-queue-attention:v1 -->', updated_at: '2026-09-24T17:01:00Z', user: { login: 'github-actions[bot]' } },
+  ];
+  const deleted = [];
+  const updates = [];
+  const client = initialClient({
+    getIssue: async () => issue,
+    listIssueComments: async () => comments,
+    getPullRequest: async () => ({
+      number: 30,
+      state: 'open',
+      merged_at: null,
+      head: { ref: 'copilot/add-platform' },
+    }),
+    getAgentTask: async () => ({ state: 'completed' }),
+    getBranch: async () => ({ commit: { sha: sha('b') } }),
+    getTextContent: async (path) => repositoryContent(
+      path,
+      '- [x] 1.1 Work. Capabilities: implementation.',
+    ),
+    deleteIssueComment: async (commentId) => deleted.push(commentId),
+    updateIssueComment: async (...args) => updates.push(args),
+  });
+
+  const result = await resumeQueueIssue({ client, issueNumber: 12, now });
+
+  assert.deepEqual(result, {
+    action: 'revalidate',
+    operation: 'apply',
+    attempt: 2,
+  });
+  assert.deepEqual(deleted, [21]);
+  assert.match(updates[0][1], /"status":"dispatched"/);
+  assert.deepEqual(labels(issue).sort(), [
+    'openspec:change',
+    'openspec:processing',
+    'openspec:stage:apply',
+  ].sort());
+});
+
 test('ensures visible queue label definitions before reconciliation', async () => {
   const client = initialClient({
     listIssueTwins: async () => [],

@@ -339,11 +339,13 @@ consuming the operation retry, writing a failure ledger, or applying
   queue workflow manually with `resume_issue` set to the issue number. The
   guarded resume accepts only an open `needs_attention` issue, its existing
   open durable PR, a terminal Agent Task, a branch head newer than the
-  controller checkpoint, and the same still-unchecked apply task with no
-  credited-task regression. It removes the mutable attention comment and
-  dispatches the next attempt from the observed branch head, then remains in
-  the normal watch/reconcile loop so successful completion is credited and the
-  remaining apply and lifecycle operations continue in the same sequence.
+  controller checkpoint, and the same apply task with no credited-task
+  regression. It removes the mutable attention comment. An unchecked task
+  dispatches the next attempt from the observed branch head; an already-checked
+  task returns to `dispatched` only for controller revalidation of its durable
+  checkpoint. Both paths remain in the normal watch/reconcile loop so
+  successful completion is credited and the remaining apply and lifecycle
+  operations continue in the same sequence.
 - Reconciliation is level-triggered and idempotent; events wake it but do not
   authorize transitions by themselves.
 
