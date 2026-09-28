@@ -360,6 +360,7 @@ export class GitHubChangeClient {
     return this.request(`${this.repositoryPath}/git/commits`, {
       method: 'POST',
       body: { message, tree, parents },
+      expected: [201],
     });
   }
 

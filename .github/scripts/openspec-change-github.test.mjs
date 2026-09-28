@@ -279,7 +279,10 @@ test('reads commit metadata for a durable queue checkpoint', async () => {
     const calls = [];
     const client = clientWith(async (url, options) => {
       calls.push({ url, options });
-      return jsonResponse({ sha: sha('c') });
+      return jsonResponse(
+        { sha: sha('c') },
+        url.endsWith('/git/commits') ? 201 : 200,
+      );
     });
     await client.createGitCommit({
       message: 'checkpoint',
