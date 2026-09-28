@@ -8,12 +8,11 @@ import {
   mergeManagedEdgeProvenance,
   parseChangeMarker,
   parseCapabilityDefinition,
-  parseCapabilityResult,
   parseCapabilityTasks,
   parseDependencyCheckpoint,
   parseDependencySummary,
   parseLedgerEntry,
-  parseCloudOperationResult,
+  parseQueueOperationResult,
   parseQueueState,
   renderChangeMarker,
   renderDependencySummary,
@@ -571,7 +570,7 @@ test('requires operation-specific persisted evidence and coherent checkpoints', 
   }), { valid: false, reason: 'invalid-checkpoint' });
 });
 
-test('round-trips queue state and parses one cloud result marker', () => {
+test('round-trips queue state and parses an operation result envelope', () => {
   const state = {
     version: 1,
     changeRef: 'add-platform',
@@ -591,24 +590,28 @@ test('round-trips queue state and parses one cloud result marker', () => {
     updatedAt: '2026-09-24T18:00:00Z',
   };
   assert.deepEqual(parseQueueState(renderQueueState(state)), state);
-  assert.deepEqual(parseCloudOperationResult([
-    'other log output',
-    'OPEN_SPEC_CLOUD_OPERATION_V1={"changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"Verification complete."}',
-  ].join('\n')), {
+  assert.deepEqual(parseQueueOperationResult(JSON.stringify({
+    schema: 'operation-result-v1',
+    changeRef: 'add-platform',
+    operation: 'verify',
+    verdict: 'pass',
+    validation: 'Verification complete.',
+  })), {
+    schema: 'operation-result-v1',
     changeRef: 'add-platform',
     operation: 'verify',
     verdict: 'pass',
     validation: 'Verification complete.',
   });
   assert.throws(
-    () => parseCloudOperationResult('no marker'),
-    /exactly one result marker/,
+    () => parseQueueOperationResult('no result'),
+    /exactly one JSON object/,
   );
 });
 
-test('parses one structured capability result', () => {
+test('parses one structured capability result envelope', () => {
   const expected = {
-    version: 1,
+    schema: 'capability-result-v1',
     changeRef: 'add-platform',
     operation: 'apply',
     taskId: '1.1',
@@ -622,13 +625,42 @@ test('parses one structured capability result', () => {
     blockingFindings: [],
   };
   const result = JSON.stringify(expected);
-  assert.deepEqual(parseCapabilityResult([
-    'other log output',
+  assert.deepEqual(parseQueueOperationResult(result), expected);
+  for (const legacy of [
     `OPEN_SPEC_CAPABILITY_RESULT_V1=${result}`,
-  ].join('\n')), expected);
-  assert.deepEqual(
-    parseCapabilityResult(`OPEN_SPEC_CAPABILITY_RESULT_V1 ${result}`),
-    expected,
+    `OPEN_SPEC_CAPABILITY_RESULT_V1 ${result}`,
+    `OPEN_SPEC_CLOUD_OPERATION_V1=${JSON.stringify({
+      schema: 'operation-result-v1',
+      changeRef: 'add-platform',
+      operation: 'verify',
+      verdict: 'pass',
+      validation: 'Complete.',
+    })}`,
+  ]) {
+    assert.throws(
+      () => parseQueueOperationResult(legacy),
+      /exactly one JSON object/,
+    );
+  }
+  assert.throws(
+    () => parseQueueOperationResult(`Result:\n${result}`),
+    /exactly one JSON object/,
+  );
+  assert.throws(
+    () => parseQueueOperationResult('[]'),
+    /Queue operation result must be an object/,
+  );
+  assert.throws(
+    () => parseQueueOperationResult('{"changeRef":"add-platform"}'),
+    /schema must be a non-empty string/,
+  );
+  assert.throws(
+    () => parseQueueOperationResult('{"schema":"unknown-result-v1"}'),
+    /schema is unsupported/,
+  );
+  assert.throws(
+    () => parseQueueOperationResult(JSON.stringify({ ...expected, extra: true })),
+    /contains unknown field/,
   );
 });
 

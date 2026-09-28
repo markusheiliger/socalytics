@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { GitHubChangeClient } from './openspec-change-github.mjs';
+import {
+  GitHubChangeClient,
+  decodeAgentSessionFinalResponse,
+} from './openspec-change-github.mjs';
 
 const sha = (character) => character.repeat(40);
 
@@ -61,14 +64,20 @@ test('uses the user agent token only for Agent Tasks endpoints', async () => {
   });
 });
 
-test('reads Agent Task logs directly with the OAuth agent token', async () => {
+test('reads the final completed Agent Task response with the OAuth agent token', async () => {
   let request;
   const client = clientWith(async (url, options) => {
     request = { url, options };
     return new Response([
-      'data: {"choices":[{"delta":{"content":"Task complete.\\n"}}]}',
+      'data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}',
       '',
-      'data: {"choices":[{"delta":{"content":"OPEN_SPEC_CAPABILITY_RESULT_V1={}"}}]}',
+      'data: {"choices":[{"index":0,"delta":{"content":"Task complete."},"finish_reason":"stop"}]}',
+      '',
+      'data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}',
+      '',
+      'data: {"choices":[{"index":0,"delta":{"content":"{\\"schema\\":"}}]}',
+      '',
+      'data: {"choices":[{"index":0,"delta":{"content":"\\"capability-result-v1\\"}"},"finish_reason":"stop"}]}',
       '',
       'data: [DONE]',
       '',
@@ -77,7 +86,7 @@ test('reads Agent Task logs directly with the OAuth agent token', async () => {
 
   const log = await client.getAgentSessionLog('session-1');
 
-  assert.equal(log, 'Task complete.\nOPEN_SPEC_CAPABILITY_RESULT_V1={}');
+  assert.equal(log, '{"schema":"capability-result-v1"}');
   assert.equal(
     request.url,
     'https://api.githubcopilot.com/agents/sessions/session-1/logs',
@@ -85,6 +94,41 @@ test('reads Agent Task logs directly with the OAuth agent token', async () => {
   assert.equal(request.options.headers.Authorization, 'Bearer agent-secret');
   assert.equal(request.options.headers['Copilot-Integration-Id'], 'copilot-4-cli');
   assert.equal(request.options.headers['X-GitHub-Api-Version'], '2026-01-09');
+});
+
+test('requires an unambiguous completed Agent Task response', () => {
+  assert.throws(
+    () => decodeAgentSessionFinalResponse(
+      'data: {"choices":[{"delta":{"content":"{}"}}]}\n',
+    ),
+    /incomplete/,
+  );
+  assert.throws(
+    () => decodeAgentSessionFinalResponse([
+      'data: {"choices":[{"index":0,"delta":{"content":"one"}},{"index":1,"delta":{"content":"two"}}]}',
+      'data: [DONE]',
+    ].join('\n')),
+    /ambiguous/,
+  );
+  assert.throws(
+    () => decodeAgentSessionFinalResponse([
+      'data: {"choices":[{"delta":{"content":"{}"}}]}',
+      'data: not-json',
+      'data: [DONE]',
+    ].join('\n')),
+    /invalid event JSON/,
+  );
+  assert.throws(
+    () => decodeAgentSessionFinalResponse([
+      'data: {"choices":{}}',
+      'data: [DONE]',
+    ].join('\n')),
+    /event\.choices must be an array/,
+  );
+  assert.throws(
+    () => decodeAgentSessionFinalResponse('data: [DONE]\n'),
+    /did not contain assistant content/,
+  );
 });
 
 test('continues an Agent Task on an existing pull request branch', async () => {

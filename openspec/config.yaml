@@ -54,7 +54,7 @@ operations:
       - Execute only the controller-selected task, preserve user changes, and obey the intersection of all selected capability boundaries.
       - Run the narrowest relevant validation immediately after each substantive edit.
       - Mark a task complete only when its requested artifacts, synchronization, and validation evidence are present.
-      - Return the structured capability result required by the controller.
+      - Return only the structured JSON capability result required by the controller, with no prose, Markdown fence, prefix, suffix, or other content.
   archive:
     guidance:
       - Require all tasks to be complete and supported by validation evidence.

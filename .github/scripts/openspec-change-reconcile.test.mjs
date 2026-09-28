@@ -40,8 +40,8 @@ const capabilityResult = ({
   startingSha = sha('a'),
   resultingSha = sha('b'),
   artifactsChanged = ['openspec/changes/add-platform/tasks.md'],
-} = {}) => `OPEN_SPEC_CAPABILITY_RESULT_V1=${JSON.stringify({
-  version: 1,
+} = {}) => JSON.stringify({
+  schema: 'capability-result-v1',
   changeRef: 'add-platform',
   operation: 'apply',
   taskId,
@@ -53,7 +53,7 @@ const capabilityResult = ({
   validation: [{ command: 'node --test', outcome: 'passed' }],
   summary: `Task ${taskId} complete.`,
   blockingFindings: [],
-})}`;
+});
 
 function baseIssue(overrides = {}) {
   return {
@@ -483,7 +483,7 @@ test('rejects lifecycle verify when the branch SHA changes', async () => {
     client,
     issue: baseIssue(),
     agentToken: 'agent-token',
-    getSessionLog: async () => 'OPEN_SPEC_CLOUD_OPERATION_V1={"changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"Verification passed."}',
+    getSessionLog: async () => '{"schema":"operation-result-v1","changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"Verification passed."}',
     validateBranch: async () => {},
     now,
   });
@@ -571,7 +571,13 @@ test('advances apply through archive on one durable pull request', async () => {
   const getSessionLog = async (sessionId) => {
     const operation = operationsBySession.get(sessionId);
     if (operation === 'apply') return capabilityResult();
-    return `OPEN_SPEC_CLOUD_OPERATION_V1={"changeRef":"add-platform","operation":"${operation}","verdict":"pass","validation":"${operation} passed."}`;
+    return JSON.stringify({
+      schema: 'operation-result-v1',
+      changeRef: 'add-platform',
+      operation,
+      verdict: 'pass',
+      validation: `${operation} passed.`,
+    });
   };
   const reconcile = () => reconcileIssue({
     client,
@@ -752,7 +758,7 @@ test('stops at awaiting human review after archive passes', async () => {
     client,
     issue,
     agentToken: 'agent-token',
-    getSessionLog: async () => 'OPEN_SPEC_CLOUD_OPERATION_V1={"changeRef":"add-platform","operation":"archive","verdict":"pass","validation":"Archived."}',
+    getSessionLog: async () => '{"schema":"operation-result-v1","changeRef":"add-platform","operation":"archive","verdict":"pass","validation":"Archived."}',
     now,
   });
   assert.equal(result.action, 'awaiting_human_review');
@@ -785,7 +791,7 @@ test('advances after one-shot enqueue intent is removed by durable dispatch', as
     client,
     issue: baseIssue({ labels: [{ name: 'openspec:change' }] }),
     agentToken: 'agent-token',
-    getSessionLog: async () => 'OPEN_SPEC_CLOUD_OPERATION_V1={"changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"Verified."}',
+    getSessionLog: async () => '{"schema":"operation-result-v1","changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"Verified."}',
     validateBranch: async () => {},
     now,
   });

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "operation-result-v1.schema.json",
+  "title": "SocAlytics OpenSpec queue lifecycle operation result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "changeRef",
+    "operation",
+    "verdict",
+    "validation"
+  ],
+  "properties": {
+    "schema": {
+      "const": "operation-result-v1"
+    },
+    "changeRef": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "operation": {
+      "enum": ["apply", "verify", "sync", "archive"]
+    },
+    "applyTaskId": {
+      "type": "string",
+      "pattern": "^\\d+(?:\\.\\d+)*$"
+    },
+    "verdict": {
+      "enum": ["pass", "blocked", "fail"]
+    },
+    "validation": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["applyTaskId"]
+      },
+      "then": {
+        "properties": {
+          "operation": {
+            "const": "apply"
+          }
+        }
+      }
+    }
+  ]
+}

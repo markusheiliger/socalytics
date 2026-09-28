@@ -5,7 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "version",
+    "schema",
     "changeRef",
     "operation",
     "taskId",
@@ -19,8 +19,8 @@
     "blockingFindings"
   ],
   "properties": {
-    "version": {
-      "const": 1
+    "schema": {
+      "const": "capability-result-v1"
     },
     "changeRef": {
       "type": "string",

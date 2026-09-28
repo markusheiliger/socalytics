@@ -25,6 +25,89 @@ async function responseError(response, secrets) {
   ));
 }
 
+export function decodeAgentSessionFinalResponse(eventStream) {
+  if (typeof eventStream !== 'string') {
+    throw new Error('Agent session log must be a string');
+  }
+  const responses = [];
+  let current = '';
+  let currentComplete = false;
+  let streamComplete = false;
+
+  const completeCurrent = () => {
+    if (current === '') return;
+    responses.push(current);
+    current = '';
+    currentComplete = false;
+  };
+
+  for (const line of eventStream.split(/\r?\n/)) {
+    const dataLine = line.match(/^data:\s?(.*)$/);
+    if (!dataLine) continue;
+    const data = dataLine[1];
+    if (streamComplete) {
+      throw new Error('Agent session log contains events after stream completion');
+    }
+    if (data === '[DONE]') {
+      completeCurrent();
+      streamComplete = true;
+      continue;
+    }
+    let event;
+    try {
+      event = JSON.parse(data);
+    } catch (error) {
+      throw new Error(`Agent session log contains invalid event JSON: ${error.message}`);
+    }
+    if (event === null || typeof event !== 'object' || Array.isArray(event)) {
+      throw new Error('Agent session log event must be an object');
+    }
+    if (event.choices !== undefined && !Array.isArray(event.choices)) {
+      throw new Error('Agent session log event.choices must be an array');
+    }
+    const choices = event.choices ?? [];
+    if (choices.some((choice) => choice === null
+      || typeof choice !== 'object'
+      || Array.isArray(choice))) {
+      throw new Error('Agent session log choices must be objects');
+    }
+    const contentChoices = choices.filter(
+      (choice) => typeof choice.delta?.content === 'string'
+        || choice.delta?.role === 'assistant'
+        || choice.finish_reason != null,
+    );
+    const indexes = new Set(contentChoices.map((choice) => choice.index ?? 0));
+    if (indexes.size > 1) {
+      throw new Error('Agent session log contains ambiguous assistant response choices');
+    }
+    for (const choice of contentChoices) {
+      if (choice.delta?.role === 'assistant' && current !== '') {
+        if (!currentComplete) {
+          throw new Error('Agent session log contains an incomplete assistant response');
+        }
+        completeCurrent();
+      }
+      if (typeof choice.delta?.content === 'string') {
+        if (currentComplete) completeCurrent();
+        current += choice.delta.content;
+      }
+      if (choice.finish_reason != null) {
+        if (current === '') {
+          throw new Error('Agent session log completed an assistant response without content');
+        }
+        currentComplete = true;
+      }
+    }
+  }
+  if (!streamComplete) {
+    throw new Error('Agent session log is incomplete');
+  }
+  if (responses.length === 0) {
+    throw new Error('Agent session log did not contain assistant content');
+  }
+  return responses.at(-1);
+}
+
 export class GitHubChangeClient {
   constructor({
     owner,
@@ -223,28 +306,7 @@ export class GitHubChangeClient {
     if (!response.ok) {
       throw await responseError(response, [this.repositoryToken, this.agentToken]);
     }
-    const eventStream = await response.text();
-    const content = [];
-    for (const line of eventStream.split(/\r?\n/)) {
-      if (!line.startsWith('data: ')) continue;
-      const data = line.slice('data: '.length);
-      if (data === '[DONE]') continue;
-      let event;
-      try {
-        event = JSON.parse(data);
-      } catch (error) {
-        throw new Error(`Agent session log contains invalid event JSON: ${error.message}`);
-      }
-      for (const choice of event.choices ?? []) {
-        if (typeof choice.delta?.content === 'string') {
-          content.push(choice.delta.content);
-        }
-      }
-    }
-    if (content.length === 0) {
-      throw new Error('Agent session log did not contain assistant content');
-    }
-    return content.join('');
+    return decodeAgentSessionFinalResponse(await response.text());
   }
 
   startAgentTask({

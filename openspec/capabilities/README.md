@@ -31,11 +31,15 @@ requires the capability to be the task's only capability. Incompatible
 operation, mutation, isolation, or evidence contracts fail before execution;
 declaration order never establishes precedence.
 
-Capability-backed apply work returns one
-`OPEN_SPEC_CAPABILITY_RESULT_V1=<json-object>` marker conforming to
+Capability-backed apply work returns a final assistant response containing only
+one JSON object conforming to
 [`schemas/capability-result-v1.schema.json`](schemas/capability-result-v1.schema.json).
-The result is supporting evidence. Branch-visible task state, changed paths,
-and commit checkpoints remain authoritative.
+The object identifies its trusted contract with
+`"schema": "capability-result-v1"`. Schema IDs are controller-recognized
+identifiers, never caller-controlled paths or URLs. Prose, Markdown fences,
+prefixes, suffixes, arrays, multiple objects, and unknown schema IDs are
+rejected. The result is supporting evidence; branch-visible task state,
+changed paths, and commit checkpoints remain authoritative.
 
 The OpenSpec CLI does not discover or validate this directory. Repository
 tooling validates these contracts and passes their exact paths to the unchanged

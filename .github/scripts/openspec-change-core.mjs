@@ -14,8 +14,6 @@ export const DEPENDENCY_SUMMARY_START = '<!-- openspec-dependencies:v1';
 export const DEPENDENCY_CHECKPOINT_VERSION = 1;
 export const DEPENDENCY_PATCH_VERSION = 2;
 export const QUEUE_STATE_START = '<!-- openspec-queue-state:v1';
-export const CLOUD_RESULT_PREFIX = 'OPEN_SPEC_CLOUD_OPERATION_V1=';
-export const CAPABILITY_RESULT_PREFIX = 'OPEN_SPEC_CAPABILITY_RESULT_V1=';
 
 function assertObject(value, path) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -988,38 +986,29 @@ export function parseQueueState(commentBody) {
   );
 }
 
-export function parseCloudOperationResult(log) {
-  if (typeof log !== 'string') throw new Error('Cloud operation log must be a string');
-  const lines = log.split(/\r?\n/)
-    .filter((line) => line.trim().startsWith(CLOUD_RESULT_PREFIX));
-  if (lines.length !== 1) {
-    throw new Error('Cloud operation log must contain exactly one result marker');
-  }
-  let value;
-  try {
-    value = JSON.parse(lines[0].trim().slice(CLOUD_RESULT_PREFIX.length));
-  } catch (error) {
-    throw new Error(`Cloud operation result contains invalid JSON: ${error.message}`);
-  }
-  assertObject(value, 'Cloud operation result');
+function validateOperationResult(value) {
+  assertObject(value, 'Operation result');
   assertKnownKeys(
     value,
-    new Set(['changeRef', 'operation', 'applyTaskId', 'verdict', 'validation']),
-    'Cloud operation result',
+    new Set(['schema', 'changeRef', 'operation', 'applyTaskId', 'verdict', 'validation']),
+    'Operation result',
   );
-  assertKebabCase(value.changeRef, 'Cloud operation result.changeRef');
+  if (value.schema !== 'operation-result-v1') {
+    throw new Error('Operation result.schema must be operation-result-v1');
+  }
+  assertKebabCase(value.changeRef, 'Operation result.changeRef');
   if (!['apply', 'verify', 'sync', 'archive'].includes(value.operation)) {
-    throw new Error('Cloud operation result.operation is invalid');
+    throw new Error('Operation result.operation is invalid');
   }
   if (value.applyTaskId !== undefined) {
     if (value.operation !== 'apply' || !/^\d+(?:\.\d+)*$/.test(value.applyTaskId)) {
-      throw new Error('Cloud operation result.applyTaskId is invalid');
+      throw new Error('Operation result.applyTaskId is invalid');
     }
   }
   if (!['pass', 'blocked', 'fail'].includes(value.verdict)) {
-    throw new Error('Cloud operation result.verdict is invalid');
+    throw new Error('Operation result.verdict is invalid');
   }
-  assertMarkerSafeString(value.validation, 'Cloud operation result.validation');
+  assertMarkerSafeString(value.validation, 'Operation result.validation');
   return { ...value };
 }
 
@@ -1032,26 +1021,12 @@ function assertGitPath(value, path) {
   }
 }
 
-export function parseCapabilityResult(log) {
-  if (typeof log !== 'string') throw new Error('Capability result log must be a string');
-  const marker = /^OPEN_SPEC_CAPABILITY_RESULT_V1(?:=|\s+)(.+)$/;
-  const matches = log.split(/\r?\n/)
-    .map((line) => line.trim().match(marker))
-    .filter(Boolean);
-  if (matches.length !== 1) {
-    throw new Error('Capability result log must contain exactly one result marker');
-  }
-  let value;
-  try {
-    value = JSON.parse(matches[0][1]);
-  } catch (error) {
-    throw new Error(`Capability result contains invalid JSON: ${error.message}`);
-  }
+function validateCapabilityResult(value) {
   assertObject(value, 'Capability result');
   assertKnownKeys(
     value,
     new Set([
-      'version',
+      'schema',
       'changeRef',
       'operation',
       'taskId',
@@ -1066,7 +1041,9 @@ export function parseCapabilityResult(log) {
     ]),
     'Capability result',
   );
-  if (value.version !== 1) throw new Error('Capability result.version must be 1');
+  if (value.schema !== 'capability-result-v1') {
+    throw new Error('Capability result.schema must be capability-result-v1');
+  }
   assertKebabCase(value.changeRef, 'Capability result.changeRef');
   if (value.operation !== 'apply') throw new Error('Capability result.operation must be apply');
   if (typeof value.taskId !== 'string' || !/^\d+(?:\.\d+)*$/.test(value.taskId)) {
@@ -1109,6 +1086,36 @@ export function parseCapabilityResult(log) {
     assertMarkerSafeString(finding, `Capability result.blockingFindings[${index}]`);
   });
   return { ...value };
+}
+
+const RESULT_SCHEMA_VALIDATORS = Object.freeze({
+  'capability-result-v1': validateCapabilityResult,
+  'operation-result-v1': validateOperationResult,
+});
+
+export function parseQueueOperationResult(response) {
+  if (typeof response !== 'string') {
+    throw new Error('Queue operation final response must be a string');
+  }
+  const content = response.trim();
+  if (content === '') {
+    throw new Error('Queue operation final response must not be empty');
+  }
+  let value;
+  try {
+    value = JSON.parse(content);
+  } catch (error) {
+    throw new Error(`Queue operation final response must be exactly one JSON object: ${error.message}`);
+  }
+  assertObject(value, 'Queue operation result');
+  if (typeof value.schema !== 'string' || value.schema.trim() === '') {
+    throw new Error('Queue operation result.schema must be a non-empty string');
+  }
+  const validate = RESULT_SCHEMA_VALIDATORS[value.schema];
+  if (!validate) {
+    throw new Error(`Queue operation result.schema is unsupported: ${value.schema}`);
+  }
+  return validate(value);
 }
 
 export function validateOperationEvidence({

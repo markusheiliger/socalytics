@@ -204,9 +204,16 @@ ancestor of its HEAD. The controller does not guess a generated branch name or
 HEAD SHA.
 
 Apply envelopes also contain the selected task block, sorted capability ids,
-direct capability paths, and validated effective policy. Apply emits one
-`OPEN_SPEC_CAPABILITY_RESULT_V1=<json-object>` marker conforming to
-`openspec/capabilities/schemas/capability-result-v1.schema.json`.
+direct capability paths, and validated effective policy. Apply's final
+assistant response contains only one JSON object with
+`"schema": "capability-result-v1"` conforming to
+`openspec/capabilities/schemas/capability-result-v1.schema.json`. Verify, sync,
+and archive use the same JSON-only transport with
+`"schema": "operation-result-v1"` conforming to
+`.github/scripts/schemas/operation-result-v1.schema.json`. These schema IDs are
+controller-owned identifiers, not agent-supplied paths or URLs. The controller
+rejects prose, Markdown fences, prefixes, suffixes, arrays, multiple objects,
+unknown schemas, and incomplete or ambiguous final responses.
 Reconciliation accepts a result only when the task and capability set match,
 reported SHAs and changed paths match repository evidence, that exact task
 changed to complete, every task that was previously complete remains complete,
@@ -264,8 +271,11 @@ worktree at the exact recorded branch SHA. Sync additionally compares every
 added, modified, or removed delta requirement and scenario with the accepted
 specs on that branch before archive may start.
 
-The Agent Tasks API does not expose the final response as a stable controller
-contract. Reconciliation therefore validates persisted repository evidence.
+The controller reconstructs ordered assistant responses from the Copilot
+session event stream and parses only the final completed response. A valid JSON
+result remains supporting evidence: reconciliation still validates persisted
+repository state, changed paths, task transitions, and commit checkpoints
+before advancing.
 
 ## Failure and recovery
 
@@ -283,6 +293,12 @@ contract. Reconciliation therefore validates persisted repository evidence.
   that generated branch, clearing only the mutable checkpoint and transient
   queue labels, and explicitly re-enqueuing the active change after the
   controller fix is present on `main`.
+- A full queue reset follows the same evidence-preserving rule: first quiesce
+  workflow and Agent Task activity, close generated pull requests without
+  merging, delete only verified unreferenced generated branches, remove
+  transient queue labels and mutable queue-state or attention comments, and
+  preserve issue twins, native dependencies, and immutable operation ledgers
+  before explicitly re-enqueuing.
 - Reconciliation is level-triggered and idempotent; events wake it but do not
   authorize transitions by themselves.
 

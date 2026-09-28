@@ -10,10 +10,9 @@ import {
   QUEUE_STATE_START,
   deriveReadiness,
   parseCapabilityDefinition,
-  parseCapabilityResult,
   parseCapabilityTasks,
   parseChangeMarker,
-  parseCloudOperationResult,
+  parseQueueOperationResult,
   parseQueueState,
   renderLedgerEntry,
   renderQueueState,
@@ -210,11 +209,12 @@ function operationPrompt({
     instructions.push(
       'Execute only applyTask.id in this bounded invocation; do not begin or mark any other task even though the generated workflow normally loops.',
       'Read every applyTask.capabilityPaths file and obey the complete compatible capability set.',
-      'After validation, mark only the selected task complete and emit exactly one single-line marker beginning with the literal prefix OPEN_SPEC_CAPABILITY_RESULT_V1= followed immediately by the JSON object. The equals sign is required. The JSON object must conform to openspec/capabilities/schemas/capability-result-v1.schema.json.',
+      'After validation, mark only the selected task complete.',
+      'Your final response must contain only one JSON object conforming to openspec/capabilities/schemas/capability-result-v1.schema.json with "schema":"capability-result-v1". Do not include prose, Markdown fences, prefixes, suffixes, or any other content.',
     );
   } else {
     instructions.push(
-      'Emit exactly one OPEN_SPEC_CLOUD_OPERATION_V1 line with changeRef, operation, verdict, and concise validation.',
+      'Your final response must contain only one JSON object conforming to .github/scripts/schemas/operation-result-v1.schema.json with "schema":"operation-result-v1", changeRef, operation, verdict, and concise validation. Do not include prose, Markdown fences, prefixes, suffixes, or any other content.',
     );
   }
   instructions.push(
@@ -518,17 +518,21 @@ async function validateCompletedOperation({
   }
   const session = task.sessions?.at(-1);
   if (!session?.id) throw new Error('Completed Agent Task has no session');
-  const log = await getSessionLog(session.id, agentToken, client);
-  const result = state.operation === 'apply'
-    ? parseCapabilityResult(log)
-    : parseCloudOperationResult(log);
+  const response = await getSessionLog(session.id, agentToken, client);
+  const result = parseQueueOperationResult(response);
+  const expectedSchema = state.operation === 'apply'
+    ? 'capability-result-v1'
+    : 'operation-result-v1';
+  if (result.schema !== expectedSchema) {
+    throw new Error(`Queue operation result schema does not match ${state.operation}`);
+  }
   if (result.changeRef !== state.changeRef || result.operation !== state.operation) {
-    throw new Error('Cloud operation result does not match queue state');
+    throw new Error('Queue operation result does not match queue state');
   }
   if (state.operation === 'apply'
     && state.applyTaskId
     && result.taskId !== state.applyTaskId) {
-    throw new Error('Cloud operation result does not match the selected apply task');
+    throw new Error('Queue operation result does not match the selected apply task');
   }
   if (state.operation === 'apply'
     && state.applyTaskCapabilities
