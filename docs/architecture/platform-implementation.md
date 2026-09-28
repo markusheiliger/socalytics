@@ -132,6 +132,22 @@ Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Da
 provide database access; Entity Framework Core is not part of the baseline.
 DbUp applies ordered, versioned PostgreSQL SQL scripts grouped by owning module.
 
+The planned shared persistence boundary owns module-neutral connection,
+transaction, concurrency, and migration orchestration, including shared
+migration history, but no module schema, SQL, or domain state. Each capability
+owns its schema, SQL, and migration resources. Local and test databases use
+separate module owner and runtime roles: migrations run with the owning module's
+owner role, while module services receive only their scoped runtime access. The
+bootstrap connection is restricted to migration orchestration and is not
+available to module services. These roles establish privilege boundaries only;
+production identities, credential delivery, and secret sources remain unresolved.
+
+No ADR is added for this boundary at this stage. Under the
+[ADR policy](decisions/README.md), ADRs preserve rationale for consequential
+changes to established or implemented architecture; these remain
+pre-implementation decisions documented in this narrative, with alternatives
+recorded in the active OpenSpec design.
+
 CQRS is logical rather than physical:
 
 - commands use plain typed C# handlers resolved through .NET dependency
