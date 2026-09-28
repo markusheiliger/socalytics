@@ -150,6 +150,38 @@ requirements for the database, outbox, generated indexes, telemetry, replicas,
 and backups are governed by
 [Security and Data Governance](security-and-data-governance.md).
 
+### Shared Persistence Boundary And Database Roles
+
+The adopted persistence baseline is delivered through one shared peer project
+under `src/platform` rather than through per-module copies, host-owned
+orchestration, or the ServiceDefaults cross-cutting hosting defaults. That
+boundary owns only module-neutral infrastructure: connection creation, explicit
+transaction execution, the optimistic-concurrency signal, migration descriptors,
+checksum verification, and the `socalytics_migrations` history. It owns no
+capability schema and no domain record. Capability modules keep their SQL,
+migrations, and persistence types internal, reference the shared boundary rather
+than one another, and continue to export only their composition boundary.
+
+Module schema isolation is database-enforced rather than advisory. Each adopted
+module has an owner role that owns its schema and migration objects and a
+runtime role that receives only the privileges normal module access needs, with
+public and peer-module access revoked. Migration execution uses the owning
+module's owner role, normal module sessions use its runtime role, and the
+bootstrap connection stays limited to migration orchestration. This defines role
+semantics for local and test databases only. Production identities, login names,
+credential delivery, and secret sources remain unresolved and are governed by
+[Production Deployment and Operations](production-operations.md) and
+[Security and Data Governance](security-and-data-governance.md).
+
+Both refinements extend the already adopted PostgreSQL, Npgsql, Dapper, DbUp,
+and module-owned-schema baseline instead of changing an established or
+implemented design, so they do not meet the
+[decision-record threshold](decisions/README.md) and no ADR is created for them.
+This narrative owns their rationale, and the originating OpenSpec change retains
+the evaluated alternatives. Like the rest of this persistence baseline, the
+shared boundary and role behavior remain unimplemented until the platform
+persistence foundation change delivers executable evidence.
+
 ## API And Identity
 
 The current dependency-free API implements only the operational and OpenAPI
