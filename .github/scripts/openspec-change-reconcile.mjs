@@ -564,13 +564,13 @@ async function validateCompletedOperation({
   let archivePath = null;
   let nextApplyTask = null;
   if (state.operation === 'apply') {
-    if (result.startingSha !== state.beforeSha) {
-      const branchCreation = await client.compareCommits(state.beforeSha, result.startingSha);
-      if (branchCreation.status !== 'ahead' || branchCreation.files.length !== 0) {
-        throw new Error('Capability result starting SHA is not an empty branch-creation descendant');
-      }
+    if (state.headRef !== null && result.startingSha !== state.beforeSha) {
+      throw new Error('Capability result starting SHA does not match the continuation checkpoint');
     }
-    const comparison = await client.compareCommits(result.startingSha, afterSha);
+    const comparison = await client.compareCommits(state.beforeSha, afterSha);
+    if (comparison.status !== 'ahead') {
+      throw new Error('Capability result branch does not descend from the controller checkpoint');
+    }
     const changedPaths = comparison.files.map(({ filename }) => filename).sort();
     const reportedPaths = [...result.artifactsChanged].sort();
     if (JSON.stringify(changedPaths) !== JSON.stringify(reportedPaths)) {

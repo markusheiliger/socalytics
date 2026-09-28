@@ -215,9 +215,13 @@ controller-owned identifiers, not agent-supplied paths or URLs. The controller
 rejects prose, Markdown fences, prefixes, suffixes, arrays, multiple objects,
 unknown schemas, and incomplete or ambiguous final responses.
 Reconciliation accepts a result only when the task and capability set match,
-reported SHAs and changed paths match repository evidence, that exact task
-changed to complete, every task that was previously complete remains complete,
-and no other pending task was completed by the operation. A successful
+the reported resulting SHA and changed paths match repository evidence, that
+exact task changed to complete, every task that was previously complete remains
+complete, and no other pending task was completed by the operation. Continuation
+tasks must report the exact controller starting checkpoint. For initial tasks,
+GitHub may rewrite the empty branch-creation commit during publication, so the
+controller proves the durable final branch is ahead of its own base checkpoint
+instead of querying the ephemeral agent-observed starting SHA. A successful
 intermediate apply result stays in the apply stage with attempt 1 for the next
 selected task. A retry retains the same selected task and increments only that
 task's attempt.

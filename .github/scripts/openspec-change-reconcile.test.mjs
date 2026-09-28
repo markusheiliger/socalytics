@@ -75,6 +75,7 @@ function initialClient(overrides = {}) {
     listBlockedBy: async () => [],
     getBranch: async () => ({ commit: { sha: sha('a') } }),
     compareCommits: async () => ({
+      status: 'ahead',
       files: [{ filename: 'openspec/changes/add-platform/tasks.md' }],
     }),
     getTextContent: async (path) => repositoryContent(
@@ -245,7 +246,7 @@ test('does not dispatch while a native blocker is unresolved', async () => {
   assert.equal(client.calls.length, 0);
 });
 
-test('continues from apply to verify after durable apply evidence passes', async () => {
+test('accepts a rewritten initial branch checkpoint using durable repository evidence', async () => {
   const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":null,"beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
@@ -257,9 +258,14 @@ test('continues from apply to verify after durable apply evidence passes', async
       sessions: [{ id: 'session-1' }],
     }),
     getBranch: async (branch) => ({ commit: { sha: branch === 'main' ? sha('a') : sha('b') } }),
-    compareCommits: async (base, head) => base === sha('a') && head === sha('c')
-      ? { status: 'ahead', files: [] }
-      : { status: 'ahead', files: [{ filename: 'openspec/changes/add-platform/tasks.md' }] },
+    compareCommits: async (base, head) => {
+      assert.equal(base, sha('a'));
+      assert.equal(head, sha('b'));
+      return {
+        status: 'ahead',
+        files: [{ filename: 'openspec/changes/add-platform/tasks.md' }],
+      };
+    },
     getTextContent: async (path) => repositoryContent(
       path,
       '- [x] 1.1 Done. Capabilities: implementation.',
@@ -415,7 +421,10 @@ test('rejects mutations outside an isolated capability task checkbox', async () 
       sessions: [{ id: 'session-1' }],
     }),
     getBranch: async () => ({ commit: { sha: sha('b') } }),
-    compareCommits: async () => ({ files: [{ filename: 'docs/report.md' }] }),
+    compareCommits: async () => ({
+      status: 'ahead',
+      files: [{ filename: 'docs/report.md' }],
+    }),
     getTextContent: async (path) => repositoryContent(
       path,
       '- [x] 1.1 Verify evidence. Capabilities: verification.',
