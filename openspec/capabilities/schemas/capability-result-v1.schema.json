@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "capability-result-v1.schema.json",
+  "$id": "openspec/capabilities/schemas/capability-result-v1.schema.json",
   "title": "SocAlytics execution capability result",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema",
+    "$schema",
     "changeRef",
     "operation",
     "taskId",
@@ -17,8 +17,8 @@
     "blockingFindings"
   ],
   "properties": {
-    "schema": {
-      "const": "capability-result-v1"
+    "$schema": {
+      "const": "openspec/capabilities/schemas/capability-result-v1.schema.json"
     },
     "changeRef": {
       "type": "string",

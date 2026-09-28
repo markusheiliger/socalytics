@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  JSON_CONTRACTS,
   calculateManagedEdgeChanges,
   deriveReadiness,
   mergeManagedDependencyGraph,
@@ -32,6 +33,7 @@ import {
 } from './openspec-change-core.mjs';
 
 const activeMarker = {
+  $schema: JSON_CONTRACTS.changeMarker,
   repository: 'markusheiliger/socalytics',
   ref: 'add-platform-persistence-foundation',
   lifecycle: 'active',
@@ -106,7 +108,7 @@ test('validates capability definitions and composition', () => {
     `composition: ${overrides.composition ?? 'composable'}`,
     `mutation: ${overrides.mutation ?? 'scoped'}`,
     `isolation: ${overrides.isolation ?? 'shared'}`,
-    'resultSchema: schemas/capability-result-v1.schema.json',
+    `resultSchema: ${JSON_CONTRACTS.capabilityResult}`,
     '---',
     '',
     `# ${id}`,
@@ -119,7 +121,7 @@ test('validates capability definitions and composition', () => {
       ids: ['architecture', 'implementation'],
       mutation: 'scoped',
       isolation: 'shared',
-      resultSchema: 'schemas/capability-result-v1.schema.json',
+      resultSchema: JSON_CONTRACTS.capabilityResult,
     },
   );
   assert.throws(
@@ -149,7 +151,7 @@ test('validates capability definitions and composition', () => {
       'composition: composable',
       'mutation: scoped',
       'isolation: shared',
-      'resultSchema: schemas/capability-result-v1.schema.json',
+      `resultSchema: ${JSON_CONTRACTS.capabilityResult}`,
       '---',
     ].join('\n'), 'architecture'),
     /does not match/,
@@ -158,7 +160,7 @@ test('validates capability definitions and composition', () => {
 
 test('accepts high-confidence acyclic dependencies and flags low confidence', () => {
   const result = validateDependencyOutput({
-    version: 1,
+    $schema: JSON_CONTRACTS.dependencyCandidates,
     candidates: [
       {
         changeRef: 'add-club',
@@ -180,7 +182,7 @@ test('accepts high-confidence acyclic dependencies and flags low confidence', ()
 
 test('rejects dependency duplicates, unknown refs, and whole-graph cycles', () => {
   const duplicate = {
-    version: 1,
+    $schema: JSON_CONTRACTS.dependencyCandidates,
     candidates: [
       { changeRef: 'two', dependsOn: 'one', confidence: 1, evidence: ['a'] },
       { changeRef: 'two', dependsOn: 'one', confidence: 1, evidence: ['b'] },
@@ -189,14 +191,14 @@ test('rejects dependency duplicates, unknown refs, and whole-graph cycles', () =
   assert.throws(() => validateDependencyOutput(duplicate, ['one', 'two']), /duplicates dependency/);
   assert.throws(
     () => validateDependencyOutput({
-      version: 1,
+      $schema: JSON_CONTRACTS.dependencyCandidates,
       candidates: [{ changeRef: 'two', dependsOn: 'missing', confidence: 1, evidence: ['a'] }],
     }, ['one', 'two']),
     /unknown change/,
   );
   assert.throws(
     () => validateDependencyOutput({
-      version: 1,
+      $schema: JSON_CONTRACTS.dependencyCandidates,
       candidates: [{ changeRef: 'one', dependsOn: 'two', confidence: 1, evidence: ['a'] }],
     }, ['one', 'two'], [{ changeRef: 'two', dependsOn: 'one' }]),
     /Dependency cycle/,
@@ -225,7 +227,7 @@ test('reconciles only previously managed native dependencies', () => {
 
 test('ignores manual native dependency endpoints outside OpenSpec while checking cycles', () => {
   assert.deepEqual(validateDependencyOutput(
-    { version: 1, candidates: [] },
+    { $schema: JSON_CONTRACTS.dependencyCandidates, candidates: [] },
     ['one', 'two'],
     [{ changeRef: 'two', dependsOn: 'manual-issue' }],
   ), { accepted: [], review: [] });
@@ -244,14 +246,14 @@ test('round-trips managed dependency provenance and detects updates', () => {
     confidence: 0.95,
     evidence: ['new'],
   }];
-  const summary = { version: 1, managedEdges: desired };
+  const summary = { $schema: JSON_CONTRACTS.dependencySummary, managedEdges: desired };
   assert.deepEqual(parseDependencySummary(renderDependencySummary(summary)), summary);
   assert.deepEqual(calculateManagedEdgeChanges(previous, desired, previous).update, desired);
 });
 
 test('validates explicit incremental graph patches and merges deterministically', () => {
   const patch = validateDependencyGraphPatch({
-    version: 2,
+    $schema: JSON_CONTRACTS.dependencyGraphPatch,
     evaluationMode: 'incremental',
     evaluatedRefs: ['three'],
     summaries: [{ ref: 'three', summary: 'Third change' }],
@@ -268,7 +270,7 @@ test('validates explicit incremental graph patches and merges deterministically'
     }],
   }, ['one', 'two', 'three']);
   assert.deepEqual(patch, {
-    version: 2,
+    $schema: JSON_CONTRACTS.dependencyGraphPatch,
     evaluationMode: 'incremental',
     evaluatedRefs: ['three'],
     summaries: [{ ref: 'three', summary: 'Third change' }],
@@ -316,7 +318,7 @@ test('validates explicit incremental graph patches and merges deterministically'
 
 test('requires complete full evaluations and scopes mutations to evaluated endpoints', () => {
   const base = {
-    version: 2,
+    $schema: JSON_CONTRACTS.dependencyGraphPatch,
     evaluationMode: 'incremental',
     evaluatedRefs: ['one'],
     summaries: [{ ref: 'one', summary: 'First change' }],
@@ -405,7 +407,7 @@ test('migrates only legacy comment edges that still exist natively', () => {
 
 test('round-trips strict deterministic dependency checkpoints', () => {
   const checkpoint = {
-    version: 1,
+    $schema: JSON_CONTRACTS.dependencyCheckpoint,
     commit: 'a'.repeat(40),
     changes: [
       { ref: 'two', digest: '2'.repeat(64), summary: 'Second change' },
@@ -511,7 +513,7 @@ test('applies the single retry policy', () => {
 
 test('round-trips strict operation ledger entries', () => {
   const entry = {
-    version: 1,
+    $schema: JSON_CONTRACTS.queueLedgerEntry,
     changeRef: 'add-platform',
     operation: 'apply',
     attempt: 1,
@@ -573,7 +575,7 @@ test('requires operation-specific persisted evidence and coherent checkpoints', 
 
 test('parses one strict queue checkpoint trailer from a commit message', () => {
   const checkpoint = {
-    version: 1,
+    $schema: JSON_CONTRACTS.queueCheckpoint,
     changeRef: 'add-platform',
     operation: 'apply',
     taskId: '1.2',
@@ -581,15 +583,15 @@ test('parses one strict queue checkpoint trailer from a commit message', () => {
     validation: 'dotnet build: passed',
   };
   assert.deepEqual(
-    parseQueueCheckpoint(`Implement task\n\nOpenSpec-Queue-Checkpoint: ${JSON.stringify(checkpoint)}`),
+    parseQueueCheckpoint(`Implement task\n\nOpenSpec-JSON: ${JSON.stringify(checkpoint)}`),
     checkpoint,
   );
   assert.throws(
     () => parseQueueCheckpoint('No checkpoint'),
-    /exactly one OpenSpec-Queue-Checkpoint:/,
+    /exactly one OpenSpec-JSON:/,
   );
   assert.throws(
-    () => parseQueueCheckpoint(`OpenSpec-Queue-Checkpoint: ${JSON.stringify({
+    () => parseQueueCheckpoint(`OpenSpec-JSON: ${JSON.stringify({
       ...checkpoint,
       operation: 'verify',
     })}`),
@@ -599,7 +601,7 @@ test('parses one strict queue checkpoint trailer from a commit message', () => {
 
 test('round-trips queue state and parses an operation result envelope', () => {
   const state = {
-    version: 1,
+    $schema: JSON_CONTRACTS.queueState,
     changeRef: 'add-platform',
     issueNumber: 12,
     status: 'dispatched',
@@ -618,13 +620,13 @@ test('round-trips queue state and parses an operation result envelope', () => {
   };
   assert.deepEqual(parseQueueState(renderQueueState(state)), state);
   assert.deepEqual(parseQueueOperationResult(JSON.stringify({
-    schema: 'operation-result-v1',
+    $schema: JSON_CONTRACTS.operationResult,
     changeRef: 'add-platform',
     operation: 'verify',
     verdict: 'pass',
     validation: 'Verification complete.',
   })), {
-    schema: 'operation-result-v1',
+    $schema: JSON_CONTRACTS.operationResult,
     changeRef: 'add-platform',
     operation: 'verify',
     verdict: 'pass',
@@ -638,7 +640,7 @@ test('round-trips queue state and parses an operation result envelope', () => {
 
 test('parses one structured capability result envelope', () => {
   const expected = {
-    schema: 'capability-result-v1',
+    $schema: JSON_CONTRACTS.capabilityResult,
     changeRef: 'add-platform',
     operation: 'apply',
     taskId: '1.1',
@@ -655,7 +657,7 @@ test('parses one structured capability result envelope', () => {
     `OPEN_SPEC_CAPABILITY_RESULT_V1=${result}`,
     `OPEN_SPEC_CAPABILITY_RESULT_V1 ${result}`,
     `OPEN_SPEC_CLOUD_OPERATION_V1=${JSON.stringify({
-      schema: 'operation-result-v1',
+      $schema: JSON_CONTRACTS.operationResult,
       changeRef: 'add-platform',
       operation: 'verify',
       verdict: 'pass',
@@ -677,7 +679,7 @@ test('parses one structured capability result envelope', () => {
   );
   assert.throws(
     () => parseQueueOperationResult('{"changeRef":"add-platform"}'),
-    /schema must be a non-empty string/,
+    /\$schema must be a non-empty string/,
   );
   assert.throws(
     () => parseQueueOperationResult(JSON.stringify({
@@ -687,8 +689,8 @@ test('parses one structured capability result envelope', () => {
     /unknown field\(s\): resultingSha/,
   );
   assert.throws(
-    () => parseQueueOperationResult('{"schema":"unknown-result-v1"}'),
-    /schema is unsupported/,
+    () => parseQueueOperationResult('{"$schema":"unknown-result-v1"}'),
+    /\$schema is unsupported/,
   );
   assert.throws(
     () => parseQueueOperationResult(JSON.stringify({ ...expected, extra: true })),

@@ -25,12 +25,11 @@ import {
   writeDependencyCheckpoint,
 } from './openspec-change-git-notes.mjs';
 import {
+  JSON_CONTRACTS,
   serializeDependencyCheckpoint,
   validateDependencyGraphPatch,
   validateDependencyCheckpoint,
 } from './openspec-change-core.mjs';
-
-export const RECONCILIATION_CONTEXT_VERSION = 1;
 
 async function existingFile(filePath) {
   try {
@@ -168,7 +167,7 @@ export async function prepareDependencyReconciliation({
     (prior?.checkpoint.changes ?? []).map(({ ref, summary }) => [ref, summary]),
   );
   const context = {
-    version: RECONCILIATION_CONTEXT_VERSION,
+    $schema: JSON_CONTRACTS.dependencyReconciliationContext,
     targetHead,
     notesTip,
     checkpointState,
@@ -182,7 +181,7 @@ export async function prepareDependencyReconciliation({
     })),
     managedEdges: prior?.checkpoint.managedEdges ?? [],
     outputContract: {
-      version: 2,
+      $schema: JSON_CONTRACTS.dependencyGraphPatch,
       evaluationMode: mode,
       evaluatedRefs,
       summaries: 'Exactly one {ref,summary} object per evaluated ref.',
@@ -237,8 +236,10 @@ export async function reconcileDependencyState({
   pushNotes = pushDependencyNotes,
   verifyPriorNote = readDependencyNote,
 } = {}) {
-  if (context?.version !== RECONCILIATION_CONTEXT_VERSION) {
-    throw new Error(`Reconciliation context version must be ${RECONCILIATION_CONTEXT_VERSION}`);
+  if (context?.$schema !== JSON_CONTRACTS.dependencyReconciliationContext) {
+    throw new Error(
+      `Reconciliation context.$schema must be ${JSON_CONTRACTS.dependencyReconciliationContext}`,
+    );
   }
   const head = await git('rev-parse', 'HEAD^{commit}');
   if (head !== context.targetHead) {
@@ -277,7 +278,7 @@ export async function reconcileDependencyState({
     checkpoint: context.prior?.checkpoint ?? null,
   });
   const checkpoint = validateDependencyCheckpoint({
-    version: 1,
+    $schema: JSON_CONTRACTS.dependencyCheckpoint,
     commit: context.targetHead,
     changes: checkpointChanges(context, result.summaries),
     managedEdges: result.accepted,

@@ -10,10 +10,15 @@ import {
   resetQueueIssue,
   resumeQueueIssue,
 } from './openspec-change-reconcile.mjs';
+import { JSON_CONTRACTS } from './openspec-change-core.mjs';
 
 const sha = (character) => character.repeat(40);
 const now = () => new Date('2026-09-24T18:00:00Z');
-const marker = '<!-- openspec-twin:v1:start -->\n<!-- openspec-change:v1\n{"repository":"markusheiliger/socalytics","ref":"add-platform","lifecycle":"active","gitRef":"main","path":"openspec/changes/add-platform"}\n-->\n<!-- openspec-twin:v1:end -->';
+const marker = `<!-- openspec-twin:v1:start -->
+<!-- openspec-json
+{"$schema":"${JSON_CONTRACTS.changeMarker}","repository":"markusheiliger/socalytics","ref":"add-platform","lifecycle":"active","gitRef":"main","path":"openspec/changes/add-platform"}
+-->
+<!-- openspec-twin:v1:end -->`;
 const capability = (id, overrides = {}) => `---
 id: ${id}
 version: 1
@@ -21,7 +26,7 @@ operations: [apply]
 composition: ${overrides.composition ?? 'composable'}
 mutation: ${overrides.mutation ?? 'scoped'}
 isolation: ${overrides.isolation ?? 'shared'}
-resultSchema: schemas/capability-result-v1.schema.json
+resultSchema: ${JSON_CONTRACTS.capabilityResult}
 ---
 
 # ${id}`;
@@ -41,7 +46,7 @@ const capabilityResult = ({
   capabilities = ['implementation'],
   artifactsChanged = ['openspec/changes/add-platform/tasks.md'],
 } = {}) => JSON.stringify({
-  schema: 'capability-result-v1',
+  $schema: JSON_CONTRACTS.capabilityResult,
   changeRef: 'add-platform',
   operation: 'apply',
   taskId,
@@ -60,8 +65,8 @@ const checkpointMessage = ({
   validation = 'Validated.',
 } = {}) => `OpenSpec queue checkpoint
 
-OpenSpec-Queue-Checkpoint: ${JSON.stringify({
-  version: 1,
+OpenSpec-JSON: ${JSON.stringify({
+  $schema: JSON_CONTRACTS.queueCheckpoint,
   changeRef,
   operation,
   ...(operation === 'apply' ? { taskId } : {}),
@@ -152,8 +157,24 @@ test('watches active Agent Tasks until the queue settles', async () => {
   });
 
   assert.deepEqual(result, responses.at(-1));
-  assert.equal(reconcileCalls, 3);
-  assert.deepEqual(waits, [25, 25]);
+});
+
+test('watches a manually dispatched initial result before reconciling', async () => {
+  const waits = [];
+  let reconcileCalls = 0;
+  const result = await reconcileUntilSettled({
+    initialResults: [{ action: 'dispatched', issueNumber: 12 }],
+    reconcile: async () => {
+      reconcileCalls += 1;
+      return [{ action: 'awaiting_human_review', issueNumber: 12 }];
+    },
+    wait: async (milliseconds) => waits.push(milliseconds),
+    intervalMilliseconds: 25,
+  });
+
+  assert.equal(reconcileCalls, 1);
+  assert.deepEqual(waits, [25]);
+  assert.deepEqual(result, [{ action: 'awaiting_human_review', issueNumber: 12 }]);
 });
 
 test('reconciles managed labels idempotently without replacing unrelated labels', async () => {
@@ -188,10 +209,11 @@ function labels(issue) {
 }
 
 function dispatchEnvelope(prompt) {
-  const prefix = 'OPEN_SPEC_CLOUD_DISPATCH_V1=';
-  const lines = prompt.split(/\r?\n/).filter((line) => line.startsWith(prefix));
+  const lines = prompt.split(/\r?\n/).filter(
+    (line) => line.startsWith(`{"$schema":"${JSON_CONTRACTS.queueDispatch}"`),
+  );
   assert.equal(lines.length, 1);
-  return JSON.parse(lines[0].slice(prefix.length));
+  return JSON.parse(lines[0]);
 }
 
 test('dispatches apply for a newly enqueued unblocked issue', async () => {
@@ -210,7 +232,7 @@ test('dispatches apply for a newly enqueued unblocked issue', async () => {
   assert.equal(start[1].createPullRequest, true);
   assert.equal(start[1].prompt.includes('<'), false);
   assert.deepEqual(dispatchEnvelope(start[1].prompt), {
-    version: 1,
+    $schema: JSON_CONTRACTS.queueDispatch,
     changeRef: 'add-platform',
     operation: 'apply',
     applyTask: {
@@ -222,7 +244,7 @@ test('dispatches apply for a newly enqueued unblocked issue', async () => {
         ids: ['implementation'],
         isolation: 'shared',
         mutation: 'scoped',
-        resultSchema: 'schemas/capability-result-v1.schema.json',
+        resultSchema: JSON_CONTRACTS.capabilityResult,
       },
     },
     issueNumber: 12,
@@ -267,7 +289,7 @@ test('does not dispatch while a native blocker is unresolved', async () => {
 });
 
 test('accepts a rewritten initial branch checkpoint using durable repository evidence', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const contentRefs = [];
   const client = initialClient({
@@ -319,7 +341,7 @@ test('accepts a rewritten initial branch checkpoint using durable repository evi
   assert.equal(start[1].createPullRequest, false);
   assert.deepEqual([...new Set(contentRefs)], [sha('b')]);
   assert.deepEqual(dispatchEnvelope(start[1].prompt), {
-    version: 1,
+    $schema: JSON_CONTRACTS.queueDispatch,
     changeRef: 'add-platform',
     operation: 'verify',
     issueNumber: 12,
@@ -334,7 +356,7 @@ test('accepts a rewritten initial branch checkpoint using durable repository evi
 });
 
 test('defers validation without a ledger when the completed branch is still settling', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const contentRefs = [];
   let branchRead = 0;
@@ -403,7 +425,7 @@ test('defers validation without a ledger when the completed branch is still sett
 });
 
 test('dispatches the next apply task on the same branch before verify', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":"1.1","applyTaskCapabilities":["architecture"],"baseRef":"main","headRef":null,"beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":"1.1","applyTaskCapabilities":["architecture"],"baseRef":"main","headRef":null,"beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
@@ -453,7 +475,7 @@ test('dispatches the next apply task on the same branch before verify', async ()
       ids: ['implementation'],
       isolation: 'shared',
       mutation: 'scoped',
-      resultSchema: 'schemas/capability-result-v1.schema.json',
+      resultSchema: JSON_CONTRACTS.capabilityResult,
     },
   });
 });
@@ -478,7 +500,7 @@ test('rejects regressed or out-of-scope apply task completion', async () => {
   ];
 
   for (const scenario of scenarios) {
-    const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":["1.0"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+    const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":["1.0"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
     const client = initialClient({
       listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
       getAgentTask: async () => ({
@@ -508,7 +530,7 @@ test('rejects regressed or out-of-scope apply task completion', async () => {
 });
 
 test('rejects mutations outside an isolated capability task checkbox', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":"1.1","applyTaskCapabilities":["verification"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":"1.1","applyTaskCapabilities":["verification"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
     getAgentTask: async () => ({
@@ -543,7 +565,7 @@ test('rejects mutations outside an isolated capability task checkbox', async () 
 });
 
 test('publishes structured safe diagnostics and links the immutable ledger', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":["1.0"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":["1.0"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const attentionBody = '<!-- openspec-queue-attention:v1 -->\nold attention';
   const calls = [];
   const client = initialClient({
@@ -594,7 +616,7 @@ test('publishes structured safe diagnostics and links the immutable ledger', asy
 });
 
 test('accepts only the selected checkbox mutation for an isolated capability', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":"1.1","applyTaskCapabilities":["verification"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":"1.1","applyTaskCapabilities":["verification"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
     getAgentTask: async () => ({
@@ -624,7 +646,7 @@ test('accepts only the selected checkbox mutation for an isolated capability', a
 });
 
 test('rejects lifecycle verify without a matching checkpoint commit', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"verify","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":null,"applyTaskCapabilities":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"verify","attempt":1,"taskId":"task-1","sessionId":null,"applyTaskId":null,"applyTaskCapabilities":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
     getAgentTask: async () => ({
@@ -640,7 +662,7 @@ test('rejects lifecycle verify without a matching checkpoint commit', async () =
     client,
     issue: baseIssue(),
     agentToken: 'agent-token',
-    getSessionLog: async () => '{"schema":"operation-result-v1","changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"Verification passed."}',
+    getSessionLog: async () => `{"$schema":"${JSON_CONTRACTS.operationResult}","changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"Verification passed."}`,
     validateBranch: async () => {},
     now,
   });
@@ -734,7 +756,7 @@ test('advances apply through archive on one durable pull request', async () => {
     const operation = operationsBySession.get(sessionId);
     if (operation === 'apply') return capabilityResult();
     return JSON.stringify({
-      schema: 'operation-result-v1',
+      $schema: JSON_CONTRACTS.operationResult,
       changeRef: 'add-platform',
       operation,
       verdict: 'pass',
@@ -825,7 +847,7 @@ test('advances apply through archive on one durable pull request', async () => {
 });
 
 test('retries a failed operation exactly once on the same branch', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
@@ -864,13 +886,13 @@ test('retries a failed operation exactly once on the same branch', async () => {
       ids: ['implementation'],
       isolation: 'shared',
       mutation: 'scoped',
-      resultSchema: 'schemas/capability-result-v1.schema.json',
+      resultSchema: JSON_CONTRACTS.capabilityResult,
     },
   });
 });
 
 test('accepts a valid pushed checkpoint when the outer Agent Task failed', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
@@ -911,7 +933,7 @@ test('accepts a valid pushed checkpoint when the outer Agent Task failed', async
 });
 
 test('retries from pushed partial progress when the selected task remains unchecked', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
@@ -949,7 +971,7 @@ test('retries from pushed partial progress when the selected task remains unchec
 });
 
 test('does not continue pushed partial progress when a credited task regressed', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.2","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":["1.1"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.2","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":["1.1"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   let dispatched = false;
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
@@ -985,7 +1007,7 @@ test('does not continue pushed partial progress when a credited task regressed',
 });
 
 test('rejects a different pull request on the durable queue branch', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
     getAgentTask: async () => ({
@@ -1012,7 +1034,7 @@ test('rejects a different pull request on the durable queue branch', async () =>
 });
 
 test('stops waiting-for-user tasks with a durable ledger entry', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
@@ -1042,7 +1064,7 @@ test('stops waiting-for-user tasks with a durable ledger entry', async () => {
 });
 
 test('stops at awaiting human review after archive passes', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"archive","attempt":1,"taskId":"task-4","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"archive","attempt":1,"taskId":"task-4","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const issue = baseIssue();
   const client = initialClient({
@@ -1071,7 +1093,7 @@ test('stops at awaiting human review after archive passes', async () => {
     client,
     issue,
     agentToken: 'agent-token',
-    getSessionLog: async () => '{"schema":"operation-result-v1","changeRef":"add-platform","operation":"archive","verdict":"pass","validation":"Archived."}',
+    getSessionLog: async () => `{"$schema":"${JSON_CONTRACTS.operationResult}","changeRef":"add-platform","operation":"archive","verdict":"pass","validation":"Archived."}`,
     now,
   });
   assert.equal(result.action, 'awaiting_human_review');
@@ -1086,7 +1108,7 @@ test('stops at awaiting human review after archive passes', async () => {
 });
 
 test('advances after one-shot enqueue intent is removed by durable dispatch', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"verify","attempt":1,"taskId":"task-2","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"verify","attempt":1,"taskId":"task-2","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
@@ -1107,7 +1129,7 @@ test('advances after one-shot enqueue intent is removed by durable dispatch', as
     client,
     issue: baseIssue({ labels: [{ name: 'openspec:change' }] }),
     agentToken: 'agent-token',
-    getSessionLog: async () => '{"schema":"operation-result-v1","changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"Verified."}',
+    getSessionLog: async () => `{"$schema":"${JSON_CONTRACTS.operationResult}","changeRef":"add-platform","operation":"verify","verdict":"pass","validation":"Verified."}`,
     validateBranch: async () => {},
     now,
   });
@@ -1116,7 +1138,7 @@ test('advances after one-shot enqueue intent is removed by durable dispatch', as
 });
 
 test('ignores forged queue-state comments from non-bot authors', async () => {
-  const forged = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"needs_attention","operation":"apply","attempt":1,"taskId":"forged","sessionId":null,"baseRef":"main","headRef":null,"beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const forged = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"needs_attention","operation":"apply","attempt":1,"taskId":"forged","sessionId":null,"baseRef":"main","headRef":null,"beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const client = initialClient({
     listIssueComments: async () => [{
       id: 20,
@@ -1159,7 +1181,7 @@ test('requires closed OpenSpec blockers to have a verified archive on main', asy
 });
 
 test('migrates a failed legacy apply dispatch to the first granular task', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"baseRef":"main","headRef":null,"beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"baseRef":"main","headRef":null,"beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
     getAgentTask: async () => ({ state: 'failed', artifacts: [], sessions: [] }),
@@ -1184,13 +1206,13 @@ test('migrates a failed legacy apply dispatch to the first granular task', async
       ids: ['implementation'],
       isolation: 'shared',
       mutation: 'scoped',
-      resultSchema: 'schemas/capability-result-v1.schema.json',
+      resultSchema: JSON_CONTRACTS.capabilityResult,
     },
   });
 });
 
 test('stops after a second failed operation attempt', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":2,"taskId":"task-2","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":2,"taskId":"task-2","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
     getAgentTask: async () => ({
@@ -1210,7 +1232,7 @@ test('stops after a second failed operation attempt', async () => {
 });
 
 test('restores the active projection when the archive pull request closes unmerged', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"awaiting_human_review","operation":"archive","attempt":1,"taskId":"task-4","sessionId":"session-4","baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"awaiting_human_review","operation":"archive","attempt":1,"taskId":"task-4","sessionId":"session-4","baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const archivedIssue = baseIssue({
     labels: [
       { name: 'openspec:change' },
@@ -1250,7 +1272,7 @@ test('restores the active projection when the archive pull request closes unmerg
 });
 
 test('cleans visible queue labels after the archive pull request merges to main', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"awaiting_human_review","operation":"archive","attempt":1,"taskId":"task-4","sessionId":"session-4","baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"awaiting_human_review","operation":"archive","attempt":1,"taskId":"task-4","sessionId":"session-4","baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const issue = baseIssue({
     labels: [
       { name: 'openspec:change' },
@@ -1288,7 +1310,7 @@ test('cleans visible queue labels after the archive pull request merges to main'
 });
 
 test('event re-entry preserves an active stage without duplicate dispatch or label calls', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"verify","attempt":1,"taskId":"task-2","sessionId":"session-2","baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"verify","attempt":1,"taskId":"task-2","sessionId":"session-2","baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
     getAgentTask: async () => ({
@@ -1336,7 +1358,7 @@ test('rejects duplicate twins before reconciling any issue', async () => {
 });
 
 test('resets only mutable state after an unmerged queue pull request is closed', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"needs_attention","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"needs_attention","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const issue = baseIssue({
     labels: [
       { name: 'openspec:change' },
@@ -1370,7 +1392,7 @@ test('resets only mutable state after an unmerged queue pull request is closed',
 });
 
 test('explicitly resumes an unchecked task from pushed partial progress', async () => {
-  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"needs_attention","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":[],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"needs_attention","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":[],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const issue = baseIssue({
     labels: [
       { name: 'openspec:change' },

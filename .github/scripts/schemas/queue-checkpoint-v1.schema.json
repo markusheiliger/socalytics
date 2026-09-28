@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": ".github/scripts/schemas/queue-checkpoint-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "changeRef", "operation", "verdict", "validation"],
+  "properties": {
+    "$schema": { "const": ".github/scripts/schemas/queue-checkpoint-v1.schema.json" },
+    "changeRef": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "operation": { "enum": ["apply", "verify", "sync", "archive"] },
+    "taskId": { "type": "string", "pattern": "^\\d+(?:\\.\\d+)*$" },
+    "verdict": { "enum": ["pass", "fail", "blocked"] },
+    "validation": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [{
+    "if": { "properties": { "operation": { "const": "apply" } }, "required": ["operation"] },
+    "then": { "required": ["taskId"] },
+    "else": { "not": { "required": ["taskId"] } }
+  }]
+}

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "capability-v1.schema.json",
+  "$id": "openspec/capabilities/schemas/capability-v1.schema.json",
   "title": "SocAlytics execution capability",
   "type": "object",
   "additionalProperties": false,
@@ -39,7 +39,7 @@
       "enum": ["shared", "required"]
     },
     "resultSchema": {
-      "const": "schemas/capability-result-v1.schema.json"
+      "const": "openspec/capabilities/schemas/capability-result-v1.schema.json"
     }
   }
 }

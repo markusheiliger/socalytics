@@ -5,7 +5,11 @@ import {
   extractDependencySafeOutput,
   reconcileDependencies,
 } from './openspec-change-dependencies.mjs';
-import { renderChangeMarker, renderDependencySummary } from './openspec-change-core.mjs';
+import {
+  JSON_CONTRACTS,
+  renderChangeMarker,
+  renderDependencySummary,
+} from './openspec-change-core.mjs';
 
 function issue(number, id, ref) {
   return {
@@ -37,7 +41,7 @@ test('applies accepted edges and records provenance', async () => {
   const result = await reconcileDependencies({
     client,
     output: {
-      version: 1,
+      $schema: JSON_CONTRACTS.dependencyCandidates,
       candidates: [{
         changeRef: 'two',
         dependsOn: 'one',
@@ -55,7 +59,7 @@ test('removes only a previously managed edge and preserves manual blockers', asy
   const calls = [];
   const issues = [issue(1, 101, 'one'), issue(2, 102, 'two')];
   const managed = renderDependencySummary({
-    version: 1,
+    $schema: JSON_CONTRACTS.dependencySummary,
     managedEdges: [{
       changeRef: 'two',
       dependsOn: 'one',
@@ -82,7 +86,7 @@ test('removes only a previously managed edge and preserves manual blockers', asy
   };
   await reconcileDependencies({
     client,
-    output: { version: 1, candidates: [] },
+    output: { $schema: JSON_CONTRACTS.dependencyCandidates, candidates: [] },
   });
   assert.deepEqual(calls.find(([name]) => name === 'remove'), ['remove', 2, 101]);
   assert.equal(calls.some((call) => call.includes(999)), false);
@@ -102,7 +106,7 @@ test('does not mutate low-confidence candidates', async () => {
       createIssueComment: async (...args) => calls.push(args),
     },
     output: {
-      version: 1,
+      $schema: JSON_CONTRACTS.dependencyCandidates,
       candidates: [{
         changeRef: 'two',
         dependsOn: 'one',
@@ -119,10 +123,13 @@ test('extracts exactly one typed dependency safe output', () => {
   const output = extractDependencySafeOutput({
     items: [{
       type: 'reconcile_openspec_dependencies',
-      payload: '{"version":1,"candidates":[]}',
+      payload: `{"$schema":"${JSON_CONTRACTS.dependencyCandidates}","candidates":[]}`,
     }],
   });
-  assert.deepEqual(output, { version: 1, candidates: [] });
+  assert.deepEqual(output, {
+    $schema: JSON_CONTRACTS.dependencyCandidates,
+    candidates: [],
+  });
   assert.throws(
     () => extractDependencySafeOutput({ items: [] }),
     /Exactly one/,
@@ -151,7 +158,7 @@ test('rejects duplicate twins before dependency mutations', async () => {
   await assert.rejects(
     reconcileDependencies({
       client,
-      output: { version: 1, candidates: [] },
+      output: { $schema: JSON_CONTRACTS.dependencyCandidates, candidates: [] },
     }),
     /Duplicate issue twins for one/,
   );
@@ -199,7 +206,7 @@ test('applies an incremental patch while preserving unrelated managed and manual
     client,
     checkpoint,
     output: {
-      version: 2,
+      $schema: JSON_CONTRACTS.dependencyGraphPatch,
       evaluationMode: 'incremental',
       evaluatedRefs: ['three'],
       summaries: [{ ref: 'three', summary: 'Third change' }],
@@ -236,7 +243,7 @@ test('rejects a patch that creates a cycle through an unrelated manual edge', as
       listBlockedBy: async (number) => number === 1 ? [issues[1]] : [],
     },
     output: {
-      version: 2,
+      $schema: JSON_CONTRACTS.dependencyGraphPatch,
       evaluationMode: 'incremental',
       evaluatedRefs: ['two'],
       summaries: [{ ref: 'two', summary: 'Second change' }],
@@ -255,7 +262,7 @@ test('migrates existing comment provenance only for a matching native edge', asy
   const calls = [];
   const issues = [issue(1, 101, 'one'), issue(2, 102, 'two')];
   const managed = renderDependencySummary({
-    version: 1,
+    $schema: JSON_CONTRACTS.dependencySummary,
     managedEdges: [{
       changeRef: 'two',
       dependsOn: 'one',
@@ -277,7 +284,7 @@ test('migrates existing comment provenance only for a matching native edge', asy
       updateIssueComment: async (...args) => calls.push(['update', ...args]),
     },
     output: {
-      version: 2,
+      $schema: JSON_CONTRACTS.dependencyGraphPatch,
       evaluationMode: 'incremental',
       evaluatedRefs: [],
       summaries: [],

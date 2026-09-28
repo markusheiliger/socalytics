@@ -77,9 +77,9 @@ test('reads the final completed Agent Task response with the OAuth agent token',
       '',
       'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
       '',
-      'data: {"choices":[{"index":0,"delta":{"content":"{\\"schema\\":"}}]}',
+      'data: {"choices":[{"index":0,"delta":{"content":"{\\"$schema\\":\\"openspec/capabilities/schemas/"}}]}',
       '',
-      'data: {"choices":[{"index":0,"delta":{"content":"\\"capability-result-v1\\"}"},"finish_reason":"stop"}]}',
+      'data: {"choices":[{"index":0,"delta":{"content":"capability-result-v1.schema.json\\"}"},"finish_reason":"stop"}]}',
       '',
       'data: [DONE]',
       '',
@@ -88,7 +88,10 @@ test('reads the final completed Agent Task response with the OAuth agent token',
 
   const log = await client.getAgentSessionLog('session-1');
 
-  assert.equal(log, '{"schema":"capability-result-v1"}');
+  assert.equal(
+    log,
+    '{"$schema":"openspec/capabilities/schemas/capability-result-v1.schema.json"}',
+  );
   assert.equal(
     request.url,
     'https://api.githubcopilot.com/agents/sessions/session-1/logs',
@@ -270,6 +273,32 @@ test('reads commit metadata for a durable queue checkpoint', async () => {
   const client = clientWith(async (url) => {
     calls.push(url);
     return jsonResponse({ sha: sha('b'), commit: { message: 'checkpoint' } });
+  });
+
+  test('appends a Git commit and fast-forwards a branch ref', async () => {
+    const calls = [];
+    const client = clientWith(async (url, options) => {
+      calls.push({ url, options });
+      return jsonResponse({ sha: sha('c') });
+    });
+    await client.createGitCommit({
+      message: 'checkpoint',
+      tree: sha('a'),
+      parents: [sha('b')],
+    });
+    await client.updateGitRef('copilot/change', sha('c'));
+
+    assert.match(calls[0].url, /\/git\/commits$/);
+    assert.deepEqual(JSON.parse(calls[0].options.body), {
+      message: 'checkpoint',
+      tree: sha('a'),
+      parents: [sha('b')],
+    });
+    assert.match(calls[1].url, /\/git\/refs\/heads\/copilot\/change$/);
+    assert.deepEqual(JSON.parse(calls[1].options.body), {
+      sha: sha('c'),
+      force: false,
+    });
   });
   const commit = await client.getCommit(sha('b'));
   assert.equal(commit.commit.message, 'checkpoint');

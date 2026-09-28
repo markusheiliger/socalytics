@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": ".github/scripts/schemas/dependency-checkpoint-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "commit", "changes", "managedEdges", "inference"],
+  "properties": {
+    "$schema": { "const": ".github/scripts/schemas/dependency-checkpoint-v1.schema.json" },
+    "commit": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "changes": { "type": "array", "items": { "type": "object" } },
+    "managedEdges": { "type": "array", "items": { "type": "object" } },
+    "inference": { "type": "object" }
+  }
+}

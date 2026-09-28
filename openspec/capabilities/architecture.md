@@ -5,7 +5,7 @@ operations: [propose, update, apply]
 composition: composable
 mutation: scoped
 isolation: shared
-resultSchema: schemas/capability-result-v1.schema.json
+resultSchema: openspec/capabilities/schemas/capability-result-v1.schema.json
 ---
 
 # Architecture

@@ -11,6 +11,7 @@ import {
   readDependencyNote,
   writeDependencyCheckpoint,
 } from './openspec-change-git-notes.mjs';
+import { JSON_CONTRACTS } from './openspec-change-core.mjs';
 
 const root = path.join(
   process.cwd(),
@@ -35,7 +36,7 @@ async function createRepository(name) {
 
 function checkpoint(commit, overrides = {}) {
   return {
-    version: 1,
+    $schema: JSON_CONTRACTS.dependencyCheckpoint,
     commit,
     changes: [{
       ref: 'one',
@@ -136,7 +137,7 @@ test('full recovery replaces a malformed checkpoint on the target commit', async
   );
   await assert.rejects(
     readDependencyNote({ git: repository.git, object: repository.initial }),
-    /unknown field/,
+    /\$schema must be/,
   );
   await writeDependencyCheckpoint({
     git: repository.git,

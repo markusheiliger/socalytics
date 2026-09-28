@@ -70,8 +70,10 @@ Read all issues carrying `openspec:change`, including closed issues, with
 `gh issue list --state all --label openspec:change --limit 1000` and JSON fields
 for number, state, body, labels, title, and URL.
 
-Each issue body must contain exactly one `<!-- openspec-change:v1 ... -->`
-marker. Parse its JSON and accept only the fields and invariants already used by
+Each issue body must contain exactly one `<!-- openspec-json ... -->` marker
+whose JSON has
+`"$schema": ".github/scripts/schemas/change-marker-v1.schema.json"`.
+Parse its JSON and accept only the fields and invariants already used by
 the queue:
 
 - `repository` equals the resolved `nameWithOwner`;

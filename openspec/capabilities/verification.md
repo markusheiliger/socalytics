@@ -5,7 +5,7 @@ operations: [apply, verify]
 composition: exclusive
 mutation: checkbox-only
 isolation: required
-resultSchema: schemas/capability-result-v1.schema.json
+resultSchema: openspec/capabilities/schemas/capability-result-v1.schema.json
 ---
 
 # Verification

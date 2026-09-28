@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": ".github/scripts/schemas/dependency-candidates-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "candidates"],
+  "properties": {
+    "$schema": { "const": ".github/scripts/schemas/dependency-candidates-v1.schema.json" },
+    "candidates": { "type": "array", "items": { "type": "object" } }
+  }
+}

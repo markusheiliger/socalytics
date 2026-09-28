@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import {
-  DEPENDENCY_SUMMARY_START,
+  JSON_CONTRACTS,
+  JSON_MARKER_START,
   calculateManagedEdgeChanges,
   mergeManagedDependencyGraph,
   mergeManagedEdgeProvenance,
@@ -18,20 +19,28 @@ import { GitHubChangeClient } from './openspec-change-github.mjs';
 function latestDependencySummary(comments, ref) {
   const candidates = comments
     .filter((comment) => comment.user?.login === 'github-actions[bot]')
-    .filter((comment) => comment.body?.includes(DEPENDENCY_SUMMARY_START))
+    .filter((comment) => comment.body?.includes(JSON_MARKER_START))
     .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
-  if (candidates.length === 0) {
+  let current = null;
+  for (const comment of candidates) {
+    try {
+      current = { comment, summary: parseDependencySummary(comment.body) };
+      break;
+    } catch {
+      // Other schema-bearing OpenSpec comments are not dependency summaries.
+    }
+  }
+  if (!current) {
     return {
       comment: null,
-      summary: { version: 1, managedEdges: [] },
+      summary: { $schema: JSON_CONTRACTS.dependencySummary, managedEdges: [] },
     };
   }
-
-  const summary = parseDependencySummary(candidates[0].body);
+  const { summary } = current;
   if (summary.managedEdges.some((edge) => edge.changeRef !== ref)) {
     throw new Error(`Dependency summary for ${ref} contains another change ref`);
   }
-  return { comment: candidates[0], summary };
+  return current;
 }
 
 export function extractDependencySafeOutput(agentOutput) {
@@ -122,7 +131,7 @@ export async function reconcileDependencies({
   });
   let validated;
   let desiredManaged;
-  if (output?.version === 2) {
+  if (output?.$schema === JSON_CONTRACTS.dependencyGraphPatch) {
     validated = validateDependencyGraphPatch(
       output,
       activeRefs,
@@ -137,7 +146,7 @@ export async function reconcileDependencies({
       managedEdges: desiredManaged,
       nativeEdges,
     });
-  } else {
+  } else if (output?.$schema === JSON_CONTRACTS.dependencyCandidates) {
     validated = validateDependencyOutput(
       output,
       activeRefs,
@@ -145,6 +154,8 @@ export async function reconcileDependencies({
       minimumConfidence,
     );
     desiredManaged = validated.accepted;
+  } else {
+    throw new Error('Dependency output has an unsupported $schema');
   }
   const changes = calculateManagedEdgeChanges(
     previousManaged,
@@ -170,7 +181,7 @@ export async function reconcileDependencies({
 
   for (const ref of activeRefs) {
     const managedEdges = desiredManaged.filter((edge) => edge.changeRef === ref);
-    const body = renderDependencySummary({ version: 1, managedEdges });
+    const body = renderDependencySummary({ managedEdges });
     const current = commentsByRef.get(ref);
     if (current.comment) {
       if (current.comment.body !== body) {
@@ -185,7 +196,7 @@ export async function reconcileDependencies({
     accepted: desiredManaged,
     review: validated.review,
     changes,
-    ...(output?.version === 2 ? {
+    ...(output?.$schema === JSON_CONTRACTS.dependencyGraphPatch ? {
       evaluationMode: validated.evaluationMode,
       evaluatedRefs: validated.evaluatedRefs,
       summaries: validated.summaries,

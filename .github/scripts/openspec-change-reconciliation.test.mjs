@@ -9,7 +9,10 @@ import {
   prepareDependencyReconciliation,
   reconcileDependencyState,
 } from './openspec-change-reconciliation.mjs';
-import { serializeDependencyCheckpoint } from './openspec-change-core.mjs';
+import {
+  JSON_CONTRACTS,
+  serializeDependencyCheckpoint,
+} from './openspec-change-core.mjs';
 
 const testRoot = path.join(
   process.cwd(),
@@ -71,7 +74,7 @@ test('prepare uses the exact prior note, chooses incremental, and dry-run is rea
   const base = 'a'.repeat(40);
   const notesTip = 'c'.repeat(40);
   const checkpoint = {
-    version: 1,
+    $schema: JSON_CONTRACTS.dependencyCheckpoint,
     commit: base,
     changes: [
       { ref: 'old', digest: 'f'.repeat(64), summary: 'Archived change' },
@@ -129,7 +132,7 @@ function reconciliationFixture() {
   const head = 'b'.repeat(40);
   const base = 'a'.repeat(40);
   const prior = {
-    version: 1,
+    $schema: JSON_CONTRACTS.dependencyCheckpoint,
     commit: base,
     changes: [{
       ref: 'one',
@@ -148,7 +151,7 @@ function reconciliationFixture() {
     head,
     prior,
     context: {
-      version: 1,
+      $schema: JSON_CONTRACTS.dependencyReconciliationContext,
       targetHead: head,
       notesTip: 'c'.repeat(40),
       prior: { noteCommit: base, checkpoint: prior },
@@ -178,7 +181,7 @@ test('reconcile writes and pushes a checkpoint only after GitHub mutations succe
   const result = await reconcileDependencyState({
     context,
     output: {
-      version: 2,
+      $schema: JSON_CONTRACTS.dependencyGraphPatch,
       evaluationMode: 'incremental',
       evaluatedRefs: ['two'],
       summaries: [{ ref: 'two', summary: 'Generated two' }],
@@ -225,7 +228,7 @@ test('reconcile failure never writes or pushes a checkpoint', async () => {
   await assert.rejects(reconcileDependencyState({
     context,
     output: {
-      version: 2,
+      $schema: JSON_CONTRACTS.dependencyGraphPatch,
       evaluationMode: 'incremental',
       evaluatedRefs: ['two'],
       summaries: [{ ref: 'two', summary: 'Generated two' }],
@@ -251,7 +254,7 @@ test('checkpoint write failure prevents a notes push', async () => {
   await assert.rejects(reconcileDependencyState({
     context,
     output: {
-      version: 2,
+      $schema: JSON_CONTRACTS.dependencyGraphPatch,
       evaluationMode: 'incremental',
       evaluatedRefs: ['two'],
       summaries: [{ ref: 'two', summary: 'Generated two' }],
@@ -284,7 +287,7 @@ test('scope mismatch is rejected before dependency reconciliation', async () => 
   await assert.rejects(reconcileDependencyState({
     context,
     output: {
-      version: 2,
+      $schema: JSON_CONTRACTS.dependencyGraphPatch,
       evaluationMode: 'incremental',
       evaluatedRefs: [],
       summaries: [],

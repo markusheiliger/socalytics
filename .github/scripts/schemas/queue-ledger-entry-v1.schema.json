@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": ".github/scripts/schemas/queue-ledger-entry-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "changeRef", "operation", "attempt", "taskId", "sessionId", "branch", "beforeSha", "afterSha", "outcome", "validation", "recovery", "recordedAt"],
+  "properties": {
+    "$schema": { "const": ".github/scripts/schemas/queue-ledger-entry-v1.schema.json" },
+    "changeRef": { "type": "string" },
+    "operation": { "enum": ["apply", "verify", "sync", "archive"] },
+    "attempt": { "type": "integer", "minimum": 1, "maximum": 2 },
+    "taskId": { "type": "string" },
+    "sessionId": { "type": "string" },
+    "applyTaskId": { "type": ["string", "null"] },
+    "applyTaskOwner": { "type": ["string", "null"] },
+    "applyTaskCapabilities": { "type": ["array", "null"], "items": { "type": "string" } },
+    "branch": { "type": "string" },
+    "beforeSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "afterSha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "outcome": { "enum": ["succeeded", "failed", "timed_out", "cancelled", "waiting_for_user"] },
+    "validation": { "type": "string" },
+    "recovery": { "type": ["string", "null"] },
+    "recordedAt": { "type": "string", "format": "date-time" }
+  }
+}

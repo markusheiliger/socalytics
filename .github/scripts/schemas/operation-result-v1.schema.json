@@ -1,19 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "operation-result-v1.schema.json",
+  "$id": ".github/scripts/schemas/operation-result-v1.schema.json",
   "title": "SocAlytics OpenSpec queue lifecycle operation result",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "schema",
+    "$schema",
     "changeRef",
     "operation",
     "verdict",
     "validation"
   ],
   "properties": {
-    "schema": {
-      "const": "operation-result-v1"
+    "$schema": {
+      "const": ".github/scripts/schemas/operation-result-v1.schema.json"
     },
     "changeRef": {
       "type": "string",

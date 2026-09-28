@@ -6,9 +6,9 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
-  LEDGER_MARKER_START,
+  JSON_CONTRACTS,
+  JSON_MARKER_START,
   QUEUE_CHECKPOINT_TRAILER,
-  QUEUE_STATE_START,
   deriveReadiness,
   parseCapabilityDefinition,
   parseCapabilityTasks,
@@ -220,10 +220,16 @@ function branchArtifact(task) {
 function latestQueueState(comments) {
   const candidates = comments
     .filter((comment) => comment.user?.login === 'github-actions[bot]')
-    .filter((comment) => comment.body?.includes(QUEUE_STATE_START))
+    .filter((comment) => comment.body?.includes(JSON_MARKER_START))
     .sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
-  if (candidates.length === 0) return null;
-  return { comment: candidates[0], state: parseQueueState(candidates[0].body) };
+  for (const comment of candidates) {
+    try {
+      return { comment, state: parseQueueState(comment.body) };
+    } catch {
+      // Other schema-bearing OpenSpec comments are not queue state.
+    }
+  }
+  return null;
 }
 
 function operationPrompt({
@@ -249,7 +255,7 @@ function operationPrompt({
       headSha: beforeSha,
     };
   const dispatch = {
-    version: 1,
+    $schema: JSON_CONTRACTS.queueDispatch,
     changeRef,
     operation,
     ...(applyTask ? {
@@ -275,12 +281,13 @@ function operationPrompt({
   }[operation];
   const instructions = [
     'Execute exactly one controller-selected OpenSpec operation as the OOTB OpenSpec agent.',
-    `OPEN_SPEC_CLOUD_DISPATCH_V1=${JSON.stringify(dispatch)}`,
+    'Use this controller-selected dispatch JSON:',
+    JSON.stringify(dispatch),
     `Read and follow ${bindingSkill} as the binding workflow.`,
     'Validate the dispatch checkpoint before editing: create requires the base SHA to be an ancestor of the generated branch HEAD; continue requires the exact head ref and HEAD SHA.',
     'A successful operation is not complete until the current branch has a new final checkpoint commit and that exact commit is pushed to origin.',
     `The final checkpoint commit message must contain exactly one trailer named "${QUEUE_CHECKPOINT_TRAILER}" followed by one-line JSON matching ${JSON.stringify({
-      version: 1,
+      $schema: JSON_CONTRACTS.queueCheckpoint,
       changeRef,
       operation,
       ...(applyTask ? { taskId: applyTask.id } : {}),
@@ -294,11 +301,11 @@ function operationPrompt({
       'Execute only applyTask.id in this bounded invocation; do not begin or mark any other task even though the generated workflow normally loops.',
       'Read every applyTask.capabilityPaths file and obey the complete compatible capability set.',
       'After validation, mark only the selected task complete.',
-      'Your final response must contain only one JSON object conforming to openspec/capabilities/schemas/capability-result-v1.schema.json with "schema":"capability-result-v1". Do not include prose, Markdown fences, prefixes, suffixes, or any other content.',
+      `Your final response must contain only one JSON object with "$schema":"${JSON_CONTRACTS.capabilityResult}" conforming to that repository-relative schema. Do not include prose, Markdown fences, prefixes, suffixes, or any other content.`,
     );
   } else {
     instructions.push(
-      'Your final response must contain only one JSON object conforming to .github/scripts/schemas/operation-result-v1.schema.json with "schema":"operation-result-v1", changeRef, operation, verdict, and concise validation. Do not include prose, Markdown fences, prefixes, suffixes, or any other content.',
+      `Your final response must contain only one JSON object with "$schema":"${JSON_CONTRACTS.operationResult}" conforming to that repository-relative schema, plus changeRef, operation, verdict, and concise validation. Do not include prose, Markdown fences, prefixes, suffixes, or any other content.`,
     );
   }
   instructions.push(
@@ -446,7 +453,6 @@ async function dispatchOperation({
     };
   }
   const pendingState = {
-    version: 1,
     changeRef: marker.ref,
     issueNumber: issue.number,
     status: 'dispatching',
@@ -506,7 +512,6 @@ async function appendLedger(client, issueNumber, state, {
   now,
 }) {
   return client.createIssueComment(issueNumber, renderLedgerEntry({
-    version: 1,
     changeRef: state.changeRef,
     operation: state.operation,
     attempt: state.attempt,
@@ -705,13 +710,13 @@ async function validateCompletedOperation({
     }
   }
   const expectedSchema = state.operation === 'apply'
-    ? 'capability-result-v1'
-    : 'operation-result-v1';
-  if (result && result.schema !== expectedSchema) {
+    ? JSON_CONTRACTS.capabilityResult
+    : JSON_CONTRACTS.operationResult;
+  if (result && result.$schema !== expectedSchema) {
     throw new QueueValidationError(
       'result-schema-mismatch',
       `Queue operation result schema does not match ${state.operation}`,
-      { expected: expectedSchema, observed: result.schema },
+      { expected: expectedSchema, observed: result.$schema },
     );
   }
   if (result
@@ -1447,11 +1452,16 @@ export async function resetQueueIssue({ client, issueNumber }) {
   if (ACTIVE_STATES.includes(task.state)) {
     throw new Error(`Issue #${issueNumber} Agent Task is still ${task.state}`);
   }
-  const mutableComments = comments.filter((comment) => (
-    comment.user?.login === 'github-actions[bot]'
-      && (comment.body?.includes(QUEUE_STATE_START)
-        || comment.body?.includes(ATTENTION_MARKER))
-  ));
+  const mutableComments = comments.filter((comment) => {
+    if (comment.user?.login !== 'github-actions[bot]') return false;
+    if (comment.body?.includes(ATTENTION_MARKER)) return true;
+    try {
+      parseQueueState(comment.body);
+      return true;
+    } catch {
+      return false;
+    }
+  });
   for (const comment of mutableComments) {
     await client.deleteIssueComment(comment.id);
   }
@@ -1547,10 +1557,11 @@ function hasActiveAgentTask(results) {
 
 export async function reconcileUntilSettled({
   reconcile,
+  initialResults = null,
   wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
   intervalMilliseconds = 60_000,
 }) {
-  let results = await reconcile();
+  let results = initialResults ?? await reconcile();
   while (hasActiveAgentTask(results)) {
     await wait(intervalMilliseconds);
     results = await reconcile();
@@ -1586,7 +1597,18 @@ async function main() {
     if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
       throw new Error('--resume-issue requires a positive issue number');
     }
-    results = await resumeQueueIssue({ client, issueNumber });
+    const resumed = await resumeQueueIssue({ client, issueNumber });
+    const reconcile = async () => {
+      const issue = await client.getIssue(issueNumber);
+      return [{
+        issueNumber,
+        ...(await reconcileIssue({ client, issue, agentToken })),
+      }];
+    };
+    results = await reconcileUntilSettled({
+      reconcile,
+      initialResults: [{ issueNumber, ...resumed }],
+    });
   } else {
     const reconcile = () => reconcileAll({ client, agentToken });
     results = process.argv.includes('--watch')

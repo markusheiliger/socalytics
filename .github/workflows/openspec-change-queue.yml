@@ -21,6 +21,11 @@ on:
         description: "Open needs-attention issue number to resume from pushed partial progress"
         required: false
         type: string
+      migrate_json_contracts:
+        description: "Migrate current authoritative queue JSON contracts"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -34,6 +39,7 @@ concurrency:
 jobs:
   reconcile:
     name: Reconcile the OpenSpec change queue
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.migrate_json_contracts != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 330
     steps:
@@ -66,3 +72,29 @@ jobs:
           else
             node .github/scripts/openspec-change-reconcile.mjs --watch
           fi
+
+  migrate-json-contracts:
+    name: Migrate authoritative queue JSON contracts
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.migrate_json_contracts == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Migrate current authoritative JSON contracts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+        run: node .github/scripts/openspec-json-migration.mjs --apply

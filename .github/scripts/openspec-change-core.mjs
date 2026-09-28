@@ -7,14 +7,25 @@ const TERMINAL_TASK_STATES = new Set(['completed', 'failed', 'timed_out', 'cance
 const ACTIVE_TASK_STATES = new Set(['queued', 'in_progress', 'idle', 'waiting_for_user']);
 const RETRYABLE_TASK_STATES = new Set(['failed', 'timed_out']);
 
-export const CHANGE_MARKER_START = '<!-- openspec-change:v1';
+export const JSON_CONTRACTS = Object.freeze({
+  changeMarker: '.github/scripts/schemas/change-marker-v1.schema.json',
+  queueDispatch: '.github/scripts/schemas/queue-dispatch-v1.schema.json',
+  queueState: '.github/scripts/schemas/queue-state-v1.schema.json',
+  queueLedgerEntry: '.github/scripts/schemas/queue-ledger-entry-v1.schema.json',
+  queueCheckpoint: '.github/scripts/schemas/queue-checkpoint-v1.schema.json',
+  dependencySummary: '.github/scripts/schemas/dependency-summary-v1.schema.json',
+  dependencyCheckpoint: '.github/scripts/schemas/dependency-checkpoint-v1.schema.json',
+  dependencyReconciliationContext:
+    '.github/scripts/schemas/dependency-reconciliation-context-v1.schema.json',
+  dependencyCandidates: '.github/scripts/schemas/dependency-candidates-v1.schema.json',
+  dependencyGraphPatch: '.github/scripts/schemas/dependency-graph-patch-v2.schema.json',
+  capabilityResult: 'openspec/capabilities/schemas/capability-result-v1.schema.json',
+  operationResult: '.github/scripts/schemas/operation-result-v1.schema.json',
+});
+
+export const JSON_MARKER_START = '<!-- openspec-json';
 export const COMMENT_MARKER_END = '-->';
-export const LEDGER_MARKER_START = '<!-- openspec-operation:v1';
-export const DEPENDENCY_SUMMARY_START = '<!-- openspec-dependencies:v1';
-export const DEPENDENCY_CHECKPOINT_VERSION = 1;
-export const DEPENDENCY_PATCH_VERSION = 2;
-export const QUEUE_STATE_START = '<!-- openspec-queue-state:v1';
-export const QUEUE_CHECKPOINT_TRAILER = 'OpenSpec-Queue-Checkpoint:';
+export const QUEUE_CHECKPOINT_TRAILER = 'OpenSpec-JSON:';
 
 function assertObject(value, path) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -41,17 +52,24 @@ function assertString(value, path) {
   }
 }
 
-function extractSingleJsonMarker(body, startMarker, label) {
+function assertSchema(value, expectedSchema, path) {
+  assertObject(value, path);
+  if (value.$schema !== expectedSchema) {
+    throw new Error(`${path}.$schema must be ${expectedSchema}`);
+  }
+}
+
+function extractSingleJsonMarker(body, expectedSchema, label) {
   if (typeof body !== 'string') {
     throw new Error(`${label} body must be a string`);
   }
 
-  const starts = body.split(startMarker).length - 1;
+  const starts = body.split(JSON_MARKER_START).length - 1;
   if (starts !== 1) {
-    throw new Error(`${label} body must contain exactly one ${startMarker} marker`);
+    throw new Error(`${label} body must contain exactly one ${JSON_MARKER_START} marker`);
   }
 
-  const start = body.indexOf(startMarker) + startMarker.length;
+  const start = body.indexOf(JSON_MARKER_START) + JSON_MARKER_START.length;
   const end = body.indexOf(COMMENT_MARKER_END, start);
   if (end < start) {
     throw new Error(`${label} marker is not closed`);
@@ -63,14 +81,16 @@ function extractSingleJsonMarker(body, startMarker, label) {
   }
 
   try {
-    return JSON.parse(content);
+    const value = JSON.parse(content);
+    assertSchema(value, expectedSchema, label);
+    return value;
   } catch (error) {
     throw new Error(`${label} marker contains invalid JSON: ${error.message}`);
   }
 }
 
-function renderJsonMarker(startMarker, value) {
-  return `${startMarker}\n${JSON.stringify(value)}\n${COMMENT_MARKER_END}`;
+function renderJsonMarker(value) {
+  return `${JSON_MARKER_START}\n${JSON.stringify(value)}\n${COMMENT_MARKER_END}`;
 }
 
 function assertMarkerSafeString(value, path) {
@@ -137,15 +157,12 @@ function assertCompletedApplyTasks(value, path) {
 }
 
 export function validateQueueCheckpoint(value) {
-  assertObject(value, 'Queue checkpoint');
+  assertSchema(value, JSON_CONTRACTS.queueCheckpoint, 'Queue checkpoint');
   assertKnownKeys(
     value,
-    new Set(['version', 'changeRef', 'operation', 'taskId', 'verdict', 'validation']),
+    new Set(['$schema', 'changeRef', 'operation', 'taskId', 'verdict', 'validation']),
     'Queue checkpoint',
   );
-  if (value.version !== 1) {
-    throw new Error('Queue checkpoint.version must equal 1');
-  }
   assertKebabCase(value.changeRef, 'Queue checkpoint.changeRef');
   if (!['apply', 'verify', 'sync', 'archive'].includes(value.operation)) {
     throw new Error('Queue checkpoint.operation is invalid');
@@ -191,10 +208,10 @@ export function parseQueueCheckpoint(commitMessage) {
 }
 
 export function validateChangeMarker(value) {
-  assertObject(value, 'Change marker');
+  assertSchema(value, JSON_CONTRACTS.changeMarker, 'Change marker');
   assertKnownKeys(
     value,
-    new Set(['repository', 'ref', 'lifecycle', 'gitRef', 'path']),
+    new Set(['$schema', 'repository', 'ref', 'lifecycle', 'gitRef', 'path']),
     'Change marker',
   );
   assertString(value.repository, 'Change marker.repository');
@@ -215,6 +232,7 @@ export function validateChangeMarker(value) {
   }
 
   return {
+    $schema: JSON_CONTRACTS.changeMarker,
     repository: value.repository,
     ref: value.ref,
     lifecycle: value.lifecycle,
@@ -224,11 +242,16 @@ export function validateChangeMarker(value) {
 }
 
 export function parseChangeMarker(issueBody) {
-  return validateChangeMarker(extractSingleJsonMarker(issueBody, CHANGE_MARKER_START, 'Issue'));
+  return validateChangeMarker(
+    extractSingleJsonMarker(issueBody, JSON_CONTRACTS.changeMarker, 'Issue'),
+  );
 }
 
 export function renderChangeMarker(value) {
-  return renderJsonMarker(CHANGE_MARKER_START, validateChangeMarker(value));
+  return renderJsonMarker(validateChangeMarker({
+    $schema: JSON_CONTRACTS.changeMarker,
+    ...value,
+  }));
 }
 
 export function parseCapabilityDefinition(content, expectedId = null) {
@@ -290,7 +313,7 @@ export function parseCapabilityDefinition(content, expectedId = null) {
   if (!['shared', 'required'].includes(value.isolation)) {
     throw new Error('Capability definition.isolation is invalid');
   }
-  if (value.resultSchema !== 'schemas/capability-result-v1.schema.json') {
+  if (value.resultSchema !== JSON_CONTRACTS.capabilityResult) {
     throw new Error('Capability definition.resultSchema is invalid');
   }
   return { ...value };
@@ -455,11 +478,8 @@ function normalizeManagedEdges(edges, path) {
 }
 
 export function validateDependencyOutput(value, knownRefs, existingEdges = [], minimumConfidence = 0.85) {
-  assertObject(value, 'Dependency output');
-  assertKnownKeys(value, new Set(['version', 'candidates']), 'Dependency output');
-  if (value.version !== 1) {
-    throw new Error('Dependency output version must be 1');
-  }
+  assertSchema(value, JSON_CONTRACTS.dependencyCandidates, 'Dependency output');
+  assertKnownKeys(value, new Set(['$schema', 'candidates']), 'Dependency output');
   if (!Array.isArray(value.candidates)) {
     throw new Error('Dependency output.candidates must be an array');
   }
@@ -551,15 +571,12 @@ export function validateDependencyGraphPatch(
   existingEdges = [],
   minimumConfidence = 0.85,
 ) {
-  assertObject(value, 'Dependency graph patch');
+  assertSchema(value, JSON_CONTRACTS.dependencyGraphPatch, 'Dependency graph patch');
   assertKnownKeys(
     value,
-    new Set(['version', 'evaluationMode', 'evaluatedRefs', 'summaries', 'upsert', 'remove']),
+    new Set(['$schema', 'evaluationMode', 'evaluatedRefs', 'summaries', 'upsert', 'remove']),
     'Dependency graph patch',
   );
-  if (value.version !== DEPENDENCY_PATCH_VERSION) {
-    throw new Error(`Dependency graph patch version must be ${DEPENDENCY_PATCH_VERSION}`);
-  }
   if (!['incremental', 'full'].includes(value.evaluationMode)) {
     throw new Error('Dependency graph patch.evaluationMode must be incremental or full');
   }
@@ -648,13 +665,13 @@ export function validateDependencyGraphPatch(
   }
 
   const validated = validateDependencyOutput(
-    { version: 1, candidates: upsertCandidates },
+    { $schema: JSON_CONTRACTS.dependencyCandidates, candidates: upsertCandidates },
     knownRefs,
     existingEdges,
     minimumConfidence,
   );
   return {
-    version: DEPENDENCY_PATCH_VERSION,
+    $schema: JSON_CONTRACTS.dependencyGraphPatch,
     evaluationMode: value.evaluationMode,
     evaluatedRefs,
     summaries,
@@ -715,29 +732,25 @@ export function validateMergedDependencyGraph({
 }
 
 export function validateDependencySummary(value) {
-  assertObject(value, 'Dependency summary');
-  assertKnownKeys(value, new Set(['version', 'managedEdges']), 'Dependency summary');
-  if (value.version !== 1) throw new Error('Dependency summary version must be 1');
+  assertSchema(value, JSON_CONTRACTS.dependencySummary, 'Dependency summary');
+  assertKnownKeys(value, new Set(['$schema', 'managedEdges']), 'Dependency summary');
   if (!Array.isArray(value.managedEdges)) {
     throw new Error('Dependency summary.managedEdges must be an array');
   }
 
   return {
-    version: 1,
+    $schema: JSON_CONTRACTS.dependencySummary,
     managedEdges: normalizeManagedEdges(value.managedEdges, 'Dependency summary.managedEdges'),
   };
 }
 
 export function validateDependencyCheckpoint(value) {
-  assertObject(value, 'Dependency checkpoint');
+  assertSchema(value, JSON_CONTRACTS.dependencyCheckpoint, 'Dependency checkpoint');
   assertKnownKeys(
     value,
-    new Set(['version', 'commit', 'changes', 'managedEdges', 'inference']),
+    new Set(['$schema', 'commit', 'changes', 'managedEdges', 'inference']),
     'Dependency checkpoint',
   );
-  if (value.version !== DEPENDENCY_CHECKPOINT_VERSION) {
-    throw new Error(`Dependency checkpoint version must be ${DEPENDENCY_CHECKPOINT_VERSION}`);
-  }
   if (typeof value.commit !== 'string' || !GIT_SHA.test(value.commit)) {
     throw new Error('Dependency checkpoint.commit must be a full Git SHA');
   }
@@ -810,7 +823,7 @@ export function validateDependencyCheckpoint(value) {
   assertAcyclicGraph([...changeRefs], managedEdges);
 
   return {
-    version: DEPENDENCY_CHECKPOINT_VERSION,
+    $schema: JSON_CONTRACTS.dependencyCheckpoint,
     commit: value.commit,
     changes,
     managedEdges,
@@ -842,12 +855,19 @@ export function parseDependencyCheckpoint(text) {
 }
 
 export function renderDependencySummary(value) {
-  return renderJsonMarker(DEPENDENCY_SUMMARY_START, validateDependencySummary(value));
+  return renderJsonMarker(validateDependencySummary({
+    $schema: JSON_CONTRACTS.dependencySummary,
+    ...value,
+  }));
 }
 
 export function parseDependencySummary(commentBody) {
   return validateDependencySummary(
-    extractSingleJsonMarker(commentBody, DEPENDENCY_SUMMARY_START, 'Dependency summary'),
+    extractSingleJsonMarker(
+      commentBody,
+      JSON_CONTRACTS.dependencySummary,
+      'Dependency summary',
+    ),
   );
 }
 
@@ -912,11 +932,11 @@ export function retryDecision(state, attempt) {
 }
 
 export function validateLedgerEntry(value) {
-  assertObject(value, 'Ledger entry');
+  assertSchema(value, JSON_CONTRACTS.queueLedgerEntry, 'Ledger entry');
   assertKnownKeys(
     value,
     new Set([
-      'version',
+      '$schema',
       'changeRef',
       'operation',
       'attempt',
@@ -935,7 +955,6 @@ export function validateLedgerEntry(value) {
     ]),
     'Ledger entry',
   );
-  if (value.version !== 1) throw new Error('Ledger entry version must be 1');
   assertKebabCase(value.changeRef, 'Ledger entry.changeRef');
   if (!['apply', 'verify', 'sync', 'archive'].includes(value.operation)) {
     throw new Error('Ledger entry.operation is invalid');
@@ -967,19 +986,28 @@ export function validateLedgerEntry(value) {
 }
 
 export function renderLedgerEntry(value) {
-  return renderJsonMarker(LEDGER_MARKER_START, validateLedgerEntry(value));
+  return renderJsonMarker(validateLedgerEntry({
+    $schema: JSON_CONTRACTS.queueLedgerEntry,
+    ...value,
+  }));
 }
 
 export function parseLedgerEntry(commentBody) {
-  return validateLedgerEntry(extractSingleJsonMarker(commentBody, LEDGER_MARKER_START, 'Ledger comment'));
+  return validateLedgerEntry(
+    extractSingleJsonMarker(
+      commentBody,
+      JSON_CONTRACTS.queueLedgerEntry,
+      'Ledger comment',
+    ),
+  );
 }
 
 export function validateQueueState(value) {
-  assertObject(value, 'Queue state');
+  assertSchema(value, JSON_CONTRACTS.queueState, 'Queue state');
   assertKnownKeys(
     value,
     new Set([
-      'version',
+      '$schema',
       'changeRef',
       'issueNumber',
       'status',
@@ -999,7 +1027,6 @@ export function validateQueueState(value) {
     ]),
     'Queue state',
   );
-  if (value.version !== 1) throw new Error('Queue state version must be 1');
   assertKebabCase(value.changeRef, 'Queue state.changeRef');
   if (!Number.isInteger(value.issueNumber) || value.issueNumber < 1) {
     throw new Error('Queue state.issueNumber must be a positive integer');
@@ -1032,25 +1059,25 @@ export function validateQueueState(value) {
 }
 
 export function renderQueueState(value) {
-  return renderJsonMarker(QUEUE_STATE_START, validateQueueState(value));
+  return renderJsonMarker(validateQueueState({
+    $schema: JSON_CONTRACTS.queueState,
+    ...value,
+  }));
 }
 
 export function parseQueueState(commentBody) {
   return validateQueueState(
-    extractSingleJsonMarker(commentBody, QUEUE_STATE_START, 'Queue state comment'),
+    extractSingleJsonMarker(commentBody, JSON_CONTRACTS.queueState, 'Queue state comment'),
   );
 }
 
 function validateOperationResult(value) {
-  assertObject(value, 'Operation result');
+  assertSchema(value, JSON_CONTRACTS.operationResult, 'Operation result');
   assertKnownKeys(
     value,
-    new Set(['schema', 'changeRef', 'operation', 'applyTaskId', 'verdict', 'validation']),
+    new Set(['$schema', 'changeRef', 'operation', 'applyTaskId', 'verdict', 'validation']),
     'Operation result',
   );
-  if (value.schema !== 'operation-result-v1') {
-    throw new Error('Operation result.schema must be operation-result-v1');
-  }
   assertKebabCase(value.changeRef, 'Operation result.changeRef');
   if (!['apply', 'verify', 'sync', 'archive'].includes(value.operation)) {
     throw new Error('Operation result.operation is invalid');
@@ -1077,11 +1104,11 @@ function assertGitPath(value, path) {
 }
 
 function validateCapabilityResult(value) {
-  assertObject(value, 'Capability result');
+  assertSchema(value, JSON_CONTRACTS.capabilityResult, 'Capability result');
   assertKnownKeys(
     value,
     new Set([
-      'schema',
+      '$schema',
       'changeRef',
       'operation',
       'taskId',
@@ -1094,9 +1121,6 @@ function validateCapabilityResult(value) {
     ]),
     'Capability result',
   );
-  if (value.schema !== 'capability-result-v1') {
-    throw new Error('Capability result.schema must be capability-result-v1');
-  }
   assertKebabCase(value.changeRef, 'Capability result.changeRef');
   if (value.operation !== 'apply') throw new Error('Capability result.operation must be apply');
   if (typeof value.taskId !== 'string' || !/^\d+(?:\.\d+)*$/.test(value.taskId)) {
@@ -1139,8 +1163,8 @@ function validateCapabilityResult(value) {
 }
 
 const RESULT_SCHEMA_VALIDATORS = Object.freeze({
-  'capability-result-v1': validateCapabilityResult,
-  'operation-result-v1': validateOperationResult,
+  [JSON_CONTRACTS.capabilityResult]: validateCapabilityResult,
+  [JSON_CONTRACTS.operationResult]: validateOperationResult,
 });
 
 export function parseQueueOperationResult(response) {
@@ -1158,12 +1182,12 @@ export function parseQueueOperationResult(response) {
     throw new Error(`Queue operation final response must be exactly one JSON object: ${error.message}`);
   }
   assertObject(value, 'Queue operation result');
-  if (typeof value.schema !== 'string' || value.schema.trim() === '') {
-    throw new Error('Queue operation result.schema must be a non-empty string');
+  if (typeof value.$schema !== 'string' || value.$schema.trim() === '') {
+    throw new Error('Queue operation result.$schema must be a non-empty string');
   }
-  const validate = RESULT_SCHEMA_VALIDATORS[value.schema];
+  const validate = RESULT_SCHEMA_VALIDATORS[value.$schema];
   if (!validate) {
-    throw new Error(`Queue operation result.schema is unsupported: ${value.schema}`);
+    throw new Error(`Queue operation result.$schema is unsupported: ${value.$schema}`);
   }
   return validate(value);
 }

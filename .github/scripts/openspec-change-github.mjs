@@ -356,6 +356,21 @@ export class GitHubChangeClient {
     return this.request(`${this.repositoryPath}/commits/${encodeURIComponent(commitSha)}`);
   }
 
+  createGitCommit({ message, tree, parents }) {
+    return this.request(`${this.repositoryPath}/git/commits`, {
+      method: 'POST',
+      body: { message, tree, parents },
+    });
+  }
+
+  updateGitRef(ref, sha) {
+    const encodedRef = ref.split('/').map(encodeURIComponent).join('/');
+    return this.request(`${this.repositoryPath}/git/refs/heads/${encodedRef}`, {
+      method: 'PATCH',
+      body: { sha, force: false },
+    });
+  }
+
   async compareCommits(baseSha, headSha) {
     const value = await this.request(
       `${this.repositoryPath}/compare/${encodeURIComponent(baseSha)}...${encodeURIComponent(headSha)}`,

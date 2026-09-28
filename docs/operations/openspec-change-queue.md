@@ -13,8 +13,8 @@ Each twin is classified by the `openspec:change` label and carries one managed
 marker:
 
 ```text
-<!-- openspec-change:v1
-{"repository":"markusheiliger/socalytics","ref":"change-name","lifecycle":"active","gitRef":"main","path":"openspec/changes/change-name"}
+<!-- openspec-json
+{"$schema":".github/scripts/schemas/change-marker-v1.schema.json","repository":"markusheiliger/socalytics","ref":"change-name","lifecycle":"active","gitRef":"main","path":"openspec/changes/change-name"}
 -->
 ```
 
@@ -196,8 +196,8 @@ The operation sequence is:
 4. archive;
 5. await human review and merge.
 
-Every Agent Task receives one versioned
-`OPEN_SPEC_CLOUD_DISPATCH_V1=<json-object>` envelope. The initial apply uses a
+Every Agent Task receives one standalone JSON dispatch object whose `$schema`
+is `.github/scripts/schemas/queue-dispatch-v1.schema.json`. The initial apply uses a
 `create` checkpoint containing the validated base ref and SHA. GitHub chooses
 the implementation branch and may add an empty initial commit before the agent
 starts, so the agent discovers that branch and proves the base SHA is an
@@ -206,17 +206,18 @@ HEAD SHA.
 
 Apply envelopes also contain the selected task block, sorted capability ids,
 direct capability paths, and validated effective policy. Every operation must
-create a final commit with exactly one `OpenSpec-Queue-Checkpoint:` trailer
-whose one-line versioned JSON identifies the change, operation, selected apply
+create a final commit with exactly one `OpenSpec-JSON:` trailer
+whose one-line schema-bearing JSON identifies the change, operation, selected apply
 task when applicable, verdict, and validation summary. The agent pushes that
 commit and verifies the remote head before responding. Apply's final assistant
 response also contains only one JSON object with
-`"schema": "capability-result-v1"` conforming to
+`"$schema": "openspec/capabilities/schemas/capability-result-v1.schema.json"`
+conforming to
 `openspec/capabilities/schemas/capability-result-v1.schema.json`. Verify, sync,
 and archive use the same JSON-only transport with
-`"schema": "operation-result-v1"` conforming to
-`.github/scripts/schemas/operation-result-v1.schema.json`. These schema IDs are
-controller-owned identifiers, not agent-supplied paths or URLs. Chat output is
+`"$schema": ".github/scripts/schemas/operation-result-v1.schema.json"`
+conforming to that path. These schema paths are controller-owned
+repository-relative identifiers, not agent-supplied paths or URLs. Chat output is
 supplemental diagnostics: malformed or unavailable output is recorded but does
 not override a valid pushed checkpoint. Reconciliation accepts a result only
 when the checkpoint identity matches, the remote branch is strictly ahead of
@@ -340,9 +341,34 @@ consuming the operation retry, writing a failure ledger, or applying
   open durable PR, a terminal Agent Task, a branch head newer than the
   controller checkpoint, and the same still-unchecked apply task with no
   credited-task regression. It removes the mutable attention comment and
-  dispatches the next attempt from the observed branch head.
+  dispatches the next attempt from the observed branch head, then remains in
+  the normal watch/reconcile loop so successful completion is credited and the
+  remaining apply and lifecycle operations continue in the same sequence.
 - Reconciliation is level-triggered and idempotent; events wake it but do not
   authorize transitions by themselves.
+
+## JSON contract migration
+
+Repository-owned queue payloads identify their contract with an exact
+repository-relative `$schema`. Normal controllers reject legacy version fields,
+short schema identifiers, and versioned framing.
+
+For the one-time cutover, run the queue workflow manually with
+`migrate_json_contracts` enabled. The migration runs under the queue workflow's
+normal concurrency lock, stops before mutation when an affected Agent Task is
+active, updates current issue markers and mutable state comments, replaces the
+current dependency Git note, and appends a schema-bearing checkpoint commit
+when the authoritative branch head still uses the legacy trailer. It does not
+rewrite historical ledger comments or commit history.
+
+The script defaults to a read-only report when run directly:
+
+```powershell
+node .github/scripts/openspec-json-migration.mjs
+```
+
+Only the guarded workflow supplies `--apply` and the required write
+permissions.
 
 ## Human merge gate
 

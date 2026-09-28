@@ -142,7 +142,7 @@ safe-outputs:
         issues: write
       inputs:
         payload:
-          description: A compact JSON string matching the version 2 dependency graph patch contract in the prepared context.
+          description: A compact JSON string whose $schema is .github/scripts/schemas/dependency-graph-patch-v2.schema.json and whose evaluation scope matches the prepared context.
           required: true
           type: string
       steps:
@@ -219,7 +219,7 @@ Call `reconcile-openspec-dependencies` exactly once. Its `payload` must be a
 compact JSON string with exactly this shape:
 
 ```json
-{"version":2,"evaluationMode":"incremental","evaluatedRefs":["dependent-change"],"summaries":[{"ref":"dependent-change","summary":"Compact dependency-oriented summary."}],"upsert":[{"changeRef":"dependent-change","dependsOn":"prerequisite-change","confidence":0.95,"evidence":["Artifact-grounded explanation."]}],"remove":[{"changeRef":"dependent-change","dependsOn":"obsolete-prerequisite","evidence":["Artifact-grounded explanation for removal."]}]}
+{"$schema":".github/scripts/schemas/dependency-graph-patch-v2.schema.json","evaluationMode":"incremental","evaluatedRefs":["dependent-change"],"summaries":[{"ref":"dependent-change","summary":"Compact dependency-oriented summary."}],"upsert":[{"changeRef":"dependent-change","dependsOn":"prerequisite-change","confidence":0.95,"evidence":["Artifact-grounded explanation."]}],"remove":[{"changeRef":"dependent-change","dependsOn":"obsolete-prerequisite","evidence":["Artifact-grounded explanation for removal."]}]}
 ```
 
 Use the exact `evaluationMode` and `evaluatedRefs` from the prepared context.

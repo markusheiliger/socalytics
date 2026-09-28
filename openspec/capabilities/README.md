@@ -35,10 +35,11 @@ Capability-backed apply work returns a final assistant response containing only
 one JSON object conforming to
 [`schemas/capability-result-v1.schema.json`](schemas/capability-result-v1.schema.json).
 The object identifies its trusted contract with
-`"schema": "capability-result-v1"`. Schema IDs are controller-recognized
-identifiers, never caller-controlled paths or URLs. Prose, Markdown fences,
-prefixes, suffixes, arrays, multiple objects, and unknown schema IDs are
-rejected. The result is supporting evidence; branch-visible task state,
+`"$schema": "openspec/capabilities/schemas/capability-result-v1.schema.json"`.
+Schema paths are controller-recognized repository-relative identifiers, never
+caller-controlled paths or URLs. Prose, Markdown fences, prefixes, suffixes,
+arrays, multiple objects, and unknown schema paths are rejected. The result is
+supporting evidence; branch-visible task state,
 changed paths, and controller-owned commit checkpoints remain authoritative.
 The result does not report Git SHAs because GitHub may finalize or rewrite
 agent-observed commits while publishing a completed Agent Task.

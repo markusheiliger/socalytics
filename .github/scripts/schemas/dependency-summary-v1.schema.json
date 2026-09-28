@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": ".github/scripts/schemas/dependency-summary-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "managedEdges"],
+  "properties": {
+    "$schema": { "const": ".github/scripts/schemas/dependency-summary-v1.schema.json" },
+    "managedEdges": { "type": "array", "items": { "type": "object" } }
+  }
+}

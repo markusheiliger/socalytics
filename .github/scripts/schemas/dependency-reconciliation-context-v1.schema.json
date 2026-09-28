@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": ".github/scripts/schemas/dependency-reconciliation-context-v1.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "targetHead", "notesTip", "checkpointState", "prior", "mode", "evaluatedRefs", "changes", "inventory", "managedEdges", "outputContract"],
+  "properties": {
+    "$schema": { "const": ".github/scripts/schemas/dependency-reconciliation-context-v1.schema.json" },
+    "targetHead": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "notesTip": { "type": ["string", "null"] },
+    "checkpointState": { "enum": ["valid", "missing", "invalid"] },
+    "prior": { "type": ["object", "null"] },
+    "mode": { "enum": ["incremental", "full"] },
+    "evaluatedRefs": { "type": "array", "items": { "type": "string" } },
+    "changes": { "type": "object" },
+    "inventory": { "type": "array", "items": { "type": "object" } },
+    "managedEdges": { "type": "array", "items": { "type": "object" } },
+    "outputContract": { "type": "object" }
+  }
+}

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+  JSON_CONTRACTS,
   parseCapabilityDefinition,
   parseCapabilityTasks,
   validateCapabilitySet,
@@ -41,9 +42,9 @@ test('validates every execution capability contract', () => {
     'utf8',
   ));
   assert.equal(definitionSchema.properties.version.const, 1);
-  assert.equal(resultSchema.properties.schema.const, 'capability-result-v1');
+  assert.equal(resultSchema.properties.$schema.const, JSON_CONTRACTS.capabilityResult);
   assert.equal(resultSchema.properties.operation.const, 'apply');
-  assert.equal(operationResultSchema.properties.schema.const, 'operation-result-v1');
+  assert.equal(operationResultSchema.properties.$schema.const, JSON_CONTRACTS.operationResult);
 
   for (const definition of definitions.values()) {
     assert.ok(definition.operations.includes('apply'));
@@ -63,9 +64,19 @@ test('validates every execution capability contract', () => {
       ids: ['architecture', 'implementation'],
       mutation: 'scoped',
       isolation: 'shared',
-      resultSchema: 'schemas/capability-result-v1.schema.json',
+      resultSchema: JSON_CONTRACTS.capabilityResult,
     },
   );
+});
+
+test('keeps every repository JSON contract self-identifying', () => {
+  const repositoryRoot = new URL('../../', import.meta.url);
+  for (const schemaPath of Object.values(JSON_CONTRACTS)) {
+    const schema = JSON.parse(readFileSync(new URL(schemaPath, repositoryRoot), 'utf8'));
+    assert.equal(schema.$id, schemaPath);
+    assert.equal(schema.properties.$schema.const, schemaPath);
+    assert.ok(schema.required.includes('$schema'));
+  }
 });
 
 test('keeps only the generated OpenSpec cloud profile', () => {
