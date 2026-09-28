@@ -5,6 +5,7 @@ using Aspire.Hosting.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
+using Npgsql;
 using Shouldly;
 using SocAlytics.Platform.Api;
 using SocAlytics.Platform.AgentOrchestration;
@@ -21,28 +22,35 @@ namespace SocAlytics.Platform.Host.Tests;
 public sealed class PlatformHostTests
 {
     private const string ApiResourceName = "api";
+    private const string PostgresResourceName = "postgres";
+    private const string DatabaseResourceName = "platform";
 
     [Fact]
-    public async Task AppHostStartsHealthyApiWithOperationalOpenApiSurface()
+    public async Task AppHostStartsHealthyApiWithSuccessfulMigrationsAndOperationalOpenApiSurface()
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-        var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.SocAlytics_Platform_AppHost>(timeout.Token);
-        await using var app = await appHost.BuildAsync(timeout.Token);
+        for (var startupAttempt = 0; startupAttempt < 2; startupAttempt++)
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+            var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.SocAlytics_Platform_AppHost>(timeout.Token);
+            await using var app = await appHost.BuildAsync(timeout.Token);
 
-        await app.StartAsync(timeout.Token);
-        await app.ResourceNotifications.WaitForResourceHealthyAsync(ApiResourceName, timeout.Token);
+            await app.StartAsync(timeout.Token);
+            await app.ResourceNotifications.WaitForResourceHealthyAsync(PostgresResourceName, timeout.Token);
+            await app.ResourceNotifications.WaitForResourceHealthyAsync(ApiResourceName, timeout.Token);
+            await ShouldHaveAllMigrationHistoryAsync(app, timeout.Token);
 
-        using var client = app.CreateHttpClient(ApiResourceName);
-        await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);
-        await ShouldReturnSuccessAsync(client, "/health", timeout.Token);
+            using var client = app.CreateHttpClient(ApiResourceName);
+            await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);
+            await ShouldReturnSuccessAsync(client, "/health", timeout.Token);
 
-        using var openApiResponse = await client.GetAsync("/openapi/v1.json", timeout.Token);
-        openApiResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+            using var openApiResponse = await client.GetAsync("/openapi/v1.json", timeout.Token);
+            openApiResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
 
-        await using var openApiStream = await openApiResponse.Content.ReadAsStreamAsync(timeout.Token);
-        using var openApiDocument = await JsonDocument.ParseAsync(openApiStream, cancellationToken: timeout.Token);
-        openApiDocument.RootElement.GetProperty("info").GetProperty("version").GetString().ShouldBe("v1");
-        openApiDocument.RootElement.GetProperty("paths").EnumerateObject().Count().ShouldBe(0);
+            await using var openApiStream = await openApiResponse.Content.ReadAsStreamAsync(timeout.Token);
+            using var openApiDocument = await JsonDocument.ParseAsync(openApiStream, cancellationToken: timeout.Token);
+            openApiDocument.RootElement.GetProperty("info").GetProperty("version").GetString().ShouldBe("v1");
+            openApiDocument.RootElement.GetProperty("paths").EnumerateObject().Count().ShouldBe(0);
+        }
     }
 
     [Fact]
@@ -94,6 +102,32 @@ public sealed class PlatformHostTests
     {
         using var response = await client.GetAsync(path, cancellationToken);
         response.IsSuccessStatusCode.ShouldBeTrue();
+    }
+
+    private static async Task ShouldHaveAllMigrationHistoryAsync(
+        DistributedApplication app,
+        CancellationToken cancellationToken)
+    {
+        var connectionString = await app.GetConnectionStringAsync(DatabaseResourceName, cancellationToken);
+        await using var connection = new NpgsqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+
+        await using var command = new NpgsqlCommand(
+            "SELECT module_key FROM socalytics_migrations.history ORDER BY module_key",
+            connection);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        var modules = new List<string>();
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            modules.Add(reader.GetString(0));
+        }
+
+        modules.ShouldBe(
+            Enum.GetValues<ModuleKey>()
+                .Select(module => module.ToString())
+                .Order(StringComparer.Ordinal)
+                .ToArray());
     }
 
     private static void ShouldAddModuleRegistrations(
