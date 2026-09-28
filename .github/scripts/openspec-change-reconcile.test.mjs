@@ -892,6 +892,42 @@ test('retries a failed operation exactly once on the same branch', async () => {
   });
 });
 
+test('retries a completed Agent Task once when it produced no branch progress', async () => {
+  const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":[],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const calls = [];
+  const client = initialClient({
+    listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
+    getAgentTask: async () => ({
+      state: 'completed',
+      artifacts: [{ type: 'branch', data: { head_ref: 'copilot/add-platform', base_ref: 'main' } }],
+      sessions: [{ id: 'session-1' }],
+    }),
+    compareCommits: async () => ({ status: 'identical', files: [] }),
+    createIssueComment: async (...args) => {
+      calls.push(['createIssueComment', ...args]);
+      return { id: 99 };
+    },
+    updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
+    startAgentTask: async (request) => {
+      calls.push(['startAgentTask', request]);
+      return { id: 'task-2' };
+    },
+  });
+
+  const result = await reconcileIssue({
+    client,
+    issue: baseIssue(),
+    agentToken: 'agent-token',
+    now,
+  });
+
+  assert.deepEqual(
+    { action: result.action, operation: result.operation, attempt: result.attempt },
+    { action: 'dispatched', operation: 'apply', attempt: 2 },
+  );
+  assert.equal(calls.filter(([name]) => name === 'startAgentTask').length, 1);
+});
+
 test('accepts a valid pushed checkpoint when the outer Agent Task failed', async () => {
   const stateBody = '<!-- openspec-json\n{"$schema":".github/scripts/schemas/queue-state-v1.schema.json","changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];

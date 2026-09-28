@@ -936,6 +936,61 @@ async function pullRequestForHead(client, headRef) {
   return pulls[0] ?? null;
 }
 
+async function applyRetryBlock(client, state, afterSha) {
+  if (state.operation !== 'apply' || !state.applyTaskId) return null;
+  try {
+    const tasks = parseCapabilityTasks(await client.getTextContent(
+      `openspec/changes/${state.changeRef}/tasks.md`,
+      afterSha,
+    ));
+    const selectedTask = tasks.find(({ id }) => id === state.applyTaskId);
+    if (!selectedTask) {
+      return {
+        code: 'failed-task-selection-missing',
+        reason: `Selected apply task ${state.applyTaskId} is missing after the Agent Task`,
+        expected: state.applyTaskId,
+        observed: 'task missing',
+      };
+    }
+    if (selectedTask.completed) {
+      return {
+        code: 'failed-task-already-complete',
+        reason: `Agent Task already marked apply task ${state.applyTaskId} complete`,
+        expected: 'selected task remains unchecked for automatic retry',
+        observed: `task ${state.applyTaskId} is checked`,
+      };
+    }
+    if (JSON.stringify(selectedTask.capabilities)
+      !== JSON.stringify(state.applyTaskCapabilities)) {
+      return {
+        code: 'failed-task-selection-changed',
+        reason: `Selected apply task ${state.applyTaskId} changed after the Agent Task`,
+        expected: state.applyTaskCapabilities,
+        observed: selectedTask.capabilities,
+      };
+    }
+    const regressedTask = (state.completedApplyTaskIds ?? []).find((taskId) => (
+      !tasks.find((candidate) => candidate.id === taskId)?.completed
+    ));
+    if (regressedTask) {
+      return {
+        code: 'failed-completed-task-regressed',
+        reason: `Previously completed apply task ${regressedTask} regressed after the Agent Task`,
+        expected: `task ${regressedTask} remains checked`,
+        observed: `task ${regressedTask} is unchecked or missing`,
+      };
+    }
+    return null;
+  } catch (error) {
+    return {
+      code: 'failed-task-state-unreadable',
+      reason: 'Selected apply task state could not be validated for automatic retry',
+      expected: 'valid branch-visible task state',
+      observed: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function reconcileIssue({
   client,
   issue,
@@ -1138,56 +1193,8 @@ export async function reconcileIssue({
         observed: durableFailure.observed,
       }
       : null;
-    if (decision === 'retry' && state.operation === 'apply' && state.applyTaskId) {
-      try {
-        const tasks = parseCapabilityTasks(await client.getTextContent(
-          `openspec/changes/${state.changeRef}/tasks.md`,
-          afterSha,
-        ));
-        const selectedTask = tasks.find(({ id }) => id === state.applyTaskId);
-        if (!selectedTask) {
-          retryBlock = {
-            code: 'failed-task-selection-missing',
-            reason: `Selected apply task ${state.applyTaskId} is missing after the failed Agent Task`,
-            expected: state.applyTaskId,
-            observed: 'task missing',
-          };
-        } else if (selectedTask.completed) {
-          retryBlock = {
-            code: 'failed-task-already-complete',
-            reason: `Failed Agent Task already marked apply task ${state.applyTaskId} complete`,
-            expected: 'selected task remains unchecked for automatic retry',
-            observed: `task ${state.applyTaskId} is checked`,
-          };
-        } else if (JSON.stringify(selectedTask.capabilities)
-          !== JSON.stringify(state.applyTaskCapabilities)) {
-          retryBlock = {
-            code: 'failed-task-selection-changed',
-            reason: `Selected apply task ${state.applyTaskId} changed after the failed Agent Task`,
-            expected: state.applyTaskCapabilities,
-            observed: selectedTask.capabilities,
-          };
-        } else {
-          const regressedTask = (state.completedApplyTaskIds ?? []).find((taskId) => (
-            !tasks.find((candidate) => candidate.id === taskId)?.completed
-          ));
-          if (regressedTask) {
-            retryBlock = {
-              code: 'failed-completed-task-regressed',
-              reason: `Previously completed apply task ${regressedTask} regressed after the failed Agent Task`,
-              expected: `task ${regressedTask} remains checked`,
-              observed: `task ${regressedTask} is unchecked or missing`,
-            };
-          }
-        }
-      } catch (error) {
-        retryBlock = {
-          code: 'failed-task-state-unreadable',
-          reason: 'Selected apply task state could not be validated for automatic retry',
-          expected: 'valid branch-visible task state',
-          observed: error instanceof Error ? error.message : String(error),
-        };
-      }
+    if (decision === 'retry') {
+      retryBlock = await applyRetryBlock(client, state, afterSha);
     }
     const automaticRetry = decision === 'retry' && retryBlock === null;
     const ledgerComment = await appendLedger(client, issue.number, state, {
@@ -1270,15 +1277,40 @@ export async function reconcileIssue({
     const resolvedHead = headRef ?? state.headRef ?? 'main';
     const branch = await client.getBranch(resolvedHead);
     const failure = publicFailure(error);
+    const retryableNoProgress = failure.code === 'branch-ancestry-invalid'
+      && branch.commit.sha === state.beforeSha
+      && retryDecision('failed', state.attempt) === 'retry';
+    const retryBlock = retryableNoProgress
+      ? await applyRetryBlock(client, state, branch.commit.sha)
+      : failure;
     const ledgerComment = await appendLedger(client, issue.number, state, {
       sessionId: sessionId ?? 'unavailable',
       headRef: resolvedHead,
       afterSha: branch.commit.sha,
       outcome: 'failed',
       validation: `[${failure.code}] ${failure.reason}`,
-      recovery: failure.recovery,
+      recovery: retryableNoProgress && retryBlock === null
+        ? 'Automatic retry dispatched after completed Agent Task produced no branch progress.'
+        : failure.recovery,
       now,
     });
+    if (retryableNoProgress && retryBlock === null) {
+      return dispatchOperation({
+        client,
+        issue,
+        marker,
+        current,
+        operation: state.operation,
+        applyTaskId: state.applyTaskId ?? null,
+        completedApplyTaskIds: state.completedApplyTaskIds ?? null,
+        attempt: state.attempt + 1,
+        baseRef: state.baseRef,
+        headRef: resolvedHead,
+        beforeSha: branch.commit.sha,
+        pullRequestNumber: state.pullRequestNumber,
+        now,
+      });
+    }
     const nextState = {
       ...state,
       status: 'needs_attention',
@@ -1293,7 +1325,7 @@ export async function reconcileIssue({
       issue.number,
       nextState,
       {
-        ...failure,
+        ...(retryBlock ?? failure),
         afterSha: branch.commit.sha,
         ledgerCommentId: ledgerComment?.id,
       },
