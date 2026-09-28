@@ -11,7 +11,6 @@
     "taskId",
     "capabilities",
     "verdict",
-    "startingSha",
     "resultingSha",
     "artifactsChanged",
     "validation",
@@ -44,10 +43,6 @@
     },
     "verdict": {
       "enum": ["pass", "blocked", "fail"]
-    },
-    "startingSha": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{40}$"
     },
     "resultingSha": {
       "type": "string",

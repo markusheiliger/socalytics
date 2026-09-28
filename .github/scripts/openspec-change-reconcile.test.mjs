@@ -37,7 +37,6 @@ const repositoryContent = (path, tasks) => {
 const capabilityResult = ({
   taskId = '1.1',
   capabilities = ['implementation'],
-  startingSha = sha('a'),
   resultingSha = sha('b'),
   artifactsChanged = ['openspec/changes/add-platform/tasks.md'],
 } = {}) => JSON.stringify({
@@ -47,7 +46,6 @@ const capabilityResult = ({
   taskId,
   capabilities,
   verdict: 'pass',
-  startingSha,
   resultingSha,
   artifactsChanged,
   validation: [{ command: 'node --test', outcome: 'passed' }],
@@ -282,7 +280,7 @@ test('accepts a rewritten initial branch checkpoint using durable repository evi
     client,
     issue: baseIssue(),
     agentToken: 'agent-token',
-    getSessionLog: async () => capabilityResult({ startingSha: sha('c') }),
+    getSessionLog: async () => capabilityResult(),
     now,
   });
   assert.equal(result.action, 'dispatched');

@@ -564,9 +564,6 @@ async function validateCompletedOperation({
   let archivePath = null;
   let nextApplyTask = null;
   if (state.operation === 'apply') {
-    if (state.pullRequestNumber !== null && result.startingSha !== state.beforeSha) {
-      throw new Error('Capability result starting SHA does not match the continuation checkpoint');
-    }
     const comparison = await client.compareCommits(state.beforeSha, afterSha);
     if (comparison.status !== 'ahead') {
       throw new Error('Capability result branch does not descend from the controller checkpoint');

@@ -617,7 +617,6 @@ test('parses one structured capability result envelope', () => {
     taskId: '1.1',
     capabilities: ['architecture', 'implementation'],
     verdict: 'pass',
-    startingSha: 'a'.repeat(40),
     resultingSha: 'b'.repeat(40),
     artifactsChanged: ['src/platform/file.cs'],
     validation: [{ command: 'dotnet test', outcome: 'passed' }],
