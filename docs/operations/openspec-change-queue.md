@@ -294,6 +294,12 @@ consuming the operation retry, writing a failure ledger, or applying
   retried.
 - `failed` and `timed_out` receive one automatic retry from the same observed
   checkpoint.
+- A failed or timed-out apply task that already marked its selected checkbox
+  complete is not retried automatically. Replaying it as an unchecked task
+  would otherwise fail dispatch and silently change the evidence baseline.
+  The controller records structured attention so an operator can inspect the
+  committed work, restore only that checkbox before an explicit bounded
+  replay, or discard the branch and restart from `main`.
 - `cancelled` and `waiting_for_user` are never retried automatically.
 - A second failure records recovery guidance and stops.
 - Terminal evidence failures update one managed attention comment with a stable

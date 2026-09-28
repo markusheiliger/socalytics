@@ -1030,17 +1030,60 @@ export async function reconcileIssue({
     const checkpointRef = resolvedHead ?? state.baseRef;
     const branch = await client.getBranch(checkpointRef);
     const afterSha = branch.commit.sha;
+    let retryBlock = null;
+    if (decision === 'retry' && state.operation === 'apply' && state.applyTaskId) {
+      try {
+        const tasks = parseCapabilityTasks(await client.getTextContent(
+          `openspec/changes/${state.changeRef}/tasks.md`,
+          afterSha,
+        ));
+        const selectedTask = tasks.find(({ id }) => id === state.applyTaskId);
+        if (!selectedTask) {
+          retryBlock = {
+            code: 'failed-task-selection-missing',
+            reason: `Selected apply task ${state.applyTaskId} is missing after the failed Agent Task`,
+            expected: state.applyTaskId,
+            observed: 'task missing',
+          };
+        } else if (selectedTask.completed) {
+          retryBlock = {
+            code: 'failed-task-already-complete',
+            reason: `Failed Agent Task already marked apply task ${state.applyTaskId} complete`,
+            expected: 'selected task remains unchecked for automatic retry',
+            observed: `task ${state.applyTaskId} is checked`,
+          };
+        } else if (JSON.stringify(selectedTask.capabilities)
+          !== JSON.stringify(state.applyTaskCapabilities)) {
+          retryBlock = {
+            code: 'failed-task-selection-changed',
+            reason: `Selected apply task ${state.applyTaskId} changed after the failed Agent Task`,
+            expected: state.applyTaskCapabilities,
+            observed: selectedTask.capabilities,
+          };
+        }
+      } catch (error) {
+        retryBlock = {
+          code: 'failed-task-state-unreadable',
+          reason: 'Selected apply task state could not be validated for automatic retry',
+          expected: 'valid branch-visible task state',
+          observed: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+    const automaticRetry = decision === 'retry' && retryBlock === null;
     const ledgerComment = await appendLedger(client, issue.number, state, {
       sessionId: sessionId ?? 'unavailable',
       headRef: checkpointRef,
       afterSha,
       outcome: task.state,
       validation: `Agent Task ended in ${task.state}.`,
-      recovery: decision === 'retry' ? 'Automatic retry dispatched.' : 'Human recovery required.',
+      recovery: automaticRetry
+        ? 'Automatic retry dispatched.'
+        : retryBlock?.reason ?? 'Human recovery required.',
       now,
     });
     const stillAuthorized = issue.state === 'open';
-    if (decision === 'retry' && stillAuthorized) {
+    if (automaticRetry && stillAuthorized) {
       const pull = await pullRequestForHead(client, resolvedHead);
       const retryAttempt = state.operation === 'apply' && !state.applyTaskId
         ? 1
@@ -1071,11 +1114,13 @@ export async function reconcileIssue({
     await upsertQueueState(client, issue.number, current, nextState);
     await reconcileStateLabels(client, issue, nextState);
     await publishAttention(client, issue.number, nextState, {
-      code: `agent-task-${task.state}`,
-      reason: `Agent Task ended in ${task.state}`,
-      expected: 'completed',
-      observed: task.state,
-      recovery: 'Inspect the Agent Task and immutable ledger, then explicitly retry only this bounded operation after remediation.',
+      code: retryBlock?.code ?? `agent-task-${task.state}`,
+      reason: retryBlock?.reason ?? `Agent Task ended in ${task.state}`,
+      expected: retryBlock?.expected ?? 'completed',
+      observed: retryBlock?.observed ?? task.state,
+      recovery: retryBlock
+        ? 'Inspect the committed branch work. To retry this task, restore only its checkbox to unchecked on the same branch, then explicitly replay the bounded operation; otherwise discard the branch and restart from main.'
+        : 'Inspect the Agent Task and immutable ledger, then explicitly retry only this bounded operation after remediation.',
       afterSha,
       ledgerCommentId: ledgerComment?.id,
     });

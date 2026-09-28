@@ -840,6 +840,49 @@ test('retries a failed operation exactly once on the same branch', async () => {
   });
 });
 
+test('stops with structured recovery when a failed task already checked its work', async () => {
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const calls = [];
+  const client = initialClient({
+    listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
+    getAgentTask: async () => ({
+      state: 'failed',
+      artifacts: [{ type: 'branch', data: { head_ref: 'copilot/add-platform', base_ref: 'main' } }],
+      sessions: [{ id: 'session-1' }],
+    }),
+    getBranch: async () => ({ commit: { sha: sha('b') } }),
+    getTextContent: async (path, ref) => {
+      assert.equal(ref, sha('b'));
+      return repositoryContent(path, '- [x] 1.1 Work. Capabilities: implementation.');
+    },
+    createIssueComment: async (...args) => {
+      calls.push(['createIssueComment', ...args]);
+      return { id: 99 };
+    },
+    updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
+    startAgentTask: async () => {
+      throw new Error('must not retry a checked task');
+    },
+  });
+
+  const result = await reconcileIssue({
+    client,
+    issue: baseIssue(),
+    agentToken: 'agent-token',
+    now,
+  });
+
+  assert.deepEqual(result, { action: 'needs_attention', reason: 'failed' });
+  const attention = calls
+    .filter(([name]) => name === 'createIssueComment')
+    .map(([, , body]) => body)
+    .find((body) => body.includes('openspec-queue-attention:v1'));
+  assert.match(attention, /Failure code:\*\* `failed-task-already-complete`/);
+  assert.match(attention, /task 1\.1 is checked/);
+  assert.match(attention, /restore only its checkbox to unchecked/);
+  assert.match(attention, /issues\/12#issuecomment-99/);
+});
+
 test('stops waiting-for-user tasks with a durable ledger entry', async () => {
   const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":null,"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
