@@ -60,7 +60,7 @@
 - The queue runs apply, verify, sync, and archive on one durable draft pull request. One Agent Task may run per change at a time, and every successful operation must end at a new pushed checkpoint commit on that branch.
 - Reconciliation validates the checkpoint commit, remote branch state, and append-only operation ledger entries. Agent Task status and final chat output are supplemental evidence rather than success authority.
 - Cross-change inference is read-only until its typed custom safe output invokes the privileged validator and reconciler. Edit the combined Agentic Workflow source, regenerate its lock file with `gh aw compile`, and run `node .github/scripts/openspec-change-workflow-names.mjs` to apply generated-job display names; do not hand-edit the lock.
-- Failed or timed-out work receives one retry only when the branch did not advance. A valid pushed checkpoint may succeed despite failed outer task status; an advanced branch without a valid checkpoint stops for attention. Cancellation and `waiting_for_user` always stop.
+- Failed or timed-out work receives one retry. A valid pushed checkpoint may succeed despite failed outer task status; pushed partial progress with the selected task still unchecked retries from the new branch head instead of a stale SHA. Cancellation and `waiting_for_user` always stop.
 - Automation stops after validated archive. A human approves workflows, marks the pull request ready, reviews it, and enables auto-merge.
 - Run `node --test .github/scripts/*.test.mjs` for the queue tooling tests.
 

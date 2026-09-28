@@ -294,13 +294,19 @@ consuming the operation retry, writing a failure ledger, or applying
 - `queued`, `in_progress`, `idle`, and `waiting_for_user` prohibit another
   dispatch. `waiting_for_user` is persisted as human attention rather than
   retried.
-- `failed` and `timed_out` receive one automatic retry only when the branch did
-  not advance.
+- `failed` and `timed_out` receive one automatic retry. When the branch did not
+  advance, the retry uses the previous checkpoint. When the branch contains
+  pushed partial progress but no final checkpoint, the controller first proves
+  the selected task remains unchecked, credited tasks did not regress, and the
+  capability identity is unchanged, then retries from the new branch head.
 - A terminal Agent Task with a valid pushed checkpoint is credited after normal
   controller validation even when GitHub's outer task or post-processing state
   is failed.
-- A terminal Agent Task whose branch advanced without a valid checkpoint stops
-  for attention and is never retried from a stale SHA.
+- A terminal Agent Task whose branch advanced without a valid checkpoint never
+  retries from a stale SHA. It may use its single retry from the observed
+  partial-progress head; after attention, an operator can invoke the guarded
+  `resume_issue` workflow input to continue that same unchecked task from its
+  current pushed head.
 - `cancelled` and `waiting_for_user` are never retried automatically.
 - A second failure records recovery guidance and stops.
 - Terminal evidence failures update one managed attention comment with a stable
@@ -328,6 +334,13 @@ consuming the operation retry, writing a failure ledger, or applying
   Agent Task; it deletes only bot-owned mutable state and attention comments
   and removes managed queue labels. It never removes ledger comments or
   re-enqueues the issue.
+- For a useful open pull request stopped after pushed partial progress, run the
+  queue workflow manually with `resume_issue` set to the issue number. The
+  guarded resume accepts only an open `needs_attention` issue, its existing
+  open durable PR, a terminal Agent Task, a branch head newer than the
+  controller checkpoint, and the same still-unchecked apply task with no
+  credited-task regression. It removes the mutable attention comment and
+  dispatches the next attempt from the observed branch head.
 - Reconciliation is level-triggered and idempotent; events wake it but do not
   authorize transitions by themselves.
 

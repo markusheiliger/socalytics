@@ -1115,12 +1115,15 @@ export async function reconcileIssue({
   }
 
   if (task.state !== 'completed' && durableCompletion === null) {
-    const decision = durableFailure ? 'stop' : retryDecision(task.state, state.attempt);
+    const retryableProgress = durableFailure?.code === 'checkpoint-invalid';
+    const decision = retryableProgress
+      ? retryDecision(task.state, state.attempt)
+      : (durableFailure ? 'stop' : retryDecision(task.state, state.attempt));
     const resolvedHead = headRef ?? state.headRef;
     const checkpointRef = resolvedHead ?? state.baseRef;
     const branch = await client.getBranch(checkpointRef);
     const afterSha = branch.commit.sha;
-    let retryBlock = durableFailure
+    let retryBlock = durableFailure && !retryableProgress
       ? {
         code: durableFailure.code,
         reason: durableFailure.reason,
@@ -1157,6 +1160,18 @@ export async function reconcileIssue({
             expected: state.applyTaskCapabilities,
             observed: selectedTask.capabilities,
           };
+        } else {
+          const regressedTask = (state.completedApplyTaskIds ?? []).find((taskId) => (
+            !tasks.find((candidate) => candidate.id === taskId)?.completed
+          ));
+          if (regressedTask) {
+            retryBlock = {
+              code: 'failed-completed-task-regressed',
+              reason: `Previously completed apply task ${regressedTask} regressed after the failed Agent Task`,
+              expected: `task ${regressedTask} remains checked`,
+              observed: `task ${regressedTask} is unchecked or missing`,
+            };
+          }
         }
       } catch (error) {
         retryBlock = {
@@ -1175,7 +1190,9 @@ export async function reconcileIssue({
       outcome: task.state,
       validation: `Agent Task ended in ${task.state}.`,
       recovery: automaticRetry
-        ? 'Automatic retry dispatched.'
+        ? (retryableProgress
+          ? 'Automatic retry dispatched from pushed partial progress.'
+          : 'Automatic retry dispatched.')
         : retryBlock?.reason ?? 'Human recovery required.',
       now,
     });
@@ -1416,6 +1433,7 @@ export async function resetQueueIssue({ client, issueNumber }) {
   if (!current) {
     throw new Error(`Issue #${issueNumber} has no mutable queue state to reset`);
   }
+
   if (current.state.status !== 'needs_attention') {
     throw new Error(`Issue #${issueNumber} queue state must be needs_attention before reset`);
   }
@@ -1443,6 +1461,82 @@ export async function resetQueueIssue({ client, issueNumber }) {
     issueNumber,
     removedCommentIds: mutableComments.map(({ id }) => id),
   };
+}
+
+export async function resumeQueueIssue({
+  client,
+  issueNumber,
+  now = () => new Date(),
+}) {
+  const issue = await client.getIssue(issueNumber);
+  const marker = parseChangeMarker(issue.body ?? '');
+  const comments = await client.listIssueComments(issueNumber);
+  const current = latestQueueState(comments);
+  if (!current || current.state.status !== 'needs_attention') {
+    throw new Error(`Issue #${issueNumber} queue state must be needs_attention before resume`);
+  }
+  const state = current.state;
+  if (issue.state !== 'open') {
+    throw new Error(`Issue #${issueNumber} must be open before resume`);
+  }
+  if (!state.headRef || !state.pullRequestNumber) {
+    throw new Error(`Issue #${issueNumber} has no durable branch and pull request to resume`);
+  }
+  const pull = await client.getPullRequest(state.pullRequestNumber);
+  if (pull.state !== 'open' || pull.merged_at || pull.head?.ref !== state.headRef) {
+    throw new Error(`Issue #${issueNumber} pull request is not the open durable queue branch`);
+  }
+  const task = await client.getAgentTask(state.taskId);
+  if (ACTIVE_STATES.includes(task.state)) {
+    throw new Error(`Issue #${issueNumber} Agent Task is still ${task.state}`);
+  }
+  const branch = await client.getBranch(state.headRef);
+  if (branch.commit.sha === state.beforeSha) {
+    throw new Error(`Issue #${issueNumber} branch has no pushed progress to resume`);
+  }
+  if (state.operation !== 'apply' || !state.applyTaskId) {
+    throw new Error(`Issue #${issueNumber} resume currently requires a selected apply task`);
+  }
+  const tasks = parseCapabilityTasks(await client.getTextContent(
+    `openspec/changes/${state.changeRef}/tasks.md`,
+    branch.commit.sha,
+  ));
+  const selectedTask = tasks.find(({ id }) => id === state.applyTaskId);
+  if (!selectedTask || selectedTask.completed) {
+    throw new Error(`Issue #${issueNumber} selected task must remain present and unchecked`);
+  }
+  if (JSON.stringify(selectedTask.capabilities)
+    !== JSON.stringify(state.applyTaskCapabilities)) {
+    throw new Error(`Issue #${issueNumber} selected task capabilities changed`);
+  }
+  const regressedTask = (state.completedApplyTaskIds ?? []).find((taskId) => (
+    !tasks.find((candidate) => candidate.id === taskId)?.completed
+  ));
+  if (regressedTask) {
+    throw new Error(`Issue #${issueNumber} previously completed task ${regressedTask} regressed`);
+  }
+  const attentionComments = comments.filter((comment) => (
+    comment.user?.login === 'github-actions[bot]'
+      && comment.body?.includes(ATTENTION_MARKER)
+  ));
+  for (const comment of attentionComments) {
+    await client.deleteIssueComment(comment.id);
+  }
+  return dispatchOperation({
+    client,
+    issue,
+    marker,
+    current,
+    operation: state.operation,
+    applyTaskId: state.applyTaskId,
+    completedApplyTaskIds: state.completedApplyTaskIds ?? null,
+    attempt: state.attempt + 1,
+    baseRef: state.baseRef,
+    headRef: state.headRef,
+    beforeSha: branch.commit.sha,
+    pullRequestNumber: state.pullRequestNumber,
+    now,
+  });
 }
 
 function hasActiveAgentTask(results) {
@@ -1479,6 +1573,7 @@ async function main() {
     agentToken,
   });
   const resetIndex = process.argv.indexOf('--reset-issue');
+  const resumeIndex = process.argv.indexOf('--resume-issue');
   let results;
   if (resetIndex >= 0) {
     const issueNumber = Number.parseInt(process.argv[resetIndex + 1], 10);
@@ -1486,6 +1581,12 @@ async function main() {
       throw new Error('--reset-issue requires a positive issue number');
     }
     results = await resetQueueIssue({ client, issueNumber });
+  } else if (resumeIndex >= 0) {
+    const issueNumber = Number.parseInt(process.argv[resumeIndex + 1], 10);
+    if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+      throw new Error('--resume-issue requires a positive issue number');
+    }
+    results = await resumeQueueIssue({ client, issueNumber });
   } else {
     const reconcile = () => reconcileAll({ client, agentToken });
     results = process.argv.includes('--watch')

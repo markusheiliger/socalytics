@@ -8,6 +8,7 @@ import {
   reconcileQueueLabels,
   reconcileUntilSettled,
   resetQueueIssue,
+  resumeQueueIssue,
 } from './openspec-change-reconcile.mjs';
 
 const sha = (character) => character.repeat(40);
@@ -909,7 +910,7 @@ test('accepts a valid pushed checkpoint when the outer Agent Task failed', async
   assert.equal(calls.filter(([name]) => name === 'startAgentTask').length, 1);
 });
 
-test('does not retry an advanced branch without a valid checkpoint', async () => {
+test('retries from pushed partial progress when the selected task remains unchecked', async () => {
   const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
   const client = initialClient({
@@ -926,8 +927,49 @@ test('does not retry an advanced branch without a valid checkpoint', async () =>
       return { id: 99 };
     },
     updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
+    startAgentTask: async (request) => {
+      calls.push(['startAgentTask', request]);
+      return { id: 'task-2' };
+    },
+  });
+
+  const result = await reconcileIssue({
+    client,
+    issue: baseIssue(),
+    agentToken: 'agent-token',
+    now,
+  });
+
+  assert.deepEqual(
+    { action: result.action, operation: result.operation, attempt: result.attempt },
+    { action: 'dispatched', operation: 'apply', attempt: 2 },
+  );
+  const start = calls.find(([name]) => name === 'startAgentTask');
+  assert.equal(dispatchEnvelope(start[1].prompt).checkpoint.headSha, sha('b'));
+});
+
+test('does not continue pushed partial progress when a credited task regressed', async () => {
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.2","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":["1.1"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  let dispatched = false;
+  const client = initialClient({
+    listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
+    getAgentTask: async () => ({
+      state: 'failed',
+      artifacts: [{ type: 'branch', data: { head_ref: 'copilot/add-platform', base_ref: 'main' } }],
+      sessions: [{ id: 'session-1' }],
+    }),
+    getBranch: async () => ({ commit: { sha: sha('b') } }),
+    getCommit: async () => ({ commit: { message: 'Implementation without checkpoint' } }),
+    getTextContent: async (path) => repositoryContent(
+      path,
+      [
+        '- [ ] 1.1 Credited work. Capabilities: implementation.',
+        '- [ ] 1.2 Selected work. Capabilities: implementation.',
+      ].join('\n'),
+    ),
     startAgentTask: async () => {
-      throw new Error('must not retry an advanced uncheckpointed branch');
+      dispatched = true;
+      return { id: 'task-2' };
     },
   });
 
@@ -939,11 +981,7 @@ test('does not retry an advanced branch without a valid checkpoint', async () =>
   });
 
   assert.deepEqual(result, { action: 'needs_attention', reason: 'failed' });
-  const attention = calls
-    .filter(([name]) => name === 'createIssueComment')
-    .map(([, , body]) => body)
-    .find((body) => body.includes('openspec-queue-attention:v1'));
-  assert.match(attention, /Failure code:\*\* `checkpoint-invalid`/);
+  assert.equal(dispatched, false);
 });
 
 test('rejects a different pull request on the durable queue branch', async () => {
@@ -1306,6 +1344,7 @@ test('resets only mutable state after an unmerged queue pull request is closed',
       { name: 'openspec:stage:apply' },
     ],
   });
+
   const deleted = [];
   const client = initialClient({
     getIssue: async () => issue,
@@ -1328,6 +1367,53 @@ test('resets only mutable state after an unmerged queue pull request is closed',
   });
   assert.deepEqual(deleted, [20, 22]);
   assert.deepEqual(labels(issue), ['openspec:change']);
+});
+
+test('explicitly resumes an unchecked task from pushed partial progress', async () => {
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"needs_attention","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":[],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const issue = baseIssue({
+    labels: [
+      { name: 'openspec:change' },
+      { name: 'openspec:needs-attention' },
+      { name: 'openspec:stage:apply' },
+    ],
+  });
+  const comments = [
+    { id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } },
+    { id: 21, body: '<!-- openspec-queue-attention:v1 -->', updated_at: '2026-09-24T17:01:00Z', user: { login: 'github-actions[bot]' } },
+  ];
+  const deleted = [];
+  const client = initialClient({
+    getIssue: async () => issue,
+    listIssueComments: async () => comments,
+    getPullRequest: async () => ({
+      number: 30,
+      state: 'open',
+      merged_at: null,
+      head: { ref: 'copilot/add-platform' },
+    }),
+    getAgentTask: async () => ({ state: 'failed' }),
+    getBranch: async () => ({ commit: { sha: sha('b') } }),
+    getTextContent: async (path) => repositoryContent(
+      path,
+      '- [ ] 1.1 Work. Capabilities: implementation.',
+    ),
+    deleteIssueComment: async (commentId) => deleted.push(commentId),
+    startAgentTask: async () => ({ id: 'task-2' }),
+  });
+
+  const result = await resumeQueueIssue({ client, issueNumber: 12, now });
+
+  assert.deepEqual(
+    { action: result.action, operation: result.operation, attempt: result.attempt },
+    { action: 'dispatched', operation: 'apply', attempt: 2 },
+  );
+  assert.deepEqual(deleted, [21]);
+  assert.deepEqual(labels(issue).sort(), [
+    'openspec:change',
+    'openspec:processing',
+    'openspec:stage:apply',
+  ].sort());
 });
 
 test('ensures visible queue label definitions before reconciliation', async () => {
