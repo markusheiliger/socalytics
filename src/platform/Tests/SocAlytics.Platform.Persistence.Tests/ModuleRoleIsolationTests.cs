@@ -129,6 +129,107 @@ public sealed class ModuleRoleIsolationTests
             "SELECT count(*) FROM socalytics_migrations.history WHERE script_identity = 'intrude'")).ShouldBe(0);
     }
 
+    [Fact]
+    public async Task TransactionExecutorCommitsAllChangesTogether()
+    {
+        await using var database = await StartDatabase();
+        using var provider = Provider(database, Contributors());
+        var executor = provider.GetRequiredService<IModuleTransactionExecutor>();
+
+        await executor.ExecuteAsync(ModuleKey.Club, async (connection, transaction, cancellationToken) =>
+        {
+            await connection.ExecuteAsync(
+                "INSERT INTO probe VALUES (10), (11)",
+                transaction: transaction);
+            (await connection.ExecuteScalarAsync<string>("SELECT current_user", transaction: transaction))
+                .ShouldBe(Runtime(ModuleKey.Club));
+        }, TestContext.Current.CancellationToken);
+
+        await using var admin = new NpgsqlConnection(database.GetConnectionString());
+        (await admin.QueryAsync<int>("SELECT id FROM club.probe ORDER BY id")).ShouldBe([1, 10, 11]);
+    }
+
+    [Fact]
+    public async Task TransactionExecutorRollsBackExceptionsAndCancellationAndCanBeReused()
+    {
+        await using var database = await StartDatabase();
+        using var provider = Provider(database, Contributors());
+        var executor = provider.GetRequiredService<IModuleTransactionExecutor>();
+
+        await Should.ThrowAsync<InvalidOperationException>(() =>
+            executor.ExecuteAsync(ModuleKey.Club, async (connection, transaction, cancellationToken) =>
+            {
+                await connection.ExecuteAsync("INSERT INTO probe VALUES (20)", transaction: transaction);
+                throw new InvalidOperationException("operation failed");
+            }, TestContext.Current.CancellationToken));
+
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        await Should.ThrowAsync<OperationCanceledException>(() =>
+            executor.ExecuteAsync(ModuleKey.Club, async (connection, transaction, cancellationToken) =>
+            {
+                await connection.ExecuteAsync("INSERT INTO probe VALUES (21)", transaction: transaction);
+                cancellation.Cancel();
+                await Task.Delay(Timeout.Infinite, cancellationToken);
+            }, cancellation.Token));
+
+        await executor.ExecuteAsync(ModuleKey.Club, async (connection, transaction, cancellationToken) =>
+        {
+            await connection.ExecuteAsync("INSERT INTO probe VALUES (22)", transaction: transaction);
+            (await connection.ExecuteScalarAsync<string>("SELECT current_user", transaction: transaction))
+                .ShouldBe(Runtime(ModuleKey.Club));
+        }, TestContext.Current.CancellationToken);
+
+        await using var admin = new NpgsqlConnection(database.GetConnectionString());
+        (await admin.QueryAsync<int>("SELECT id FROM club.probe ORDER BY id")).ShouldBe([1, 22]);
+    }
+
+    [Fact]
+    public async Task OptimisticConcurrencyAdvancesMatchingVersionAndRollsBackStaleWrite()
+    {
+        await using var database = await StartDatabase();
+        await using (var admin = new NpgsqlConnection(database.GetConnectionString()))
+        {
+            await admin.ExecuteAsync("""
+                SET ROLE socalytics_club_owner;
+                CREATE TABLE club.versioned_probe (id integer PRIMARY KEY, value text NOT NULL, version bigint NOT NULL);
+                RESET ROLE;
+                INSERT INTO club.versioned_probe VALUES (1, 'initial', 0);
+                """);
+        }
+
+        using var provider = Provider(database, Contributors());
+        var executor = provider.GetRequiredService<IModuleTransactionExecutor>();
+
+        await executor.ExecuteAsync(ModuleKey.Club, async (connection, transaction, cancellationToken) =>
+        {
+            var affected = await connection.ExecuteAsync("""
+                UPDATE versioned_probe
+                SET value = @value, version = version + 1
+                WHERE id = @id AND version = @expectedVersion
+                """, new { id = 1, value = "current", expectedVersion = 0 }, transaction);
+            OptimisticConcurrency.EnsureSingleRowAffected(affected);
+        }, TestContext.Current.CancellationToken);
+
+        await Should.ThrowAsync<OptimisticConcurrencyConflictException>(() =>
+            executor.ExecuteAsync(ModuleKey.Club, async (connection, transaction, cancellationToken) =>
+            {
+                await connection.ExecuteAsync("INSERT INTO probe VALUES (30)", transaction: transaction);
+                var affected = await connection.ExecuteAsync("""
+                    UPDATE versioned_probe
+                    SET value = @value, version = version + 1
+                    WHERE id = @id AND version = @expectedVersion
+                    """, new { id = 1, value = "stale", expectedVersion = 0 }, transaction);
+                OptimisticConcurrency.EnsureSingleRowAffected(affected);
+            }, TestContext.Current.CancellationToken));
+
+        await using var verification = new NpgsqlConnection(database.GetConnectionString());
+        var versioned = await verification.QuerySingleAsync<VersionedProbe>(
+            "SELECT value, version FROM club.versioned_probe WHERE id = 1");
+        versioned.Value.ShouldBe("current");
+        versioned.Version.ShouldBe(1);
+        (await verification.QueryAsync<int>("SELECT id FROM club.probe ORDER BY id")).ShouldBe([1]);
+    }
+
     private static async Task<PostgreSqlContainer> StartDatabase()
     {
         var database = new PostgreSqlBuilder("postgres:17-alpine").Build();
@@ -186,6 +287,12 @@ public sealed class ModuleRoleIsolationTests
     private static string Owner(ModuleKey module) => $"socalytics_{module.ToSchemaName()}_owner";
 
     private static string Runtime(ModuleKey module) => $"socalytics_{module.ToSchemaName()}_runtime";
+
+    private sealed class VersionedProbe
+    {
+        public string Value { get; set; } = string.Empty;
+        public long Version { get; set; }
+    }
 
     private sealed class Contributor(ModuleKey moduleKey, MigrationDescriptor[] scripts) : IModuleMigrationContributor
     {

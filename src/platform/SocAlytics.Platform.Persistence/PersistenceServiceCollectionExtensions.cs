@@ -22,6 +22,7 @@ public static class PersistenceServiceCollectionExtensions
 
         services.TryAddSingleton(options);
         services.TryAddSingleton<IModuleConnectionFactory, NpgsqlModuleConnectionFactory>();
+        services.TryAddSingleton<IModuleTransactionExecutor, NpgsqlModuleTransactionExecutor>();
         services.TryAddSingleton<IBootstrapConnectionFactory, NpgsqlBootstrapConnectionFactory>();
         services.TryAddSingleton<MigrationOrchestrator>();
 
