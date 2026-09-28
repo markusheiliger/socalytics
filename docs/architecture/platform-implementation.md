@@ -132,6 +132,20 @@ Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Da
 provide database access; Entity Framework Core is not part of the baseline.
 DbUp applies ordered, versioned PostgreSQL SQL scripts grouped by owning module.
 
+The planned shared peer persistence boundary owns module-neutral connections,
+explicit transactions, concurrency signaling, and checksum-aware migration
+orchestration, including `socalytics_migrations.history`; each capability keeps
+its own SQL, migrations, and schema ownership. In local and test databases,
+module owner roles will own their respective schemas and migration objects,
+while module runtime roles will have only the access required within their own
+schemas; normal sessions must not access peer schemas. Bootstrap access stays
+with migration orchestration, not module application services. Production
+identity and credential mapping remain unresolved. This is a refinement of the
+unimplemented persistence baseline, not a change to an established or
+implemented persistence boundary; the shared-boundary and role decision remains
+an ADR candidate in the active change until implementation warrants a durable
+record under the [ADR criteria](decisions/README.md).
+
 CQRS is logical rather than physical:
 
 - commands use plain typed C# handlers resolved through .NET dependency

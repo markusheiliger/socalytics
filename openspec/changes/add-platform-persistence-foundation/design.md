@@ -45,7 +45,7 @@ Alternatives considered:
 - Duplicate connection and migration code in every module: rejected because checksum, transaction, startup, and isolation behavior would diverge.
 - Put orchestration in the API: rejected because it couples the host to module migration details and makes reuse/testing harder.
 
-This new shared boundary is a durable architecture refinement and an **ADR candidate**. During apply, record the shared-boundary and database-role decision in `docs/architecture/decisions/` if the architecture owner confirms it meets the repository's ADR threshold, then link it from the synchronized narratives.
+This new shared boundary and database-role decision remains an **ADR candidate**. The current [architecture narrative](../../../docs/architecture/platform-implementation.md#persistence-and-cqrs) records the planned boundary and role semantics, and explains why no ADR is created before this persistence architecture is implemented. Reassess the candidate under the [ADR criteria](../../../docs/architecture/decisions/README.md) once implementation provides a consequential change to an established boundary and the change can be linked to accepted specifications and its archived history.
 
 ### 2. Keep migrations embedded and owned by modules
 
