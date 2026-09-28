@@ -122,6 +122,19 @@ owns durable runs, DAG state, logical jobs, attempts, and accepted-result
 references. The segments boundary owns on-demand materialization within the
 control-plane deployment unless measured scaling later justifies extraction.
 
+The [active persistence-foundation design](../../openspec/changes/add-platform-persistence-foundation/design.md)
+proposes a peer shared persistence boundary for module-neutral connections,
+transactions, concurrency, and migration orchestration, including the
+`socalytics_migrations` journal but no domain SQL or module schema. Each
+module retains its own schema and migration ownership; local/test PostgreSQL
+owner roles run module migrations, while module-scoped runtime roles have
+access only to their own schema. Bootstrap privileges stay outside module
+application services. These are planned boundaries, not executable evidence.
+The shared-boundary and role decision remains an ADR candidate, not a new
+ADR: it refines an unimplemented persistence baseline rather than changing
+established or implemented persistence architecture. Reassess the
+[ADR threshold](decisions/README.md) if implementation changes that baseline.
+
 ### Persistence And CQRS
 
 This persistence and messaging baseline remains unimplemented; the current host
