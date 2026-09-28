@@ -92,10 +92,7 @@ export function decodeAgentSessionFinalResponse(eventStream) {
         current += choice.delta.content;
       }
       if (choice.finish_reason != null) {
-        if (current === '') {
-          throw new Error('Agent session log completed an assistant response without content');
-        }
-        currentComplete = true;
+        if (current !== '') currentComplete = true;
       }
     }
   }
