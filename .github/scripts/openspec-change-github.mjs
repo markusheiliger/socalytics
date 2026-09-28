@@ -1,4 +1,5 @@
 const API_ROOT = 'https://api.github.com';
+const COPILOT_API_ROOT = 'https://api.githubcopilot.com';
 const API_VERSION = '2026-03-10';
 
 function assertToken(token, name) {
@@ -203,6 +204,26 @@ export class GitHubChangeClient {
       `/agents/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}/tasks/${encodeURIComponent(taskId)}`,
       { agent: true },
     );
+  }
+
+  async getAgentSessionLog(sessionId) {
+    assertToken(this.agentToken, 'Agent token');
+    const response = await this.fetch(
+      `${COPILOT_API_ROOT}/agents/sessions/${encodeURIComponent(sessionId)}/logs`,
+      {
+        headers: {
+          Accept: 'application/vnd.github.nebula-preview',
+          Authorization: `Bearer ${this.agentToken}`,
+          'Copilot-Integration-Id': 'copilot-4-cli',
+          'User-Agent': 'socalytics-openspec-change-queue',
+          'X-GitHub-Api-Version': '2026-01-09',
+        },
+      },
+    );
+    if (!response.ok) {
+      throw await responseError(response, [this.repositoryToken, this.agentToken]);
+    }
+    return response.text();
   }
 
   startAgentTask({

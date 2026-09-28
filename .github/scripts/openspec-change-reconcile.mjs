@@ -191,12 +191,8 @@ function operationPrompt({
   return instructions.join('\n');
 }
 
-function defaultSessionLog(sessionId, agentToken) {
-  return execFileSync('gh', ['agent-task', 'view', sessionId, '--log'], {
-    encoding: 'utf8',
-    env: { ...process.env, GH_TOKEN: agentToken },
-    maxBuffer: 10 * 1024 * 1024,
-  });
+function defaultSessionLog(sessionId, _agentToken, client) {
+  return client.getAgentSessionLog(sessionId);
 }
 
 function runOpenSpecJson(arguments_, cwd) {
@@ -490,7 +486,7 @@ async function validateCompletedOperation({
   }
   const session = task.sessions?.at(-1);
   if (!session?.id) throw new Error('Completed Agent Task has no session');
-  const log = await getSessionLog(session.id, agentToken);
+  const log = await getSessionLog(session.id, agentToken, client);
   const result = state.operation === 'apply'
     ? parseCapabilityResult(log)
     : parseCloudOperationResult(log);
