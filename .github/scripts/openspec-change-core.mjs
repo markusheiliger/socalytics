@@ -23,6 +23,8 @@ export const JSON_CONTRACTS = Object.freeze({
   operationResult: '.github/scripts/schemas/operation-result-v1.schema.json',
 });
 
+const LEGACY_CAPABILITY_RESULT_SCHEMA = 'schemas/capability-result-v1.schema.json';
+
 export const JSON_MARKER_START = '<!-- openspec-json';
 export const COMMENT_MARKER_END = '-->';
 export const QUEUE_CHECKPOINT_TRAILER = 'OpenSpec-JSON:';
@@ -313,10 +315,14 @@ export function parseCapabilityDefinition(content, expectedId = null) {
   if (!['shared', 'required'].includes(value.isolation)) {
     throw new Error('Capability definition.isolation is invalid');
   }
-  if (value.resultSchema !== JSON_CONTRACTS.capabilityResult) {
+  if (![JSON_CONTRACTS.capabilityResult, LEGACY_CAPABILITY_RESULT_SCHEMA]
+    .includes(value.resultSchema)) {
     throw new Error('Capability definition.resultSchema is invalid');
   }
-  return { ...value };
+  return {
+    ...value,
+    resultSchema: JSON_CONTRACTS.capabilityResult,
+  };
 }
 
 export function validateCapabilitySet(definitions, operation = 'apply') {

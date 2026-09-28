@@ -158,6 +158,22 @@ test('validates capability definitions and composition', () => {
   );
 });
 
+test('normalizes the previous capability-relative result schema reference', () => {
+  const definition = parseCapabilityDefinition([
+    '---',
+    'id: implementation',
+    'version: 1',
+    'operations: [apply]',
+    'composition: composable',
+    'mutation: scoped',
+    'isolation: shared',
+    'resultSchema: schemas/capability-result-v1.schema.json',
+    '---',
+  ].join('\n'), 'implementation');
+
+  assert.equal(definition.resultSchema, JSON_CONTRACTS.capabilityResult);
+});
+
 test('accepts high-confidence acyclic dependencies and flags low confidence', () => {
   const result = validateDependencyOutput({
     $schema: JSON_CONTRACTS.dependencyCandidates,
