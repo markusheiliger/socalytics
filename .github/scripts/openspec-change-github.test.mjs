@@ -99,6 +99,13 @@ test('reads the final completed Agent Task response with the OAuth agent token',
 });
 
 test('requires an unambiguous completed Agent Task response', () => {
+  assert.equal(
+    decodeAgentSessionFinalResponse([
+      'data:{"choices":[{"delta":{"content":"{}"}}]}',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+    ].join('\n')),
+    '{}',
+  );
   assert.throws(
     () => decodeAgentSessionFinalResponse(
       'data: {"choices":[{"delta":{"content":"{}"}}]}\n',

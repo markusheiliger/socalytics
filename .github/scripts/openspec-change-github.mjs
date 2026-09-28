@@ -96,6 +96,10 @@ export function decodeAgentSessionFinalResponse(eventStream) {
       }
     }
   }
+  if (!streamComplete && currentComplete) {
+    completeCurrent();
+    streamComplete = true;
+  }
   if (!streamComplete) {
     throw new Error('Agent session log is incomplete');
   }
