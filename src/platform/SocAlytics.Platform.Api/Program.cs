@@ -1,7 +1,9 @@
+using SocAlytics.Platform.Api;
 using SocAlytics.Platform.AgentOrchestration;
 using SocAlytics.Platform.Analysis;
 using SocAlytics.Platform.Club;
 using SocAlytics.Platform.IdentityAccess;
+using SocAlytics.Platform.Persistence;
 using SocAlytics.Platform.Recordings;
 using SocAlytics.Platform.Registry;
 
@@ -14,6 +16,8 @@ builder.Services.AddClubModule();
 builder.Services.AddIdentityAccessModule();
 builder.Services.AddRecordingsModule();
 builder.Services.AddRegistryModule();
+var connectionString = builder.Configuration.GetConnectionString("platform") ?? string.Empty;
+builder.Services.AddPersistenceMigrationReadiness(connectionString);
 builder.Services.AddOpenApi("v1", options =>
 {
 	options.AddDocumentTransformer((document, _, _) =>

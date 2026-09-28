@@ -76,7 +76,8 @@ public sealed class PlatformArchitectureTests
     [
         typeof(PersistenceServiceCollectionExtensions).FullName!,
         typeof(PersistenceOptions).FullName!,
-        typeof(MigrationOrchestrator).FullName!
+        typeof(MigrationOrchestrator).FullName!,
+        typeof(MigrationConflictException).FullName!
     ];
 
     private static readonly HashSet<(string TypeName, string MemberName)> ApiAllowedPersistenceMembers =
