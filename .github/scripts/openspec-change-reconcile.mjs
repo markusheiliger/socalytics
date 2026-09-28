@@ -503,9 +503,6 @@ async function validateCompletedOperation({
     && JSON.stringify(result.capabilities) !== JSON.stringify(state.applyTaskCapabilities)) {
     throw new Error('Capability result does not match the selected capability set');
   }
-  if (state.operation === 'apply' && result.startingSha !== state.beforeSha) {
-    throw new Error('Capability result starting SHA does not match queue state');
-  }
   if (state.operation === 'apply' && result.resultingSha !== afterSha) {
     throw new Error('Capability result resulting SHA does not match branch state');
   }
@@ -531,7 +528,13 @@ async function validateCompletedOperation({
   let archivePath = null;
   let nextApplyTask = null;
   if (state.operation === 'apply') {
-    const comparison = await client.compareCommits(state.beforeSha, afterSha);
+    if (result.startingSha !== state.beforeSha) {
+      const branchCreation = await client.compareCommits(state.beforeSha, result.startingSha);
+      if (branchCreation.status !== 'ahead' || branchCreation.files.length !== 0) {
+        throw new Error('Capability result starting SHA is not an empty branch-creation descendant');
+      }
+    }
+    const comparison = await client.compareCommits(result.startingSha, afterSha);
     const changedPaths = comparison.files.map(({ filename }) => filename).sort();
     const reportedPaths = [...result.artifactsChanged].sort();
     if (JSON.stringify(changedPaths) !== JSON.stringify(reportedPaths)) {

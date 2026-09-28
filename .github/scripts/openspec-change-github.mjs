@@ -223,7 +223,28 @@ export class GitHubChangeClient {
     if (!response.ok) {
       throw await responseError(response, [this.repositoryToken, this.agentToken]);
     }
-    return response.text();
+    const eventStream = await response.text();
+    const content = [];
+    for (const line of eventStream.split(/\r?\n/)) {
+      if (!line.startsWith('data: ')) continue;
+      const data = line.slice('data: '.length);
+      if (data === '[DONE]') continue;
+      let event;
+      try {
+        event = JSON.parse(data);
+      } catch (error) {
+        throw new Error(`Agent session log contains invalid event JSON: ${error.message}`);
+      }
+      for (const choice of event.choices ?? []) {
+        if (typeof choice.delta?.content === 'string') {
+          content.push(choice.delta.content);
+        }
+      }
+    }
+    if (content.length === 0) {
+      throw new Error('Agent session log did not contain assistant content');
+    }
+    return content.join('');
   }
 
   startAgentTask({

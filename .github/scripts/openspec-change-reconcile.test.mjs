@@ -257,6 +257,9 @@ test('continues from apply to verify after durable apply evidence passes', async
       sessions: [{ id: 'session-1' }],
     }),
     getBranch: async (branch) => ({ commit: { sha: branch === 'main' ? sha('a') : sha('b') } }),
+    compareCommits: async (base, head) => base === sha('a') && head === sha('c')
+      ? { status: 'ahead', files: [] }
+      : { status: 'ahead', files: [{ filename: 'openspec/changes/add-platform/tasks.md' }] },
     getTextContent: async (path) => repositoryContent(
       path,
       '- [x] 1.1 Done. Capabilities: implementation.',
@@ -273,7 +276,7 @@ test('continues from apply to verify after durable apply evidence passes', async
     client,
     issue: baseIssue(),
     agentToken: 'agent-token',
-    getSessionLog: async () => capabilityResult(),
+    getSessionLog: async () => capabilityResult({ startingSha: sha('c') }),
     now,
   });
   assert.equal(result.action, 'dispatched');

@@ -65,12 +65,19 @@ test('reads Agent Task logs directly with the OAuth agent token', async () => {
   let request;
   const client = clientWith(async (url, options) => {
     request = { url, options };
-    return new Response('OPEN_SPEC_CAPABILITY_RESULT_V1={}', { status: 200 });
+    return new Response([
+      'data: {"choices":[{"delta":{"content":"Task complete.\\n"}}]}',
+      '',
+      'data: {"choices":[{"delta":{"content":"OPEN_SPEC_CAPABILITY_RESULT_V1={}"}}]}',
+      '',
+      'data: [DONE]',
+      '',
+    ].join('\n'), { status: 200 });
   });
 
   const log = await client.getAgentSessionLog('session-1');
 
-  assert.equal(log, 'OPEN_SPEC_CAPABILITY_RESULT_V1={}');
+  assert.equal(log, 'Task complete.\nOPEN_SPEC_CAPABILITY_RESULT_V1={}');
   assert.equal(
     request.url,
     'https://api.githubcopilot.com/agents/sessions/session-1/logs',
