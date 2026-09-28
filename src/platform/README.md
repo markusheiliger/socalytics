@@ -2,8 +2,8 @@
 
 ## Purpose
 
-This area owns the SocAlytics control-plane platform and contains its first
-executable .NET 10 host scaffold.
+This area owns the SocAlytics control-plane platform, including its .NET 10
+host and local PostgreSQL persistence foundation.
 
 ## Ownership
 
@@ -17,22 +17,28 @@ software, and Analyst capabilities do not belong here.
 
 ## Current Status
 
-The executable scope is a dependency-free ASP.NET Core API composed by an
-Aspire AppHost. The API exposes liveness at `/alive`, readiness at `/health`,
-and the `v1` OpenAPI document at `/openapi/v1.json`. It registers the Club,
-Identity Access, Recordings, Registry, Analysis, and Agent Orchestration
-capabilities through six public composition boundaries. Focused host tests cover
-startup, endpoints, OpenAPI, and composition; architecture tests enforce project
-dependencies and implementation-type visibility.
+The Aspire AppHost composes the ASP.NET Core API with a local PostgreSQL
+database. API readiness at `/health` depends on successful registered
+migrations; liveness is exposed at `/alive`, and the `v1` OpenAPI document is
+available at `/openapi/v1.json`. The API registers the Club, Identity Access,
+Recordings, Registry, Analysis, and Agent Orchestration capabilities through six
+public composition boundaries. Focused host tests cover startup, PostgreSQL,
+migrations, endpoints, OpenAPI, and composition; architecture tests enforce
+project dependencies and implementation-type visibility. PostgreSQL
+integration tests use disposable containers to exercise migration ordering and
+checksums, rollback, explicit transactions, optimistic concurrency, module
+schema ownership and isolation, and the absence of `club_id`.
 
-Domain behavior, PostgreSQL persistence with Dapper and DbUp, NATS messaging,
-S3-compatible storage, identity and authentication, client applications,
-Docker support, and production deployment remain deferred. This scaffold does
-not claim production readiness.
+Domain behavior and domain tables, NATS messaging, S3-compatible storage,
+identity and authentication, client applications, and production database and
+deployment configuration remain deferred. The local persistence foundation
+does not establish production readiness.
 
 ## Development
 
-Run the supported workflow from the repository root:
+The .NET 10 SDK and a Docker-compatible container runtime are required for the
+Aspire PostgreSQL resource and disposable PostgreSQL integration tests. Run the
+supported workflow from the repository root:
 
 ```powershell
 dotnet restore src/platform/SocAlytics.Platform.slnx

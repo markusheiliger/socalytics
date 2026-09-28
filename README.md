@@ -23,13 +23,16 @@ through approved changes.
 
 The clients, agents, and analysts source areas remain non-executable ownership
 scaffolds. The platform area contains the repository's current application
-projects and tests. No deployment manifests or product automation exist yet.
+projects and tests. No production deployment manifests or product automation
+exist yet.
 
 ## Development
 
 ### Platform Host
 
-The platform uses the .NET 10 SDK. Run these commands from the repository root:
+The platform uses the .NET 10 SDK and a Docker-compatible container runtime for
+the Aspire PostgreSQL resource and disposable PostgreSQL integration tests. Run
+these commands from the repository root:
 
 ```powershell
 dotnet restore src/platform/SocAlytics.Platform.slnx
@@ -38,15 +41,19 @@ dotnet test src/platform/SocAlytics.Platform.slnx --no-build
 dotnet run --project src/platform/SocAlytics.Platform.AppHost
 ```
 
-The current executable evidence covers the ASP.NET Core API and Aspire AppHost,
+The AppHost starts the API with a PostgreSQL database; API readiness waits for
+registered migrations. The persistence integration tests use disposable
+PostgreSQL containers to verify migration ordering, checksums, rollback,
+transactions, optimistic concurrency, module schema ownership and isolation,
+and the absence of `club_id`. The current executable evidence also covers
 liveness at `/alive`, readiness at `/health`, the `v1` OpenAPI document at
 `/openapi/v1.json`, six capability composition boundaries, and focused host and
 architecture tests.
 
-Domain behavior, PostgreSQL persistence with Dapper and DbUp, NATS messaging,
-S3-compatible storage, identity and authentication, client applications,
-Docker support, and production deployment remain deferred. This executable
-host scaffold does not claim production readiness.
+Domain behavior and domain tables, NATS messaging, S3-compatible storage,
+identity and authentication, client applications, and production database and
+deployment configuration remain deferred. Local PostgreSQL composition and
+persistence infrastructure do not imply production readiness.
 
 ### OpenSpec
 
