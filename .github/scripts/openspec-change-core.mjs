@@ -1032,7 +1032,6 @@ function validateCapabilityResult(value) {
       'taskId',
       'capabilities',
       'verdict',
-      'resultingSha',
       'artifactsChanged',
       'validation',
       'summary',
@@ -1051,9 +1050,6 @@ function validateCapabilityResult(value) {
   assertCapabilityIds(value.capabilities, 'Capability result.capabilities');
   if (!['pass', 'blocked', 'fail'].includes(value.verdict)) {
     throw new Error('Capability result.verdict is invalid');
-  }
-  if (!GIT_SHA.test(value.resultingSha)) {
-    throw new Error('Capability result resultingSha is invalid');
   }
   if (!Array.isArray(value.artifactsChanged)
     || new Set(value.artifactsChanged).size !== value.artifactsChanged.length) {

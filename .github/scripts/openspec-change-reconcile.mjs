@@ -58,12 +58,72 @@ const MANAGED_QUEUE_LABELS = new Set([
   ...QUEUE_LABEL_DEFINITIONS.map(({ name }) => name),
 ]);
 const ATTENTION_MARKER = '<!-- openspec-queue-attention:v1 -->';
+const MAX_PUBLIC_DIAGNOSTIC_LENGTH = 500;
+
+class QueueValidationError extends Error {
+  constructor(code, message, {
+    expected,
+    observed,
+    recovery = 'Inspect the selected operation evidence and retry only that bounded operation.',
+  } = {}) {
+    super(message);
+    this.name = 'QueueValidationError';
+    this.code = code;
+    this.expected = expected;
+    this.observed = observed;
+    this.recovery = recovery;
+  }
+}
+
+class BranchSettlingError extends Error {
+  constructor(expected, observed) {
+    super('Branch head changed while durable evidence was being validated');
+    this.name = 'BranchSettlingError';
+    this.expected = expected;
+    this.observed = observed;
+  }
+}
+
+function boundedDiagnostic(value) {
+  const rendered = typeof value === 'string' ? value : JSON.stringify(value);
+  return rendered
+    .replaceAll('\r', ' ')
+    .replaceAll('\n', ' ')
+    .replaceAll('`', '\\`')
+    .replaceAll('<!--', '&lt;!--')
+    .slice(0, MAX_PUBLIC_DIAGNOSTIC_LENGTH);
+}
+
+function publicFailure(error) {
+  if (error instanceof QueueValidationError) {
+    return {
+      code: error.code,
+      reason: boundedDiagnostic(error.message),
+      expected: error.expected,
+      observed: error.observed,
+      recovery: error.recovery,
+    };
+  }
+  return {
+    code: 'unexpected-validation-error',
+    reason: boundedDiagnostic(error instanceof Error ? error.message : String(error)),
+    recovery: 'Inspect the immutable operation ledger and retry only the bounded operation after correcting the controller or repository evidence.',
+  };
+}
 
 function labelsOf(issue) {
   return issue.labels.map((label) => typeof label === 'string' ? label : label.name);
 }
 
-async function publishAttention(client, issueNumber, state, reason, recovery) {
+async function publishAttention(client, issueNumber, state, {
+  code,
+  reason,
+  expected,
+  observed,
+  recovery,
+  afterSha,
+  ledgerCommentId,
+}) {
   const comments = await client.listIssueComments(issueNumber);
   const existing = comments.find((comment) => comment.body?.includes(ATTENTION_MARKER));
   const task = state.applyTaskId
@@ -79,11 +139,23 @@ async function publishAttention(client, issueNumber, state, reason, recovery) {
     `- **Change:** \`${state.changeRef}\``,
     `- **Operation:** ${state.operation}${task}${capabilities}`,
     `- **Attempt:** ${state.attempt}`,
-    `- **Reason:** ${reason}`,
+    `- **Failure code:** \`${boundedDiagnostic(code)}\``,
+    `- **Reason:** ${boundedDiagnostic(reason)}`,
+    `- **Branch:** \`${boundedDiagnostic(state.headRef ?? state.baseRef)}\``,
+    `- **Controller checkpoint:** \`${state.beforeSha}\``,
+    afterSha ? `- **Observed branch SHA:** \`${afterSha}\`` : null,
+    `- **Credited apply tasks:** ${state.completedApplyTaskIds?.length
+      ? state.completedApplyTaskIds.map((id) => `\`${id}\``).join(', ')
+      : 'none'}`,
+    expected === undefined ? null : `- **Expected evidence:** \`${boundedDiagnostic(expected)}\``,
+    observed === undefined ? null : `- **Observed evidence:** \`${boundedDiagnostic(observed)}\``,
     `- **Agent Task:** https://github.com/${client.owner}/${client.repo}/tasks/${state.taskId}`,
     state.pullRequestNumber ? `- **Pull request:** #${state.pullRequestNumber}` : null,
+    Number.isInteger(ledgerCommentId)
+      ? `- **Immutable ledger:** https://github.com/${client.owner}/${client.repo}/issues/${issueNumber}#issuecomment-${ledgerCommentId}`
+      : null,
     '',
-    `**Recommended recovery:** ${recovery}`,
+    `**Recommended recovery:** ${boundedDiagnostic(recovery)}`,
     '',
     'The immutable machine-readable operation ledger remains in the issue history.',
   ].filter((line) => line !== null).join('\n');
@@ -421,7 +493,7 @@ async function appendLedger(client, issueNumber, state, {
   recovery,
   now,
 }) {
-  await client.createIssueComment(issueNumber, renderLedgerEntry({
+  return client.createIssueComment(issueNumber, renderLedgerEntry({
     version: 1,
     changeRef: state.changeRef,
     operation: state.operation,
@@ -510,37 +582,92 @@ async function validateCompletedOperation({
 }) {
   const artifact = branchArtifact(task);
   const headRef = artifact?.head_ref ?? state.headRef;
-  if (!headRef) throw new Error('Completed Agent Task has no branch artifact');
+  if (!headRef) {
+    throw new QueueValidationError(
+      'branch-artifact-missing',
+      'Completed Agent Task has no branch artifact',
+      { expected: 'one branch artifact', observed: 'none' },
+    );
+  }
   const branch = await client.getBranch(headRef);
   const afterSha = branch.commit.sha;
   if (state.operation === 'verify' || state.operation === 'sync') {
-    await validateBranch(state.changeRef, state.operation, headRef, afterSha);
+    try {
+      await validateBranch(state.changeRef, state.operation, headRef, afterSha);
+    } catch (error) {
+      throw new QueueValidationError(
+        'branch-validation-failed',
+        `${state.operation} branch validation failed`,
+        {
+          expected: 'all branch validation checks pass',
+          observed: error instanceof Error ? error.message : String(error),
+          recovery: 'Inspect the immutable ledger and branch validation output, remediate the branch, and retry only this lifecycle operation.',
+        },
+      );
+    }
   }
   const session = task.sessions?.at(-1);
-  if (!session?.id) throw new Error('Completed Agent Task has no session');
+  if (!session?.id) {
+    throw new QueueValidationError(
+      'agent-session-missing',
+      'Completed Agent Task has no session',
+      { expected: 'one completed session', observed: 'none' },
+    );
+  }
   const response = await getSessionLog(session.id, agentToken, client);
-  const result = parseQueueOperationResult(response);
+  let result;
+  try {
+    result = parseQueueOperationResult(response);
+  } catch (error) {
+    throw new QueueValidationError(
+      'result-envelope-invalid',
+      'The final assistant response does not satisfy a trusted queue result contract',
+      {
+        expected: state.operation === 'apply'
+          ? 'capability-result-v1'
+          : 'operation-result-v1',
+        observed: error instanceof Error ? error.message : String(error),
+        recovery: 'Inspect the Agent Task final response, correct the result contract, and retry only this bounded operation.',
+      },
+    );
+  }
   const expectedSchema = state.operation === 'apply'
     ? 'capability-result-v1'
     : 'operation-result-v1';
   if (result.schema !== expectedSchema) {
-    throw new Error(`Queue operation result schema does not match ${state.operation}`);
+    throw new QueueValidationError(
+      'result-schema-mismatch',
+      `Queue operation result schema does not match ${state.operation}`,
+      { expected: expectedSchema, observed: result.schema },
+    );
   }
   if (result.changeRef !== state.changeRef || result.operation !== state.operation) {
-    throw new Error('Queue operation result does not match queue state');
+    throw new QueueValidationError(
+      'result-operation-mismatch',
+      'Queue operation result does not match queue state',
+      {
+        expected: { changeRef: state.changeRef, operation: state.operation },
+        observed: { changeRef: result.changeRef, operation: result.operation },
+      },
+    );
   }
   if (state.operation === 'apply'
     && state.applyTaskId
     && result.taskId !== state.applyTaskId) {
-    throw new Error('Queue operation result does not match the selected apply task');
+    throw new QueueValidationError(
+      'result-task-mismatch',
+      'Queue operation result does not match the selected apply task',
+      { expected: state.applyTaskId, observed: result.taskId },
+    );
   }
   if (state.operation === 'apply'
     && state.applyTaskCapabilities
     && JSON.stringify(result.capabilities) !== JSON.stringify(state.applyTaskCapabilities)) {
-    throw new Error('Capability result does not match the selected capability set');
-  }
-  if (state.operation === 'apply' && result.resultingSha !== afterSha) {
-    throw new Error('Capability result resulting SHA does not match branch state');
+    throw new QueueValidationError(
+      'result-capabilities-mismatch',
+      'Capability result does not match the selected capability set',
+      { expected: state.applyTaskCapabilities, observed: result.capabilities },
+    );
   }
   const validationSummary = state.operation === 'apply'
     ? (result.validation.map(({ command, outcome }) => `${command}: ${outcome}`).join('; ')
@@ -554,6 +681,13 @@ async function validateCompletedOperation({
       headRef,
       sessionId: session.id,
       archivePath: null,
+      diagnostic: {
+        code: `agent-verdict-${result.verdict}`,
+        reason: `Agent reported a ${result.verdict} verdict`,
+        expected: 'pass',
+        observed: result.verdict,
+        recovery: 'Inspect the reported validation and blocking findings, then retry only this bounded operation after remediation.',
+      },
     };
   }
 
@@ -566,16 +700,24 @@ async function validateCompletedOperation({
   if (state.operation === 'apply') {
     const comparison = await client.compareCommits(state.beforeSha, afterSha);
     if (comparison.status !== 'ahead') {
-      throw new Error('Capability result branch does not descend from the controller checkpoint');
+      throw new QueueValidationError(
+        'branch-ancestry-invalid',
+        'Final branch state does not descend from the controller checkpoint',
+        { expected: 'ahead', observed: comparison.status },
+      );
     }
     const changedPaths = comparison.files.map(({ filename }) => filename).sort();
     const reportedPaths = [...result.artifactsChanged].sort();
     if (JSON.stringify(changedPaths) !== JSON.stringify(reportedPaths)) {
-      throw new Error('Capability result changed paths do not match repository evidence');
+      throw new QueueValidationError(
+        'changed-paths-mismatch',
+        'Capability result changed paths do not match repository evidence',
+        { expected: changedPaths, observed: reportedPaths },
+      );
     }
     const tasks = await client.getTextContent(
       `openspec/changes/${state.changeRef}/tasks.md`,
-      headRef,
+      afterSha,
     );
     const parsedTasks = parseCapabilityTasks(tasks);
     if (state.applyTaskId) {
@@ -585,22 +727,42 @@ async function validateCompletedOperation({
         return !taskEntry?.completed;
       });
       if (regressedTask) {
-        throw new Error(`Previously completed apply task ${regressedTask} regressed`);
+        throw new QueueValidationError(
+          'completed-task-regressed',
+          `Previously completed apply task ${regressedTask} regressed`,
+          { expected: 'checked', observed: `task ${regressedTask} is unchecked` },
+        );
       }
       const selectedTask = parsedTasks.find((taskEntry) => taskEntry.id === state.applyTaskId);
       if (!selectedTask
         || JSON.stringify(selectedTask.capabilities) !== JSON.stringify(state.applyTaskCapabilities)) {
-        throw new Error('Selected apply task identity changed during execution');
+        throw new QueueValidationError(
+          'selected-task-identity-changed',
+          'Selected apply task identity changed during execution',
+          {
+            expected: {
+              taskId: state.applyTaskId,
+              capabilities: state.applyTaskCapabilities,
+            },
+            observed: selectedTask
+              ? { taskId: selectedTask.id, capabilities: selectedTask.capabilities }
+              : 'task missing',
+          },
+        );
       }
       const unexpectedTask = parsedTasks.find((taskEntry) => taskEntry.completed
         && taskEntry.id !== selectedTask.id
         && !previouslyCompleted.includes(taskEntry.id));
       if (unexpectedTask) {
-        throw new Error(`Apply task ${unexpectedTask.id} completed outside the selected work item`);
+        throw new QueueValidationError(
+          'unexpected-task-completion',
+          `Apply task ${unexpectedTask.id} completed outside the selected work item`,
+          { expected: state.applyTaskId, observed: unexpectedTask.id },
+        );
       }
       const definitions = await Promise.all(selectedTask.capabilities.map(async (capability) => (
         parseCapabilityDefinition(
-          await client.getTextContent(`openspec/capabilities/${capability}.md`, headRef),
+          await client.getTextContent(`openspec/capabilities/${capability}.md`, afterSha),
           capability,
         )
       )));
@@ -608,17 +770,29 @@ async function validateCompletedOperation({
       if (policy.mutation === 'checkbox-only') {
         const taskPath = `openspec/changes/${state.changeRef}/tasks.md`;
         if (changedPaths.length !== 1 || changedPaths[0] !== taskPath) {
-          throw new Error(`Capability set may change only ${taskPath}`);
+          throw new QueueValidationError(
+            'capability-mutation-scope-violated',
+            `Capability set may change only ${taskPath}`,
+            { expected: [taskPath], observed: changedPaths },
+          );
         }
         const beforeTasks = await client.getTextContent(taskPath, state.beforeSha);
         const escapedId = state.applyTaskId.replaceAll('.', '\\.');
         const checkbox = new RegExp(`^(\\s*- \\[) \\](\\s+${escapedId}\\s+)`, 'm');
         if ((beforeTasks.match(checkbox) ?? []).length === 0) {
-          throw new Error('Selected task was not unchecked at the starting checkpoint');
+          throw new QueueValidationError(
+            'selected-task-start-state-invalid',
+            'Selected task was not unchecked at the starting checkpoint',
+            { expected: 'unchecked', observed: 'missing or already checked' },
+          );
         }
         const expectedTasks = beforeTasks.replace(checkbox, '$1x]$2');
         if (tasks !== expectedTasks) {
-          throw new Error('Checkbox-only capability changed content beyond its selected checkbox');
+          throw new QueueValidationError(
+            'checkbox-only-mutation-violated',
+            'Checkbox-only capability changed content beyond its selected checkbox',
+            { expected: 'selected checkbox only', observed: 'additional tasks.md changes' },
+          );
         }
       }
       tasksComplete = selectedTask.completed;
@@ -628,13 +802,17 @@ async function validateCompletedOperation({
     nextApplyTask = parsedTasks.find((taskEntry) => !taskEntry.completed) ?? null;
   } else if (state.operation === 'verify') {
     if (afterSha !== state.beforeSha) {
-      throw new Error('Lifecycle verify must not change the branch SHA');
+      throw new QueueValidationError(
+        'verify-branch-mutated',
+        'Lifecycle verify must not change the branch SHA',
+        { expected: state.beforeSha, observed: afterSha },
+      );
     }
     verificationPassed = true;
   } else if (state.operation === 'sync') {
     specsSynchronized = true;
   } else if (state.operation === 'archive') {
-    archivePath = await findArchivePath(client, state.changeRef, headRef);
+    archivePath = await findArchivePath(client, state.changeRef, afterSha);
     lifecycle = archivePath ? 'archived' : 'active';
   }
 
@@ -649,6 +827,28 @@ async function validateCompletedOperation({
     specsSynchronized,
     lifecycle,
   });
+  if (!evidence.valid) {
+    return {
+      valid: false,
+      validation: evidence.reason,
+      afterSha,
+      headRef,
+      sessionId: session.id,
+      archivePath,
+      nextApplyTask,
+      diagnostic: {
+        code: 'operation-evidence-invalid',
+        reason: evidence.reason,
+        expected: 'valid operation evidence',
+        observed: evidence.reason,
+        recovery: 'Inspect the branch-visible lifecycle evidence and retry only this bounded operation after remediation.',
+      },
+    };
+  }
+  const finalBranch = await client.getBranch(headRef);
+  if (finalBranch.commit.sha !== afterSha) {
+    throw new BranchSettlingError(afterSha, finalBranch.commit.sha);
+  }
   return {
     valid: evidence.valid,
     validation: evidence.valid ? validationSummary : evidence.reason,
@@ -750,6 +950,13 @@ export async function reconcileIssue({
       };
       await upsertQueueState(client, issue.number, current, nextState);
       await reconcileStateLabels(client, issue, nextState);
+      await publishAttention(client, issue.number, nextState, {
+        code: 'pull-request-closed-unmerged',
+        reason: 'The queue pull request was closed without merging',
+        expected: 'open draft pull request or merged archived change',
+        observed: `closed PR #${state.pullRequestNumber}`,
+        recovery: 'Inspect the closed pull request, then explicitly reset or restore the active change before re-enqueueing.',
+      });
       return { action: 'needs_attention', reason: 'pull-request-closed-unmerged' };
     }
     if (pull.merged_at && marker.lifecycle === 'archived') {
@@ -776,7 +983,7 @@ export async function reconcileIssue({
   if (task.state === 'waiting_for_user') {
     const resolvedHead = headRef ?? state.baseRef;
     const branch = await client.getBranch(resolvedHead);
-    await appendLedger(client, issue.number, state, {
+    const ledgerComment = await appendLedger(client, issue.number, state, {
       sessionId: sessionId ?? 'unavailable',
       headRef: resolvedHead,
       afterSha: branch.commit.sha,
@@ -794,6 +1001,15 @@ export async function reconcileIssue({
     };
     await upsertQueueState(client, issue.number, current, nextState);
     await reconcileStateLabels(client, issue, nextState);
+    await publishAttention(client, issue.number, nextState, {
+      code: 'agent-task-waiting-for-user',
+      reason: 'Agent Task requires a new human decision',
+      expected: 'autonomous bounded completion',
+      observed: 'waiting_for_user',
+      recovery: 'Respond to the Agent Task, then explicitly repair or replay only this bounded queue operation.',
+      afterSha: branch.commit.sha,
+      ledgerCommentId: ledgerComment?.id,
+    });
     return { action: 'needs_attention', reason: 'waiting_for_user' };
   }
   if (ACTIVE_STATES.includes(task.state)) {
@@ -814,7 +1030,7 @@ export async function reconcileIssue({
     const checkpointRef = resolvedHead ?? state.baseRef;
     const branch = await client.getBranch(checkpointRef);
     const afterSha = branch.commit.sha;
-    await appendLedger(client, issue.number, state, {
+    const ledgerComment = await appendLedger(client, issue.number, state, {
       sessionId: sessionId ?? 'unavailable',
       headRef: checkpointRef,
       afterSha,
@@ -854,6 +1070,15 @@ export async function reconcileIssue({
     };
     await upsertQueueState(client, issue.number, current, nextState);
     await reconcileStateLabels(client, issue, nextState);
+    await publishAttention(client, issue.number, nextState, {
+      code: `agent-task-${task.state}`,
+      reason: `Agent Task ended in ${task.state}`,
+      expected: 'completed',
+      observed: task.state,
+      recovery: 'Inspect the Agent Task and immutable ledger, then explicitly retry only this bounded operation after remediation.',
+      afterSha,
+      ledgerCommentId: ledgerComment?.id,
+    });
     return { action: 'needs_attention', reason: task.state };
   }
 
@@ -868,15 +1093,24 @@ export async function reconcileIssue({
       validateBranch,
     });
   } catch (error) {
+    if (error instanceof BranchSettlingError) {
+      return {
+        action: 'waiting',
+        reasons: ['branch-settling'],
+        expectedSha: error.expected,
+        observedSha: error.observed,
+      };
+    }
     const resolvedHead = headRef ?? state.headRef ?? 'main';
     const branch = await client.getBranch(resolvedHead);
-    await appendLedger(client, issue.number, state, {
+    const failure = publicFailure(error);
+    const ledgerComment = await appendLedger(client, issue.number, state, {
       sessionId: sessionId ?? 'unavailable',
       headRef: resolvedHead,
       afterSha: branch.commit.sha,
       outcome: 'failed',
-      validation: error.message,
-      recovery: 'Human inspection is required because durable result validation failed.',
+      validation: `[${failure.code}] ${failure.reason}`,
+      recovery: failure.recovery,
       now,
     });
     const nextState = {
@@ -892,13 +1126,16 @@ export async function reconcileIssue({
       client,
       issue.number,
       nextState,
-      error.message,
-      'Inspect the selected task result and correct or retry only that bounded operation.',
+      {
+        ...failure,
+        afterSha: branch.commit.sha,
+        ledgerCommentId: ledgerComment?.id,
+      },
     );
     return { action: 'needs_attention', reason: 'invalid-result' };
   }
 
-  await appendLedger(client, issue.number, state, {
+  const ledgerComment = await appendLedger(client, issue.number, state, {
     sessionId: completed.sessionId,
     headRef: completed.headRef,
     afterSha: completed.afterSha,
@@ -917,6 +1154,11 @@ export async function reconcileIssue({
     };
     await upsertQueueState(client, issue.number, current, nextState);
     await reconcileStateLabels(client, issue, nextState);
+    await publishAttention(client, issue.number, nextState, {
+      ...completed.diagnostic,
+      afterSha: completed.afterSha,
+      ledgerCommentId: ledgerComment?.id,
+    });
     return { action: 'needs_attention', reason: completed.validation };
   }
 
@@ -957,6 +1199,15 @@ export async function reconcileIssue({
     };
     await upsertQueueState(client, issue.number, current, nextState);
     await reconcileStateLabels(client, issue, nextState);
+    await publishAttention(client, issue.number, nextState, {
+      code: 'change-issue-closed',
+      reason: 'The OpenSpec change issue closed before queue processing completed',
+      expected: 'open issue',
+      observed: 'closed issue',
+      recovery: 'Review the issue closure and reopen the issue before explicitly repairing or replaying the queue.',
+      afterSha: completed.afterSha,
+      ledgerCommentId: ledgerComment?.id,
+    });
     return { action: 'needs_attention', reason: 'issue-closed' };
   }
 

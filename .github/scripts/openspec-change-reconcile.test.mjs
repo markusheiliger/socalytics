@@ -37,7 +37,6 @@ const repositoryContent = (path, tasks) => {
 const capabilityResult = ({
   taskId = '1.1',
   capabilities = ['implementation'],
-  resultingSha = sha('b'),
   artifactsChanged = ['openspec/changes/add-platform/tasks.md'],
 } = {}) => JSON.stringify({
   schema: 'capability-result-v1',
@@ -46,7 +45,6 @@ const capabilityResult = ({
   taskId,
   capabilities,
   verdict: 'pass',
-  resultingSha,
   artifactsChanged,
   validation: [{ command: 'node --test', outcome: 'passed' }],
   summary: `Task ${taskId} complete.`,
@@ -247,6 +245,7 @@ test('does not dispatch while a native blocker is unresolved', async () => {
 test('accepts a rewritten initial branch checkpoint using durable repository evidence', async () => {
   const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":null,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
   const calls = [];
+  const contentRefs = [];
   const client = initialClient({
     listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
     getAgentTask: async () => ({
@@ -264,12 +263,18 @@ test('accepts a rewritten initial branch checkpoint using durable repository evi
         files: [{ filename: 'openspec/changes/add-platform/tasks.md' }],
       };
     },
-    getTextContent: async (path) => repositoryContent(
-      path,
-      '- [x] 1.1 Done. Capabilities: implementation.',
-    ),
+    getTextContent: async (path, ref) => {
+      contentRefs.push(ref);
+      return repositoryContent(
+        path,
+        '- [x] 1.1 Done. Capabilities: implementation.',
+      );
+    },
     listOpenPullRequestsForHead: async () => [{ number: 30 }],
-    createIssueComment: async (...args) => calls.push(['createIssueComment', ...args]),
+    createIssueComment: async (...args) => {
+      calls.push(['createIssueComment', ...args]);
+      return { id: 99 };
+    },
     updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
     startAgentTask: async (request) => {
       calls.push(['startAgentTask', request]);
@@ -288,6 +293,7 @@ test('accepts a rewritten initial branch checkpoint using durable repository evi
   const start = calls.find(([name]) => name === 'startAgentTask');
   assert.equal(start[1].headRef, 'copilot/add-platform');
   assert.equal(start[1].createPullRequest, false);
+  assert.deepEqual([...new Set(contentRefs)], [sha('b')]);
   assert.deepEqual(dispatchEnvelope(start[1].prompt), {
     version: 1,
     changeRef: 'add-platform',
@@ -301,6 +307,75 @@ test('accepts a rewritten initial branch checkpoint using durable repository evi
       headSha: sha('b'),
     },
   });
+});
+
+test('defers validation without a ledger when the completed branch is still settling', async () => {
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const calls = [];
+  const contentRefs = [];
+  let branchRead = 0;
+  const client = initialClient({
+    listIssueComments: async () => [{ id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } }],
+    getAgentTask: async () => ({
+      id: 'task-1',
+      state: 'completed',
+      artifacts: [{ type: 'branch', data: { head_ref: 'copilot/add-platform', base_ref: 'main' } }],
+      sessions: [{ id: 'session-1' }],
+    }),
+    getBranch: async () => {
+      branchRead += 1;
+      return { commit: { sha: branchRead === 1 ? sha('b') : sha('c') } };
+    },
+    getTextContent: async (path, ref) => {
+      contentRefs.push(ref);
+      return repositoryContent(
+        path,
+        '- [x] 1.1 Done. Capabilities: implementation.',
+      );
+    },
+    listOpenPullRequestsForHead: async () => [{ number: 30 }],
+    startAgentTask: async (request) => {
+      calls.push(['startAgentTask', request]);
+      return { id: 'task-2' };
+    },
+    createIssueComment: async (...args) => {
+      calls.push(['createIssueComment', ...args]);
+      return { id: 99 };
+    },
+  });
+
+  const result = await reconcileIssue({
+    client,
+    issue: baseIssue(),
+    agentToken: 'agent-token',
+    getSessionLog: async () => capabilityResult(),
+    now,
+  });
+
+  assert.deepEqual(result, {
+    action: 'waiting',
+    reasons: ['branch-settling'],
+    expectedSha: sha('b'),
+    observedSha: sha('c'),
+  });
+  assert.equal(calls.some(([name]) => name === 'createIssueComment'), false);
+  assert.deepEqual([...new Set(contentRefs)], [sha('b')]);
+
+  const settled = await reconcileIssue({
+    client,
+    issue: baseIssue(),
+    agentToken: 'agent-token',
+    getSessionLog: async () => capabilityResult(),
+    now,
+  });
+
+  assert.deepEqual(settled, {
+    action: 'dispatched',
+    operation: 'verify',
+    attempt: 1,
+    taskId: 'task-2',
+  });
+  assert.deepEqual([...new Set(contentRefs)], [sha('b'), sha('c')]);
 });
 
 test('dispatches the next apply task on the same branch before verify', async () => {
@@ -441,6 +516,57 @@ test('rejects mutations outside an isolated capability task checkbox', async () 
   });
 
   assert.deepEqual(result, { action: 'needs_attention', reason: 'invalid-result' });
+});
+
+test('publishes structured safe diagnostics and links the immutable ledger', async () => {
+  const stateBody = '<!-- openspec-queue-state:v1\n{"version":1,"changeRef":"add-platform","issueNumber":12,"status":"dispatched","operation":"apply","attempt":1,"taskId":"task-1","sessionId":"session-1","applyTaskId":"1.1","applyTaskCapabilities":["implementation"],"completedApplyTaskIds":["1.0"],"baseRef":"main","headRef":"copilot/add-platform","beforeSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","pullRequestNumber":30,"updatedAt":"2026-09-24T17:00:00Z"}\n-->';
+  const attentionBody = '<!-- openspec-queue-attention:v1 -->\nold attention';
+  const calls = [];
+  const client = initialClient({
+    listIssueComments: async () => [
+      { id: 20, body: stateBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } },
+      { id: 21, body: attentionBody, updated_at: '2026-09-24T17:00:00Z', user: { login: 'github-actions[bot]' } },
+    ],
+    getAgentTask: async () => ({
+      id: 'task-1',
+      state: 'completed',
+      artifacts: [{ type: 'branch', data: { head_ref: 'copilot/add-platform', base_ref: 'main' } }],
+      sessions: [{ id: 'session-1' }],
+    }),
+    getBranch: async () => ({ commit: { sha: sha('b') } }),
+    compareCommits: async () => ({
+      status: 'ahead',
+      files: [{ filename: 'openspec/changes/add-platform/tasks.md' }],
+    }),
+    createIssueComment: async (...args) => {
+      calls.push(['createIssueComment', ...args]);
+      return { id: 99 };
+    },
+    updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
+  });
+
+  const result = await reconcileIssue({
+    client,
+    issue: baseIssue(),
+    agentToken: 'agent-token',
+    getSessionLog: async () => capabilityResult({
+      artifactsChanged: ['src/platform/unexpected.cs'],
+    }),
+    now,
+  });
+
+  assert.deepEqual(result, { action: 'needs_attention', reason: 'invalid-result' });
+  const attentionUpdate = calls.find(([name, id]) => name === 'updateIssueComment' && id === 21);
+  assert.ok(attentionUpdate);
+  const body = attentionUpdate[2];
+  assert.match(body, /Failure code:\*\* `changed-paths-mismatch`/);
+  assert.match(body, /Controller checkpoint:\*\* `a{40}`/);
+  assert.match(body, /Observed branch SHA:\*\* `b{40}`/);
+  assert.match(body, /Credited apply tasks:\*\* `1\.0`/);
+  assert.match(body, /Expected evidence:\*\* `\["openspec\/changes\/add-platform\/tasks\.md"\]`/);
+  assert.match(body, /Observed evidence:\*\* `\["src\/platform\/unexpected\.cs"\]`/);
+  assert.match(body, /issues\/12#issuecomment-99/);
+  assert.doesNotMatch(body, /OPEN_SPEC_CAPABILITY_RESULT/);
 });
 
 test('accepts only the selected checkbox mutation for an isolated capability', async () => {
@@ -725,7 +851,10 @@ test('stops waiting-for-user tasks with a durable ledger entry', async () => {
       sessions: [{ id: 'session-1' }],
     }),
     getBranch: async () => ({ commit: { sha: sha('a') } }),
-    createIssueComment: async (...args) => calls.push(['createIssueComment', ...args]),
+    createIssueComment: async (...args) => {
+      calls.push(['createIssueComment', ...args]);
+      return { id: 99 };
+    },
     updateIssueComment: async (...args) => calls.push(['updateIssueComment', ...args]),
   });
   const result = await reconcileIssue({
@@ -735,7 +864,10 @@ test('stops waiting-for-user tasks with a durable ledger entry', async () => {
     now,
   });
   assert.deepEqual(result, { action: 'needs_attention', reason: 'waiting_for_user' });
-  assert.equal(calls.filter(([name]) => name === 'createIssueComment').length, 1);
+  const createdComments = calls.filter(([name]) => name === 'createIssueComment');
+  assert.equal(createdComments.length, 2);
+  assert.match(createdComments[1][2], /Failure code:\*\* `agent-task-waiting-for-user`/);
+  assert.match(createdComments[1][2], /issues\/12#issuecomment-99/);
 });
 
 test('stops at awaiting human review after archive passes', async () => {

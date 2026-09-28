@@ -215,12 +215,13 @@ controller-owned identifiers, not agent-supplied paths or URLs. The controller
 rejects prose, Markdown fences, prefixes, suffixes, arrays, multiple objects,
 unknown schemas, and incomplete or ambiguous final responses.
 Reconciliation accepts a result only when the task and capability set match,
-the reported resulting SHA and changed paths match repository evidence, that
-exact task changed to complete, every task that was previously complete remains
-complete, and no other pending task was completed by the operation. The
-controller proves the durable final branch is ahead of its own pre-task
-checkpoint. The result does not report a starting SHA because GitHub may rewrite
-the agent-observed branch-creation commit during publication. A successful
+the reported changed paths match repository evidence, that exact task changed
+to complete, every task that was previously complete remains complete, and no
+other pending task was completed by the operation. The controller owns both Git
+checkpoints: it proves the durable final branch is ahead of its pre-task
+checkpoint and reads validation evidence at that immutable final commit. The
+result does not report either checkpoint because GitHub may finalize or rewrite
+agent-observed commits during publication. A successful
 intermediate apply result stays in the apply stage with attempt 1 for the next
 selected task. A retry retains the same selected task and increments only that
 task's attempt.
@@ -278,7 +279,13 @@ The controller reconstructs ordered assistant responses from the Copilot
 session event stream and parses only the final completed response. A valid JSON
 result remains supporting evidence: reconciliation still validates persisted
 repository state, changed paths, task transitions, and commit checkpoints
-before advancing.
+before advancing. Agent results do not report Git SHAs. After an Agent Task
+completes, the controller captures the branch head, reads all task and
+capability evidence at that immutable commit, and rechecks the branch head
+before crediting the operation. A branch that moves during this validation is
+treated as transient settling: reconciliation waits and retries without
+consuming the operation retry, writing a failure ledger, or applying
+`openspec:needs-attention`.
 
 ## Failure and recovery
 
@@ -289,6 +296,12 @@ before advancing.
   checkpoint.
 - `cancelled` and `waiting_for_user` are never retried automatically.
 - A second failure records recovery guidance and stops.
+- Terminal evidence failures update one managed attention comment with a stable
+  failure code, expected and observed evidence when applicable, branch and
+  controller checkpoints, already credited apply tasks, Agent Task and pull
+  request links, a link to the immutable ledger entry, and an exact bounded
+  recovery action. Raw assistant responses and unbounded exception content are
+  never published.
 - Closing the archive pull request without merging restores the issue projection
   to the active change on `main` and records a human-attention state.
 - Recovering a failed initial dispatch requires preserving its immutable ledger

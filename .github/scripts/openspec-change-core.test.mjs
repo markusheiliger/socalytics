@@ -617,7 +617,6 @@ test('parses one structured capability result envelope', () => {
     taskId: '1.1',
     capabilities: ['architecture', 'implementation'],
     verdict: 'pass',
-    resultingSha: 'b'.repeat(40),
     artifactsChanged: ['src/platform/file.cs'],
     validation: [{ command: 'dotnet test', outcome: 'passed' }],
     summary: 'Task complete.',
@@ -652,6 +651,13 @@ test('parses one structured capability result envelope', () => {
   assert.throws(
     () => parseQueueOperationResult('{"changeRef":"add-platform"}'),
     /schema must be a non-empty string/,
+  );
+  assert.throws(
+    () => parseQueueOperationResult(JSON.stringify({
+      ...expected,
+      resultingSha: 'b'.repeat(40),
+    })),
+    /unknown field\(s\): resultingSha/,
   );
   assert.throws(
     () => parseQueueOperationResult('{"schema":"unknown-result-v1"}'),

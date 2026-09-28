@@ -39,7 +39,9 @@ The object identifies its trusted contract with
 identifiers, never caller-controlled paths or URLs. Prose, Markdown fences,
 prefixes, suffixes, arrays, multiple objects, and unknown schema IDs are
 rejected. The result is supporting evidence; branch-visible task state,
-changed paths, and commit checkpoints remain authoritative.
+changed paths, and controller-owned commit checkpoints remain authoritative.
+The result does not report Git SHAs because GitHub may finalize or rewrite
+agent-observed commits while publishing a completed Agent Task.
 
 The OpenSpec CLI does not discover or validate this directory. Repository
 tooling validates these contracts and passes their exact paths to the unchanged
