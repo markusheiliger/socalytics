@@ -4,6 +4,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" />
   </ItemGroup>
 </Project>
