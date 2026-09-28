@@ -114,6 +114,15 @@ The planned PostgreSQL ownership map is:
 - shared migration infrastructure owns `socalytics_migrations.history`, which
   records module sequence and checksum but contains no domain state.
 
+The shared persistence boundary owns only module-neutral connection/session,
+transaction, concurrency, and migration infrastructure. It does not own module
+schemas, SQL, or domain state. In local and test databases, each module has
+stable `NOLOGIN` owner and runtime roles: its owner role owns only its schema and
+migration objects, and its runtime role has only normal access to that schema.
+Peer-schema access is revoked. The bootstrap connection is restricted to
+migration orchestration and is not available to module services. These role
+semantics do not select production identities, credentials, or their delivery.
+
 Module schema definitions and SQL remain internal to their owning assemblies.
 The API host references public registration and application contracts rather
 than module persistence types. The Registry module includes the queryable
@@ -127,6 +136,17 @@ control-plane deployment unless measured scaling later justifies extraction.
 This persistence and messaging baseline remains unimplemented; the current host
 has no PostgreSQL, Npgsql, Dapper, DbUp, NATS JetStream, S3-compatible storage,
 migrations, outbox, or infrastructure integration.
+
+### Shared Persistence ADR Disposition
+
+No ADR is added for the shared persistence boundary or local/test database-role
+model. The repository ADR policy reserves records for useful rationale about
+consequential changes to established or implemented architecture. This
+foundation refines the adopted but not-yet-implemented persistence target; it
+does not change an established persistence implementation. The boundary and
+role semantics are recorded here, while the active OpenSpec design retains the
+alternatives considered. Reassess the ADR threshold if implementation evidence
+requires a consequential architectural change.
 
 Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Dapper
 provide database access; Entity Framework Core is not part of the baseline.

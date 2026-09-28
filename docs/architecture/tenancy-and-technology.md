@@ -60,6 +60,11 @@ membership and Club/Team grants, `recordings` for immutable recording lineage,
 durable run and result lineage. Shared migration history is isolated in
 `socalytics_migrations`; it owns no domain records.
 
+The module-neutral shared persistence boundary and local/test owner/runtime-role
+model are defined in the
+[Platform Implementation Profile](platform-implementation.md#planned-control-plane-ownership).
+Production identities, credentials, and their delivery remain unresolved.
+
 Architecture and PostgreSQL tests must verify that the Club row is a singleton,
 hierarchy parents are required, protected resources resolve to Team scope,
 revoked and cross-Team grants do not authorize access, and internal tables,
