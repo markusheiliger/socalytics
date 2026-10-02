@@ -75,6 +75,9 @@ public static class PersistenceServiceCollectionExtensions
         services.TryAddKeyedSingleton<IModuleConnectionFactory>(
             module,
             (sp, _) => new ModuleConnectionFactory(module, sp.GetRequiredService<RuntimeDataSourceHolder>().DataSource));
+        services.TryAddKeyedSingleton<IModuleTransactionExecutor>(
+            module,
+            (sp, _) => new ModuleTransactionExecutor(sp.GetRequiredKeyedService<IModuleConnectionFactory>(module)));
         return services;
     }
 
