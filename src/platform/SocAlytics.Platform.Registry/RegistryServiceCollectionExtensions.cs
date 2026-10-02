@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocAlytics.Platform.Persistence;
 
 namespace SocAlytics.Platform.Registry;
 
@@ -9,7 +10,14 @@ public static class RegistryServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<RegistryModuleMarker>();
+        if (services.Any(descriptor => descriptor.ServiceType == typeof(RegistryModuleMarker)))
+        {
+            return services;
+        }
+
+        services.AddSingleton<RegistryModuleMarker>();
+        services.AddModuleMigrations(new RegistryMigrationContributor());
+        services.AddModulePersistence(PersistenceModuleKey.Registry);
 
         return services;
     }
