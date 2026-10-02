@@ -4,6 +4,7 @@ using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using Shouldly;
 using SocAlytics.Platform.AgentOrchestration;
 using SocAlytics.Platform.Analysis;
@@ -18,24 +19,23 @@ namespace SocAlytics.Platform.Host.Tests;
 public sealed class PlatformHostTests
 {
     private const string ApiResourceName = "api";
+    private const string DatabaseResourceName = "platform";
 
     [Fact]
-    public async Task AppHostStartsApiWithLivenessOpenApiAndUnreadyHealthWithoutDatabase()
+    public async Task AppHostMigratesPostgreSqlAndServesHealthyApiAcrossRepeatStartup()
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
-        var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.SocAlytics_Platform_AppHost>(timeout.Token);
-        await using var app = await appHost.BuildAsync(timeout.Token);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 
+        // Restarting the API re-runs migrations against the already-migrated database.
+        await using var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.SocAlytics_Platform_AppHost>(timeout.Token);
+        await using var app = await appHost.BuildAsync(timeout.Token);
         await app.StartAsync(timeout.Token);
-        await app.ResourceNotifications.WaitForResourceAsync(ApiResourceName, KnownResourceStates.Running, timeout.Token);
+        await app.ResourceNotifications.WaitForResourceHealthyAsync(DatabaseResourceName, timeout.Token);
+        await app.ResourceNotifications.WaitForResourceHealthyAsync(ApiResourceName, timeout.Token);
 
         using var client = app.CreateHttpClient(ApiResourceName);
         await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);
-
-        // Until task 4.2 composes PostgreSQL, readiness must stay unavailable because migrations cannot run.
-        using var healthResponse = await client.GetAsync("/health", timeout.Token);
-        healthResponse.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
-
+        await ShouldReturnSuccessAsync(client, "/health", timeout.Token);
 
         using var openApiResponse = await client.GetAsync("/openapi/v1.json", timeout.Token);
         openApiResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -44,6 +44,19 @@ public sealed class PlatformHostTests
         using var openApiDocument = await JsonDocument.ParseAsync(openApiStream, cancellationToken: timeout.Token);
         openApiDocument.RootElement.GetProperty("info").GetProperty("version").GetString().ShouldBe("v1");
         openApiDocument.RootElement.GetProperty("paths").EnumerateObject().Count().ShouldBe(0);
+
+        var connectionString = await app.GetConnectionStringAsync(DatabaseResourceName, timeout.Token);
+        await using (var connection = new NpgsqlConnection(connectionString))
+        {
+            await connection.OpenAsync(timeout.Token);
+            await using var command = new NpgsqlCommand(
+                "select count(*) from information_schema.schemata where schema_name = 'socalytics_migrations'", connection);
+            ((long)(await command.ExecuteScalarAsync(timeout.Token))!).ShouldBe(1);
+        }
+
+        await app.ResourceCommands.ExecuteCommandAsync(ApiResourceName, KnownResourceCommands.RestartCommand, timeout.Token);
+        await app.ResourceNotifications.WaitForResourceHealthyAsync(ApiResourceName, timeout.Token);
+        await ShouldReturnSuccessAsync(app.CreateHttpClient(ApiResourceName), "/health", timeout.Token);
     }
 
     [Fact]
