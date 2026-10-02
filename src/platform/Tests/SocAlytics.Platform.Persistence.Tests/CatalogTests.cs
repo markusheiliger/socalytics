@@ -108,29 +108,29 @@ public sealed class CatalogTests(PostgresFixture postgres) : IClassFixture<Postg
         foreach (var m in PersistenceModuleKey.All)
         {
             (await QueryAsync(cs, $"SELECT has_schema_privilege('{m.RuntimeRoleName}', '{m.SchemaName}', 'USAGE')::text"))
-                .ShouldBe(["True"]);
+                .ShouldBe(["true"]);
             (await QueryAsync(cs, $"SELECT has_schema_privilege('{m.RuntimeRoleName}', '{m.SchemaName}', 'CREATE')::text"))
-                .ShouldBe(["False"]);
+                .ShouldBe(["false"]);
             (await QueryAsync(cs, $"SELECT has_schema_privilege('{m.RuntimeRoleName}', 'socalytics_migrations', 'USAGE')::text"))
-                .ShouldBe(["False"]);
+                .ShouldBe(["false"]);
             (await QueryAsync(cs, $"SELECT has_table_privilege('{m.RuntimeRoleName}', 'socalytics_migrations.history', 'SELECT')::text"))
-                .ShouldBe(["False"]);
+                .ShouldBe(["false"]);
             (await QueryAsync(cs, $"SELECT has_schema_privilege('{m.RuntimeRoleName}', 'public', 'CREATE')::text"))
-                .ShouldBe(["False"]);
+                .ShouldBe(["false"]);
             (await QueryAsync(cs, $"SELECT has_database_privilege('{m.RuntimeRoleName}', current_database(), 'CREATE')::text"))
-                .ShouldBe(["False"]);
+                .ShouldBe(["false"]);
 
             foreach (var peer in PersistenceModuleKey.All.Where(k => k != m))
             {
                 (await QueryAsync(cs,
                     $"SELECT (has_schema_privilege('{m.RuntimeRoleName}', '{peer.SchemaName}', 'USAGE') OR has_schema_privilege('{m.RuntimeRoleName}', '{peer.SchemaName}', 'CREATE'))::text"))
-                    .ShouldBe(["False"]);
+                    .ShouldBe(["false"]);
                 (await QueryAsync(cs, $"SELECT pg_has_role('{m.RuntimeRoleName}', '{peer.OwnerRoleName}', 'USAGE')::text"))
-                    .ShouldBe(["False"]);
+                    .ShouldBe(["false"]);
             }
 
             (await QueryAsync(cs, $"SELECT pg_has_role('{m.RuntimeRoleName}', '{m.OwnerRoleName}', 'USAGE')::text"))
-                .ShouldBe(["False"]);
+                .ShouldBe(["false"]);
         }
     }
 
