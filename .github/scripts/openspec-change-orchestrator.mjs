@@ -896,6 +896,12 @@ function dispatchEnvelope(state, { operation, attempt, task, headSha }) {
   };
 }
 
+export function sessionStepLabel(current) {
+  const task = current.operation === 'apply' && current.task ? ` ${current.task.id}` : '';
+  const attempt = current.attempt > 1 ? ` (attempt ${current.attempt})` : '';
+  return `${current.operation}${task}${attempt}`;
+}
+
 async function startSession(ctx, state, envelope) {
   if (ctx.runtime === 'copilot') {
     const task = await ctx.client.startAgentTask({
@@ -911,6 +917,7 @@ async function startSession(ctx, state, envelope) {
     pr: String(state.pr),
     dispatch_id: state.current.dispatchId,
     branch: state.branch,
+    step: sessionStepLabel(state.current),
   });
   if (!started?.workflow_run_id) return null;
   return { runtime: 'actions', id: String(started.workflow_run_id), state: 'queued', url: started.html_url };

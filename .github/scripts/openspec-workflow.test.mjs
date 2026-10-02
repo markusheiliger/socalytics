@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { AGENT_WORKFLOW_JOB_NAMES, applyWorkflowJobNames } from './openspec-change-workflow-names.mjs';
-import { AGENT_WORKFLOW } from './openspec-change-orchestrator.mjs';
+import { AGENT_WORKFLOW, sessionStepLabel } from './openspec-change-orchestrator.mjs';
 
 const workflow = readFileSync(new URL('../workflows/openspec-orchestrator.yml', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const lines = workflow.split('\n');
@@ -117,9 +117,16 @@ const agentLock = readFileSync(new URL('../workflows/openspec-agent.lock.yml', i
 
 test('dispatches the compiled agentic workflow the controller names', () => {
   assert.equal(AGENT_WORKFLOW, 'openspec-agent.lock.yml');
-  assert.match(agentSource, /^run-name: "openspec agent · #\$\{\{ inputs\.pr \}\} \$\{\{ inputs\.branch \}\} · \$\{\{ inputs\.dispatch_id \}\}"$/m);
+  assert.match(agentSource, /^run-name: "openspec agent · #\$\{\{ inputs\.pr \}\} \$\{\{ inputs\.branch \}\} · \$\{\{ inputs\.step \|\| 'session' \}\} · \$\{\{ inputs\.dispatch_id \}\}"$/m);
+  assert.match(agentLock, /^run-name: "openspec agent · #\$\{\{ inputs\.pr \}\} \$\{\{ inputs\.branch \}\} · \$\{\{ inputs\.step \|\| 'session' \}\} · \$\{\{ inputs\.dispatch_id \}\}"$/m);
   assert.match(agentSource, /check-branch-protection: false/);
-  assert.match(agentSource, /workflow_dispatch:\n    inputs:\n      pr:[\s\S]*dispatch_id:/);
+  assert.match(agentSource, /workflow_dispatch:\n    inputs:\n      pr:[\s\S]*dispatch_id:[\s\S]*step:/);
+});
+
+test('labels agent runs with the operation, task, and retry attempt', () => {
+  assert.equal(sessionStepLabel({ operation: 'apply', task: { id: '2.3' }, attempt: 1 }), 'apply 2.3');
+  assert.equal(sessionStepLabel({ operation: 'apply', task: { id: '2.3' }, attempt: 2 }), 'apply 2.3 (attempt 2)');
+  assert.equal(sessionStepLabel({ operation: 'verify', task: null, attempt: 1 }), 'verify');
 });
 
 test('runs the agent without a personal access token and without push rights', () => {

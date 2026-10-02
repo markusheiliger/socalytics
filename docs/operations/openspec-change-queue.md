@@ -224,6 +224,9 @@ for example `Apply next task (add-club-identity-foundation)`.
 Operation jobs run as matrices with `fail-fast: false`, so one broken change
 never blocks another. Each run title states its trigger, for example
 `OpenSpec orchestrator · enqueued #4 by @alice` or `OpenSpec orchestrator · watchdog`.
+Agent runs name the pull request, branch, step, and dispatch id, for example
+`openspec agent · #24 openspec/<change> · apply 2.3 (attempt 2) · <dispatch id>`.
+The step is display-only; the agent builds its prompt from the lifecycle state.
 
 ## Pull request: processing state and change log
 
