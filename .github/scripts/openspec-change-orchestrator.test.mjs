@@ -860,7 +860,7 @@ test('shows platform test failures on the pull request checks and in the stopped
   }
   assert.equal(lifecycleState(github, pr).gate.kind, 'failure');
   const stopped = github.comments.get(pr.number).find((comment) => comment.body.includes(': stopped')).body;
-  assert.match(stopped, /the platform tests failed at abc[\s\S]*Failure details[\s\S]*Expected 3 but was 2/);
+  assert.match(stopped, /the platform tests failed at abc[\s\S]*Failure details<\/summary>\n\n```text\nFailed test: MigrationTests\.Applies\n[\s\S]*Expected 3 but was 2/);
 });
 
 test('rejects unknown agent runtimes', () => {
@@ -963,4 +963,24 @@ test('summarizes build errors first, bounds the summary, and falls back to the l
   assert.equal(bounded.length, 120);
   assert.match(bounded, /^Failed test: .*…$/s);
   assert.equal(summarizeTestLog('line 1\nline 2\nThe test host crashed'), 'line 1\nline 2\nThe test host crashed');
+});
+
+test('keeps test error messages short and drops embedded stack frames', () => {
+  const log = [
+    '  Failed Host.Tests.Restart [5 m 3 s]',
+    '  Error Message:',
+    "   System.OperationCanceledException : Resource 'api' failed to reach one of the target states: [Exited] before the operation was cancelled.",
+    '  - Current State: Unknown',
+    ...Array.from({ length: 20 }, (_, index) => `  - Health report ${index}`),
+    '  at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error)',
+    '  Stack Trace:',
+    '   at Host.Tests.Restart() in /home/runner/work/socalytics/socalytics/src/platform/Tests/HostTests.cs:line 63',
+    'Failed!  - Failed:     1, Passed:     5, Skipped:     0, Total:     6, Duration: 5 m 3 s - Host.Tests.dll (net10.0)',
+  ].join('\n');
+  const summary = summarizeTestLog(log);
+  const message = summary.split('\n').slice(2, summary.split('\n').indexOf('Stack (repository frames):'));
+  assert.equal(message.length, 12);
+  assert.match(message[0], /failed to reach one of the target states: \[Exited\]/);
+  assert.doesNotMatch(summary, /AwaitableSocketAsyncEventArgs/);
+  assert.match(summary, /at Host\.Tests\.Restart\(\) in src\/platform\/Tests\/HostTests\.cs:line 63/);
 });

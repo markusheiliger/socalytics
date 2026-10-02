@@ -538,6 +538,7 @@ function tail(text, lines = 80) {
 
 const TEST_RESULT_LINE = /^\s*(Failed|Passed|Skipped) \S+ \[[^\]]*\]\s*$/;
 const MAX_FRAMES_PER_FAILURE = 6;
+const MAX_MESSAGE_LINES = 12;
 
 // Condenses a dotnet test log into what an agent needs to fix a failure: build errors, then
 // each failed test with its full error message, the repository's own stack frames, and test
@@ -553,6 +554,7 @@ export function summarizeTestLog(text, limit = MAX_FEEDBACK) {
     const block = [`Failed test: ${failed[1]}`];
     let section = null;
     let frames = 0;
+    let messageLines = 0;
     let next = index + 1;
     for (; next < lines.length; next += 1) {
       const line = lines[next];
@@ -562,7 +564,10 @@ export function summarizeTestLog(text, limit = MAX_FEEDBACK) {
       if (trimmed === 'Stack Trace:') { section = 'stack'; block.push('Stack (repository frames):'); continue; }
       if (trimmed === 'Standard Output Messages:') { section = 'output'; block.push('Test output:'); continue; }
       if (section === 'stack' && trimmed.startsWith('----- Inner Stack Trace')) { section = 'inner'; continue; }
-      if (section === 'message' && trimmed) block.push(`  ${trimmed}`);
+      if (section === 'message' && trimmed && !/^at /.test(trimmed) && messageLines < MAX_MESSAGE_LINES) {
+        block.push(`  ${trimmed}`);
+        messageLines += 1;
+      }
       if (section === 'output' && trimmed) block.push(`  ${trimmed}`);
       if (section === 'stack' && frames < MAX_FRAMES_PER_FAILURE && /:line \d+$/.test(trimmed) && !trimmed.includes(' in /_/')) {
         const frame = `  ${trimmed.replace(/ in \/home\/runner\/work\/[^/]+\/[^/]+\//, ' in ')}`;

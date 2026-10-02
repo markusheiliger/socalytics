@@ -263,9 +263,11 @@ export function sessionFinishedEntry({ before, after, result, checkpoint = null,
   }
 }
 
+// Feedback is already bounded and leads with the most important lines (a test summary or human
+// guidance), so render it from the start.
 function failureDetails(feedback, reason, summary) {
   if (!feedback || feedback === reason) return null;
-  return { summary, lines: ['```text', feedback.replace(/```/g, "'''").slice(-3000), '```'] };
+  return { summary, lines: ['```text', feedback.replace(/```/g, "'''"), '```'] };
 }
 
 export function gateEntry({ state, context }) {
