@@ -60,6 +60,13 @@ membership and Club/Team grants, `recordings` for immutable recording lineage,
 durable run and result lineage. Shared migration history is isolated in
 `socalytics_migrations`; it owns no domain records.
 
+The planned shared persistence boundary and local/test owner/runtime-role
+isolation contract, including the rationale for resolving the ADR candidate
+without a standalone record, are defined by
+[Persistence Boundary And Database Roles](platform-implementation.md#persistence-boundary-and-database-roles).
+They do not establish executable isolation evidence or production identities
+and credentials.
+
 Architecture and PostgreSQL tests must verify that the Club row is a singleton,
 hierarchy parents are required, protected resources resolve to Team scope,
 revoked and cross-Team grants do not authorize access, and internal tables,

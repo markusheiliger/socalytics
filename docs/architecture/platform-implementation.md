@@ -132,6 +132,51 @@ Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Da
 provide database access; Entity Framework Core is not part of the baseline.
 DbUp applies ordered, versioned PostgreSQL SQL scripts grouped by owning module.
 
+### Persistence Boundary And Database Roles
+
+The [persistence-foundation design](../../openspec/changes/add-platform-persistence-foundation/design.md)
+refines this unimplemented baseline with a planned shared peer project,
+`SocAlytics.Platform.Persistence`. It owns module-neutral Npgsql connection
+setup, Dapper support, explicit transactions, optimistic-concurrency signaling,
+and checksum-aware migration orchestration and history. It owns only
+`socalytics_migrations`, never a capability schema, domain record, or domain SQL.
+Each capability references this boundary, not another capability; its SQL,
+embedded migrations, and persistence services remain internal and registered
+through its existing public composition method. The API uses shared startup and
+public module registration boundaries, not module persistence implementations.
+ServiceDefaults remains responsible for hosting and telemetry, not database
+policy; duplicating orchestration in modules or placing it in the API would
+weaken the single migration authority.
+
+For local and test PostgreSQL, the planned bootstrap creates a fixed NOLOGIN
+owner role and runtime role per adopted module. The owner owns only that
+module's schema and migration objects; migrations run as that owner. Normal
+module sessions use only that module's runtime privileges: required schema
+usage and object access, with public and peer-module access revoked. Fixed
+module identities bind sessions; modules cannot select arbitrary schemas or
+obtain the bootstrap/admin connection through application-service injection.
+Role selection must not allow normal sessions to regain bootstrap privileges
+or assume a peer or owner role. Naming conventions alone are insufficient:
+PostgreSQL must reject cross-schema reads and writes without committing changes.
+
+**ADR disposition:** No standalone ADR is added under the
+[repository threshold](decisions/README.md). This resolves the shared-boundary
+and owner/runtime-role candidate as a refinement of the already adopted,
+unimplemented schema-ownership baseline, not a replacement of established
+domain ownership, runtime boundaries, or persistence behavior. The rationale
+belongs here as the current design authority; alternatives remain in the
+originating design. Reassess the ADR need if implementation evidence requires a
+consequential change to those boundaries.
+
+These are design contracts, not executable or production-security evidence.
+Architecture and disposable PostgreSQL tests must prove reference/public-surface
+isolation, schema ownership, restricted bootstrap access, and runtime
+cross-schema denial before implementation can be claimed. Production login
+identities, role mapping, secret delivery, and credential values remain
+unresolved under [Production Deployment and Operations](production-operations.md).
+
+### Logical CQRS
+
 CQRS is logical rather than physical:
 
 - commands use plain typed C# handlers resolved through .NET dependency
