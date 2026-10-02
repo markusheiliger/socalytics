@@ -25,7 +25,7 @@
 - Repository execution contracts live under `openspec/capabilities/`. Capability ids resolve directly to same-named Markdown files; there is no registry or specialist-agent routing.
 - Supported execution capabilities are `strategy`, `design`, `architecture`, `implementation`, `verification`, and `audit`.
 - Every task must declare exactly one unordered plural `Capabilities:` set. Multiple capabilities are allowed only when every selected contract is composable and compatible.
-- The queue executes one capability-backed task per Agent Task through the OOTB `openspec` agent and validates structured result evidence before advancing.
+- The `openspec` workflow starts one fresh Agent Task per capability-backed task through the OOTB `openspec` agent and validates the pushed checkpoint commit before advancing.
 - `verification` and `audit` are exclusive, isolated, checkbox-only capabilities. They report independently and do not author or remediate implementation work.
 
 ## Repository Setup
@@ -49,20 +49,22 @@
 - Add product CI workflows only after executable build, lint, or test commands exist. The OpenSpec Copilot setup workflow is repository-tooling setup, not product CI.
 - Never commit, push, configure remotes, or publish without an explicit request.
 
-## OpenSpec Change Queue
+## OpenSpec Change Processing
 
+- Explore and propose changes client-side. Implementation (apply, verify, sync, archive) runs server-side in the single `openspec` workflow (`.github/workflows/openspec.yml`) once a change is on `main`.
 - Issue twins are non-authoritative projections of active changes on `main`. The canonical change ref is stable identity; active and dated archive paths are mutable projections.
 - One combined issue reconciliation Agentic Workflow performs deterministic issue synchronization before AI dependency inference. Change-driven runs are incremental; weekly and manually requested full runs rebuild the complete inference view, and manual dry runs make no mutations.
-- Dependency inference checkpoints are a rebuildable cache in `refs/notes/openspec-change-dependencies`. Fetch that ref explicitly when inspecting incremental behavior; the notes are not accepted state or queue authority.
-- `openspec:change` classifies twins. `openspec:enqueued` is a one-shot queue request consumed when processing begins; `openspec:processing`, `openspec:stage:*`, `openspec:needs-attention`, and `openspec:awaiting-review` expose the reconciled lifecycle. There is no paused state.
-- Native GitHub issue dependencies are the only blocked-state authority.
-- The controller uses the Agent Tasks API rather than native Copilot issue assignment because assignment immediately starts an uncontrolled duplicate session.
-- The queue runs apply, verify, sync, and archive on one durable draft pull request. One Agent Task may run per change at a time, and every successful operation must end at a new pushed checkpoint commit on that branch.
-- Reconciliation validates the checkpoint commit, remote branch state, and append-only operation ledger entries. Agent Task status and final chat output are supplemental evidence rather than success authority.
+- Dependency inference checkpoints are a rebuildable cache in `refs/notes/openspec-change-dependencies`. Fetch that ref explicitly when inspecting incremental behavior; the notes are not accepted state or processing authority.
+- The issue holds queue state only. `openspec:change` classifies twins and `openspec:enqueued` is the one-shot processing request, honored only when a user with write access applied it. `openspec:processing`, `openspec:needs-attention`, and `openspec:awaiting-review` are workflow outputs. Native GitHub issue dependencies are the only blocked-state authority.
+- Each admitted change gets a workflow-created `openspec/<change>` branch and draft pull request. Processing state lives only in the `OpenSpec lifecycle` check run on the pull request head; comments are a human-readable change log and are never read as state.
+- The workflow is event-driven and short-lived: it never polls. Agent checkpoint pushes, `/openspec` pull-request comments, enqueue labels, merges, and a 15-minute watchdog wake it; every run reconciles every change under one repository-wide lock.
+- The workflow uses the Agent Tasks API with `head_ref` on the draft pull request rather than native Copilot issue assignment, which would start an uncontrolled duplicate session.
+- Every agent session ends with one pushed commit carrying an `OpenSpec-JSON:` checkpoint trailer (`complete`, `partial`, `needs_decision`, or `failed`). The workflow validates it at that exact commit before crediting; Agent Task status is supplemental.
+- Failed, partial, or invalid sessions get one retry. Agent decisions, exhausted retries, and verify findings open human gates: any suggestion or warning opens a review gate, any critical finding opens a failure gate that cannot be approved, and a clean verify continues automatically. Humans resolve gates with `/openspec approve`, `retry`, `answer <text>`, or `abort`.
+- Archive happens on the implementation branch. Automation stops at the merge gate; a human marks the pull request ready, reviews it, and merges.
 - Cross-change inference is read-only until its typed custom safe output invokes the privileged validator and reconciler. Edit the combined Agentic Workflow source, regenerate its lock file with `gh aw compile`, and run `node .github/scripts/openspec-change-workflow-names.mjs` to apply generated-job display names; do not hand-edit the lock.
-- Failed or timed-out work receives one retry. A valid pushed checkpoint may succeed despite failed outer task status; pushed partial progress with the selected task still unchecked retries from the new branch head instead of a stale SHA. Cancellation and `waiting_for_user` always stop.
-- Automation stops after validated archive. A human approves workflows, marks the pull request ready, reviews it, and enables auto-merge.
-- Run `node --test .github/scripts/*.test.mjs` for the queue tooling tests.
+- Every job and step in `openspec.yml` must keep a readable `name:`; `openspec-workflow.test.mjs` enforces it.
+- Run `node --test .github/scripts/*.test.mjs` for the workflow tooling tests.
 
 ## Changes and Validation
 

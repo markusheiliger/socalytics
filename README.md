@@ -77,13 +77,14 @@ Start work through the generated GitHub Copilot prompts:
 - `/opsx-verify` independently checks the completed change and evidence.
 - `/opsx-archive` archives a verified change and updates accepted specs.
 
-The repository also provides `/opsx-enqueue [<change-ref> ...]` to admit one or
-more committed changes to the GitHub-backed OpenSpec queue. With no refs it
+The repository also provides `/opsx-enqueue [<change-ref> ...]` to request
+server-side processing of one or more committed changes. With no refs it
 selects every eligible change; explicit refs select a subset. The command
 validates that selected change directories are clean, strictly valid, and
 present on `origin/main`, expands native GitHub blockers as one
 dependency-complete batch, asks for confirmation, and adds
-`openspec:enqueued` to the matching issue twins.
+`openspec:enqueued` to the matching issue twins. Adding that label by hand on
+GitHub is equivalent for a single change.
 
 `/opsx-enqueue` requires `git`, OpenSpec `1.13.0`, the GitHub CLI, and an
 authenticated GitHub CLI session:
@@ -93,21 +94,19 @@ gh auth status
 ```
 
 The repository-owned `openspec-enqueue-change` skill is an equivalent,
-host-neutral entry point and is independent of the queue scripts under
+host-neutral entry point and is independent of the workflow scripts under
 `.github/scripts/`.
 
-The queue controller dispatches one Agent Task per numbered OpenSpec apply task,
-then separate `verify`, `sync`, and `archive` Agent Tasks, all on one durable
-draft pull request. Each apply dispatch names exactly one task and its
-compatible capability set from `openspec/capabilities/`; successful tasks are
-checkpointed before the next apply task is started. The unchanged generated
-OpenSpec agent executes both local and cloud workflows. Initial dispatch
-validates the `main` checkpoint by ancestry because GitHub chooses the generated
-branch and may add an empty initial commit. Every later task validates the exact
-durable branch and starting SHA before continuing. While a cloud task is active,
-the controller workflow polls its state and continues the lifecycle immediately;
-pull-request events and the scheduled trigger are recovery wake-ups rather than
-the primary progression path.
+The single `openspec` workflow (`.github/workflows/openspec.yml`) then
+implements each enqueued change on its own workflow-created `openspec/<change>`
+branch and draft pull request. It starts one fresh Copilot agent session per
+numbered apply task, then one each for verify, sync, and archive. Every session
+ends with a pushed checkpoint commit that wakes the workflow again; the
+workflow never polls. Processing state lives in the pull request's
+`OpenSpec lifecycle` check run, and the pull request comments form a numbered,
+human-readable change log. When the workflow needs a human, it asks on the pull
+request and continues after `/openspec approve`, `/openspec retry`,
+`/openspec answer <text>`, or `/openspec abort`.
 
 Useful OpenSpec repository checks are:
 
@@ -118,7 +117,7 @@ openspec validate --all --json
 openspec status --all --json
 ```
 
-The repository-owned OpenSpec change queue has focused contract tests:
+The repository-owned OpenSpec workflow tooling has focused contract tests:
 
 ```powershell
 node --test .github/scripts/*.test.mjs
@@ -141,10 +140,10 @@ node .github/scripts/openspec-change-workflow-names.mjs
 The naming step is deterministic and must not be replaced with manual lock-file
 edits.
 
-See the [OpenSpec change queue operations guide](docs/operations/openspec-change-queue.md)
+See the [OpenSpec change processing guide](docs/operations/openspec-change-queue.md)
 for its issue projection, reconciliation cadence, dependency checkpoint,
-cloud-agent, recovery, labels, and human review contracts. This automation is
-repository tooling rather than product CI.
+workflow, state, change log, gates, recovery, labels, and human review
+contracts. This automation is repository tooling rather than product CI.
 
 Architecture narratives remain authoritative for current system design;
 `openspec/specs/` is authoritative for accepted behavioral requirements.

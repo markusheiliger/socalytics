@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires the openspec, git, and gh CLIs and an authenticated GitHub CLI session.
 metadata:
   author: SocAlytics
-  version: "1.1"
+  version: "1.2"
 ---
 
 Enqueue one or more OpenSpec changes by applying the existing
@@ -103,12 +103,15 @@ checks pass:
    and `git merge-base --is-ancestor <sha> origin/main` succeeds.
 6. Exactly one issue twin has the ref, is open, and has an active marker with
    `gitRef: main` and path `openspec/changes/<ref>`.
-7. The issue has none of these labels:
+7. The issue has none of these labels, which mean a request or an open
+   processing pull request already exists:
    - `openspec:enqueued`;
    - `openspec:processing`;
-   - `openspec:needs-attention`;
-   - `openspec:awaiting-review`;
-   - any `openspec:stage:*` label.
+   - `openspec:awaiting-review`.
+8. If the issue has `openspec:needs-attention` without `openspec:processing`,
+   its previous pull request was closed without merging. Such a change is
+   eligible only when its ref was supplied explicitly; never add it to the
+   no-argument selection.
 
 Keep a reason for every rejected change. Supplied refs fail the operation when ineligible. The no-argument selection
 contains all eligible changes, including changes that currently have native
@@ -140,12 +143,13 @@ Classify each blocker:
   whose marker lifecycle is `archived`, and whose exact archived path exists on
   `main` according to the GitHub contents API.
 - **Already admitted**: the blocker is an open active OpenSpec twin carrying
-  `openspec:enqueued`, `openspec:processing`, an `openspec:stage:*` label, or
-  `openspec:awaiting-review`. It does not need to join the selection.
+  `openspec:enqueued`, `openspec:processing`, or `openspec:awaiting-review`.
+  It does not need to join the selection.
 - **Addable**: the blocker is an open active OpenSpec twin that passes every
   admission eligibility check.
 - **Blocking error**: the blocker is not an OpenSpec twin, has a malformed
-  marker, requires attention, or fails eligibility.
+  marker, was stopped (`openspec:needs-attention` without
+  `openspec:processing`), or fails eligibility.
 
 If any blocking error or cycle exists, stop without mutation and report the
 complete blocking path.
@@ -189,7 +193,7 @@ Process the topological order. Before each write, read the issue labels again.
   -f "labels[]=openspec:enqueued"`.
 - If a label write fails, record the error and skip every selected descendant
   that depends on the failed issue. Continue independent branches.
-- Do not roll back successful labels; the queue controller may already have
+- Do not roll back successful labels; the openspec workflow may already have
   consumed them.
 
 Report a table containing change ref, issue number, and one of:

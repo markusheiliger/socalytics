@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": ".github/scripts/schemas/change-checkpoint-v2.schema.json",
+  "title": "OpenSpec checkpoint commit trailer",
+  "description": "One-line JSON after the OpenSpec-JSON: trailer on the final commit of every agent session.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "change", "operation", "verdict", "summary", "validation"],
+  "properties": {
+    "$schema": { "const": ".github/scripts/schemas/change-checkpoint-v2.schema.json" },
+    "change": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "operation": { "enum": ["apply", "verify", "sync", "archive"] },
+    "task": { "type": "string", "pattern": "^\\d+(?:\\.\\d+)*$" },
+    "verdict": { "enum": ["complete", "partial", "needs_decision", "failed"] },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "validation": { "type": "string", "minLength": 1, "maxLength": 300 },
+    "question": { "type": "string", "minLength": 1, "maxLength": 1000 },
+    "findings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["critical", "warning", "suggestion", "items"],
+      "properties": {
+        "critical": { "type": "integer", "minimum": 0 },
+        "warning": { "type": "integer", "minimum": 0 },
+        "suggestion": { "type": "integer", "minimum": 0 },
+        "items": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["severity", "text"],
+            "properties": {
+              "severity": { "enum": ["critical", "warning", "suggestion"] },
+              "text": { "type": "string", "minLength": 1, "maxLength": 300 }
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "operation": { "const": "apply" } }, "required": ["operation"] },
+      "then": { "required": ["task"] },
+      "else": { "not": { "required": ["task"] } }
+    },
+    {
+      "if": { "properties": { "verdict": { "const": "needs_decision" } }, "required": ["verdict"] },
+      "then": { "required": ["question"] },
+      "else": { "not": { "required": ["question"] } }
+    },
+    {
+      "if": {
+        "properties": { "operation": { "const": "verify" }, "verdict": { "const": "complete" } },
+        "required": ["operation", "verdict"]
+      },
+      "then": { "required": ["findings"] },
+      "else": { "not": { "required": ["findings"] } }
+    }
+  ]
+}

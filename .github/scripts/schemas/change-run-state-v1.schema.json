@@ -1,0 +1,181 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": ".github/scripts/schemas/change-run-state-v1.schema.json",
+  "title": "OpenSpec change processing state",
+  "description": "Authoritative processing state stored in the output text of the OpenSpec lifecycle check run on the pull request head.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "change",
+    "issue",
+    "pr",
+    "branch",
+    "base",
+    "requestedBy",
+    "revision",
+    "headSha",
+    "phase",
+    "status",
+    "outcome",
+    "current",
+    "credited",
+    "gate",
+    "answers",
+    "commandCursor",
+    "updatedAt"
+  ],
+  "$defs": {
+    "sha": { "type": "string", "pattern": "^[a-f0-9]{40}$" },
+    "operation": { "enum": ["apply", "verify", "sync", "archive"] },
+    "taskId": { "type": "string", "pattern": "^\\d+(?:\\.\\d+)*$" },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "capabilities"],
+      "properties": {
+        "id": { "$ref": "#/$defs/taskId" },
+        "title": { "type": "string", "minLength": 1 },
+        "capabilities": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9]*$" }
+        }
+      }
+    },
+    "findings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["critical", "warning", "suggestion", "items"],
+      "properties": {
+        "critical": { "type": "integer", "minimum": 0 },
+        "warning": { "type": "integer", "minimum": 0 },
+        "suggestion": { "type": "integer", "minimum": 0 },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["severity", "text"],
+            "properties": {
+              "severity": { "enum": ["critical", "warning", "suggestion"] },
+              "text": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "$schema": { "const": ".github/scripts/schemas/change-run-state-v1.schema.json" },
+    "change": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "issue": { "type": "integer", "minimum": 1 },
+    "pr": { "type": "integer", "minimum": 1 },
+    "branch": { "type": "string", "pattern": "^openspec/[a-z0-9]+(?:-[a-z0-9]+)*$" },
+    "base": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "sha"],
+      "properties": {
+        "ref": { "type": "string", "minLength": 1 },
+        "sha": { "$ref": "#/$defs/sha" }
+      }
+    },
+    "requestedBy": { "type": "string", "minLength": 1 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "headSha": { "$ref": "#/$defs/sha" },
+    "phase": { "enum": ["apply", "verify", "sync", "archive", "merge", "done", "aborted"] },
+    "status": { "enum": ["dispatching", "running", "ready", "gated", "closed"] },
+    "outcome": { "enum": [null, "merged", "aborted", "closed-unmerged"] },
+    "current": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["operation", "task", "attempt", "startSha", "baselineSha", "agentTask", "dispatchedAt"],
+          "properties": {
+            "operation": { "$ref": "#/$defs/operation" },
+            "task": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/task" }] },
+            "attempt": { "type": "integer", "minimum": 1 },
+            "startSha": { "$ref": "#/$defs/sha" },
+            "baselineSha": { "$ref": "#/$defs/sha" },
+            "agentTask": {
+              "oneOf": [
+                { "type": "null" },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["id", "state"],
+                  "properties": {
+                    "id": { "type": "string", "minLength": 1 },
+                    "state": { "type": "string", "minLength": 1 },
+                    "url": { "type": "string" }
+                  }
+                }
+              ]
+            },
+            "dispatchedAt": { "type": ["string", "null"], "format": "date-time" }
+          }
+        }
+      ]
+    },
+    "credited": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["operation", "sha"],
+        "properties": {
+          "operation": { "$ref": "#/$defs/operation" },
+          "task": { "$ref": "#/$defs/taskId" },
+          "sha": { "$ref": "#/$defs/sha" },
+          "attempt": { "type": "integer", "minimum": 1 },
+          "log": { "type": ["integer", "null"] }
+        }
+      }
+    },
+    "gate": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "operation", "commands", "openedAt", "notified", "log"],
+          "properties": {
+            "kind": { "enum": ["decision", "review", "failure", "merge"] },
+            "operation": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/operation" }] },
+            "task": { "$ref": "#/$defs/task" },
+            "question": { "type": "string", "minLength": 1 },
+            "reason": { "type": "string", "minLength": 1 },
+            "findings": { "$ref": "#/$defs/findings" },
+            "commands": {
+              "type": "array",
+              "items": { "enum": ["approve", "retry", "answer", "abort"] }
+            },
+            "openedAt": { "type": "string", "format": "date-time" },
+            "notified": { "type": "boolean" },
+            "log": { "type": ["integer", "null"] }
+          }
+        }
+      ]
+    },
+    "answers": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "text", "by", "comment"],
+        "properties": {
+          "question": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 },
+          "by": { "type": "string", "minLength": 1 },
+          "comment": { "type": "integer", "minimum": 1 }
+        }
+      }
+    },
+    "commandCursor": { "type": "integer", "minimum": 0 },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

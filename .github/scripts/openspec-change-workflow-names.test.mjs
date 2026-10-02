@@ -53,11 +53,11 @@ test('generated workflow naming preserves unrelated workflow content', () => {
 test('repository workflows expose useful names, scoped Git auth, and the safe DAG', async () => {
   const files = await Promise.all([
     readFile(path.join(workflowsRoot, 'copilot-setup-steps.yml'), 'utf8'),
-    readFile(path.join(workflowsRoot, 'openspec-change-queue.yml'), 'utf8'),
+    readFile(path.join(workflowsRoot, 'openspec.yml'), 'utf8'),
     readFile(path.join(workflowsRoot, 'openspec-change-reconciliation.md'), 'utf8'),
     readFile(path.join(workflowsRoot, 'openspec-change-reconciliation.lock.yml'), 'utf8'),
   ]);
-  const [setup, queue, source, lock] = files.map((content) => content.replaceAll('\r\n', '\n'));
+  const [setup, orchestrator, source, lock] = files.map((content) => content.replaceAll('\r\n', '\n'));
 
   assert.match(setup, /copilot-setup-steps:\n    name: Prepare the Copilot coding agent environment/);
   assert.match(setup, /@fission-ai\/openspec@1\.13\.0/);
@@ -65,9 +65,9 @@ test('repository workflows expose useful names, scoped Git auth, and the safe DA
   assert.match(setup, /markdown-link-check@3\.15\.0/);
   assert.match(setup, /markdownlint-cli2 --version/);
   assert.match(setup, /markdown-link-check --version/);
-  assert.match(queue, /reconcile:\n    name: Reconcile the OpenSpec change queue/);
-  assert.match(queue, /timeout-minutes: 330/);
-  assert.match(queue, /node \.github\/scripts\/openspec-change-reconcile\.mjs --watch/);
+  assert.match(orchestrator, /observe:\n    name: Read current state/);
+  assert.match(orchestrator, /node \.github\/scripts\/openspec-change-orchestrator\.mjs observe/);
+  assert.doesNotMatch(orchestrator, /--watch/);
   assert.equal(applyWorkflowJobNames(lock), lock);
   assert.match(source, /group: openspec-change-reconciliation[\s\S]*queue: max/);
   assert.equal((source.match(/GIT_CONFIG_VALUE_0="AUTHORIZATION: basic \$authorization"/g) ?? []).length, 3);

@@ -4,31 +4,27 @@ import test from 'node:test';
 import {
   JSON_CONTRACTS,
   calculateManagedEdgeChanges,
-  deriveReadiness,
   mergeManagedDependencyGraph,
   mergeManagedEdgeProvenance,
   parseChangeMarker,
   parseCapabilityDefinition,
   parseCapabilityTasks,
+  parseCheckpointTrailer,
   parseDependencyCheckpoint,
   parseDependencySummary,
-  parseLedgerEntry,
-  parseQueueCheckpoint,
-  parseQueueOperationResult,
-  parseQueueState,
+  parseRunStateText,
   renderChangeMarker,
+  renderCheckpointTrailer,
   renderDependencySummary,
-  renderLedgerEntry,
-  renderQueueState,
-  retryDecision,
-  selectNextOperation,
+  renderRunStateText,
   selectNextTask,
   serializeDependencyCheckpoint,
   validateDependencyOutput,
   validateDependencyGraphPatch,
   validateMergedDependencyGraph,
   validateCapabilitySet,
-  validateOperationEvidence,
+  validateDispatch,
+  validateRunState,
   validateSynchronizedDeltas,
 } from './openspec-change-core.mjs';
 
@@ -458,260 +454,189 @@ test('round-trips strict deterministic dependency checkpoints', () => {
   );
 });
 
-test('derives runnable state only for open unblocked archived-safe issues', () => {
-  const ready = deriveReadiness({
-    issueState: 'open',
-    labels: ['openspec:change', 'openspec:enqueued'],
-    lifecycle: 'active',
-    blockers: [{ number: 10, state: 'closed', archivedOnMain: true }],
-  });
-  assert.deepEqual(ready, { runnable: true, reasons: [] });
+const sha = (c) => c.repeat(40);
 
-  const blocked = deriveReadiness({
-    issueState: 'open',
-    labels: ['openspec:change'],
-    lifecycle: 'active',
-    blockers: [{ number: 10, state: 'closed', archivedOnMain: false }],
-    activeTaskState: 'waiting_for_user',
-    needsDecision: true,
-  });
-  assert.deepEqual(blocked.reasons, [
-    'not-enqueued',
-    'needs-human-decision',
-    'agent-task-active',
-    'blocked-by:10',
-  ]);
-  assert.deepEqual(deriveReadiness({
-    issueState: 'open',
-    labels: ['openspec:enqueued'],
-    lifecycle: 'active',
-    activeTaskState: 'failed',
-    activeTaskAttempt: 2,
-  }).reasons, ['retries-exhausted']);
-});
-
-test('selects OpenSpec operations from persisted lifecycle evidence', () => {
-  assert.equal(selectNextOperation({
-    lifecycle: 'active',
-    tasksComplete: false,
-    verificationPassed: false,
-    specsSynchronized: false,
-  }), 'apply');
-  assert.equal(selectNextOperation({
-    lifecycle: 'active',
-    tasksComplete: true,
-    verificationPassed: false,
-    specsSynchronized: false,
-  }), 'verify');
-  assert.equal(selectNextOperation({
-    lifecycle: 'active',
-    tasksComplete: true,
-    verificationPassed: true,
-    specsSynchronized: false,
-  }), 'sync');
-  assert.equal(selectNextOperation({
-    lifecycle: 'active',
-    tasksComplete: true,
-    verificationPassed: true,
-    specsSynchronized: true,
-  }), 'archive');
-  assert.equal(selectNextOperation({ lifecycle: 'archived' }), 'complete');
-});
-
-test('applies the single retry policy', () => {
-  assert.equal(retryDecision('failed', 1), 'retry');
-  assert.equal(retryDecision('timed_out', 2), 'stop');
-  assert.equal(retryDecision('cancelled', 1), 'stop');
-  assert.equal(retryDecision('waiting_for_user', 1), 'stop');
-  assert.equal(retryDecision('completed', 1), 'advance');
-  assert.equal(retryDecision('in_progress', 1), 'wait');
-});
-
-test('round-trips strict operation ledger entries', () => {
-  const entry = {
-    $schema: JSON_CONTRACTS.queueLedgerEntry,
-    changeRef: 'add-platform',
-    operation: 'apply',
-    attempt: 1,
-    taskId: 'task-123',
-    sessionId: 'session-123',
-    branch: 'copilot/add-platform',
-    beforeSha: 'a'.repeat(40),
-    afterSha: 'b'.repeat(40),
-    outcome: 'succeeded',
-    validation: 'Focused tests passed.',
-    recovery: null,
-    recordedAt: '2026-09-24T16:00:00Z',
+function runState(overrides = {}) {
+  return {
+    $schema: JSON_CONTRACTS.changeRunState,
+    change: 'add-club-identity-foundation',
+    issue: 4,
+    pr: 21,
+    branch: 'openspec/add-club-identity-foundation',
+    base: { ref: 'main', sha: sha('9') },
+    requestedBy: 'markusheiliger',
+    revision: 3,
+    headSha: sha('c'),
+    phase: 'apply',
+    status: 'running',
+    outcome: null,
+    current: {
+      operation: 'apply',
+      task: { id: '2.1', title: 'Club Dapper commands', capabilities: ['implementation'] },
+      attempt: 1,
+      startSha: sha('b'),
+      baselineSha: sha('b'),
+      agentTask: { id: 'task-1', state: 'in_progress', url: 'https://github.com/x/y/tasks/1' },
+      dispatchedAt: '2026-10-02T10:41:07Z',
+    },
+    credited: [{ operation: 'apply', task: '1.1', sha: sha('a'), attempt: 1, log: 5 }],
+    gate: null,
+    answers: [],
+    commandCursor: 0,
+    updatedAt: '2026-10-02T10:41:09Z',
+    ...overrides,
   };
-  assert.deepEqual(parseLedgerEntry(renderLedgerEntry(entry)), entry);
-  assert.throws(
-    () => renderLedgerEntry({ ...entry, outcome: 'failed', recovery: null }),
-    /require recovery guidance/,
-  );
-  assert.throws(
-    () => renderLedgerEntry({ ...entry, validation: 'bad --> delimiter' }),
-    /HTML comment delimiter/,
-  );
-});
+}
 
-test('requires operation-specific persisted evidence and coherent checkpoints', () => {
-  assert.deepEqual(validateOperationEvidence({
-    operation: 'apply',
-    outcome: 'succeeded',
-    beforeSha: 'a'.repeat(40),
-    afterSha: 'b'.repeat(40),
-    filesChanged: true,
-    tasksComplete: true,
-  }), { valid: true, reason: null });
-  assert.deepEqual(validateOperationEvidence({
-    operation: 'verify',
-    outcome: 'succeeded',
-    beforeSha: 'a'.repeat(40),
-    afterSha: 'b'.repeat(40),
-    filesChanged: false,
-    verificationPassed: false,
-  }), { valid: false, reason: 'verify-evidence-missing' });
-  assert.deepEqual(validateOperationEvidence({
-    operation: 'sync',
-    outcome: 'succeeded',
-    beforeSha: 'a'.repeat(40),
-    afterSha: 'a'.repeat(40),
-    filesChanged: true,
-    specsSynchronized: true,
-  }), { valid: false, reason: 'checkpoint-not-advanced' });
-  assert.deepEqual(validateOperationEvidence({
-    operation: 'archive',
-    outcome: 'succeeded',
-    beforeSha: 'invalid',
-    afterSha: 'invalid',
-    filesChanged: false,
-    lifecycle: 'archived',
-  }), { valid: false, reason: 'invalid-checkpoint' });
-});
-
-test('parses one strict queue checkpoint trailer from a commit message', () => {
+test('parses at most one strict checkpoint trailer from a commit message', () => {
   const checkpoint = {
-    $schema: JSON_CONTRACTS.queueCheckpoint,
-    changeRef: 'add-platform',
+    $schema: JSON_CONTRACTS.changeCheckpoint,
+    change: 'add-platform',
     operation: 'apply',
-    taskId: '1.2',
-    verdict: 'pass',
-    validation: 'dotnet build: passed',
+    task: '1.2',
+    verdict: 'complete',
+    summary: 'Added migrations.',
+    validation: 'dotnet test: passed',
   };
   assert.deepEqual(
-    parseQueueCheckpoint(`Implement task\n\nOpenSpec-JSON: ${JSON.stringify(checkpoint)}`),
+    parseCheckpointTrailer(`Implement task\n\n${renderCheckpointTrailer(checkpoint)}`),
     checkpoint,
   );
+  assert.equal(parseCheckpointTrailer('No checkpoint'), null);
   assert.throws(
-    () => parseQueueCheckpoint('No checkpoint'),
-    /exactly one OpenSpec-JSON:/,
+    () => parseCheckpointTrailer(`${renderCheckpointTrailer(checkpoint)}\n${renderCheckpointTrailer(checkpoint)}`),
+    /at most one OpenSpec-JSON:/,
   );
   assert.throws(
-    () => parseQueueCheckpoint(`OpenSpec-JSON: ${JSON.stringify({
-      ...checkpoint,
-      operation: 'verify',
-    })}`),
-    /taskId is valid only for apply/,
+    () => parseCheckpointTrailer('OpenSpec-JSON: {nope'),
+    /invalid JSON/,
+  );
+  assert.throws(
+    () => renderCheckpointTrailer({ ...checkpoint, operation: 'verify' }),
+    /task is valid only for apply/,
+  );
+  assert.throws(
+    () => renderCheckpointTrailer({ ...checkpoint, verdict: 'needs_decision' }),
+    /question must be a non-empty string/,
+  );
+  assert.throws(
+    () => renderCheckpointTrailer({ ...checkpoint, validation: 'two\nlines' }),
+    /single line/,
   );
 });
 
-test('round-trips queue state and parses an operation result envelope', () => {
-  const state = {
-    $schema: JSON_CONTRACTS.queueState,
-    changeRef: 'add-platform',
-    issueNumber: 12,
-    status: 'dispatched',
+test('requires bounded findings exactly for a complete verify', () => {
+  const verify = {
+    change: 'add-platform',
+    operation: 'verify',
+    verdict: 'complete',
+    summary: 'Verified.',
+    validation: 'openspec validate: passed',
+    findings: {
+      critical: 0,
+      warning: 1,
+      suggestion: 0,
+      items: [{ severity: 'warning', text: 'Scenario not covered.' }],
+    },
+  };
+  assert.equal(parseCheckpointTrailer(renderCheckpointTrailer(verify)).findings.warning, 1);
+  const { findings, ...withoutFindings } = verify;
+  assert.throws(() => renderCheckpointTrailer(withoutFindings), /findings must be an object/);
+  assert.throws(
+    () => renderCheckpointTrailer({ ...withoutFindings, verdict: 'failed', findings }),
+    /valid only for a complete verify/,
+  );
+  assert.throws(
+    () => renderCheckpointTrailer({
+      ...verify,
+      findings: { ...findings, items: Array.from({ length: 21 }, () => findings.items[0]) },
+    }),
+    /at most 20 findings/,
+  );
+  assert.throws(
+    () => renderCheckpointTrailer({ ...verify, findings: { ...findings, items: [] } }),
+    /must list every finding/,
+  );
+  assert.throws(
+    () => renderCheckpointTrailer({
+      ...verify,
+      findings: { ...findings, warning: 0, suggestion: 1 },
+    }),
+    /more warning items than its warning count/,
+  );
+});
+
+test('validates dispatch envelopes with direct capability paths', () => {
+  const dispatch = {
+    $schema: JSON_CONTRACTS.changeDispatch,
+    change: 'add-platform',
     operation: 'apply',
-    attempt: 1,
-    taskId: 'task-1',
-    sessionId: null,
-    applyTaskId: '1.1',
-    applyTaskCapabilities: ['implementation'],
-    completedApplyTaskIds: [],
+    issue: 4,
+    pr: 21,
+    branch: 'openspec/add-platform',
     baseRef: 'main',
-    headRef: null,
-    beforeSha: 'a'.repeat(40),
-    pullRequestNumber: null,
-    updatedAt: '2026-09-24T18:00:00Z',
+    expectedHeadSha: sha('a'),
+    attempt: 1,
+    task: {
+      id: '1.1',
+      title: 'Do it',
+      capabilities: ['architecture', 'implementation'],
+      capabilityPaths: ['openspec/capabilities/architecture.md', 'openspec/capabilities/implementation.md'],
+      block: '- [ ] 1.1 Do it. Capabilities: architecture, implementation.',
+    },
+    answers: [{ question: 'Q?', text: 'A.', by: 'alice' }],
   };
-  assert.deepEqual(parseQueueState(renderQueueState(state)), state);
-  assert.deepEqual(parseQueueOperationResult(JSON.stringify({
-    $schema: JSON_CONTRACTS.operationResult,
-    changeRef: 'add-platform',
-    operation: 'verify',
-    verdict: 'pass',
-    validation: 'Verification complete.',
-  })), {
-    $schema: JSON_CONTRACTS.operationResult,
-    changeRef: 'add-platform',
-    operation: 'verify',
-    verdict: 'pass',
-    validation: 'Verification complete.',
-  });
+  assert.deepEqual(validateDispatch(dispatch), dispatch);
   assert.throws(
-    () => parseQueueOperationResult('no result'),
-    /exactly one JSON object/,
+    () => validateDispatch({ ...dispatch, task: { ...dispatch.task, capabilityPaths: ['x.md', 'y.md'] } }),
+    /resolve each capability directly/,
   );
+  assert.throws(
+    () => validateDispatch({ ...dispatch, branch: 'copilot/add-platform' }),
+    /branch is invalid/,
+  );
+  const { task, ...verify } = dispatch;
+  assert.deepEqual(validateDispatch({ ...verify, operation: 'verify' }).operation, 'verify');
 });
 
-test('parses one structured capability result envelope', () => {
-  const expected = {
-    $schema: JSON_CONTRACTS.capabilityResult,
-    changeRef: 'add-platform',
-    operation: 'apply',
-    taskId: '1.1',
-    capabilities: ['architecture', 'implementation'],
-    verdict: 'pass',
-    artifactsChanged: ['src/platform/file.cs'],
-    validation: [{ command: 'dotnet test', outcome: 'passed' }],
-    summary: 'Task complete.',
-    blockingFindings: [],
-  };
-  const result = JSON.stringify(expected);
-  assert.deepEqual(parseQueueOperationResult(result), expected);
-  for (const legacy of [
-    `OPEN_SPEC_CAPABILITY_RESULT_V1=${result}`,
-    `OPEN_SPEC_CAPABILITY_RESULT_V1 ${result}`,
-    `OPEN_SPEC_CLOUD_OPERATION_V1=${JSON.stringify({
-      $schema: JSON_CONTRACTS.operationResult,
-      changeRef: 'add-platform',
-      operation: 'verify',
-      verdict: 'pass',
-      validation: 'Complete.',
-    })}`,
-  ]) {
-    assert.throws(
-      () => parseQueueOperationResult(legacy),
-      /exactly one JSON object/,
-    );
-  }
+test('round-trips run state through the lifecycle check-run text', () => {
+  const state = runState();
+  assert.deepEqual(parseRunStateText(renderRunStateText(state)), state);
+  assert.deepEqual(parseRunStateText(renderRunStateText(state).replace(/\n/g, '\r\n')), state);
+  assert.throws(() => parseRunStateText('no state here'), /does not contain a JSON block/);
   assert.throws(
-    () => parseQueueOperationResult(`Result:\n${result}`),
-    /exactly one JSON object/,
+    () => renderRunStateText(runState({ credited: Array.from({ length: 700 }, () => ({ operation: 'apply', task: '1.1', sha: sha('a'), attempt: 1, log: 123456789 })) })),
+    /above the 65535-character check-run limit/,
+  );
+  const answer = { question: 'Q?', text: 'A.', by: 'alice', comment: 1 };
+  assert.throws(() => validateRunState(runState({ answers: Array.from({ length: 6 }, () => answer) })), /at most 5 answers/);
+});
+
+test('rejects inconsistent run states', () => {
+  assert.throws(() => validateRunState(runState({ status: 'gated' })), /gate must be present exactly when status is gated/);
+  assert.throws(
+    () => validateRunState(runState({ current: { ...runState().current, agentTask: null } })),
+    /agentTask is required while running/,
   );
   assert.throws(
-    () => parseQueueOperationResult('[]'),
-    /Queue operation result must be an object/,
+    () => validateRunState(runState({ status: 'closed', current: null })),
+    /requires a done or aborted phase/,
   );
   assert.throws(
-    () => parseQueueOperationResult('{"changeRef":"add-platform"}'),
-    /\$schema must be a non-empty string/,
+    () => validateRunState(runState({ phase: 'done', status: 'closed', current: null })),
+    /outcome must be set exactly when the run is closed/,
   );
   assert.throws(
-    () => parseQueueOperationResult(JSON.stringify({
-      ...expected,
-      resultingSha: 'b'.repeat(40),
+    () => validateRunState(runState({
+      status: 'gated',
+      current: null,
+      gate: {
+        kind: 'decision', operation: 'apply', commands: ['answer'], openedAt: '2026-10-02T10:00:00Z', notified: false, log: null,
+      },
     })),
-    /unknown field\(s\): resultingSha/,
+    /question is required for decision gates/,
   );
-  assert.throws(
-    () => parseQueueOperationResult('{"$schema":"unknown-result-v1"}'),
-    /\$schema is unsupported/,
-  );
-  assert.throws(
-    () => parseQueueOperationResult(JSON.stringify({ ...expected, extra: true })),
-    /contains unknown field/,
-  );
+  assert.throws(() => validateRunState({ ...runState(), extra: 1 }), /unknown field/);
 });
 
 test('does not absorb trailing sections or nested tasks into the preceding capability block', () => {

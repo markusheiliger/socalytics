@@ -3,16 +3,12 @@ const CAPABILITY_ID = /^[a-z][a-z0-9]*$/;
 const GIT_SHA = /^[a-f0-9]{40}$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 const CAPABILITY_OPERATIONS = new Set(['propose', 'update', 'apply', 'verify', 'archive']);
-const TERMINAL_TASK_STATES = new Set(['completed', 'failed', 'timed_out', 'cancelled']);
-const ACTIVE_TASK_STATES = new Set(['queued', 'in_progress', 'idle', 'waiting_for_user']);
-const RETRYABLE_TASK_STATES = new Set(['failed', 'timed_out']);
 
 export const JSON_CONTRACTS = Object.freeze({
   changeMarker: '.github/scripts/schemas/change-marker-v1.schema.json',
-  queueDispatch: '.github/scripts/schemas/queue-dispatch-v1.schema.json',
-  queueState: '.github/scripts/schemas/queue-state-v1.schema.json',
-  queueLedgerEntry: '.github/scripts/schemas/queue-ledger-entry-v1.schema.json',
-  queueCheckpoint: '.github/scripts/schemas/queue-checkpoint-v1.schema.json',
+  changeCheckpoint: '.github/scripts/schemas/change-checkpoint-v2.schema.json',
+  changeDispatch: '.github/scripts/schemas/change-dispatch-v2.schema.json',
+  changeRunState: '.github/scripts/schemas/change-run-state-v1.schema.json',
   dependencySummary: '.github/scripts/schemas/dependency-summary-v1.schema.json',
   dependencyCheckpoint: '.github/scripts/schemas/dependency-checkpoint-v1.schema.json',
   dependencyReconciliationContext:
@@ -20,14 +16,13 @@ export const JSON_CONTRACTS = Object.freeze({
   dependencyCandidates: '.github/scripts/schemas/dependency-candidates-v1.schema.json',
   dependencyGraphPatch: '.github/scripts/schemas/dependency-graph-patch-v2.schema.json',
   capabilityResult: 'openspec/capabilities/schemas/capability-result-v1.schema.json',
-  operationResult: '.github/scripts/schemas/operation-result-v1.schema.json',
 });
 
 const LEGACY_CAPABILITY_RESULT_SCHEMA = 'schemas/capability-result-v1.schema.json';
 
 export const JSON_MARKER_START = '<!-- openspec-json';
 export const COMMENT_MARKER_END = '-->';
-export const QUEUE_CHECKPOINT_TRAILER = 'OpenSpec-JSON:';
+export const CHECKPOINT_TRAILER = 'OpenSpec-JSON:';
 
 function assertObject(value, path) {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -112,101 +107,6 @@ function assertCapabilityIds(value, path) {
     || value.some((id, index) => index > 0 && value[index - 1].localeCompare(id) >= 0)) {
     throw new Error(`${path} must contain unique sorted capability identifiers`);
   }
-}
-
-function assertApplyTask(value, path) {
-  if (value.applyTaskId === undefined
-    && value.applyTaskOwner === undefined
-    && value.applyTaskCapabilities === undefined) return;
-  const hasId = typeof value.applyTaskId === 'string';
-  const hasLegacyOwner = typeof value.applyTaskOwner === 'string';
-  const hasCapabilities = Array.isArray(value.applyTaskCapabilities);
-  if (hasId !== (hasLegacyOwner || hasCapabilities) || (hasLegacyOwner && hasCapabilities)) {
-    throw new Error(`${path} apply task id and exactly one capability contract must be present`);
-  }
-  if (!hasId) {
-    if (value.applyTaskId !== null
-      || (value.applyTaskOwner !== undefined && value.applyTaskOwner !== null)
-      || (value.applyTaskCapabilities !== undefined && value.applyTaskCapabilities !== null)) {
-      throw new Error(`${path} apply task fields must be populated together or null`);
-    }
-    return;
-  }
-  if (!/^\d+(?:\.\d+)*$/.test(value.applyTaskId)) {
-    throw new Error(`${path}.applyTaskId is invalid`);
-  }
-  if (hasLegacyOwner && !/^soca-[a-z-]+$/.test(value.applyTaskOwner)) {
-    throw new Error(`${path}.applyTaskOwner is invalid`);
-  }
-  if (hasCapabilities) {
-    assertCapabilityIds(value.applyTaskCapabilities, `${path}.applyTaskCapabilities`);
-  }
-  if (value.operation !== 'apply') {
-    throw new Error(`${path} apply task is valid only for apply operations`);
-  }
-}
-
-function assertCompletedApplyTasks(value, path) {
-  if (value.completedApplyTaskIds === undefined) return;
-  if (value.operation !== 'apply' || !Array.isArray(value.completedApplyTaskIds)) {
-    throw new Error(`${path}.completedApplyTaskIds is invalid`);
-  }
-  const uniqueIds = new Set(value.completedApplyTaskIds);
-  if (uniqueIds.size !== value.completedApplyTaskIds.length
-    || value.completedApplyTaskIds.some((id) => !/^\d+(?:\.\d+)*$/.test(id))) {
-    throw new Error(`${path}.completedApplyTaskIds is invalid`);
-  }
-}
-
-export function validateQueueCheckpoint(value) {
-  assertSchema(value, JSON_CONTRACTS.queueCheckpoint, 'Queue checkpoint');
-  assertKnownKeys(
-    value,
-    new Set(['$schema', 'changeRef', 'operation', 'taskId', 'verdict', 'validation']),
-    'Queue checkpoint',
-  );
-  assertKebabCase(value.changeRef, 'Queue checkpoint.changeRef');
-  if (!['apply', 'verify', 'sync', 'archive'].includes(value.operation)) {
-    throw new Error('Queue checkpoint.operation is invalid');
-  }
-  if (value.operation === 'apply') {
-    if (typeof value.taskId !== 'string' || !/^\d+(?:\.\d+)*$/.test(value.taskId)) {
-      throw new Error('Queue checkpoint.taskId is required for apply');
-    }
-  } else if (value.taskId !== undefined) {
-    throw new Error('Queue checkpoint.taskId is valid only for apply');
-  }
-  if (!['pass', 'fail', 'blocked'].includes(value.verdict)) {
-    throw new Error('Queue checkpoint.verdict is invalid');
-  }
-  assertString(value.validation, 'Queue checkpoint.validation');
-  if (value.validation.includes('\r') || value.validation.includes('\n')) {
-    throw new Error('Queue checkpoint.validation must be a single line');
-  }
-  return value;
-}
-
-export function parseQueueCheckpoint(commitMessage) {
-  if (typeof commitMessage !== 'string') {
-    throw new Error('Queue checkpoint commit message must be a string');
-  }
-  const checkpointLines = commitMessage
-    .split(/\r?\n/)
-    .filter((line) => line.startsWith(QUEUE_CHECKPOINT_TRAILER));
-  if (checkpointLines.length !== 1) {
-    throw new Error(`Queue checkpoint commit must contain exactly one ${QUEUE_CHECKPOINT_TRAILER} trailer`);
-  }
-  const content = checkpointLines[0].slice(QUEUE_CHECKPOINT_TRAILER.length).trim();
-  if (!content) {
-    throw new Error('Queue checkpoint trailer is empty');
-  }
-  let value;
-  try {
-    value = JSON.parse(content);
-  } catch (error) {
-    throw new Error(`Queue checkpoint trailer contains invalid JSON: ${error.message}`);
-  }
-  return validateQueueCheckpoint(value);
 }
 
 export function validateChangeMarker(value) {
@@ -877,366 +777,6 @@ export function parseDependencySummary(commentBody) {
   );
 }
 
-export function deriveReadiness({
-  issueState,
-  labels,
-  lifecycle,
-  blockers = [],
-  activeTaskState = null,
-  activeTaskAttempt = 1,
-  needsDecision = false,
-}) {
-  const reasons = [];
-  if (issueState !== 'open') reasons.push('issue-not-open');
-  if (!labels.includes('openspec:enqueued')) reasons.push('not-enqueued');
-  if (lifecycle !== 'active') reasons.push('change-not-active');
-  if (needsDecision) reasons.push('needs-human-decision');
-  if (activeTaskState && ACTIVE_TASK_STATES.has(activeTaskState)) reasons.push('agent-task-active');
-  if (activeTaskState && !ACTIVE_TASK_STATES.has(activeTaskState)
-    && !TERMINAL_TASK_STATES.has(activeTaskState)) {
-    throw new Error(`Unknown Agent Task state: ${activeTaskState}`);
-  }
-  if (activeTaskState && RETRYABLE_TASK_STATES.has(activeTaskState) && activeTaskAttempt >= 2) {
-    reasons.push('retries-exhausted');
-  }
-
-  for (const blocker of blockers) {
-    assertObject(blocker, 'Blocker');
-    if (blocker.state !== 'closed' || blocker.archivedOnMain !== true) {
-      reasons.push(`blocked-by:${blocker.number}`);
-    }
-  }
-
-  return { runnable: reasons.length === 0, reasons };
-}
-
-export function selectNextOperation({
-  lifecycle,
-  tasksComplete,
-  verificationPassed,
-  specsSynchronized,
-}) {
-  if (lifecycle === 'archived') return 'complete';
-  if (lifecycle !== 'active') throw new Error(`Unknown lifecycle: ${lifecycle}`);
-  if (!tasksComplete) return 'apply';
-  if (!verificationPassed) return 'verify';
-  if (!specsSynchronized) return 'sync';
-  return 'archive';
-}
-
-export function retryDecision(state, attempt) {
-  if (!Number.isInteger(attempt) || attempt < 1) {
-    throw new Error('Attempt must be a positive integer');
-  }
-  if (RETRYABLE_TASK_STATES.has(state)) {
-    return attempt < 2 ? 'retry' : 'stop';
-  }
-  if (state === 'cancelled' || state === 'waiting_for_user') return 'stop';
-  if (state === 'completed') return 'advance';
-  if (state === 'queued' || state === 'in_progress' || state === 'idle') return 'wait';
-  throw new Error(`Unknown Agent Task state: ${state}`);
-}
-
-export function validateLedgerEntry(value) {
-  assertSchema(value, JSON_CONTRACTS.queueLedgerEntry, 'Ledger entry');
-  assertKnownKeys(
-    value,
-    new Set([
-      '$schema',
-      'changeRef',
-      'operation',
-      'attempt',
-      'taskId',
-      'sessionId',
-      'applyTaskId',
-      'applyTaskOwner',
-      'applyTaskCapabilities',
-      'branch',
-      'beforeSha',
-      'afterSha',
-      'outcome',
-      'validation',
-      'recovery',
-      'recordedAt',
-    ]),
-    'Ledger entry',
-  );
-  assertKebabCase(value.changeRef, 'Ledger entry.changeRef');
-  if (!['apply', 'verify', 'sync', 'archive'].includes(value.operation)) {
-    throw new Error('Ledger entry.operation is invalid');
-  }
-  if (!Number.isInteger(value.attempt) || value.attempt < 1 || value.attempt > 2) {
-    throw new Error('Ledger entry.attempt must be 1 or 2');
-  }
-  assertMarkerSafeString(value.taskId, 'Ledger entry.taskId');
-  assertMarkerSafeString(value.sessionId, 'Ledger entry.sessionId');
-  assertApplyTask(value, 'Ledger entry');
-  assertMarkerSafeString(value.branch, 'Ledger entry.branch');
-  if (!GIT_SHA.test(value.beforeSha) || !GIT_SHA.test(value.afterSha)) {
-    throw new Error('Ledger entry SHAs must be 40-character lowercase Git SHAs');
-  }
-  if (!['succeeded', 'failed', 'timed_out', 'cancelled', 'waiting_for_user'].includes(value.outcome)) {
-    throw new Error('Ledger entry.outcome is invalid');
-  }
-  assertMarkerSafeString(value.validation, 'Ledger entry.validation');
-  if (value.recovery !== null) assertMarkerSafeString(value.recovery, 'Ledger entry.recovery');
-  if (typeof value.recordedAt !== 'string'
-    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value.recordedAt)
-    || Number.isNaN(Date.parse(value.recordedAt))) {
-    throw new Error('Ledger entry.recordedAt must be an ISO-8601 timestamp');
-  }
-  if (value.outcome !== 'succeeded' && value.recovery === null) {
-    throw new Error('Unsuccessful ledger entries require recovery guidance');
-  }
-  return { ...value };
-}
-
-export function renderLedgerEntry(value) {
-  return renderJsonMarker(validateLedgerEntry({
-    $schema: JSON_CONTRACTS.queueLedgerEntry,
-    ...value,
-  }));
-}
-
-export function parseLedgerEntry(commentBody) {
-  return validateLedgerEntry(
-    extractSingleJsonMarker(
-      commentBody,
-      JSON_CONTRACTS.queueLedgerEntry,
-      'Ledger comment',
-    ),
-  );
-}
-
-export function validateQueueState(value) {
-  assertSchema(value, JSON_CONTRACTS.queueState, 'Queue state');
-  assertKnownKeys(
-    value,
-    new Set([
-      '$schema',
-      'changeRef',
-      'issueNumber',
-      'status',
-      'operation',
-      'attempt',
-      'taskId',
-      'sessionId',
-      'applyTaskId',
-      'applyTaskOwner',
-      'applyTaskCapabilities',
-      'completedApplyTaskIds',
-      'baseRef',
-      'headRef',
-      'beforeSha',
-      'pullRequestNumber',
-      'updatedAt',
-    ]),
-    'Queue state',
-  );
-  assertKebabCase(value.changeRef, 'Queue state.changeRef');
-  if (!Number.isInteger(value.issueNumber) || value.issueNumber < 1) {
-    throw new Error('Queue state.issueNumber must be a positive integer');
-  }
-  if (!['dispatching', 'dispatched', 'needs_attention', 'awaiting_human_review'].includes(value.status)) {
-    throw new Error('Queue state.status is invalid');
-  }
-  if (!['apply', 'verify', 'sync', 'archive'].includes(value.operation)) {
-    throw new Error('Queue state.operation is invalid');
-  }
-  if (!Number.isInteger(value.attempt) || value.attempt < 1 || value.attempt > 2) {
-    throw new Error('Queue state.attempt must be 1 or 2');
-  }
-  assertMarkerSafeString(value.taskId, 'Queue state.taskId');
-  if (value.sessionId !== null) assertMarkerSafeString(value.sessionId, 'Queue state.sessionId');
-  assertApplyTask(value, 'Queue state');
-  assertCompletedApplyTasks(value, 'Queue state');
-  assertMarkerSafeString(value.baseRef, 'Queue state.baseRef');
-  if (value.headRef !== null) assertMarkerSafeString(value.headRef, 'Queue state.headRef');
-  if (!GIT_SHA.test(value.beforeSha)) throw new Error('Queue state.beforeSha is invalid');
-  if (value.pullRequestNumber !== null
-    && (!Number.isInteger(value.pullRequestNumber) || value.pullRequestNumber < 1)) {
-    throw new Error('Queue state.pullRequestNumber must be null or a positive integer');
-  }
-  if (typeof value.updatedAt !== 'string'
-    || Number.isNaN(Date.parse(value.updatedAt))) {
-    throw new Error('Queue state.updatedAt must be an ISO-8601 timestamp');
-  }
-  return { ...value };
-}
-
-export function renderQueueState(value) {
-  return renderJsonMarker(validateQueueState({
-    $schema: JSON_CONTRACTS.queueState,
-    ...value,
-  }));
-}
-
-export function parseQueueState(commentBody) {
-  return validateQueueState(
-    extractSingleJsonMarker(commentBody, JSON_CONTRACTS.queueState, 'Queue state comment'),
-  );
-}
-
-function validateOperationResult(value) {
-  assertSchema(value, JSON_CONTRACTS.operationResult, 'Operation result');
-  assertKnownKeys(
-    value,
-    new Set(['$schema', 'changeRef', 'operation', 'applyTaskId', 'verdict', 'validation']),
-    'Operation result',
-  );
-  assertKebabCase(value.changeRef, 'Operation result.changeRef');
-  if (!['apply', 'verify', 'sync', 'archive'].includes(value.operation)) {
-    throw new Error('Operation result.operation is invalid');
-  }
-  if (value.applyTaskId !== undefined) {
-    if (value.operation !== 'apply' || !/^\d+(?:\.\d+)*$/.test(value.applyTaskId)) {
-      throw new Error('Operation result.applyTaskId is invalid');
-    }
-  }
-  if (!['pass', 'blocked', 'fail'].includes(value.verdict)) {
-    throw new Error('Operation result.verdict is invalid');
-  }
-  assertMarkerSafeString(value.validation, 'Operation result.validation');
-  return { ...value };
-}
-
-function assertGitPath(value, path) {
-  assertMarkerSafeString(value, path);
-  if (value.includes('\\')
-    || value.startsWith('/')
-    || value.split('/').some((segment) => segment === '' || segment === '..')) {
-    throw new Error(`${path} must be a normalized repository-relative path`);
-  }
-}
-
-function validateCapabilityResult(value) {
-  assertSchema(value, JSON_CONTRACTS.capabilityResult, 'Capability result');
-  assertKnownKeys(
-    value,
-    new Set([
-      '$schema',
-      'changeRef',
-      'operation',
-      'taskId',
-      'capabilities',
-      'verdict',
-      'artifactsChanged',
-      'validation',
-      'summary',
-      'blockingFindings',
-    ]),
-    'Capability result',
-  );
-  assertKebabCase(value.changeRef, 'Capability result.changeRef');
-  if (value.operation !== 'apply') throw new Error('Capability result.operation must be apply');
-  if (typeof value.taskId !== 'string' || !/^\d+(?:\.\d+)*$/.test(value.taskId)) {
-    throw new Error('Capability result.taskId is invalid');
-  }
-  assertCapabilityIds(value.capabilities, 'Capability result.capabilities');
-  if (!['pass', 'blocked', 'fail'].includes(value.verdict)) {
-    throw new Error('Capability result.verdict is invalid');
-  }
-  if (!Array.isArray(value.artifactsChanged)
-    || new Set(value.artifactsChanged).size !== value.artifactsChanged.length) {
-    throw new Error('Capability result.artifactsChanged is invalid');
-  }
-  value.artifactsChanged.forEach((artifact, index) => {
-    assertGitPath(artifact, `Capability result.artifactsChanged[${index}]`);
-  });
-  if (!Array.isArray(value.validation)) {
-    throw new Error('Capability result.validation must be an array');
-  }
-  value.validation.forEach((entry, index) => {
-    assertObject(entry, `Capability result.validation[${index}]`);
-    assertKnownKeys(
-      entry,
-      new Set(['command', 'outcome']),
-      `Capability result.validation[${index}]`,
-    );
-    assertMarkerSafeString(entry.command, `Capability result.validation[${index}].command`);
-    if (!['passed', 'failed', 'not-run'].includes(entry.outcome)) {
-      throw new Error(`Capability result.validation[${index}].outcome is invalid`);
-    }
-  });
-  assertMarkerSafeString(value.summary, 'Capability result.summary');
-  if (!Array.isArray(value.blockingFindings)) {
-    throw new Error('Capability result.blockingFindings must be an array');
-  }
-  value.blockingFindings.forEach((finding, index) => {
-    assertMarkerSafeString(finding, `Capability result.blockingFindings[${index}]`);
-  });
-  return { ...value };
-}
-
-const RESULT_SCHEMA_VALIDATORS = Object.freeze({
-  [JSON_CONTRACTS.capabilityResult]: validateCapabilityResult,
-  [JSON_CONTRACTS.operationResult]: validateOperationResult,
-});
-
-export function parseQueueOperationResult(response) {
-  if (typeof response !== 'string') {
-    throw new Error('Queue operation final response must be a string');
-  }
-  const content = response.trim();
-  if (content === '') {
-    throw new Error('Queue operation final response must not be empty');
-  }
-  let value;
-  try {
-    value = JSON.parse(content);
-  } catch (error) {
-    throw new Error(`Queue operation final response must be exactly one JSON object: ${error.message}`);
-  }
-  assertObject(value, 'Queue operation result');
-  if (typeof value.$schema !== 'string' || value.$schema.trim() === '') {
-    throw new Error('Queue operation result.$schema must be a non-empty string');
-  }
-  const validate = RESULT_SCHEMA_VALIDATORS[value.$schema];
-  if (!validate) {
-    throw new Error(`Queue operation result.$schema is unsupported: ${value.$schema}`);
-  }
-  return validate(value);
-}
-
-export function validateOperationEvidence({
-  operation,
-  outcome,
-  beforeSha,
-  afterSha,
-  filesChanged,
-  tasksComplete,
-  verificationPassed,
-  specsSynchronized,
-  lifecycle,
-}) {
-  if (!GIT_SHA.test(beforeSha) || !GIT_SHA.test(afterSha)) {
-    return { valid: false, reason: 'invalid-checkpoint' };
-  }
-
-  if (outcome !== 'succeeded') {
-    return { valid: false, reason: `operation-${outcome}` };
-  }
-  if (beforeSha === afterSha) {
-    return { valid: false, reason: 'checkpoint-not-advanced' };
-  }
-  if (filesChanged && beforeSha === afterSha) {
-    return { valid: false, reason: 'changed-files-without-checkpoint' };
-  }
-  const satisfied = {
-    apply: tasksComplete,
-    verify: verificationPassed,
-    sync: specsSynchronized,
-    archive: lifecycle === 'archived',
-  };
-  if (!(operation in satisfied)) {
-    return { valid: false, reason: 'unknown-operation' };
-  }
-  if (satisfied[operation] !== true) {
-    return { valid: false, reason: `${operation}-evidence-missing` };
-  }
-  return { valid: true, reason: null };
-}
-
 function requirementsMatch(left, right) {
   if (left?.text !== right?.text) return false;
   const leftScenarios = left.scenarios?.map((scenario) => scenario.rawText) ?? [];
@@ -1276,4 +816,358 @@ export function validateSynchronizedDeltas(change, specsById) {
     }
   }
   return true;
+}
+
+const OPERATIONS = Object.freeze(['apply', 'verify', 'sync', 'archive']);
+const TASK_ID = /^\d+(?:\.\d+)*$/;
+const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+const RUN_BRANCH = /^openspec\/[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const CHECKPOINT_VERDICTS = new Set(['complete', 'partial', 'needs_decision', 'failed']);
+const FINDING_SEVERITIES = new Set(['critical', 'warning', 'suggestion']);
+const RUN_PHASES = new Set(['apply', 'verify', 'sync', 'archive', 'merge', 'done', 'aborted']);
+const RUN_STATUSES = new Set(['dispatching', 'running', 'ready', 'gated', 'closed']);
+const RUN_OUTCOMES = new Set([null, 'merged', 'aborted', 'closed-unmerged']);
+const GATE_KINDS = new Set(['decision', 'review', 'failure', 'merge']);
+const GATE_COMMAND_NAMES = new Set(['approve', 'retry', 'answer', 'abort']);
+const RUN_STATE_FENCE = /```json\n([\s\S]*?)\n```/;
+export const MAX_RUN_STATE_TEXT = 65535;
+
+function assertBoundedString(value, path, maxLength) {
+  assertString(value, path);
+  if (value.length > maxLength) {
+    throw new Error(`${path} must be at most ${maxLength} characters`);
+  }
+}
+
+function assertSingleLine(value, path) {
+  if (value.includes('\r') || value.includes('\n')) {
+    throw new Error(`${path} must be a single line`);
+  }
+}
+
+function assertPositiveInteger(value, path) {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${path} must be a positive integer`);
+  }
+}
+
+function assertSha(value, path) {
+  if (typeof value !== 'string' || !GIT_SHA.test(value)) {
+    throw new Error(`${path} must be a 40-character lowercase Git SHA`);
+  }
+}
+
+function assertTimestamp(value, path) {
+  if (typeof value !== 'string' || !ISO_TIMESTAMP.test(value) || Number.isNaN(Date.parse(value))) {
+    throw new Error(`${path} must be an ISO-8601 UTC timestamp`);
+  }
+}
+
+function assertOperation(value, path) {
+  if (!OPERATIONS.includes(value)) throw new Error(`${path} is invalid`);
+}
+
+function assertTaskId(value, path) {
+  if (typeof value !== 'string' || !TASK_ID.test(value)) throw new Error(`${path} is invalid`);
+}
+
+function validateFindings(value, path, { maxItems = Infinity, maxText = Infinity } = {}) {
+  assertObject(value, path);
+  assertKnownKeys(value, new Set(['critical', 'warning', 'suggestion', 'items']), path);
+  for (const severity of FINDING_SEVERITIES) {
+    if (!Number.isInteger(value[severity]) || value[severity] < 0) {
+      throw new Error(`${path}.${severity} must be a non-negative integer`);
+    }
+  }
+  if (!Array.isArray(value.items) || value.items.length > maxItems) {
+    throw new Error(`${path}.items must be an array of at most ${maxItems} findings`);
+  }
+  value.items.forEach((item, index) => {
+    const itemPath = `${path}.items[${index}]`;
+    assertObject(item, itemPath);
+    assertKnownKeys(item, new Set(['severity', 'text']), itemPath);
+    if (!FINDING_SEVERITIES.has(item.severity)) throw new Error(`${itemPath}.severity is invalid`);
+    assertBoundedString(item.text, `${itemPath}.text`, maxText);
+  });
+  return value;
+}
+
+function validateRunTask(value, path) {
+  assertObject(value, path);
+  assertKnownKeys(value, new Set(['id', 'title', 'capabilities']), path);
+  assertTaskId(value.id, `${path}.id`);
+  assertString(value.title, `${path}.title`);
+  if (!Array.isArray(value.capabilities)
+    || value.capabilities.length === 0
+    || value.capabilities.some((id) => typeof id !== 'string' || !CAPABILITY_ID.test(id))) {
+    throw new Error(`${path}.capabilities is invalid`);
+  }
+}
+
+export function validateCheckpoint(value) {
+  assertSchema(value, JSON_CONTRACTS.changeCheckpoint, 'Checkpoint');
+  assertKnownKeys(
+    value,
+    new Set(['$schema', 'change', 'operation', 'task', 'verdict', 'summary', 'validation', 'question', 'findings']),
+    'Checkpoint',
+  );
+  assertKebabCase(value.change, 'Checkpoint.change');
+  assertOperation(value.operation, 'Checkpoint.operation');
+  if (value.operation === 'apply') {
+    assertTaskId(value.task, 'Checkpoint.task');
+  } else if (value.task !== undefined) {
+    throw new Error('Checkpoint.task is valid only for apply');
+  }
+  if (!CHECKPOINT_VERDICTS.has(value.verdict)) throw new Error('Checkpoint.verdict is invalid');
+  assertBoundedString(value.summary, 'Checkpoint.summary', 500);
+  assertBoundedString(value.validation, 'Checkpoint.validation', 300);
+  assertSingleLine(value.validation, 'Checkpoint.validation');
+  if (value.verdict === 'needs_decision') {
+    assertBoundedString(value.question, 'Checkpoint.question', 1000);
+  } else if (value.question !== undefined) {
+    throw new Error('Checkpoint.question is valid only for needs_decision');
+  }
+  const findingsRequired = value.operation === 'verify' && value.verdict === 'complete';
+  if (findingsRequired) {
+    const findings = validateFindings(value.findings, 'Checkpoint.findings', { maxItems: 20, maxText: 300 });
+    const total = findings.critical + findings.warning + findings.suggestion;
+    if (findings.items.length !== Math.min(total, 20)) {
+      throw new Error('Checkpoint.findings.items must list every finding, or the 20 most important when there are more');
+    }
+    for (const severity of FINDING_SEVERITIES) {
+      if (findings.items.filter((item) => item.severity === severity).length > findings[severity]) {
+        throw new Error(`Checkpoint.findings lists more ${severity} items than its ${severity} count`);
+      }
+    }
+  } else if (value.findings !== undefined) {
+    throw new Error('Checkpoint.findings is valid only for a complete verify');
+  }
+  return { ...value };
+}
+
+export function parseCheckpointTrailer(commitMessage) {
+  if (typeof commitMessage !== 'string') {
+    throw new Error('Checkpoint commit message must be a string');
+  }
+  const lines = commitMessage
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith(CHECKPOINT_TRAILER));
+  if (lines.length === 0) return null;
+  if (lines.length > 1) {
+    throw new Error(`Checkpoint commit must contain at most one ${CHECKPOINT_TRAILER} trailer`);
+  }
+  const content = lines[0].slice(CHECKPOINT_TRAILER.length).trim();
+  let value;
+  try {
+    value = JSON.parse(content);
+  } catch (error) {
+    throw new Error(`Checkpoint trailer contains invalid JSON: ${error.message}`);
+  }
+  return validateCheckpoint(value);
+}
+
+export function renderCheckpointTrailer(value) {
+  return `${CHECKPOINT_TRAILER} ${JSON.stringify(validateCheckpoint({
+    $schema: JSON_CONTRACTS.changeCheckpoint,
+    ...value,
+  }))}`;
+}
+
+export function validateDispatch(value) {
+  assertSchema(value, JSON_CONTRACTS.changeDispatch, 'Dispatch');
+  assertKnownKeys(
+    value,
+    new Set(['$schema', 'change', 'operation', 'issue', 'pr', 'branch', 'baseRef', 'expectedHeadSha', 'attempt', 'task', 'answers']),
+    'Dispatch',
+  );
+  assertKebabCase(value.change, 'Dispatch.change');
+  assertOperation(value.operation, 'Dispatch.operation');
+  assertPositiveInteger(value.issue, 'Dispatch.issue');
+  assertPositiveInteger(value.pr, 'Dispatch.pr');
+  if (typeof value.branch !== 'string' || !RUN_BRANCH.test(value.branch)) {
+    throw new Error('Dispatch.branch is invalid');
+  }
+  assertString(value.baseRef, 'Dispatch.baseRef');
+  assertSha(value.expectedHeadSha, 'Dispatch.expectedHeadSha');
+  assertPositiveInteger(value.attempt, 'Dispatch.attempt');
+  if (value.operation === 'apply') {
+    assertObject(value.task, 'Dispatch.task');
+    assertKnownKeys(value.task, new Set(['id', 'title', 'capabilities', 'capabilityPaths', 'block']), 'Dispatch.task');
+    assertTaskId(value.task.id, 'Dispatch.task.id');
+    assertString(value.task.title, 'Dispatch.task.title');
+    assertCapabilityIds(value.task.capabilities, 'Dispatch.task.capabilities');
+    const expectedPaths = value.task.capabilities.map((id) => `openspec/capabilities/${id}.md`);
+    if (JSON.stringify(value.task.capabilityPaths) !== JSON.stringify(expectedPaths)) {
+      throw new Error('Dispatch.task.capabilityPaths must resolve each capability directly');
+    }
+    assertString(value.task.block, 'Dispatch.task.block');
+  } else if (value.task !== undefined) {
+    throw new Error('Dispatch.task is valid only for apply');
+  }
+  if (!Array.isArray(value.answers)) throw new Error('Dispatch.answers must be an array');
+  value.answers.forEach((answer, index) => {
+    const path = `Dispatch.answers[${index}]`;
+    assertObject(answer, path);
+    assertKnownKeys(answer, new Set(['question', 'text', 'by']), path);
+    assertString(answer.question, `${path}.question`);
+    assertString(answer.text, `${path}.text`);
+    assertString(answer.by, `${path}.by`);
+  });
+  return { ...value };
+}
+
+export function validateRunState(value) {
+  assertSchema(value, JSON_CONTRACTS.changeRunState, 'Run state');
+  assertKnownKeys(
+    value,
+    new Set([
+      '$schema', 'change', 'issue', 'pr', 'branch', 'base', 'requestedBy', 'revision', 'headSha',
+      'phase', 'status', 'outcome', 'current', 'credited', 'gate', 'answers', 'commandCursor', 'updatedAt',
+    ]),
+    'Run state',
+  );
+  assertKebabCase(value.change, 'Run state.change');
+  assertPositiveInteger(value.issue, 'Run state.issue');
+  assertPositiveInteger(value.pr, 'Run state.pr');
+  if (typeof value.branch !== 'string' || !RUN_BRANCH.test(value.branch)) {
+    throw new Error('Run state.branch is invalid');
+  }
+  assertObject(value.base, 'Run state.base');
+  assertKnownKeys(value.base, new Set(['ref', 'sha']), 'Run state.base');
+  assertString(value.base.ref, 'Run state.base.ref');
+  assertSha(value.base.sha, 'Run state.base.sha');
+  assertString(value.requestedBy, 'Run state.requestedBy');
+  assertPositiveInteger(value.revision, 'Run state.revision');
+  assertSha(value.headSha, 'Run state.headSha');
+  if (!RUN_PHASES.has(value.phase)) throw new Error('Run state.phase is invalid');
+  if (!RUN_STATUSES.has(value.status)) throw new Error('Run state.status is invalid');
+  if (!RUN_OUTCOMES.has(value.outcome)) throw new Error('Run state.outcome is invalid');
+
+  if (value.current !== null) {
+    const path = 'Run state.current';
+    assertObject(value.current, path);
+    assertKnownKeys(value.current, new Set(['operation', 'task', 'attempt', 'startSha', 'baselineSha', 'agentTask', 'dispatchedAt']), path);
+    assertOperation(value.current.operation, `${path}.operation`);
+    if (value.current.operation === 'apply') {
+      validateRunTask(value.current.task, `${path}.task`);
+    } else if (value.current.task !== null) {
+      throw new Error(`${path}.task is valid only for apply`);
+    }
+    assertPositiveInteger(value.current.attempt, `${path}.attempt`);
+    assertSha(value.current.startSha, `${path}.startSha`);
+    assertSha(value.current.baselineSha, `${path}.baselineSha`);
+    if (value.current.agentTask !== null) {
+      assertObject(value.current.agentTask, `${path}.agentTask`);
+      assertKnownKeys(value.current.agentTask, new Set(['id', 'state', 'url']), `${path}.agentTask`);
+      assertString(value.current.agentTask.id, `${path}.agentTask.id`);
+      assertString(value.current.agentTask.state, `${path}.agentTask.state`);
+      if (value.current.agentTask.url !== undefined) {
+        assertString(value.current.agentTask.url, `${path}.agentTask.url`);
+      }
+    }
+    if (value.current.dispatchedAt !== null) {
+      assertTimestamp(value.current.dispatchedAt, `${path}.dispatchedAt`);
+    }
+  }
+
+  if (!Array.isArray(value.credited)) throw new Error('Run state.credited must be an array');
+  value.credited.forEach((entry, index) => {
+    const path = `Run state.credited[${index}]`;
+    assertObject(entry, path);
+    assertKnownKeys(entry, new Set(['operation', 'task', 'sha', 'attempt', 'log']), path);
+    assertOperation(entry.operation, `${path}.operation`);
+    if (entry.operation === 'apply') assertTaskId(entry.task, `${path}.task`);
+    else if (entry.task !== undefined) throw new Error(`${path}.task is valid only for apply`);
+    assertSha(entry.sha, `${path}.sha`);
+    if (entry.attempt !== undefined) assertPositiveInteger(entry.attempt, `${path}.attempt`);
+    if (entry.log !== undefined && entry.log !== null) assertPositiveInteger(entry.log, `${path}.log`);
+  });
+
+  if (value.gate !== null) {
+    const path = 'Run state.gate';
+    assertObject(value.gate, path);
+    assertKnownKeys(
+      value.gate,
+      new Set(['kind', 'operation', 'task', 'question', 'reason', 'findings', 'commands', 'openedAt', 'notified', 'log']),
+      path,
+    );
+    if (!GATE_KINDS.has(value.gate.kind)) throw new Error(`${path}.kind is invalid`);
+    if (value.gate.operation !== null) assertOperation(value.gate.operation, `${path}.operation`);
+    if (value.gate.task !== undefined) validateRunTask(value.gate.task, `${path}.task`);
+    if (value.gate.question !== undefined) assertString(value.gate.question, `${path}.question`);
+    if (value.gate.reason !== undefined) assertString(value.gate.reason, `${path}.reason`);
+    if (value.gate.findings !== undefined) validateFindings(value.gate.findings, `${path}.findings`);
+    if (!Array.isArray(value.gate.commands)
+      || value.gate.commands.some((command) => !GATE_COMMAND_NAMES.has(command))) {
+      throw new Error(`${path}.commands is invalid`);
+    }
+    assertTimestamp(value.gate.openedAt, `${path}.openedAt`);
+    if (typeof value.gate.notified !== 'boolean') throw new Error(`${path}.notified must be a boolean`);
+    if (value.gate.log !== null) assertPositiveInteger(value.gate.log, `${path}.log`);
+    if (value.gate.kind === 'decision' && value.gate.question === undefined) {
+      throw new Error(`${path}.question is required for decision gates`);
+    }
+  }
+
+  if (!Array.isArray(value.answers) || value.answers.length > 5) {
+    throw new Error('Run state.answers must be an array of at most 5 answers');
+  }
+  value.answers.forEach((answer, index) => {
+    const path = `Run state.answers[${index}]`;
+    assertObject(answer, path);
+    assertKnownKeys(answer, new Set(['question', 'text', 'by', 'comment']), path);
+    assertString(answer.question, `${path}.question`);
+    assertString(answer.text, `${path}.text`);
+    assertString(answer.by, `${path}.by`);
+    assertPositiveInteger(answer.comment, `${path}.comment`);
+  });
+  if (!Number.isInteger(value.commandCursor) || value.commandCursor < 0) {
+    throw new Error('Run state.commandCursor must be a non-negative integer');
+  }
+  assertTimestamp(value.updatedAt, 'Run state.updatedAt');
+
+  if ((value.status === 'gated') !== (value.gate !== null)) {
+    throw new Error('Run state.gate must be present exactly when status is gated');
+  }
+  if (['dispatching', 'running'].includes(value.status) && value.current === null) {
+    throw new Error(`Run state.current is required while ${value.status}`);
+  }
+  if (value.status === 'running' && value.current.agentTask === null) {
+    throw new Error('Run state.current.agentTask is required while running');
+  }
+  if ((value.status === 'closed') !== ['done', 'aborted'].includes(value.phase)) {
+    throw new Error('Run state.status closed requires a done or aborted phase');
+  }
+  if ((value.outcome === null) !== (value.status !== 'closed')) {
+    throw new Error('Run state.outcome must be set exactly when the run is closed');
+  }
+  return value;
+}
+
+export function renderRunStateText(state) {
+  validateRunState(state);
+  const text = [
+    'Processing state for the OpenSpec workflow. Do not edit; only the workflow can update this check run.',
+    '',
+    '```json',
+    JSON.stringify(state),
+    '```',
+  ].join('\n');
+  if (text.length > MAX_RUN_STATE_TEXT) {
+    throw new Error(`Run state is ${text.length} characters, above the ${MAX_RUN_STATE_TEXT}-character check-run limit`);
+  }
+  return text;
+}
+
+export function parseRunStateText(text) {
+  if (typeof text !== 'string') throw new Error('Run state text must be a string');
+  const match = text.replace(/\r\n/g, '\n').match(RUN_STATE_FENCE);
+  if (!match) throw new Error('Run state text does not contain a JSON block');
+  let value;
+  try {
+    value = JSON.parse(match[1]);
+  } catch (error) {
+    throw new Error(`Run state JSON is invalid: ${error.message}`);
+  }
+  return validateRunState(value);
 }

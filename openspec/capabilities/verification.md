@@ -42,8 +42,8 @@ tested, documented, and conformant with accepted requirements and architecture.
 
 Run in a fresh execution session. Trace every applicable criterion to exact
 artifact or executable evidence and lead with findings ordered by impact.
-Lifecycle verify must not change repository files, but after a passing
-assessment it must create and push the required empty queue checkpoint commit.
+Lifecycle verify must not change repository files, but it must end with the
+required empty checkpoint commit that reports its findings.
 A task-level verification may change only its own checkbox and must include
 that change in its pushed checkpoint sequence.
 

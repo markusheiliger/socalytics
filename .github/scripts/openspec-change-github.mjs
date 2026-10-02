@@ -1,5 +1,4 @@
 const API_ROOT = 'https://api.github.com';
-const COPILOT_API_ROOT = 'https://api.githubcopilot.com';
 const API_VERSION = '2026-03-10';
 
 function assertToken(token, name) {
@@ -23,87 +22,6 @@ async function responseError(response, secrets) {
     `GitHub API ${response.status} ${response.statusText}${detail}`,
     secrets,
   ));
-}
-
-export function decodeAgentSessionFinalResponse(eventStream) {
-  if (typeof eventStream !== 'string') {
-    throw new Error('Agent session log must be a string');
-  }
-  const responses = [];
-  let current = '';
-  let currentComplete = false;
-  let streamComplete = false;
-
-  const completeCurrent = () => {
-    if (current === '') return;
-    responses.push(current);
-    current = '';
-    currentComplete = false;
-  };
-
-  for (const line of eventStream.split(/\r?\n/)) {
-    const dataLine = line.match(/^data:\s?(.*)$/);
-    if (!dataLine) continue;
-    const data = dataLine[1];
-    if (streamComplete) {
-      throw new Error('Agent session log contains events after stream completion');
-    }
-    if (data === '[DONE]') {
-      completeCurrent();
-      streamComplete = true;
-      continue;
-    }
-    let event;
-    try {
-      event = JSON.parse(data);
-    } catch (error) {
-      throw new Error(`Agent session log contains invalid event JSON: ${error.message}`);
-    }
-    if (event === null || typeof event !== 'object' || Array.isArray(event)) {
-      throw new Error('Agent session log event must be an object');
-    }
-    if (event.choices !== undefined && !Array.isArray(event.choices)) {
-      throw new Error('Agent session log event.choices must be an array');
-    }
-    const choices = event.choices ?? [];
-    if (choices.some((choice) => choice === null
-      || typeof choice !== 'object'
-      || Array.isArray(choice))) {
-      throw new Error('Agent session log choices must be objects');
-    }
-    const contentChoices = choices.filter(
-      (choice) => typeof choice.delta?.content === 'string'
-        || choice.delta?.role === 'assistant'
-        || choice.finish_reason != null,
-    );
-    const indexes = new Set(contentChoices.map((choice) => choice.index ?? 0));
-    if (indexes.size > 1) {
-      throw new Error('Agent session log contains ambiguous assistant response choices');
-    }
-    for (const choice of contentChoices) {
-      if (choice.delta?.role === 'assistant' && current !== '') {
-        completeCurrent();
-      }
-      if (typeof choice.delta?.content === 'string') {
-        if (currentComplete) completeCurrent();
-        current += choice.delta.content;
-      }
-      if (choice.finish_reason != null) {
-        if (current !== '') currentComplete = true;
-      }
-    }
-  }
-  if (!streamComplete && currentComplete) {
-    completeCurrent();
-    streamComplete = true;
-  }
-  if (!streamComplete) {
-    throw new Error('Agent session log is incomplete');
-  }
-  if (responses.length === 0) {
-    throw new Error('Agent session log did not contain assistant content');
-  }
-  return responses.at(-1);
 }
 
 export class GitHubChangeClient {
@@ -143,7 +61,7 @@ export class GitHubChangeClient {
         Accept: 'application/vnd.github+json',
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'User-Agent': 'socalytics-openspec-change-queue',
+        'User-Agent': 'socalytics-openspec',
         'X-GitHub-Api-Version': API_VERSION,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -298,26 +216,6 @@ export class GitHubChangeClient {
     );
   }
 
-  async getAgentSessionLog(sessionId) {
-    assertToken(this.agentToken, 'Agent token');
-    const response = await this.fetch(
-      `${COPILOT_API_ROOT}/agents/sessions/${encodeURIComponent(sessionId)}/logs`,
-      {
-        headers: {
-          Accept: 'application/vnd.github.nebula-preview',
-          Authorization: `Bearer ${this.agentToken}`,
-          'Copilot-Integration-Id': 'copilot-4-cli',
-          'User-Agent': 'socalytics-openspec-change-queue',
-          'X-GitHub-Api-Version': '2026-01-09',
-        },
-      },
-    );
-    if (!response.ok) {
-      throw await responseError(response, [this.repositoryToken, this.agentToken]);
-    }
-    return decodeAgentSessionFinalResponse(await response.text());
-  }
-
   startAgentTask({
     prompt,
     customAgent,
@@ -395,4 +293,113 @@ export class GitHubChangeClient {
     }
     return Buffer.from(value.content.replaceAll('\n', ''), 'base64').toString('utf8');
   }
+
+  async getOptionalTextContent(path, ref) {
+    const value = await this.request(
+      `${this.repositoryPath}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`,
+      { expected: [200, 404] },
+    );
+    if (!value || value.type !== 'file' || value.encoding !== 'base64') return null;
+    return Buffer.from(value.content.replaceAll('\n', ''), 'base64').toString('utf8');
+  }
+
+  async listDirectory(path, ref) {
+    const value = await this.request(
+      `${this.repositoryPath}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`,
+      { expected: [200, 404] },
+    );
+    return Array.isArray(value) ? value : [];
+  }
+
+  async branchExists(branch) {
+    const value = await this.request(
+      `${this.repositoryPath}/branches/${encodeURIComponent(branch)}`,
+      { expected: [200, 404] },
+    );
+    return Boolean(value?.name);
+  }
+
+  getGitCommit(commitSha) {
+    return this.request(`${this.repositoryPath}/git/commits/${encodeURIComponent(commitSha)}`);
+  }
+
+  createGitRef(branch, sha) {
+    return this.request(`${this.repositoryPath}/git/refs`, {
+      method: 'POST',
+      body: { ref: `refs/heads/${branch}`, sha },
+      expected: [201],
+    });
+  }
+
+  createPullRequest({ title, body, head, base, draft = true }) {
+    return this.request(`${this.repositoryPath}/pulls`, {
+      method: 'POST',
+      body: { title, body, head, base, draft },
+      expected: [201],
+    });
+  }
+
+  updatePullRequest(number, patch) {
+    return this.request(`${this.repositoryPath}/pulls/${number}`, {
+      method: 'PATCH',
+      body: patch,
+    });
+  }
+
+  listOpenPullRequests() {
+    return this.paginate(`${this.repositoryPath}/pulls?state=open`);
+  }
+
+  async listRecentlyClosedPullRequests() {
+    const value = await this.request(
+      `${this.repositoryPath}/pulls?state=closed&sort=updated&direction=desc&per_page=50`,
+    );
+    return Array.isArray(value) ? value : [];
+  }
+
+  async listCheckRuns(sha, checkName) {
+    const value = await this.request(
+      `${this.repositoryPath}/commits/${encodeURIComponent(sha)}/check-runs?check_name=${encodeURIComponent(checkName)}&filter=all&per_page=100`,
+    );
+    if (!Array.isArray(value?.check_runs)) {
+      throw new Error('GitHub check-runs response did not contain check_runs');
+    }
+    return value.check_runs;
+  }
+
+  createCheckRun(body) {
+    return this.request(`${this.repositoryPath}/check-runs`, {
+      method: 'POST',
+      body,
+      expected: [201],
+    });
+  }
+
+  updateCheckRun(checkRunId, body) {
+    return this.request(`${this.repositoryPath}/check-runs/${checkRunId}`, {
+      method: 'PATCH',
+      body,
+    });
+  }
+
+  async getCollaboratorPermission(login) {
+    const value = await this.request(
+      `${this.repositoryPath}/collaborators/${encodeURIComponent(login)}/permission`,
+      { expected: [200, 404] },
+    );
+    return value?.role_name ?? value?.permission ?? 'none';
+  }
+
+  addCommentReaction(commentId, content) {
+    return this.request(`${this.repositoryPath}/issues/comments/${commentId}/reactions`, {
+      method: 'POST',
+      body: { content },
+      expected: [200, 201],
+    });
+  }
+
+  listIssueEvents(issueNumber) {
+    return this.paginate(`${this.repositoryPath}/issues/${issueNumber}/events`);
+  }
+
 }

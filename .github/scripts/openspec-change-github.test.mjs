@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  GitHubChangeClient,
-  decodeAgentSessionFinalResponse,
-} from './openspec-change-github.mjs';
+import { GitHubChangeClient } from './openspec-change-github.mjs';
 
 const sha = (character) => character.repeat(40);
 
@@ -64,94 +61,6 @@ test('uses the user agent token only for Agent Tasks endpoints', async () => {
   });
 });
 
-test('reads the final completed Agent Task response with the OAuth agent token', async () => {
-  let request;
-  const client = clientWith(async (url, options) => {
-    request = { url, options };
-    return new Response([
-      'data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}',
-      '',
-      'data: {"choices":[{"index":0,"delta":{"content":"Task complete."},"finish_reason":"stop"}]}',
-      '',
-      'data: {"choices":[{"index":0,"delta":{"role":"assistant"}}]}',
-      '',
-      'data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}',
-      '',
-      'data: {"choices":[{"index":0,"delta":{"content":"{\\"$schema\\":\\"openspec/capabilities/schemas/"}}]}',
-      '',
-      'data: {"choices":[{"index":0,"delta":{"content":"capability-result-v1.schema.json\\"}"},"finish_reason":"stop"}]}',
-      '',
-      'data: [DONE]',
-      '',
-    ].join('\n'), { status: 200 });
-  });
-
-  const log = await client.getAgentSessionLog('session-1');
-
-  assert.equal(
-    log,
-    '{"$schema":"openspec/capabilities/schemas/capability-result-v1.schema.json"}',
-  );
-  assert.equal(
-    request.url,
-    'https://api.githubcopilot.com/agents/sessions/session-1/logs',
-  );
-  assert.equal(request.options.headers.Authorization, 'Bearer agent-secret');
-  assert.equal(request.options.headers['Copilot-Integration-Id'], 'copilot-4-cli');
-  assert.equal(request.options.headers['X-GitHub-Api-Version'], '2026-01-09');
-});
-
-test('requires an unambiguous completed Agent Task response', () => {
-  assert.equal(
-    decodeAgentSessionFinalResponse([
-      'data:{"choices":[{"delta":{"content":"{}"}}]}',
-      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
-    ].join('\n')),
-    '{}',
-  );
-  assert.equal(
-    decodeAgentSessionFinalResponse([
-      'data: {"choices":[{"delta":{"content":"intermediate"}}]}',
-      'data: {"choices":[{"delta":{"role":"assistant"}}]}',
-      'data: {"choices":[{"delta":{"content":"final"}}]}',
-      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
-    ].join('\n')),
-    'final',
-  );
-  assert.throws(
-    () => decodeAgentSessionFinalResponse(
-      'data: {"choices":[{"delta":{"content":"{}"}}]}\n',
-    ),
-    /incomplete/,
-  );
-  assert.throws(
-    () => decodeAgentSessionFinalResponse([
-      'data: {"choices":[{"index":0,"delta":{"content":"one"}},{"index":1,"delta":{"content":"two"}}]}',
-      'data: [DONE]',
-    ].join('\n')),
-    /ambiguous/,
-  );
-  assert.throws(
-    () => decodeAgentSessionFinalResponse([
-      'data: {"choices":[{"delta":{"content":"{}"}}]}',
-      'data: not-json',
-      'data: [DONE]',
-    ].join('\n')),
-    /invalid event JSON/,
-  );
-  assert.throws(
-    () => decodeAgentSessionFinalResponse([
-      'data: {"choices":{}}',
-      'data: [DONE]',
-    ].join('\n')),
-    /event\.choices must be an array/,
-  );
-  assert.throws(
-    () => decodeAgentSessionFinalResponse('data: [DONE]\n'),
-    /did not contain assistant content/,
-  );
-});
-
 test('continues an Agent Task on an existing pull request branch', async () => {
   let request;
   const client = clientWith(async (url, options) => {
@@ -163,9 +72,9 @@ test('continues an Agent Task on an existing pull request branch', async () => {
     prompt: 'Verify change add-platform.',
     customAgent: 'openspec',
     baseRef: 'main',
-    headRef: 'copilot/add-platform',
+    headRef: 'openspec/add-platform',
   });
-  assert.equal(JSON.parse(request.options.body).head_ref, 'copilot/add-platform');
+  assert.equal(JSON.parse(request.options.body).head_ref, 'openspec/add-platform');
 });
 
 test('uses native issue dependency request shapes', async () => {
@@ -324,4 +233,50 @@ test('compares commits and requires changed-file evidence', async () => {
     malformed.compareCommits(sha('a'), sha('b')),
     /did not contain changed files/,
   );
+});
+
+test('stores state in check runs and reads named check runs for a commit', async () => {
+  const calls = [];
+  const client = clientWith(async (url, options) => {
+    calls.push({ url, options });
+    if (options.method === 'GET') return jsonResponse({ total_count: 1, check_runs: [{ id: 5 }] });
+    return jsonResponse({ id: 6 }, options.method === 'POST' ? 201 : 200);
+  });
+  assert.deepEqual(await client.listCheckRuns(sha('a'), 'OpenSpec lifecycle'), [{ id: 5 }]);
+  assert.match(calls[0].url, /commits\/a{40}\/check-runs\?check_name=OpenSpec%20lifecycle&filter=all/);
+  await client.createCheckRun({ name: 'OpenSpec lifecycle', head_sha: sha('a') });
+  await client.updateCheckRun(6, { status: 'completed' });
+  assert.equal(calls[1].options.method, 'POST');
+  assert.match(calls[2].url, /check-runs\/6$/);
+  assert.equal(calls[2].options.method, 'PATCH');
+});
+
+test('creates the run branch and draft pull request with repository authentication', async () => {
+  const calls = [];
+  const client = clientWith(async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ number: 21 }, 201);
+  });
+  await client.createGitRef('openspec/add-platform', sha('b'));
+  await client.createPullRequest({ title: 'T', body: 'B', head: 'openspec/add-platform', base: 'main' });
+  assert.deepEqual(JSON.parse(calls[0].options.body), { ref: 'refs/heads/openspec/add-platform', sha: sha('b') });
+  assert.deepEqual(JSON.parse(calls[1].options.body), {
+    title: 'T', body: 'B', head: 'openspec/add-platform', base: 'main', draft: true,
+  });
+  assert.equal(calls[1].options.headers.Authorization, calls[0].options.headers.Authorization);
+});
+
+test('reads collaborator roles and treats unknown users as having no access', async () => {
+  const client = clientWith(async (url) => (url.includes('/alice/')
+    ? jsonResponse({ permission: 'write', role_name: 'maintain' })
+    : jsonResponse({ message: 'Not Found' }, 404)));
+  assert.equal(await client.getCollaboratorPermission('alice'), 'maintain');
+  assert.equal(await client.getCollaboratorPermission('mallory'), 'none');
+});
+
+test('returns null or empty results for missing optional content', async () => {
+  const client = clientWith(async () => jsonResponse({ message: 'Not Found' }, 404));
+  assert.equal(await client.getOptionalTextContent('openspec/changes/x/tasks.md', 'main'), null);
+  assert.deepEqual(await client.listDirectory('openspec/changes/archive', 'main'), []);
+  assert.equal(await client.branchExists('openspec/x'), false);
 });

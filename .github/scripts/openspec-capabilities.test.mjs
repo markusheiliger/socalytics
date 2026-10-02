@@ -37,14 +37,9 @@ test('validates every execution capability contract', () => {
     new URL('../../openspec/capabilities/schemas/capability-result-v1.schema.json', import.meta.url),
     'utf8',
   ));
-  const operationResultSchema = JSON.parse(readFileSync(
-    new URL('./schemas/operation-result-v1.schema.json', import.meta.url),
-    'utf8',
-  ));
   assert.equal(definitionSchema.properties.version.const, 1);
   assert.equal(resultSchema.properties.$schema.const, JSON_CONTRACTS.capabilityResult);
   assert.equal(resultSchema.properties.operation.const, 'apply');
-  assert.equal(operationResultSchema.properties.$schema.const, JSON_CONTRACTS.operationResult);
 
   for (const definition of definitions.values()) {
     assert.ok(definition.operations.includes('apply'));
