@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
 using Aspire.Hosting;
+using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
@@ -19,18 +20,22 @@ public sealed class PlatformHostTests
     private const string ApiResourceName = "api";
 
     [Fact]
-    public async Task AppHostStartsHealthyApiWithOperationalOpenApiSurface()
+    public async Task AppHostStartsApiWithLivenessOpenApiAndUnreadyHealthWithoutDatabase()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
         var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.SocAlytics_Platform_AppHost>(timeout.Token);
         await using var app = await appHost.BuildAsync(timeout.Token);
 
         await app.StartAsync(timeout.Token);
-        await app.ResourceNotifications.WaitForResourceHealthyAsync(ApiResourceName, timeout.Token);
+        await app.ResourceNotifications.WaitForResourceAsync(ApiResourceName, KnownResourceStates.Running, timeout.Token);
 
         using var client = app.CreateHttpClient(ApiResourceName);
         await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);
-        await ShouldReturnSuccessAsync(client, "/health", timeout.Token);
+
+        // Until task 4.2 composes PostgreSQL, readiness must stay unavailable because migrations cannot run.
+        using var healthResponse = await client.GetAsync("/health", timeout.Token);
+        healthResponse.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+
 
         using var openApiResponse = await client.GetAsync("/openapi/v1.json", timeout.Token);
         openApiResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
