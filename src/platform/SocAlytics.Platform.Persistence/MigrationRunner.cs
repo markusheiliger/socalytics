@@ -41,6 +41,7 @@ internal sealed class MigrationRunner(BootstrapConnectionSource bootstrap, Migra
             try
             {
                 await ExecuteAsync(lockConnection, EnsureHistorySql, cancellationToken);
+                await ExecuteAsync(lockConnection, RoleBootstrap.Sql, cancellationToken);
                 var pending = await PreflightAsync(lockConnection, cancellationToken);
                 if (pending.Count > 0)
                 {
