@@ -55,7 +55,8 @@ public sealed class PlatformHostTests
         }
 
         await app.ResourceCommands.ExecuteCommandAsync(ApiResourceName, KnownResourceCommands.RestartCommand, timeout.Token);
-        await WaitForHealthyEndpointAsync(app.CreateHttpClient(ApiResourceName), "/health", timeout.Token);
+        using var restartedClient = app.CreateHttpClient(ApiResourceName);
+        await WaitForHealthyEndpointAsync(restartedClient, "/health", timeout.Token);
     }
 
     [Fact]
@@ -79,13 +80,19 @@ public sealed class PlatformHostTests
         {
             try
             {
-                using var response = await client.GetAsync(path, cancellationToken);
+                // The proxy can accept connections before the restarted API listens, so bound each attempt.
+                using var attempt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                attempt.CancelAfter(TimeSpan.FromSeconds(5));
+                using var response = await client.GetAsync(path, attempt.Token);
                 if (response.IsSuccessStatusCode)
                 {
                     return;
                 }
             }
             catch (HttpRequestException)
+            {
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
             }
 
