@@ -26,7 +26,7 @@ public sealed class PlatformHostTests
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
 
-        // Restarting the API re-runs migrations against the already-migrated database.
+        // Stopping and starting the API re-runs migrations against the already-migrated database.
         await using var appHost = await DistributedApplicationTestingBuilder.CreateAsync<Projects.SocAlytics_Platform_AppHost>(timeout.Token);
         await using var app = await appHost.BuildAsync(timeout.Token);
         await app.StartAsync(timeout.Token);
@@ -54,7 +54,11 @@ public sealed class PlatformHostTests
             ((long)(await command.ExecuteScalarAsync(timeout.Token))!).ShouldBe(1);
         }
 
-        await app.ResourceCommands.ExecuteCommandAsync(ApiResourceName, KnownResourceCommands.RestartCommand, timeout.Token);
+        await app.ResourceCommands.ExecuteCommandAsync(ApiResourceName, KnownResourceCommands.StopCommand, timeout.Token);
+        await app.ResourceNotifications.WaitForResourceAsync(ApiResourceName, KnownResourceStates.Exited, timeout.Token);
+        await app.ResourceCommands.ExecuteCommandAsync(ApiResourceName, KnownResourceCommands.StartCommand, timeout.Token);
+        await app.ResourceNotifications.WaitForResourceAsync(ApiResourceName, KnownResourceStates.Running, timeout.Token);
+
         using var restartedClient = app.CreateHttpClient(ApiResourceName);
         await WaitForHealthyEndpointAsync(restartedClient, "/health", timeout.Token);
     }
