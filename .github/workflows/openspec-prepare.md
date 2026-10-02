@@ -1,5 +1,5 @@
 ---
-name: OpenSpec change reconciliation
+name: OpenSpec prepare
 description: Synchronize OpenSpec issue twins and incrementally reconcile validated native issue dependencies.
 on:
   push:
@@ -12,7 +12,7 @@ on:
       - ".github/scripts/openspec-change-sync.mjs"
       - ".github/scripts/openspec-change-dependencies.mjs"
       - ".github/scripts/openspec-change-reconciliation.mjs"
-      - ".github/workflows/openspec-change-reconciliation.md"
+      - ".github/workflows/openspec-prepare.md"
   schedule:
     - cron: "weekly on monday"
   workflow_dispatch:
@@ -31,7 +31,7 @@ permissions:
   issues: read
   copilot-requests: write
 concurrency:
-  group: openspec-change-reconciliation
+  group: openspec-prepare
   queue: max
   job-discriminator: ${{ github.run_id }}
 strict: true
@@ -189,7 +189,7 @@ safe-outputs:
 timeout-minutes: 20
 ---
 
-# OpenSpec change reconciliation
+# OpenSpec prepare
 
 Read the prepared dependency context at
 `$RUNNER_TEMP/openspec-change-reconciliation/agent-context.json`. The trusted

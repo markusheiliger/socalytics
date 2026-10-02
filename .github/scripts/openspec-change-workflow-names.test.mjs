@@ -54,8 +54,8 @@ test('repository workflows expose useful names, scoped Git auth, and the safe DA
   const files = await Promise.all([
     readFile(path.join(workflowsRoot, 'copilot-setup-steps.yml'), 'utf8'),
     readFile(path.join(workflowsRoot, 'openspec-orchestrator.yml'), 'utf8'),
-    readFile(path.join(workflowsRoot, 'openspec-change-reconciliation.md'), 'utf8'),
-    readFile(path.join(workflowsRoot, 'openspec-change-reconciliation.lock.yml'), 'utf8'),
+    readFile(path.join(workflowsRoot, 'openspec-prepare.md'), 'utf8'),
+    readFile(path.join(workflowsRoot, 'openspec-prepare.lock.yml'), 'utf8'),
   ]);
   const [setup, orchestrator, source, lock] = files.map((content) => content.replaceAll('\r\n', '\n'));
 
@@ -69,7 +69,7 @@ test('repository workflows expose useful names, scoped Git auth, and the safe DA
   assert.match(orchestrator, /node \.github\/scripts\/openspec-change-orchestrator\.mjs observe/);
   assert.doesNotMatch(orchestrator, /--watch/);
   assert.equal(applyWorkflowJobNames(lock), lock);
-  assert.match(source, /group: openspec-change-reconciliation[\s\S]*queue: max/);
+  assert.match(source, /group: openspec-prepare[\s\S]*queue: max/);
   assert.equal((source.match(/GIT_CONFIG_VALUE_0="AUTHORIZATION: basic \$authorization"/g) ?? []).length, 3);
   assert.equal((source.match(/GH_TOKEN: \$\{\{ github\.token \}\}/g) ?? []).length, 3);
   assert.doesNotMatch(source, /\$GITHUB_ENV/);

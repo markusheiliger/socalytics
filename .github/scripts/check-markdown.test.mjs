@@ -21,7 +21,7 @@ test('parses, normalizes, and sorts null-delimited Markdown paths', () => {
 test('excludes only OpenSpec-generated Copilot bodies from style checks', () => {
   assert.equal(isRepositoryAuthoredMarkdown('README.md'), true);
   assert.equal(
-    isRepositoryAuthoredMarkdown('.github/workflows/openspec-change-reconciliation.md'),
+    isRepositoryAuthoredMarkdown('.github/workflows/openspec-prepare.md'),
     true,
   );
   assert.equal(isRepositoryAuthoredMarkdown('.github/agents/openspec.agent.md'), false);

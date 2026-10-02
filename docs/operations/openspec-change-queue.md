@@ -120,14 +120,13 @@ whose selected blocker failed, and leaves successful labels in place because
 the workflow may already have consumed them. Rerunning `/opsx-enqueue` is the
 recovery path for a partial failure.
 
-## Combined issue reconciliation
+## OpenSpec prepare
 
-One OpenSpec issue reconciliation Agentic Workflow replaces the separate issue
-sync and dependency-inference workflows. References currently use the likely
-source and generated names
-`.github/workflows/openspec-change-reconciliation.md` and
-`.github/workflows/openspec-change-reconciliation.lock.yml`; use the committed
-source/lock pair if the implementation settles different names.
+The **OpenSpec prepare** Agentic Workflow
+(`.github/workflows/openspec-prepare.md`, compiled to
+`.github/workflows/openspec-prepare.lock.yml`) prepares changes for
+processing: it synchronizes issue twins and infers dependencies between
+changes.
 
 Every invocation performs deterministic issue synchronization first. This
 creates or updates twins from authoritative state on `main`, projects active or
@@ -487,9 +486,9 @@ Run the contract tests from the repository root:
 
 ```powershell
 node --test .github/scripts/*.test.mjs
-gh aw validate .github/workflows/openspec-change-reconciliation.md
+gh aw validate .github/workflows/openspec-prepare.md
 gh aw validate .github/workflows/openspec-agent.md
-gh aw lint .github/workflows/openspec-change-reconciliation.lock.yml
+gh aw lint .github/workflows/openspec-prepare.lock.yml
 gh aw lint .github/workflows/openspec-agent.lock.yml
 node .github/scripts/openspec-change-workflow-names.mjs --check
 ```

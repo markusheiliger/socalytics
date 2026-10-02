@@ -24,7 +24,7 @@ export const AGENT_WORKFLOW_JOB_NAMES = new Map([
 
 // Generated lock files whose compiler-generated jobs get readable display names.
 export const NAMED_WORKFLOWS = new Map([
-  ['openspec-change-reconciliation.lock.yml', WORKFLOW_JOB_NAMES],
+  ['openspec-prepare.lock.yml', WORKFLOW_JOB_NAMES],
   ['openspec-agent.lock.yml', AGENT_WORKFLOW_JOB_NAMES],
 ]);
 

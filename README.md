@@ -123,9 +123,9 @@ The repository-owned OpenSpec workflow tooling has focused contract tests:
 
 ```powershell
 node --test .github/scripts/*.test.mjs
-gh aw validate .github/workflows/openspec-change-reconciliation.md
+gh aw validate .github/workflows/openspec-prepare.md
 gh aw validate .github/workflows/openspec-agent.md
-gh aw lint .github/workflows/openspec-change-reconciliation.lock.yml
+gh aw lint .github/workflows/openspec-prepare.lock.yml
 gh aw lint .github/workflows/openspec-agent.lock.yml
 node .github/scripts/openspec-change-workflow-names.mjs --check
 ```

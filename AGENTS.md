@@ -53,7 +53,7 @@
 
 - Explore and propose changes client-side. Implementation (apply, verify, sync, archive) runs server-side in the single OpenSpec orchestrator workflow (`.github/workflows/openspec-orchestrator.yml`) once a change is on `main`.
 - Issue twins are non-authoritative projections of active changes on `main`. The canonical change ref is stable identity; active and dated archive paths are mutable projections.
-- One combined issue reconciliation Agentic Workflow performs deterministic issue synchronization before AI dependency inference. Change-driven runs are incremental; weekly and manually requested full runs rebuild the complete inference view, and manual dry runs make no mutations.
+- The OpenSpec prepare Agentic Workflow (`.github/workflows/openspec-prepare.md`) performs deterministic issue synchronization before AI dependency inference. Change-driven runs are incremental; weekly and manually requested full runs rebuild the complete inference view, and manual dry runs make no mutations.
 - Dependency inference checkpoints are a rebuildable cache in `refs/notes/openspec-change-dependencies`. Fetch that ref explicitly when inspecting incremental behavior; the notes are not accepted state or processing authority.
 - The issue holds queue state only. `openspec:change` classifies twins and `openspec:enqueued` is the one-shot processing request, honored only when a user with write access applied it. `openspec:processing`, `openspec:needs-attention`, and `openspec:awaiting-review` are workflow outputs. Native GitHub issue dependencies are the only blocked-state authority.
 - Each admitted change gets a workflow-created `openspec/<change>` branch and draft pull request. Processing state lives only in the `OpenSpec lifecycle` check run on the pull request head; comments are a human-readable change log and are never read as state.
@@ -64,7 +64,7 @@
 - Every agent session ends with one pushed commit carrying an `OpenSpec-JSON:` checkpoint trailer (`complete`, `partial`, `needs_decision`, or `failed`). The workflow validates it at that exact commit before crediting; Agent Task status is supplemental.
 - Failed, partial, or invalid sessions get one retry. Agent decisions, exhausted retries, and verify findings open human gates: any suggestion or warning opens a review gate, any critical finding opens a failure gate that cannot be approved, and a clean verify continues automatically. Humans resolve gates with `/openspec approve`, `retry`, `answer <text>`, or `abort`.
 - Archive happens on the implementation branch. Automation stops at the merge gate; a human marks the pull request ready, reviews it, and merges.
-- Cross-change inference is read-only until its typed custom safe output invokes the privileged validator and reconciler. Edit the combined Agentic Workflow source, regenerate its lock file with `gh aw compile`, and run `node .github/scripts/openspec-change-workflow-names.mjs` to apply generated-job display names; do not hand-edit the lock.
+- Cross-change inference is read-only until its typed custom safe output invokes the privileged validator and reconciler. Edit the OpenSpec prepare workflow source, regenerate its lock file with `gh aw compile`, and run `node .github/scripts/openspec-change-workflow-names.mjs` to apply generated-job display names; do not hand-edit the lock.
 - Every job and step in `openspec-orchestrator.yml` and `openspec-agent.md` must keep a readable `name:`; `openspec-workflow.test.mjs` enforces it.
 - Run `node --test .github/scripts/*.test.mjs` for the workflow tooling tests.
 
