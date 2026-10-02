@@ -117,8 +117,8 @@ const agentLock = readFileSync(new URL('../workflows/openspec-agent.lock.yml', i
 
 test('dispatches the compiled agentic workflow the controller names', () => {
   assert.equal(AGENT_WORKFLOW, 'openspec-agent.lock.yml');
-  assert.match(agentSource, /^run-name: "openspec agent · #\$\{\{ inputs\.pr \}\} \$\{\{ inputs\.branch \}\} · \$\{\{ inputs\.step \|\| 'session' \}\} · \$\{\{ inputs\.dispatch_id \}\}"$/m);
-  assert.match(agentLock, /^run-name: "openspec agent · #\$\{\{ inputs\.pr \}\} \$\{\{ inputs\.branch \}\} · \$\{\{ inputs\.step \|\| 'session' \}\} · \$\{\{ inputs\.dispatch_id \}\}"$/m);
+  assert.match(agentSource, /^run-name: "OpenSpec agent · #\$\{\{ inputs\.pr \}\} \$\{\{ inputs\.branch \}\} · \$\{\{ inputs\.step \|\| 'session' \}\} · \$\{\{ inputs\.dispatch_id \}\}"$/m);
+  assert.match(agentLock, /^run-name: "OpenSpec agent · #\$\{\{ inputs\.pr \}\} \$\{\{ inputs\.branch \}\} · \$\{\{ inputs\.step \|\| 'session' \}\} · \$\{\{ inputs\.dispatch_id \}\}"$/m);
   assert.match(agentSource, /check-branch-protection: false/);
   assert.match(agentSource, /workflow_dispatch:\n    inputs:\n      pr:[\s\S]*dispatch_id:[\s\S]*step:/);
 });

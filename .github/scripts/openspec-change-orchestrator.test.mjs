@@ -330,7 +330,7 @@ class FakeGitHub {
       inputs,
       status: 'queued',
       conclusion: null,
-      display_title: `openspec agent · #${inputs.pr} · ${inputs.dispatch_id}`,
+      display_title: `OpenSpec agent · #${inputs.pr} · ${inputs.dispatch_id}`,
       created_at: new Date().toISOString(),
       html_url: `https://github.com/${REPOSITORY}/actions/runs/${this.counter}`,
     };

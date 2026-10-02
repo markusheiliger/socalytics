@@ -1,7 +1,7 @@
 ---
 name: OpenSpec agent
 description: Run one OpenSpec agent session (apply task, verify, sync, or archive) that the OpenSpec orchestrator dispatched.
-run-name: "openspec agent · #${{ inputs.pr }} ${{ inputs.branch }} · ${{ inputs.step || 'session' }} · ${{ inputs.dispatch_id }}"
+run-name: "OpenSpec agent · #${{ inputs.pr }} ${{ inputs.branch }} · ${{ inputs.step || 'session' }} · ${{ inputs.dispatch_id }}"
 on:
   workflow_dispatch:
     inputs:
