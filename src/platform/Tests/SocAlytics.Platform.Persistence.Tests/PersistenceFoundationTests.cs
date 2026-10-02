@@ -62,6 +62,7 @@ public sealed class PersistenceFoundationTests
         services.AddPlatformPersistence(
             "Host=localhost;Database=runtime;Username=runtime",
             "Host=localhost;Database=bootstrap;Username=bootstrap");
+        services.AddModuleDatabaseConnections(PersistenceModuleIdentity.Club);
 
         var persistenceContracts = services
             .Where(descriptor => descriptor.ServiceType.Assembly == typeof(IRuntimeDatabaseConnectionFactory).Assembly)
@@ -73,8 +74,11 @@ public sealed class PersistenceFoundationTests
             .ShouldAllBe(type => !type.IsPublic);
         typeof(IRuntimeDatabaseConnectionFactory).Assembly.GetExportedTypes()
             .ShouldNotContain(type => type.Name.Contains("Bootstrap", StringComparison.Ordinal));
-        services.Single(descriptor => descriptor.ServiceType == typeof(IRuntimeDatabaseConnectionFactory))
-            .Lifetime.ShouldBe(ServiceLifetime.Singleton);
+        var runtimeFactory = services.Single(descriptor =>
+            descriptor.ServiceType == typeof(IRuntimeDatabaseConnectionFactory));
+        runtimeFactory.IsKeyedService.ShouldBeTrue();
+        runtimeFactory.ServiceKey.ShouldBe(PersistenceModuleIdentity.Club.Key);
+        runtimeFactory.Lifetime.ShouldBe(ServiceLifetime.Singleton);
     }
 
     private static MigrationDescriptor CreateMigration(

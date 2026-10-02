@@ -7,7 +7,7 @@ internal interface IBootstrapDatabaseConnectionFactory
     ValueTask<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken = default);
 }
 
-internal sealed class RuntimeDatabaseConnectionFactory : IRuntimeDatabaseConnectionFactory, IAsyncDisposable
+internal sealed class RuntimeDatabaseConnectionFactory : IAsyncDisposable
 {
     private readonly NpgsqlDataSource _dataSource;
 
@@ -16,14 +16,38 @@ internal sealed class RuntimeDatabaseConnectionFactory : IRuntimeDatabaseConnect
         _dataSource = NpgsqlDataSource.Create(connectionString);
     }
 
-    public ValueTask<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken = default)
+    public IRuntimeDatabaseConnectionFactory ForModule(PersistenceModuleIdentity module)
     {
-        return _dataSource.OpenConnectionAsync(cancellationToken);
+        return new ModuleRuntimeDatabaseConnectionFactory(_dataSource, module);
     }
 
     public ValueTask DisposeAsync()
     {
         return _dataSource.DisposeAsync();
+    }
+}
+
+internal sealed class ModuleRuntimeDatabaseConnectionFactory(
+    NpgsqlDataSource dataSource,
+    PersistenceModuleIdentity module) : IRuntimeDatabaseConnectionFactory
+{
+    public async ValueTask<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken = default)
+    {
+        var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        try
+        {
+            var role = new NpgsqlCommandBuilder().QuoteIdentifier(DatabaseRoleNames.Runtime(module));
+            await using var command = new NpgsqlCommand(
+                $"SET ROLE {role}",
+                connection);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+            return connection;
+        }
+        catch
+        {
+            await connection.DisposeAsync();
+            throw;
+        }
     }
 }
 

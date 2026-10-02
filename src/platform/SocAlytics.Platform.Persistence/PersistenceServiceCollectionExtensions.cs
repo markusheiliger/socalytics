@@ -13,16 +13,34 @@ public static class PersistenceServiceCollectionExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(runtimeConnectionString);
         ArgumentException.ThrowIfNullOrWhiteSpace(bootstrapConnectionString);
 
-        services.AddSingleton<IRuntimeDatabaseConnectionFactory>(
-            _ => new RuntimeDatabaseConnectionFactory(runtimeConnectionString));
+        services.AddSingleton(_ => new RuntimeDatabaseConnectionFactory(runtimeConnectionString));
         services.AddSingleton<IBootstrapDatabaseConnectionFactory>(
             _ => new BootstrapDatabaseConnectionFactory(bootstrapConnectionString));
+        services.AddSingleton<DatabaseRoleBootstrapper>();
         services.AddSingleton(provider => new MigrationCatalog(provider.GetServices<MigrationDescriptor>()));
         services.AddSingleton(provider => new MigrationOrchestrator(
             provider.GetRequiredService<IBootstrapDatabaseConnectionFactory>(),
+            provider.GetRequiredService<DatabaseRoleBootstrapper>(),
             provider.GetRequiredService<MigrationCatalog>(),
             bootstrapConnectionString));
 
+        return services;
+    }
+
+    public static IServiceCollection AddModuleDatabaseConnections(
+        this IServiceCollection services,
+        PersistenceModuleIdentity module)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(module);
+        if (!PersistenceModuleIdentity.All.Contains(module))
+        {
+            throw new ArgumentException("The module identity is not adopted.", nameof(module));
+        }
+
+        services.AddKeyedSingleton<IRuntimeDatabaseConnectionFactory>(
+            module.Key,
+            (provider, _) => provider.GetRequiredService<RuntimeDatabaseConnectionFactory>().ForModule(module));
         return services;
     }
 

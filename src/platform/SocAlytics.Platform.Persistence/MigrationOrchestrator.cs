@@ -6,6 +6,7 @@ namespace SocAlytics.Platform.Persistence;
 
 internal sealed class MigrationOrchestrator(
     IBootstrapDatabaseConnectionFactory connections,
+    DatabaseRoleBootstrapper roleBootstrapper,
     MigrationCatalog catalog,
     string bootstrapConnectionString)
 {
@@ -14,6 +15,7 @@ internal sealed class MigrationOrchestrator(
         MigrationDescriptor? current = null;
         try
         {
+            await roleBootstrapper.BootstrapAsync(cancellationToken);
             await using var connection = await connections.OpenConnectionAsync(cancellationToken);
             await using (var command = new NpgsqlCommand(
                 """
@@ -77,21 +79,34 @@ internal sealed class MigrationOrchestrator(
                 current = migration;
                 using var script = migration.OpenScript();
                 using var reader = new StreamReader(script);
+                var ownerRole = new NpgsqlCommandBuilder().QuoteIdentifier(DatabaseRoleNames.Owner(module));
+                var migrationScript = $"SET LOCAL ROLE {ownerRole};\n{await reader.ReadToEndAsync(cancellationToken)}\nRESET ROLE;";
                 var engine = DeployChanges.To
                     .PostgresqlDatabase(bootstrapConnectionString)
-                    .WithScripts(new SqlScript(migration.Identity, await reader.ReadToEndAsync(cancellationToken)))
+                    .WithScripts(new SqlScript(migration.Identity, migrationScript))
                     .WithVariablesDisabled()
                     .WithTransactionPerScript()
                     .JournalTo((_, _) => new MigrationJournal(migration))
                     .LogToNowhere()
                     .Build();
 
-                if (!engine.PerformUpgrade().Successful)
+                await roleBootstrapper.SetSchemaCreationPrivilegeAsync(module, true, cancellationToken);
+                try
                 {
-                    throw new MigrationException(
-                        $"Migration failed for module '{module.Key}', script '{migration.Identity}'.");
+                    if (!engine.PerformUpgrade().Successful)
+                    {
+                        throw new MigrationException(
+                            $"Migration failed for module '{module.Key}', script '{migration.Identity}'.");
+                    }
+                }
+                finally
+                {
+                    await roleBootstrapper.SetSchemaCreationPrivilegeAsync(module, false, CancellationToken.None);
                 }
             }
+
+            current = null;
+            await roleBootstrapper.BootstrapAsync(cancellationToken);
         }
         catch (MigrationException)
         {
