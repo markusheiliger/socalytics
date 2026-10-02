@@ -132,6 +132,32 @@ Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Da
 provide database access; Entity Framework Core is not part of the baseline.
 DbUp applies ordered, versioned PostgreSQL SQL scripts grouped by owning module.
 
+#### Shared Persistence Boundary And Database Roles
+
+The `add-platform-persistence-foundation` change plans one module-neutral
+`SocAlytics.Platform.Persistence` peer project. It would own only Npgsql
+data-source configuration, Dapper support, explicit transaction execution,
+optimistic-concurrency semantics, migration descriptors, checksum verification,
+and the `socalytics_migrations` journal; it would own no capability schema or
+domain record. Each capability would reference it and never another
+capability, and would keep exporting only its composition type. The API would
+call only the shared registration and startup boundary.
+
+Schema isolation would use a NOLOGIN owner role and runtime role per module
+for local and test databases. Migrations run as the owning module's owner
+role; normal module sessions run as its runtime role with public and
+peer-module access revoked. The bootstrap connection is limited to migration
+orchestration and is not available to module services. Production role
+identities, credentials, and secret delivery remain unresolved.
+
+**ADR disposition:** no ADR is added. The repository threshold reserves ADRs
+for consequential changes to an established or implemented architecture; this
+boundary refines the still-unimplemented persistence baseline above, which
+already adopts module-owned schemas, Npgsql, Dapper, and DbUp. The rationale
+and rejected alternatives live in the active change design, and this narrative
+owns the current design. Revisit an ADR if a later change alters the boundary
+after implementation.
+
 CQRS is logical rather than physical:
 
 - commands use plain typed C# handlers resolved through .NET dependency
