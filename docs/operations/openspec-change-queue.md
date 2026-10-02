@@ -396,17 +396,31 @@ starts over on a new branch.
 
 These one-time settings are required for server-side processing:
 
-1. **Let Copilot pushes run workflows.** In the Copilot coding agent settings,
-   turn off the approval requirement for workflows triggered by Copilot.
-   Otherwise each checkpoint push waits for a human to approve the run, and only
-   the 15-minute watchdog advances processing.
-2. **Create the `openspec` environment.** Limit its deployment branches to
+1. **Let GitHub Actions create pull requests.** In **Settings → Actions →
+   General → Workflow permissions**, enable **Allow GitHub Actions to create and
+   approve pull requests** and keep the default permissions read-only. Without
+   it, admission fails with `GitHub Actions is not permitted to create or
+   approve pull requests`. The workflow only opens and closes its own draft pull
+   requests; it never approves.
+2. **Let Copilot pushes run workflows.** In **Settings → Copilot → Cloud agent →
+   Actions workflow approval**, turn off **Require approval for workflow runs**.
+   Otherwise each checkpoint push creates a held run that someone must release
+   with **Approve and run workflows** on the pull request, or that waits for the
+   watchdog.
+3. **Create the `openspec` environment.** Limit its deployment branches to
    `main`, add the `COPILOT_AGENT_TOKEN` secret there (a fine-grained personal
    access token with Agent tasks read and write permission; installation tokens
    are not supported by the Agent Tasks API), and remove the repository-level
-   secret. Workflows from other branches then cannot read the token.
-3. **Optionally** set the repository variable `OPENSPEC_MAX_ACTIVE_CHANGES`, and
+   secret. Workflows from other branches then cannot read the token. Without
+   this step GitHub creates the environment on first use without restrictions
+   and the repository-level secret is used.
+4. **Optionally** set the repository variable `OPENSPEC_MAX_ACTIVE_CHANGES`, and
    require the `OpenSpec lifecycle` check in branch protection.
+
+Agent Tasks on an existing pull request run in GitHub's review-comment
+follow-up mode, which may stop when no comment mentions Copilot. The workflow's
+prompt therefore opens with an explicit instruction that the problem statement
+is the request. Keep that opening when changing the prompt.
 
 The workflow uses `GITHUB_TOKEN`, which is limited to 1,000 API requests per
 hour per repository. To stay within it, each run reads state from the head
