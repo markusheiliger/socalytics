@@ -117,7 +117,8 @@ const agentLock = readFileSync(new URL('../workflows/openspec-agent.lock.yml', i
 
 test('dispatches the compiled agentic workflow the controller names', () => {
   assert.equal(AGENT_WORKFLOW, 'openspec-agent.lock.yml');
-  assert.match(agentSource, /^run-name: "openspec agent · #\$\{\{ inputs\.pr \}\} · \$\{\{ inputs\.dispatch_id \}\}"$/m);
+  assert.match(agentSource, /^run-name: "openspec agent · #\$\{\{ inputs\.pr \}\} \$\{\{ inputs\.branch \}\} · \$\{\{ inputs\.dispatch_id \}\}"$/m);
+  assert.match(agentSource, /check-branch-protection: false/);
   assert.match(agentSource, /workflow_dispatch:\n    inputs:\n      pr:[\s\S]*dispatch_id:/);
 });
 
@@ -133,7 +134,8 @@ test('runs the agent without a personal access token and without push rights', (
 });
 
 test('wakes the controller only after the checkpoint push', () => {
-  assert.match(agentSource, /wake-controller:[\s\S]*needs: safe_outputs[\s\S]*gh workflow run openspec\.yml/);
+  assert.match(agentSource, /wake-controller:[\s\S]*needs: safe_outputs[\s\S]*gh workflow run openspec\.yml[^\n]*-f reason="agent finished on #\$PR"/);
+  assert.match(workflow, /inputs\.reason && format\('openspec · \{0\}', inputs\.reason\)/);
   assert.match(agentLock, /wake_controller:\n    name: Wake the openspec controller\n    needs:\n      - agent\n      - detection\n      - safe_outputs/);
 });
 

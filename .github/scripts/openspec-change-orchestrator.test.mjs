@@ -759,7 +759,7 @@ test('runs sessions as agentic workflow runs and builds their prompt from the st
   assert.equal(github.workflowRuns.length, 1);
   const [run] = github.workflowRuns;
   assert.equal(run.workflow, 'openspec-agent.lock.yml');
-  assert.deepEqual(run.inputs, { pr: String(pr.number), dispatch_id: 'd1' });
+  assert.deepEqual(run.inputs, { pr: String(pr.number), dispatch_id: 'd1', branch: `openspec/${CHANGE}` });
   let state = lifecycleState(github, pr);
   assert.deepEqual(state.current.session, { runtime: 'actions', id: String(run.id), state: 'queued', url: run.html_url });
   assert.ok(logTitles(github, pr).some((title) => title.startsWith('▶️ #2 · Apply 1.1')));

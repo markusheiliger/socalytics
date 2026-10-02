@@ -19,12 +19,14 @@ import {
   validateSynchronizedDeltas,
 } from './openspec-change-core.mjs';
 import {
+  BRANCH_PREFIX,
   authorizeCommand,
+  classifyEvent,
   isBotUser,
+  isRunBranch,
   parseCommand,
   pendingCommandComments,
 } from './openspec-change-commands.mjs';
-import { BRANCH_PREFIX, classifyEvent, isRunBranch } from './openspec-change-events.mjs';
 import { GitHubChangeClient } from './openspec-change-github.mjs';
 import {
   admittedEntry,
@@ -867,10 +869,6 @@ async function buildDispatchTask(ctx, run, decision) {
 
 export const AGENT_WORKFLOW = 'openspec-agent.lock.yml';
 
-export function agentRunName(pr, dispatchId) {
-  return `openspec agent · #${pr} · ${dispatchId}`;
-}
-
 // Maps a workflow run to the session states the state machine understands.
 export function workflowRunState(run) {
   if (run.status !== 'completed') return run.status === 'in_progress' ? 'in_progress' : 'queued';
@@ -912,6 +910,7 @@ async function startSession(ctx, state, envelope) {
   const started = await ctx.client.dispatchWorkflow(AGENT_WORKFLOW, ctx.baseRef, {
     pr: String(state.pr),
     dispatch_id: state.current.dispatchId,
+    branch: state.branch,
   });
   if (!started?.workflow_run_id) return null;
   return { runtime: 'actions', id: String(started.workflow_run_id), state: 'queued', url: started.html_url };

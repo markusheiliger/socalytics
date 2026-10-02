@@ -17,6 +17,7 @@ run-name: >-
     || github.event_name == 'push' && 'openspec · OpenSpec changes updated on main'
     || github.event_name == 'schedule' && 'openspec · watchdog'
     || inputs.dry_run && 'openspec · manual (dry run)'
+    || inputs.reason && format('openspec · {0}', inputs.reason)
     || 'openspec · manual run'
   }}
 
@@ -40,6 +41,11 @@ on:
         required: false
         default: false
         type: boolean
+      reason:
+        description: "Why the run was started (shown in the run title)"
+        required: false
+        default: ""
+        type: string
 
 permissions: {}
 

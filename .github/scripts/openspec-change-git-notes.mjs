@@ -96,35 +96,6 @@ function refFromChangePath(path) {
   return match?.[1] ?? null;
 }
 
-export async function detectDependencyChanges({
-  git = createGitRunner(),
-  baseCommit = null,
-  head = 'HEAD',
-  allRefs = [],
-} = {}) {
-  if (baseCommit === null) {
-    return {
-      mode: 'full',
-      evaluatedRefs: [...new Set(allRefs)].sort(),
-      files: [],
-    };
-  }
-  const output = await git(
-    'diff',
-    '--name-only',
-    '--diff-filter=ACDMRTUXB',
-    `${baseCommit}..${head}`,
-    '--',
-    'openspec/changes',
-  );
-  const files = output.split(/\r?\n/).filter(Boolean).sort();
-  const known = new Set(allRefs);
-  const evaluatedRefs = [...new Set(files.map(refFromChangePath).filter(
-    (ref) => ref && known.has(ref),
-  ))].sort();
-  return { mode: 'incremental', evaluatedRefs, files };
-}
-
 export async function writeDependencyCheckpoint({
   git = createGitRunner(),
   object = 'HEAD',

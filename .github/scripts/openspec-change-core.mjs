@@ -298,10 +298,6 @@ export function parseCapabilityTasks(tasksMarkdown) {
   return tasks;
 }
 
-export function selectNextTask(tasksMarkdown) {
-  return parseCapabilityTasks(tasksMarkdown).find((task) => !task.completed) ?? null;
-}
-
 export function assertAcyclicGraph(refs, edges) {
   const knownRefs = new Set(refs);
   const dependencies = new Map(refs.map((ref) => [ref, []]));

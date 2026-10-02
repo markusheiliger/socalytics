@@ -17,7 +17,6 @@ import {
   renderCheckpointTrailer,
   renderDependencySummary,
   renderRunStateText,
-  selectNextTask,
   serializeDependencyCheckpoint,
   validateDependencyOutput,
   validateDependencyGraphPatch,
@@ -59,7 +58,7 @@ test('rejects malformed, duplicate, and inconsistent change markers', () => {
   );
 });
 
-test('parses capability-backed multiline tasks and selects the first unchecked task', () => {
+test('parses capability-backed multiline tasks', () => {
   const markdown = [
     '## Tasks',
     '',
@@ -78,7 +77,6 @@ test('parses capability-backed multiline tasks and selects the first unchecked t
       { id: '1.2', completed: false, capabilities: ['verification'] },
     ],
   );
-  assert.equal(selectNextTask(markdown).id, '1.2');
 });
 
 test('rejects tasks with missing, duplicate, or malformed capabilities', () => {

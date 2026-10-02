@@ -1,7 +1,7 @@
 ---
 name: OpenSpec agent
 description: Run one OpenSpec agent session (apply task, verify, sync, or archive) that the openspec workflow dispatched.
-run-name: "openspec agent · #${{ inputs.pr }} · ${{ inputs.dispatch_id }}"
+run-name: "openspec agent · #${{ inputs.pr }} ${{ inputs.branch }} · ${{ inputs.dispatch_id }}"
 on:
   workflow_dispatch:
     inputs:
@@ -12,6 +12,10 @@ on:
       dispatch_id:
         description: Dispatch id recorded in the pull request's OpenSpec lifecycle state
         required: true
+        type: string
+      branch:
+        description: Pull request branch, shown in the run title only
+        required: false
         type: string
 permissions:
   contents: read
@@ -106,6 +110,7 @@ safe-outputs:
     if-no-changes: error
     fallback-as-pull-request: false
     signed-commits: false
+    check-branch-protection: false
     github-token-for-extra-empty-commit: none
     protected-files:
       policy: blocked
@@ -130,7 +135,8 @@ safe-outputs:
         - name: Start the openspec workflow
           env:
             GH_TOKEN: ${{ github.token }}
-          run: gh workflow run openspec.yml --repo "$GITHUB_REPOSITORY" --ref main
+            PR: ${{ github.event.inputs.pr }}
+          run: gh workflow run openspec.yml --repo "$GITHUB_REPOSITORY" --ref main -f reason="agent finished on #$PR"
   noop:
     report-as-issue: false
   missing-tool:

@@ -5,7 +5,6 @@ import test from 'node:test';
 
 import {
   createGitRunner,
-  detectDependencyChanges,
   findNearestDependencyCheckpoint,
   pushDependencyNotes,
   readDependencyNote,
@@ -81,38 +80,6 @@ test('writes, reads, and finds the nearest non-forced dependency checkpoint', as
     }),
     /already exists/,
   );
-});
-
-test('detects incremental active change refs and supports full evaluation', async (t) => {
-  const repository = await createRepository('changes');
-  t.after(() => rm(repository.cwd, { recursive: true, force: true }));
-  const changeDirectory = path.join(
-    repository.cwd,
-    'openspec',
-    'changes',
-    'change-two',
-  );
-  await mkdir(changeDirectory, { recursive: true });
-  await writeFile(path.join(changeDirectory, 'proposal.md'), '# Change two\n');
-  await repository.git('add', '.');
-  await repository.git('commit', '-m', 'add change');
-  assert.deepEqual(await detectDependencyChanges({
-    git: repository.git,
-    baseCommit: repository.initial,
-    allRefs: ['change-one', 'change-two'],
-  }), {
-    mode: 'incremental',
-    evaluatedRefs: ['change-two'],
-    files: ['openspec/changes/change-two/proposal.md'],
-  });
-  assert.deepEqual(await detectDependencyChanges({
-    git: repository.git,
-    allRefs: ['change-two', 'change-one', 'change-two'],
-  }), {
-    mode: 'full',
-    evaluatedRefs: ['change-one', 'change-two'],
-    files: [],
-  });
 });
 
 test('rejects a checkpoint attached to a different commit', async (t) => {

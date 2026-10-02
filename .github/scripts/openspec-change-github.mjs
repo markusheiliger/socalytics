@@ -149,13 +149,6 @@ export class GitHubChangeClient {
     });
   }
 
-  deleteIssueComment(commentId) {
-    return this.request(`${this.repositoryPath}/issues/comments/${commentId}`, {
-      method: 'DELETE',
-      expected: [204],
-    });
-  }
-
   ensureLabel({ name, color, description }) {
     return this.request(`${this.repositoryPath}/labels/${encodeURIComponent(name)}`, {
       expected: [200, 404],
@@ -172,12 +165,6 @@ export class GitHubChangeClient {
   listBlockedBy(issueNumber) {
     return this.paginate(
       `${this.repositoryPath}/issues/${issueNumber}/dependencies/blocked_by`,
-    );
-  }
-
-  listBlocking(issueNumber) {
-    return this.paginate(
-      `${this.repositoryPath}/issues/${issueNumber}/dependencies/blocking`,
     );
   }
 
@@ -250,23 +237,11 @@ export class GitHubChangeClient {
     return this.request(`${this.repositoryPath}/branches/${encodeURIComponent(branch)}`);
   }
 
-  getCommit(commitSha) {
-    return this.request(`${this.repositoryPath}/commits/${encodeURIComponent(commitSha)}`);
-  }
-
   createGitCommit({ message, tree, parents }) {
     return this.request(`${this.repositoryPath}/git/commits`, {
       method: 'POST',
       body: { message, tree, parents },
       expected: [201],
-    });
-  }
-
-  updateGitRef(ref, sha) {
-    const encodedRef = ref.split('/').map(encodeURIComponent).join('/');
-    return this.request(`${this.repositoryPath}/git/refs/heads/${encodedRef}`, {
-      method: 'PATCH',
-      body: { sha, force: false },
     });
   }
 

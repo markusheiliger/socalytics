@@ -5,9 +5,9 @@ import {
   authorizeCommand,
   isBotUser,
   parseCommand,
+  classifyEvent,
   pendingCommandComments,
 } from './openspec-change-commands.mjs';
-import { classifyEvent } from './openspec-change-events.mjs';
 
 test('parses the four slash commands', () => {
   assert.deepEqual(parseCommand('/openspec approve'), { name: 'approve', text: null });

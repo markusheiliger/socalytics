@@ -120,20 +120,15 @@ test('adds and removes only the requested issue label', async () => {
   assert.equal(calls[1].options.body, undefined);
 });
 
-test('reads an issue and deletes a mutable issue comment', async () => {
+test('reads an issue', async () => {
   const calls = [];
-  const client = clientWith(async (url, options) => {
-    calls.push([url, options]);
-    return options?.method === 'DELETE'
-      ? new Response(null, { status: 204 })
-      : jsonResponse({ number: 12 });
+  const client = clientWith(async (url) => {
+    calls.push(url);
+    return jsonResponse({ number: 12 });
   });
 
   assert.equal((await client.getIssue(12)).number, 12);
-  await client.deleteIssueComment(99);
-  assert.match(calls[0][0], /\/issues\/12$/);
-  assert.match(calls[1][0], /\/issues\/comments\/99$/);
-  assert.equal(calls[1][1].method, 'DELETE');
+  assert.match(calls[0], /\/issues\/12$/);
 });
 
 test('treats removing an absent issue label as idempotent', async () => {
@@ -177,44 +172,15 @@ test('decodes repository text content', async () => {
   assert.equal(await client.getTextContent('README.md', 'main'), 'hello');
 });
 
-test('reads commit metadata for a durable queue checkpoint', async () => {
+test('appends a Git commit', async () => {
   const calls = [];
-  const client = clientWith(async (url) => {
-    calls.push(url);
-    return jsonResponse({ sha: sha('b'), commit: { message: 'checkpoint' } });
+  const client = clientWith(async (url, options) => {
+    calls.push({ url, options });
+    return jsonResponse({ sha: sha('c') }, 201);
   });
-
-  test('appends a Git commit and fast-forwards a branch ref', async () => {
-    const calls = [];
-    const client = clientWith(async (url, options) => {
-      calls.push({ url, options });
-      return jsonResponse(
-        { sha: sha('c') },
-        url.endsWith('/git/commits') ? 201 : 200,
-      );
-    });
-    await client.createGitCommit({
-      message: 'checkpoint',
-      tree: sha('a'),
-      parents: [sha('b')],
-    });
-    await client.updateGitRef('copilot/change', sha('c'));
-
-    assert.match(calls[0].url, /\/git\/commits$/);
-    assert.deepEqual(JSON.parse(calls[0].options.body), {
-      message: 'checkpoint',
-      tree: sha('a'),
-      parents: [sha('b')],
-    });
-    assert.match(calls[1].url, /\/git\/refs\/heads\/copilot\/change$/);
-    assert.deepEqual(JSON.parse(calls[1].options.body), {
-      sha: sha('c'),
-      force: false,
-    });
-  });
-  const commit = await client.getCommit(sha('b'));
-  assert.equal(commit.commit.message, 'checkpoint');
-  assert.match(calls[0], new RegExp(`/commits/${sha('b')}$`));
+  await client.createGitCommit({ message: 'checkpoint', tree: sha('a'), parents: [sha('b')] });
+  assert.match(calls[0].url, /\/git\/commits$/);
+  assert.deepEqual(JSON.parse(calls[0].options.body), { message: 'checkpoint', tree: sha('a'), parents: [sha('b')] });
 });
 
 test('compares commits and requires changed-file evidence', async () => {
