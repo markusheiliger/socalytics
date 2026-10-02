@@ -26,12 +26,27 @@ public static class PersistenceServiceCollectionExtensions
         return services;
     }
 
-    public static Task MigratePlatformDatabaseAsync(
+    public static async Task MigratePlatformDatabaseAsync(
         this IServiceProvider services,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        return services.GetRequiredService<MigrationOrchestrator>().MigrateAsync(cancellationToken);
+        try
+        {
+            await services.GetRequiredService<MigrationOrchestrator>().MigrateAsync(cancellationToken);
+        }
+        catch (MigrationException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            throw new MigrationException("Migration preparation failed.");
+        }
     }
 }

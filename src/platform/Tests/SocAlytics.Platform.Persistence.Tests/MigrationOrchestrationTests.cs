@@ -134,13 +134,17 @@ public sealed class MigrationOrchestrationTests : IAsyncLifetime
         (await ValuesAsync()).ShouldBe(["initial"]);
     }
 
-    [Fact]
-    public async Task Database_preparation_failure_does_not_expose_connection_details()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Database_preparation_failure_does_not_expose_connection_details(bool malformed)
     {
-        var invalid = new NpgsqlConnectionStringBuilder(_database.GetConnectionString())
-        {
-            Database = "missing_database"
-        }.ConnectionString;
+        var invalid = malformed
+            ? "provider-detail-must-not-leak=invalid"
+            : new NpgsqlConnectionStringBuilder(_database.GetConnectionString())
+            {
+                Database = "missing_database"
+            }.ConnectionString;
         await using var services = Services([], invalid);
 
         var error = await Should.ThrowAsync<MigrationException>(
@@ -150,6 +154,7 @@ public sealed class MigrationOrchestrationTests : IAsyncLifetime
         error.InnerException.ShouldBeNull();
         error.ToString().ShouldNotContain(invalid);
         error.ToString().ShouldNotContain("missing_database");
+        error.ToString().ShouldNotContain("provider-detail-must-not-leak");
     }
 
     private ServiceProvider Services(IEnumerable<MigrationDescriptor> migrations, string? connectionString = null)
