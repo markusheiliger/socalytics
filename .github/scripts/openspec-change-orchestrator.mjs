@@ -839,6 +839,7 @@ export async function admitChange(ctx, change) {
   await writeRunState(ctx, run, state);
   await upsertOverview(ctx, run);
   await postLog(ctx, run, admittedEntry({ state, context: ctx.render, blockers: screened.blockers }));
+  await ctx.client.addIssueLabel(issue.number, 'openspec:processing');
   await ctx.client.removeIssueLabel(issue.number, ENQUEUED_LABEL);
   await commentOnIssue(ctx, issue.number, `Processing started in #${pr.number}. Follow the change log there.`);
   report(ctx, `- ${change}: started in #${pr.number}`);

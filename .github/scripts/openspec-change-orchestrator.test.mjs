@@ -412,6 +412,13 @@ test('builds an agent prompt with the binding skill, rules, and a valid trailer 
   assert.equal(parseCheckpointTrailer(example).operation, 'verify');
 });
 
+test('admission swaps the queue label for the processing label before publish runs', async () => {
+  const env = setup();
+  await plan(env.ctx);
+  await admitChange(env.ctx, CHANGE);
+  assert.deepEqual(env.github.issues.get(4).labels.map((label) => label.name).sort(), ['openspec:change', 'openspec:processing']);
+});
+
 test('admits an enqueued change: branch, draft PR, state check run, log, labels, and first session', async () => {
   const { github, pr } = await admitted();
   assert.equal(pr.draft, true);
