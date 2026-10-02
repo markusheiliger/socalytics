@@ -35,6 +35,8 @@ internal sealed class MigrationOrchestrator(
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
+            await BootstrapRolesAsync(connection, cancellationToken);
+
             var applied = new HashSet<MigrationDescriptor>();
             await using (var command = new NpgsqlCommand(
                 "SELECT module_key, sequence, script_identity, checksum FROM socalytics_migrations.history",
@@ -79,7 +81,9 @@ internal sealed class MigrationOrchestrator(
                 using var reader = new StreamReader(script);
                 var engine = DeployChanges.To
                     .PostgresqlDatabase(bootstrapConnectionString)
-                    .WithScripts(new SqlScript(migration.Identity, await reader.ReadToEndAsync(cancellationToken)))
+                    .WithScripts(new SqlScript(
+                        migration.Identity,
+                        OwnedScript(migration, await reader.ReadToEndAsync(cancellationToken))))
                     .WithVariablesDisabled()
                     .WithTransactionPerScript()
                     .JournalTo((_, _) => new MigrationJournal(migration))
@@ -108,5 +112,26 @@ internal sealed class MigrationOrchestrator(
                 ? "Migration preparation failed."
                 : $"Migration failed for module '{current.Module.Key}', script '{current.Identity}'.");
         }
+    }
+
+    private static async Task BootstrapRolesAsync(NpgsqlConnection connection, CancellationToken cancellationToken)
+    {
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await using (var command = new NpgsqlCommand(
+            ModuleRoles.BootstrapSql().Replace("__DATABASE__", connection.Database.Replace("\"", "\"\"")),
+            connection,
+            transaction))
+        {
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+    }
+
+    // Scripts run as their module owner; the role is reset so the history insert uses the bootstrap identity.
+    private static string OwnedScript(MigrationDescriptor migration, string script)
+    {
+        var owner = ModuleRoles.QuoteIdentifier(ModuleRoles.Owner(migration.Module));
+        return $"SET LOCAL ROLE {owner};\n{script}\n;\nRESET ROLE;";
     }
 }
