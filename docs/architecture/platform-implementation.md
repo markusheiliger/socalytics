@@ -122,6 +122,32 @@ owns durable runs, DAG state, logical jobs, attempts, and accepted-result
 references. The segments boundary owns on-demand materialization within the
 control-plane deployment unless measured scaling later justifies extraction.
 
+### Shared Persistence Boundary And Database Roles
+
+The persistence foundation is planned and not yet implemented. Its adopted
+design is one module-neutral peer project, `SocAlytics.Platform.Persistence`,
+that owns connection creation, explicit transactions, optimistic-concurrency
+signaling, migration descriptors, checksum verification, and
+`socalytics_migrations.history`. It owns no capability schema or domain record.
+Each capability references it, never another capability, and keeps its SQL and
+migrations internal.
+
+Schema isolation is enforced by the database rather than by convention alone.
+Local and test databases use a NOLOGIN owner role and a NOLOGIN runtime role per
+module. Migrations run as the owning module's owner role, normal module
+sessions run as that module's runtime role, and peer-module and public access
+are revoked. The bootstrap connection is limited to migration orchestration.
+These are role semantics only; production identities, credentials, secret
+sources, and role-to-identity mapping remain unresolved.
+
+ADR disposition: no ADR is added. This repository reserves ADRs for
+consequential changes to established or implemented architecture, and this
+boundary refines a baseline already adopted here (module-owned schemas, DbUp,
+`socalytics_migrations.history`) before any persistence is implemented. This
+section records the rationale; the originating OpenSpec design retains the
+rejected alternatives. Revisit an ADR if the boundary or role model later
+changes after implementation.
+
 ### Persistence And CQRS
 
 This persistence and messaging baseline remains unimplemented; the current host
