@@ -97,7 +97,7 @@ The repository-owned `openspec-enqueue-change` skill is an equivalent,
 host-neutral entry point and is independent of the workflow scripts under
 `.github/scripts/`.
 
-The single `openspec` workflow (`.github/workflows/openspec.yml`) then
+The single OpenSpec orchestrator workflow (`.github/workflows/openspec-orchestrator.yml`) then
 implements each enqueued change on its own workflow-created `openspec/<change>`
 branch and draft pull request. It starts one fresh agent session per numbered
 apply task, then one each for verify, sync, and archive. Sessions run in the

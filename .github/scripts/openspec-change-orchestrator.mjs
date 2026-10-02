@@ -81,8 +81,8 @@ const BINDING_SKILLS = Object.freeze({
   archive: '.github/skills/openspec-archive-change/SKILL.md',
 });
 const LABEL_DEFINITIONS = Object.freeze({
-  'openspec:processing': { color: 'fbca04', description: 'The openspec workflow is processing this change' },
-  'openspec:needs-attention': { color: 'd93f0b', description: 'The openspec workflow is waiting for a human' },
+  'openspec:processing': { color: 'fbca04', description: 'The OpenSpec orchestrator is processing this change' },
+  'openspec:needs-attention': { color: 'd93f0b', description: 'The OpenSpec orchestrator is waiting for a human' },
   'openspec:awaiting-review': { color: '0e8a16', description: 'Archived on its pull request and waiting for human review and merge' },
   'openspec:stage:apply': { color: 'c5def5', description: 'OpenSpec pull request is in the apply stage' },
   'openspec:stage:verify': { color: 'c5def5', description: 'OpenSpec pull request is in the verify stage' },
@@ -132,7 +132,7 @@ function pullRequestBody({ change, issue, requestedBy, context }) {
   return [
     `Implements the OpenSpec change [\`${change}\`](${base}/tree/main/${activeChangePath(change)}) for #${issue}.`,
     '',
-    'This draft pull request is managed by the **openspec** workflow. The comments below are the change log: every agent session, decision, and review is recorded there in order. The **OpenSpec lifecycle** check shows the current state.',
+    'This draft pull request is managed by the **OpenSpec orchestrator** workflow. The comments below are the change log: every agent session, decision, and review is recorded there in order. The **OpenSpec lifecycle** check shows the current state.',
     '',
     'To steer the workflow, comment `/openspec approve`, `/openspec retry`, `/openspec answer <text>`, or `/openspec abort` when it asks for input.',
     '',

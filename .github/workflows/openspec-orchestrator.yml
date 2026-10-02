@@ -1,24 +1,24 @@
-name: openspec
+name: OpenSpec orchestrator
 
 run-name: >-
   ${{
     github.event_name == 'issues' && github.event.action == 'labeled' && github.event.label.name == 'openspec:enqueued'
-      && format('openspec · enqueued #{0} by @{1}', github.event.issue.number, github.actor)
+      && format('OpenSpec orchestrator · enqueued #{0} by @{1}', github.event.issue.number, github.actor)
     || github.event_name == 'issues'
-      && format('openspec · issue #{0} {1} by @{2}', github.event.issue.number, github.event.action, github.actor)
+      && format('OpenSpec orchestrator · issue #{0} {1} by @{2}', github.event.issue.number, github.event.action, github.actor)
     || github.event_name == 'pull_request_target' && github.event.action == 'closed' && github.event.pull_request.merged
-      && format('openspec · PR #{0} merged', github.event.pull_request.number)
+      && format('OpenSpec orchestrator · PR #{0} merged', github.event.pull_request.number)
     || github.event_name == 'pull_request_target' && github.event.action == 'closed'
-      && format('openspec · PR #{0} closed', github.event.pull_request.number)
+      && format('OpenSpec orchestrator · PR #{0} closed', github.event.pull_request.number)
     || github.event_name == 'pull_request_target'
-      && format('openspec · new commits on {0}', github.event.pull_request.head.ref)
+      && format('OpenSpec orchestrator · new commits on {0}', github.event.pull_request.head.ref)
     || github.event_name == 'issue_comment'
-      && format('openspec · command on #{0} by @{1}', github.event.issue.number, github.actor)
-    || github.event_name == 'push' && 'openspec · OpenSpec changes updated on main'
-    || github.event_name == 'schedule' && 'openspec · watchdog'
-    || inputs.dry_run && 'openspec · manual (dry run)'
-    || inputs.reason && format('openspec · {0}', inputs.reason)
-    || 'openspec · manual run'
+      && format('OpenSpec orchestrator · command on #{0} by @{1}', github.event.issue.number, github.actor)
+    || github.event_name == 'push' && 'OpenSpec orchestrator · OpenSpec changes updated on main'
+    || github.event_name == 'schedule' && 'OpenSpec orchestrator · watchdog'
+    || inputs.dry_run && 'OpenSpec orchestrator · manual (dry run)'
+    || inputs.reason && format('OpenSpec orchestrator · {0}', inputs.reason)
+    || 'OpenSpec orchestrator · manual run'
   }}
 
 on:

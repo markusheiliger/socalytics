@@ -1,6 +1,6 @@
 ---
 name: OpenSpec agent
-description: Run one OpenSpec agent session (apply task, verify, sync, or archive) that the openspec workflow dispatched.
+description: Run one OpenSpec agent session (apply task, verify, sync, or archive) that the OpenSpec orchestrator dispatched.
 run-name: "openspec agent · #${{ inputs.pr }} ${{ inputs.branch }} · ${{ inputs.dispatch_id }}"
 on:
   workflow_dispatch:
@@ -56,7 +56,7 @@ mcp-scripts:
       HOST_TESTS: ${{ vars.OPENSPEC_AGENT_HOST_TESTS }}
     run: |
       if [[ "${HOST_TESTS:-}" != "true" ]]; then
-        echo "run_platform_tests is disabled in this repository. Run what you can in the sandbox; the openspec workflow runs the full platform tests with Testcontainers after your checkpoint and passes failures to the next attempt."
+        echo "run_platform_tests is disabled in this repository. Run what you can in the sandbox; the OpenSpec orchestrator runs the full platform tests with Testcontainers after your checkpoint and passes failures to the next attempt."
         exit 0
       fi
       cd "$GITHUB_WORKSPACE"
@@ -120,8 +120,8 @@ safe-outputs:
         - Directory.Packages.props
   jobs:
     wake-controller:
-      name: Wake the openspec controller
-      description: Starts the openspec workflow so it validates your checkpoint. Call it exactly once, last.
+      name: Wake the OpenSpec orchestrator
+      description: Starts the OpenSpec orchestrator so it validates your checkpoint. Call it exactly once, last.
       runs-on: ubuntu-latest
       needs: safe_outputs
       permissions:
@@ -132,11 +132,11 @@ safe-outputs:
           required: false
           type: string
       steps:
-        - name: Start the openspec workflow
+        - name: Start the OpenSpec orchestrator
           env:
             GH_TOKEN: ${{ github.token }}
             PR: ${{ github.event.inputs.pr }}
-          run: gh workflow run openspec.yml --repo "$GITHUB_REPOSITORY" --ref main -f reason="agent finished on #$PR"
+          run: gh workflow run openspec-orchestrator.yml --repo "$GITHUB_REPOSITORY" --ref main -f reason="agent finished on #$PR"
   noop:
     report-as-issue: false
   missing-tool:

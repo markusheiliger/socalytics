@@ -193,7 +193,7 @@ Process the topological order. Before each write, read the issue labels again.
   -f "labels[]=openspec:enqueued"`.
 - If a label write fails, record the error and skip every selected descendant
   that depends on the failed issue. Continue independent branches.
-- Do not roll back successful labels; the openspec workflow may already have
+- Do not roll back successful labels; the OpenSpec orchestrator may already have
   consumed them.
 
 Report a table containing change ref, issue number, and one of:

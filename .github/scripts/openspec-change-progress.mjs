@@ -442,7 +442,7 @@ export function renderOverview({ state, tasks = null, context, includeMarker = t
     const done = tasks.filter((task) => task.completed).length;
     parts.push(`<details${state.phase === 'apply' ? ' open' : ''}><summary>Tasks (${done}/${tasks.length})</summary>\n\n${taskLines(state, tasks, context).join('\n')}\n\n</details>`);
   }
-  parts.push(`<sub>Maintained by the openspec workflow · state revision ${state.revision} · ${state.updatedAt}. Commands: \`/openspec approve\` · \`retry\` · \`answer <text>\` · \`abort\`.</sub>`);
+  parts.push(`<sub>Maintained by the OpenSpec orchestrator · state revision ${state.revision} · ${state.updatedAt}. Commands: \`/openspec approve\` · \`retry\` · \`answer <text>\` · \`abort\`.</sub>`);
   if (includeMarker) parts.push(OVERVIEW_MARKER(state.change));
   return `${parts.join('\n\n')}\n`;
 }

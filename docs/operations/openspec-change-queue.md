@@ -3,7 +3,7 @@
 Exploration and proposals happen client-side, for example in VS Code with
 `/opsx-explore` and `/opsx-propose`. Once a change is committed to `main`, its
 implementation (apply, verify, sync, archive) runs server-side in the single
-`openspec` workflow, so several engineers can have changes processed in
+OpenSpec orchestrator, so several engineers can have changes processed in
 parallel without running long OpenSpec sessions locally.
 
 This is repository tooling, not product CI. OpenSpec files remain authoritative.
@@ -177,9 +177,9 @@ blockers to be removed. Notes are produced by reconciliation and pushed
 explicitly, not merged through pull requests or treated as human-authored
 history.
 
-## The `openspec` workflow
+## The OpenSpec orchestrator workflow
 
-`.github/workflows/openspec.yml` is the only processing workflow. It is
+`.github/workflows/openspec-orchestrator.yml` is the only processing workflow. It is
 event-driven and short-lived: each run reads the current state, starts at most
 one agent session per change, and exits. Nothing polls.
 
@@ -224,7 +224,7 @@ for example `Apply next task (add-club-identity-foundation)`.
 
 Operation jobs run as matrices with `fail-fast: false`, so one broken change
 never blocks another. Each run title states its trigger, for example
-`openspec · enqueued #4 by @alice` or `openspec · watchdog`.
+`OpenSpec orchestrator · enqueued #4 by @alice` or `OpenSpec orchestrator · watchdog`.
 
 ## Pull request: processing state and change log
 
@@ -306,7 +306,7 @@ Sessions run on one of two runtimes, selected by the repository variable
 | Credentials | `GITHUB_TOKEN` with `copilot-requests: write`; no personal access token | `COPILOT_AGENT_TOKEN` fine-grained personal access token |
 | Pushing | The agent commits locally; gh-aw's push job publishes the commits only to the dispatched pull request, refusing `.github/` and protected files | The agent pushes itself |
 | Docker and Testcontainers | Not in the sandbox. Optional host-side `run_platform_tests` tool, off unless `OPENSPEC_AGENT_HOST_TESTS=true` | Inside the session |
-| Waking the controller | The agent's final `wake_controller` call starts `openspec.yml` after the push | The push's `pull_request_target` event |
+| Waking the controller | The agent's final `wake_controller` call starts `openspec-orchestrator.yml` after the push | The push's `pull_request_target` event |
 
 The `actions` runtime reads everything except the pull request number and
 dispatch id from the pull request's lifecycle state in a trusted step, so it
@@ -495,7 +495,7 @@ node .github/scripts/openspec-change-workflow-names.mjs --check
 ```
 
 `openspec-workflow.test.mjs` enforces that every job and step in
-`openspec.yml` has a readable name and that the workflow keeps trusted
+`openspec-orchestrator.yml` has a readable name and that the workflow keeps trusted
 checkouts, least privilege, and the repository-wide lock. Compile the
 reconciliation Markdown source with `gh aw compile`, then run
 `node .github/scripts/openspec-change-workflow-names.mjs` to apply the

@@ -53,7 +53,7 @@ test('generated workflow naming preserves unrelated workflow content', () => {
 test('repository workflows expose useful names, scoped Git auth, and the safe DAG', async () => {
   const files = await Promise.all([
     readFile(path.join(workflowsRoot, 'copilot-setup-steps.yml'), 'utf8'),
-    readFile(path.join(workflowsRoot, 'openspec.yml'), 'utf8'),
+    readFile(path.join(workflowsRoot, 'openspec-orchestrator.yml'), 'utf8'),
     readFile(path.join(workflowsRoot, 'openspec-change-reconciliation.md'), 'utf8'),
     readFile(path.join(workflowsRoot, 'openspec-change-reconciliation.lock.yml'), 'utf8'),
   ]);

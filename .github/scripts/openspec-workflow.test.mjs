@@ -5,7 +5,7 @@ import test from 'node:test';
 import { AGENT_WORKFLOW_JOB_NAMES, applyWorkflowJobNames } from './openspec-change-workflow-names.mjs';
 import { AGENT_WORKFLOW } from './openspec-change-orchestrator.mjs';
 
-const workflow = readFileSync(new URL('../workflows/openspec.yml', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
+const workflow = readFileSync(new URL('../workflows/openspec-orchestrator.yml', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const lines = workflow.split('\n');
 
 function jobBlocks() {
@@ -51,8 +51,8 @@ const EXPECTED_JOBS = new Map([
   ['publish', 'Update PR and issue status'],
 ]);
 
-test('names the workflow openspec and titles every run', () => {
-  assert.match(workflow, /^name: openspec$/m);
+test('names the workflow OpenSpec orchestrator and titles every run', () => {
+  assert.match(workflow, /^name: OpenSpec orchestrator$/m);
   assert.match(workflow, /^run-name: >-$/m);
   for (const title of ['enqueued #', 'merged', 'new commits on', 'command on #', 'watchdog', 'manual (dry run)']) {
     assert.ok(workflow.includes(title), `run-name must cover "${title}"`);
@@ -134,9 +134,9 @@ test('runs the agent without a personal access token and without push rights', (
 });
 
 test('wakes the controller only after the checkpoint push', () => {
-  assert.match(agentSource, /wake-controller:[\s\S]*needs: safe_outputs[\s\S]*gh workflow run openspec\.yml[^\n]*-f reason="agent finished on #\$PR"/);
-  assert.match(workflow, /inputs\.reason && format\('openspec · \{0\}', inputs\.reason\)/);
-  assert.match(agentLock, /wake_controller:\n    name: Wake the openspec controller\n    needs:\n      - agent\n      - detection\n      - safe_outputs/);
+  assert.match(agentSource, /wake-controller:[\s\S]*needs: safe_outputs[\s\S]*gh workflow run openspec-orchestrator\.yml[^\n]*-f reason="agent finished on #\$PR"/);
+  assert.match(workflow, /inputs\.reason && format\('OpenSpec orchestrator · \{0\}', inputs\.reason\)/);
+  assert.match(agentLock, /wake_controller:\n    name: Wake the OpenSpec orchestrator\n    needs:\n      - agent\n      - detection\n      - safe_outputs/);
 });
 
 test('keeps the agent workflow compiled with the pinned gh-aw version and readable job names', () => {
