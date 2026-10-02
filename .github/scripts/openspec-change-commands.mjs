@@ -12,19 +12,19 @@ export function parseCommand(body) {
   if (!isCommandComment(body)) return null;
   const text = body.replace(/\r\n/g, '\n').trim();
   const match = text.match(/^\/openspec(?:[ \t]+([A-Za-z-]+))?(?:[ \t]+|\n|$)([\s\S]*)$/);
-  if (!match) return { error: 'Unrecognized command. Use `/openspec approve`, `retry`, `answer <text>`, or `abort`.' };
+  if (!match) return { error: 'Unrecognized command. Use `/openspec approve`, `retry [guidance]`, `answer <text>`, or `abort`.' };
   const name = match[1]?.toLowerCase();
   const rest = match[2];
   if (!name || !COMMANDS.has(name)) {
-    return { error: `Unknown command \`/openspec ${name ?? ''}\`. Use \`/openspec approve\`, \`retry\`, \`answer <text>\`, or \`abort\`.` };
+    return { error: `Unknown command \`/openspec ${name ?? ''}\`. Use \`/openspec approve\`, \`retry [guidance]\`, \`answer <text>\`, or \`abort\`.` };
   }
   const argument = rest.trim();
-  if (name === 'answer') {
-    if (argument === '') return { error: '`/openspec answer` needs your answer after the command.' };
+  if (name === 'answer' || name === 'retry') {
+    if (name === 'answer' && argument === '') return { error: '`/openspec answer` needs your answer after the command.' };
     if (argument.length > MAX_ANSWER_LENGTH) {
-      return { error: `Answers must be at most ${MAX_ANSWER_LENGTH} characters.` };
+      return { error: `${name === 'answer' ? 'Answers' : 'Retry guidance'} must be at most ${MAX_ANSWER_LENGTH} characters.` };
     }
-    return { name, text: argument };
+    return { name, text: argument === '' ? null : argument };
   }
   return { name, text: null };
 }

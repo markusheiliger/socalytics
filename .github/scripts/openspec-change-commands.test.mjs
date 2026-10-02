@@ -12,6 +12,7 @@ import {
 test('parses the four slash commands', () => {
   assert.deepEqual(parseCommand('/openspec approve'), { name: 'approve', text: null });
   assert.deepEqual(parseCommand('  /openspec Retry\n'), { name: 'retry', text: null });
+  assert.deepEqual(parseCommand('/openspec retry\nPoll /health with a 5 s request timeout.'), { name: 'retry', text: 'Poll /health with a 5 s request timeout.' });
   assert.deepEqual(parseCommand('/openspec abort please'), { name: 'abort', text: null });
   assert.deepEqual(
     parseCommand('/openspec answer Fail closed.\r\nDeny ambiguous Season scope.'),
@@ -28,6 +29,7 @@ test('rejects unknown, empty, and oversized commands and ignores ordinary commen
   assert.match(parseCommand('/openspecapprove').error, /Unrecognized command/);
   assert.match(parseCommand('/openspec answer   ').error, /needs your answer/);
   assert.match(parseCommand(`/openspec answer ${'x'.repeat(2001)}`).error, /at most 2000/);
+  assert.match(parseCommand(`/openspec retry ${'x'.repeat(2001)}`).error, /Retry guidance must be at most 2000/);
 });
 
 test('selects unprocessed human command comments in order', () => {

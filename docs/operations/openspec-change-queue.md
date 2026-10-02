@@ -369,8 +369,10 @@ or partial attempt cannot hide changes from a later attempt:
   the runner's Docker) pass at the checkpoint. They run in the separate
   **Run platform tests** job, which has a read-only token, no secrets, and a
   30-minute limit, because it executes agent-written code. "Check agent result"
-  reads only that job's conclusion from the Actions API; its log becomes the
-  feedback for the next attempt when it fails.
+  reads only that job's conclusion from the Actions API. When it fails, a summary
+  of its log becomes the feedback for the next attempt: build errors, then each
+  failed test with its error message, the repository's own stack frames, and
+  test output.
 - Verify: no files changed and strict validation passes.
 - Sync: only `openspec/` and `docs/` changed, strict validation passes, and
   every delta requirement matches the accepted specs on the branch.
@@ -386,7 +388,7 @@ trailer, counts as a failed attempt.
 | --- | --- | --- |
 | Decision | The agent reports `needs_decision`, or its session waits for input. | `/openspec answer <text>`, `/openspec approve` (accept the agent's recommendation), `/openspec abort` |
 | Review | Verify found suggestions or warnings and no critical issue. | `/openspec approve` (continue to sync), `/openspec retry` (verify again, for example after pushing fixes), `/openspec abort` |
-| Failure | A second failed attempt, a cancelled session, invalid branch history, a closed issue, or any critical verify finding. | `/openspec retry`, `/openspec abort` |
+| Failure | A second failed attempt, a cancelled session, invalid branch history, a closed issue, or any critical verify finding. | `/openspec retry [guidance]` (start over with fresh attempts; text after the command goes to the agent ahead of the last failure details), `/openspec abort` |
 | Merge | The archive is validated. | None. A human marks the pull request ready, reviews it, and merges it. |
 
 A clean verify with no findings continues to sync without a gate. Critical

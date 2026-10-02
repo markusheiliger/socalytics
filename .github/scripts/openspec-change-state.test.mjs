@@ -324,3 +324,22 @@ test('keeps the evidence baseline and records bounded feedback across retries', 
   assert.equal(redispatched.current.dispatchId, 'd2');
   assert.equal(redispatched.current.baselineSha, sha('0'));
 });
+
+test('puts retry guidance ahead of the bounded failure details on a failure gate', () => {
+  const evidence = { ok: false, reason: 'the platform tests failure at bbbbbbb', feedback: `${'x'.repeat(5000)}\nAssert failed` };
+  const first = creditSession(running(), { headSha: sha('b'), checkpoint: checkpoint(), checkpointSha: sha('b'), evidence }, later(10));
+  const second = creditSession(running(first.state), { headSha: sha('c'), checkpoint: checkpoint(), checkpointSha: sha('c'), evidence }, later(20));
+  assert.equal(second.state.gate.kind, 'failure');
+
+  const plain = applyCommand(second.state, { name: 'retry', by: 'alice', commentId: 5, now: later(30) });
+  assert.equal(plain.message, '@alice asked to retry.');
+  assert.equal(plain.state.current.feedback, second.state.current.feedback);
+
+  const guided = applyCommand(second.state, { name: 'retry', text: 'Use a 5 s timeout per health request.', by: 'alice', commentId: 6, now: later(30) });
+  assert.match(guided.message, /retry with guidance: Use a 5 s timeout/);
+  assert.equal(guided.state.current.attempt, 1);
+  assert.equal(guided.state.current.feedback.length, 4000);
+  assert.match(guided.state.current.feedback, /^Guidance from @alice for this retry: Use a 5 s timeout per health request\.\n\n…x+\nAssert failed$/);
+  const redispatched = markDispatching(guided.state, { ...decideNext(guided.state, { tasks }), startSha: sha('c'), dispatchId: 'd3', now });
+  assert.equal(redispatched.current.feedback, guided.state.current.feedback);
+});

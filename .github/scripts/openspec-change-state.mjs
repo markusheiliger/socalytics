@@ -228,6 +228,16 @@ function boundedFeedback(text) {
   return value.length > MAX_FEEDBACK ? `…${value.slice(-(MAX_FEEDBACK - 1))}` : value;
 }
 
+// Human guidance leads the feedback; the earlier failure details are shortened to fit behind it.
+function feedbackWithGuidance(previous, guidance, by) {
+  const lead = `Guidance from @${by} for this retry: ${guidance}`;
+  if (!previous) return boundedFeedback(lead);
+  const room = MAX_FEEDBACK - lead.length - 2;
+  if (room < 20) return boundedFeedback(lead);
+  const earlier = previous.length > room ? `…${previous.slice(-(room - 1))}` : previous;
+  return `${lead}\n\n${earlier}`;
+}
+
 function retryOrFail(state, reason, now, feedback = null) {
   const current = { ...state.current, feedback: boundedFeedback(feedback ?? reason) };
   state = { ...state, current };
@@ -434,14 +444,16 @@ export function applyCommand(state, { name, text = null, by, commentId, now }) {
     };
   }
   // failure gate: retry restarts the stopped operation from the current head.
+  const restarted = state.current ? restartCurrent(state.current, state.headSha) : null;
+  if (restarted && text) restarted.feedback = feedbackWithGuidance(restarted.feedback, text, by);
   return {
     accepted: true,
-    message: `@${by} asked to retry.`,
+    message: text ? `@${by} asked to retry with guidance: ${text}` : `@${by} asked to retry.`,
     state: transition(state, {
       status: 'ready',
       phase: gate.operation ?? state.phase,
       gate: null,
-      current: state.current ? restartCurrent(state.current, state.headSha) : null,
+      current: restarted,
       commandCursor: cursor,
     }, now),
   };
