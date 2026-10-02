@@ -2,6 +2,7 @@
   <ItemGroup>
     <PackageReference Include="Dapper" />
     <PackageReference Include="DbUp-PostgreSQL" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
     <PackageReference Include="Npgsql" />
   </ItemGroup>
 </Project>
