@@ -476,8 +476,10 @@ function runState(overrides = {}) {
       attempt: 1,
       startSha: sha('b'),
       baselineSha: sha('b'),
-      agentTask: { id: 'task-1', state: 'in_progress', url: 'https://github.com/x/y/tasks/1' },
+      dispatchId: 'a1b2c3d4',
+      session: { runtime: 'actions', id: '37005966409', state: 'in_progress', url: 'https://github.com/x/y/actions/runs/37005966409' },
       dispatchedAt: '2026-10-02T10:41:07Z',
+      feedback: null,
     },
     credited: [{ operation: 'apply', task: '1.1', sha: sha('a'), attempt: 1, log: 5 }],
     gate: null,
@@ -604,6 +606,12 @@ test('round-trips run state through the lifecycle check-run text', () => {
   assert.deepEqual(parseRunStateText(renderRunStateText(state)), state);
   assert.deepEqual(parseRunStateText(renderRunStateText(state).replace(/\n/g, '\r\n')), state);
   assert.throws(() => parseRunStateText('no state here'), /does not contain a JSON block/);
+  const { session, dispatchId, feedback, ...legacyCurrent } = state.current;
+  const legacy = { ...state, current: { ...legacyCurrent, agentTask: { id: 'task-1', state: 'in_progress' } } };
+  assert.deepEqual(
+    parseRunStateText(`\`\`\`json\n${JSON.stringify(legacy)}\n\`\`\``).current.session,
+    { runtime: 'copilot', id: 'task-1', state: 'in_progress' },
+  );
   assert.throws(
     () => renderRunStateText(runState({ credited: Array.from({ length: 700 }, () => ({ operation: 'apply', task: '1.1', sha: sha('a'), attempt: 1, log: 123456789 })) })),
     /above the 65535-character check-run limit/,
@@ -615,8 +623,8 @@ test('round-trips run state through the lifecycle check-run text', () => {
 test('rejects inconsistent run states', () => {
   assert.throws(() => validateRunState(runState({ status: 'gated' })), /gate must be present exactly when status is gated/);
   assert.throws(
-    () => validateRunState(runState({ current: { ...runState().current, agentTask: null } })),
-    /agentTask is required while running/,
+    () => validateRunState(runState({ current: { ...runState().current, session: null } })),
+    /session is required while running/,
   );
   assert.throws(
     () => validateRunState(runState({ status: 'closed', current: null })),

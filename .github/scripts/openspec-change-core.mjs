@@ -831,6 +831,8 @@ const GATE_KINDS = new Set(['decision', 'review', 'failure', 'merge']);
 const GATE_COMMAND_NAMES = new Set(['approve', 'retry', 'answer', 'abort']);
 const RUN_STATE_FENCE = /```json\n([\s\S]*?)\n```/;
 export const MAX_RUN_STATE_TEXT = 65535;
+export const MAX_FEEDBACK = 4000;
+export const AGENT_RUNTIMES = Object.freeze(['actions', 'copilot']);
 
 function assertBoundedString(value, path, maxLength) {
   assertString(value, path);
@@ -977,7 +979,7 @@ export function validateDispatch(value) {
   assertSchema(value, JSON_CONTRACTS.changeDispatch, 'Dispatch');
   assertKnownKeys(
     value,
-    new Set(['$schema', 'change', 'operation', 'issue', 'pr', 'branch', 'baseRef', 'expectedHeadSha', 'attempt', 'task', 'answers']),
+    new Set(['$schema', 'change', 'operation', 'issue', 'pr', 'branch', 'baseRef', 'expectedHeadSha', 'attempt', 'task', 'answers', 'feedback']),
     'Dispatch',
   );
   assertKebabCase(value.change, 'Dispatch.change');
@@ -1004,6 +1006,7 @@ export function validateDispatch(value) {
   } else if (value.task !== undefined) {
     throw new Error('Dispatch.task is valid only for apply');
   }
+  if (value.feedback !== undefined) assertBoundedString(value.feedback, 'Dispatch.feedback', MAX_FEEDBACK);
   if (!Array.isArray(value.answers)) throw new Error('Dispatch.answers must be an array');
   value.answers.forEach((answer, index) => {
     const path = `Dispatch.answers[${index}]`;
@@ -1046,7 +1049,7 @@ export function validateRunState(value) {
   if (value.current !== null) {
     const path = 'Run state.current';
     assertObject(value.current, path);
-    assertKnownKeys(value.current, new Set(['operation', 'task', 'attempt', 'startSha', 'baselineSha', 'agentTask', 'dispatchedAt']), path);
+    assertKnownKeys(value.current, new Set(['operation', 'task', 'attempt', 'startSha', 'baselineSha', 'dispatchId', 'session', 'dispatchedAt', 'feedback']), path);
     assertOperation(value.current.operation, `${path}.operation`);
     if (value.current.operation === 'apply') {
       validateRunTask(value.current.task, `${path}.task`);
@@ -1056,13 +1059,16 @@ export function validateRunState(value) {
     assertPositiveInteger(value.current.attempt, `${path}.attempt`);
     assertSha(value.current.startSha, `${path}.startSha`);
     assertSha(value.current.baselineSha, `${path}.baselineSha`);
-    if (value.current.agentTask !== null) {
-      assertObject(value.current.agentTask, `${path}.agentTask`);
-      assertKnownKeys(value.current.agentTask, new Set(['id', 'state', 'url']), `${path}.agentTask`);
-      assertString(value.current.agentTask.id, `${path}.agentTask.id`);
-      assertString(value.current.agentTask.state, `${path}.agentTask.state`);
-      if (value.current.agentTask.url !== undefined) {
-        assertString(value.current.agentTask.url, `${path}.agentTask.url`);
+    if (value.current.dispatchId !== null) assertBoundedString(value.current.dispatchId, `${path}.dispatchId`, 64);
+    if (value.current.feedback !== null) assertBoundedString(value.current.feedback, `${path}.feedback`, MAX_FEEDBACK);
+    if (value.current.session !== null) {
+      assertObject(value.current.session, `${path}.session`);
+      assertKnownKeys(value.current.session, new Set(['runtime', 'id', 'state', 'url']), `${path}.session`);
+      if (!AGENT_RUNTIMES.includes(value.current.session.runtime)) throw new Error(`${path}.session.runtime is invalid`);
+      assertString(value.current.session.id, `${path}.session.id`);
+      assertString(value.current.session.state, `${path}.session.state`);
+      if (value.current.session.url !== undefined) {
+        assertString(value.current.session.url, `${path}.session.url`);
       }
     }
     if (value.current.dispatchedAt !== null) {
@@ -1132,8 +1138,8 @@ export function validateRunState(value) {
   if (['dispatching', 'running'].includes(value.status) && value.current === null) {
     throw new Error(`Run state.current is required while ${value.status}`);
   }
-  if (value.status === 'running' && value.current.agentTask === null) {
-    throw new Error('Run state.current.agentTask is required while running');
+  if (value.status === 'running' && value.current.session === null) {
+    throw new Error('Run state.current.session is required while running');
   }
   if ((value.status === 'closed') !== ['done', 'aborted'].includes(value.phase)) {
     throw new Error('Run state.status closed requires a done or aborted phase');
@@ -1159,6 +1165,22 @@ export function renderRunStateText(state) {
   return text;
 }
 
+// States written before agent runtimes existed recorded a Copilot Agent Task as current.agentTask.
+function normalizeLegacyRunState(value) {
+  const current = value?.current;
+  if (!current || typeof current !== 'object' || !('agentTask' in current)) return value;
+  const { agentTask, ...rest } = current;
+  return {
+    ...value,
+    current: {
+      ...rest,
+      dispatchId: rest.dispatchId ?? null,
+      session: agentTask ? { runtime: 'copilot', ...agentTask } : null,
+      feedback: rest.feedback ?? null,
+    },
+  };
+}
+
 export function parseRunStateText(text) {
   if (typeof text !== 'string') throw new Error('Run state text must be a string');
   const match = text.replace(/\r\n/g, '\n').match(RUN_STATE_FENCE);
@@ -1169,5 +1191,5 @@ export function parseRunStateText(text) {
   } catch (error) {
     throw new Error(`Run state JSON is invalid: ${error.message}`);
   }
-  return validateRunState(value);
+  return validateRunState(normalizeLegacyRunState(value));
 }

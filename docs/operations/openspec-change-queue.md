@@ -16,7 +16,7 @@ This is repository tooling, not product CI. OpenSpec files remain authoritative.
 3. When all native blockers are archived on `main`, the workflow creates the
    branch `openspec/<change>` from `main` with an empty start commit and opens a
    draft pull request.
-4. The workflow starts one fresh Copilot agent session per numbered apply task,
+4. The workflow starts one fresh agent session per numbered apply task,
    then one each for verify, sync, and archive. Every session works on the
    draft pull request branch and ends with a pushed checkpoint commit.
 5. Each checkpoint push wakes the workflow, which validates the result and
@@ -210,6 +210,7 @@ for example `Apply next task (add-club-identity-foundation)`.
 | Job | Display name | What it does |
 | --- | --- | --- |
 | `observe` | Read current state | Applies `/openspec` commands, recovers interrupted dispatches, records out-of-session pushes, and finds finished sessions. |
+| `test` | Run platform tests | Per checkpoint that changed `src/platform/`: runs the platform tests with a read-only token and no secrets. |
 | `credit` | Check agent result | Per change: validates the checkpoint commit and records the outcome. |
 | `plan` | Decide next steps | Decides the next step for every change and emits one list per step. |
 | `admit` | Start change | Creates the branch and draft pull request, then starts the first task. |
@@ -295,9 +296,33 @@ regenerates the overview.
 
 ## Agent sessions
 
-The workflow starts sessions with the Agent Tasks API using the generated
-`openspec` custom agent, `base_ref: main`, and `head_ref` set to the pull
-request branch. It never assigns issues to Copilot, because assignment starts an
+Sessions run on one of two runtimes, selected by the repository variable
+`OPENSPEC_AGENT_RUNTIME` and recorded per session in the state:
+
+| | `actions` (default) | `copilot` (fallback) |
+| --- | --- | --- |
+| Where | The `openspec-agent` agentic workflow (`.github/workflows/openspec-agent.md`), Copilot engine, 60-minute budget | A Copilot cloud agent session through the Agent Tasks API (about 10.5-minute limit) |
+| Started by | `workflow_dispatch` with only the pull request number and a dispatch id | `POST /agents/repos/{owner}/{repo}/tasks` with `head_ref` set to the pull request branch |
+| Credentials | `GITHUB_TOKEN` with `copilot-requests: write`; no personal access token | `COPILOT_AGENT_TOKEN` fine-grained personal access token |
+| Pushing | The agent commits locally; gh-aw's push job publishes the commits only to the dispatched pull request, refusing `.github/` and protected files | The agent pushes itself |
+| Docker and Testcontainers | Not in the sandbox. Optional host-side `run_platform_tests` tool, off unless `OPENSPEC_AGENT_HOST_TESTS=true` | Inside the session |
+| Waking the controller | The agent's final `wake_controller` call starts `openspec.yml` after the push | The push's `pull_request_target` event |
+
+The `actions` runtime reads everything except the pull request number and
+dispatch id from the pull request's lifecycle state in a trusted step, so it
+executes exactly what the controller dispatched. It refuses to run when the
+dispatch id no longer matches or the branch moved after the dispatch.
+
+**Security trade-off of `run_platform_tests`:** the tool's command is fixed,
+but it runs test code the agent wrote on the runner host, outside the sandbox's
+network firewall and with access to the runner's Docker. That code could send
+data out and, through Docker, read the agent job's tokens (read-only repository
+access and `copilot-requests: write`). The tool therefore stays off unless the
+repository variable `OPENSPEC_AGENT_HOST_TESTS` is `true`; it runs the tests
+with a minimal environment and a 14-minute limit. Without it, the agent relies
+on the binding test job and on test output passed to the next attempt.
+
+The workflow never assigns issues to Copilot, because assignment starts an
 uncontrolled extra session.
 
 - One session runs per apply task, and one each for verify, sync, and archive.
@@ -305,9 +330,10 @@ uncontrolled extra session.
 - The prompt embeds a dispatch envelope conforming to
   `.github/scripts/schemas/change-dispatch-v2.schema.json`: the change, the
   operation, the expected head SHA, the attempt, the selected task with its
-  capability paths and full task block, and every human answer so far.
+  capability paths and full task block, every human answer so far, and the
+  previous attempt's failure details on a retry.
 - The agent must confirm the expected head before editing, follow the binding
-  OpenSpec skill, never ask questions in chat, and push progress early.
+  OpenSpec skill, never ask questions in chat, and save progress early.
 - Every session, successful or not, ends with one pushed commit whose message
   has exactly one `OpenSpec-JSON:` trailer conforming to
   `.github/scripts/schemas/change-checkpoint-v2.schema.json`:
@@ -336,12 +362,18 @@ or partial attempt cannot hide changes from a later attempt:
 - Apply: the selected task is checked, no other checkbox changed, no task was
   added or removed, and checkbox-only capabilities (`verification`, `audit`)
   changed nothing but `tasks.md`. Strict `openspec validate` passes for the
-  change.
+  change. When the step changed `src/platform/`, the platform tests
+  (`dotnet test src/platform/SocAlytics.Platform.slnx`, with Testcontainers on
+  the runner's Docker) pass at the checkpoint. They run in the separate
+  **Run platform tests** job, which has a read-only token, no secrets, and a
+  30-minute limit, because it executes agent-written code. "Check agent result"
+  reads only that job's conclusion from the Actions API; its log becomes the
+  feedback for the next attempt when it fails.
 - Verify: no files changed and strict validation passes.
-- Sync: strict validation passes and every delta requirement matches the
-  accepted specs on the branch.
-- Archive: the active change directory is gone, a dated archive directory
-  exists, and strict spec validation passes.
+- Sync: only `openspec/` and `docs/` changed, strict validation passes, and
+  every delta requirement matches the accepted specs on the branch.
+- Archive: only `openspec/` and `docs/` changed, the active change directory is
+  gone, a dated archive directory exists, and strict spec validation passes.
 
 A checkpoint for a different change, operation, or task, or a malformed
 trailer, counts as a failed attempt.
@@ -381,12 +413,16 @@ starts over on a new branch.
   ended without a checkpoint gets one retry in a new session from the current
   head. A second failure opens a failure gate.
 - A cancelled session opens a failure gate without retrying.
-- Before calling the Agent Tasks API, the workflow records a `dispatching` state.
-  If a run dies there, the next run looks for the session on the branch: it
-  adopts exactly one match, starts again after 10 minutes without a match, and
-  opens a failure gate when several match.
-- If the Agent Tasks API rejects a start, a failure gate shows the error;
+- Before starting a session, the workflow records a `dispatching` state with a
+  dispatch id. If a run dies there, or GitHub doesn't return the new run's id,
+  the next run looks for the session (an `openspec-agent` run whose name
+  contains the dispatch id, or a Copilot session on the branch): it adopts
+  exactly one match, starts again after 10 minutes without a match, and opens a
+  failure gate when several match.
+- If starting a session fails, a failure gate shows the error;
   `/openspec retry` tries again.
+- An agentic run that ends without calling `wake_controller` (for example a
+  crash) is picked up by the 15-minute watchdog.
 - Commits pushed while no session is running are recorded in the change log and
   become the starting point of the next step.
 - Closing the pull request without merging stops processing and marks the issue
@@ -402,20 +438,27 @@ These one-time settings are required for server-side processing:
    it, admission fails with `GitHub Actions is not permitted to create or
    approve pull requests`. The workflow only opens and closes its own draft pull
    requests; it never approves.
-2. **Let Copilot pushes run workflows.** In **Settings → Copilot → Cloud agent →
-   Actions workflow approval**, turn off **Require approval for workflow runs**.
-   Otherwise each checkpoint push creates a held run that someone must release
-   with **Approve and run workflows** on the pull request, or that waits for the
-   watchdog.
-3. **Create the `openspec` environment.** Limit its deployment branches to
+2. **For the `copilot` runtime only: let Copilot pushes run workflows.** In
+   **Settings → Copilot → Cloud agent → Actions workflow approval**, turn off
+   **Require approval for workflow runs**. Otherwise each checkpoint push creates
+   a held run that someone must release with **Approve and run workflows** on the
+   pull request, or that waits for the watchdog. The `actions` runtime doesn't
+   need this.
+3. **For the `copilot` runtime only: create the `openspec` environment.** Limit its deployment branches to
    `main`, add the `COPILOT_AGENT_TOKEN` secret there (a fine-grained personal
    access token with Agent tasks read and write permission; installation tokens
    are not supported by the Agent Tasks API), and remove the repository-level
    secret. Workflows from other branches then cannot read the token. Without
    this step GitHub creates the environment on first use without restrictions
    and the repository-level secret is used.
-4. **Optionally** set the repository variable `OPENSPEC_MAX_ACTIVE_CHANGES`, and
+4. **Optionally** set the repository variables `OPENSPEC_AGENT_RUNTIME`
+   (`actions` by default, or `copilot`) and `OPENSPEC_MAX_ACTIVE_CHANGES`, and
    require the `OpenSpec lifecycle` check in branch protection.
+
+`openspec-agent.md` is a gh-aw workflow compiled with gh-aw v0.89.21. Edit
+only the Markdown source, recompile with `gh aw compile openspec-agent`, then
+run `node .github/scripts/openspec-change-workflow-names.mjs` to apply
+readable names to the generated jobs. Never hand-edit the lock file.
 
 Agent Tasks on an existing pull request run in GitHub's review-comment
 follow-up mode, which may stop when no comment mentions Copilot. The workflow's
@@ -445,7 +488,9 @@ Run the contract tests from the repository root:
 ```powershell
 node --test .github/scripts/*.test.mjs
 gh aw validate .github/workflows/openspec-change-reconciliation.md
+gh aw validate .github/workflows/openspec-agent.md
 gh aw lint .github/workflows/openspec-change-reconciliation.lock.yml
+gh aw lint .github/workflows/openspec-agent.lock.yml
 node .github/scripts/openspec-change-workflow-names.mjs --check
 ```
 

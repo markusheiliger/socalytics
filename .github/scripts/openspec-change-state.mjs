@@ -1,4 +1,4 @@
-import { JSON_CONTRACTS, validateRunState } from './openspec-change-core.mjs';
+import { JSON_CONTRACTS, MAX_FEEDBACK, validateRunState } from './openspec-change-core.mjs';
 
 export const MAX_ATTEMPTS = 2;
 export const DISPATCH_GRACE_MS = 10 * 60 * 1000;
@@ -131,7 +131,7 @@ export function decideNext(state, { tasks = null } = {}) {
   return { action: 'none', reason: `phase-${state.phase}` };
 }
 
-export function markDispatching(state, { operation, task = null, attempt, startSha, now }) {
+export function markDispatching(state, { operation, task = null, attempt, startSha, dispatchId = null, now }) {
   requireStatus(state, ['ready'], 'dispatch');
   return transition(state, {
     phase: operation,
@@ -144,19 +144,21 @@ export function markDispatching(state, { operation, task = null, attempt, startS
       startSha,
       // Evidence is judged against the head before the first attempt, so earlier failed attempts cannot hide changes.
       baselineSha: state.current?.baselineSha ?? startSha,
-      agentTask: null,
+      dispatchId,
+      session: null,
       dispatchedAt: timestamp(now),
+      feedback: state.current?.feedback ?? null,
     },
   }, now);
 }
 
-export function markRunning(state, { agentTask, now }) {
+export function markRunning(state, { session, now }) {
   requireStatus(state, ['dispatching'], 'record a started session');
-  const recorded = { id: String(agentTask.id), state: agentTask.state ?? 'queued' };
-  if (agentTask.url) recorded.url = agentTask.url;
+  const recorded = { runtime: session.runtime, id: String(session.id), state: session.state ?? 'queued' };
+  if (session.url) recorded.url = session.url;
   return transition(state, {
     status: 'running',
-    current: { ...state.current, agentTask: recorded },
+    current: { ...state.current, session: recorded },
   }, now);
 }
 
@@ -192,7 +194,7 @@ export function markGateNotified(state, { log, now }) {
 export function recoverDispatch(state, { matches, now, graceMs = DISPATCH_GRACE_MS }) {
   requireStatus(state, ['dispatching'], 'recover a dispatch');
   if (matches.length === 1) {
-    return { action: 'adopted', state: markRunning(state, { agentTask: matches[0], now }) };
+    return { action: 'adopted', state: markRunning(state, { session: matches[0], now }) };
   }
   if (matches.length > 1) {
     return {
@@ -210,18 +212,25 @@ export function recoverDispatch(state, { matches, now, graceMs = DISPATCH_GRACE_
     action: 'redispatch',
     state: transition(state, {
       status: 'ready',
-      current: { ...state.current, agentTask: null, dispatchedAt: null },
+      current: { ...state.current, session: null, dispatchedAt: null },
     }, now),
   };
 }
 
 function withFinalAgentState(current, agentState) {
-  if (!current.agentTask || !agentState) return current;
-  return { ...current, agentTask: { ...current.agentTask, state: agentState } };
+  if (!current.session || !agentState) return current;
+  return { ...current, session: { ...current.session, state: agentState } };
 }
 
-function retryOrFail(state, reason, now) {
-  const { current } = state;
+function boundedFeedback(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return null;
+  return value.length > MAX_FEEDBACK ? `…${value.slice(-(MAX_FEEDBACK - 1))}` : value;
+}
+
+function retryOrFail(state, reason, now, feedback = null) {
+  const current = { ...state.current, feedback: boundedFeedback(feedback ?? reason) };
+  state = { ...state, current };
   if (current.attempt < MAX_ATTEMPTS) {
     return {
       state: transition(state, {
@@ -230,7 +239,7 @@ function retryOrFail(state, reason, now) {
           ...current,
           attempt: current.attempt + 1,
           startSha: state.headSha,
-          agentTask: null,
+          session: null,
           dispatchedAt: null,
         },
       }, now),
@@ -314,7 +323,7 @@ export function creditSession(state, observation, now) {
     switch (checkpoint.verdict) {
       case 'complete':
         if (!evidence?.ok) {
-          return retryOrFail(observed, `The checkpoint failed controller validation: ${evidence?.reason ?? 'no evidence'}`, now);
+          return retryOrFail(observed, `The checkpoint failed controller validation: ${evidence?.reason ?? 'no evidence'}`, now, evidence?.feedback ?? null);
         }
         return creditComplete(observed, { checkpoint, checkpointSha, sessionLog }, now);
       case 'partial':
@@ -362,7 +371,7 @@ function rejected(state, commentId, message, now) {
 }
 
 function restartCurrent(current, headSha) {
-  return { ...current, attempt: 1, startSha: headSha, agentTask: null, dispatchedAt: null };
+  return { ...current, attempt: 1, startSha: headSha, session: null, dispatchedAt: null };
 }
 
 export function applyCommand(state, { name, text = null, by, commentId, now }) {

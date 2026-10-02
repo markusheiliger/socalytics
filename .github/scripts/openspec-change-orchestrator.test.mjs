@@ -19,6 +19,8 @@ import {
   findCheckpoint,
   notifyGate,
   prepareAgentPrompt,
+  defaultPlatformTestResult,
+  validateEvidence,
   observe,
   plan,
   publish,
@@ -50,6 +52,8 @@ class FakeGitHub {
     this.comments = new Map();
     this.checkRuns = [];
     this.agentTasks = [];
+    this.workflowRuns = [];
+    this.returnRunDetails = true;
     this.permissions = { alice: 'write', mallory: 'read' };
     this.blockedBy = new Map();
     this.events = new Map();
@@ -317,15 +321,39 @@ class FakeGitHub {
   async listAgentTasks() {
     return this.agentTasks.map((task) => ({ ...task }));
   }
+
+  async dispatchWorkflow(workflow, ref, inputs) {
+    const run = {
+      id: this.id(),
+      workflow,
+      ref,
+      inputs,
+      status: 'queued',
+      conclusion: null,
+      display_title: `openspec agent · #${inputs.pr} · ${inputs.dispatch_id}`,
+      created_at: new Date().toISOString(),
+      html_url: `https://github.com/${REPOSITORY}/actions/runs/${this.counter}`,
+    };
+    this.workflowRuns.push(run);
+    return this.returnRunDetails ? { workflow_run_id: run.id, run_url: 'x', html_url: run.html_url } : null;
+  }
+
+  async getWorkflowRun(id) {
+    return { ...this.workflowRuns.find((run) => String(run.id) === String(id)) };
+  }
+
+  async listWorkflowRuns() {
+    return this.workflowRuns.map((run) => ({ ...run }));
+  }
 }
 
-function setup({ validator = async () => {} } = {}) {
+function setup({ validator = async () => {}, runtime = 'copilot' } = {}) {
   const github = new FakeGitHub();
   github.addTwin(4, { labels: ['openspec:change', 'openspec:enqueued'] });
   github.events.set(4, [{ event: 'labeled', label: { name: 'openspec:enqueued' }, actor: { login: 'alice', type: 'User' } }]);
   let clock = Date.parse('2026-10-02T10:00:00Z');
   const ctx = createContext({
-    env: { GITHUB_REPOSITORY: REPOSITORY, GITHUB_TOKEN: 'x' },
+    env: { GITHUB_REPOSITORY: REPOSITORY, GITHUB_TOKEN: 'x', OPENSPEC_AGENT_RUNTIME: runtime },
     client: github,
     now: () => new Date(clock),
     validator,
@@ -632,13 +660,13 @@ test('recovers an interrupted dispatch by adopting the started session', async (
   const { github, ctx, pr, tick } = await admitted();
   const run = github.checkRuns.filter((entry) => entry.name === LIFECYCLE_CHECK_NAME).at(-1);
   const state = parseRunStateText(run.output.text);
-  const dispatching = { ...state, status: 'dispatching', current: { ...state.current, agentTask: null } };
+  const dispatching = { ...state, status: 'dispatching', current: { ...state.current, session: null } };
   run.output.text = run.output.text.replace(JSON.stringify(state, null, 2), JSON.stringify(dispatching, null, 2));
   tick(1);
   await observe(ctx);
   const recovered = lifecycleState(github, pr);
   assert.equal(recovered.status, 'running');
-  assert.equal(recovered.current.agentTask.id, github.agentTasks[0].id);
+  assert.equal(recovered.current.session.id, github.agentTasks[0].id);
 });
 
 test('ignores irrelevant events without touching any run', async () => {
@@ -647,6 +675,7 @@ test('ignores irrelevant events without touching any run', async () => {
     relevant: false,
     credit: [],
     touched: [],
+    tests: [],
   });
 });
 
@@ -719,19 +748,128 @@ test('skips comment scans for push wake-ups unless a gate is waiting', async () 
   assert.equal(lifecycleState(github, pr).outcome, 'aborted');
 });
 
-test('builds a commit-only prompt for agents whose commits a safe-output job pushes', async () => {
-  const { github, ctx } = setup();
-  const sha = github.branches.get('main');
-  github.branches.set('openspec/spike-add-club', sha);
-  const pr = await github.createPullRequest({ title: 'OpenSpec spike: trial', body: '', head: 'openspec/spike-add-club', base: 'main' });
-  const prepared = await prepareAgentPrompt(ctx, { pr: pr.number, change: CHANGE, issue: 4 });
-  assert.equal(prepared.branch, 'openspec/spike-add-club');
-  assert.equal(prepared.headSha, sha);
-  assert.equal(prepared.task.id, '1.1');
+test('runs sessions as agentic workflow runs and builds their prompt from the state', async () => {
+  const env = setup({ runtime: 'actions' });
+  const { github, ctx } = env;
+  ctx.newDispatchId = () => 'd1';
+  await plan(ctx);
+  await admitChange(ctx, CHANGE);
+  const pr = [...github.prs.values()][0];
+  assert.equal(github.started.length, 0);
+  assert.equal(github.workflowRuns.length, 1);
+  const [run] = github.workflowRuns;
+  assert.equal(run.workflow, 'openspec-agent.lock.yml');
+  assert.deepEqual(run.inputs, { pr: String(pr.number), dispatch_id: 'd1' });
+  let state = lifecycleState(github, pr);
+  assert.deepEqual(state.current.session, { runtime: 'actions', id: String(run.id), state: 'queued', url: run.html_url });
+  assert.ok(logTitles(github, pr).some((title) => title.startsWith('▶️ #2 · Apply 1.1')));
+  assert.match(github.comments.get(pr.number).find((comment) => comment.body.includes('▶️')).body, /\[Agent run\]\(.*actions\/runs/);
+
+  const prepared = await prepareAgentPrompt(ctx, { pr: pr.number, dispatchId: 'd1' });
+  assert.equal(prepared.headSha, pr.head.sha);
   assert.match(prepared.prompt, /Execute only task 1\.1/);
   assert.match(prepared.prompt, /do not run git push; you have no push access/);
-  assert.match(prepared.prompt, new RegExp(`push_to_pull_request_branch\` tool exactly once with pull_request_number ${pr.number}`));
-  assert.doesNotMatch(prepared.prompt, /Push it to origin/);
-  assert.match(buildAgentPrompt({ ...JSON.parse(prepared.prompt.split('\n').find((line) => line.startsWith('{'))) }), /Push it to origin/);
-  assert.throws(() => buildAgentPrompt({}, { transport: 'carrier-pigeon' }), /Unknown agent transport/);
+  assert.match(prepared.prompt, /call the `wake_controller` tool exactly once/);
+  assert.match(prepared.prompt, /call the `run_platform_tests` tool/);
+  await assert.rejects(prepareAgentPrompt(ctx, { pr: pr.number, dispatchId: 'other' }), /no dispatched session other/);
+
+  run.status = 'completed';
+  run.conclusion = 'failure';
+  assert.deepEqual((await observe(ctx)).credit, [CHANGE]);
+  await creditChange(ctx, CHANGE);
+  state = lifecycleState(github, pr);
+  assert.equal(state.current.attempt, 2);
+  assert.match(state.current.feedback, /ended \(failed\) without a checkpoint/);
+  ctx.newDispatchId = () => 'd2';
+  await dispatchChange(ctx, CHANGE, 'apply');
+  const retry = await prepareAgentPrompt(ctx, { pr: pr.number, dispatchId: 'd2' });
+  assert.match(retry.prompt, /The previous attempt \(1\) did not finish/);
+  assert.match(retry.prompt, /> The agent session ended \(failed\) without a checkpoint commit\./);
+  github.humanComment(pr.number, 'alice', 'push');
+  github.push(pr.head.ref, { message: 'moved' });
+  await assert.rejects(prepareAgentPrompt(ctx, { pr: pr.number, dispatchId: 'd2' }), /moved to/);
+});
+
+test('recovers an agentic workflow run when the dispatch API returns no run id', async () => {
+  const env = setup({ runtime: 'actions' });
+  const { github, ctx, tick } = env;
+  github.returnRunDetails = false;
+  ctx.newDispatchId = () => 'd9';
+  await plan(ctx);
+  await admitChange(ctx, CHANGE);
+  const pr = [...github.prs.values()][0];
+  assert.equal(lifecycleState(github, pr).status, 'dispatching');
+  tick(1);
+  await observe(ctx);
+  const state = lifecycleState(github, pr);
+  assert.equal(state.status, 'running');
+  assert.equal(state.current.session.id, String(github.workflowRuns[0].id));
+});
+
+test('fails a checkpoint whose isolated platform test job failed and passes its log to the next attempt', async () => {
+  const { github, ctx, pr } = await admitted();
+  const requests = [];
+  ctx.platformTestResult = async (_, request) => {
+    requests.push(request);
+    return { ok: false, reason: 'the platform tests failure at abc', feedback: 'Failed MigrationTests.Applies [2 s]\nExpected 3 but was 2' };
+  };
+  const checkpointSha = github.push(pr.head.ref, {
+    message: `x\n\n${trailer({ operation: 'apply', task: '1.1', verdict: 'complete' })}`,
+    files: { [`openspec/changes/${CHANGE}/tasks.md`]: TASKS.replace('- [ ] 1.1', '- [x] 1.1'), 'src/platform/A.cs': 'x' },
+  });
+  assert.deepEqual((await observe(ctx)).tests, [{ change: CHANGE, sha: checkpointSha }]);
+  await creditChange(ctx, CHANGE);
+  assert.deepEqual(requests, [{ change: CHANGE, sha: checkpointSha }]);
+  const state = lifecycleState(github, pr);
+  assert.equal(state.current.attempt, 2);
+  assert.match(state.current.feedback, /Expected 3 but was 2/);
+  const entry = github.comments.get(pr.number).find((comment) => comment.body.includes('retrying')).body;
+  assert.match(entry, /Details passed to the next attempt[\s\S]*Expected 3 but was 2/);
+});
+
+test('rejects unknown agent runtimes', () => {
+  assert.throws(() => createContext({ env: { GITHUB_REPOSITORY: REPOSITORY, GITHUB_TOKEN: 'x', OPENSPEC_AGENT_RUNTIME: 'lambda' } }), /must be one of actions, copilot/);
+  assert.equal(createContext({ env: { GITHUB_REPOSITORY: REPOSITORY, GITHUB_TOKEN: 'x' } }).runtime, 'actions');
+});
+
+test('skips platform tests for checkpoints that do not touch the platform', async () => {
+  const { github, ctx, pr } = await admitted();
+  ctx.platformTestResult = async () => { throw new Error('must not run'); };
+  github.push(pr.head.ref, {
+    message: `x\n\n${trailer({ operation: 'apply', task: '1.1', verdict: 'complete' })}`,
+    files: { [`openspec/changes/${CHANGE}/tasks.md`]: TASKS.replace('- [ ] 1.1', '- [x] 1.1'), 'docs/a.md': 'x' },
+  });
+  assert.deepEqual((await observe(ctx)).tests, []);
+  await creditChange(ctx, CHANGE);
+  const state = lifecycleState(github, pr);
+  assert.equal(state.status, 'ready');
+  assert.deepEqual(state.credited.map((entry) => entry.task), ['1.1']);
+});
+
+test('reads the isolated test job conclusion, not anything the tests wrote', async () => {
+  const { ctx } = setup();
+  const previous = process.env.GITHUB_RUN_ID;
+  process.env.GITHUB_RUN_ID = '42';
+  try {
+    const sha = 'f'.repeat(40);
+    ctx.client.listRunJobs = async () => [{ name: `Run platform tests (${CHANGE}, ${sha})`, conclusion: 'failure' }];
+    assert.equal((await defaultPlatformTestResult(ctx, { change: CHANGE, sha })).ok, false);
+    ctx.client.listRunJobs = async () => [{ name: `Run platform tests (${CHANGE}, ${sha})`, conclusion: 'success' }];
+    assert.deepEqual(await defaultPlatformTestResult(ctx, { change: CHANGE, sha }), { ok: true });
+    ctx.client.listRunJobs = async () => [];
+    assert.match((await defaultPlatformTestResult(ctx, { change: CHANGE, sha })).reason, /did not run for fffffff/);
+  } finally {
+    if (previous === undefined) delete process.env.GITHUB_RUN_ID; else process.env.GITHUB_RUN_ID = previous;
+  }
+});
+
+test('rejects sync and archive checkpoints that change code', async () => {
+  const { github, ctx } = setup();
+  const base = github.branches.get('main');
+  const after = github.commit({ message: 'x', parents: [base], files: new Map([...github.commits.get(base).files, ['src/platform/B.cs', 'x']]) });
+  for (const operation of ['sync', 'archive']) {
+    const state = { change: CHANGE, branch: 'openspec/x', current: { operation, task: null, startSha: base, baselineSha: base } };
+    const result = await validateEvidence(ctx, state, after);
+    assert.match(result.reason, new RegExp(`${operation} may only change openspec/ and docs/, but changed src/platform/B\\.cs`));
+  }
 });

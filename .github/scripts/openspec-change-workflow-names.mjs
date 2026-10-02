@@ -13,14 +13,24 @@ export const WORKFLOW_JOB_NAMES = new Map([
   ['conclusion', 'Report the reconciliation outcome'],
 ]);
 
-const DEFAULT_WORKFLOW_PATH = path.join(
-  process.cwd(),
-  '.github',
-  'workflows',
-  'openspec-change-reconciliation.lock.yml',
-);
+export const AGENT_WORKFLOW_JOB_NAMES = new Map([
+  ['activation', 'Prepare the agent session'],
+  ['agent', 'Run the OpenSpec agent'],
+  ['detection', 'Check the agent changes for threats'],
+  ['safe_outputs', 'Push the checkpoint to the pull request'],
+  ['wake_controller', 'Wake the openspec controller'],
+  ['conclusion', 'Report the agent session outcome'],
+]);
 
-export function applyWorkflowJobNames(source) {
+// Generated lock files whose compiler-generated jobs get readable display names.
+export const NAMED_WORKFLOWS = new Map([
+  ['openspec-change-reconciliation.lock.yml', WORKFLOW_JOB_NAMES],
+  ['openspec-agent.lock.yml', AGENT_WORKFLOW_JOB_NAMES],
+]);
+
+const WORKFLOWS_ROOT = path.join(process.cwd(), '.github', 'workflows');
+
+export function applyWorkflowJobNames(source, jobNames = WORKFLOW_JOB_NAMES) {
   const newline = source.includes('\r\n') ? '\r\n' : '\n';
   const lines = source.split(/\r?\n/);
   const jobsIndex = lines.findIndex((line) => line === 'jobs:');
@@ -28,7 +38,7 @@ export function applyWorkflowJobNames(source) {
     throw new Error('Generated workflow does not contain a top-level jobs map.');
   }
 
-  const occurrences = new Map([...WORKFLOW_JOB_NAMES.keys()].map((job) => [job, 0]));
+  const occurrences = new Map([...jobNames.keys()].map((job) => [job, 0]));
   const insertions = [];
 
   for (let index = jobsIndex + 1; index < lines.length; index += 1) {
@@ -38,7 +48,7 @@ export function applyWorkflowJobNames(source) {
       continue;
     }
 
-    const [jobId, expectedName] = [header[1], WORKFLOW_JOB_NAMES.get(header[1])];
+    const [jobId, expectedName] = [header[1], jobNames.get(header[1])];
     if (expectedName === undefined) continue;
     occurrences.set(jobId, occurrences.get(jobId) + 1);
 
@@ -83,17 +93,23 @@ async function main(argv) {
   if (positional.length > 1) {
     throw new Error('Usage: node openspec-change-workflow-names.mjs [--check] [workflow-path]');
   }
-  const workflowPath = path.resolve(positional[0] ?? DEFAULT_WORKFLOW_PATH);
-  const source = await readFile(workflowPath, 'utf8');
-  const normalized = applyWorkflowJobNames(source);
-  if (check) {
-    if (normalized !== source) {
-      throw new Error(`Generated workflow job names are not normalized: ${workflowPath}`);
+  const targets = positional.length === 1
+    ? [path.resolve(positional[0])]
+    : [...NAMED_WORKFLOWS.keys()].map((file) => path.join(WORKFLOWS_ROOT, file));
+  for (const workflowPath of targets) {
+    const jobNames = NAMED_WORKFLOWS.get(path.basename(workflowPath));
+    if (!jobNames) throw new Error(`No job names are defined for ${workflowPath}`);
+    const source = await readFile(workflowPath, 'utf8');
+    const normalized = applyWorkflowJobNames(source, jobNames);
+    if (check) {
+      if (normalized !== source) {
+        throw new Error(`Generated workflow job names are not normalized: ${workflowPath}`);
+      }
+      continue;
     }
-    return;
-  }
-  if (normalized !== source) {
-    await writeFile(workflowPath, normalized);
+    if (normalized !== source) {
+      await writeFile(workflowPath, normalized);
+    }
   }
 }
 

@@ -51,7 +51,7 @@ function running(state = fresh(), decision = decideNext(state, { tasks })) {
     startSha: state.headSha,
     now,
   });
-  return markRunning(dispatching, { agentTask: { id: 'task-1', state: 'queued', url: 'https://x/1' }, now });
+  return markRunning(dispatching, { session: { runtime: 'actions', id: 'task-1', state: 'queued', url: 'https://x/1' }, now });
 }
 
 function checkpoint(overrides = {}) {
@@ -281,12 +281,12 @@ test('abort closes the run from any open state and closing keeps the abort outco
 test('recovers interrupted dispatches by adopting, waiting, re-dispatching, or gating', () => {
   const state = fresh();
   const dispatching = markDispatching(state, { ...decideNext(state, { tasks }), startSha: state.headSha, now });
-  assert.equal(recoverDispatch(dispatching, { matches: [{ id: 't', state: 'queued' }], now }).action, 'adopted');
+  assert.equal(recoverDispatch(dispatching, { matches: [{ runtime: 'actions', id: '7', state: 'queued' }], now }).action, 'adopted');
   assert.equal(recoverDispatch(dispatching, { matches: [], now: later(1) }).action, 'wait');
   const redispatch = recoverDispatch(dispatching, { matches: [], now: later(11) });
   assert.equal(redispatch.action, 'redispatch');
   assert.equal(decideNext(redispatch.state, { tasks }).action, 'dispatch');
-  assert.equal(recoverDispatch(dispatching, { matches: [{ id: 'a' }, { id: 'b' }], now }).state.gate.kind, 'failure');
+  assert.equal(recoverDispatch(dispatching, { matches: [{ runtime: 'actions', id: 'a' }, { runtime: 'actions', id: 'b' }], now }).state.gate.kind, 'failure');
 });
 
 test('records human pushes only while no session is in flight', () => {
@@ -307,4 +307,20 @@ test('describes activity for the lifecycle check and labels', () => {
   const gated = creditSession(state, { agentState: 'cancelled' }, later(1)).state;
   assert.equal(lifecycleCheck(gated).conclusion, 'action_required');
   assert.deepEqual(issueLabels(gated), ['openspec:processing', 'openspec:needs-attention']);
+});
+
+test('keeps the evidence baseline and records bounded feedback across retries', () => {
+  const failed = creditSession(running(), {
+    headSha: sha('b'),
+    checkpoint: checkpoint(),
+    checkpointSha: sha('b'),
+    evidence: { ok: false, reason: 'the platform tests failed at the checkpoint', feedback: `${'x'.repeat(5000)}\nAssert failed` },
+  }, later(10));
+  assert.equal(failed.result.kind, 'retry');
+  assert.equal(failed.state.current.feedback.length, 4000);
+  assert.match(failed.state.current.feedback, /Assert failed$/);
+  const redispatched = markDispatching(failed.state, { ...decideNext(failed.state, { tasks }), startSha: sha('b'), dispatchId: 'd2', now });
+  assert.equal(redispatched.current.feedback, failed.state.current.feedback);
+  assert.equal(redispatched.current.dispatchId, 'd2');
+  assert.equal(redispatched.current.baselineSha, sha('0'));
 });

@@ -50,7 +50,7 @@ function running() {
   const decision = decideNext(state, { tasks });
   const dispatching = markDispatching(state, { ...decision, startSha: state.headSha, now });
   return markRunning(dispatching, {
-    agentTask: { id: 'task-7', state: 'queued', url: 'https://github.com/markusheiliger/socalytics/copilot/tasks/7' },
+    session: { runtime: 'copilot', id: 'task-7', state: 'queued', url: 'https://github.com/markusheiliger/socalytics/copilot/tasks/7' },
     now,
   });
 }

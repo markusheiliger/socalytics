@@ -402,4 +402,32 @@ export class GitHubChangeClient {
     return this.paginate(`${this.repositoryPath}/issues/${issueNumber}/events`);
   }
 
+  // Returns { workflow_run_id, run_url, html_url } when GitHub reports the run, or null (204).
+  dispatchWorkflow(workflow, ref, inputs) {
+    return this.request(`${this.repositoryPath}/actions/workflows/${encodeURIComponent(workflow)}/dispatches`, {
+      method: 'POST',
+      body: { ref, inputs },
+      expected: [200, 204],
+    });
+  }
+
+  getWorkflowRun(runId) {
+    return this.request(`${this.repositoryPath}/actions/runs/${encodeURIComponent(runId)}`);
+  }
+
+  async listRunJobs(runId) {
+    const value = await this.request(
+      `${this.repositoryPath}/actions/runs/${encodeURIComponent(runId)}/jobs?filter=latest&per_page=100`,
+    );
+    return Array.isArray(value?.jobs) ? value.jobs : [];
+  }
+
+  async listWorkflowRuns(workflow, { createdAfter }) {
+    const created = encodeURIComponent(`>=${createdAfter}`);
+    const value = await this.request(
+      `${this.repositoryPath}/actions/workflows/${encodeURIComponent(workflow)}/runs?event=workflow_dispatch&created=${created}&per_page=50`,
+    );
+    return Array.isArray(value?.workflow_runs) ? value.workflow_runs : [];
+  }
+
 }

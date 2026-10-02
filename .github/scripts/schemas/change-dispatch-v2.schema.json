@@ -49,6 +49,7 @@
         "block": { "type": "string", "minLength": 1 }
       }
     },
+    "feedback": { "type": "string", "minLength": 1, "maxLength": 4000 },
     "answers": {
       "type": "array",
       "items": {

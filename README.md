@@ -99,10 +99,12 @@ host-neutral entry point and is independent of the workflow scripts under
 
 The single `openspec` workflow (`.github/workflows/openspec.yml`) then
 implements each enqueued change on its own workflow-created `openspec/<change>`
-branch and draft pull request. It starts one fresh Copilot agent session per
-numbered apply task, then one each for verify, sync, and archive. Every session
-ends with a pushed checkpoint commit that wakes the workflow again; the
-workflow never polls. Processing state lives in the pull request's
+branch and draft pull request. It starts one fresh agent session per numbered
+apply task, then one each for verify, sync, and archive. Sessions run in the
+`openspec-agent` agentic workflow by default, or as Copilot cloud agent sessions
+when the repository variable `OPENSPEC_AGENT_RUNTIME` is `copilot`. Every
+session ends with a checkpoint commit on the branch that wakes the workflow
+again; the workflow never polls. Processing state lives in the pull request's
 `OpenSpec lifecycle` check run, and the pull request comments form a numbered,
 human-readable change log. When the workflow needs a human, it asks on the pull
 request and continues after `/openspec approve`, `/openspec retry`,
@@ -122,7 +124,9 @@ The repository-owned OpenSpec workflow tooling has focused contract tests:
 ```powershell
 node --test .github/scripts/*.test.mjs
 gh aw validate .github/workflows/openspec-change-reconciliation.md
+gh aw validate .github/workflows/openspec-agent.md
 gh aw lint .github/workflows/openspec-change-reconciliation.lock.yml
+gh aw lint .github/workflows/openspec-agent.lock.yml
 node .github/scripts/openspec-change-workflow-names.mjs --check
 ```
 

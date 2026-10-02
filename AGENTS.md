@@ -25,7 +25,7 @@
 - Repository execution contracts live under `openspec/capabilities/`. Capability ids resolve directly to same-named Markdown files; there is no registry or specialist-agent routing.
 - Supported execution capabilities are `strategy`, `design`, `architecture`, `implementation`, `verification`, and `audit`.
 - Every task must declare exactly one unordered plural `Capabilities:` set. Multiple capabilities are allowed only when every selected contract is composable and compatible.
-- The `openspec` workflow starts one fresh Agent Task per capability-backed task through the OOTB `openspec` agent and validates the pushed checkpoint commit before advancing.
+- The `openspec` workflow starts one fresh agent session per capability-backed task and validates the pushed checkpoint commit before advancing.
 - `verification` and `audit` are exclusive, isolated, checkbox-only capabilities. They report independently and do not author or remediate implementation work.
 
 ## Repository Setup
@@ -58,12 +58,14 @@
 - The issue holds queue state only. `openspec:change` classifies twins and `openspec:enqueued` is the one-shot processing request, honored only when a user with write access applied it. `openspec:processing`, `openspec:needs-attention`, and `openspec:awaiting-review` are workflow outputs. Native GitHub issue dependencies are the only blocked-state authority.
 - Each admitted change gets a workflow-created `openspec/<change>` branch and draft pull request. Processing state lives only in the `OpenSpec lifecycle` check run on the pull request head; comments are a human-readable change log and are never read as state.
 - The workflow is event-driven and short-lived: it never polls. Agent checkpoint pushes, `/openspec` pull-request comments, enqueue labels, merges, and a 15-minute watchdog wake it; every run reconciles every change under one repository-wide lock.
-- The workflow uses the Agent Tasks API with `head_ref` on the draft pull request rather than native Copilot issue assignment, which would start an uncontrolled duplicate session.
+- Agent sessions run in the `openspec-agent` agentic workflow by default (`OPENSPEC_AGENT_RUNTIME=actions`: no personal access token, 60-minute budget, a separate job pushes, `.github/` blocked). The Copilot cloud agent through the Agent Tasks API with `head_ref` remains the `copilot` fallback. Never use native Copilot issue assignment, which starts an uncontrolled duplicate session.
+- The agentic sandbox has no Docker: the agent runs Testcontainers tests through the host-side `run_platform_tests` tool, and "Check agent result" runs the platform tests at every apply checkpoint that changes `src/platform/`.
+- Edit `openspec-agent.md` only, recompile it with `gh aw compile openspec-agent` (gh-aw v0.89.21), and run `node .github/scripts/openspec-change-workflow-names.mjs`; never hand-edit lock files.
 - Every agent session ends with one pushed commit carrying an `OpenSpec-JSON:` checkpoint trailer (`complete`, `partial`, `needs_decision`, or `failed`). The workflow validates it at that exact commit before crediting; Agent Task status is supplemental.
 - Failed, partial, or invalid sessions get one retry. Agent decisions, exhausted retries, and verify findings open human gates: any suggestion or warning opens a review gate, any critical finding opens a failure gate that cannot be approved, and a clean verify continues automatically. Humans resolve gates with `/openspec approve`, `retry`, `answer <text>`, or `abort`.
 - Archive happens on the implementation branch. Automation stops at the merge gate; a human marks the pull request ready, reviews it, and merges.
 - Cross-change inference is read-only until its typed custom safe output invokes the privileged validator and reconciler. Edit the combined Agentic Workflow source, regenerate its lock file with `gh aw compile`, and run `node .github/scripts/openspec-change-workflow-names.mjs` to apply generated-job display names; do not hand-edit the lock.
-- Every job and step in `openspec.yml` must keep a readable `name:`; `openspec-workflow.test.mjs` enforces it.
+- Every job and step in `openspec.yml` and `openspec-agent.md` must keep a readable `name:`; `openspec-workflow.test.mjs` enforces it.
 - Run `node --test .github/scripts/*.test.mjs` for the workflow tooling tests.
 
 ## Changes and Validation

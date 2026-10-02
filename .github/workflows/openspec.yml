@@ -71,6 +71,7 @@ jobs:
     environment: openspec
     permissions:
       contents: read
+      actions: read
       checks: write
       issues: write
       pull-requests: write
@@ -78,6 +79,7 @@ jobs:
       relevant: ${{ steps.observe.outputs.relevant }}
       credit: ${{ steps.observe.outputs.credit }}
       touched: ${{ steps.observe.outputs.touched }}
+      tests: ${{ steps.observe.outputs.tests }}
     steps:
       - name: Check out trusted controller
         uses: actions/checkout@v5
@@ -95,18 +97,60 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+          OPENSPEC_AGENT_RUNTIME: ${{ vars.OPENSPEC_AGENT_RUNTIME }}
           OPENSPEC_DRY_RUN: ${{ inputs.dry_run }}
         run: node .github/scripts/openspec-change-orchestrator.mjs observe
 
+  # Runs agent-written code, so it gets a read-only token, no secrets, and no environment.
+  test:
+    name: Run platform tests
+    needs: observe
+    if: ${{ !cancelled() && needs.observe.result == 'success' && needs.observe.outputs.relevant == 'true' && needs.observe.outputs.tests != '[]' && !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.observe.outputs.tests) }}
+    steps:
+      - name: Check out the checkpoint commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ matrix.sha }}
+          persist-credentials: false
+
+      - name: Set up .NET for the platform tests
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: src/platform/global.json
+
+      - name: Run the platform tests with Testcontainers
+        shell: bash
+        run: |
+          set -o pipefail
+          dotnet test src/platform/SocAlytics.Platform.slnx --nologo --blame-hang-timeout 10m 2>&1 | tee "$RUNNER_TEMP/platform-tests.log"
+
+      - name: Upload the test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-tests-${{ matrix.change }}
+          path: ${{ runner.temp }}/platform-tests.log
+          retention-days: 3
+          if-no-files-found: ignore
+
   credit:
     name: Check agent result
-    needs: observe
-    if: ${{ needs.observe.outputs.relevant == 'true' && needs.observe.outputs.credit != '[]' && !inputs.dry_run }}
+    needs: [observe, test]
+    if: ${{ !cancelled() && needs.observe.result == 'success' && needs.observe.outputs.relevant == 'true' && needs.observe.outputs.credit != '[]' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: openspec
     permissions:
       contents: read
+      actions: read
       checks: write
       issues: write
       pull-requests: write
@@ -130,11 +174,20 @@ jobs:
       - name: Install the OpenSpec CLI
         run: npm install --global @fission-ai/openspec@1.13.0
 
+      - name: Download the platform test logs
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: platform-tests-*
+          path: ${{ runner.temp }}/platform-tests
+
       - name: Validate the checkpoint and record the result
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+          OPENSPEC_AGENT_RUNTIME: ${{ vars.OPENSPEC_AGENT_RUNTIME }}
           CHANGE: ${{ matrix.change }}
+          OPENSPEC_PLATFORM_TEST_LOGS: ${{ runner.temp }}/platform-tests
         run: node .github/scripts/openspec-change-orchestrator.mjs credit --change "$CHANGE"
 
   plan:
@@ -185,6 +238,7 @@ jobs:
     environment: openspec
     permissions:
       contents: write
+      actions: write
       checks: write
       issues: write
       pull-requests: write
@@ -208,6 +262,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+          OPENSPEC_AGENT_RUNTIME: ${{ vars.OPENSPEC_AGENT_RUNTIME }}
           CHANGE: ${{ matrix.change }}
         run: node .github/scripts/openspec-change-orchestrator.mjs admit --change "$CHANGE"
 
@@ -220,6 +275,7 @@ jobs:
     environment: openspec
     permissions:
       contents: read
+      actions: write
       checks: write
       issues: write
       pull-requests: write
@@ -243,6 +299,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+          OPENSPEC_AGENT_RUNTIME: ${{ vars.OPENSPEC_AGENT_RUNTIME }}
           CHANGE: ${{ matrix.change }}
         run: node .github/scripts/openspec-change-orchestrator.mjs dispatch --operation apply --change "$CHANGE"
 
@@ -255,6 +312,7 @@ jobs:
     environment: openspec
     permissions:
       contents: read
+      actions: write
       checks: write
       issues: write
       pull-requests: write
@@ -278,6 +336,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+          OPENSPEC_AGENT_RUNTIME: ${{ vars.OPENSPEC_AGENT_RUNTIME }}
           CHANGE: ${{ matrix.change }}
         run: node .github/scripts/openspec-change-orchestrator.mjs dispatch --operation verify --change "$CHANGE"
 
@@ -290,6 +349,7 @@ jobs:
     environment: openspec
     permissions:
       contents: read
+      actions: write
       checks: write
       issues: write
       pull-requests: write
@@ -313,6 +373,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+          OPENSPEC_AGENT_RUNTIME: ${{ vars.OPENSPEC_AGENT_RUNTIME }}
           CHANGE: ${{ matrix.change }}
         run: node .github/scripts/openspec-change-orchestrator.mjs dispatch --operation sync --change "$CHANGE"
 
@@ -325,6 +386,7 @@ jobs:
     environment: openspec
     permissions:
       contents: read
+      actions: write
       checks: write
       issues: write
       pull-requests: write
@@ -348,6 +410,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
+          OPENSPEC_AGENT_RUNTIME: ${{ vars.OPENSPEC_AGENT_RUNTIME }}
           CHANGE: ${{ matrix.change }}
         run: node .github/scripts/openspec-change-orchestrator.mjs dispatch --operation archive --change "$CHANGE"
 

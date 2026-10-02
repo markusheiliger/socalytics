@@ -93,21 +93,23 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["operation", "task", "attempt", "startSha", "baselineSha", "agentTask", "dispatchedAt"],
+          "required": ["operation", "task", "attempt", "startSha", "baselineSha", "dispatchId", "session", "dispatchedAt", "feedback"],
           "properties": {
             "operation": { "$ref": "#/$defs/operation" },
             "task": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/task" }] },
             "attempt": { "type": "integer", "minimum": 1 },
             "startSha": { "$ref": "#/$defs/sha" },
             "baselineSha": { "$ref": "#/$defs/sha" },
-            "agentTask": {
+            "dispatchId": { "type": ["string", "null"], "maxLength": 64 },
+            "session": {
               "oneOf": [
                 { "type": "null" },
                 {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["id", "state"],
+                  "required": ["runtime", "id", "state"],
                   "properties": {
+                    "runtime": { "enum": ["actions", "copilot"] },
                     "id": { "type": "string", "minLength": 1 },
                     "state": { "type": "string", "minLength": 1 },
                     "url": { "type": "string" }
@@ -115,6 +117,7 @@
                 }
               ]
             },
+            "feedback": { "type": ["string", "null"], "maxLength": 4000 },
             "dispatchedAt": { "type": ["string", "null"], "format": "date-time" }
           }
         }

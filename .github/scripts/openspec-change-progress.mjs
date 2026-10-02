@@ -111,9 +111,13 @@ export function renderLogEntry({
   return `${parts.join('\n\n')}\n`;
 }
 
+export function sessionLabel(session) {
+  return session.runtime === 'actions' ? 'Agent run' : 'Agent session';
+}
+
 function sessionEvidence(context, current, afterSha = null) {
   const evidence = [];
-  if (current.agentTask?.url) evidence.push(`[Agent session](${current.agentTask.url})`);
+  if (current.session?.url) evidence.push(`[${sessionLabel(current.session)}](${current.session.url})`);
   evidence.push(afterSha ? compareLink(context, current.startSha, afterSha) : `from ${commitLink(context, current.startSha)}`);
   return evidence;
 }
@@ -164,10 +168,10 @@ export function sessionStartedEntry({ state, context }) {
   const { current } = state;
   const attempt = current.attempt > 1 ? ` (attempt ${current.attempt})` : '';
   return {
-    event: `session:${current.agentTask.id}`,
+    event: `session:${current.session.id}`,
     emoji: '▶️',
     title: `${taskPhrase(current)}: running${attempt}`,
-    text: `A new Copilot agent session is working on ${current.task ? `task ${current.task.id}` : `the ${current.operation} step`}.`,
+    text: `${current.session.runtime === 'actions' ? 'A new agentic workflow run' : 'A new Copilot agent session'} is working on ${current.task ? `task ${current.task.id}` : `the ${current.operation} step`}.`,
     evidence: sessionEvidence(context, current),
     next: 'Wait for the session to push its checkpoint.',
   };
@@ -176,7 +180,7 @@ export function sessionStartedEntry({ state, context }) {
 export function sessionFinishedEntry({ before, after, result, checkpoint = null, checkpointSha = null, context }) {
   const current = before.current;
   const base = {
-    event: `session:${current.agentTask.id}`,
+    event: `session:${current.session.id}`,
     evidence: sessionEvidence(context, current, checkpointSha ?? after.headSha),
     agent: checkpoint ? sanitizeAgentText(checkpoint.summary, context) : null,
   };
@@ -206,14 +210,19 @@ export function sessionFinishedEntry({ before, after, result, checkpoint = null,
         next: describeNext(after),
       };
     }
-    case 'retry':
+    case 'retry': {
+      const feedback = after.current?.feedback;
       return {
         ...base,
         emoji: '⚠️',
         title: `${taskPhrase(current)}: retrying`,
-        text: [`${result.reason} A fresh session will continue from the latest commit.`, ...validation],
+        text: [`${sanitizeAgentText(result.reason, context, 500)} A fresh session will continue from the latest commit.`, ...validation],
         next: `Retry (attempt ${result.nextAttempt}).`,
+        details: feedback && feedback !== result.reason
+          ? { summary: 'Details passed to the next attempt', lines: ['```text', feedback.replace(/```/g, "'''").slice(-3000), '```'] }
+          : null,
       };
+    }
     case 'gate': {
       if (result.gate === 'decision') {
         return {
@@ -449,7 +458,7 @@ export function operationCheckRun({ before, result, checkpoint = null, context }
   }
   if (result.findings) lines.push(...findingLines(result.findings, context));
   if (result.reason) lines.push(`**Outcome:** ${sanitizeAgentText(result.reason, context, 1000)}`, '');
-  if (current.agentTask?.url) lines.push(`[Agent session](${current.agentTask.url}) · attempt ${current.attempt}`);
+  if (current.session?.url) lines.push(`[${sessionLabel(current.session)}](${current.session.url}) · attempt ${current.attempt}`);
   let conclusion;
   let title;
   if (result.kind === 'credited' || (result.kind === 'gate' && result.gate === 'merge')) {
