@@ -211,16 +211,14 @@ export function sessionFinishedEntry({ before, after, result, checkpoint = null,
       };
     }
     case 'retry': {
-      const feedback = after.current?.feedback;
+      const { feedback } = result;
       return {
         ...base,
         emoji: '⚠️',
         title: `${taskPhrase(current)}: retrying`,
         text: [`${sanitizeAgentText(result.reason, context, 500)} A fresh session will continue from the latest commit.`, ...validation],
         next: `Retry (attempt ${result.nextAttempt}).`,
-        details: feedback && feedback !== result.reason
-          ? { summary: 'Details passed to the next attempt', lines: ['```text', feedback.replace(/```/g, "'''").slice(-3000), '```'] }
-          : null,
+        details: failureDetails(feedback, result.reason, 'Details passed to the next attempt'),
       };
     }
     case 'gate': {
@@ -257,11 +255,17 @@ export function sessionFinishedEntry({ before, after, result, checkpoint = null,
         title: `${taskPhrase(current)}: stopped`,
         text: [sanitizeAgentText(result.reason, context, 500), ...validation],
         next: 'A human needs to decide how to continue.',
+        details: failureDetails(result.feedback, result.reason, 'Failure details'),
       };
     }
     default:
       throw new Error(`Cannot render session result ${result.kind}`);
   }
+}
+
+function failureDetails(feedback, reason, summary) {
+  if (!feedback || feedback === reason) return null;
+  return { summary, lines: ['```text', feedback.replace(/```/g, "'''").slice(-3000), '```'] };
 }
 
 export function gateEntry({ state, context }) {
@@ -460,6 +464,9 @@ export function operationCheckRun({ before, result, checkpoint = null, context }
   }
   if (result.findings) lines.push(...findingLines(result.findings, context));
   if (result.reason) lines.push(`**Outcome:** ${sanitizeAgentText(result.reason, context, 1000)}`, '');
+  if (result.feedback && result.feedback !== result.reason) {
+    lines.push('**Details:**', '', '```text', result.feedback.replace(/```/g, "'''"), '```', '');
+  }
   if (current.session?.url) lines.push(`[${sessionLabel(current.session)}](${current.session.url}) · attempt ${current.attempt}`);
   let conclusion;
   let title;

@@ -835,6 +835,34 @@ test('fails a checkpoint whose isolated platform test job failed and passes its 
   assert.match(entry, /Details passed to the next attempt[\s\S]*Expected 3 but was 2/);
 });
 
+test('shows platform test failures on the pull request checks and in the stopped entry', async () => {
+  const { github, ctx, pr } = await admitted();
+  ctx.platformTestResult = async () => ({
+    ok: false,
+    reason: 'the platform tests failed at abc',
+    feedback: 'Failed test: MigrationTests.Applies\nError message:\n  Expected 3 but was 2',
+    job: { conclusion: 'failure', url: 'https://github.com/x/actions/runs/1/job/2' },
+  });
+  for (const attempt of [1, 2]) {
+    const checkpointSha = github.push(pr.head.ref, {
+      message: `x${attempt}\n\n${trailer({ operation: 'apply', task: '1.1', verdict: 'complete' })}`,
+      files: { [`openspec/changes/${CHANGE}/tasks.md`]: TASKS.replace('- [ ] 1.1', '- [x] 1.1'), 'src/platform/A.cs': `x${attempt}` },
+    });
+    await observe(ctx);
+    await creditChange(ctx, CHANGE);
+    const testCheck = github.checkRuns.find((run) => run.name === 'OpenSpec platform tests' && run.head_sha === checkpointSha);
+    assert.equal(testCheck.conclusion, 'failure');
+    assert.equal(testCheck.details_url, 'https://github.com/x/actions/runs/1/job/2');
+    assert.match(testCheck.output.summary, /\[Test job log\]\(https:\/\/github\.com\/x\/actions\/runs\/1\/job\/2\)[\s\S]*Expected 3 but was 2/);
+    const operationCheck = github.checkRuns.filter((run) => run.name === 'OpenSpec apply 1.1' && run.head_sha === checkpointSha).at(-1);
+    assert.match(operationCheck.output.summary, /\*\*Details:\*\*[\s\S]*Expected 3 but was 2/);
+    if (attempt === 1) await dispatchChange(ctx, CHANGE);
+  }
+  assert.equal(lifecycleState(github, pr).gate.kind, 'failure');
+  const stopped = github.comments.get(pr.number).find((comment) => comment.body.includes(': stopped')).body;
+  assert.match(stopped, /the platform tests failed at abc[\s\S]*Failure details[\s\S]*Expected 3 but was 2/);
+});
+
 test('rejects unknown agent runtimes', () => {
   assert.throws(() => createContext({ env: { GITHUB_REPOSITORY: REPOSITORY, GITHUB_TOKEN: 'x', OPENSPEC_AGENT_RUNTIME: 'lambda' } }), /must be one of actions, copilot/);
   assert.equal(createContext({ env: { GITHUB_REPOSITORY: REPOSITORY, GITHUB_TOKEN: 'x' } }).runtime, 'actions');
@@ -860,10 +888,15 @@ test('reads the isolated test job conclusion, not anything the tests wrote', asy
   process.env.GITHUB_RUN_ID = '42';
   try {
     const sha = 'f'.repeat(40);
-    ctx.client.listRunJobs = async () => [{ name: `Run platform tests (${CHANGE}, ${sha})`, conclusion: 'failure' }];
-    assert.equal((await defaultPlatformTestResult(ctx, { change: CHANGE, sha })).ok, false);
-    ctx.client.listRunJobs = async () => [{ name: `Run platform tests (${CHANGE}, ${sha})`, conclusion: 'success' }];
-    assert.deepEqual(await defaultPlatformTestResult(ctx, { change: CHANGE, sha }), { ok: true });
+    ctx.client.listRunJobs = async () => [{ name: `Run platform tests (${CHANGE}, ${sha})`, conclusion: 'failure', html_url: 'https://jobs/1' }];
+    const failed = await defaultPlatformTestResult(ctx, { change: CHANGE, sha });
+    assert.equal(failed.ok, false);
+    assert.equal(failed.reason, 'the platform tests failed at fffffff');
+    assert.deepEqual(failed.job, { conclusion: 'failure', url: 'https://jobs/1' });
+    ctx.client.listRunJobs = async () => [{ name: `Run platform tests (${CHANGE}, ${sha})`, conclusion: 'cancelled' }];
+    assert.equal((await defaultPlatformTestResult(ctx, { change: CHANGE, sha })).reason, 'the platform tests ended as cancelled at fffffff');
+    ctx.client.listRunJobs = async () => [{ name: `Run platform tests (${CHANGE}, ${sha})`, conclusion: 'success', html_url: 'https://jobs/2' }];
+    assert.deepEqual(await defaultPlatformTestResult(ctx, { change: CHANGE, sha }), { ok: true, job: { conclusion: 'success', url: 'https://jobs/2' } });
     ctx.client.listRunJobs = async () => [];
     assert.match((await defaultPlatformTestResult(ctx, { change: CHANGE, sha })).reason, /did not run for fffffff/);
   } finally {

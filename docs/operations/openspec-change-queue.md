@@ -372,7 +372,11 @@ or partial attempt cannot hide changes from a later attempt:
   reads only that job's conclusion from the Actions API. When it fails, a summary
   of its log becomes the feedback for the next attempt: build errors, then each
   failed test with its error message, the repository's own stack frames, and
-  test output.
+  test output. Because the test job belongs to the orchestrator run on `main`,
+  its own check never appears on the pull request; "Check agent result" mirrors
+  the result as an **OpenSpec platform tests** check on the checkpoint commit,
+  with that summary and a link to the job log. The operation check and the
+  change-log entry show the same details for retries and failure gates.
 - Verify: no files changed and strict validation passes.
 - Sync: only `openspec/` and `docs/` changed, strict validation passes, and
   every delta requirement matches the accepted specs on the branch.

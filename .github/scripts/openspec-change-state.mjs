@@ -253,12 +253,12 @@ function retryOrFail(state, reason, now, feedback = null) {
           dispatchedAt: null,
         },
       }, now),
-      result: { kind: 'retry', reason, nextAttempt: current.attempt + 1 },
+      result: { kind: 'retry', reason, nextAttempt: current.attempt + 1, feedback: current.feedback },
     };
   }
   return {
     state: openGate(state, { kind: 'failure', reason, now }),
-    result: { kind: 'gate', gate: 'failure', reason },
+    result: { kind: 'gate', gate: 'failure', reason, feedback: current.feedback },
   };
 }
 

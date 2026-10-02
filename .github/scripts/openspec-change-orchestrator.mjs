@@ -593,7 +593,8 @@ export async function defaultPlatformTestResult(ctx, { change, sha }) {
   const job = jobs.find((entry) => entry.name.startsWith(`${PLATFORM_TEST_JOB} (`)
     && entry.name.includes(change) && entry.name.includes(sha));
   if (!job) return { ok: false, reason: `the platform tests did not run for ${shortSha(sha)}` };
-  if (job.conclusion === 'success') return { ok: true };
+  const testJob = { conclusion: job.conclusion ?? null, url: job.html_url ?? null };
+  if (job.conclusion === 'success') return { ok: true, job: testJob };
   const logPath = join(process.env.OPENSPEC_PLATFORM_TEST_LOGS ?? '', `platform-tests-${change}`, 'platform-tests.log');
   let feedback = null;
   try {
@@ -601,7 +602,35 @@ export async function defaultPlatformTestResult(ctx, { change, sha }) {
   } catch {
     feedback = null;
   }
-  return { ok: false, reason: `the platform tests ${job.conclusion ?? 'did not finish'} at ${shortSha(sha)}`, feedback };
+  const outcome = job.conclusion === 'failure' ? 'failed' : job.conclusion ? `ended as ${job.conclusion}` : 'did not finish';
+  return { ok: false, reason: `the platform tests ${outcome} at ${shortSha(sha)}`, feedback, job: testJob };
+}
+
+const PLATFORM_TEST_CHECK = 'OpenSpec platform tests';
+const CHECK_CONCLUSIONS = new Set(['success', 'failure', 'cancelled', 'timed_out', 'neutral', 'skipped']);
+
+// The test job belongs to the orchestrator run on main, so its own check run never shows on the
+// pull request. Mirror its result onto the checkpoint commit, linked to the job log.
+async function recordPlatformTests(ctx, { change, sha, result }) {
+  if (ctx.dryRun || !result.job) return;
+  const link = result.job.url ? `[Test job log](${result.job.url})` : 'Test job log unavailable';
+  const summary = result.ok
+    ? `${link} · all platform tests passed at \`${shortSha(sha)}\`.`
+    : [`${link} · ${result.reason}.`, ...(result.feedback ? ['', '```text', result.feedback.replace(/```/g, "'''"), '```'] : [])].join('\n');
+  try {
+    await ctx.client.createCheckRun({
+      name: PLATFORM_TEST_CHECK,
+      head_sha: sha,
+      external_id: change,
+      status: 'completed',
+      conclusion: result.ok ? 'success' : CHECK_CONCLUSIONS.has(result.job.conclusion) ? result.job.conclusion : 'failure',
+      completed_at: ctx.now().toISOString(),
+      ...(result.job.url ? { details_url: result.job.url } : {}),
+      output: { title: result.ok ? 'Platform tests passed' : 'Platform tests failed', summary },
+    });
+  } catch (error) {
+    ctx.log(`- ${change}: cannot record the platform test check (${errorMessage(error)})`);
+  }
 }
 
 export async function needsPlatformTests(ctx, state, checkpointSha) {
@@ -689,6 +718,7 @@ export async function validateEvidence(ctx, state, checkpointSha) {
       await ctx.validator({ sha: checkpointSha, branch, change, kind: 'apply' });
       if (ctx.platformTests && await needsPlatformTests(ctx, state, checkpointSha)) {
         const result = await ctx.platformTestResult(ctx, { change, sha: checkpointSha });
+        await recordPlatformTests(ctx, { change, sha: checkpointSha, result });
         if (!result.ok) return result;
       }
     } else if (current.operation === 'verify') {
