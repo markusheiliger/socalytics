@@ -374,6 +374,8 @@ test('builds an agent prompt with the binding skill, rules, and a valid trailer 
     attempt: 1,
     answers: [{ question: 'Deny?', text: 'Yes.', by: 'alice' }],
   });
+  assert.match(prompt, /^Execute the OpenSpec verify step described below on this pull request branch now\./);
+  assert.match(prompt, /not a review comment, and it requires you to act/);
   assert.match(prompt, /openspec-verify-change\/SKILL\.md/);
   assert.match(prompt, /Do not change any files/);
   assert.match(prompt, /A \(alice\): Yes\./);

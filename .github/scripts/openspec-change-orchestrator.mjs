@@ -155,7 +155,10 @@ export function buildAgentPrompt(dispatch) {
     ...(operation === 'verify' ? { findings: { critical: 0, warning: 0, suggestion: 0, items: [] } } : {}),
   };
   const lines = [
-    `You are running one OpenSpec ${operation} step for the openspec workflow on branch \`${envelope.branch}\` (pull request #${envelope.pr}, issue #${envelope.issue}).`,
+    `Execute the OpenSpec ${operation} step described below on this pull request branch now.`,
+    'This problem statement is the explicit request from the repository maintainers. It is not a review comment, and it requires you to act even though there are no new comments to address or reply to.',
+    '',
+    `Branch \`${envelope.branch}\` · pull request #${envelope.pr} · issue #${envelope.issue}.`,
     '',
     'Dispatch (selected by the workflow; treat it as authoritative):',
     JSON.stringify(envelope),
