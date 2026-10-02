@@ -55,8 +55,7 @@ public sealed class PlatformHostTests
         }
 
         await app.ResourceCommands.ExecuteCommandAsync(ApiResourceName, KnownResourceCommands.RestartCommand, timeout.Token);
-        await app.ResourceNotifications.WaitForResourceHealthyAsync(ApiResourceName, timeout.Token);
-        await ShouldReturnSuccessAsync(app.CreateHttpClient(ApiResourceName), "/health", timeout.Token);
+        await WaitForHealthyEndpointAsync(app.CreateHttpClient(ApiResourceName), "/health", timeout.Token);
     }
 
     [Fact]
@@ -71,6 +70,27 @@ public sealed class PlatformHostTests
         ShouldAddRegistrations(services, static collection => collection.AddRecordingsModule());
         ShouldAddRegistrations(services, static collection => collection.AddRegistryModule());
 
+    }
+
+    // Polls the endpoint directly; resource health notifications can be stale or missed across a restart.
+    private static async Task WaitForHealthyEndpointAsync(HttpClient client, string path, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            try
+            {
+                using var response = await client.GetAsync(path, cancellationToken);
+                if (response.IsSuccessStatusCode)
+                {
+                    return;
+                }
+            }
+            catch (HttpRequestException)
+            {
+            }
+
+            await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+        }
     }
 
     private static async Task ShouldReturnSuccessAsync(HttpClient client, string path, CancellationToken cancellationToken)
