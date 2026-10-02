@@ -18,6 +18,7 @@ import {
   finalizeChange,
   findCheckpoint,
   notifyGate,
+  prepareAgentPrompt,
   observe,
   plan,
   publish,
@@ -716,4 +717,21 @@ test('skips comment scans for push wake-ups unless a gate is waiting', async () 
   assert.equal(lifecycleState(github, pr).status, 'running');
   await observe(ctx, { eventName: 'issue_comment', payload: { issue: { number: pr.number, pull_request: {} }, comment: { body: '/openspec abort' } } });
   assert.equal(lifecycleState(github, pr).outcome, 'aborted');
+});
+
+test('builds a commit-only prompt for agents whose commits a safe-output job pushes', async () => {
+  const { github, ctx } = setup();
+  const sha = github.branches.get('main');
+  github.branches.set('openspec/spike-add-club', sha);
+  const pr = await github.createPullRequest({ title: 'OpenSpec spike: trial', body: '', head: 'openspec/spike-add-club', base: 'main' });
+  const prepared = await prepareAgentPrompt(ctx, { pr: pr.number, change: CHANGE, issue: 4 });
+  assert.equal(prepared.branch, 'openspec/spike-add-club');
+  assert.equal(prepared.headSha, sha);
+  assert.equal(prepared.task.id, '1.1');
+  assert.match(prepared.prompt, /Execute only task 1\.1/);
+  assert.match(prepared.prompt, /do not run git push; you have no push access/);
+  assert.match(prepared.prompt, new RegExp(`push_to_pull_request_branch\` tool exactly once with pull_request_number ${pr.number}`));
+  assert.doesNotMatch(prepared.prompt, /Push it to origin/);
+  assert.match(buildAgentPrompt({ ...JSON.parse(prepared.prompt.split('\n').find((line) => line.startsWith('{'))) }), /Push it to origin/);
+  assert.throws(() => buildAgentPrompt({}, { transport: 'carrier-pigeon' }), /Unknown agent transport/);
 });

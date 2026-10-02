@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -141,8 +141,15 @@ function pullRequestBody({ change, issue, requestedBy, context }) {
 // ---------------------------------------------------------------------------
 // Agent prompt
 
-export function buildAgentPrompt(dispatch) {
+export const AGENT_TRANSPORTS = Object.freeze(['git-push', 'safe-output']);
+
+// 'git-push': a Copilot cloud agent session pushes its own commits.
+// 'safe-output': an agentic workflow commits locally and a trusted safe-output job pushes the commits.
+export function buildAgentPrompt(dispatch, { transport = 'git-push' } = {}) {
+  if (!AGENT_TRANSPORTS.includes(transport)) throw new Error(`Unknown agent transport: ${transport}`);
   const envelope = validateDispatch(dispatch);
+  const local = transport === 'safe-output';
+  const publish = local ? 'commit' : 'push';
   const operation = envelope.operation;
   const example = {
     $schema: JSON_CONTRACTS.changeCheckpoint,
@@ -191,11 +198,16 @@ export function buildAgentPrompt(dispatch) {
   }
   lines.push(
     '5. Never ask questions in chat and never wait for input. If you need a decision that the change artifacts, the answers above, and repository guidance do not settle, stop and finish with verdict `needs_decision` and one clear `question` that includes your recommended option.',
-    '6. Work implementation-first and push coherent progress early. If you cannot finish in this session, push your progress and finish with verdict `partial`, leaving the task unchecked.',
+    `6. Work implementation-first and ${publish} coherent progress early. If you cannot finish in this session, ${publish} your progress and finish with verdict \`partial\`, leaving the task unchecked.`,
     `7. End every session, successful or not, with exactly one final commit whose message contains exactly one line starting with \`OpenSpec-JSON: \` followed by one-line JSON matching ${JSON_CONTRACTS.changeCheckpoint}. Example:`,
     `   OpenSpec-JSON: ${JSON.stringify(example)}`,
     '   verdict is one of complete, partial, needs_decision, failed. Add `question` only for needs_decision. Add `findings` only for a complete verify.',
-    `   Use \`git commit --allow-empty\` when there are no file changes. Push it to origin/${envelope.branch}, confirm origin has that SHA, and push nothing after it.`,
+    local
+      ? `   Use \`git commit --allow-empty\` when there are no file changes. Commit on the checked-out branch \`${envelope.branch}\` and do not run git push; you have no push access.`
+      : `   Use \`git commit --allow-empty\` when there are no file changes. Push it to origin/${envelope.branch}, confirm origin has that SHA, and push nothing after it.`,
+    ...(local
+      ? [`   Then call the \`push_to_pull_request_branch\` tool exactly once with pull_request_number ${envelope.pr}. It publishes your commits; never call it before the checkpoint commit exists.`]
+      : []),
     '8. Do not open, edit, retitle, ready, approve, or merge pull requests, and do not comment on issues or pull requests.',
   );
   return lines.join('\n');
@@ -845,6 +857,33 @@ export async function dispatchNext(ctx, run, { only = null } = {}) {
   return { dispatched: true, decision };
 }
 
+// Builds the apply prompt for the next unchecked task of a pull request branch, for agents that
+// run inside an agentic workflow instead of a Copilot cloud agent session.
+export async function prepareAgentPrompt(ctx, { pr, change, issue, transport = 'safe-output' }) {
+  const pullRequest = await ctx.client.getPullRequest(pr);
+  if (pullRequest.state !== 'open') throw new Error(`Pull request #${pr} is not open`);
+  const headSha = pullRequest.head.sha;
+  const tasks = parseCapabilityTasks(await ctx.client.getTextContent(tasksPath(change), headSha));
+  const next = tasks.find((task) => !task.completed);
+  if (!next) throw new Error(`${change} has no unchecked task on #${pr}`);
+  const run = { pr: pullRequest, headSha, state: { change, current: null } };
+  const task = await buildDispatchTask(ctx, run, { task: { id: next.id } });
+  const envelope = {
+    $schema: JSON_CONTRACTS.changeDispatch,
+    change,
+    operation: 'apply',
+    issue,
+    pr,
+    branch: pullRequest.head.ref,
+    baseRef: pullRequest.base.ref,
+    expectedHeadSha: headSha,
+    attempt: 1,
+    task,
+    answers: [],
+  };
+  return { branch: pullRequest.head.ref, headSha, task, prompt: buildAgentPrompt(envelope, { transport }) };
+}
+
 export async function dispatchChange(ctx, change, operation) {
   const run = await findRun(ctx, change);
   if (!run?.state) return report(ctx, `- ${change}: no run found`);
@@ -1284,6 +1323,17 @@ export async function main(args = process.argv.slice(2)) {
       const changes = [...new Set(lists.flatMap((list) => (typeof list === 'string' ? JSON.parse(list || '[]') : list)))];
       await publish(ctx, changes);
       writeSummary('Update PR and issue status', ctx.summary);
+      return;
+    }
+    case 'agent-prompt': {
+      const prepared = await prepareAgentPrompt(ctx, {
+        pr: Number(argument(args, 'pr')),
+        change,
+        issue: Number(argument(args, 'issue')),
+      });
+      writeFileSync(argument(args, 'out'), `${prepared.prompt}\n`);
+      writeOutputs({ branch: prepared.branch, head_sha: prepared.headSha, task: prepared.task.id });
+      writeSummary(`Prepare agent prompt · ${change} task ${prepared.task.id}`, [`- #${argument(args, 'pr')} at ${shortSha(prepared.headSha)}: ${prepared.task.title}`]);
       return;
     }
     default:
