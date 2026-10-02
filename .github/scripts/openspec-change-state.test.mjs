@@ -73,6 +73,10 @@ function findings(critical, warning, suggestion) {
 test('shortens long task titles to their first sentence without capabilities', () => {
   assert.equal(shortTaskTitle('Implement Club commands and queries. Verify with tests.'), 'Implement Club commands and queries');
   assert.equal(shortTaskTitle('Do it Capabilities: implementation.'), 'Do it');
+  assert.equal(
+    shortTaskTitle('**Capabilities: architecture, implementation.** Resolve the shared `persistence` boundary: add an ADR.'),
+    'Resolve the shared persistence boundary',
+  );
   assert.equal(shortTaskTitle('x'.repeat(200)).length, 72);
 });
 

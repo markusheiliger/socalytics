@@ -45,9 +45,13 @@ function requireStatus(state, statuses, action) {
 }
 
 export function shortTaskTitle(title, maxLength = 72) {
-  const withoutCapabilities = String(title).split(/\s*Capabilities:/)[0].trim();
-  const sentence = withoutCapabilities.match(/^(.+?[.;:])(?:\s|$)/)?.[1] ?? withoutCapabilities;
-  const clean = sentence.replace(/[.;:]$/, '').replace(/\s+/g, ' ').trim() || 'Untitled task';
+  const plain = String(title)
+    .replace(/\*{0,2}Capabilities:\s*[a-z][a-z0-9]*(?:\s*,\s*[a-z][a-z0-9]*)*\s*\.?\*{0,2}/gi, ' ')
+    .replace(/[*_`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const sentence = plain.match(/^(.+?[.;:])(?:\s|$)/)?.[1] ?? plain;
+  const clean = sentence.replace(/[.;:]$/, '').trim() || 'Untitled task';
   return clean.length > maxLength ? `${clean.slice(0, maxLength - 1).trimEnd()}…` : clean;
 }
 
