@@ -160,9 +160,10 @@ internal sealed class MigrationRunner(BootstrapConnectionSource bootstrap, Migra
         public void StoreExecutedScript(SqlScript script, Func<IDbCommand> dbCommandFactory)
         {
             var m = byName[script.Name];
+            // A script may leave SET LOCAL ROLE active; history is written with the migrator's own role.
             using var command = dbCommandFactory();
             command.CommandText =
-                $"INSERT INTO {HistorySchema}.history (module_key, sequence, script_name, checksum) VALUES (@m, @s, @n, @c)";
+                $"RESET ROLE; INSERT INTO {HistorySchema}.history (module_key, sequence, script_name, checksum) VALUES (@m, @s, @n, @c)";
             AddParameter(command, "m", m.Module.Name);
             AddParameter(command, "s", m.Sequence);
             AddParameter(command, "n", m.ScriptName);
