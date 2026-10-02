@@ -140,7 +140,7 @@ jobs:
   plan:
     name: Decide next steps
     needs: [observe, credit]
-    if: ${{ always() && needs.observe.outputs.relevant == 'true' }}
+    if: ${{ !cancelled() && needs.observe.result == 'success' && needs.observe.outputs.relevant == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -179,7 +179,7 @@ jobs:
   admit:
     name: Start change
     needs: plan
-    if: ${{ needs.plan.outputs.admit != '[]' && !inputs.dry_run }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.admit != '[]' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: openspec
@@ -214,7 +214,7 @@ jobs:
   apply:
     name: Apply next task
     needs: plan
-    if: ${{ needs.plan.outputs.apply != '[]' && !inputs.dry_run }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.apply != '[]' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: openspec
@@ -249,7 +249,7 @@ jobs:
   verify:
     name: Verify change
     needs: plan
-    if: ${{ needs.plan.outputs.verify != '[]' && !inputs.dry_run }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.verify != '[]' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: openspec
@@ -284,7 +284,7 @@ jobs:
   sync:
     name: Sync specs
     needs: plan
-    if: ${{ needs.plan.outputs.sync != '[]' && !inputs.dry_run }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.sync != '[]' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: openspec
@@ -319,7 +319,7 @@ jobs:
   archive:
     name: Archive change
     needs: plan
-    if: ${{ needs.plan.outputs.archive != '[]' && !inputs.dry_run }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.archive != '[]' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: openspec
@@ -354,7 +354,7 @@ jobs:
   gate:
     name: Ask for human input
     needs: plan
-    if: ${{ needs.plan.outputs.gate != '[]' && !inputs.dry_run }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.gate != '[]' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -387,7 +387,7 @@ jobs:
   finalize:
     name: Finish change
     needs: plan
-    if: ${{ needs.plan.outputs.finalize != '[]' && !inputs.dry_run }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.finalize != '[]' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -420,7 +420,7 @@ jobs:
   publish:
     name: Update PR and issue status
     needs: [observe, plan, admit, apply, verify, sync, archive, gate, finalize]
-    if: ${{ always() && needs.plan.result == 'success' && !inputs.dry_run }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

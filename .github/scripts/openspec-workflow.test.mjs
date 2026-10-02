@@ -76,6 +76,15 @@ test('gives every step a readable name', () => {
   }
 });
 
+test('keeps downstream jobs running when an upstream matrix job was skipped', () => {
+  // Without a status function GitHub adds an implicit success(), which is false after any skipped ancestor.
+  for (const job of jobBlocks()) {
+    if (['observe', 'credit'].includes(job.id)) continue;
+    const condition = job.lines.find((line) => line.startsWith('    if: '));
+    assert.match(condition ?? '', /^ {4}if: \$\{\{ !cancelled\(\) && needs\.\w+\.result == 'success'/, `job ${job.id} must guard with !cancelled()`);
+  }
+});
+
 test('keeps trusted execution, least privilege, and the repository-wide lock', () => {
   assert.match(workflow, /^permissions: \{\}$/m);
   assert.match(workflow, /&& 'openspec'\n\s+\|\| format\('openspec-ignored-\{0\}', github\.run_id\)/);
