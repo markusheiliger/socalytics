@@ -26,9 +26,14 @@ public static class PersistenceServiceCollectionExtensions
         // The internal key keeps the privileged source unresolvable outside this assembly.
         services.TryAddKeyedSingleton(
             BootstrapKey.Instance,
-            (_, _) => new BootstrapConnectionSource(NpgsqlDataSource.Create(options.BootstrapConnectionString)));
+            (_, _) => new BootstrapConnectionSource(
+                options.BootstrapConnectionString,
+                NpgsqlDataSource.Create(options.BootstrapConnectionString)));
         services.TryAddSingleton(_ => new RuntimeDataSourceHolder(NpgsqlDataSource.Create(runtimeConnectionString)));
         services.TryAddSingleton<MigrationCatalogProvider>();
+        services.TryAddSingleton<IMigrationOrchestrator>(provider => new MigrationOrchestrator(
+            provider.GetRequiredKeyedService<BootstrapConnectionSource>(BootstrapKey.Instance),
+            provider.GetRequiredService<MigrationCatalogProvider>()));
 
         return services;
     }

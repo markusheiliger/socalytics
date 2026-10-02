@@ -20,8 +20,10 @@ public sealed class PersistenceOptions
 }
 
 /// <summary>Privileged connection source. Internal so module services cannot obtain it.</summary>
-internal sealed class BootstrapConnectionSource(NpgsqlDataSource dataSource) : IAsyncDisposable
+internal sealed class BootstrapConnectionSource(string connectionString, NpgsqlDataSource dataSource) : IAsyncDisposable
 {
+    public string ConnectionString { get; } = connectionString;
+
     public async Task<NpgsqlConnection> OpenAsync(CancellationToken cancellationToken) =>
         await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
 
