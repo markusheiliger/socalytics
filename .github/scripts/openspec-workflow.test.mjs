@@ -136,6 +136,7 @@ test('runs the agent without a personal access token and without push rights', (
 test('wakes the controller only after the checkpoint push', () => {
   assert.match(agentSource, /wake-controller:[\s\S]*needs: safe_outputs[\s\S]*gh workflow run openspec-orchestrator\.yml[^\n]*-f reason="agent finished on #\$PR"/);
   assert.match(workflow, /inputs\.reason && format\('OpenSpec orchestrator · \{0\}', inputs\.reason\)/);
+  assert.match(agentLock, /gh workflow run openspec-orchestrator\.yml --repo "\$GITHUB_REPOSITORY" --ref main -f reason="agent finished on #\$PR"\n/);
   assert.match(agentLock, /wake_controller:\n    name: Wake the OpenSpec orchestrator\n    needs:\n      - agent\n      - detection\n      - safe_outputs/);
 });
 

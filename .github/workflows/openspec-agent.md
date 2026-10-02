@@ -136,7 +136,8 @@ safe-outputs:
           env:
             GH_TOKEN: ${{ github.token }}
             PR: ${{ github.event.inputs.pr }}
-          run: gh workflow run openspec-orchestrator.yml --repo "$GITHUB_REPOSITORY" --ref main -f reason="agent finished on #$PR"
+          run: |
+            gh workflow run openspec-orchestrator.yml --repo "$GITHUB_REPOSITORY" --ref main -f reason="agent finished on #$PR"
   noop:
     report-as-issue: false
   missing-tool:
