@@ -46,14 +46,14 @@ public sealed class PlatformHostTests
     {
         IServiceCollection services = new ServiceCollection();
 
-        ShouldAddOneRegistration(services, static collection => collection.AddAgentOrchestrationModule());
-        ShouldAddOneRegistration(services, static collection => collection.AddAnalysisModule());
-        ShouldAddOneRegistration(services, static collection => collection.AddClubModule());
-        ShouldAddOneRegistration(services, static collection => collection.AddIdentityAccessModule());
-        ShouldAddOneRegistration(services, static collection => collection.AddRecordingsModule());
-        ShouldAddOneRegistration(services, static collection => collection.AddRegistryModule());
+        ShouldAddModuleRegistrations(services, static collection => collection.AddAgentOrchestrationModule());
+        ShouldAddModuleRegistrations(services, static collection => collection.AddAnalysisModule());
+        ShouldAddModuleRegistrations(services, static collection => collection.AddClubModule());
+        ShouldAddModuleRegistrations(services, static collection => collection.AddIdentityAccessModule());
+        ShouldAddModuleRegistrations(services, static collection => collection.AddRecordingsModule());
+        ShouldAddModuleRegistrations(services, static collection => collection.AddRegistryModule());
 
-        services.Count.ShouldBe(6);
+        services.Count.ShouldBe(18);
     }
 
     private static async Task ShouldReturnSuccessAsync(HttpClient client, string path, CancellationToken cancellationToken)
@@ -62,13 +62,14 @@ public sealed class PlatformHostTests
         response.IsSuccessStatusCode.ShouldBeTrue();
     }
 
-    private static void ShouldAddOneRegistration(
+    private static void ShouldAddModuleRegistrations(
         IServiceCollection services,
         Func<IServiceCollection, IServiceCollection> register)
     {
+        // Marker, migration contributor, and role-scoped connection factory.
         var initialCount = services.Count;
 
         register(services).ShouldBeSameAs(services);
-        services.Count.ShouldBe(initialCount + 1);
+        services.Count.ShouldBe(initialCount + 3);
     }
 }
