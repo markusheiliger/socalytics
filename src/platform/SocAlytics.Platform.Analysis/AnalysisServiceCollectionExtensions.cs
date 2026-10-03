@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocAlytics.Platform.Persistence;
 
 namespace SocAlytics.Platform.Analysis;
 
@@ -10,6 +11,7 @@ public static class AnalysisServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<AnalysisModuleMarker>();
+        services.AddModulePersistence(PersistenceModule.Analysis, new AnalysisMigrationContributor());
 
         return services;
     }

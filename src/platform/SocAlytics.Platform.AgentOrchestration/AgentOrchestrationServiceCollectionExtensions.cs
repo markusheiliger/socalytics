@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocAlytics.Platform.Persistence;
 
 namespace SocAlytics.Platform.AgentOrchestration;
 
@@ -10,6 +11,7 @@ public static class AgentOrchestrationServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<AgentOrchestrationModuleMarker>();
+        services.AddModulePersistence(PersistenceModule.AgentOrchestration, new AgentOrchestrationMigrationContributor());
 
         return services;
     }
