@@ -132,6 +132,26 @@ Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Da
 provide database access; Entity Framework Core is not part of the baseline.
 DbUp applies ordered, versioned PostgreSQL SQL scripts grouped by owning module.
 
+Planned shared persistence boundary: a peer `SocAlytics.Platform.Persistence`
+project will own only module-neutral infrastructure: Npgsql data-source
+configuration, explicit transaction execution, the optimistic-concurrency
+signal, migration descriptors, checksum verification, and
+`socalytics_migrations.history`. It owns no capability schema or domain record.
+Each capability references it but never another capability, and keeps its SQL
+and migrations internal. Schema isolation is database-enforced: each module has
+a NOLOGIN owner role that owns only its schema and a runtime role limited to
+that schema, with `PUBLIC` and peer-module access revoked. Migrations run as the
+owning module's owner role, normal module sessions run as its runtime role, and
+the bootstrap connection is restricted to migration orchestration. This defines
+role semantics only; production identities, credentials, and secrets remain
+unresolved.
+
+ADR disposition: this boundary and role model refines the adopted
+module-owned-schema design before any implementation exists, so it does not meet
+the [ADR threshold](decisions/README.md) of a consequential change to an
+established or implemented architecture. The rationale is recorded here and in
+the `add-platform-persistence-foundation` OpenSpec design; no ADR is created.
+
 CQRS is logical rather than physical:
 
 - commands use plain typed C# handlers resolved through .NET dependency

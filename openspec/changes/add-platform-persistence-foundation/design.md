@@ -47,6 +47,8 @@ Alternatives considered:
 
 This new shared boundary is a durable architecture refinement and an **ADR candidate**. During apply, record the shared-boundary and database-role decision in `docs/architecture/decisions/` if the architecture owner confirms it meets the repository's ADR threshold, then link it from the synchronized narratives.
 
+Disposition (task 1.1): the decision does not meet the ADR threshold because no persistence architecture is established or implemented yet; its rationale is recorded in `docs/architecture/platform-implementation.md` and no ADR is created.
+
 ### 2. Keep migrations embedded and owned by modules
 
 Each capability embeds SQL resources under an internal migration namespace. A migration descriptor carries a stable module key, monotonically increasing module-local sequence, stable script identity, embedded bytes, and SHA-256 checksum. No module can register a migration for another module key, and architecture tests map each embedded resource to exactly one adopted schema.
