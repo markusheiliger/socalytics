@@ -8,7 +8,7 @@ network:
     - dotnet
 pre-agent-steps:
   - name: Set up the repository toolchain
-    uses: ./.github/actions/repository-toolchain
+    uses: ./.github/actions/setup-toolchain
 mcp-scripts:
   run_verification:
     description: >-

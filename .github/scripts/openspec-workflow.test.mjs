@@ -169,7 +169,7 @@ const readText = (url) => readFileSync(url, 'utf8').replaceAll('\r\n', '\n');
 const toolchainSource = readText(new URL('shared/repository-toolchain.md', workflowsDirectory));
 const verificationSource = readText(new URL('verification.yml', workflowsDirectory));
 const setupOpenSpec = readText(new URL('../actions/setup-openspec/action.yml', workflowsDirectory));
-const repositoryToolchain = readText(new URL('../actions/repository-toolchain/action.yml', workflowsDirectory));
+const setupToolchain = readText(new URL('../actions/setup-toolchain/action.yml', workflowsDirectory));
 
 test('keeps the openspec-* workflows and scripts free of repository specifics', () => {
   const generic = [
@@ -184,20 +184,12 @@ test('keeps the openspec-* workflows and scripts free of repository specifics', 
   }
 });
 
-// copilot-setup-steps.yml is owned by OpenSpec and stays untouched, so it is not a consumer.
-test('pins the OpenSpec CLI to the version OpenSpec generates for the Copilot setup steps', () => {
-  const pin = /@fission-ai\/openspec@(\d+\.\d+\.\d+)/;
-  const generated = readText(new URL('copilot-setup-steps.yml', workflowsDirectory)).match(pin)?.[1];
-  assert.ok(generated, 'copilot-setup-steps.yml must pin the OpenSpec CLI');
-  assert.equal(setupOpenSpec.match(pin)?.[1], generated, 'setup-openspec must install the OpenSpec CLI version from copilot-setup-steps.yml');
-});
-
 test('installs tooling only through the shared composite actions', () => {
   assert.match(setupOpenSpec, /node-version: 24/);
   assert.match(setupOpenSpec, /npm install --global @fission-ai\/openspec@\d+\.\d+\.\d+/);
-  assert.match(repositoryToolchain, /uses: actions\/setup-dotnet@/);
+  assert.match(setupToolchain, /uses: actions\/setup-dotnet@/);
   const consumers = [
-    ...readdirSync(workflowsDirectory).filter((name) => /^(openspec-.*\.(yml|md)|verification\.yml)$/.test(name) && !name.endsWith('.lock.yml')),
+    ...readdirSync(workflowsDirectory).filter((name) => /^(openspec-.*\.(yml|md)|verification\.yml|copilot-setup-steps\.yml)$/.test(name) && !name.endsWith('.lock.yml')),
     'shared/repository-toolchain.md',
   ];
   for (const name of consumers) {
@@ -206,8 +198,11 @@ test('installs tooling only through the shared composite actions', () => {
   }
   assert.match(workflow, /uses: \.\/\.github\/actions\/setup-openspec/);
   assert.match(agentSource, /uses: \.\/\.github\/actions\/setup-openspec/);
-  assert.match(toolchainSource, /uses: \.\/\.github\/actions\/repository-toolchain/);
-  assert.match(verificationSource, /uses: \.\/\.github\/actions\/repository-toolchain/);
+  assert.match(toolchainSource, /uses: \.\/\.github\/actions\/setup-toolchain/);
+  assert.match(verificationSource, /uses: \.\/\.github\/actions\/setup-toolchain/);
+  const copilotSetup = readText(new URL('copilot-setup-steps.yml', workflowsDirectory));
+  assert.match(copilotSetup, /uses: \.\/\.github\/actions\/setup-openspec/);
+  assert.match(copilotSetup, /uses: \.\/\.github\/actions\/setup-toolchain/);
 });
 
 test('imports the repository toolchain into the agent with a gated, token-free verification tool', () => {

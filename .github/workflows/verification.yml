@@ -69,7 +69,7 @@ jobs:
 
       - name: Set up the repository toolchain
         if: ${{ steps.scope.outputs.relevant == 'true' }}
-        uses: ./.github/actions/repository-toolchain
+        uses: ./.github/actions/setup-toolchain
         with:
           global-json-file: checkpoint/src/platform/global.json
 

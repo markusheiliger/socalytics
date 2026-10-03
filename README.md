@@ -113,7 +113,7 @@ request and continues after `/openspec approve`, `/openspec retry`,
 The `openspec-*` workflows are generic. This repository plugs in its own
 checkpoint verification (`.github/workflows/verification.yml`, which runs the
 platform tests), agent tooling (`.github/workflows/shared/repository-toolchain.md`),
-and toolchain installation (`.github/actions/repository-toolchain`); see
+and toolchain installation (`.github/actions/setup-toolchain`); see
 [OpenSpec Change Processing](docs/operations/openspec-change-queue.md#repository-specific-verification-and-tooling).
 
 Useful OpenSpec repository checks are:
