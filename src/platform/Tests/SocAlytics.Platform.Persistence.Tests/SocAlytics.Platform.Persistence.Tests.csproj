@@ -16,6 +16,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Sample.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\SocAlytics.Platform.Persistence\SocAlytics.Platform.Persistence.csproj" />
   </ItemGroup>
 </Project>
