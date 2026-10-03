@@ -99,7 +99,7 @@ public sealed class PersistenceCatalogTests : IAsyncLifetime
         ]);
 
         var constraints = await QueryAsync(
-            "SELECT conname || ':' || contype FROM pg_constraint WHERE conrelid = 'socalytics_migrations.history'::regclass ORDER BY 1");
+            "SELECT conname::text || ':' || contype::text FROM pg_constraint WHERE conrelid = 'socalytics_migrations.history'::regclass ORDER BY 1");
         constraints.ShouldBe(["pk_history:p", "uq_history_module_sequence:u"]);
 
         var rows = await QueryAsync("SELECT module || '/' || sequence || '/' || length(checksum) FROM socalytics_migrations.history ORDER BY 1");
