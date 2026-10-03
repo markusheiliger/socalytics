@@ -185,6 +185,13 @@ test('keeps the openspec-* workflows and scripts free of repository specifics', 
 });
 
 // copilot-setup-steps.yml is owned by OpenSpec and stays untouched, so it is not a consumer.
+test('pins the OpenSpec CLI to the version OpenSpec generates for the Copilot setup steps', () => {
+  const pin = /@fission-ai\/openspec@(\d+\.\d+\.\d+)/;
+  const generated = readText(new URL('copilot-setup-steps.yml', workflowsDirectory)).match(pin)?.[1];
+  assert.ok(generated, 'copilot-setup-steps.yml must pin the OpenSpec CLI');
+  assert.equal(setupOpenSpec.match(pin)?.[1], generated, 'setup-openspec must install the OpenSpec CLI version from copilot-setup-steps.yml');
+});
+
 test('installs tooling only through the shared composite actions', () => {
   assert.match(setupOpenSpec, /node-version: 24/);
   assert.match(setupOpenSpec, /npm install --global @fission-ai\/openspec@\d+\.\d+\.\d+/);
