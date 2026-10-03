@@ -18,7 +18,6 @@ export const AGENT_WORKFLOW_JOB_NAMES = new Map([
   ['agent', 'Run the OpenSpec agent'],
   ['detection', 'Check the agent changes for threats'],
   ['safe_outputs', 'Push the checkpoint to the pull request'],
-  ['wake_controller', 'Wake the OpenSpec orchestrator'],
   ['conclusion', 'Report the agent session outcome'],
 ]);
 

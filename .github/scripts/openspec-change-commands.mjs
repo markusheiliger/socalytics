@@ -77,6 +77,13 @@ export function classifyEvent(eventName, payload = {}) {
     }
     case 'push':
       return { relevant: true, reason: 'OpenSpec changes updated on the default branch' };
+    case 'workflow_run': {
+      if (payload.action !== 'completed' || payload.workflow_run?.name !== 'OpenSpec agent') {
+        return { relevant: false, reason: 'not a completed OpenSpec agent workflow' };
+      }
+      const conclusion = payload.workflow_run.conclusion ?? 'unknown';
+      return { relevant: true, reason: `OpenSpec agent run #${payload.workflow_run.id} completed (${conclusion})` };
+    }
     case 'schedule':
       return { relevant: true, reason: 'watchdog' };
     case 'workflow_dispatch':

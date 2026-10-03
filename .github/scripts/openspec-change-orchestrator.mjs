@@ -219,7 +219,7 @@ export function buildAgentPrompt(dispatch, { transport = 'git-push' } = {}) {
     ...(local
       ? [
         `   Then call the \`push_to_pull_request_branch\` tool exactly once with pull_request_number ${envelope.pr}. It publishes your commits; never call it before the checkpoint commit exists.`,
-        '   Finally call the `wake_controller` tool exactly once, even if earlier steps failed. It starts the workflow that validates your checkpoint.',
+        '   The orchestrator reconciles the result after this agent workflow reaches a terminal state.',
         '   The sandbox has no Docker. If your tools include `run_verification`, use it to run the repository verification (for example tests that need Docker) on the runner host before your checkpoint; otherwise the orchestrator runs it after your checkpoint and passes failures to the next attempt.',
       ]
       : []),

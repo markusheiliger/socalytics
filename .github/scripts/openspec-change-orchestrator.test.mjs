@@ -779,13 +779,20 @@ test('runs sessions as agentic workflow runs and builds their prompt from the st
   assert.equal(prepared.headSha, pr.head.sha);
   assert.match(prepared.prompt, /Execute only task 1\.1/);
   assert.match(prepared.prompt, /do not run git push; you have no push access/);
-  assert.match(prepared.prompt, /call the `wake_controller` tool exactly once/);
+  assert.match(prepared.prompt, /reconciles the result after this agent workflow reaches a terminal state/);
+  assert.doesNotMatch(prepared.prompt, /wake_controller/);
   assert.match(prepared.prompt, /If your tools include `run_verification`, use it/);
   await assert.rejects(prepareAgentPrompt(ctx, { pr: pr.number, dispatchId: 'other' }), /no dispatched session other/);
 
   run.status = 'completed';
   run.conclusion = 'failure';
-  assert.deepEqual((await observe(ctx)).credit, [CHANGE]);
+  assert.deepEqual((await observe(ctx, {
+    eventName: 'workflow_run',
+    payload: {
+      action: 'completed',
+      workflow_run: { id: Number(run.id), name: 'OpenSpec agent', conclusion: 'failure' },
+    },
+  })).credit, [CHANGE]);
   await creditChange(ctx, CHANGE);
   state = lifecycleState(github, pr);
   assert.equal(state.current.attempt, 2);

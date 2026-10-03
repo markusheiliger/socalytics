@@ -97,6 +97,7 @@ test('keeps trusted execution, least privilege, and the repository-wide lock', (
   assert.match(workflow, /cancel-in-progress: false/);
   assert.doesNotMatch(workflow, /^\s+push:\n\s+branches: \[openspec/m);
   assert.match(workflow, /pull_request_target:\n\s+types: \[synchronize, closed\]/);
+  assert.match(workflow, /workflow_run:\n\s+workflows: \["OpenSpec agent"\]\n\s+types: \[completed\]/);
   for (const job of jobBlocks()) {
     const block = job.lines.join('\n');
     if (job.id === 'verify-checkpoint') {
@@ -142,11 +143,10 @@ test('runs the agent without a personal access token and without push rights', (
   assert.match(agentSource, /strict: true/);
 });
 
-test('wakes the controller only after the checkpoint push', () => {
-  assert.match(agentSource, /wake-controller:[\s\S]*needs: safe_outputs[\s\S]*gh workflow run openspec-orchestrator\.yml[^\n]*-f reason="agent finished on #\$PR"/);
-  assert.match(workflow, /inputs\.reason && format\('OpenSpec orchestrator · \{0\}', inputs\.reason\)/);
-  assert.match(agentLock, /gh workflow run openspec-orchestrator\.yml --repo "\$GITHUB_REPOSITORY" --ref main -f reason="agent finished on #\$PR"\n/);
-  assert.match(agentLock, /wake_controller:\n    name: Wake the OpenSpec orchestrator\n    needs:\n      - agent\n      - detection\n      - safe_outputs/);
+test('reconciles after the agent workflow reaches a terminal state', () => {
+  assert.match(workflow, /workflow_run:\n\s+workflows: \["OpenSpec agent"\]\n\s+types: \[completed\]/);
+  assert.doesNotMatch(agentSource, /wake-controller|wake_controller|gh workflow run openspec-orchestrator\.yml/);
+  assert.doesNotMatch(agentLock, /wake_controller|Wake the OpenSpec orchestrator|gh workflow run openspec-orchestrator\.yml/);
 });
 
 test('keeps the agent workflow compiled with the pinned gh-aw version and readable job names', () => {
