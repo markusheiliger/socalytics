@@ -2,12 +2,16 @@ using SocAlytics.Platform.AgentOrchestration;
 using SocAlytics.Platform.Analysis;
 using SocAlytics.Platform.Club;
 using SocAlytics.Platform.IdentityAccess;
+using SocAlytics.Platform.Persistence;
 using SocAlytics.Platform.Recordings;
 using SocAlytics.Platform.Registry;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.Services.AddPlatformPersistence(options =>
+	options.ConnectionString = builder.Configuration.GetConnectionString("platform"));
+builder.Services.AddPlatformPersistenceStartup();
 builder.Services.AddAgentOrchestrationModule();
 builder.Services.AddAnalysisModule();
 builder.Services.AddClubModule();

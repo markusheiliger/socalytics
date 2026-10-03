@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
 namespace SocAlytics.Platform.Persistence;
 
@@ -21,6 +22,22 @@ public static class PersistenceServiceCollectionExtensions
             MigrationCatalog.Create(sp.GetServices<IModuleMigrationContributor>()));
 
         services.TryAddSingleton<MigrationRunner>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Runs migration orchestration once during host startup and reports readiness on the
+    /// health-check pipeline only after it succeeded.
+    /// </summary>
+    public static IServiceCollection AddPlatformPersistenceStartup(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<MigrationStartupState>();
+        services.AddHostedService<MigrationStartupService>();
+        services.AddHealthChecks().AddCheck<MigrationReadinessHealthCheck>(
+            "migrations", HealthStatus.Unhealthy, tags: ["ready"]);
 
         return services;
     }
