@@ -31,6 +31,7 @@ internal sealed class MigrationRunner(BootstrapConnectionSource bootstrap, Migra
         {
             await using var lockConnection = await bootstrap.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
             await ExecuteAsync(lockConnection, "SELECT pg_advisory_lock(@key)", cancellationToken, ("key", AdvisoryLockKey)).ConfigureAwait(false);
+            await ExecuteAsync(lockConnection, ModuleRoleBootstrap.BuildSql(), cancellationToken).ConfigureAwait(false);
             await ExecuteAsync(lockConnection, EnsureHistorySql, cancellationToken).ConfigureAwait(false);
 
             await VerifyChecksumsAsync(lockConnection, cancellationToken).ConfigureAwait(false);
@@ -80,7 +81,7 @@ internal sealed class MigrationRunner(BootstrapConnectionSource bootstrap, Migra
     private void Apply(CancellationToken cancellationToken)
     {
         var scripts = catalog.Migrations
-            .Select(m => new SqlScript(ScriptName.Format(m), m.Script))
+            .Select(m => new SqlScript(ScriptName.Format(m), ModuleRoleBootstrap.WrapMigration(m.Module, m.Script)))
             .ToArray();
 
         var engine = DeployChanges.To
