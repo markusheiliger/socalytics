@@ -20,6 +20,8 @@ public static class PersistenceServiceCollectionExtensions
         services.TryAddSingleton(sp =>
             MigrationCatalog.Create(sp.GetServices<IModuleMigrationContributor>()));
 
+        services.TryAddSingleton<MigrationRunner>();
+
         return services;
     }
 

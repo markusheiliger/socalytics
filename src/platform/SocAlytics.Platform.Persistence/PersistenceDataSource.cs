@@ -12,6 +12,8 @@ internal sealed class PersistenceDataSource(PersistenceOptions options) : IAsync
 
     public NpgsqlDataSource DataSource => _dataSource;
 
+    public string ConnectionString => options.ConnectionString!;
+
     public ValueTask DisposeAsync() => _dataSource.DisposeAsync();
 
     private static NpgsqlDataSource Create(PersistenceOptions options)
