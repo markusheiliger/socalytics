@@ -220,7 +220,7 @@ export function buildAgentPrompt(dispatch, { transport = 'git-push' } = {}) {
       ? [
         `   Then call the \`push_to_pull_request_branch\` tool exactly once with pull_request_number ${envelope.pr}. It publishes your commits; never call it before the checkpoint commit exists.`,
         '   Finally call the `wake_controller` tool exactly once, even if earlier steps failed. It starts the workflow that validates your checkpoint.',
-        '   To run the platform tests with Docker and Testcontainers, call the `run_platform_tests` tool (optionally with a `filter`); the sandbox itself has no Docker.',
+        '   The sandbox has no Docker. If your tools include `run_verification`, use it to run the repository verification (for example tests that need Docker) on the runner host before your checkpoint; otherwise the orchestrator runs it after your checkpoint and passes failures to the next attempt.',
       ]
       : []),
     '8. Do not open, edit, retitle, ready, approve, or merge pull requests, and do not comment on issues or pull requests.',
@@ -256,8 +256,8 @@ export function createContext({ env = process.env, client = null, now = () => ne
     dryRun,
     maxActive: Number.parseInt(env.OPENSPEC_MAX_ACTIVE_CHANGES ?? '', 10) || Infinity,
     runtime: agentRuntime(env.OPENSPEC_AGENT_RUNTIME),
-    platformTests: env.OPENSPEC_PLATFORM_TESTS !== 'false',
-    platformTestResult: defaultPlatformTestResult,
+    verification: env.OPENSPEC_VERIFICATION !== 'false',
+    verificationResult: defaultVerificationResult,
     newDispatchId: () => randomUUID().slice(0, 8),
     validator: validator ?? defaultValidator,
     log: (message) => console.log(message),
@@ -523,8 +523,6 @@ function assertValidationPassed(report, label) {
   if (report.summary?.totals?.failed !== 0) throw new Error(`Strict OpenSpec validation failed for ${label}`);
 }
 
-const PLATFORM_PATH = 'src/platform/';
-
 export class EvidenceError extends Error {
   constructor(message, feedback) {
     super(message);
@@ -536,111 +534,78 @@ function tail(text, lines = 80) {
   return String(text ?? '').replace(/\x1b\[[0-9;]*m/g, '').split(/\r?\n/).slice(-lines).join('\n').trim();
 }
 
-const TEST_RESULT_LINE = /^\s*(Failed|Passed|Skipped) \S+ \[[^\]]*\]\s*$/;
-const MAX_FRAMES_PER_FAILURE = 6;
-const MAX_MESSAGE_LINES = 12;
+// Checkpoint verification is repository-specific. The orchestrator workflow calls the
+// repository's reusable workflow .github/workflows/verification.yml as the job
+// "Verify checkpoint (<change>, <sha>)"; the caller and callee jobs run with a read-only token in
+// this workflow run. Only their conclusions, which agent-written code cannot change, decide the
+// outcome. The artifact openspec-verification-<change> adds feedback: verification.txt (the start
+// matters) and, as a fallback, the tail of log.txt.
+export const VERIFICATION_JOB = 'Verify checkpoint';
+export const VERIFICATION_ARTIFACT_PREFIX = 'openspec-verification-';
+const VERIFICATION_PASSED = new Set(['success', 'skipped']);
 
-// Condenses a dotnet test log into what an agent needs to fix a failure: build errors, then
-// each failed test with its full error message, the repository's own stack frames, and test
-// output. Framework frames and inner stack traces are dropped. Falls back to the log tail.
-export function summarizeTestLog(text, limit = MAX_FEEDBACK) {
-  const lines = String(text ?? '').replace(/\x1b\[[0-9;]*m/g, '').split(/\r?\n/);
-  const sections = [];
-  const buildErrors = [...new Set(lines.filter((line) => /\berror [A-Za-z]+\d+:/.test(line)).map((line) => line.trim()))];
-  if (buildErrors.length > 0) sections.push(['Build errors:', ...buildErrors.slice(0, 10)].join('\n'));
-  for (let index = 0; index < lines.length; index += 1) {
-    const failed = /^\s*Failed (\S+) \[[^\]]*\]\s*$/.exec(lines[index]);
-    if (!failed) continue;
-    const block = [`Failed test: ${failed[1]}`];
-    let section = null;
-    let frames = 0;
-    let messageLines = 0;
-    let next = index + 1;
-    for (; next < lines.length; next += 1) {
-      const line = lines[next];
-      const trimmed = line.trim();
-      if (TEST_RESULT_LINE.test(line) || /^(Passed|Failed)!\s/.test(trimmed)) break;
-      if (trimmed === 'Error Message:') { section = 'message'; block.push('Error message:'); continue; }
-      if (trimmed === 'Stack Trace:') { section = 'stack'; block.push('Stack (repository frames):'); continue; }
-      if (trimmed === 'Standard Output Messages:') { section = 'output'; block.push('Test output:'); continue; }
-      if (section === 'stack' && trimmed.startsWith('----- Inner Stack Trace')) { section = 'inner'; continue; }
-      if (section === 'message' && trimmed && !/^at /.test(trimmed) && messageLines < MAX_MESSAGE_LINES) {
-        block.push(`  ${trimmed}`);
-        messageLines += 1;
-      }
-      if (section === 'output' && trimmed) block.push(`  ${trimmed}`);
-      if (section === 'stack' && frames < MAX_FRAMES_PER_FAILURE && /:line \d+$/.test(trimmed) && !trimmed.includes(' in /_/')) {
-        const frame = `  ${trimmed.replace(/ in \/home\/runner\/work\/[^/]+\/[^/]+\//, ' in ')}`;
-        if (block.at(-1) !== frame) {
-          block.push(frame);
-          frames += 1;
-        }
-      }
-    }
-    sections.push(block.join('\n'));
-    index = next - 1;
-  }
-  if (sections.length === 0) return tail(text);
-  const results = lines.map((line) => line.trim()).filter((line) => /^(Passed|Failed)!\s/.test(line));
-  if (results.length > 0) sections.push(['Test assemblies:', ...results].join('\n'));
-  const summary = sections.join('\n\n');
-  return summary.length > limit ? `${summary.slice(0, limit - 1)}…` : summary;
-}
-
-export const PLATFORM_TEST_JOB = 'Run platform tests';
-
-// Platform tests run in a separate read-only job of the same workflow run. Only that job's
-// conclusion, which test code cannot change, decides the outcome; its log only adds feedback.
-export async function defaultPlatformTestResult(ctx, { change, sha }) {
-  const runId = process.env.GITHUB_RUN_ID;
-  if (!runId) throw new EvidenceError('the platform test results are unavailable outside GitHub Actions');
-  const jobs = await ctx.client.listRunJobs(runId);
-  const job = jobs.find((entry) => entry.name.startsWith(`${PLATFORM_TEST_JOB} (`)
-    && entry.name.includes(change) && entry.name.includes(sha));
-  if (!job) return { ok: false, reason: `the platform tests did not run for ${shortSha(sha)}` };
-  const testJob = { conclusion: job.conclusion ?? null, url: job.html_url ?? null };
-  if (job.conclusion === 'success') return { ok: true, job: testJob };
-  const logPath = join(process.env.OPENSPEC_PLATFORM_TEST_LOGS ?? '', `platform-tests-${change}`, 'platform-tests.log');
-  let feedback = null;
+function readVerificationFeedback(change) {
+  const directory = join(process.env.OPENSPEC_VERIFICATION_RESULTS ?? '', `${VERIFICATION_ARTIFACT_PREFIX}${change}`);
   try {
-    feedback = summarizeTestLog(readFileSync(logPath, 'utf8'));
+    const text = readFileSync(join(directory, 'verification.txt'), 'utf8').replace(/\x1b\[[0-9;]*m/g, '').trim();
+    if (text) return text.length > MAX_FEEDBACK ? `${text.slice(0, MAX_FEEDBACK - 1)}…` : text;
   } catch {
-    feedback = null;
+    // Fall back to the raw log.
   }
-  const outcome = job.conclusion === 'failure' ? 'failed' : job.conclusion ? `ended as ${job.conclusion}` : 'did not finish';
-  return { ok: false, reason: `the platform tests ${outcome} at ${shortSha(sha)}`, feedback, job: testJob };
+  try {
+    return tail(readFileSync(join(directory, 'log.txt'), 'utf8')) || null;
+  } catch {
+    return null;
+  }
 }
 
-const PLATFORM_TEST_CHECK = 'OpenSpec platform tests';
+export async function defaultVerificationResult(ctx, { change, sha }) {
+  const runId = process.env.GITHUB_RUN_ID;
+  if (!runId) throw new EvidenceError('the verification results are unavailable outside GitHub Actions');
+  // GitHub names the caller job "Verify checkpoint (<change>, <sha>)" (or appends further matrix
+  // values) and the callee jobs "<caller> / <job>", so match on the change and full commit SHA.
+  const prefix = `${VERIFICATION_JOB} (${change}, ${sha}`;
+  const jobs = (await ctx.client.listRunJobs(runId))
+    .filter((entry) => entry.name.startsWith(prefix) && /^[),]/.test(entry.name.slice(prefix.length)));
+  if (jobs.length === 0) return { ok: false, reason: `the repository verification did not run for ${shortSha(sha)}` };
+  const failed = jobs.find((entry) => !VERIFICATION_PASSED.has(entry.conclusion));
+  const job = { conclusion: failed ? failed.conclusion ?? null : 'success', url: (failed ?? jobs[0]).html_url ?? null };
+  const feedback = readVerificationFeedback(change);
+  if (!failed) return { ok: true, job, feedback };
+  const outcome = failed.conclusion === 'failure' ? 'failed' : failed.conclusion ? `ended as ${failed.conclusion}` : 'did not finish';
+  return { ok: false, reason: `the repository verification ${outcome} at ${shortSha(sha)}`, feedback, job };
+}
+
+const VERIFICATION_CHECK = 'OpenSpec verification';
 const CHECK_CONCLUSIONS = new Set(['success', 'failure', 'cancelled', 'timed_out', 'neutral', 'skipped']);
 
-// The test job belongs to the orchestrator run on main, so its own check run never shows on the
-// pull request. Mirror its result onto the checkpoint commit, linked to the job log.
-async function recordPlatformTests(ctx, { change, sha, result }) {
+// The verification jobs belong to the orchestrator run on main, so their own check runs never show
+// on the pull request. Mirror the result onto the checkpoint commit, linked to the job log.
+async function recordVerification(ctx, { change, sha, result }) {
   if (ctx.dryRun || !result.job) return;
-  const link = result.job.url ? `[Test job log](${result.job.url})` : 'Test job log unavailable';
-  const summary = result.ok
-    ? `${link} · all platform tests passed at \`${shortSha(sha)}\`.`
-    : [`${link} · ${result.reason}.`, ...(result.feedback ? ['', '```text', result.feedback.replace(/```/g, "'''"), '```'] : [])].join('\n');
+  const link = result.job.url ? `[Verification job log](${result.job.url})` : 'Verification job log unavailable';
+  const lead = result.ok ? `${link} · verification passed at \`${shortSha(sha)}\`.` : `${link} · ${result.reason}.`;
+  const summary = [lead, ...(result.feedback ? ['', '```text', result.feedback.replace(/```/g, "'''"), '```'] : [])].join('\n');
   try {
     await ctx.client.createCheckRun({
-      name: PLATFORM_TEST_CHECK,
+      name: VERIFICATION_CHECK,
       head_sha: sha,
       external_id: change,
       status: 'completed',
       conclusion: result.ok ? 'success' : CHECK_CONCLUSIONS.has(result.job.conclusion) ? result.job.conclusion : 'failure',
       completed_at: ctx.now().toISOString(),
       ...(result.job.url ? { details_url: result.job.url } : {}),
-      output: { title: result.ok ? 'Platform tests passed' : 'Platform tests failed', summary },
+      output: { title: result.ok ? 'Verification passed' : 'Verification failed', summary },
     });
   } catch (error) {
-    ctx.log(`- ${change}: cannot record the platform test check (${errorMessage(error)})`);
+    ctx.log(`- ${change}: cannot record the verification check (${errorMessage(error)})`);
   }
 }
 
-export async function needsPlatformTests(ctx, state, checkpointSha) {
-  if (state.current?.operation !== 'apply') return false;
-  return (await changedFiles(ctx, state.current.baselineSha, checkpointSha)).some((file) => file.startsWith(PLATFORM_PATH));
+// Every complete apply checkpoint is verified; the repository's verification workflow decides
+// what is relevant for the changed files.
+export function needsVerification(state) {
+  return state.current?.operation === 'apply';
 }
 
 export function defaultValidator({ sha, branch, change, kind }) {
@@ -721,9 +686,9 @@ export async function validateEvidence(ctx, state, checkpointSha) {
         }
       }
       await ctx.validator({ sha: checkpointSha, branch, change, kind: 'apply' });
-      if (ctx.platformTests && await needsPlatformTests(ctx, state, checkpointSha)) {
-        const result = await ctx.platformTestResult(ctx, { change, sha: checkpointSha });
-        await recordPlatformTests(ctx, { change, sha: checkpointSha, result });
+      if (ctx.verification && needsVerification(state)) {
+        const result = await ctx.verificationResult(ctx, { change, sha: checkpointSha });
+        await recordVerification(ctx, { change, sha: checkpointSha, result });
         if (!result.ok) return result;
       }
     } else if (current.operation === 'verify') {
@@ -1223,9 +1188,11 @@ export async function observeRun(ctx, run) {
     const found = findCheckpoint(run.state, run.commits);
     if (found.historyChanged || found.checkpointError) return { credit: true };
     if (found.checkpoint) {
-      const tests = found.checkpoint.verdict === 'complete' && ctx.platformTests
-        && await needsPlatformTests(ctx, run.state, found.checkpointSha);
-      return { credit: true, tests: tests ? { change: run.state.change, sha: found.checkpointSha } : null };
+      const verify = found.checkpoint.verdict === 'complete' && ctx.verification && needsVerification(run.state);
+      return {
+        credit: true,
+        verify: verify ? { change: run.state.change, sha: found.checkpointSha, baseline: run.state.current.baselineSha } : null,
+      };
     }
     let agentState = null;
     try {
@@ -1265,24 +1232,24 @@ export async function observe(ctx, { eventName = null, payload = {} } = {}) {
   if (eventName) {
     const classified = classifyEvent(eventName, payload);
     report(ctx, `Event: ${eventName} · ${classified.reason}`);
-    if (!classified.relevant) return { relevant: false, credit: [], touched: [], tests: [] };
+    if (!classified.relevant) return { relevant: false, credit: [], touched: [], verify: [] };
     ctx.scanComments = ['issue_comment', 'schedule', 'workflow_dispatch'].includes(eventName);
   }
   const credit = [];
   const touched = [];
-  const tests = [];
+  const verify = [];
   for (const run of await loadRuns(ctx)) {
     try {
       const revision = run.state?.revision;
       const result = await observeRun(ctx, run);
       if (result.credit) credit.push(run.state.change);
-      if (result.tests) tests.push(result.tests);
+      if (result.verify) verify.push(result.verify);
       if (run.state && run.state.revision !== revision) touched.push(run.state.change);
     } catch (error) {
       report(ctx, `- #${run.pr.number}: observe failed (${errorMessage(error)})`);
     }
   }
-  return { relevant: true, credit, touched, tests };
+  return { relevant: true, credit, touched, verify };
 }
 
 // ---------------------------------------------------------------------------
@@ -1517,8 +1484,8 @@ export async function main(args = process.argv.slice(2)) {
     case 'observe': {
       const eventPath = process.env.GITHUB_EVENT_PATH;
       const payload = eventPath ? JSON.parse(readFileSync(eventPath, 'utf8')) : {};
-      const { relevant, credit, touched, tests } = await observe(ctx, { eventName: process.env.GITHUB_EVENT_NAME ?? null, payload });
-      writeOutputs({ relevant, credit, touched, tests });
+      const { relevant, credit, touched, verify } = await observe(ctx, { eventName: process.env.GITHUB_EVENT_NAME ?? null, payload });
+      writeOutputs({ relevant, credit, touched, verify });
       writeSummary('Read current state', ctx.summary);
       return;
     }

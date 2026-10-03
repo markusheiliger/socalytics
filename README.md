@@ -110,6 +110,12 @@ human-readable change log. When the workflow needs a human, it asks on the pull
 request and continues after `/openspec approve`, `/openspec retry`,
 `/openspec answer <text>`, or `/openspec abort`.
 
+The `openspec-*` workflows are generic. This repository plugs in its own
+checkpoint verification (`.github/workflows/verification.yml`, which runs the
+platform tests), agent tooling (`.github/workflows/shared/repository-toolchain.md`),
+and toolchain installation (`.github/actions/repository-toolchain`); see
+[OpenSpec Change Processing](docs/operations/openspec-change-queue.md#repository-specific-verification-and-tooling).
+
 Useful OpenSpec repository checks are:
 
 ```powershell

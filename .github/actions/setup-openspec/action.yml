@@ -1,0 +1,21 @@
+name: Set up OpenSpec
+description: >-
+  Generic OpenSpec tooling for the openspec-* workflows: Node.js and, optionally, the pinned
+  OpenSpec CLI. This is the only place that pins their versions.
+inputs:
+  cli:
+    description: Install the OpenSpec CLI globally (set to "false" for jobs that only run Node scripts)
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: 24
+
+    - name: Install the OpenSpec CLI
+      if: ${{ inputs.cli == 'true' }}
+      shell: bash
+      run: npm install --global @fission-ai/openspec@1.13.0

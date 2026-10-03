@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -19,13 +21,12 @@ import {
   findCheckpoint,
   notifyGate,
   prepareAgentPrompt,
-  defaultPlatformTestResult,
+  defaultVerificationResult,
   validateEvidence,
   observe,
   plan,
   publish,
   readRunState,
-  summarizeTestLog,
 } from './openspec-change-orchestrator.mjs';
 import { LIFECYCLE_CHECK_NAME } from './openspec-change-state.mjs';
 
@@ -360,6 +361,7 @@ function setup({ validator = async () => {}, runtime = 'copilot' } = {}) {
     validator,
   });
   ctx.log = () => {};
+  ctx.verificationResult = async () => ({ ok: true });
   const tick = (minutes = 1) => {
     clock += minutes * 60_000;
   };
@@ -683,7 +685,7 @@ test('ignores irrelevant events without touching any run', async () => {
     relevant: false,
     credit: [],
     touched: [],
-    tests: [],
+    verify: [],
   });
 });
 
@@ -778,7 +780,7 @@ test('runs sessions as agentic workflow runs and builds their prompt from the st
   assert.match(prepared.prompt, /Execute only task 1\.1/);
   assert.match(prepared.prompt, /do not run git push; you have no push access/);
   assert.match(prepared.prompt, /call the `wake_controller` tool exactly once/);
-  assert.match(prepared.prompt, /call the `run_platform_tests` tool/);
+  assert.match(prepared.prompt, /If your tools include `run_verification`, use it/);
   await assert.rejects(prepareAgentPrompt(ctx, { pr: pr.number, dispatchId: 'other' }), /no dispatched session other/);
 
   run.status = 'completed';
@@ -814,18 +816,19 @@ test('recovers an agentic workflow run when the dispatch API returns no run id',
   assert.equal(state.current.session.id, String(github.workflowRuns[0].id));
 });
 
-test('fails a checkpoint whose isolated platform test job failed and passes its log to the next attempt', async () => {
+test('fails a checkpoint whose repository verification failed and passes its feedback to the next attempt', async () => {
   const { github, ctx, pr } = await admitted();
   const requests = [];
-  ctx.platformTestResult = async (_, request) => {
+  ctx.verificationResult = async (_, request) => {
     requests.push(request);
-    return { ok: false, reason: 'the platform tests failure at abc', feedback: 'Failed MigrationTests.Applies [2 s]\nExpected 3 but was 2' };
+    return { ok: false, reason: 'the repository verification failed at abc', feedback: 'Failed MigrationTests.Applies [2 s]\nExpected 3 but was 2' };
   };
+  const baseline = lifecycleState(github, pr).current.baselineSha;
   const checkpointSha = github.push(pr.head.ref, {
     message: `x\n\n${trailer({ operation: 'apply', task: '1.1', verdict: 'complete' })}`,
-    files: { [`openspec/changes/${CHANGE}/tasks.md`]: TASKS.replace('- [ ] 1.1', '- [x] 1.1'), 'src/platform/A.cs': 'x' },
+    files: { [`openspec/changes/${CHANGE}/tasks.md`]: TASKS.replace('- [ ] 1.1', '- [x] 1.1'), 'src/A.cs': 'x' },
   });
-  assert.deepEqual((await observe(ctx)).tests, [{ change: CHANGE, sha: checkpointSha }]);
+  assert.deepEqual((await observe(ctx)).verify, [{ change: CHANGE, sha: checkpointSha, baseline }]);
   await creditChange(ctx, CHANGE);
   assert.deepEqual(requests, [{ change: CHANGE, sha: checkpointSha }]);
   const state = lifecycleState(github, pr);
@@ -835,32 +838,33 @@ test('fails a checkpoint whose isolated platform test job failed and passes its 
   assert.match(entry, /Details passed to the next attempt[\s\S]*Expected 3 but was 2/);
 });
 
-test('shows platform test failures on the pull request checks and in the stopped entry', async () => {
+test('shows verification failures on the pull request checks and in the stopped entry', async () => {
   const { github, ctx, pr } = await admitted();
-  ctx.platformTestResult = async () => ({
+  ctx.verificationResult = async () => ({
     ok: false,
-    reason: 'the platform tests failed at abc',
+    reason: 'the repository verification failed at abc',
     feedback: 'Failed test: MigrationTests.Applies\nError message:\n  Expected 3 but was 2',
     job: { conclusion: 'failure', url: 'https://github.com/x/actions/runs/1/job/2' },
   });
   for (const attempt of [1, 2]) {
     const checkpointSha = github.push(pr.head.ref, {
       message: `x${attempt}\n\n${trailer({ operation: 'apply', task: '1.1', verdict: 'complete' })}`,
-      files: { [`openspec/changes/${CHANGE}/tasks.md`]: TASKS.replace('- [ ] 1.1', '- [x] 1.1'), 'src/platform/A.cs': `x${attempt}` },
+      files: { [`openspec/changes/${CHANGE}/tasks.md`]: TASKS.replace('- [ ] 1.1', '- [x] 1.1'), 'src/A.cs': `x${attempt}` },
     });
     await observe(ctx);
     await creditChange(ctx, CHANGE);
-    const testCheck = github.checkRuns.find((run) => run.name === 'OpenSpec platform tests' && run.head_sha === checkpointSha);
-    assert.equal(testCheck.conclusion, 'failure');
-    assert.equal(testCheck.details_url, 'https://github.com/x/actions/runs/1/job/2');
-    assert.match(testCheck.output.summary, /\[Test job log\]\(https:\/\/github\.com\/x\/actions\/runs\/1\/job\/2\)[\s\S]*Expected 3 but was 2/);
+    const verificationCheck = github.checkRuns.find((run) => run.name === 'OpenSpec verification' && run.head_sha === checkpointSha);
+    assert.equal(verificationCheck.conclusion, 'failure');
+    assert.equal(verificationCheck.output.title, 'Verification failed');
+    assert.equal(verificationCheck.details_url, 'https://github.com/x/actions/runs/1/job/2');
+    assert.match(verificationCheck.output.summary, /\[Verification job log\]\(https:\/\/github\.com\/x\/actions\/runs\/1\/job\/2\)[\s\S]*Expected 3 but was 2/);
     const operationCheck = github.checkRuns.filter((run) => run.name === 'OpenSpec apply 1.1' && run.head_sha === checkpointSha).at(-1);
     assert.match(operationCheck.output.summary, /\*\*Details:\*\*[\s\S]*Expected 3 but was 2/);
     if (attempt === 1) await dispatchChange(ctx, CHANGE);
   }
   assert.equal(lifecycleState(github, pr).gate.kind, 'failure');
   const stopped = github.comments.get(pr.number).find((comment) => comment.body.includes(': stopped')).body;
-  assert.match(stopped, /the platform tests failed at abc[\s\S]*Failure details<\/summary>\n\n```text\nFailed test: MigrationTests\.Applies\n[\s\S]*Expected 3 but was 2/);
+  assert.match(stopped, /the repository verification failed at abc[\s\S]*Failure details<\/summary>\n\n```text\nFailed test: MigrationTests\.Applies\n[\s\S]*Expected 3 but was 2/);
 });
 
 test('rejects unknown agent runtimes', () => {
@@ -868,39 +872,73 @@ test('rejects unknown agent runtimes', () => {
   assert.equal(createContext({ env: { GITHUB_REPOSITORY: REPOSITORY, GITHUB_TOKEN: 'x' } }).runtime, 'actions');
 });
 
-test('skips platform tests for checkpoints that do not touch the platform', async () => {
+test('verifies every complete apply checkpoint but not verify, partial, or disabled ones', async () => {
   const { github, ctx, pr } = await admitted();
-  ctx.platformTestResult = async () => { throw new Error('must not run'); };
-  github.push(pr.head.ref, {
+  const requests = [];
+  ctx.verificationResult = async (_, request) => {
+    requests.push(request);
+    return { ok: true, job: { conclusion: 'success', url: 'https://jobs/9' }, feedback: 'Skipped: no platform changes.' };
+  };
+  const checkpointSha = github.push(pr.head.ref, {
     message: `x\n\n${trailer({ operation: 'apply', task: '1.1', verdict: 'complete' })}`,
     files: { [`openspec/changes/${CHANGE}/tasks.md`]: TASKS.replace('- [ ] 1.1', '- [x] 1.1'), 'docs/a.md': 'x' },
   });
-  assert.deepEqual((await observe(ctx)).tests, []);
+  assert.equal((await observe(ctx)).verify.length, 1);
   await creditChange(ctx, CHANGE);
+  assert.deepEqual(requests, [{ change: CHANGE, sha: checkpointSha }]);
   const state = lifecycleState(github, pr);
   assert.equal(state.status, 'ready');
   assert.deepEqual(state.credited.map((entry) => entry.task), ['1.1']);
+  const passed = github.checkRuns.find((run) => run.name === 'OpenSpec verification' && run.head_sha === checkpointSha);
+  assert.equal(passed.conclusion, 'success');
+  assert.match(passed.output.summary, /verification passed at `[0-9a-f]{7}`[\s\S]*Skipped: no platform changes\./);
+
+  const disabled = createContext({ env: { GITHUB_REPOSITORY: REPOSITORY, GITHUB_TOKEN: 'x', OPENSPEC_VERIFICATION: 'false' }, client: github });
+  assert.equal(disabled.verification, false);
 });
 
-test('reads the isolated test job conclusion, not anything the tests wrote', async () => {
+test('reads the verification job conclusions, not anything the verification wrote', async () => {
   const { ctx } = setup();
-  const previous = process.env.GITHUB_RUN_ID;
+  const previous = { run: process.env.GITHUB_RUN_ID, results: process.env.OPENSPEC_VERIFICATION_RESULTS };
+  const results = mkdtempSync(join(tmpdir(), 'openspec-verification-'));
   process.env.GITHUB_RUN_ID = '42';
+  process.env.OPENSPEC_VERIFICATION_RESULTS = results;
   try {
     const sha = 'f'.repeat(40);
-    ctx.client.listRunJobs = async () => [{ name: `Run platform tests (${CHANGE}, ${sha})`, conclusion: 'failure', html_url: 'https://jobs/1' }];
-    const failed = await defaultPlatformTestResult(ctx, { change: CHANGE, sha });
-    assert.equal(failed.ok, false);
-    assert.equal(failed.reason, 'the platform tests failed at fffffff');
-    assert.deepEqual(failed.job, { conclusion: 'failure', url: 'https://jobs/1' });
-    ctx.client.listRunJobs = async () => [{ name: `Run platform tests (${CHANGE}, ${sha})`, conclusion: 'cancelled' }];
-    assert.equal((await defaultPlatformTestResult(ctx, { change: CHANGE, sha })).reason, 'the platform tests ended as cancelled at fffffff');
-    ctx.client.listRunJobs = async () => [{ name: `Run platform tests (${CHANGE}, ${sha})`, conclusion: 'success', html_url: 'https://jobs/2' }];
-    assert.deepEqual(await defaultPlatformTestResult(ctx, { change: CHANGE, sha }), { ok: true, job: { conclusion: 'success', url: 'https://jobs/2' } });
-    ctx.client.listRunJobs = async () => [];
-    assert.match((await defaultPlatformTestResult(ctx, { change: CHANGE, sha })).reason, /did not run for fffffff/);
+    const caller = `Verify checkpoint (${CHANGE}, ${sha})`;
+    const other = { name: `Verify checkpoint (other, ${sha}) / Run platform tests`, conclusion: 'failure' };
+    ctx.client.listRunJobs = async () => [other, { name: `${caller} / Run platform tests`, conclusion: 'failure', html_url: 'https://jobs/1' }];
+    let result = await defaultVerificationResult(ctx, { change: CHANGE, sha });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'the repository verification failed at fffffff');
+    assert.deepEqual(result.job, { conclusion: 'failure', url: 'https://jobs/1' });
+    assert.equal(result.feedback, null);
+
+    const artifact = join(results, `openspec-verification-${CHANGE}`);
+    mkdirSync(artifact, { recursive: true });
+    writeFileSync(join(artifact, 'log.txt'), `${Array.from({ length: 100 }, (_, index) => `line ${index}`).join('\n')}\n`);
+    result = await defaultVerificationResult(ctx, { change: CHANGE, sha });
+    assert.match(result.feedback, /^line 21\n[\s\S]*line 99$/);
+    writeFileSync(join(artifact, 'verification.txt'), `Failed test: A\n${'x'.repeat(5000)}`);
+    result = await defaultVerificationResult(ctx, { change: CHANGE, sha });
+    assert.equal(result.feedback.length, 4000);
+    assert.match(result.feedback, /^Failed test: A\n/);
+
+    ctx.client.listRunJobs = async () => [{ name: `${caller} / Run platform tests`, conclusion: 'cancelled' }];
+    assert.equal((await defaultVerificationResult(ctx, { change: CHANGE, sha })).reason, 'the repository verification ended as cancelled at fffffff');
+    ctx.client.listRunJobs = async () => [
+      { name: `${caller} / Run platform tests`, conclusion: 'success', html_url: 'https://jobs/2' },
+      { name: `${caller} / Lint`, conclusion: 'skipped', html_url: 'https://jobs/3' },
+    ];
+    result = await defaultVerificationResult(ctx, { change: CHANGE, sha });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.job, { conclusion: 'success', url: 'https://jobs/2' });
+    ctx.client.listRunJobs = async () => [other];
+    assert.match((await defaultVerificationResult(ctx, { change: CHANGE, sha })).reason, /repository verification did not run for fffffff/);
   } finally {
-    if (previous === undefined) delete process.env.GITHUB_RUN_ID; else process.env.GITHUB_RUN_ID = previous;
+    rmSync(results, { recursive: true, force: true });
+    if (previous.run === undefined) delete process.env.GITHUB_RUN_ID; else process.env.GITHUB_RUN_ID = previous.run;
+    if (previous.results === undefined) delete process.env.OPENSPEC_VERIFICATION_RESULTS; else process.env.OPENSPEC_VERIFICATION_RESULTS = previous.results;
   }
 });
 
@@ -913,74 +951,4 @@ test('rejects sync and archive checkpoints that change code', async () => {
     const result = await validateEvidence(ctx, state, after);
     assert.match(result.reason, new RegExp(`${operation} may only change openspec/ and docs/, but changed src/platform/B\\.cs`));
   }
-});
-
-const DOTNET_TEST_FAILURE_LOG = [
-  'Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31, Duration: 36 s - SocAlytics.Platform.Persistence.Tests.dll (net10.0)',
-  '[xUnit.net 00:02:30.45]     SocAlytics.Platform.Host.Tests.PlatformHostTests.AppHostRestarts [FAIL]',
-  '  Failed SocAlytics.Platform.Host.Tests.PlatformHostTests.AppHostRestarts [2 m 29 s]',
-  '  Error Message:',
-  '   System.Threading.Tasks.TaskCanceledException : The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.',
-  '---- System.TimeoutException : The operation was canceled.',
-  '  Stack Trace:',
-  '     at System.Net.Http.HttpClient.HandleFailure(Exception e, Boolean telemetryStarted)',
-  '   at Aspire.Hosting.ApplicationModel.ResourceNotificationService.WatchAsync(CancellationToken cancellationToken) in /_/src/Aspire.Hosting/ResourceNotificationService.cs:line 771',
-  '   at SocAlytics.Platform.Host.Tests.PlatformHostTests.WaitForHealthyEndpointAsync(HttpClient client) in /home/runner/work/socalytics/socalytics/src/platform/Tests/PlatformHostTests.cs:line 82',
-  '   at SocAlytics.Platform.Host.Tests.PlatformHostTests.AppHostRestarts() in /home/runner/work/socalytics/socalytics/src/platform/Tests/PlatformHostTests.cs:line 58',
-  '   at SocAlytics.Platform.Host.Tests.PlatformHostTests.AppHostRestarts() in /home/runner/work/socalytics/socalytics/src/platform/Tests/PlatformHostTests.cs:line 58',
-  '--- End of stack trace from previous location ---',
-  '----- Inner Stack Trace -----',
-  '   at System.Net.Http.HttpConnection.SendAsync(HttpRequestMessage request) in /home/runner/work/socalytics/socalytics/src/x.cs:line 1',
-  '  Standard Output Messages:',
-  '   [api] Application is shutting down...',
-  '  Passed SocAlytics.Platform.Host.Tests.PlatformHostTests.ServesOpenApi [1 s]',
-  'Failed!  - Failed:     1, Passed:     5, Skipped:     0, Total:     6, Duration: 2 m 29 s - SocAlytics.Platform.Host.Tests.dll (net10.0)',
-].join('\n');
-
-test('summarizes failed platform tests with their messages, own frames, and output', () => {
-  const summary = summarizeTestLog(DOTNET_TEST_FAILURE_LOG);
-  assert.equal(summary, [
-    'Failed test: SocAlytics.Platform.Host.Tests.PlatformHostTests.AppHostRestarts',
-    'Error message:',
-    '  System.Threading.Tasks.TaskCanceledException : The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.',
-    '  ---- System.TimeoutException : The operation was canceled.',
-    'Stack (repository frames):',
-    '  at SocAlytics.Platform.Host.Tests.PlatformHostTests.WaitForHealthyEndpointAsync(HttpClient client) in src/platform/Tests/PlatformHostTests.cs:line 82',
-    '  at SocAlytics.Platform.Host.Tests.PlatformHostTests.AppHostRestarts() in src/platform/Tests/PlatformHostTests.cs:line 58',
-    'Test output:',
-    '  [api] Application is shutting down...',
-    '',
-    'Test assemblies:',
-    'Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31, Duration: 36 s - SocAlytics.Platform.Persistence.Tests.dll (net10.0)',
-    'Failed!  - Failed:     1, Passed:     5, Skipped:     0, Total:     6, Duration: 2 m 29 s - SocAlytics.Platform.Host.Tests.dll (net10.0)',
-  ].join('\n'));
-});
-
-test('summarizes build errors first, bounds the summary, and falls back to the log tail', () => {
-  const build = summarizeTestLog('Restore complete\n/src/Api/Program.cs(3,1): error CS0103: The name x does not exist [/src/Api/Api.csproj]\nBuild FAILED.');
-  assert.equal(build, 'Build errors:\n/src/Api/Program.cs(3,1): error CS0103: The name x does not exist [/src/Api/Api.csproj]');
-  const bounded = summarizeTestLog(DOTNET_TEST_FAILURE_LOG, 120);
-  assert.equal(bounded.length, 120);
-  assert.match(bounded, /^Failed test: .*…$/s);
-  assert.equal(summarizeTestLog('line 1\nline 2\nThe test host crashed'), 'line 1\nline 2\nThe test host crashed');
-});
-
-test('keeps test error messages short and drops embedded stack frames', () => {
-  const log = [
-    '  Failed Host.Tests.Restart [5 m 3 s]',
-    '  Error Message:',
-    "   System.OperationCanceledException : Resource 'api' failed to reach one of the target states: [Exited] before the operation was cancelled.",
-    '  - Current State: Unknown',
-    ...Array.from({ length: 20 }, (_, index) => `  - Health report ${index}`),
-    '  at System.Net.Sockets.Socket.AwaitableSocketAsyncEventArgs.ThrowException(SocketError error)',
-    '  Stack Trace:',
-    '   at Host.Tests.Restart() in /home/runner/work/socalytics/socalytics/src/platform/Tests/HostTests.cs:line 63',
-    'Failed!  - Failed:     1, Passed:     5, Skipped:     0, Total:     6, Duration: 5 m 3 s - Host.Tests.dll (net10.0)',
-  ].join('\n');
-  const summary = summarizeTestLog(log);
-  const message = summary.split('\n').slice(2, summary.split('\n').indexOf('Stack (repository frames):'));
-  assert.equal(message.length, 12);
-  assert.match(message[0], /failed to reach one of the target states: \[Exited\]/);
-  assert.doesNotMatch(summary, /AwaitableSocketAsyncEventArgs/);
-  assert.match(summary, /at Host\.Tests\.Restart\(\) in src\/platform\/Tests\/HostTests\.cs:line 63/);
 });

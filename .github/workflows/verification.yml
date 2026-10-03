@@ -1,0 +1,105 @@
+name: Verification
+
+# Repository-specific checkpoint verification. The generic OpenSpec orchestrator calls this
+# reusable workflow for every complete apply checkpoint, with a read-only token and no secrets.
+#
+# Contract with the orchestrator:
+# - inputs: change, sha (checkpoint commit), baseline (commit before the operation started);
+# - fail when verification fails; the job conclusions decide the outcome;
+# - upload the artifact openspec-verification-<change> with verification.txt (feedback for the
+#   next agent attempt, most important lines first) and optionally log.txt.
+on:
+  workflow_call:
+    inputs:
+      change:
+        description: OpenSpec change name
+        required: true
+        type: string
+      sha:
+        description: Checkpoint commit to verify
+        required: true
+        type: string
+      baseline:
+        description: Commit before the operation started, for deciding what changed
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  platform-tests:
+    name: Run platform tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Prepare the result directory
+        run: |
+          echo "OUT=$RUNNER_TEMP/openspec-verification" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/openspec-verification"
+
+      - name: Check out the trusted repository tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Check out the checkpoint commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
+          path: checkpoint
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Decide whether the checkpoint changes the platform
+        id: scope
+        env:
+          SHA: ${{ inputs.sha }}
+          BASELINE: ${{ inputs.baseline }}
+        run: |
+          if [[ -n "$BASELINE" ]] && git -C checkpoint cat-file -e "$BASELINE^{commit}" 2>/dev/null \
+            && [[ -z "$(git -C checkpoint diff --name-only "$BASELINE" "$SHA" -- src/platform/)" ]]; then
+            echo "Skipped: the checkpoint does not change src/platform/." > "$OUT/verification.txt"
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up the repository toolchain
+        if: ${{ steps.scope.outputs.relevant == 'true' }}
+        uses: ./.github/actions/repository-toolchain
+        with:
+          global-json-file: checkpoint/src/platform/global.json
+
+      - name: Run the platform tests with Testcontainers
+        id: tests
+        if: ${{ steps.scope.outputs.relevant == 'true' }}
+        working-directory: checkpoint
+        run: |
+          set -o pipefail
+          dotnet test src/platform/SocAlytics.Platform.slnx --nologo --blame-hang-timeout 10m 2>&1 | tee "$OUT/log.txt"
+
+      - name: Summarize passing platform tests
+        if: ${{ success() && steps.scope.outputs.relevant == 'true' }}
+        run: |
+          {
+            echo "All platform tests passed."
+            grep -E '^\s*Passed!' "$OUT/log.txt" | sed -E 's/^\s+//' || true
+          } > "$OUT/verification.txt"
+
+      - name: Summarize failing platform tests
+        if: ${{ failure() && steps.tests.conclusion == 'failure' }}
+        run: node .github/scripts/dotnet-test-summary.mjs "$OUT/log.txt" "$OUT/verification.txt"
+
+      - name: Upload the verification result
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: openspec-verification-${{ inputs.change }}
+          path: |
+            ${{ runner.temp }}/openspec-verification/verification.txt
+            ${{ runner.temp }}/openspec-verification/log.txt
+          retention-days: 3
+          if-no-files-found: ignore

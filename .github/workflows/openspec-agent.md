@@ -35,53 +35,21 @@ checkout:
 strict: true
 engine:
   id: copilot
+imports:
+  # Repository-specific toolchain, network access, and the run_verification tool.
+  - shared/repository-toolchain.md
 network:
   allowed:
     - defaults
-    - dotnet
     - node
 tools:
   bash: true
   edit:
   timeout: 900
 timeout-minutes: 60
-mcp-scripts:
-  run_platform_tests:
-    description: >-
-      Run the platform test suite (dotnet test src/platform/SocAlytics.Platform.slnx) on the runner host,
-      where Docker and Testcontainers are available, against your current working tree. Optionally pass a
-      dotnet test --filter expression. Returns the end of the test output.
-    inputs:
-      filter:
-        type: string
-        description: Optional dotnet test --filter expression, for example FullyQualifiedName~Migration
-        required: false
-    env:
-      HOST_TESTS: ${{ vars.OPENSPEC_AGENT_HOST_TESTS }}
-    run: |
-      if [[ "${HOST_TESTS:-}" != "true" ]]; then
-        echo "run_platform_tests is disabled in this repository. Run what you can in the sandbox; the OpenSpec orchestrator runs the full platform tests with Testcontainers after your checkpoint and passes failures to the next attempt."
-        exit 0
-      fi
-      cd "$GITHUB_WORKSPACE"
-      args=(test src/platform/SocAlytics.Platform.slnx --nologo --blame-hang-timeout 10m)
-      if [[ -n "${INPUT_FILTER:-}" ]]; then args+=(--filter "$INPUT_FILTER"); fi
-      # Agent-written test code runs here, so it gets a minimal environment without tokens.
-      set +e
-      env -i PATH="$PATH" HOME="$HOME" DOTNET_ROOT="${DOTNET_ROOT:-}" DOTNET_NOLOGO=1 DOTNET_CLI_TELEMETRY_OPTOUT=1 \
-        timeout 840 dotnet "${args[@]}" > /tmp/openspec-tests.log 2>&1
-      status=$?
-      set -e
-      tail -n 150 /tmp/openspec-tests.log
-      echo "exit code: $status"
-    timeout: 900
 pre-agent-steps:
-  - name: Set up .NET for the platform build
-    uses: actions/setup-dotnet@v6
-    with:
-      global-json-file: src/platform/global.json
-  - name: Install the OpenSpec CLI
-    run: npm install --global @fission-ai/openspec@1.13.0
+  - name: Set up Node.js and the OpenSpec CLI
+    uses: ./.github/actions/setup-openspec
   - name: Build the session prompt from the pull request state
     id: prepare
     env:
@@ -158,6 +126,7 @@ it from the pull request's OpenSpec state with the same controller code that
 validates your result, and already checked out the pull request branch at the
 dispatched commit.
 
-You cannot push and the sandbox has no Docker. Use `run_platform_tests` for
-tests that need Docker. Finish by calling `push_to_pull_request_branch` once
-after your final checkpoint commit exists, then `wake_controller` once.
+You cannot push and the sandbox has no Docker. If the `run_verification` tool
+is available, use it for verification that needs Docker. Finish by calling
+`push_to_pull_request_branch` once after your final checkpoint commit exists,
+then `wake_controller` once.

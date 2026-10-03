@@ -61,7 +61,7 @@ export class GitHubChangeClient {
         Accept: 'application/vnd.github+json',
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'User-Agent': 'socalytics-openspec',
+        'User-Agent': 'openspec-orchestrator',
         'X-GitHub-Api-Version': API_VERSION,
       },
       body: body === undefined ? undefined : JSON.stringify(body),

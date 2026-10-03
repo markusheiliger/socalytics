@@ -59,11 +59,8 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - name: Install OpenSpec CLI
-        run: npm install --global @fission-ai/openspec@1.13.0
+      - name: Set up Node.js and the OpenSpec CLI
+        uses: ./.github/actions/setup-openspec
       - name: Synchronize issue twins
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -163,9 +160,10 @@ safe-outputs:
           with:
             ref: ${{ steps.target.outputs.target_head }}
             fetch-depth: 0
-        - uses: actions/setup-node@v7
+        - name: Set up Node.js
+          uses: ./.github/actions/setup-openspec
           with:
-            node-version: 24
+            cli: false
         - name: Validate, reconcile, and checkpoint dependency state
           env:
             GH_TOKEN: ${{ github.token }}

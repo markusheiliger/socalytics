@@ -209,7 +209,7 @@ for example `Apply next task (add-club-identity-foundation)`.
 | Job | Display name | What it does |
 | --- | --- | --- |
 | `observe` | Read current state | Applies `/openspec` commands, recovers interrupted dispatches, records out-of-session pushes, and finds finished sessions. |
-| `test` | Run platform tests | Per checkpoint that changed `src/platform/`: runs the platform tests with a read-only token and no secrets. |
+| `verify-checkpoint` | Verify checkpoint (*change*, *sha*) | Per complete apply checkpoint: calls the repository's verification workflow with a read-only token and no secrets (see [Repository-specific verification and tooling](#repository-specific-verification-and-tooling)). |
 | `credit` | Check agent result | Per change: validates the checkpoint commit and records the outcome. |
 | `plan` | Decide next steps | Decides the next step for every change and emits one list per step. |
 | `admit` | Start change | Creates the branch and draft pull request, then starts the first task. |
@@ -307,7 +307,7 @@ Sessions run on one of two runtimes, selected by the repository variable
 | Started by | `workflow_dispatch` with only the pull request number and a dispatch id | `POST /agents/repos/{owner}/{repo}/tasks` with `head_ref` set to the pull request branch |
 | Credentials | `GITHUB_TOKEN` with `copilot-requests: write`; no personal access token | `COPILOT_AGENT_TOKEN` fine-grained personal access token |
 | Pushing | The agent commits locally; gh-aw's push job publishes the commits only to the dispatched pull request, refusing `.github/` and protected files | The agent pushes itself |
-| Docker and Testcontainers | Not in the sandbox. Optional host-side `run_platform_tests` tool, off unless `OPENSPEC_AGENT_HOST_TESTS=true` | Inside the session |
+| Docker | Not in the sandbox. The repository's optional host-side `run_verification` tool, off unless `OPENSPEC_AGENT_HOST_TESTS=true` | Inside the session |
 | Waking the controller | The agent's final `wake_controller` call starts `openspec-orchestrator.yml` after the push | The push's `pull_request_target` event |
 
 The `actions` runtime reads everything except the pull request number and
@@ -315,14 +315,14 @@ dispatch id from the pull request's lifecycle state in a trusted step, so it
 executes exactly what the controller dispatched. It refuses to run when the
 dispatch id no longer matches or the branch moved after the dispatch.
 
-**Security trade-off of `run_platform_tests`:** the tool's command is fixed,
+**Security trade-off of `run_verification`:** the tool's command is fixed,
 but it runs test code the agent wrote on the runner host, outside the sandbox's
 network firewall and with access to the runner's Docker. That code could send
 data out and, through Docker, read the agent job's tokens (read-only repository
 access and `copilot-requests: write`). The tool therefore stays off unless the
 repository variable `OPENSPEC_AGENT_HOST_TESTS` is `true`; it runs the tests
 with a minimal environment and a 14-minute limit. Without it, the agent relies
-on the binding test job and on test output passed to the next attempt.
+on the binding verification job and on its feedback passed to the next attempt.
 
 The workflow never assigns issues to Copilot, because assignment starts an
 uncontrolled extra session.
@@ -364,18 +364,16 @@ or partial attempt cannot hide changes from a later attempt:
 - Apply: the selected task is checked, no other checkbox changed, no task was
   added or removed, and checkbox-only capabilities (`verification`, `audit`)
   changed nothing but `tasks.md`. Strict `openspec validate` passes for the
-  change. When the step changed `src/platform/`, the platform tests
-  (`dotnet test src/platform/SocAlytics.Platform.slnx`, with Testcontainers on
-  the runner's Docker) pass at the checkpoint. They run in the separate
-  **Run platform tests** job, which has a read-only token, no secrets, and a
-  30-minute limit, because it executes agent-written code. "Check agent result"
-  reads only that job's conclusion from the Actions API. When it fails, a summary
-  of its log becomes the feedback for the next attempt: build errors, then each
-  failed test with its error message, the repository's own stack frames, and
-  test output. Because the test job belongs to the orchestrator run on `main`,
-  its own check never appears on the pull request; "Check agent result" mirrors
-  the result as an **OpenSpec platform tests** check on the checkpoint commit,
-  with that summary and a link to the job log. The operation check and the
+  change. The repository's verification passes at the checkpoint. It runs in
+  the **Verify checkpoint** job, which calls the repository's reusable
+  verification workflow with a read-only token and no secrets, because it
+  executes agent-written code. "Check agent result" reads only the conclusions
+  of those jobs from the Actions API. When verification fails, the
+  `verification.txt` it uploaded becomes the feedback for the next attempt.
+  Because the verification jobs belong to the orchestrator run on `main`, their
+  own checks never appear on the pull request; "Check agent result" mirrors the
+  result as an **OpenSpec verification** check on the checkpoint commit, with
+  that feedback and a link to the job log. The operation check and the
   change-log entry show the same details for retries and failure gates.
 - Verify: no files changed and strict validation passes.
 - Sync: only `openspec/` and `docs/` changed, strict validation passes, and
@@ -460,8 +458,10 @@ These one-time settings are required for server-side processing:
    this step GitHub creates the environment on first use without restrictions
    and the repository-level secret is used.
 4. **Optionally** set the repository variables `OPENSPEC_AGENT_RUNTIME`
-   (`actions` by default, or `copilot`) and `OPENSPEC_MAX_ACTIVE_CHANGES`, and
-   require the `OpenSpec lifecycle` check in branch protection.
+   (`actions` by default, or `copilot`), `OPENSPEC_MAX_ACTIVE_CHANGES`,
+   `OPENSPEC_VERIFICATION` (`false` skips checkpoint verification), and
+   `OPENSPEC_AGENT_HOST_TESTS` (`true` enables the agent's `run_verification`
+   tool), and require the `OpenSpec lifecycle` check in branch protection.
 
 `openspec-agent.md` is a gh-aw workflow compiled with gh-aw v0.89.21. Edit
 only the Markdown source, recompile with `gh aw compile openspec-agent`, then
@@ -478,6 +478,42 @@ hour per repository. To stay within it, each run reads state from the head
 commit, scans only pull requests closed in the last 24 hours for finalization,
 and refreshes overview comments and labels only for changes the run touched.
 Use `OPENSPEC_MAX_ACTIVE_CHANGES` if many changes run in parallel.
+
+## Repository-specific verification and tooling
+
+The `openspec-*` workflows, the `setup-openspec` action, and the
+`openspec-*.mjs` scripts are generic: they know OpenSpec, not this repository's
+solution. Everything specific to the repository lives in files the repository
+provides:
+
+| File | Contract |
+| --- | --- |
+| `.github/workflows/verification.yml` | Reusable workflow (`workflow_call`) with the inputs `change`, `sha` (checkpoint), and `baseline` (head before the operation started). It decides what is relevant, fails when verification fails, and uploads the artifact `openspec-verification-<change>` with `verification.txt` (agent feedback, most important lines first) and optionally `log.txt`. It gets a read-only token and no secrets. A repository without tests provides one that succeeds. |
+| `.github/workflows/shared/repository-toolchain.md` | gh-aw shared component that `openspec-agent.md` always imports. It may add `network` domains, `pre-agent-steps`, and an mcp-script named `run_verification`. A repository without extra tooling keeps it with empty frontmatter. Optional imports (`path?`) are not supported by gh-aw v0.89.21. |
+| `.github/actions/repository-toolchain/action.yml` | Composite action that installs the repository toolchain; the single place for its versions. |
+
+This repository's verification runs the platform tests: it checks out the
+trusted tooling from `main` and the checkpoint into `checkpoint/`, skips when
+nothing under `src/platform/` changed since `baseline`, installs the toolchain
+(.NET from the checkpoint's `src/platform/global.json`, plus Node.js), runs
+`dotnet test src/platform/SocAlytics.Platform.slnx` with Testcontainers, and
+writes `verification.txt` with `.github/scripts/dotnet-test-summary.mjs`: build
+errors, then each failed test with its error message, the repository's own
+stack frames, and test output.
+
+Installations are shared through composite actions, the only place their
+versions are pinned:
+
+| Action | Installs | Used by |
+| --- | --- | --- |
+| `.github/actions/setup-openspec` (generic) | Node.js 24 and, unless `cli: false`, the pinned OpenSpec CLI | every `openspec-*` workflow and `copilot-setup-steps.yml` |
+| `.github/actions/repository-toolchain` | .NET from `global.json` and Node.js 24 | `verification.yml`, `shared/repository-toolchain.md`, and `copilot-setup-steps.yml` |
+
+In the agent job, the imported pre-agent steps run before the pull request
+branch is checked out, so the toolchain comes from `main`; a change that bumps
+the SDK takes effect for agents after it merges. `copilot-setup-steps.yml` is
+generated by OpenSpec; re-apply the composite actions if `openspec update`
+regenerates it.
 
 ## Human merge gate
 
@@ -504,7 +540,10 @@ node .github/scripts/openspec-change-workflow-names.mjs --check
 
 `openspec-workflow.test.mjs` enforces that every job and step in
 `openspec-orchestrator.yml` has a readable name and that the workflow keeps trusted
-checkouts, least privilege, and the repository-wide lock. Compile the
+checkouts, least privilege, and the repository-wide lock. It also keeps the
+`openspec-*` workflows and scripts free of repository specifics, requires
+installations to go through the composite actions, and checks the
+verification workflow's contract. Compile the
 reconciliation Markdown source with `gh aw compile`, then run
 `node .github/scripts/openspec-change-workflow-names.mjs` to apply the
 repository's deterministic display names for compiler-generated jobs. Never

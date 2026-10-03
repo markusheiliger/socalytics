@@ -85,7 +85,7 @@ jobs:
       relevant: ${{ steps.observe.outputs.relevant }}
       credit: ${{ steps.observe.outputs.credit }}
       touched: ${{ steps.observe.outputs.touched }}
-      tests: ${{ steps.observe.outputs.tests }}
+      verify: ${{ steps.observe.outputs.verify }}
     steps:
       - name: Check out trusted controller
         uses: actions/checkout@v5
@@ -94,9 +94,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: ./.github/actions/setup-openspec
         with:
-          node-version: 24
+          cli: false
 
       - name: Read state, apply commands, and find finished sessions
         id: observe
@@ -104,52 +104,33 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
           OPENSPEC_AGENT_RUNTIME: ${{ vars.OPENSPEC_AGENT_RUNTIME }}
+          OPENSPEC_VERIFICATION: ${{ vars.OPENSPEC_VERIFICATION }}
           OPENSPEC_DRY_RUN: ${{ inputs.dry_run }}
         run: node .github/scripts/openspec-change-orchestrator.mjs observe
 
-  # Runs agent-written code, so it gets a read-only token, no secrets, and no environment.
-  test:
-    name: Run platform tests
+  # Repository-specific checkpoint verification. The orchestrator only knows this contract: a
+  # reusable workflow at a fixed path that fails when verification fails and uploads
+  # openspec-verification-<change> with verification.txt. It runs agent-written code, so it gets a
+  # read-only token, no secrets, and no environment.
+  verify-checkpoint:
+    name: Verify checkpoint (${{ matrix.change }}, ${{ matrix.sha }})
     needs: observe
-    if: ${{ !cancelled() && needs.observe.result == 'success' && needs.observe.outputs.relevant == 'true' && needs.observe.outputs.tests != '[]' && !inputs.dry_run }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    if: ${{ !cancelled() && needs.observe.result == 'success' && needs.observe.outputs.relevant == 'true' && needs.observe.outputs.verify != '[]' && !inputs.dry_run }}
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.observe.outputs.tests) }}
-    steps:
-      - name: Check out the checkpoint commit
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ matrix.sha }}
-          persist-credentials: false
-
-      - name: Set up .NET for the platform tests
-        uses: actions/setup-dotnet@v5
-        with:
-          global-json-file: src/platform/global.json
-
-      - name: Run the platform tests with Testcontainers
-        shell: bash
-        run: |
-          set -o pipefail
-          dotnet test src/platform/SocAlytics.Platform.slnx --nologo --blame-hang-timeout 10m 2>&1 | tee "$RUNNER_TEMP/platform-tests.log"
-
-      - name: Upload the test log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: platform-tests-${{ matrix.change }}
-          path: ${{ runner.temp }}/platform-tests.log
-          retention-days: 3
-          if-no-files-found: ignore
+        include: ${{ fromJSON(needs.observe.outputs.verify) }}
+    uses: ./.github/workflows/verification.yml
+    with:
+      change: ${{ matrix.change }}
+      sha: ${{ matrix.sha }}
+      baseline: ${{ matrix.baseline }}
 
   credit:
     name: Check agent result
-    needs: [observe, test]
+    needs: [observe, verify-checkpoint]
     if: ${{ !cancelled() && needs.observe.result == 'success' && needs.observe.outputs.relevant == 'true' && needs.observe.outputs.credit != '[]' && !inputs.dry_run }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -172,28 +153,24 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
+      - name: Set up Node.js and the OpenSpec CLI
+        uses: ./.github/actions/setup-openspec
 
-      - name: Install the OpenSpec CLI
-        run: npm install --global @fission-ai/openspec@1.13.0
-
-      - name: Download the platform test logs
+      - name: Download the verification results
         uses: actions/download-artifact@v4
         continue-on-error: true
         with:
-          pattern: platform-tests-*
-          path: ${{ runner.temp }}/platform-tests
+          pattern: openspec-verification-*
+          path: ${{ runner.temp }}/openspec-verification
 
       - name: Validate the checkpoint and record the result
         env:
           GITHUB_TOKEN: ${{ github.token }}
           COPILOT_AGENT_TOKEN: ${{ secrets.COPILOT_AGENT_TOKEN }}
           OPENSPEC_AGENT_RUNTIME: ${{ vars.OPENSPEC_AGENT_RUNTIME }}
+          OPENSPEC_VERIFICATION: ${{ vars.OPENSPEC_VERIFICATION }}
           CHANGE: ${{ matrix.change }}
-          OPENSPEC_PLATFORM_TEST_LOGS: ${{ runner.temp }}/platform-tests
+          OPENSPEC_VERIFICATION_RESULTS: ${{ runner.temp }}/openspec-verification
         run: node .github/scripts/openspec-change-orchestrator.mjs credit --change "$CHANGE"
 
   plan:
@@ -223,9 +200,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: ./.github/actions/setup-openspec
         with:
-          node-version: 24
+          cli: false
 
       - name: Decide the next step for every change
         id: plan
@@ -260,9 +237,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: ./.github/actions/setup-openspec
         with:
-          node-version: 24
+          cli: false
 
       - name: Create the branch and draft pull request, then start the first task
         env:
@@ -297,9 +274,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: ./.github/actions/setup-openspec
         with:
-          node-version: 24
+          cli: false
 
       - name: Start a Copilot agent session for the next task
         env:
@@ -334,9 +311,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: ./.github/actions/setup-openspec
         with:
-          node-version: 24
+          cli: false
 
       - name: Start a Copilot agent session to verify the change
         env:
@@ -371,9 +348,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: ./.github/actions/setup-openspec
         with:
-          node-version: 24
+          cli: false
 
       - name: Start a Copilot agent session to sync specs
         env:
@@ -408,9 +385,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: ./.github/actions/setup-openspec
         with:
-          node-version: 24
+          cli: false
 
       - name: Start a Copilot agent session to archive the change
         env:
@@ -443,9 +420,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: ./.github/actions/setup-openspec
         with:
-          node-version: 24
+          cli: false
 
       - name: Post the question and notify the requester
         env:
@@ -476,9 +453,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: ./.github/actions/setup-openspec
         with:
-          node-version: 24
+          cli: false
 
       - name: Record the merge, close, or abort
         env:
@@ -505,9 +482,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: ./.github/actions/setup-openspec
         with:
-          node-version: 24
+          cli: false
 
       - name: Refresh overview comments and labels of changed pull requests
         env:

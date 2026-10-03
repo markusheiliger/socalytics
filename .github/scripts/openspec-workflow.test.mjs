@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { AGENT_WORKFLOW_JOB_NAMES, applyWorkflowJobNames } from './openspec-change-workflow-names.mjs';
@@ -38,7 +38,7 @@ function stepBlocks(job) {
 
 const EXPECTED_JOBS = new Map([
   ['observe', 'Read current state'],
-  ['test', 'Run platform tests'],
+  ['verify-checkpoint', 'Verify checkpoint (${{ matrix.change }}, ${{ matrix.sha }})'],
   ['credit', 'Check agent result'],
   ['plan', 'Decide next steps'],
   ['admit', 'Start change'],
@@ -65,12 +65,14 @@ test('gives every job a readable static name without matrix expressions', () => 
   for (const job of jobs) {
     const name = job.lines.find((line) => line.startsWith('    name: '))?.slice('    name: '.length);
     assert.equal(name, EXPECTED_JOBS.get(job.id), `job ${job.id} must be named`);
-    assert.doesNotMatch(name, /matrix\.|\$\{\{/);
+    // The verification caller's name is the contract the credit step matches on.
+    if (job.id !== 'verify-checkpoint') assert.doesNotMatch(name, /matrix\.|\$\{\{/);
   }
 });
 
 test('gives every step a readable name', () => {
   for (const job of jobBlocks()) {
+    if (job.lines.some((line) => line.startsWith('    uses: '))) continue;
     const steps = stepBlocks(job);
     assert.ok(steps.length > 0, `job ${job.id} must have steps`);
     for (const step of steps) {
@@ -97,9 +99,10 @@ test('keeps trusted execution, least privilege, and the repository-wide lock', (
   assert.match(workflow, /pull_request_target:\n\s+types: \[synchronize, closed\]/);
   for (const job of jobBlocks()) {
     const block = job.lines.join('\n');
-    if (job.id === 'test') {
-      assert.match(block, /\n {4}permissions:\n {6}contents: read\n {4}strategy:/, 'the test job must only read repository contents');
-      assert.doesNotMatch(block, /secrets\.|environment:|GITHUB_TOKEN/, 'the test job must not receive secrets');
+    if (job.id === 'verify-checkpoint') {
+      assert.match(block, /\n {4}permissions:\n {6}contents: read\n {4}strategy:/, 'the verification job must only read repository contents');
+      assert.match(block, /\n {4}uses: \.\/\.github\/workflows\/verification\.yml\n/, 'the verification job must call the repository verification workflow');
+      assert.doesNotMatch(block, /secrets|environment:|GITHUB_TOKEN/, 'the verification job must not receive secrets');
       continue;
     }
     assert.match(block, /ref: main/, `job ${job.id} must check out the trusted controller`);
@@ -134,7 +137,6 @@ test('runs the agent without a personal access token and without push rights', (
   assert.doesNotMatch(agentSource, /COPILOT_AGENT_TOKEN|secrets\./);
   assert.doesNotMatch(agentSource, /^  contents: write$/m);
   assert.match(agentSource, /push-to-pull-request-branch:\n    target: \$\{\{ inputs\.pr \}\}\n    required-title-prefix: "OpenSpec: "/);
-  assert.match(agentSource, /HOST_TESTS: \$\{\{ vars\.OPENSPEC_AGENT_HOST_TESTS \}\}[\s\S]*!= "true"[\s\S]*env -i /);
   assert.match(agentSource, /policy: blocked/);
   assert.doesNotMatch(agentSource, /exclude:[\s\S]*- \.github\//);
   assert.match(agentSource, /strict: true/);
@@ -158,5 +160,62 @@ test('keeps the agent workflow compiled with the pinned gh-aw version and readab
 
 test('builds the agent prompt in a trusted step from the dispatched state', () => {
   assert.match(agentSource, /openspec-change-orchestrator\.mjs agent-prompt \\\n\s+--pr "\$PR" --dispatch-id "\$DISPATCH_ID"/);
-  assert.match(agentSource, /run_platform_tests:[\s\S]*dotnet "\$\{args\[@\]\}"/);
+  assert.match(agentSource, /run_verification` tool\nis available/);
+});
+
+const workflowsDirectory = new URL('../workflows/', import.meta.url);
+const scriptsDirectory = new URL('./', import.meta.url);
+const readText = (url) => readFileSync(url, 'utf8').replaceAll('\r\n', '\n');
+const toolchainSource = readText(new URL('shared/repository-toolchain.md', workflowsDirectory));
+const verificationSource = readText(new URL('verification.yml', workflowsDirectory));
+const setupOpenSpec = readText(new URL('../actions/setup-openspec/action.yml', workflowsDirectory));
+const repositoryToolchain = readText(new URL('../actions/repository-toolchain/action.yml', workflowsDirectory));
+
+test('keeps the openspec-* workflows and scripts free of repository specifics', () => {
+  const generic = [
+    ...readdirSync(workflowsDirectory).filter((name) => /^openspec-.*\.(yml|md)$/.test(name) && !name.endsWith('.lock.yml'))
+      .map((name) => new URL(name, workflowsDirectory)),
+    ...readdirSync(scriptsDirectory).filter((name) => /^openspec-.*\.mjs$/.test(name) && !name.endsWith('.test.mjs'))
+      .map((name) => new URL(name, scriptsDirectory)),
+  ];
+  assert.ok(generic.length > 5);
+  for (const url of generic) {
+    assert.doesNotMatch(readText(url), /dotnet|src\/platform|SocAlytics|Testcontainers|setup-dotnet/i, `${url.pathname.split('/').at(-1)} must stay generic`);
+  }
+});
+
+test('installs tooling only through the shared composite actions', () => {
+  assert.match(setupOpenSpec, /node-version: 24/);
+  assert.match(setupOpenSpec, /npm install --global @fission-ai\/openspec@\d+\.\d+\.\d+/);
+  assert.match(repositoryToolchain, /uses: actions\/setup-dotnet@/);
+  const consumers = [
+    ...readdirSync(workflowsDirectory).filter((name) => /^(openspec-.*\.(yml|md)|verification\.yml|copilot-setup-steps\.yml)$/.test(name) && !name.endsWith('.lock.yml')),
+    'shared/repository-toolchain.md',
+  ];
+  for (const name of consumers) {
+    const source = readText(new URL(name, workflowsDirectory));
+    assert.doesNotMatch(source, /actions\/setup-node@|actions\/setup-dotnet@|@fission-ai\/openspec@/, `${name} must use the composite actions`);
+  }
+  assert.match(workflow, /uses: \.\/\.github\/actions\/setup-openspec/);
+  assert.match(agentSource, /uses: \.\/\.github\/actions\/setup-openspec/);
+  assert.match(toolchainSource, /uses: \.\/\.github\/actions\/repository-toolchain/);
+  assert.match(verificationSource, /uses: \.\/\.github\/actions\/repository-toolchain/);
+});
+
+test('imports the repository toolchain into the agent with a gated, token-free verification tool', () => {
+  assert.match(agentSource, /^imports:\n(?:  #.*\n)?  - shared\/repository-toolchain\.md$/m);
+  assert.doesNotMatch(toolchainSource, /^on:/m);
+  assert.match(toolchainSource, /mcp-scripts:\n  run_verification:/);
+  assert.match(toolchainSource, /HOST_TESTS: \$\{\{ vars\.OPENSPEC_AGENT_HOST_TESTS \}\}[\s\S]*!= "true"[\s\S]*env -i /);
+  assert.match(agentLock, /"name": "run_verification"/);
+});
+
+test('keeps the repository verification workflow on the orchestrator contract', () => {
+  assert.match(verificationSource, /^on:\n  workflow_call:\n    inputs:\n      change:[\s\S]*      sha:[\s\S]*      baseline:/m);
+  assert.match(verificationSource, /^permissions:\n  contents: read$/m);
+  assert.doesNotMatch(verificationSource, /\$\{\{\s*secrets\.|GITHUB_TOKEN|github\.token/);
+  assert.match(verificationSource, /ref: \$\{\{ inputs\.sha \}\}\n {10}path: checkpoint/);
+  assert.equal((verificationSource.match(/persist-credentials: false/g) ?? []).length, 2);
+  assert.match(verificationSource, /name: openspec-verification-\$\{\{ inputs\.change \}\}/);
+  assert.match(verificationSource, /openspec-verification\/verification\.txt/);
 });
