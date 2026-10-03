@@ -10,4 +10,6 @@ internal sealed class BootstrapConnectionSource(NpgsqlDataSource dataSource)
 {
     public Task<NpgsqlConnection> OpenConnectionAsync(CancellationToken cancellationToken = default) =>
         dataSource.OpenConnectionAsync(cancellationToken).AsTask();
+
+    public NpgsqlConnection CreateConnection() => dataSource.CreateConnection();
 }

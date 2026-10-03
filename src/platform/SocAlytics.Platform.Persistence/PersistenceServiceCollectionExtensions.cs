@@ -16,6 +16,8 @@ public static class PersistenceServiceCollectionExtensions
 
         services.TryAddSingleton(sp => new BootstrapConnectionSource(sp.GetRequiredService<NpgsqlDataSource>()));
         services.TryAddSingleton(sp => MigrationCatalog.Create(sp.GetServices<IMigrationContributor>()));
+        services.TryAddSingleton<IMigrationRunner>(sp => new MigrationRunner(
+            sp.GetRequiredService<BootstrapConnectionSource>(), sp.GetRequiredService<MigrationCatalog>()));
 
         return services;
     }
