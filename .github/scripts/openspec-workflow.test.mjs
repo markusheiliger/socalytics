@@ -170,6 +170,8 @@ const toolchainSource = readText(new URL('shared/repository-toolchain.md', workf
 const verificationSource = readText(new URL('verification.yml', workflowsDirectory));
 const setupOpenSpec = readText(new URL('../actions/setup-openspec/action.yml', workflowsDirectory));
 const setupToolchain = readText(new URL('../actions/setup-toolchain/action.yml', workflowsDirectory));
+const runVerification = readText(new URL('../actions/run-verification/action.yml', workflowsDirectory));
+const verifyScript = readText(new URL('../actions/run-verification/verify.sh', workflowsDirectory));
 
 test('keeps the openspec-* workflows and scripts free of repository specifics', () => {
   const generic = [
@@ -199,7 +201,7 @@ test('installs tooling only through the shared composite actions', () => {
   assert.match(workflow, /uses: \.\/\.github\/actions\/setup-openspec/);
   assert.match(agentSource, /uses: \.\/\.github\/actions\/setup-openspec/);
   assert.match(toolchainSource, /uses: \.\/\.github\/actions\/setup-toolchain/);
-  assert.match(verificationSource, /uses: \.\/\.github\/actions\/setup-toolchain/);
+  assert.match(runVerification, /uses: \.\/\.github\/actions\/setup-toolchain/);
   const copilotSetup = readText(new URL('copilot-setup-steps.yml', workflowsDirectory));
   assert.match(copilotSetup, /uses: \.\/\.github\/actions\/setup-openspec/);
   assert.match(copilotSetup, /uses: \.\/\.github\/actions\/setup-toolchain/);
@@ -221,4 +223,20 @@ test('keeps the repository verification workflow on the orchestrator contract', 
   assert.equal((verificationSource.match(/persist-credentials: false/g) ?? []).length, 2);
   assert.match(verificationSource, /name: openspec-verification-\$\{\{ inputs\.change \}\}/);
   assert.match(verificationSource, /openspec-verification\/verification\.txt/);
+});
+
+test('defines the repository verification once and runs it for checkpoints and the agent tool', () => {
+  assert.match(verificationSource, /uses: \.\/\.github\/actions\/run-verification\n {8}with:\n {10}path: checkpoint\n/);
+  assert.doesNotMatch(verificationSource, /dotnet|src\/platform/, 'verification.yml must delegate to the run-verification action');
+  assert.match(runVerification, /run: bash "\$GITHUB_ACTION_PATH\/verify\.sh" scope/);
+  assert.match(runVerification, /run: bash "\$GITHUB_ACTION_PATH\/verify\.sh" test/);
+  assert.match(verifyScript, /dotnet "\$\{args\[@\]\}"/);
+  assert.match(verifyScript, /dotnet-test-summary\.mjs/);
+  // The agent tool runs a copy of main's script taken before the pull request branch is checked out.
+  assert.match(toolchainSource, /cp -r \.github\/actions\/run-verification \/tmp\/openspec-verification-tools/);
+  assert.match(toolchainSource, /bash \/tmp\/openspec-verification-tools\/verify\.sh test/);
+  assert.doesNotMatch(toolchainSource, /SocAlytics\.Platform\.slnx|dotnet "\$\{args|\$GITHUB_WORKSPACE\/\.github/);
+  const pre = agentLock.indexOf('Keep a trusted copy of the verification script');
+  const checkout = agentLock.indexOf('Check out the pull request branch at the dispatched commit');
+  assert.ok(pre > 0 && checkout > pre, 'the trusted copy must be taken before the pull request branch is checked out');
 });

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { summarizeTestLog } from './dotnet-test-summary.mjs';
+import { summarizeTestLog } from '../actions/run-verification/dotnet-test-summary.mjs';
 
 const DOTNET_TEST_FAILURE_LOG = [
   'Passed!  - Failed:     0, Passed:    31, Skipped:     0, Total:    31, Duration: 36 s - SocAlytics.Platform.Persistence.Tests.dll (net10.0)',

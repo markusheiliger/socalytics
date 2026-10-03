@@ -491,15 +491,23 @@ provides:
 | `.github/workflows/verification.yml` | Reusable workflow (`workflow_call`) with the inputs `change`, `sha` (checkpoint), and `baseline` (head before the operation started). It decides what is relevant, fails when verification fails, and uploads the artifact `openspec-verification-<change>` with `verification.txt` (agent feedback, most important lines first) and optionally `log.txt`. It gets a read-only token and no secrets. A repository without tests provides one that succeeds. |
 | `.github/workflows/shared/repository-toolchain.md` | gh-aw shared component that `openspec-agent.md` always imports. It may add `network` domains, `pre-agent-steps`, and an mcp-script named `run_verification`. A repository without extra tooling keeps it with empty frontmatter. Optional imports (`path?`) are not supported by gh-aw v0.89.21. |
 | `.github/actions/setup-toolchain/action.yml` | Composite action that installs the repository toolchain; the single place for its versions. |
+| `.github/actions/run-verification/` | Composite action with `verify.sh`, the single definition of the repository verification. `verification.yml` uses the action; the agent's `run_verification` tool runs the same `verify.sh`. |
 
-This repository's verification runs the platform tests: it checks out the
-trusted tooling from `main` and the checkpoint into `checkpoint/`, skips when
-nothing under `src/platform/` changed since `baseline`, installs the toolchain
-(.NET from the checkpoint's `src/platform/global.json`, plus Node.js), runs
-`dotnet test src/platform/SocAlytics.Platform.slnx` with Testcontainers, and
-writes `verification.txt` with `.github/scripts/dotnet-test-summary.mjs`: build
-errors, then each failed test with its error message, the repository's own
-stack frames, and test output.
+This repository's verification runs the platform tests. `verification.yml`
+checks out the trusted tooling from `main` and the checkpoint into
+`checkpoint/`, then calls the `run-verification` action. Its `verify.sh`:
+
+- `scope`: skips when nothing under `src/platform/` changed since `baseline`;
+- `test`: runs `dotnet test src/platform/SocAlytics.Platform.slnx` with
+  Testcontainers and writes `verification.txt` with `dotnet-test-summary.mjs`
+  (build errors, then each failed test with its error message, the
+  repository's own stack frames, and test output).
+
+Between the two, the action installs the toolchain with `setup-toolchain`
+(.NET from the checkpoint's `src/platform/global.json`, plus Node.js). The
+agent's `run_verification` tool runs `verify.sh test` against the agent's
+working tree from a copy of `main`'s action directory, taken before the pull
+request branch is checked out, so agent edits cannot change the command.
 
 Installations are shared through composite actions, the only place their
 versions are pinned:

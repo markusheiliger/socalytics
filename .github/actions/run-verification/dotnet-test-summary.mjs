@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Repository-specific: condenses a `dotnet test` log into the feedback an OpenSpec agent needs to
-// fix a failure. Used by .github/workflows/verification.yml to write verification.txt.
+// fix a failure. verify.sh in this action uses it to write verification.txt.
 //
-// Usage: node .github/scripts/dotnet-test-summary.mjs <dotnet-test.log> <verification.txt>
+// Usage: node dotnet-test-summary.mjs <dotnet-test.log> <verification.txt>
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -66,7 +66,7 @@ export function summarizeTestLog(text, limit = MAX_SUMMARY) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [logPath, outPath] = process.argv.slice(2);
   if (!logPath || !outPath) {
-    console.error('Usage: node .github/scripts/dotnet-test-summary.mjs <dotnet-test.log> <verification.txt>');
+    console.error('Usage: node dotnet-test-summary.mjs <dotnet-test.log> <verification.txt>');
     process.exit(2);
   }
   writeFileSync(outPath, `${summarizeTestLog(readFileSync(logPath, 'utf8'))}\n`);

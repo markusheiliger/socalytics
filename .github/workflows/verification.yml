@@ -34,11 +34,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Prepare the result directory
-        run: |
-          echo "OUT=$RUNNER_TEMP/openspec-verification" >> "$GITHUB_ENV"
-          mkdir -p "$RUNNER_TEMP/openspec-verification"
-
       - name: Check out the trusted repository tooling
         uses: actions/checkout@v5
         with:
@@ -53,45 +48,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Decide whether the checkpoint changes the platform
-        id: scope
-        env:
-          SHA: ${{ inputs.sha }}
-          BASELINE: ${{ inputs.baseline }}
-        run: |
-          if [[ -n "$BASELINE" ]] && git -C checkpoint cat-file -e "$BASELINE^{commit}" 2>/dev/null \
-            && [[ -z "$(git -C checkpoint diff --name-only "$BASELINE" "$SHA" -- src/platform/)" ]]; then
-            echo "Skipped: the checkpoint does not change src/platform/." > "$OUT/verification.txt"
-            echo "relevant=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "relevant=true" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Set up the repository toolchain
-        if: ${{ steps.scope.outputs.relevant == 'true' }}
-        uses: ./.github/actions/setup-toolchain
+      - name: Verify the checkpoint
+        uses: ./.github/actions/run-verification
         with:
-          global-json-file: checkpoint/src/platform/global.json
-
-      - name: Run the platform tests with Testcontainers
-        id: tests
-        if: ${{ steps.scope.outputs.relevant == 'true' }}
-        working-directory: checkpoint
-        run: |
-          set -o pipefail
-          dotnet test src/platform/SocAlytics.Platform.slnx --nologo --blame-hang-timeout 10m 2>&1 | tee "$OUT/log.txt"
-
-      - name: Summarize passing platform tests
-        if: ${{ success() && steps.scope.outputs.relevant == 'true' }}
-        run: |
-          {
-            echo "All platform tests passed."
-            grep -E '^\s*Passed!' "$OUT/log.txt" | sed -E 's/^\s+//' || true
-          } > "$OUT/verification.txt"
-
-      - name: Summarize failing platform tests
-        if: ${{ failure() && steps.tests.conclusion == 'failure' }}
-        run: node .github/scripts/dotnet-test-summary.mjs "$OUT/log.txt" "$OUT/verification.txt"
+          path: checkpoint
+          sha: ${{ inputs.sha }}
+          baseline: ${{ inputs.baseline }}
+          output: ${{ runner.temp }}/openspec-verification
 
       - name: Upload the verification result
         if: ${{ always() }}
