@@ -67,8 +67,8 @@ public sealed class ModuleMigrationTests(PostgresFixture postgres) : IClassFixtu
             "WHERE attrelid = 'socalytics_migrations.history'::regclass AND attnum > 0 AND NOT attisdropped ORDER BY attnum");
         columns.ShouldBe(
         [
-            "module:text:True", "sequence:integer:True", "script_identity:text:True", "checksum:text:True",
-            "applied_at:timestamp with time zone:True",
+            "module:text:true", "sequence:integer:true", "script_identity:text:true", "checksum:text:true",
+            "applied_at:timestamp with time zone:true",
         ]);
 
         const string productSchemas = "n.nspname NOT LIKE 'pg\\_%' AND n.nspname <> 'information_schema'";
