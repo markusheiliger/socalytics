@@ -1,8 +1,8 @@
 name: Set up the repository toolchain
 description: >-
   Repository-specific build and test toolchain: the .NET SDK pinned by the platform global.json and
-  Node.js for the repository's own scripts. Used by the verification workflow, the OpenSpec agent's
-  repository import, and the Copilot setup steps.
+  Node.js for the repository's own scripts. Used by the verification workflow and the OpenSpec
+  agent's repository import.
 inputs:
   global-json-file:
     description: Path to the platform global.json that pins the .NET SDK

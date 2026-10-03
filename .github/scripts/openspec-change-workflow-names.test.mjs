@@ -60,7 +60,7 @@ test('repository workflows expose useful names, scoped Git auth, and the safe DA
   const [setup, orchestrator, source, lock] = files.map((content) => content.replaceAll('\r\n', '\n'));
 
   assert.match(setup, /copilot-setup-steps:\n    name: Prepare the Copilot coding agent environment/);
-  assert.match(setup, /uses: \.\/\.github\/actions\/setup-openspec/);
+  assert.match(setup, /@fission-ai\/openspec@1\.13\.0/);
   assert.match(setup, /markdownlint-cli2@0\.23\.3/);
   assert.match(setup, /markdown-link-check@3\.15\.0/);
   assert.match(setup, /markdownlint-cli2 --version/);

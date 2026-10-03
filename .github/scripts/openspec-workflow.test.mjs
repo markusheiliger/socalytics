@@ -184,12 +184,13 @@ test('keeps the openspec-* workflows and scripts free of repository specifics', 
   }
 });
 
+// copilot-setup-steps.yml is owned by OpenSpec and stays untouched, so it is not a consumer.
 test('installs tooling only through the shared composite actions', () => {
   assert.match(setupOpenSpec, /node-version: 24/);
   assert.match(setupOpenSpec, /npm install --global @fission-ai\/openspec@\d+\.\d+\.\d+/);
   assert.match(repositoryToolchain, /uses: actions\/setup-dotnet@/);
   const consumers = [
-    ...readdirSync(workflowsDirectory).filter((name) => /^(openspec-.*\.(yml|md)|verification\.yml|copilot-setup-steps\.yml)$/.test(name) && !name.endsWith('.lock.yml')),
+    ...readdirSync(workflowsDirectory).filter((name) => /^(openspec-.*\.(yml|md)|verification\.yml)$/.test(name) && !name.endsWith('.lock.yml')),
     'shared/repository-toolchain.md',
   ];
   for (const name of consumers) {

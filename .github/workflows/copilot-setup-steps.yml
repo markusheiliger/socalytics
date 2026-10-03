@@ -26,22 +26,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      # Installations are shared with the OpenSpec and verification workflows via composite actions.
-      - name: Set up Node.js and the OpenSpec CLI
-        uses: ./.github/actions/setup-openspec
-
-      - name: Set up the repository toolchain
-        uses: ./.github/actions/repository-toolchain
-
-      - name: Install the Markdown tooling
+      - name: Install repository tooling
         run: >-
           npm install --global
+          @fission-ai/openspec@1.13.0
           markdownlint-cli2@0.23.3
           markdown-link-check@3.15.0
 
       - name: Verify repository tooling
         run: |
           openspec --version
-          dotnet --version
           markdownlint-cli2 --version
           markdown-link-check --version
