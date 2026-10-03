@@ -19,6 +19,7 @@ internal sealed class MigrationRunner(PersistenceDataSource source, MigrationCat
             try
             {
                 await MigrationJournal.EnsureAsync(connection, cancellationToken).ConfigureAwait(false);
+                await RoleBootstrap.EnsureAsync(connection, cancellationToken).ConfigureAwait(false);
                 applied = await MigrationJournal.ReadAsync(connection, cancellationToken).ConfigureAwait(false);
                 Preflight(applied);
                 Apply(applied);
