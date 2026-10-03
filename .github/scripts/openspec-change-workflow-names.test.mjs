@@ -61,8 +61,6 @@ test('repository workflows expose useful names, scoped Git auth, and the safe DA
 
   assert.match(setup, /copilot-setup-steps:\n    name: Prepare the Copilot coding agent environment/);
   assert.match(setup, /uses: \.\/\.github\/actions\/setup-openspec/);
-  assert.match(setup, /markdownlint-cli2@0\.23\.3/);
-  assert.match(setup, /markdown-link-check@3\.15\.0/);
   assert.match(setup, /markdownlint-cli2 --version/);
   assert.match(setup, /markdown-link-check --version/);
   assert.match(orchestrator, /observe:\n    name: Read current state/);

@@ -506,7 +506,7 @@ versions are pinned:
 
 | Action | Installs | Used by |
 | --- | --- | --- |
-| `.github/actions/setup-openspec` (generic) | Node.js 24 and, unless `cli: false`, the pinned OpenSpec CLI | every `openspec-*` workflow and `copilot-setup-steps.yml` |
+| `.github/actions/setup-openspec` (generic) | Node.js 24 and, unless `cli: false`, the pinned OpenSpec CLI with `markdownlint-cli2` and `markdown-link-check`, which keep the Markdown that OpenSpec writes valid | every `openspec-*` workflow and `copilot-setup-steps.yml` |
 | `.github/actions/setup-toolchain` | .NET from `global.json` and Node.js 24 | `verification.yml`, `shared/repository-toolchain.md`, and `copilot-setup-steps.yml` |
 
 In the agent job, the imported pre-agent steps run before the pull request

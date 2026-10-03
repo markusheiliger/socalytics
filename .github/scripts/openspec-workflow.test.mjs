@@ -186,7 +186,7 @@ test('keeps the openspec-* workflows and scripts free of repository specifics', 
 
 test('installs tooling only through the shared composite actions', () => {
   assert.match(setupOpenSpec, /node-version: 24/);
-  assert.match(setupOpenSpec, /npm install --global @fission-ai\/openspec@\d+\.\d+\.\d+/);
+  assert.match(setupOpenSpec, /npm install --global\n\s+@fission-ai\/openspec@\d+\.\d+\.\d+\n\s+markdownlint-cli2@\d+\.\d+\.\d+\n\s+markdown-link-check@\d+\.\d+\.\d+\n/);
   assert.match(setupToolchain, /uses: actions\/setup-dotnet@/);
   const consumers = [
     ...readdirSync(workflowsDirectory).filter((name) => /^(openspec-.*\.(yml|md)|verification\.yml|copilot-setup-steps\.yml)$/.test(name) && !name.endsWith('.lock.yml')),
@@ -194,7 +194,7 @@ test('installs tooling only through the shared composite actions', () => {
   ];
   for (const name of consumers) {
     const source = readText(new URL(name, workflowsDirectory));
-    assert.doesNotMatch(source, /actions\/setup-node@|actions\/setup-dotnet@|@fission-ai\/openspec@/, `${name} must use the composite actions`);
+    assert.doesNotMatch(source, /actions\/setup-node@|actions\/setup-dotnet@|@fission-ai\/openspec@|markdownlint-cli2@|markdown-link-check@/, `${name} must use the composite actions`);
   }
   assert.match(workflow, /uses: \.\/\.github\/actions\/setup-openspec/);
   assert.match(agentSource, /uses: \.\/\.github\/actions\/setup-openspec/);

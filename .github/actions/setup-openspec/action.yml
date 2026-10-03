@@ -1,10 +1,11 @@
 name: Set up OpenSpec
 description: >-
   Generic OpenSpec tooling for the openspec-* workflows: Node.js and, optionally, the pinned
-  OpenSpec CLI. This is the only place that pins their versions.
+  OpenSpec CLI with the Markdown linters that keep the Markdown files OpenSpec writes valid.
+  This is the only place that pins their versions.
 inputs:
   cli:
-    description: Install the OpenSpec CLI globally (set to "false" for jobs that only run Node scripts)
+    description: Install the OpenSpec CLI and Markdown linters globally (set to "false" for jobs that only run Node scripts)
     required: false
     default: "true"
 runs:
@@ -15,7 +16,11 @@ runs:
       with:
         node-version: 24
 
-    - name: Install the OpenSpec CLI
+    - name: Install the OpenSpec CLI and Markdown linters
       if: ${{ inputs.cli == 'true' }}
       shell: bash
-      run: npm install --global @fission-ai/openspec@1.13.0
+      run: >-
+        npm install --global
+        @fission-ai/openspec@1.13.0
+        markdownlint-cli2@0.23.3
+        markdown-link-check@3.15.0
