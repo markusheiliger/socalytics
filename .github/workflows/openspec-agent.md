@@ -90,6 +90,26 @@ safe-outputs:
         - README.md
         - AGENTS.md
         - Directory.Packages.props
+  jobs:
+    wake-controller:
+      name: Wake the OpenSpec orchestrator
+      description: Starts the OpenSpec orchestrator so it validates your checkpoint. Call it exactly once, last.
+      runs-on: ubuntu-latest
+      needs: safe_outputs
+      permissions:
+        actions: write
+      inputs:
+        note:
+          description: Optional one-line note for the workflow log
+          required: false
+          type: string
+      steps:
+        - name: Start the OpenSpec orchestrator
+          env:
+            GH_TOKEN: ${{ github.token }}
+            PR: ${{ github.event.inputs.pr }}
+          run: |
+            gh workflow run openspec-orchestrator.yml --repo "$GITHUB_REPOSITORY" --ref main -f reason="agent finished on #$PR"
   noop:
     report-as-issue: false
   missing-tool:
@@ -108,5 +128,6 @@ dispatched commit.
 
 You cannot push and the sandbox has no Docker. If the `run_verification` tool
 is available, use it for verification that needs Docker. Finish by calling
-`push_to_pull_request_branch` once after your final checkpoint commit exists.
-The orchestrator reconciles the result when this workflow reaches a terminal state.
+`push_to_pull_request_branch` once after your final checkpoint commit exists,
+then `wake_controller` once. The controller inspects the completed safe-output
+job, so a rejected checkpoint is terminal even while this workflow is finishing.

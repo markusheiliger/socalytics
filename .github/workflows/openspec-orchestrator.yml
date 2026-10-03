@@ -15,8 +15,6 @@ run-name: >-
     || github.event_name == 'issue_comment'
       && format('OpenSpec orchestrator · command on #{0} by @{1}', github.event.issue.number, github.actor)
     || github.event_name == 'push' && 'OpenSpec orchestrator · OpenSpec changes updated on main'
-    || github.event_name == 'workflow_run'
-      && format('OpenSpec orchestrator · agent run #{0} completed', github.event.workflow_run.id)
     || github.event_name == 'schedule' && 'OpenSpec orchestrator · watchdog'
     || inputs.dry_run && 'OpenSpec orchestrator · manual (dry run)'
     || inputs.reason && format('OpenSpec orchestrator · {0}', inputs.reason)
@@ -34,9 +32,6 @@ on:
     branches: [main]
     paths:
       - "openspec/changes/**"
-  workflow_run:
-    workflows: ["OpenSpec agent"]
-    types: [completed]
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:

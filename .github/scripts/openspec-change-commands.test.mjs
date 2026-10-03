@@ -83,17 +83,5 @@ test('classifies only relevant events', () => {
   for (const name of ['push', 'schedule', 'workflow_dispatch']) {
     assert.equal(classifyEvent(name, {}).relevant, true);
   }
-  assert.equal(classifyEvent('workflow_run', {
-    action: 'completed',
-    workflow_run: { id: 42, name: 'OpenSpec agent', conclusion: 'failure' },
-  }).relevant, true);
-  assert.equal(classifyEvent('workflow_run', {
-    action: 'completed',
-    workflow_run: { id: 43, name: 'Other workflow', conclusion: 'success' },
-  }).relevant, false);
-  assert.equal(classifyEvent('workflow_run', {
-    action: 'requested',
-    workflow_run: { id: 44, name: 'OpenSpec agent', conclusion: null },
-  }).relevant, false);
   assert.equal(classifyEvent('release', {}).relevant, false);
 });

@@ -20,10 +20,11 @@ This is repository tooling, not product CI. OpenSpec files remain authoritative.
    then one each for verify, sync, and archive. Every session creates a local
    checkpoint commit; the `actions` runtime publishes it only after safe-output
    checks pass.
-5. Each checkpoint push and terminal agent-workflow completion wakes the
-   workflow, which validates the result and starts the next session. When it
-   needs a human, it asks on the pull request
-   and waits.
+5. After safe outputs finish, the agent workflow explicitly wakes the
+   controller, which validates the result and starts the next session. Rejected
+   safe outputs are terminal failures even while the enclosing agent workflow
+   is still finishing. When it needs a human, it asks on the pull request and
+   waits.
 6. After the archive is validated on the branch, a human marks the pull request
    ready, reviews it, and merges it. The archive reaches `main` with the merge,
    and the workflow closes the issue as completed.
@@ -193,9 +194,8 @@ one agent session per change, and exits. Nothing polls.
 | `pull_request_target` (closed) | A processing pull request was merged or closed. |
 | `issue_comment` (created) | A `/openspec` command on a pull request. |
 | `push` to `main` under `openspec/changes/**` | Archives on `main` unblock dependents and complete finalization. |
-| `workflow_run` (completed `OpenSpec agent`) | Reconciles terminal sessions, including rejected or failed safe outputs that pushed no checkpoint. |
-| `schedule` (nominally every 15 minutes) | Best-effort watchdog for missed events; GitHub may delay scheduled runs. |
-| `workflow_dispatch` | Manual run; `dry_run` only reports what would happen. |
+| `workflow_dispatch` | Manual runs and agent-requested reconciliation after safe outputs; `dry_run` only reports what would happen. |
+| `schedule` (nominally every 15 minutes) | Best-effort watchdog for missed wakes; GitHub may delay scheduled runs. |
 
 Events only wake the workflow. Every run reconciles every change from
 authoritative state, so no event authorizes a transition by itself. Relevant
@@ -311,7 +311,7 @@ Sessions run on one of two runtimes, selected by the repository variable
 | Credentials | `GITHUB_TOKEN` with `copilot-requests: write`; no personal access token | `COPILOT_AGENT_TOKEN` fine-grained personal access token |
 | Pushing | The agent commits locally; gh-aw's push job publishes the commits only to the dispatched pull request, refusing `.github/` and protected files | The agent pushes itself |
 | Docker | Not in the sandbox. The repository's optional host-side `run_verification` tool, off unless `OPENSPEC_AGENT_HOST_TESTS=true` | Inside the session |
-| Waking the controller | The completed `OpenSpec agent` workflow triggers reconciliation; a successful push may reconcile earlier through `pull_request_target` | The push's `pull_request_target` event; the watchdog remains a fallback |
+| Waking the controller | The agent's final `wake_controller` call starts reconciliation after safe outputs; the controller recognizes a failed safe-output job before the enclosing workflow finishes | The push's `pull_request_target` event; the watchdog remains a fallback |
 
 The `actions` runtime reads everything except the pull request number and
 dispatch id from the pull request's lifecycle state in a trusted step, so it
@@ -430,9 +430,9 @@ starts over on a new branch.
   failure gate when several match.
 - If starting a session fails, a failure gate shows the error;
   `/openspec retry` tries again.
-- A terminal agentic run always triggers reconciliation, including crashes and
-  safe-output rejection without a checkpoint push. The scheduled watchdog is a
-  best-effort fallback for missed events.
+- The explicit wake reconciles safe-output rejection without a checkpoint push.
+  An agentic run that crashes before requesting the wake is recovered by the
+  best-effort scheduled watchdog.
 - Commits pushed while no session is running are recorded in the change log and
   become the starting point of the next step.
 - Closing the pull request without merging stops processing and marks the issue

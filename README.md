@@ -102,9 +102,12 @@ implements each enqueued change on its own workflow-created `openspec/<change>`
 branch and draft pull request. It starts one fresh agent session per numbered
 apply task, then one each for verify, sync, and archive. Sessions run in the
 `openspec-agent` agentic workflow by default, or as Copilot cloud agent sessions
-when the repository variable `OPENSPEC_AGENT_RUNTIME` is `copilot`. Every agent session must create a checkpoint commit; the `actions` runtime
-publishes it only after safe-output checks pass. Checkpoint pushes and terminal
-agent-workflow completion both wake reconciliation; the workflow never polls. Processing state lives in the pull request's
+when the repository variable `OPENSPEC_AGENT_RUNTIME` is `copilot`. Every
+agent session must create a checkpoint commit; the `actions` runtime publishes
+it only after safe-output checks pass and then explicitly wakes the controller.
+The controller treats a rejected safe-output job as terminal while the enclosing
+agent workflow finishes; the workflow never polls. Processing state lives in the
+pull request's
 `OpenSpec lifecycle` check run, and the pull request comments form a numbered,
 human-readable change log. When the workflow needs a human, it asks on the pull
 request and continues after `/openspec approve`, `/openspec retry`,
