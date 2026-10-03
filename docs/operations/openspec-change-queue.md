@@ -488,26 +488,30 @@ provides:
 
 | File | Contract |
 | --- | --- |
-| `.github/workflows/verification.yml` | Reusable workflow (`workflow_call`) with the inputs `change`, `sha` (checkpoint), and `baseline` (head before the operation started). It decides what is relevant, fails when verification fails, and uploads the artifact `openspec-verification-<change>` with `verification.txt` (agent feedback, most important lines first) and optionally `log.txt`. It gets a read-only token and no secrets. A repository without tests provides one that succeeds. |
+| `.github/workflows/verification.yml` | The repository's test automation runner: a reusable workflow (`workflow_call`) with the inputs `change`, `sha` (checkpoint), and `baseline` (head before the operation started). Its steps and jobs show what is tested; it decides what is relevant, fails when verification fails, and uploads the artifact `openspec-verification-<change>` with `verification.txt` (agent feedback, most important lines first) and optionally `log.txt`. It gets a read-only token and no secrets. A repository without tests provides one that succeeds. |
 | `.github/workflows/shared/repository-toolchain.md` | gh-aw shared component that `openspec-agent.md` always imports. It may add `network` domains, `pre-agent-steps`, and an mcp-script named `run_verification`. A repository without extra tooling keeps it with empty frontmatter. Optional imports (`path?`) are not supported by gh-aw v0.89.21. |
 | `.github/actions/setup-toolchain/action.yml` | Composite action that installs the repository toolchain; the single place for its versions. |
-| `.github/actions/run-verification/` | Composite action with `verify.sh`, the single definition of the repository verification. `verification.yml` uses the action; the agent's `run_verification` tool runs the same `verify.sh`. |
+| `.github/actions/dotnet-test/` | Dedicated test runner action for .NET: runs `dotnet test` for the given `project` in `working-directory` (optional `filter`), writes `log.txt` and `verification.txt` to `results`, and fails when the tests fail. Generic; further technologies get their own runner actions. |
 
-This repository's verification runs the platform tests. `verification.yml`
-checks out the trusted tooling from `main` and the checkpoint into
-`checkpoint/`, then calls the `run-verification` action. Its `verify.sh`:
+This repository's `verification.yml` has one job, **Run platform tests**, with
+these steps:
 
-- `scope`: skips when nothing under `src/platform/` changed since `baseline`;
-- `test`: runs `dotnet test src/platform/SocAlytics.Platform.slnx` with
-  Testcontainers and writes `verification.txt` with `dotnet-test-summary.mjs`
-  (build errors, then each failed test with its error message, the
-  repository's own stack frames, and test output).
+1. Check out the trusted tooling from `main` and the checkpoint into
+   `checkpoint/`.
+2. **Check whether the checkpoint changes the platform:** `git diff` between
+   `baseline` and `sha` on `src/platform/`; when nothing changed, it writes
+   "Skipped …" to `verification.txt` and skips the remaining steps.
+3. **Set up the repository toolchain** with `setup-toolchain` (.NET from the
+   checkpoint's `src/platform/global.json`, plus Node.js).
+4. **Run the platform tests with Testcontainers** with `dotnet-test` on
+   `src/platform/SocAlytics.Platform.slnx`. On failure, the runner's
+   `summarize.mjs` condenses the log: build errors, then each failed test with
+   its error message, the repository's own stack frames, and test output.
+5. Upload the result artifact.
 
-Between the two, the action installs the toolchain with `setup-toolchain`
-(.NET from the checkpoint's `src/platform/global.json`, plus Node.js). The
-agent's `run_verification` tool runs `verify.sh test` against the agent's
-working tree from a copy of `main`'s action directory, taken before the pull
-request branch is checked out, so agent edits cannot change the command.
+The agent's optional `run_verification` tool cannot use actions, so it runs
+`dotnet test` on the same solution itself, on the runner host with a minimal
+environment.
 
 Installations are shared through composite actions, the only place their
 versions are pinned:

@@ -1,7 +1,9 @@
 name: Verification
 
-# Repository-specific checkpoint verification. The generic OpenSpec orchestrator calls this
-# reusable workflow for every complete apply checkpoint, with a read-only token and no secrets.
+# This repository's test automation runner. The generic OpenSpec orchestrator calls this reusable
+# workflow for every complete apply checkpoint, with a read-only token and no secrets. Each test
+# suite is a visible step or job here; dedicated runner actions (for example dotnet-test) only
+# execute one technology's tests.
 #
 # Contract with the orchestrator:
 # - inputs: change, sha (checkpoint commit), baseline (commit before the operation started);
@@ -34,6 +36,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Prepare the results directory
+        run: |
+          echo "RESULTS=$RUNNER_TEMP/openspec-verification" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/openspec-verification"
+
       - name: Check out the trusted repository tooling
         uses: actions/checkout@v5
         with:
@@ -48,13 +55,34 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify the checkpoint
-        uses: ./.github/actions/run-verification
+      - name: Check whether the checkpoint changes the platform
+        id: scope
+        working-directory: checkpoint
+        env:
+          SHA: ${{ inputs.sha }}
+          BASELINE: ${{ inputs.baseline }}
+        run: |
+          if [[ -n "$BASELINE" ]] && git cat-file -e "$BASELINE^{commit}" 2>/dev/null \
+            && [[ -z "$(git diff --name-only "$BASELINE" "$SHA" -- src/platform/)" ]]; then
+            echo "Skipped: the checkpoint does not change src/platform/." > "$RESULTS/verification.txt"
+            echo "platform=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "platform=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up the repository toolchain
+        if: ${{ steps.scope.outputs.platform == 'true' }}
+        uses: ./.github/actions/setup-toolchain
         with:
-          path: checkpoint
-          sha: ${{ inputs.sha }}
-          baseline: ${{ inputs.baseline }}
-          output: ${{ runner.temp }}/openspec-verification
+          global-json-file: checkpoint/src/platform/global.json
+
+      - name: Run the platform tests with Testcontainers
+        if: ${{ steps.scope.outputs.platform == 'true' }}
+        uses: ./.github/actions/dotnet-test
+        with:
+          working-directory: checkpoint
+          project: src/platform/SocAlytics.Platform.slnx
+          results: ${{ runner.temp }}/openspec-verification
 
       - name: Upload the verification result
         if: ${{ always() }}
