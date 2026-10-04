@@ -3,6 +3,7 @@
 		<PackageReference Include="Aspire.Npgsql" />
 		<PackageReference Include="Dapper" />
 		<PackageReference Include="dbup-postgresql" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
 		<PackageReference Include="Npgsql" />
 	</ItemGroup>
 </Project>
