@@ -18,6 +18,12 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\SocAlytics.Platform.Persistence\SocAlytics.Platform.Persistence.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.AgentOrchestration\SocAlytics.Platform.AgentOrchestration.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Analysis\SocAlytics.Platform.Analysis.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Club\SocAlytics.Platform.Club.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.IdentityAccess\SocAlytics.Platform.IdentityAccess.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Recordings\SocAlytics.Platform.Recordings.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Registry\SocAlytics.Platform.Registry.csproj" />
   </ItemGroup>
 
   <ItemGroup>

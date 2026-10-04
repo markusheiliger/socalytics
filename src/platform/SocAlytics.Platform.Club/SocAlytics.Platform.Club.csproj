@@ -2,4 +2,12 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
 	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\SocAlytics.Platform.Persistence\SocAlytics.Platform.Persistence.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="Migrations\0001_initial.sql" LogicalName="SocAlytics.Platform.Club.Migrations.0001_initial.sql" />
+	</ItemGroup>
 </Project>
