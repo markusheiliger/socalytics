@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.Testing" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
     <PackageReference Include="Shouldly" />
     <PackageReference Include="xunit.v3" />
@@ -17,6 +18,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\SocAlytics.Platform.AgentOrchestration\SocAlytics.Platform.AgentOrchestration.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" Aliases="PlatformApi" />
     <ProjectReference Include="..\..\SocAlytics.Platform.Analysis\SocAlytics.Platform.Analysis.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Platform.AppHost\SocAlytics.Platform.AppHost.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Platform.Club\SocAlytics.Platform.Club.csproj" />
