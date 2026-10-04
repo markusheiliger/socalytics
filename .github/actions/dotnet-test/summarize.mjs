@@ -9,9 +9,15 @@ import { pathToFileURL } from 'node:url';
 
 export const MAX_SUMMARY = 4000;
 
-function tail(text, lines = 80) {
-  return String(text ?? '').replace(/\x1b\[[0-9;]*m/g, '').split(/\r?\n/).slice(-lines).join('\n').trim();
+// Keeps the end of the log within the limit: when nothing else is recognized, the last lines
+// (where dotnet test reports aborts and exit codes) are the most useful.
+function tail(text, limit) {
+  const value = String(text ?? '').replace(/\x1b\[[0-9;]*m/g, '').trim();
+  return value.length > limit ? `…${value.slice(-(limit - 1))}` : value;
 }
+
+const CRASH_LINE = /Catastrophic failure|Test Run Aborted|test run was aborted|Test host process crashed|crashed with exit code|\[FATAL ERROR\]/i;
+const TEST_RUN_LINE = /^Test run for .*\/([^/]+\.dll)\b/;
 const TEST_RESULT_LINE = /^\s*(Failed|Passed|Skipped) \S+ \[[^\]]*\]\s*$/;
 const MAX_FRAMES_PER_FAILURE = 6;
 const MAX_MESSAGE_LINES = 12;
@@ -56,7 +62,23 @@ export function summarizeTestLog(text, limit = MAX_SUMMARY) {
     sections.push(block.join('\n'));
     index = next - 1;
   }
-  if (sections.length === 0) return tail(text);
+  // A crashed or aborted test host reports no individual failed test, only these lines.
+  let assembly = null;
+  const crashes = new Map();
+  for (const line of lines) {
+    const run = TEST_RUN_LINE.exec(line.trim());
+    if (run) assembly = run[1];
+    if (CRASH_LINE.test(line)) {
+      const key = assembly ?? 'unknown test assembly';
+      if (!crashes.has(key)) crashes.set(key, []);
+      const entry = line.trim().replace(/^\[xUnit\.net [^\]]*\]\s*/, '');
+      if (!crashes.get(key).includes(entry) && crashes.get(key).length < MAX_MESSAGE_LINES) crashes.get(key).push(entry);
+    }
+  }
+  for (const [name, entries] of crashes) {
+    sections.push([`Test run crashed or was aborted: ${name}`, ...entries.map((entry) => `  ${entry}`)].join('\n'));
+  }
+  if (sections.length === 0) return tail(text, limit);
   const results = lines.map((line) => line.trim()).filter((line) => /^(Passed|Failed)!\s/.test(line));
   if (results.length > 0) sections.push(['Test assemblies:', ...results].join('\n'));
   const summary = sections.join('\n\n');

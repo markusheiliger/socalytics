@@ -50,7 +50,34 @@ test('summarizes build errors first, bounds the summary, and falls back to the l
   const bounded = summarizeTestLog(DOTNET_TEST_FAILURE_LOG, 120);
   assert.equal(bounded.length, 120);
   assert.match(bounded, /^Failed test: .*…$/s);
-  assert.equal(summarizeTestLog('line 1\nline 2\nThe test host crashed'), 'line 1\nline 2\nThe test host crashed');
+  assert.equal(summarizeTestLog('line 1\nline 2\nThe build stopped'), 'line 1\nline 2\nThe build stopped');
+  const long = Array.from({ length: 200 }, (_, index) => `restore and build output line ${index} ${'x'.repeat(60)}`).join('\n');
+  const tailed = summarizeTestLog(`${long}\nTest exited with code 134`, 300);
+  assert.equal(tailed.length, 300);
+  assert.match(tailed, /^…[\s\S]*Test exited with code 134$/);
+});
+
+test('reports a crashed test host with its assembly instead of the build output', () => {
+  const build = Array.from({ length: 120 }, (_, index) => `  Project${index} -> /home/runner/work/x/x/src/Project${index}/bin/Debug/net10.0/Project${index}.dll`);
+  const log = [
+    ...build,
+    'Test run for /home/runner/work/x/x/src/Tests/Persistence.Tests/bin/Debug/net10.0/Persistence.Tests.dll (.NETCoreApp,Version=v10.0)',
+    'Passed!  - Failed:     0, Passed:    45, Skipped:     0, Total:    45, Duration: 1 m 5 s - Persistence.Tests.dll (net10.0)',
+    'Test run for /home/runner/work/x/x/src/Tests/Host.Tests/bin/Debug/net10.0/Host.Tests.dll (.NETCoreApp,Version=v10.0)',
+    'A total of 1 test files matched the specified pattern.',
+    '[xUnit.net 00:05:05.64]     [FATAL ERROR] Xunit.Sdk.TestPipelineException',
+    '[xUnit.net 00:05:05.64] Catastrophic failure: Test process crashed with exit code 1.',
+    'Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 52 ms - Host.Tests.dll (net10.0)',
+  ].join('\n');
+  assert.equal(summarizeTestLog(log), [
+    'Test run crashed or was aborted: Host.Tests.dll',
+    '  [FATAL ERROR] Xunit.Sdk.TestPipelineException',
+    '  Catastrophic failure: Test process crashed with exit code 1.',
+    '',
+    'Test assemblies:',
+    'Passed!  - Failed:     0, Passed:    45, Skipped:     0, Total:    45, Duration: 1 m 5 s - Persistence.Tests.dll (net10.0)',
+    'Passed!  - Failed:     0, Passed:     1, Skipped:     0, Total:     1, Duration: 52 ms - Host.Tests.dll (net10.0)',
+  ].join('\n'));
 });
 
 test('keeps test error messages short and drops embedded stack frames', () => {
