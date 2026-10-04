@@ -30,7 +30,10 @@ public sealed class PlatformHostTests
 
         using var client = app.CreateHttpClient(ApiResourceName);
         await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);
-        await ShouldReturnSuccessAsync(client, "/health", timeout.Token);
+
+        // No database resource is composed yet, so migration-gated readiness stays unavailable.
+        using var healthResponse = await client.GetAsync("/health", timeout.Token);
+        healthResponse.StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
 
         using var openApiResponse = await client.GetAsync("/openapi/v1.json", timeout.Token);
         openApiResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
