@@ -38,15 +38,25 @@ dotnet test src/platform/SocAlytics.Platform.slnx --no-build
 dotnet run --project src/platform/SocAlytics.Platform.AppHost
 ```
 
+Restore, build, and the architecture tests need only the .NET SDK. The host and
+persistence tests and the AppHost start PostgreSQL containers, so they require
+a supported container runtime (for example Docker) that Aspire and
+Testcontainers can reach.
+
 The current executable evidence covers the ASP.NET Core API and Aspire AppHost,
 liveness at `/alive`, readiness at `/health`, the `v1` OpenAPI document at
-`/openapi/v1.json`, six capability composition boundaries, and focused host and
-architecture tests.
+`/openapi/v1.json`, six capability composition boundaries, and a shared
+PostgreSQL persistence foundation (Npgsql, Dapper, and DbUp). The AppHost composes
+one PostgreSQL server and database for the API; the API runs ordered module
+migrations at startup and reports `/health` ready only after they succeed.
+Testcontainers PostgreSQL integration tests prove migration orchestration,
+role-based schema isolation, transactions, and optimistic concurrency, and
+host and architecture tests cover the rest.
 
-Domain behavior, PostgreSQL persistence with Dapper and DbUp, NATS messaging,
-S3-compatible storage, identity and authentication, client applications,
-Docker support, and production deployment remain deferred. This executable
-host scaffold does not claim production readiness.
+Domain behavior and routes, NATS messaging, S3-compatible storage, identity
+and authentication, client applications, Docker image support, production
+database credentials, backup and recovery, and production deployment remain
+deferred. This executable host does not claim production readiness.
 
 ### OpenSpec
 
