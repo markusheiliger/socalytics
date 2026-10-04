@@ -79,6 +79,8 @@ export function classifyEvent(eventName, payload = {}) {
       return { relevant: true, reason: 'OpenSpec changes updated on the default branch' };
     case 'schedule':
       return { relevant: true, reason: 'watchdog' };
+    case 'workflow_run':
+      return { relevant: true, reason: `agent run ${payload.workflow_run?.id ?? ''} ${payload.workflow_run?.conclusion ?? 'finished'}`.replace('  ', ' ') };
     case 'workflow_dispatch':
       return { relevant: true, reason: 'manual run' };
     default:

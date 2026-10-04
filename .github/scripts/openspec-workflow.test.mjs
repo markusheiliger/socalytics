@@ -54,7 +54,7 @@ const EXPECTED_JOBS = new Map([
 test('names the workflow OpenSpec orchestrator and titles every run', () => {
   assert.match(workflow, /^name: OpenSpec orchestrator$/m);
   assert.match(workflow, /^run-name: >-$/m);
-  for (const title of ['enqueued #', 'merged', 'new commits on', 'command on #', 'watchdog', 'manual (dry run)']) {
+  for (const title of ['enqueued #', 'merged', 'new commits on', 'command on #', 'agent run', 'watchdog', 'manual (dry run)']) {
     assert.ok(workflow.includes(title), `run-name must cover "${title}"`);
   }
 });
@@ -89,6 +89,11 @@ test('keeps downstream jobs running when an upstream matrix job was skipped', ()
     const condition = job.lines.find((line) => line.startsWith('    if: '));
     assert.match(condition ?? '', /^ {4}if: \$\{\{ !cancelled\(\) && needs\.\w+\.result == 'success'/, `job ${job.id} must guard with !cancelled()`);
   }
+});
+
+test('wakes on every completed agent run, not only when the agent calls wake_controller', () => {
+  assert.match(workflow, /\n  workflow_run:\n    workflows: \["OpenSpec agent"\]\n    types: \[completed\]\n/);
+  assert.match(agentSource, /^name: OpenSpec agent$/m);
 });
 
 test('keeps trusted execution, least privilege, and the repository-wide lock', () => {

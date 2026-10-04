@@ -80,8 +80,9 @@ test('classifies only relevant events', () => {
     issue: { number: 21, pull_request: {} },
     comment: { body: 'nice' },
   }).relevant, false);
-  for (const name of ['push', 'schedule', 'workflow_dispatch']) {
+  for (const name of ['push', 'schedule', 'workflow_dispatch', 'workflow_run']) {
     assert.equal(classifyEvent(name, {}).relevant, true);
   }
+  assert.equal(classifyEvent('workflow_run', { workflow_run: { id: 7, conclusion: 'failure' } }).reason, 'agent run 7 failure');
   assert.equal(classifyEvent('release', {}).relevant, false);
 });
