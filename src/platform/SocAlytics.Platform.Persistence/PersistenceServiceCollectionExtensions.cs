@@ -12,7 +12,9 @@ public static class PersistenceServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
-        services.TryAddSingleton(_ => new BootstrapConnectionSource(NpgsqlDataSource.Create(connectionString)));
+        services.TryAddSingleton(_ => new BootstrapConnectionSource(NpgsqlDataSource.Create(connectionString), connectionString));
+        services.TryAddSingleton(sp => new MigrationOrchestrator(
+            sp.GetRequiredService<MigrationCatalog>(), sp.GetRequiredService<BootstrapConnectionSource>()));
         services.TryAddSingleton(new RuntimeDataSource(connectionString));
         services.TryAddSingleton(sp => new MigrationCatalog(sp.GetServices<IMigrationContributor>()));
 
