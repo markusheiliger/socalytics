@@ -67,9 +67,9 @@ public sealed class RoleIsolationTests : IAsyncLifetime
             .ShouldBe("club:club_owner,registry:registry_owner");
         (await AdminAsync<string>("SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'registry.items'::regclass"))
             .ShouldBe("registry_owner");
-        (await AdminAsync<long>("SELECT count(*) FROM pg_roles WHERE rolname LIKE '%\\_owner' OR rolname LIKE '%\\_runtime'"))
+        (await AdminAsync<long>("SELECT count(*) FROM pg_roles WHERE rolname NOT LIKE 'pg\\_%' AND (rolname LIKE '%\\_owner' OR rolname LIKE '%\\_runtime')"))
             .ShouldBe(12);
-        (await AdminAsync<long>("SELECT count(*) FROM pg_roles WHERE (rolname LIKE '%\\_owner' OR rolname LIKE '%\\_runtime') AND (rolcanlogin OR rolsuper OR rolcreaterole OR rolcreatedb)"))
+        (await AdminAsync<long>("SELECT count(*) FROM pg_roles WHERE rolname NOT LIKE 'pg\\_%' AND (rolname LIKE '%\\_owner' OR rolname LIKE '%\\_runtime') AND (rolcanlogin OR rolsuper OR rolcreaterole OR rolcreatedb)"))
             .ShouldBe(0);
     }
 
