@@ -3,7 +3,7 @@
 ## 1. Architecture Decision And Project Setup
 
 - [x] 1.1 **Capabilities: architecture.** Resolve the shared persistence boundary and PostgreSQL owner/runtime-role ADR candidate: add and link an ADR if it meets the repository threshold, otherwise record the rationale in the synchronized architecture narrative; verify Markdown diagnostics and relative links for the delivered architecture artifact.
-- [ ] 1.2 **Capabilities: implementation.** Add centrally managed versions for Aspire PostgreSQL hosting/client integration, Npgsql, Dapper, DbUp PostgreSQL support, and PostgreSQL Testcontainers; add `SocAlytics.Platform.Persistence` and `Tests/SocAlytics.Platform.Persistence.Tests` to `SocAlytics.Platform.slnx`; verify `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore` succeed before adding behavior.
+- [x] 1.2 **Capabilities: implementation.** Add centrally managed versions for Aspire PostgreSQL hosting/client integration, Npgsql, Dapper, DbUp PostgreSQL support, and PostgreSQL Testcontainers; add `SocAlytics.Platform.Persistence` and `Tests/SocAlytics.Platform.Persistence.Tests` to `SocAlytics.Platform.slnx`; verify `dotnet restore src/platform/SocAlytics.Platform.slnx` and `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore` succeed before adding behavior.
 
 ## 2. Shared Persistence Infrastructure
 
