@@ -21,7 +21,7 @@
 ## 4. API And Aspire Composition
 
 - [ ] 4.1 **Capabilities: implementation.** Register shared persistence and all internal module contributors in the API, run orchestration during startup, and gate readiness on successful migrations while preserving sanitized diagnostics and the existing liveness/OpenAPI surface; verify focused API or host tests prove readiness remains unavailable on migration failure and no domain route is introduced.
-- [ ] 4.2 **Capabilities: implementation.** Add one Aspire PostgreSQL server/database resource, reference it from the API, and wait for database availability; update host tests for PostgreSQL health, successful migrations, repeat host startup, all six module registrations, `/alive`, `/health`, and `/openapi/v1.json`; verify `dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests/SocAlytics.Platform.Host.Tests.csproj` passes with a supported container runtime.
+- [ ] 4.2 **Capabilities: implementation.** Add one Aspire PostgreSQL server/database resource, reference it from the API, and wait for database availability; update host tests for PostgreSQL health, successful migrations, repeat host startup, all six module registrations, `/alive`, `/health`, and `/openapi/v1.json`, proving repeat startup as described in design decision 7 (a test that stops or restarts the API removes `OTEL_EXPORTER_OTLP_ENDPOINT` from the API resource and waits for a terminal state, or a second explicitly started API resource proves repeat startup instead); verify `dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests/SocAlytics.Platform.Host.Tests.csproj` passes with a supported container runtime.
 
 ## 5. Architecture And Development Documentation
 
