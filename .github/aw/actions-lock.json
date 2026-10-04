@@ -5,6 +5,11 @@
       "version": "v5",
       "sha": "fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09"
     },
+    "actions/github-script@v8": {
+      "repo": "actions/github-script",
+      "version": "v8",
+      "sha": "ed597411d8f924073f98dfc5c65a23a2325f34cd"
+    },
     "actions/setup-node@v5": {
       "repo": "actions/setup-node",
       "version": "v5",

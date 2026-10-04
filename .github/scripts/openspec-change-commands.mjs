@@ -79,8 +79,9 @@ export function classifyEvent(eventName, payload = {}) {
       return { relevant: true, reason: 'OpenSpec changes updated on the default branch' };
     case 'schedule':
       return { relevant: true, reason: 'watchdog' };
-    case 'workflow_run':
-      return { relevant: true, reason: `agent run ${payload.workflow_run?.id ?? ''} ${payload.workflow_run?.conclusion ?? 'finished'}`.replace('  ', ' ') };
+    case 'repository_dispatch':
+      if (payload.action !== 'openspec-agent-finished') return { relevant: false, reason: `unsupported dispatch ${payload.action}` };
+      return { relevant: true, reason: `agent run ${payload.client_payload?.run_id ?? ''} finished on #${payload.client_payload?.pr ?? '?'}` };
     case 'workflow_dispatch':
       return { relevant: true, reason: 'manual run' };
     default:

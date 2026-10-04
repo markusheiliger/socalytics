@@ -983,17 +983,31 @@ function failedDuringSetup(jobs) {
   return !engine || engine.conclusion === 'skipped';
 }
 
+// Jobs that only report or wake the orchestrator; the wake is sent while they still run.
+const AGENT_RUN_TRAILING_JOBS = new Set(['Report the agent session outcome', 'Wake the OpenSpec orchestrator']);
+
+function sessionStateFromJobs(jobs) {
+  if (failedDuringSetup(jobs)) return 'setup_failed';
+  const conclusions = jobs.map((job) => job.conclusion);
+  if (conclusions.includes('cancelled')) return 'cancelled';
+  if (conclusions.includes('timed_out')) return 'timed_out';
+  if (conclusions.includes('failure')) return 'failed';
+  return 'completed';
+}
+
 export async function readSessionState(ctx, session) {
   if (session.runtime === 'copilot') return (await ctx.client.getAgentTask(session.id)).state;
   const runState = workflowRunState(await ctx.client.getWorkflowRun(session.id));
   if (runState === 'failed') return failedDuringSetup(await ctx.client.listRunJobs(session.id)) ? 'setup_failed' : runState;
   if (!ACTIVE_AGENT_STATES.has(runState)) return runState;
-  // The wake job can run before the enclosing workflow finishes, but publication failure is already terminal.
-  const safeOutput = (await ctx.client.listRunJobs(session.id))
-    .find((job) => job.name === 'Push the checkpoint to the pull request');
-  return safeOutput?.status === 'completed' && safeOutput.conclusion === 'failure'
-    ? 'failed'
-    : runState;
+  // The orchestrator is woken while the run's final jobs still run, so judge the run by its other jobs.
+  const jobs = await ctx.client.listRunJobs(session.id);
+  const work = jobs.filter((job) => !AGENT_RUN_TRAILING_JOBS.has(job.name));
+  const agent = work.find((job) => job.name === AGENT_JOB);
+  if (agent && work.every((job) => job.status === 'completed')) return sessionStateFromJobs(work);
+  // Publication failure is terminal even before the remaining jobs finish.
+  const safeOutput = work.find((job) => job.name === 'Push the checkpoint to the pull request');
+  return safeOutput?.status === 'completed' && safeOutput.conclusion === 'failure' ? 'failed' : runState;
 }
 
 async function findDispatchedSessions(ctx, state) {

@@ -80,6 +80,23 @@ pre-agent-steps:
       git config user.name "github-actions[bot]"
       git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
       git log -1 --oneline
+jobs:
+  conclusion:
+    # The conclusion job runs after every agent run that got past activation, so this wake also
+    # covers runs where the agent never started or never called wake_controller.
+    pre-steps:
+      - name: Wake the OpenSpec orchestrator after the run
+        uses: actions/github-script@v9
+        env:
+          PR: ${{ github.event.inputs.pr }}
+        with:
+          script: |
+            await github.rest.repos.createDispatchEvent({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              event_type: 'openspec-agent-finished',
+              client_payload: { pr: process.env.PR, run_id: String(context.runId) },
+            });
 safe-outputs:
   push-to-pull-request-branch:
     target: ${{ inputs.pr }}

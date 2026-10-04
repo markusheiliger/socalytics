@@ -54,7 +54,7 @@ const EXPECTED_JOBS = new Map([
 test('names the workflow OpenSpec orchestrator and titles every run', () => {
   assert.match(workflow, /^name: OpenSpec orchestrator$/m);
   assert.match(workflow, /^run-name: >-$/m);
-  for (const title of ['enqueued #', 'merged', 'new commits on', 'command on #', 'agent run', 'watchdog', 'manual (dry run)']) {
+  for (const title of ['enqueued #', 'merged', 'new commits on', 'command on #', 'agent run finished on #', 'watchdog', 'manual (dry run)']) {
     assert.ok(workflow.includes(title), `run-name must cover "${title}"`);
   }
 });
@@ -97,9 +97,15 @@ test('checks out the pull request branch only after a successful prompt step', (
   assert.doesNotMatch(step, /fromJSON/);
 });
 
-test('wakes on every completed agent run, not only when the agent calls wake_controller', () => {
-  assert.match(workflow, /\n  workflow_run:\n    workflows: \["OpenSpec agent"\]\n    types: \[completed\]\n/);
-  assert.match(agentSource, /^name: OpenSpec agent$/m);
+test('wakes on every finished agent run, not only when the agent calls wake_controller', () => {
+  // workflow_run does not fire for runs dispatched with GITHUB_TOKEN; repository_dispatch does.
+  assert.match(workflow, /\n  repository_dispatch:\n    types: \[openspec-agent-finished\]\n/);
+  assert.doesNotMatch(workflow, /\n  workflow_run:/);
+  assert.match(agentSource, /\njobs:\n  conclusion:\n[\s\S]*pre-steps:\n      - name: Wake the OpenSpec orchestrator after the run\n[\s\S]*event_type: 'openspec-agent-finished'/);
+  const conclusion = agentLock.slice(agentLock.indexOf('\n  conclusion:\n'));
+  assert.match(conclusion.slice(0, 1200), /if: >\n\s+always\(\)/);
+  assert.match(conclusion, /name: Wake the OpenSpec orchestrator after the run\n\s+uses: actions\/github-script@/);
+  assert.doesNotMatch(conclusion.slice(1, conclusion.indexOf('Wake the OpenSpec orchestrator after the run')), /\n  [a-z_]+:\n    name: /, 'the wake must be a step of the conclusion job');
 });
 
 test('keeps trusted execution, least privilege, and the repository-wide lock', () => {

@@ -80,9 +80,11 @@ test('classifies only relevant events', () => {
     issue: { number: 21, pull_request: {} },
     comment: { body: 'nice' },
   }).relevant, false);
-  for (const name of ['push', 'schedule', 'workflow_dispatch', 'workflow_run']) {
+  for (const name of ['push', 'schedule', 'workflow_dispatch']) {
     assert.equal(classifyEvent(name, {}).relevant, true);
   }
-  assert.equal(classifyEvent('workflow_run', { workflow_run: { id: 7, conclusion: 'failure' } }).reason, 'agent run 7 failure');
+  const finished = classifyEvent('repository_dispatch', { action: 'openspec-agent-finished', client_payload: { pr: '31', run_id: '7' } });
+  assert.deepEqual(finished, { relevant: true, reason: 'agent run 7 finished on #31' });
+  assert.equal(classifyEvent('repository_dispatch', { action: 'other' }).relevant, false);
   assert.equal(classifyEvent('release', {}).relevant, false);
 });

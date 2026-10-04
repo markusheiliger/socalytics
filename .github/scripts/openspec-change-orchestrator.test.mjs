@@ -977,3 +977,25 @@ test('classifies agent runs that failed before the agent started as setup failur
   ctx.client.getWorkflowRun = async () => ({ status: 'completed', conclusion: 'cancelled' });
   assert.equal(await readSessionState(ctx, session), 'cancelled');
 });
+
+test('judges an agent run by its jobs while its final reporting jobs still run', async () => {
+  const job = (name, conclusion, steps = []) => ({ name, status: conclusion ? 'completed' : 'in_progress', conclusion: conclusion ?? null, steps });
+  const ctx = { client: { getWorkflowRun: async () => ({ status: 'in_progress', conclusion: null }) } };
+  const session = { runtime: 'actions', id: '1' };
+  const finishing = (agent, push) => [
+    job('Prepare the agent session', 'success'),
+    agent,
+    job('Check the agent changes for threats', 'success'),
+    push,
+    job('Wake the OpenSpec orchestrator', 'skipped'),
+    job('Report the agent session outcome', null),
+  ];
+  ctx.client.listRunJobs = async () => finishing(job('Run the OpenSpec agent', 'success'), job('Push the checkpoint to the pull request', 'success'));
+  assert.equal(await readSessionState(ctx, session), 'completed');
+  ctx.client.listRunJobs = async () => finishing(job('Run the OpenSpec agent', 'failure', [{ name: 'Execute GitHub Copilot CLI', conclusion: 'skipped' }]), job('Push the checkpoint to the pull request', 'skipped'));
+  assert.equal(await readSessionState(ctx, session), 'setup_failed');
+  ctx.client.listRunJobs = async () => finishing(job('Run the OpenSpec agent', 'failure', [{ name: 'Execute GitHub Copilot CLI', conclusion: 'failure' }]), job('Push the checkpoint to the pull request', 'skipped'));
+  assert.equal(await readSessionState(ctx, session), 'failed');
+  ctx.client.listRunJobs = async () => finishing(job('Run the OpenSpec agent', null), job('Push the checkpoint to the pull request', null));
+  assert.equal(await readSessionState(ctx, session), 'in_progress');
+});

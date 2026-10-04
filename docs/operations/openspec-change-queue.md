@@ -195,7 +195,7 @@ one agent session per change, and exits. Nothing polls.
 | `issue_comment` (created) | A `/openspec` command on a pull request. |
 | `push` to `main` under `openspec/changes/**` | Archives on `main` unblock dependents and complete finalization. |
 | `workflow_dispatch` | Manual runs and agent-requested reconciliation after safe outputs; `dry_run` only reports what would happen. |
-| `workflow_run` (`OpenSpec agent`, completed) | Every finished agent run, whatever its outcome, so setup failures, crashes, timeouts, and cancellations are reconciled even when the agent never called `wake_controller`. |
+| `repository_dispatch` (`openspec-agent-finished`) | Sent by the agent workflow's final job (`Report the agent session outcome`) after every agent run that passed activation, whatever its outcome. Setup failures, crashes, and agents that never called `wake_controller` are reconciled too. `workflow_run` cannot be used: it does not fire for agent runs that the orchestrator dispatched with `GITHUB_TOKEN`. |
 | `schedule` (nominally every 15 minutes) | Best-effort watchdog for missed wakes; GitHub may delay or skip scheduled runs. |
 
 Events only wake the workflow. Every run reconciles every change from
@@ -438,8 +438,10 @@ starts over on a new branch.
   `/openspec retry` tries again.
 - The explicit wake reconciles safe-output rejection without a checkpoint push.
   An agentic run that fails or crashes before requesting the wake is reconciled
-  through the `workflow_run` trigger when the run completes; the scheduled
-  watchdog is a last resort.
+  through the `openspec-agent-finished` repository dispatch that its final job
+  sends. The orchestrator then judges the run by its jobs, because the final
+  reporting job is still running. The scheduled watchdog is a last resort, for
+  example when activation itself fails.
 - Commits pushed while no session is running are recorded in the change log and
   become the starting point of the next step.
 - Closing the pull request without merging stops processing and marks the issue
