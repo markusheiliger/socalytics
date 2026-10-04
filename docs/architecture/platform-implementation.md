@@ -132,6 +132,33 @@ Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Da
 provide database access; Entity Framework Core is not part of the baseline.
 DbUp applies ordered, versioned PostgreSQL SQL scripts grouped by owning module.
 
+The planned shared persistence boundary is a module-neutral `Persistence`
+project that owns connection, migration-journal, transaction, and optimistic
+concurrency mechanics but no domain schema. Each capability references it and
+never another capability; each keeps its schema, SQL, and migration resources
+internal and registers them through its existing composition method. The API
+may call only the shared registration and startup boundary. DbUp scripts are
+embedded in their owning module, applied in the adopted module order and then
+module-local sequence, and recorded with a SHA-256 checksum in
+`socalytics_migrations.history`; a checksum mismatch fails before any pending
+script runs.
+
+Schema isolation uses role semantics, not production credentials. Local and
+test databases give each module a NOLOGIN owner role that owns only its schema
+and a NOLOGIN runtime role with only the privileges normal module access needs.
+Migrations run as the owner role, module sessions run as the runtime role, and
+cross-schema access is denied. The administrative bootstrap connection serves
+migration orchestration only and is not available to module services.
+Production identities, credential delivery, and secret handling remain
+unresolved and are governed by
+[Security and Data Governance](security-and-data-governance.md).
+
+ADR disposition: no ADR is created for this boundary. The architecture is
+still pre-implementation, so this narrative is the single authority for the
+decision; it refines the existing module-owned persistence baseline rather than
+changing an established or implemented architecture. Revisit an ADR if the
+boundary is later changed after implementation.
+
 CQRS is logical rather than physical:
 
 - commands use plain typed C# handlers resolved through .NET dependency
