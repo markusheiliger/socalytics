@@ -39,10 +39,10 @@ public sealed class ModuleInitialMigrationTests : IAsyncLifetime
 
         await using var connection = new NpgsqlConnection(_container.GetConnectionString());
         var schemas = (await connection.QueryAsync<string>(
-            "SELECT nspname FROM pg_namespace WHERE nspname = 'socalytics_migrations' OR nspname = ANY(@modules) ORDER BY nspname",
+            "SELECT nspname FROM pg_namespace WHERE nspname = 'socalytics_migrations' OR nspname = ANY(@modules) ORDER BY nspname COLLATE \"C\"",
             new { modules = PersistenceModuleKey.All.Select(m => m.Schema).ToArray() })).ToArray();
         schemas.ShouldBe(
-            ["socalytics_migrations", .. PersistenceModuleKey.All.Select(m => m.Schema).Order(StringComparer.Ordinal)]);
+            [.. PersistenceModuleKey.All.Select(m => m.Schema).Append("socalytics_migrations").Order(StringComparer.Ordinal)]);
 
         (await connection.QueryAsync<string>(
             "SELECT n.nspname || '.' || c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace " +
