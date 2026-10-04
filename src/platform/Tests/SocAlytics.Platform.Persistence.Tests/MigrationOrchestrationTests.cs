@@ -74,17 +74,17 @@ public sealed class MigrationOrchestrationTests : IAsyncLifetime
     {
         var connectionString = await CreateDatabaseAsync();
         var club = new Contributor(PersistenceModuleKey.Club,
-            Script(PersistenceModuleKey.Club, 2, "0002", "CREATE TABLE club_two (id int);"),
-            Script(PersistenceModuleKey.Club, 1, "0001", "CREATE TABLE club_one (id int);"));
+            Script(PersistenceModuleKey.Club, 2, "0002", "CREATE TABLE club.club_two (id int);"),
+            Script(PersistenceModuleKey.Club, 1, "0001", "CREATE SCHEMA club; CREATE TABLE club.club_one (id int);"));
         var registry = new Contributor(PersistenceModuleKey.Registry,
-            Script(PersistenceModuleKey.Registry, 1, "0001", "CREATE TABLE registry_one (id int);"));
+            Script(PersistenceModuleKey.Registry, 1, "0001", "CREATE SCHEMA registry; CREATE TABLE registry.registry_one (id int);"));
 
         await Orchestrator(connectionString, registry, club).MigrateAsync(TestContext.Current.CancellationToken);
 
         var history = await ScalarsAsync(connectionString, HistoryQuery);
         history.Select(h => string.Join('/', h.Split('/').Take(3)))
             .ShouldBe(["club/1/0001", "club/2/0002", "registry/1/0001"]);
-        history[0].ShouldEndWith(Script(PersistenceModuleKey.Club, 1, "0001", "CREATE TABLE club_one (id int);").Checksum);
+        history[0].ShouldEndWith(Script(PersistenceModuleKey.Club, 1, "0001", "CREATE SCHEMA club; CREATE TABLE club.club_one (id int);").Checksum);
         (await ScalarsAsync(connectionString,
             "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('club_one','club_two','registry_one')"))
             .ShouldBe(["3"]);
@@ -95,7 +95,7 @@ public sealed class MigrationOrchestrationTests : IAsyncLifetime
     {
         var connectionString = await CreateDatabaseAsync();
         var contributor = new Contributor(PersistenceModuleKey.Club,
-            Script(PersistenceModuleKey.Club, 1, "0001", "CREATE TABLE club_one (id int);"));
+            Script(PersistenceModuleKey.Club, 1, "0001", "CREATE SCHEMA club; CREATE TABLE club.club_one (id int);"));
         var orchestrator = Orchestrator(connectionString, contributor);
 
         await orchestrator.MigrateAsync(TestContext.Current.CancellationToken);
@@ -112,12 +112,12 @@ public sealed class MigrationOrchestrationTests : IAsyncLifetime
     {
         var connectionString = await CreateDatabaseAsync();
         await Orchestrator(connectionString, new Contributor(PersistenceModuleKey.Club,
-            Script(PersistenceModuleKey.Club, 1, "0001", "CREATE TABLE club_one (id int);")))
+            Script(PersistenceModuleKey.Club, 1, "0001", "CREATE SCHEMA club; CREATE TABLE club.club_one (id int);")))
             .MigrateAsync(TestContext.Current.CancellationToken);
 
         var changed = new Contributor(PersistenceModuleKey.Club,
-            Script(PersistenceModuleKey.Club, 1, "0001", "CREATE TABLE club_one (id bigint);"),
-            Script(PersistenceModuleKey.Club, 2, "0002", "CREATE TABLE club_two (id int);"));
+            Script(PersistenceModuleKey.Club, 1, "0001", "CREATE SCHEMA club; CREATE TABLE club.club_one (id bigint);"),
+            Script(PersistenceModuleKey.Club, 2, "0002", "CREATE TABLE club.club_two (id int);"));
         var ex = await Should.ThrowAsync<MigrationFailedException>(() =>
             Orchestrator(connectionString, changed).MigrateAsync(TestContext.Current.CancellationToken));
 
@@ -132,10 +132,10 @@ public sealed class MigrationOrchestrationTests : IAsyncLifetime
     {
         var connectionString = await CreateDatabaseAsync();
         var contributor = new Contributor(PersistenceModuleKey.Club,
-            Script(PersistenceModuleKey.Club, 1, "0001", "CREATE TABLE club_one (id int);"),
+            Script(PersistenceModuleKey.Club, 1, "0001", "CREATE SCHEMA club; CREATE TABLE club.club_one (id int);"),
             Script(PersistenceModuleKey.Club, 2, "0002",
-                "CREATE TABLE club_partial (id int); INSERT INTO missing_secret_table VALUES (1);"),
-            Script(PersistenceModuleKey.Club, 3, "0003", "CREATE TABLE club_three (id int);"));
+                "CREATE TABLE club.club_partial (id int); INSERT INTO missing_secret_table VALUES (1);"),
+            Script(PersistenceModuleKey.Club, 3, "0003", "CREATE TABLE club.club_three (id int);"));
 
         var ex = await Should.ThrowAsync<MigrationFailedException>(() =>
             Orchestrator(connectionString, contributor).MigrateAsync(TestContext.Current.CancellationToken));

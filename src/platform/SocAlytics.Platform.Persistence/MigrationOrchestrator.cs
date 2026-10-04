@@ -26,6 +26,7 @@ public sealed class MigrationOrchestrator
         List<AppliedMigration> applied;
         try
         {
+            await EnsureRolesAsync(cancellationToken);
             await EnsureHistoryAsync(cancellationToken);
             applied = await ReadHistoryAsync(cancellationToken);
         }
@@ -43,7 +44,7 @@ public sealed class MigrationOrchestrator
             return;
         }
 
-                var upgrader = DeployChanges.To
+        var upgrader = DeployChanges.To
             .PostgresqlDatabase(_bootstrap.ConnectionString)
             .WithScripts(new CatalogScriptProvider(pending))
             .WithTransactionPerScript()
@@ -73,6 +74,36 @@ public sealed class MigrationOrchestrator
                     $"Checksum conflict: applied migration '{entry.Module}/{entry.Identity}' no longer matches its registered script.");
             }
         }
+    }
+
+    private async Task EnsureRolesAsync(CancellationToken cancellationToken)
+    {
+        await using var connection = await _bootstrap.OpenConnectionAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = RoleBootstrapSql;
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    // Local/test role bootstrap: role names derive only from the fixed module keys. Owners may create their
+    // schema; runtime roles get DML only on objects their owner creates and no access to peer schemas.
+    private static readonly string RoleBootstrapSql = BuildRoleBootstrapSql();
+
+    private static string BuildRoleBootstrapSql()
+    {
+        var sql = new System.Text.StringBuilder("SELECT pg_advisory_xact_lock(hashtext('socalytics_role_bootstrap'));\n");
+        foreach (var module in PersistenceModuleKey.All)
+        {
+            foreach (var role in new[] { module.OwnerRole, module.RuntimeRole })
+            {
+                sql.Append($"DO $$ BEGIN CREATE ROLE \"{role}\" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;\n");
+            }
+
+            sql.Append($"DO $$ BEGIN EXECUTE format('GRANT CREATE ON DATABASE %I TO %I', current_database(), '{module.OwnerRole}'); END $$;\n");
+            sql.Append($"ALTER DEFAULT PRIVILEGES FOR ROLE \"{module.OwnerRole}\" GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO \"{module.RuntimeRole}\";\n");
+            sql.Append($"ALTER DEFAULT PRIVILEGES FOR ROLE \"{module.OwnerRole}\" GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO \"{module.RuntimeRole}\";\n");
+        }
+
+        return sql.ToString();
     }
 
     private async Task EnsureHistoryAsync(CancellationToken cancellationToken)
@@ -137,7 +168,9 @@ public sealed class MigrationOrchestrator
     }
 
     private static string WithHistoryInsert(MigrationDescriptor m) =>
-        m.Script + "\n;\n"
+        $"SET LOCAL ROLE \"{m.Module.OwnerRole}\";\n"
+        + m.Script + "\n;\n"
+        + "RESET ROLE;\n"
         + "INSERT INTO socalytics_migrations.history (module, sequence, identity, checksum) VALUES ("
         + $"{Literal(m.Module.Key)}, {m.Sequence}, {Literal(m.Identity)}, {Literal(m.Checksum)});\n";
 
