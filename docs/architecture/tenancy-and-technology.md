@@ -50,21 +50,26 @@ Requirements:
 - stamp-specific analytics and model tracking
 - stamp-registered Analyst Managers
 
-### Planned Stamp Persistence
+### Stamp Persistence
 
-The control-plane foundation will implement the stamp's database side as
-one PostgreSQL database with module-owned schemas: `club` for the singleton
+The control-plane foundation implements the stamp's database side as one
+PostgreSQL database with module-owned schemas: `club` for the singleton
 Club root and `Club > Season > Team > Match` hierarchy, `identity_access` for
 membership and Club/Team grants, `recordings` for immutable recording lineage,
 `registry` for immutable capability and model metadata, and `analysis` for
-durable run and result lineage. Shared migration history is isolated in
-`socalytics_migrations`; it owns no domain records.
+durable run and result lineage, and `agent_orchestration` for agent state.
+Shared migration history is isolated in `socalytics_migrations`; it owns no
+domain records. Each module has a NOLOGIN owner and runtime role, and
+cross-schema access is denied. Only the schemas, roles, and migration history
+exist today; no domain tables do. Details, the ADR disposition, and executable
+evidence are in the
+[Platform Implementation Profile](platform-implementation.md#persistence-and-cqrs).
 
-Architecture and PostgreSQL tests must verify that the Club row is a singleton,
-hierarchy parents are required, protected resources resolve to Team scope,
-revoked and cross-Team grants do not authorize access, and internal tables,
-commands, and events carry no `club_id`. These checks will validate the planned
-single-club invariant only. They do not approve shared physical production
+Persistence tests already verify that no schema, table, view, column, or
+function argument carries `club_id`. Domain tests must still verify that the
+Club row is a singleton, hierarchy parents are required, protected resources
+resolve to Team scope, and revoked and cross-Team grants do not authorize
+access. These checks validate the single-club invariant only. They do not approve shared physical production
 infrastructure, credentials, residency, encryption, retention, or other
 production-policy values.
 
@@ -120,9 +125,10 @@ defined in the
 - Agent Orchestration module with module-owned PostgreSQL state, migrations,
   projections, and transactional outbox
 - REST and JSON with OpenAPI; Kiota-generated clients
-- PostgreSQL
+- PostgreSQL, hosted locally through Aspire
 - Npgsql, Dapper, logical CQRS, and plain typed handlers
-- DbUp and module-owned versioned PostgreSQL SQL migrations
+- DbUp and module-owned versioned PostgreSQL SQL migrations recorded with
+  checksums in `socalytics_migrations.history`
 - ASP.NET Core Identity with Dapper stores, always-available local accounts,
     and optional external OpenID Connect providers
 
@@ -189,7 +195,7 @@ enforcement boundary for platform access. See the
 - xUnit v3, Shouldly, NSubstitute, Vitest, Testing Library, pytest,
   Playwright, and Testcontainers
 
-The planned .NET foundation, project and schema ownership, and validation
+The .NET foundation, project and schema ownership, and validation
 criteria are recorded in the
 [Platform Implementation Profile](platform-implementation.md).
 
