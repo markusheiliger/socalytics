@@ -1045,7 +1045,7 @@ export function validateRunState(value) {
   if (value.current !== null) {
     const path = 'Run state.current';
     assertObject(value.current, path);
-    assertKnownKeys(value.current, new Set(['operation', 'task', 'attempt', 'startSha', 'baselineSha', 'dispatchId', 'session', 'dispatchedAt', 'feedback']), path);
+    assertKnownKeys(value.current, new Set(['operation', 'task', 'attempt', 'startSha', 'baselineSha', 'dispatchId', 'session', 'dispatchedAt', 'feedback', 'setupRetries']), path);
     assertOperation(value.current.operation, `${path}.operation`);
     if (value.current.operation === 'apply') {
       validateRunTask(value.current.task, `${path}.task`);
@@ -1053,6 +1053,7 @@ export function validateRunState(value) {
       throw new Error(`${path}.task is valid only for apply`);
     }
     assertPositiveInteger(value.current.attempt, `${path}.attempt`);
+    if (value.current.setupRetries !== undefined) assertPositiveInteger(value.current.setupRetries, `${path}.setupRetries`);
     assertSha(value.current.startSha, `${path}.startSha`);
     assertSha(value.current.baselineSha, `${path}.baselineSha`);
     if (value.current.dispatchId !== null) assertBoundedString(value.current.dispatchId, `${path}.dispatchId`, 64);

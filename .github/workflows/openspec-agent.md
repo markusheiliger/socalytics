@@ -61,11 +61,16 @@ pre-agent-steps:
       node .github/scripts/openspec-change-orchestrator.mjs agent-prompt \
         --pr "$PR" --dispatch-id "$DISPATCH_ID" --out /tmp/gh-aw/openspec/prompt.md
   - name: Check out the pull request branch at the dispatched commit
+    # Only after a successful prompt step; its outputs are JSON strings parsed here, so a skipped
+    # prompt step cannot cause a template error.
+    if: ${{ steps.prepare.outcome == 'success' }}
     env:
       GH_TOKEN: ${{ github.token }}
-      BRANCH: ${{ fromJSON(steps.prepare.outputs.branch) }}
-      HEAD_SHA: ${{ fromJSON(steps.prepare.outputs.head_sha) }}
+      BRANCH_JSON: ${{ steps.prepare.outputs.branch }}
+      HEAD_SHA_JSON: ${{ steps.prepare.outputs.head_sha }}
     run: |
+      BRANCH="$(jq -r . <<< "$BRANCH_JSON")"
+      HEAD_SHA="$(jq -r . <<< "$HEAD_SHA_JSON")"
       authorization="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w 0)"
       export GIT_CONFIG_COUNT=1
       export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader

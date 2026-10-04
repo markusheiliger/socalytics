@@ -20,6 +20,7 @@ import {
   shortTaskTitle,
   stageLabel,
 } from './openspec-change-state.mjs';
+import { validateRunState } from './openspec-change-core.mjs';
 
 const sha = (c) => c.repeat(40);
 const now = new Date('2026-10-02T10:00:00Z');
@@ -147,6 +148,29 @@ test('retries once, then opens a failure gate', () => {
   assert.equal(second.state.gate.kind, 'failure');
   assert.deepEqual(second.state.gate.commands, ['retry', 'abort']);
   assert.match(second.state.gate.reason, /without a checkpoint/);
+});
+
+test('restarts the same attempt when the agent workflow failed during setup, then gates', () => {
+  const first = creditSession(running(), { agentState: 'setup_failed', headSha: sha('b') }, later(5));
+  assert.equal(first.result.kind, 'retry');
+  assert.equal(first.result.setup, true);
+  assert.equal(first.result.nextAttempt, 1);
+  assert.equal(first.state.status, 'ready');
+  assert.equal(first.state.current.attempt, 1);
+  assert.equal(first.state.current.setupRetries, 1);
+  assert.match(first.result.reason, /before the agent started/);
+  const redispatched = markDispatching(first.state, { ...decideNext(first.state, { tasks }), startSha: sha('b'), dispatchId: 'd2', now });
+  assert.equal(redispatched.current.attempt, 1);
+  assert.equal(redispatched.current.setupRetries, 1);
+  assert.doesNotThrow(() => validateRunState(redispatched));
+
+  const second = creditSession(running(first.state), { agentState: 'setup_failed', headSha: sha('b') }, later(10));
+  assert.equal(second.state.current.setupRetries, 2);
+  assert.equal(second.state.current.attempt, 1);
+  const third = creditSession(running(second.state), { agentState: 'setup_failed', headSha: sha('b') }, later(15));
+  assert.equal(third.result.kind, 'gate');
+  assert.equal(third.state.gate.kind, 'failure');
+  assert.match(third.state.gate.reason, /failed before the agent started 3 times/);
 });
 
 test('treats partial progress, failed verdicts, invalid trailers, and failed evidence as retries', () => {

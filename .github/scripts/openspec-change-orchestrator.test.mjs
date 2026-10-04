@@ -27,6 +27,7 @@ import {
   plan,
   publish,
   readRunState,
+  readSessionState,
 } from './openspec-change-orchestrator.mjs';
 import { LIFECYCLE_CHECK_NAME } from './openspec-change-state.mjs';
 
@@ -959,4 +960,20 @@ test('rejects sync and archive checkpoints that change code', async () => {
     const result = await validateEvidence(ctx, state, after);
     assert.match(result.reason, new RegExp(`${operation} may only change openspec/ and docs/, but changed src/platform/B\\.cs`));
   }
+});
+
+test('classifies agent runs that failed before the agent started as setup failures', async () => {
+  const jobs = (engine) => [
+    { name: 'Prepare the agent session', conclusion: 'success', steps: [] },
+    { name: 'Run the OpenSpec agent', conclusion: 'failure', steps: [{ name: 'Install AWF binary', conclusion: 'failure' }, { name: 'Execute GitHub Copilot CLI', conclusion: engine }] },
+  ];
+  const ctx = { client: { getWorkflowRun: async () => ({ status: 'completed', conclusion: 'failure' }), listRunJobs: async () => jobs('skipped') } };
+  const session = { runtime: 'actions', id: '1' };
+  assert.equal(await readSessionState(ctx, session), 'setup_failed');
+  ctx.client.listRunJobs = async () => jobs('failure');
+  assert.equal(await readSessionState(ctx, session), 'failed');
+  ctx.client.listRunJobs = async () => [{ name: 'Prepare the agent session', conclusion: 'failure', steps: [] }];
+  assert.equal(await readSessionState(ctx, session), 'failed');
+  ctx.client.getWorkflowRun = async () => ({ status: 'completed', conclusion: 'cancelled' });
+  assert.equal(await readSessionState(ctx, session), 'cancelled');
 });

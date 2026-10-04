@@ -118,7 +118,8 @@
               ]
             },
             "feedback": { "type": ["string", "null"], "maxLength": 4000 },
-            "dispatchedAt": { "type": ["string", "null"], "format": "date-time" }
+            "dispatchedAt": { "type": ["string", "null"], "format": "date-time" },
+            "setupRetries": { "type": "integer", "minimum": 1 }
           }
         }
       ]

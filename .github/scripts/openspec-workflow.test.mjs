@@ -91,6 +91,12 @@ test('keeps downstream jobs running when an upstream matrix job was skipped', ()
   }
 });
 
+test('checks out the pull request branch only after a successful prompt step', () => {
+  const step = agentSource.slice(agentSource.indexOf('  - name: Check out the pull request branch at the dispatched commit'), agentSource.indexOf('safe-outputs:'));
+  assert.match(step, /if: \$\{\{ steps\.prepare\.outcome == 'success' \}\}/);
+  assert.doesNotMatch(step, /fromJSON/);
+});
+
 test('wakes on every completed agent run, not only when the agent calls wake_controller', () => {
   assert.match(workflow, /\n  workflow_run:\n    workflows: \["OpenSpec agent"\]\n    types: \[completed\]\n/);
   assert.match(agentSource, /^name: OpenSpec agent$/m);

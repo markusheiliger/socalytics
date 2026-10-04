@@ -971,9 +971,22 @@ async function startSession(ctx, state, envelope) {
   return { runtime: 'actions', id: String(started.workflow_run_id), state: 'queued', url: started.html_url };
 }
 
+export const AGENT_JOB = 'Run the OpenSpec agent';
+export const AGENT_ENGINE_STEP = 'Execute GitHub Copilot CLI';
+
+// A failed run whose agent job never executed the engine failed during setup (for example a GitHub
+// Releases outage while installing gh-aw tooling); it is retried without using up an attempt.
+function failedDuringSetup(jobs) {
+  const agent = jobs.find((job) => job.name === AGENT_JOB);
+  if (!agent || agent.conclusion !== 'failure' || !Array.isArray(agent.steps)) return false;
+  const engine = agent.steps.find((step) => step.name === AGENT_ENGINE_STEP);
+  return !engine || engine.conclusion === 'skipped';
+}
+
 export async function readSessionState(ctx, session) {
   if (session.runtime === 'copilot') return (await ctx.client.getAgentTask(session.id)).state;
   const runState = workflowRunState(await ctx.client.getWorkflowRun(session.id));
+  if (runState === 'failed') return failedDuringSetup(await ctx.client.listRunJobs(session.id)) ? 'setup_failed' : runState;
   if (!ACTIVE_AGENT_STATES.has(runState)) return runState;
   // The wake job can run before the enclosing workflow finishes, but publication failure is already terminal.
   const safeOutput = (await ctx.client.listRunJobs(session.id))

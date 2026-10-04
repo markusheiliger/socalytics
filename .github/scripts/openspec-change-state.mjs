@@ -1,6 +1,8 @@
 import { JSON_CONTRACTS, MAX_FEEDBACK, validateRunState } from './openspec-change-core.mjs';
 
 export const MAX_ATTEMPTS = 2;
+// Restarts of the same attempt when the agent workflow failed before the agent started.
+export const MAX_SETUP_RETRIES = 2;
 export const DISPATCH_GRACE_MS = 10 * 60 * 1000;
 export const LIFECYCLE_CHECK_NAME = 'OpenSpec lifecycle';
 export const MANAGED_ISSUE_LABELS = Object.freeze([
@@ -148,6 +150,7 @@ export function markDispatching(state, { operation, task = null, attempt, startS
       session: null,
       dispatchedAt: timestamp(now),
       feedback: state.current?.feedback ?? null,
+      ...(state.current?.setupRetries ? { setupRetries: state.current.setupRetries } : {}),
     },
   }, now);
 }
@@ -262,6 +265,28 @@ function retryOrFail(state, reason, now, feedback = null) {
   };
 }
 
+// The agent never ran (for example a failed tool download while setting up the agent workflow),
+// so the attempt is not used up; the same attempt starts again a bounded number of times.
+function retrySetup(state, now) {
+  const { current } = state;
+  const retries = current.setupRetries ?? 0;
+  if (retries < MAX_SETUP_RETRIES) {
+    const reason = `The agent workflow failed before the agent started (setup or GitHub infrastructure). Restarting attempt ${current.attempt} (setup retry ${retries + 1} of ${MAX_SETUP_RETRIES}).`;
+    return {
+      state: transition(state, {
+        status: 'ready',
+        current: { ...current, setupRetries: retries + 1, startSha: state.headSha, session: null, dispatchedAt: null },
+      }, now),
+      result: { kind: 'retry', reason, nextAttempt: current.attempt, setup: true },
+    };
+  }
+  const reason = `The agent workflow failed before the agent started ${retries + 1} times (setup or GitHub infrastructure). Check the agent run, then retry.`;
+  return {
+    state: openGate(state, { kind: 'failure', reason, now }),
+    result: { kind: 'gate', gate: 'failure', reason },
+  };
+}
+
 function findingsTotal(findings) {
   return findings.critical + findings.warning + findings.suggestion;
 }
@@ -361,6 +386,9 @@ export function creditSession(state, observation, now) {
       state: openGate(observed, { kind: 'decision', question, now }),
       result: { kind: 'gate', gate: 'decision', question },
     };
+  }
+  if (agentState === 'setup_failed') {
+    return retrySetup(observed, now);
   }
   if (agentState === 'cancelled') {
     const reason = 'The agent session was cancelled.';

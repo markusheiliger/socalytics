@@ -195,7 +195,8 @@ one agent session per change, and exits. Nothing polls.
 | `issue_comment` (created) | A `/openspec` command on a pull request. |
 | `push` to `main` under `openspec/changes/**` | Archives on `main` unblock dependents and complete finalization. |
 | `workflow_dispatch` | Manual runs and agent-requested reconciliation after safe outputs; `dry_run` only reports what would happen. |
-| `schedule` (nominally every 15 minutes) | Best-effort watchdog for missed wakes; GitHub may delay scheduled runs. |
+| `workflow_run` (`OpenSpec agent`, completed) | Every finished agent run, whatever its outcome, so setup failures, crashes, timeouts, and cancellations are reconciled even when the agent never called `wake_controller`. |
+| `schedule` (nominally every 15 minutes) | Best-effort watchdog for missed wakes; GitHub may delay or skip scheduled runs. |
 
 Events only wake the workflow. Every run reconciles every change from
 authoritative state, so no event authorizes a transition by itself. Relevant
@@ -422,6 +423,11 @@ starts over on a new branch.
   ended without a checkpoint gets one retry in a new session from the current
   head. A second failure opens a failure gate.
 - A cancelled session opens a failure gate without retrying.
+- An agentic run whose agent job failed before the agent started (the step
+  `Execute GitHub Copilot CLI` was skipped, for example because gh-aw could not
+  download its firewall from GitHub Releases) is a setup failure. It does not use
+  up the attempt: the same attempt starts again, up to two times per step, and
+  a third setup failure opens a failure gate.
 - Before starting a session, the workflow records a `dispatching` state with a
   dispatch id. If a run dies there, or GitHub doesn't return the new run's id,
   the next run looks for the session (an `openspec-agent` run whose name
@@ -431,8 +437,9 @@ starts over on a new branch.
 - If starting a session fails, a failure gate shows the error;
   `/openspec retry` tries again.
 - The explicit wake reconciles safe-output rejection without a checkpoint push.
-  An agentic run that crashes before requesting the wake is recovered by the
-  best-effort scheduled watchdog.
+  An agentic run that fails or crashes before requesting the wake is reconciled
+  through the `workflow_run` trigger when the run completes; the scheduled
+  watchdog is a last resort.
 - Commits pushed while no session is running are recorded in the change log and
   become the starting point of the next step.
 - Closing the pull request without merging stops processing and marks the issue
