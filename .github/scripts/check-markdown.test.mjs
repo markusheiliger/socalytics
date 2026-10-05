@@ -5,7 +5,6 @@ import {
   createValidationCommands,
   discoverMarkdownPaths,
   executableName,
-  isRepositoryAuthoredMarkdown,
   parseMarkdownPaths,
   resolveValidationCommand,
   runMarkdownChecks,
@@ -18,20 +17,6 @@ test('parses, normalizes, and sorts null-delimited Markdown paths', () => {
   );
 });
 
-test('excludes only OpenSpec-generated Copilot bodies from style checks', () => {
-  assert.equal(isRepositoryAuthoredMarkdown('README.md'), true);
-  assert.equal(
-    isRepositoryAuthoredMarkdown('.github/workflows/openspec-prepare.md'),
-    true,
-  );
-  assert.equal(isRepositoryAuthoredMarkdown('.github/agents/openspec.agent.md'), false);
-  assert.equal(isRepositoryAuthoredMarkdown('.github/prompts/opsx-apply.prompt.md'), false);
-  assert.equal(
-    isRepositoryAuthoredMarkdown('.github/skills/openspec-apply-change/SKILL.md'),
-    false,
-  );
-});
-
 test('uses platform-specific executable names', () => {
   assert.equal(executableName('markdownlint-cli2', 'linux'), 'markdownlint-cli2');
   assert.equal(executableName('markdownlint-cli2', 'win32'), 'markdownlint-cli2.cmd');
@@ -39,8 +24,8 @@ test('uses platform-specific executable names', () => {
 
 test('builds style and offline relative-link validation commands', () => {
   const commands = createValidationCommands([
-    '.github/agents/openspec.agent.md',
     'README.md',
+    'docs/guide.md',
   ], 'win32');
 
   assert.deepEqual(commands, [
@@ -48,7 +33,7 @@ test('builds style and offline relative-link validation commands', () => {
       label: 'Markdown diagnostics',
       tool: 'markdownlint-cli2',
       command: 'markdownlint-cli2.cmd',
-      args: [':README.md'],
+      args: [':README.md', ':docs/guide.md'],
     },
     {
       label: 'Markdown relative links',
@@ -58,8 +43,8 @@ test('builds style and offline relative-link validation commands', () => {
         '--quiet',
         '--config',
         '.markdown-link-check.json',
-        '.github/agents/openspec.agent.md',
         'README.md',
+        'docs/guide.md',
       ],
     },
   ]);

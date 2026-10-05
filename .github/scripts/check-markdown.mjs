@@ -2,11 +2,6 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const GENERATED_COPILOT_PATHS = [
-  '.github/agents/openspec.agent.md',
-  '.github/prompts/',
-  '.github/skills/',
-];
 const GLOBAL_TOOL_ENTRIES = new Map([
   ['markdownlint-cli2', ['markdownlint-cli2', 'markdownlint-cli2-bin.mjs']],
   ['markdown-link-check', ['markdown-link-check', 'markdown-link-check']],
@@ -24,27 +19,17 @@ export function parseMarkdownPaths(output) {
     .sort();
 }
 
-export function isRepositoryAuthoredMarkdown(filePath) {
-  const normalizedPath = normalizePath(filePath);
-  return !GENERATED_COPILOT_PATHS.some((generatedPath) => (
-    generatedPath.endsWith('/')
-      ? normalizedPath.startsWith(generatedPath)
-      : normalizedPath === generatedPath
-  ));
-}
-
 export function executableName(name, platform = process.platform) {
   return platform === 'win32' ? `${name}.cmd` : name;
 }
 
 export function createValidationCommands(markdownPaths, platform = process.platform) {
-  const authoredPaths = markdownPaths.filter(isRepositoryAuthoredMarkdown);
   return [
     {
       label: 'Markdown diagnostics',
       tool: 'markdownlint-cli2',
       command: executableName('markdownlint-cli2', platform),
-      args: authoredPaths.map((filePath) => `:${filePath}`),
+      args: markdownPaths.map((filePath) => `:${filePath}`),
     },
     {
       label: 'Markdown relative links',

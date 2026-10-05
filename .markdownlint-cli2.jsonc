@@ -2,10 +2,5 @@
   "config": {
     "MD013": false
   },
-  "gitignore": true,
-  "ignores": [
-    ".github/agents/openspec.agent.md",
-    ".github/prompts/**/*.md",
-    ".github/skills/**/*.md"
-  ]
+  "gitignore": true
 }

@@ -7,17 +7,12 @@ that owns the behavior so the documentation describes one coherent current
 design.
 
 Add an ADR only when preserving the rationale for a consequential change to an
-established or implemented architecture would be useful. OpenSpec design work
-identifies ADR candidates. Once approved, ADR creation is a separate apply task
-with exactly `Capabilities: architecture`; neither proposal nor design approval
-alone creates an ADR.
+established or implemented architecture would be useful. Create the ADR in the
+same change that updates the affected architecture narratives, so the record
+and the current design stay consistent.
 
-Before verification and archive, synchronize the current architecture narrative
-and accepted behavioral specifications. An ADR must link to the originating
-archived OpenSpec change, affected specifications under `openspec/specs/`, and
-the current architecture narratives it governs. The archived change should link
-back to the ADR. If the change is not ready to archive, keep the ADR candidate
-explicit in the active change rather than creating an untraceable record.
+An ADR must link to the current architecture narratives it governs, and those
+narratives should link back to the ADR.
 
 ## Naming
 
@@ -33,9 +28,8 @@ Each ADR must describe:
 - Consequences
 - References
 
-The References section must contain the OpenSpec change, affected behavioral
-specifications, and current architecture narratives. Record unresolved or
-rejected alternatives in the originating OpenSpec design rather than expanding
-the ADR into a full change history.
+The References section must link the current architecture narratives the
+decision governs and any related pull request or issue. Keep the ADR focused on
+the decision and its rationale rather than a full change history.
 
 Return to the [architecture index](../README.md).

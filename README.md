@@ -16,7 +16,6 @@ through approved changes.
 - [`src/analysts/`](src/analysts/README.md) records the planned Analyst Manager,
     Analyst SDK, and Analyst capability ownership boundary.
 - [`docs/`](docs/README.md) indexes architecture, component, and operational documentation.
-- [`openspec/`](openspec/) contains accepted behavioral specifications, active changes, and archived change history.
 - [`AGENTS.md`](AGENTS.md) defines repository guidance for coding agents.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
@@ -48,120 +47,14 @@ S3-compatible storage, identity and authentication, client applications,
 Docker support, and production deployment remain deferred. This executable
 host scaffold does not claim production readiness.
 
-### OpenSpec
-
-The repository uses OpenSpec `1.13.0` as its user-facing change workflow and
-provides pinned Markdown validation tools. These CLIs are global development
-tools and do not require an application `package.json`:
-
-```powershell
-npm install --global @fission-ai/openspec@1.13.0 markdownlint-cli2@0.23.3 markdown-link-check@3.15.0
-openspec --version
-markdownlint-cli2 --version
-markdown-link-check --version
-```
-
-After cloning, run `openspec update` to refresh the generated GitHub Copilot
-prompts and skills for the configured workflow profile. Restart VS Code after an
-update so prompt discovery refreshes.
-
-Start work through the generated GitHub Copilot prompts:
-
-- `/opsx-explore` investigates an idea without creating change artifacts.
-- `/opsx-propose` creates a proposal, behavioral specification delta, design,
-  and capability-backed task list.
-- `/opsx-apply` implements approved tasks under their declared execution
-  capability contracts.
-- `/opsx-update` continues or refreshes change artifacts.
-- `/opsx-sync` synchronizes accepted behavioral requirements.
-- `/opsx-verify` independently checks the completed change and evidence.
-- `/opsx-archive` archives a verified change and updates accepted specs.
-
-The repository also provides `/opsx-enqueue [<change-ref> ...]` to request
-server-side processing of one or more committed changes. With no refs it
-selects every eligible change; explicit refs select a subset. The command
-validates that selected change directories are clean, strictly valid, and
-present on `origin/main`, expands native GitHub blockers as one
-dependency-complete batch, asks for confirmation, and adds
-`openspec:enqueued` to the matching issue twins. Adding that label by hand on
-GitHub is equivalent for a single change.
-
-`/opsx-enqueue` requires `git`, OpenSpec `1.13.0`, the GitHub CLI, and an
-authenticated GitHub CLI session:
-
-```powershell
-gh auth status
-```
-
-The repository-owned `openspec-enqueue-change` skill is an equivalent,
-host-neutral entry point and is independent of the workflow scripts under
-`.github/scripts/`.
-
-The single OpenSpec orchestrator workflow (`.github/workflows/openspec-orchestrator.yml`) then
-implements each enqueued change on its own workflow-created `openspec/<change>`
-branch and draft pull request. It starts one fresh agent session per numbered
-apply task, then one each for verify, sync, and archive. Sessions run in the
-`openspec-agent` agentic workflow by default, or as Copilot cloud agent sessions
-when the repository variable `OPENSPEC_AGENT_RUNTIME` is `copilot`. Every
-agent session must create a checkpoint commit; the `actions` runtime publishes
-it only after safe-output checks pass and then explicitly wakes the controller.
-The controller treats a rejected safe-output job as terminal while the enclosing
-agent workflow finishes; the workflow never polls. Processing state lives in the
-pull request's
-`OpenSpec lifecycle` check run, and the pull request comments form a numbered,
-human-readable change log. When the workflow needs a human, it asks on the pull
-request and continues after `/openspec approve`, `/openspec retry`,
-`/openspec answer <text>`, or `/openspec abort`.
-
-The `openspec-*` workflows are generic. This repository plugs in its own
-checkpoint verification (`.github/workflows/verification.yml`, which runs the
-platform tests), agent tooling (`.github/workflows/shared/repository-toolchain.md`),
-and toolchain installation (`.github/actions/setup-toolchain`); see
-[OpenSpec Change Processing](docs/operations/openspec-change-queue.md#repository-specific-verification-and-tooling).
-
-Useful OpenSpec repository checks are:
-
-```powershell
-openspec doctor --json
-openspec schema validate spec-driven --json
-openspec validate --all --json
-openspec status --all --json
-```
-
-The repository-owned OpenSpec workflow tooling has focused contract tests:
-
-```powershell
-node --test .github/scripts/*.test.mjs
-gh aw validate .github/workflows/openspec-prepare.md
-gh aw validate .github/workflows/openspec-agent.md
-gh aw lint .github/workflows/openspec-prepare.lock.yml
-gh aw lint .github/workflows/openspec-agent.lock.yml
-node .github/scripts/openspec-change-workflow-names.mjs --check
-```
-
-The `gh aw` commands require the official `github/gh-aw` GitHub CLI extension.
-The approved tooling combines deterministic issue synchronization and AI
-dependency inference in one Agentic Workflow. The paths above are the expected
-source and generated-lock names; if implementation settles different names,
-use the committed pair. Edit only the Markdown source, regenerate its lock file
-with `gh aw compile`, then apply the required generated-job display names with:
-
-```powershell
-node .github/scripts/openspec-change-workflow-names.mjs
-```
-
-The naming step is deterministic and must not be replaced with manual lock-file
-edits.
-
-See the [OpenSpec change processing guide](docs/operations/openspec-change-queue.md)
-for its issue projection, reconciliation cadence, dependency checkpoint,
-workflow, state, change log, gates, recovery, labels, and human review
-contracts. This automation is repository tooling rather than product CI.
-
-Architecture narratives remain authoritative for current system design;
-`openspec/specs/` is authoritative for accepted behavioral requirements.
-
 ### Markdown
+
+Markdown validation uses pinned global development tools and does not require
+an application `package.json`:
+
+```powershell
+npm install --global markdownlint-cli2@0.23.3 markdown-link-check@3.15.0
+```
 
 Run the supported Markdown validation command from the repository root:
 
@@ -169,12 +62,14 @@ Run the supported Markdown validation command from the repository root:
 node .github/scripts/check-markdown.mjs
 ```
 
-The command runs Markdown diagnostics on repository-authored files and checks
-repository-relative links in all tracked or unignored Markdown files. It
-excludes OpenSpec-generated Copilot agent, prompt, and skill bodies from style
-rules because `openspec update` owns their formatting. Relative links in those
-generated files are still checked. External URLs are ignored so validation
-does not depend on network availability or third-party uptime.
+The command runs Markdown diagnostics and checks repository-relative links in
+all tracked or unignored Markdown files. External URLs are ignored so
+validation does not depend on network availability or third-party uptime.
+Its own tests run with:
+
+```powershell
+node --test .github/scripts/check-markdown.test.mjs
+```
 
 ## License
 

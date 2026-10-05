@@ -7,26 +7,13 @@
 - The only first-level source areas are [platform](src/platform/README.md), [clients](src/clients/README.md), [agents](src/agents/README.md), and [analysts](src/analysts/README.md). The platform area is executable; the other source-area READMEs define non-executable planned ownership boundaries.
 - `src/platform/SocAlytics.Platform.slnx` contains peer production projects for Api, AppHost, ServiceDefaults, Club, IdentityAccess, Recordings, Registry, Analysis, and AgentOrchestration. Host and architecture test projects are under `src/platform/Tests`.
 - Current executable evidence is limited to the dependency-free API host, `/alive`, `/health`, the built-in `/openapi/v1.json` document, Aspire local composition of the API alone, six public capability DI boundaries with internal markers, and host and architecture tests. No domain behavior, PostgreSQL/Dapper/DbUp, NATS, S3, authentication or authorization, clients, deployment configuration, or production-readiness evidence exists.
-- OpenSpec is the only user-facing change workflow. Use the generated `opsx-*` prompts for exploration, proposal, application, synchronization, verification, and archive.
 - Keep this file current when the repository gains documented build, test, architecture, or contribution conventions.
 
 ## Authority Boundaries
 
 - `docs/architecture/` is authoritative for the coherent current system design.
-- `openspec/specs/` is authoritative for accepted behavioral requirements and scenarios.
-- `openspec/changes/` contains active change state; `openspec/changes/archive/` preserves completed change history.
 - Component-local executable contracts and implementation guidance belong with the component that owns and validates them.
 - Preserve unresolved decisions explicitly. Do not present provisional values, target-state descriptions, or missing production evidence as adopted facts.
-
-## OpenSpec and Execution Capabilities
-
-- `openspec/config.yaml` contains project context, artifact rules, and apply/archive policy. Do not duplicate that policy in generated prompt or skill bodies.
-- `.github/agents/openspec.agent.md` is OpenSpec-managed cloud-agent guidance and must remain generated.
-- Repository execution contracts live under `openspec/capabilities/`. Capability ids resolve directly to same-named Markdown files; there is no registry or specialist-agent routing.
-- Supported execution capabilities are `strategy`, `design`, `architecture`, `implementation`, `verification`, and `audit`.
-- Every task must declare exactly one unordered plural `Capabilities:` set. Multiple capabilities are allowed only when every selected contract is composable and compatible.
-- The OpenSpec orchestrator starts one fresh agent session per capability-backed task and validates the pushed checkpoint commit before advancing.
-- `verification` and `audit` are exclusive, isolated, checkbox-only capabilities. They report independently and do not author or remediate implementation work.
 
 ## Repository Setup
 
@@ -46,35 +33,13 @@
 - Add only files justified by the adopted architecture and an approved change. Generate `.gitignore` from the actual stack and local tooling rather than using a generic catch-all.
 - Preserve `src/platform/`, `src/clients/`, `src/agents/`, and `src/analysts/` as the approved first-level ownership areas. Do not add another immediate child of `src` without an accepted architecture change.
 - Add nested source, test, or documentation directories only with their first meaningful artifacts; do not create empty placeholders or infer planned child paths from the source-area READMEs.
-- Add product CI workflows only after executable build, lint, or test commands exist. The OpenSpec Copilot setup workflow is repository-tooling setup, not product CI.
+- Add product CI workflows only after executable build, lint, or test commands exist.
 - Never commit, push, configure remotes, or publish without an explicit request.
-
-## OpenSpec Change Processing
-
-- Explore and propose changes client-side. Implementation (apply, verify, sync, archive) runs server-side in the single OpenSpec orchestrator workflow (`.github/workflows/openspec-orchestrator.yml`) once a change is on `main`.
-- Issue twins are non-authoritative projections of active changes on `main`. The canonical change ref is stable identity; active and dated archive paths are mutable projections.
-- The OpenSpec prepare Agentic Workflow (`.github/workflows/openspec-prepare.md`) performs deterministic issue synchronization before AI dependency inference. Change-driven runs are incremental; weekly and manually requested full runs rebuild the complete inference view, and manual dry runs make no mutations.
-- Dependency inference checkpoints are a rebuildable cache in `refs/notes/openspec-change-dependencies`. Fetch that ref explicitly when inspecting incremental behavior; the notes are not accepted state or processing authority.
-- The issue holds queue state only. `openspec:change` classifies twins and `openspec:enqueued` is the one-shot processing request, honored only when a user with write access applied it. `openspec:processing`, `openspec:needs-attention`, and `openspec:awaiting-review` are workflow outputs. Native GitHub issue dependencies are the only blocked-state authority.
-- Each admitted change gets a workflow-created `openspec/<change>` branch and draft pull request. Processing state lives only in the `OpenSpec lifecycle` check run on the pull request head; comments are a human-readable change log and are never read as state.
-- The workflow is event-driven and short-lived: it never polls. Agent safe-output completion explicitly wakes it, and `/openspec` pull-request comments, enqueue labels, merges, and a best-effort 15-minute watchdog also wake it; every run reconciles every change under one repository-wide lock.
-- Agent sessions run in the `openspec-agent` agentic workflow by default (`OPENSPEC_AGENT_RUNTIME=actions`: no personal access token, 60-minute budget, a separate job pushes, `.github/` blocked). The Copilot cloud agent through the Agent Tasks API with `head_ref` remains the `copilot` fallback. Never use native Copilot issue assignment, which starts an uncontrolled duplicate session.
-- The `openspec-*` workflows, `.github/actions/setup-openspec`, and the `openspec-*.mjs` scripts are generic and must not contain repository specifics. Repository-specific verification lives in `.github/workflows/verification.yml` (called for every complete apply checkpoint; contract: inputs `change`, `sha`, `baseline`, artifact `openspec-verification-<change>` with `verification.txt`), agent tooling in `.github/workflows/shared/repository-toolchain.md` (network, pre-agent steps, the host-side `run_verification` tool), and installations in the composite actions `.github/actions/setup-openspec` and `.github/actions/setup-toolchain`. `verification.yml` is the visible repository test runner: each suite is a step or job there, using dedicated, generic runner actions such as `.github/actions/dotnet-test`; do not hide verification behind repository-specific scripts.
-- The agentic sandbox has no Docker: the agent can run the repository verification through `run_verification` when `OPENSPEC_AGENT_HOST_TESTS=true`, and "Check agent result" credits a checkpoint only after the repository verification passed.
-- Edit `openspec-agent.md` only, recompile it with `gh aw compile openspec-agent` (gh-aw v0.89.21), and run `node .github/scripts/openspec-change-workflow-names.mjs`; never hand-edit lock files.
-- Every agent session ends with one pushed commit carrying an `OpenSpec-JSON:` checkpoint trailer (`complete`, `partial`, `needs_decision`, or `failed`). The workflow validates it at that exact commit before crediting; Agent Task status is supplemental.
-- Failed, partial, or invalid sessions get one retry. Agent decisions, exhausted retries, and verify findings open human gates: any suggestion or warning opens a review gate, any critical finding opens a failure gate that cannot be approved, and a clean verify continues automatically. Humans resolve gates with `/openspec approve`, `retry`, `answer <text>`, or `abort`.
-- Archive happens on the implementation branch. Automation stops at the merge gate; a human marks the pull request ready, reviews it, and merges.
-- Cross-change inference is read-only until its typed custom safe output invokes the privileged validator and reconciler. Edit the OpenSpec prepare workflow source, regenerate its lock file with `gh aw compile`, and run `node .github/scripts/openspec-change-workflow-names.mjs` to apply generated-job display names; do not hand-edit the lock.
-- Every job and step in `openspec-orchestrator.yml` and `openspec-agent.md` must keep a readable `name:`; `openspec-workflow.test.mjs` enforces it.
-- Run `node --test .github/scripts/*.test.mjs` for the workflow tooling tests.
 
 ## Changes and Validation
 
 - Keep changes focused and avoid speculative abstractions or dependencies.
 - Document every supported setup, build, test, and lint command in `README.md` when it becomes available.
 - After each substantive edit, run the narrowest relevant check before widening scope.
-- Validate OpenSpec with `openspec doctor --json`, `openspec schema validate spec-driven --json`, `openspec validate --all --json`, and `openspec status --all --json` as applicable.
-- Run `node .github/scripts/check-markdown.mjs` to validate Markdown diagnostics and repository-relative links when changing agents, prompts, skills, or documentation; validate customization frontmatter separately where applicable.
-- Run `openspec update` after changing the selected workflow profile; do not customize OpenSpec-managed prompt or skill bodies.
+- Run `node .github/scripts/check-markdown.mjs` to validate Markdown diagnostics and repository-relative links when changing documentation.
 - Preserve user changes in a dirty worktree and do not use destructive Git commands.

@@ -28,12 +28,9 @@ Use lowercase kebab-case filenames for architecture narratives. Add each narrati
 
 - [Decisions](decisions/README.md) records architecture decisions and their consequences.
 - [Diagrams](diagrams/README.md) contains shared diagram sources and rendered assets.
-- [`openspec/specs/`](../../openspec/specs/) is authoritative for accepted behavioral requirements and scenarios.
-- [`openspec/changes/`](../../openspec/changes/) contains active change proposals, requirement deltas, designs, and tasks; its `archive/` area preserves completed change history.
 
-Architecture narratives in this directory remain authoritative for the coherent
-current system design. OpenSpec specifications describe required behavior rather
-than duplicating those narratives. Executable interfaces such as OpenAPI or JSON
+Architecture narratives in this directory are authoritative for the coherent
+current system design. Executable interfaces such as OpenAPI or JSON
 Schema belong with the component that implements and validates them once that
 component exists.
 
