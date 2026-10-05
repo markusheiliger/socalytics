@@ -5,6 +5,7 @@ import {
   createValidationCommands,
   discoverMarkdownPaths,
   executableName,
+  isRepositoryAuthoredMarkdown,
   parseMarkdownPaths,
   resolveValidationCommand,
   runMarkdownChecks,
@@ -17,6 +18,14 @@ test('parses, normalizes, and sorts null-delimited Markdown paths', () => {
   );
 });
 
+test('excludes only Spec Kit-generated files from style checks', () => {
+  assert.equal(isRepositoryAuthoredMarkdown('README.md'), true);
+  assert.equal(isRepositoryAuthoredMarkdown('.specify/memory/constitution.md'), true);
+  assert.equal(isRepositoryAuthoredMarkdown('.github/skills/custom/SKILL.md'), true);
+  assert.equal(isRepositoryAuthoredMarkdown('.github/skills/speckit-plan/SKILL.md'), false);
+  assert.equal(isRepositoryAuthoredMarkdown('.specify\\templates\\plan-template.md'), false);
+});
+
 test('uses platform-specific executable names', () => {
   assert.equal(executableName('markdownlint-cli2', 'linux'), 'markdownlint-cli2');
   assert.equal(executableName('markdownlint-cli2', 'win32'), 'markdownlint-cli2.cmd');
@@ -24,8 +33,8 @@ test('uses platform-specific executable names', () => {
 
 test('builds style and offline relative-link validation commands', () => {
   const commands = createValidationCommands([
+    '.github/skills/speckit-plan/SKILL.md',
     'README.md',
-    'docs/guide.md',
   ], 'win32');
 
   assert.deepEqual(commands, [
@@ -33,7 +42,7 @@ test('builds style and offline relative-link validation commands', () => {
       label: 'Markdown diagnostics',
       tool: 'markdownlint-cli2',
       command: 'markdownlint-cli2.cmd',
-      args: [':README.md', ':docs/guide.md'],
+      args: [':README.md'],
     },
     {
       label: 'Markdown relative links',
@@ -43,8 +52,8 @@ test('builds style and offline relative-link validation commands', () => {
         '--quiet',
         '--config',
         '.markdown-link-check.json',
+        '.github/skills/speckit-plan/SKILL.md',
         'README.md',
-        'docs/guide.md',
       ],
     },
   ]);

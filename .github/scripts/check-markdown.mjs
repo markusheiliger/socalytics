@@ -2,6 +2,10 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+const GENERATED_SPEC_KIT_PATHS = [
+  '.github/skills/speckit-',
+  '.specify/templates/',
+];
 const GLOBAL_TOOL_ENTRIES = new Map([
   ['markdownlint-cli2', ['markdownlint-cli2', 'markdownlint-cli2-bin.mjs']],
   ['markdown-link-check', ['markdown-link-check', 'markdown-link-check']],
@@ -19,6 +23,11 @@ export function parseMarkdownPaths(output) {
     .sort();
 }
 
+export function isRepositoryAuthoredMarkdown(filePath) {
+  const normalizedPath = normalizePath(filePath);
+  return !GENERATED_SPEC_KIT_PATHS.some((prefix) => normalizedPath.startsWith(prefix));
+}
+
 export function executableName(name, platform = process.platform) {
   return platform === 'win32' ? `${name}.cmd` : name;
 }
@@ -29,7 +38,9 @@ export function createValidationCommands(markdownPaths, platform = process.platf
       label: 'Markdown diagnostics',
       tool: 'markdownlint-cli2',
       command: executableName('markdownlint-cli2', platform),
-      args: markdownPaths.map((filePath) => `:${filePath}`),
+      args: markdownPaths
+        .filter(isRepositoryAuthoredMarkdown)
+        .map((filePath) => `:${filePath}`),
     },
     {
       label: 'Markdown relative links',

@@ -2,5 +2,9 @@
   "config": {
     "MD013": false
   },
-  "gitignore": true
+  "gitignore": true,
+  "ignores": [
+    ".github/skills/speckit-*/**/*.md",
+    ".specify/templates/**/*.md"
+  ]
 }

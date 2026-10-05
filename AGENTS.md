@@ -15,6 +15,14 @@
 - Component-local executable contracts and implementation guidance belong with the component that owns and validates them.
 - Preserve unresolved decisions explicitly. Do not present provisional values, target-state descriptions, or missing production evidence as adopted facts.
 
+## Spec Kit
+
+- Feature work follows GitHub Spec Kit `1.0.13` in GitHub Copilot skills mode: `/speckit-specify`, optional `/speckit-clarify`, `/speckit-plan`, `/speckit-tasks`, optional `/speckit-analyze`, `/speckit-implement`, and `/speckit-converge`.
+- [`.specify/memory/constitution.md`](.specify/memory/constitution.md) governs every spec, plan, and task list. Amend it with `/speckit-constitution` and keep it consistent with this file.
+- Feature artifacts live in numbered `specs/<NNN>-<feature>/` folders created by `/speckit-specify`.
+- The helper scripts are Python (`.specify/scripts/python/`) and run as `python` from the repository root.
+- `.github/skills/speckit-*` and everything under `.specify/` except the constitution are managed by the `specify` CLI. Do not hand-edit them; refresh them through the `specify` CLI upgrade flow.
+
 ## Repository Setup
 
 - Use `main` as the default branch when initializing Git.
@@ -41,5 +49,5 @@
 - Keep changes focused and avoid speculative abstractions or dependencies.
 - Document every supported setup, build, test, and lint command in `README.md` when it becomes available.
 - After each substantive edit, run the narrowest relevant check before widening scope.
-- Run `node .github/scripts/check-markdown.mjs` to validate Markdown diagnostics and repository-relative links when changing documentation.
+- Run `node .github/scripts/check-markdown.mjs` to validate Markdown diagnostics and repository-relative links when changing documentation or Spec Kit artifacts.
 - Preserve user changes in a dirty worktree and do not use destructive Git commands.

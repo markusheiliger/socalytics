@@ -1,3 +1,6 @@
 # .NET build outputs (including Aspire artifacts generated under obj/)
 bin/
 obj/
+
+# Python bytecode from the Spec Kit helper scripts
+__pycache__/
