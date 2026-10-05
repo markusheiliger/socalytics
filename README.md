@@ -19,8 +19,8 @@ through approved changes.
 - [`.specify/`](.specify/memory/constitution.md) holds the Spec Kit project
     constitution, templates, and helper scripts; `.github/skills/speckit-*`
     holds the generated Spec Kit skills for GitHub Copilot.
-- `specs/` holds one numbered folder per Spec Kit feature once the first
-    feature is specified.
+- [`specs/`](specs/README.md) holds one UTC-timestamped folder per Spec Kit
+    feature and an index of feature dependency order.
 - [`AGENTS.md`](AGENTS.md) defines repository guidance for coding agents.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
@@ -75,7 +75,9 @@ When PyPI is reachable only through a package proxy, pass it to uv with
 
 Run the skills in GitHub Copilot Chat, one at a time, reviewing each result:
 
-1. `/speckit-specify <what and why>` creates `specs/<NNN>-<feature>/spec.md`.
+1. `/speckit-specify <what and why>` creates `specs/<YYYYMMDD-HHMMSS>-<feature>/spec.md`,
+    prefixed with the UTC creation time; see [specs/README.md](specs/README.md)
+    for the naming rule and feature dependency order.
 2. `/speckit-clarify` (optional) resolves ambiguities before planning.
 3. `/speckit-plan <technical direction>` creates the plan and design artifacts
     and checks them against the constitution.
