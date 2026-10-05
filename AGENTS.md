@@ -19,9 +19,17 @@
 
 - Feature work follows GitHub Spec Kit `1.0.13` in GitHub Copilot skills mode: `/speckit-specify`, optional `/speckit-clarify`, `/speckit-plan`, `/speckit-tasks`, optional `/speckit-analyze`, `/speckit-implement`, and `/speckit-converge`.
 - [`.specify/memory/constitution.md`](.specify/memory/constitution.md) governs every spec, plan, and task list. Amend it with `/speckit-constitution` and keep it consistent with this file.
-- Feature artifacts live in `specs/<YYYYMMDD-HHMMSS>-<short-name>/` folders created by `/speckit-specify` (`feature_numbering` is `timestamp` to avoid collisions between developers). The prefix MUST be the current UTC time; Spec Kit's helper scripts use local time, so run them with `TZ=UTC`. Record dependency order in `specs/README.md`, never in the folder prefix.
+- Feature artifacts live in `specs/<YYYYMMDD-HHMMSS>-<short-name>/` folders created by `/speckit-specify` (`feature_numbering` is `timestamp` to avoid collisions between developers). The prefix MUST be the current UTC time; Spec Kit's helper scripts use local time, so run them with `TZ=UTC`. The prefix carries no dependency meaning: `specs/README.md` gives a human-readable overview, and spec twin issue dependencies define the automation order.
 - The helper scripts are Python (`.specify/scripts/python/`) and run as `python` from the repository root.
 - `.github/skills/speckit-*` and everything under `.specify/` except the constitution are managed by the `specify` CLI. Do not hand-edit them; refresh them through the `specify` CLI upgrade flow.
+- Do not run `/speckit-taskstoissues`. Features, not tasks, are mirrored to GitHub as spec twins by `.github/workflows/speckit-prepare.yml`.
+
+## Spec Twins
+
+- Each feature folder under `specs/` on `main` has one twin issue labelled `speckit:spec`. Its generated `**Spec**` link line is its identity; the workflow regenerates the title and description, so change the spec, never the twin body.
+- Twins are pointers, not trackers. The repository is authoritative for spec content; native GitHub issue dependencies between twins are authoritative for the order in which GitHub automation may implement features, and do not constrain local work.
+- `speckit:deps-pending` marks twins whose dependencies Copilot CLI has not yet inferred. Inference runs once per new twin; after that, humans maintain the dependencies on GitHub.
+- Tooling lives in `.github/scripts/speckit-prepare*.mjs`. Run `node --test .github/scripts/speckit-prepare-core.test.mjs .github/scripts/speckit-prepare.test.mjs` after changing it, and keep a readable `name:` on every workflow job and step.
 
 ## Repository Setup
 
@@ -41,7 +49,7 @@
 - Add only files justified by the adopted architecture and an approved change. Generate `.gitignore` from the actual stack and local tooling rather than using a generic catch-all.
 - Preserve `src/platform/`, `src/clients/`, `src/agents/`, and `src/analysts/` as the approved first-level ownership areas. Do not add another immediate child of `src` without an accepted architecture change.
 - Add nested source, test, or documentation directories only with their first meaningful artifacts; do not create empty placeholders or infer planned child paths from the source-area READMEs.
-- Add product CI workflows only after executable build, lint, or test commands exist.
+- Add product CI workflows only after executable build, lint, or test commands exist. The `Spec Kit prepare` workflow is repository tooling, not product CI.
 - Never commit, push, configure remotes, or publish without an explicit request.
 
 ## Changes and Validation

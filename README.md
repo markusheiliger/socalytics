@@ -86,15 +86,54 @@ Run the skills in GitHub Copilot Chat, one at a time, reviewing each result:
 5. `/speckit-implement` executes the tasks; `/speckit-converge` reports
     remaining gaps. Repeat both until convergence reports completion.
 
-`/speckit-checklist` generates quality checklists, `/speckit-constitution`
-amends the constitution, and `/speckit-taskstoissues` turns tasks into GitHub
-issues.
+`/speckit-checklist` generates quality checklists, and `/speckit-constitution`
+amends the constitution. Do not use `/speckit-taskstoissues`: this repository
+mirrors features, not tasks, to GitHub through spec twins (see below).
 
 The skills under `.github/skills/speckit-*` and the files under `.specify/`
 other than the constitution are managed by the `specify` CLI. Do not edit them
 by hand; run `specify self check` to look for a newer release and follow the
 [Spec Kit upgrade guide](https://github.github.io/spec-kit/upgrade.html) to
 refresh them.
+
+### Spec Twins
+
+The `Spec Kit prepare` workflow (`.github/workflows/speckit-prepare.yml`) keeps
+one GitHub issue, a spec twin, per feature folder under `specs/` on `main`. It
+runs on every push to `main` that changes `specs/**` and can be started
+manually; manual runs are dry runs unless `dry_run` is unchecked.
+
+- A twin is labelled `speckit:spec` and starts with a generated, clickable
+    `**Spec**` line linking its folder. That line identifies the twin. The title
+    and description are regenerated from the spec on every run, so edit the
+    spec, not the issue.
+- A twin is not used for tracking. The repository stays authoritative for what
+    a feature specifies.
+- When a folder disappears, its twin is closed as not planned; it is reopened
+    if the folder returns. Twins closed as completed are never changed.
+- If any `speckit:spec` issue lacks a readable `**Spec**` line, the run creates
+    no new twins and fails, listing the affected issues. Restore the line from
+    the issue's edit history, or remove the label.
+- New twins carry `speckit:deps-pending`. Copilot CLI then infers "blocked by"
+    relationships between the new and the existing open twins, once. A script
+    validates the result (known open twins only, no cycles), adds native GitHub
+    issue dependencies, and comments the reasons. If inference fails, the label
+    stays and the next run retries. After that, the dependencies belong to
+    GitHub: adjust them on the issues. They define the order in which GitHub
+    automation may implement features, not the order of local work.
+
+The workflow's tooling tests run with:
+
+```powershell
+node --test .github/scripts/speckit-prepare-core.test.mjs .github/scripts/speckit-prepare.test.mjs
+```
+
+A local dry run against the repository needs only read access:
+
+```powershell
+$env:GITHUB_REPOSITORY = 'markusheiliger/socalytics'; $env:GH_TOKEN = gh auth token
+node .github/scripts/speckit-prepare.mjs sync --dry-run
+```
 
 ### Markdown
 

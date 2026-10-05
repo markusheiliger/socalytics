@@ -1,0 +1,288 @@
+import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import test from 'node:test';
+
+import { PENDING_LABEL, TWIN_LABEL, parseTwinFolder } from './speckit-prepare-core.mjs';
+import { GitHubClient } from './speckit-prepare-github.mjs';
+import { discoverSpecs, main, runApply, runSync } from './speckit-prepare.mjs';
+
+class FakeGitHub {
+  constructor(issues = []) {
+    this.issues = issues;
+    this.labels = new Set();
+    this.comments = [];
+    this.edges = [];
+    this.nextNumber = 100;
+  }
+
+  async listTwinIssues(label) {
+    return this.issues.filter((issue) => issue.labels.some((l) => l.name === label)).map((issue) => structuredClone(issue));
+  }
+
+  async ensureLabel({ name }) {
+    this.labels.add(name);
+  }
+
+  async createIssue({ title, body, labels }) {
+    const number = this.nextNumber++;
+    const issue = { number, id: number * 1000, state: 'open', state_reason: null, title, body, labels: labels.map((name) => ({ name })) };
+    this.issues.push(issue);
+    return structuredClone(issue);
+  }
+
+  find(number) {
+    return this.issues.find((issue) => issue.number === number);
+  }
+
+  async updateIssue(number, fields) {
+    Object.assign(this.find(number), fields);
+  }
+
+  async removeLabel(number, name) {
+    const issue = this.find(number);
+    issue.labels = issue.labels.filter((label) => label.name !== name);
+  }
+
+  async createComment(number, body) {
+    this.comments.push({ number, body });
+  }
+
+  async listBlockedBy(number) {
+    return this.edges.filter(([blocked]) => blocked === number).map(([, blocker]) => structuredClone(this.find(blocker)));
+  }
+
+  async addBlockedBy(number, blockerId) {
+    this.edges.push([number, this.issues.find((issue) => issue.id === blockerId).number]);
+  }
+}
+
+function makeRepo(folders) {
+  const root = mkdtempSync(path.join(tmpdir(), 'speckit-prepare-'));
+  mkdirSync(path.join(root, 'specs'));
+  writeFileSync(path.join(root, 'specs', 'README.md'), '# index\n');
+  for (const folder of folders) {
+    mkdirSync(path.join(root, 'specs', folder));
+    writeFileSync(
+      path.join(root, 'specs', folder, 'spec.md'),
+      `# Feature Specification: ${folder} title\n\n**Input**: User description: "${folder} summary"\n\n## Assumptions\n\n- **Dependencies**: none.\n`,
+    );
+  }
+  return root;
+}
+
+function envFor(root) {
+  return { GITHUB_REPOSITORY: 'octo/repo', GITHUB_STEP_SUMMARY: path.join(root, 'summary.md'), GITHUB_OUTPUT: path.join(root, 'output.txt') };
+}
+
+const silent = () => {};
+
+async function syncRepo(github, root, options = {}) {
+  return runSync({ client: github, rootDir: root, env: envFor(root), dryRun: false, promptFile: path.join(root, 'prompt.txt'), log: silent, ...options });
+}
+
+test('discovers only spec folders that contain spec.md', () => {
+  const root = makeRepo(['20261005-130700-a']);
+  mkdirSync(path.join(root, 'specs', 'empty'));
+  try {
+    assert.deepEqual([...discoverSpecs(root).keys()], ['20261005-130700-a']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('creates twins with labels and writes the prompt for pending twins', async () => {
+  const root = makeRepo(['20261005-130700-a', '20261005-130701-b']);
+  try {
+    const github = new FakeGitHub();
+    const result = await syncRepo(github, root);
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(github.issues.map((issue) => parseTwinFolder(issue.body)), ['20261005-130700-a', '20261005-130701-b']);
+    assert.ok(github.issues.every((issue) => issue.labels.map((l) => l.name).join() === `${TWIN_LABEL},${PENDING_LABEL}`));
+    assert.deepEqual([...github.labels].sort(), [PENDING_LABEL, TWIN_LABEL]);
+    assert.match(readFileSync(path.join(root, 'prompt.txt'), 'utf8'), /### 20261005-130700-a \(NEW\)/);
+    assert.match(readFileSync(path.join(root, 'output.txt'), 'utf8'), /pending=true/);
+
+    const second = await syncRepo(github, root);
+    assert.equal(second.plan.create.length + second.plan.update.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('dry run reports planned work without mutating issues', async () => {
+  const root = makeRepo(['20261005-130700-a']);
+  try {
+    const github = new FakeGitHub();
+    const result = await runSync({ client: github, rootDir: root, env: envFor(root), dryRun: true, log: silent });
+    assert.equal(github.issues.length, 0);
+    assert.deepEqual(result.pending, ['20261005-130700-a']);
+    assert.match(readFileSync(path.join(root, 'summary.md'), 'utf8'), /Would create twin/);
+    assert.match(readFileSync(path.join(root, 'output.txt'), 'utf8'), /pending=false/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('closes twins of removed folders and reopens them when the folder returns', async () => {
+  const root = makeRepo(['20261005-130700-a']);
+  try {
+    const github = new FakeGitHub();
+    await syncRepo(github, root);
+    rmSync(path.join(root, 'specs', '20261005-130700-a'), { recursive: true });
+    await syncRepo(github, root);
+    assert.equal(github.issues[0].state, 'closed');
+    assert.equal(github.issues[0].state_reason, 'not_planned');
+    assert.ok(!github.issues[0].labels.some((label) => label.name === PENDING_LABEL));
+    assert.match(github.comments.at(-1).body, /no longer exists/);
+
+    rmSync(root, { recursive: true, force: true });
+    const restored = makeRepo(['20261005-130700-a']);
+    await syncRepo(github, restored);
+    assert.equal(github.issues[0].state, 'open');
+    assert.equal(github.issues.length, 1);
+    rmSync(restored, { recursive: true, force: true });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('fail-safe: an unreadable twin blocks creates and fails the run', async () => {
+  const root = makeRepo(['20261005-130700-a']);
+  try {
+    const github = new FakeGitHub([{ number: 1, id: 1000, state: 'open', title: 'x', body: 'damaged', labels: [{ name: TWIN_LABEL }] }]);
+    const result = await syncRepo(github, root);
+    assert.equal(result.exitCode, 1);
+    assert.equal(github.issues.length, 1);
+    assert.match(readFileSync(path.join(root, 'summary.md'), 'utf8'), /Unreadable twins[\s\S]*#1[\s\S]*Skipped creating a twin/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('apply adds validated links, comments, and clears the pending label', async () => {
+  const root = makeRepo(['20261005-130700-a', '20261005-130701-b']);
+  try {
+    const github = new FakeGitHub();
+    await syncRepo(github, root);
+    const outputFile = path.join(root, 'inference.txt');
+    writeFileSync(outputFile, '{"links":[{"blocked":"20261005-130701-b","blockedBy":"20261005-130700-a","reason":"b builds on a."}]}');
+    const result = await runApply({ client: github, rootDir: root, env: envFor(root), outputFile, log: silent });
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual(github.edges, [[101, 100]]);
+    assert.ok(github.issues.every((issue) => !issue.labels.some((label) => label.name === PENDING_LABEL)));
+    assert.match(github.comments.find((c) => c.number === 101).body, /Blocked by #100/);
+    assert.match(github.comments.find((c) => c.number === 100).body, /Blocks #101/);
+
+    writeFileSync(outputFile, 'garbage');
+    assert.equal((await runApply({ client: github, rootDir: root, env: envFor(root), outputFile, log: silent })).exitCode, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('apply rejects invalid output and keeps the pending label for a retry', async () => {
+  const root = makeRepo(['20261005-130700-a', '20261005-130701-b']);
+  try {
+    const github = new FakeGitHub();
+    await syncRepo(github, root);
+    const outputFile = path.join(root, 'inference.txt');
+    writeFileSync(outputFile, '{"links":[{"blocked":"20261005-130701-b","blockedBy":"unknown","reason":"r"}]}');
+    const result = await runApply({ client: github, rootDir: root, env: envFor(root), outputFile, log: silent });
+    assert.equal(result.exitCode, 1);
+    assert.equal(github.edges.length, 0);
+    assert.ok(github.issues.every((issue) => issue.labels.some((label) => label.name === PENDING_LABEL)));
+    assert.match(readFileSync(path.join(root, 'summary.md'), 'utf8'), /rejected/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('apply skips links that already exist after a partial run', async () => {
+  const root = makeRepo(['20261005-130700-a', '20261005-130701-b']);
+  try {
+    const github = new FakeGitHub();
+    await syncRepo(github, root);
+    github.edges.push([101, 100]);
+    const outputFile = path.join(root, 'inference.txt');
+    writeFileSync(outputFile, '{"links":[{"blocked":"20261005-130701-b","blockedBy":"20261005-130700-a","reason":"r"}]}');
+    assert.equal((await runApply({ client: github, rootDir: root, env: envFor(root), outputFile, log: silent })).exitCode, 0);
+    assert.deepEqual(github.edges, [[101, 100]]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('apply ignores cross-repository blockers that share a twin issue number', async () => {
+  const root = makeRepo(['20261005-130700-a', '20261005-130701-b']);
+  try {
+    const github = new FakeGitHub();
+    await syncRepo(github, root);
+    github.listBlockedBy = async (number) => (number === 100 ? [{ number: 101, id: 999_999 }] : []);
+    const outputFile = path.join(root, 'inference.txt');
+    writeFileSync(outputFile, '{"links":[{"blocked":"20261005-130701-b","blockedBy":"20261005-130700-a","reason":"r"}]}');
+    assert.equal((await runApply({ client: github, rootDir: root, env: envFor(root), outputFile, log: silent })).exitCode, 0);
+    assert.deepEqual(github.edges, [[101, 100]]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('main validates arguments', async () => {
+  const client = new FakeGitHub();
+  await assert.rejects(() => main(['sync'], { env: {}, client }), /--prompt-file/);
+  await assert.rejects(() => main(['apply'], { env: {}, client }), /--output-file/);
+  await assert.rejects(() => main(['nope'], { env: {}, client }), /Usage/);
+});
+
+function response(status, body, headers = {}) {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: new Map(Object.entries(headers)),
+    text: async () => (body === undefined ? '' : JSON.stringify(body)),
+  };
+}
+
+test('GitHub client paginates, retries rate limits, and filters pull requests', async () => {
+  const calls = [];
+  const responses = [
+    response(429, { message: 'slow down' }, { 'retry-after': '1' }),
+    response(200, [{ number: 1 }, { number: 2, pull_request: {} }], { link: '<https://api.github.com/next>; rel="next"' }),
+    response(200, [{ number: 3 }]),
+  ];
+  const client = new GitHubClient({
+    token: 't',
+    repository: 'octo/repo',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, init });
+      return responses.shift();
+    },
+    wait: async () => {},
+  });
+  const issues = await client.listTwinIssues('speckit:spec');
+  assert.deepEqual(issues.map((issue) => issue.number), [1, 3]);
+  assert.match(calls[0].url, /\/repos\/octo\/repo\/issues\?state=all&labels=speckit%3Aspec&per_page=100$/);
+  assert.equal(calls[0].init.headers.Authorization, 'Bearer t');
+  assert.equal(calls[2].url, 'https://api.github.com/next');
+});
+
+test('GitHub client creates missing labels and surfaces errors', async () => {
+  const calls = [];
+  const responses = [response(404, { message: 'Not Found' }), response(201, { name: 'x' }), response(500, { message: 'boom' })];
+  const client = new GitHubClient({
+    token: 't',
+    repository: 'octo/repo',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, method: init.method, body: init.body });
+      return responses.shift();
+    },
+  });
+  await client.ensureLabel({ name: 'speckit:spec', color: '000000', description: 'd' });
+  assert.equal(calls[1].method, 'POST');
+  assert.match(calls[1].body, /"name":"speckit:spec"/);
+  await assert.rejects(() => client.addBlockedBy(1, 2), /HTTP 500/);
+  assert.throws(() => new GitHubClient({ token: '', repository: 'octo/repo' }), /token/);
+  assert.throws(() => new GitHubClient({ token: 't', repository: 'nope' }), /owner\/repo/);
+});
