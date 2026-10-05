@@ -56,7 +56,7 @@ jobs:
 
       - name: Upload the inference prompt
         if: ${{ steps.sync.outputs.pending == 'true' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: speckit-prepare-prompt
           path: ${{ runner.temp }}/speckit-prepare/prompt.txt
@@ -74,7 +74,7 @@ jobs:
       copilot-requests: write
     steps:
       - name: Download the inference prompt
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: speckit-prepare-prompt
           path: ${{ runner.temp }}/speckit-prepare
@@ -98,7 +98,7 @@ jobs:
           cat inference.txt
 
       - name: Upload the inference output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: speckit-prepare-inference
           path: ${{ runner.temp }}/speckit-prepare/inference.txt
@@ -126,7 +126,7 @@ jobs:
           node-version: 24
 
       - name: Download the inference output
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: speckit-prepare-inference
           path: ${{ runner.temp }}/speckit-prepare

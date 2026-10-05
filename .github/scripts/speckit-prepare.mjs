@@ -218,7 +218,7 @@ export async function runApply({ client, rootDir, env, outputFile, log }) {
         'From now on these dependencies are maintained on GitHub; adjust them on this issue if they are wrong.',
       ].join('\n'));
     } else if (twin.pending) {
-      await client.createComment(twin.issue.number, 'Dependency inference by `speckit-prepare` found no blocking relationships for this feature.');
+      await client.createComment(twin.issue.number, 'Dependency inference by `speckit-prepare` found no new blocking relationships for this feature.');
     }
   }
   for (const twin of pending) await client.removeLabel(twin.issue.number, PENDING_LABEL);
