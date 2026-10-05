@@ -111,6 +111,22 @@ test('creates twins with labels and writes the prompt for pending twins', async 
   }
 });
 
+test('writes the prompt for twins created in this run even when listings lag', async () => {
+  const root = makeRepo(['20261005-130700-a']);
+  try {
+    const github = new FakeGitHub();
+    const stale = github.listTwinIssues.bind(github);
+    let calls = 0;
+    github.listTwinIssues = async (label) => (calls++ === 0 ? stale(label) : []);
+    const result = await syncRepo(github, root);
+    assert.deepEqual(result.pending, ['20261005-130700-a']);
+    assert.match(readFileSync(path.join(root, 'prompt.txt'), 'utf8'), /20261005-130700-a \(NEW\)/);
+    assert.equal(calls, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('dry run reports planned work without mutating issues', async () => {
   const root = makeRepo(['20261005-130700-a']);
   try {
@@ -245,12 +261,24 @@ function response(status, body, headers = {}) {
   };
 }
 
-test('GitHub client paginates, retries rate limits, and filters pull requests', async () => {
+test('GitHub client lists twins through GraphQL with pagination and retries rate limits', async () => {
   const calls = [];
+  const node = (number, extra = {}) => ({
+    number,
+    databaseId: number * 10,
+    title: `t${number}`,
+    body: 'b',
+    state: 'CLOSED',
+    stateReason: 'NOT_PLANNED',
+    url: `https://github.com/octo/repo/issues/${number}`,
+    labels: { nodes: [{ name: 'speckit:spec' }] },
+    ...extra,
+  });
+  const page = (nodes, hasNextPage, endCursor = null) => ({ data: { repository: { issues: { pageInfo: { hasNextPage, endCursor }, nodes } } } });
   const responses = [
     response(429, { message: 'slow down' }, { 'retry-after': '1' }),
-    response(200, [{ number: 1 }, { number: 2, pull_request: {} }], { link: '<https://api.github.com/next>; rel="next"' }),
-    response(200, [{ number: 3 }]),
+    response(200, page([node(1)], true, 'c1')),
+    response(200, page([node(2, { state: 'OPEN', stateReason: null })], false)),
   ];
   const client = new GitHubClient({
     token: 't',
@@ -262,10 +290,34 @@ test('GitHub client paginates, retries rate limits, and filters pull requests', 
     wait: async () => {},
   });
   const issues = await client.listTwinIssues('speckit:spec');
-  assert.deepEqual(issues.map((issue) => issue.number), [1, 3]);
-  assert.match(calls[0].url, /\/repos\/octo\/repo\/issues\?state=all&labels=speckit%3Aspec&per_page=100$/);
+  assert.deepEqual(issues.map((issue) => [issue.number, issue.id, issue.state, issue.state_reason]), [
+    [1, 10, 'closed', 'not_planned'],
+    [2, 20, 'open', null],
+  ]);
+  assert.equal(calls[0].url, 'https://api.github.com/graphql');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer t');
-  assert.equal(calls[2].url, 'https://api.github.com/next');
+  assert.deepEqual(JSON.parse(calls[2].init.body).variables, { owner: 'octo', name: 'repo', label: 'speckit:spec', after: 'c1' });
+});
+
+test('GitHub client paginates REST lists and surfaces GraphQL errors', async () => {
+  const calls = [];
+  const responses = [
+    response(200, [{ number: 1, id: 1 }], { link: '<https://api.github.com/next>; rel="next"' }),
+    response(200, [{ number: 2, id: 2 }]),
+    response(200, { errors: [{ message: 'bad query' }] }),
+  ];
+  const client = new GitHubClient({
+    token: 't',
+    repository: 'octo/repo',
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return responses.shift();
+    },
+  });
+  assert.deepEqual((await client.listBlockedBy(7)).map((issue) => issue.number), [1, 2]);
+  assert.match(calls[0], /\/repos\/octo\/repo\/issues\/7\/dependencies\/blocked_by\?per_page=100$/);
+  assert.equal(calls[1], 'https://api.github.com/next');
+  await assert.rejects(() => client.listTwinIssues('x'), /bad query/);
 });
 
 test('GitHub client creates missing labels and surfaces errors', async () => {

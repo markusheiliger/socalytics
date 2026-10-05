@@ -22,7 +22,7 @@ export class GitHubError extends Error {
 }
 
 export class GitHubClient {
-  constructor({ token, repository, apiUrl = 'https://api.github.com', fetchImpl = fetch, wait = sleep }) {
+  constructor({ token, repository, apiUrl = 'https://api.github.com', graphqlUrl, fetchImpl = fetch, wait = sleep }) {
     if (!token) throw new Error('A GitHub token is required (GITHUB_TOKEN or GH_TOKEN).');
     if (!/^[^/\s]+\/[^/\s]+$/.test(repository ?? '')) {
       throw new Error('GITHUB_REPOSITORY must have the form owner/repo.');
@@ -30,6 +30,7 @@ export class GitHubClient {
     this.token = token;
     this.repository = repository;
     this.apiUrl = apiUrl.replace(/\/$/, '');
+    this.graphqlUrl = graphqlUrl ?? `${this.apiUrl}/graphql`;
     this.fetch = fetchImpl;
     this.wait = wait;
   }
@@ -84,8 +85,43 @@ export class GitHubClient {
   }
 
   async listTwinIssues(label) {
-    const issues = await this.paginate(this.repoPath(`/issues?state=all&labels=${encodeURIComponent(label)}`));
-    return issues.filter((issue) => !issue.pull_request);
+    // The REST issue listing can omit issues for minutes after they change, which would let a sync
+    // recreate an existing twin. The GraphQL connection reads issues consistently.
+    const query = `query($owner: String!, $name: String!, $label: String!, $after: String) {
+      repository(owner: $owner, name: $name) {
+        issues(first: 100, after: $after, labels: [$label], states: [OPEN, CLOSED], orderBy: { field: CREATED_AT, direction: ASC }) {
+          pageInfo { hasNextPage endCursor }
+          nodes { number databaseId title body state stateReason url labels(first: 100) { nodes { name } } }
+        }
+      }
+    }`;
+    const [owner, name] = this.repository.split('/');
+    const issues = [];
+    let after = null;
+    do {
+      const data = await this.graphql(query, { owner, name, label, after });
+      const connection = data.repository.issues;
+      for (const node of connection.nodes) {
+        issues.push({
+          number: node.number,
+          id: node.databaseId,
+          title: node.title,
+          body: node.body,
+          state: node.state.toLowerCase(),
+          state_reason: node.stateReason ? node.stateReason.toLowerCase() : null,
+          html_url: node.url,
+          labels: node.labels.nodes.map((labelNode) => ({ name: labelNode.name })),
+        });
+      }
+      after = connection.pageInfo.hasNextPage ? connection.pageInfo.endCursor : null;
+    } while (after);
+    return issues;
+  }
+
+  async graphql(query, variables) {
+    const { data } = await this.request('POST', this.graphqlUrl, { query, variables });
+    if (data.errors?.length) throw new Error(`GraphQL request failed: ${data.errors.map((error) => error.message).join('; ')}`);
+    return data.data;
   }
 
   async ensureLabel({ name, color, description }) {

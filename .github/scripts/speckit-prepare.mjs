@@ -87,16 +87,19 @@ function reportPlan(report, plan, dryRun) {
   }
 }
 
-async function applyPlan(client, plan) {
+async function applyPlan(client, plan, issues) {
   for (const label of LABELS) await client.ensureLabel(label);
   for (const item of plan.create) {
     item.issue = await client.createIssue({ title: item.title, body: item.body, labels: [TWIN_LABEL, PENDING_LABEL] });
+    issues.push(item.issue);
   }
   for (const item of plan.reopen) {
     await client.updateIssue(item.issue.number, { state: 'open', state_reason: 'reopened', title: item.title, body: item.body });
+    Object.assign(item.issue, { state: 'open', state_reason: 'reopened', title: item.title, body: item.body });
   }
   for (const item of plan.update) {
     await client.updateIssue(item.issue.number, { title: item.title, body: item.body });
+    Object.assign(item.issue, { title: item.title, body: item.body });
   }
   for (const item of plan.close) {
     await client.createComment(
@@ -104,6 +107,7 @@ async function applyPlan(client, plan) {
       `The spec folder \`specs/${item.folder}\` no longer exists on the default branch, so this twin is closed as not planned. It is reopened automatically if the folder returns.`,
     );
     await client.updateIssue(item.issue.number, { state: 'closed', state_reason: 'not_planned' });
+    Object.assign(item.issue, { state: 'closed', state_reason: 'not_planned' });
     if (hasLabel(item.issue, PENDING_LABEL)) await client.removeLabel(item.issue.number, PENDING_LABEL);
   }
 }
@@ -118,21 +122,20 @@ function openTwinsWithSpecs(issues, specs) {
 export async function runSync({ client, rootDir, env, dryRun, promptFile, log }) {
   const report = createReporter(env, log);
   const specs = discoverSpecs(rootDir);
-  const plan = planSync({ specs, issues: await client.listTwinIssues(TWIN_LABEL), context: contextFromEnv(env) });
-  if (!dryRun) await applyPlan(client, plan);
+  const issues = await client.listTwinIssues(TWIN_LABEL);
+  const plan = planSync({ specs, issues, context: contextFromEnv(env) });
+  if (!dryRun) await applyPlan(client, plan, issues);
   reportPlan(report, plan, dryRun);
 
-  let pending = [];
+  // Derive the post-sync state from this run's own results instead of listing issues again,
+  // because freshly written issues are not reliably visible to an immediate re-read.
+  const twins = openTwinsWithSpecs(issues, specs);
+  let pending = twins.filter((twin) => twin.pending).map((twin) => twin.folder);
   if (dryRun) {
-    const existing = openTwinsWithSpecs(await client.listTwinIssues(TWIN_LABEL), specs).filter((twin) => twin.pending);
-    pending = [...existing.map((twin) => twin.folder), ...plan.create.map((item) => item.folder)];
-  } else {
-    const twins = openTwinsWithSpecs(await client.listTwinIssues(TWIN_LABEL), specs);
-    pending = twins.filter((twin) => twin.pending).map((twin) => twin.folder);
-    if (pending.length > 0) {
-      const entries = twins.map((twin) => ({ ...specs.get(twin.folder).spec, pending: twin.pending }));
-      writeFileSync(promptFile, buildPrompt(entries), 'utf8');
-    }
+    pending = [...pending, ...plan.create.map((item) => item.folder)];
+  } else if (pending.length > 0) {
+    const entries = twins.map((twin) => ({ ...specs.get(twin.folder).spec, pending: twin.pending }));
+    writeFileSync(promptFile, buildPrompt(entries), 'utf8');
   }
 
   report.line();
@@ -242,6 +245,7 @@ export async function main(argv, { env = process.env, rootDir = process.cwd(), l
     token: env.GITHUB_TOKEN || env.GH_TOKEN,
     repository: env.GITHUB_REPOSITORY,
     apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
+    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
   });
   if (options.command === 'sync') {
     const dryRun = options.dryRun || env.SPECKIT_DRY_RUN === 'true';
