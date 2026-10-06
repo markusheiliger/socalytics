@@ -1,80 +1,68 @@
 name: Spec Kit implement
 
-# Selects spec twins that carry a validated speckit:stage:implement flag, are consistent with the
-# default branch, and have no open blockers, then prepares one implementation workspace per twin:
-# a linked speckit/<folder> branch, a draft pull request that closes the twin, a check run, and a
-# start comment. Implementation pull requests closed without merging send their twin back to its
-# computed stage. Task implementation itself is not wired up yet.
+# Orchestrates spec implementations. For spec twins with a validated speckit:stage:implement flag it prepares
+# the implementation workspace (linked speckit/<folder> branch, draft pull request, check run), then starts one
+# Spec Kit implement task run per task, in tasks.md order, and finally a finalize run. Every completion of a task
+# run triggers this workflow again (workflow_run). A task gets at most three attempts; after that the twin waits
+# for a manual run with the twin input. Implementation pull requests closed without merging send their twin back
+# to its computed stage.
 on:
   workflow_run:
-    workflows: [Spec Kit prepare]
+    workflows: [Spec Kit prepare, Spec Kit implement task]
     types: [completed]
   issues:
     types: [closed, reopened]
-  pull_request:
+  pull_request_target:
     types: [closed]
+  schedule:
+    # Safety net: continues implementations whose workflow_run hand-back was dropped.
+    - cron: "17 * * * *"
   workflow_dispatch:
+    inputs:
+      twin:
+        description: Spec twin issue number to resume after it reached the attempt limit (optional)
+        required: false
+        type: string
 
 permissions: {}
 
 jobs:
-  select:
-    name: Select specs ready for implementation
+  refuse:
+    name: Refuse non-default-branch runs
     if: >-
-      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
-      (github.event_name != 'pull_request' || (startsWith(github.event.pull_request.head.ref, 'speckit/') &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse the run
+        run: |
+          echo "::error::Spec Kit workflows only run from the default branch, not ${GITHUB_REF}."
+          exit 1
+
+  orchestrate:
+    name: Orchestrate spec implementations
+    # pull_request_target always uses this workflow from the default branch; the job never checks out pull
+    # request code.
+    if: >-
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.name == 'Spec Kit implement task' ||
+      github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name != 'pull_request_target' || (startsWith(github.event.pull_request.head.ref, 'speckit/') &&
       github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    # Job-level so runs whose select job is skipped never displace a pending selection; a replaced
-    # pending selection is harmless because every selection recomputes the complete state.
+    timeout-minutes: 20
+    # Job-level so runs whose job is skipped never displace a pending orchestration; a replaced pending run is
+    # harmless because every run recomputes the complete state.
     concurrency:
-      group: speckit-implement-select
+      group: speckit-implement-orchestrate
       cancel-in-progress: false
     permissions:
-      contents: read
-      issues: write
-      pull-requests: read
-    outputs:
-      count: ${{ steps.select.outputs.count }}
-      matrix: ${{ steps.select.outputs.matrix }}
-    steps:
-      - name: Check out the default branch
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-
-      - name: Select flagged and unblocked spec twins
-        id: select
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: node .github/scripts/speckit-implement.mjs select
-
-  start:
-    name: "Prepare implementation of #${{ matrix.number }}"
-    needs: select
-    if: needs.select.outputs.count != '0'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
+      actions: write
       checks: write
-    strategy:
-      max-parallel: 1
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
-    concurrency:
-      group: speckit-implement-${{ matrix.number }}
-      cancel-in-progress: false
+      contents: write
+      issues: write
+      pull-requests: write
     steps:
       - name: Check out the default branch
         uses: actions/checkout@v5
@@ -87,14 +75,9 @@ jobs:
         with:
           node-version: 24
 
-      - name: Prepare the branch, draft pull request, and check run
+      - name: Orchestrate spec implementations
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
-          ISSUE_NUMBER: ${{ matrix.number }}
-          FOLDER: ${{ matrix.folder }}
-          REQUESTER: ${{ matrix.requester }}
-          RESET: ${{ matrix.reset }}
-        run: >-
-          node .github/scripts/speckit-implement.mjs start
-          --issue "$ISSUE_NUMBER" --folder "$FOLDER" --requester "$REQUESTER" --reset "$RESET"
+          SPECKIT_RESUME_TWIN: ${{ inputs.twin }}
+        run: node .github/scripts/speckit-implement.mjs orchestrate

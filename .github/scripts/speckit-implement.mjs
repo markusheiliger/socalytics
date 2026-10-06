@@ -19,15 +19,28 @@ import {
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import {
+  CHECK_LIMIT,
+  CHECK_PROGRESS,
   CHECK_RUN_NAME,
+  DONE_COMMENT_MARKER,
+  FINALIZE_TASK,
+  MAX_TASK_ATTEMPTS,
+  RESUME_COMMENT_MARKER,
   START_COMMENT_MARKER,
+  TASK_WORKFLOW_FILE,
   checkRunOutput,
+  decideContinuation,
   decideLifecycle,
   extractTasks,
   implementationBranch,
+  latestCheckRun,
+  markerTimes,
+  nextTask,
+  parseTaskRunName,
   renderPullRequestBody,
   renderPullRequestTitle,
   renderStartComment,
+  renderTaskRunName,
 } from './speckit-implement-core.mjs';
 
 export class UsageError extends Error {}
@@ -90,7 +103,13 @@ export async function runSelect({ client, rootDir, env, log }) {
       flaggedAt: requester.labeledAt,
     });
     if (lifecycle.state === 'in-progress') {
-      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number });
+      const decision = await decideForPull(client, {
+        twin: issue.number,
+        folder,
+        pullNumber: lifecycle.pull.number,
+        resume: String(env.SPECKIT_RESUME_TWIN ?? '') === String(issue.number),
+      });
+      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, decision });
       continue;
     }
     if (lifecycle.state === 'merged') {
@@ -116,7 +135,9 @@ export async function runSelect({ client, rootDir, env, log }) {
   report.line('## Spec implementation selection');
   report.line();
   for (const twin of ready) report.line(`- Ready: #${twin.number} \`${twin.folder}\`${twin.reset ? ' (the branch is reset)' : ''}`);
-  for (const twin of inProgress) report.line(`- In progress: #${twin.number} \`${twin.folder}\` in pull request #${twin.pull}`);
+  for (const twin of inProgress) {
+    report.line(`- In progress: #${twin.number} \`${twin.folder}\` in pull request #${twin.pull}: ${describeDecision(twin.decision)}`);
+  }
   for (const twin of blocked) report.line(`- Blocked: #${twin.number} \`${twin.folder}\` by ${blockerList(twin.blockers)}`);
   for (const twin of fallback) {
     report.line(`- Flag removed: #${twin.number} \`${twin.folder}\` because pull request #${twin.pull} was closed without merging`);
@@ -135,6 +156,109 @@ export async function runSelect({ client, rootDir, env, log }) {
 
 async function findOpenPull(client, branch) {
   return (await client.listPullRequestsForHead(branch)).find((pull) => pull.state === 'open') ?? null;
+}
+
+function describeDecision(decision) {
+  switch (decision.action) {
+    case 'wait': return 'a task run is active';
+    case 'done': return 'implemented and waiting for review';
+    case 'failed': return 'stopped after the attempt limit; resume with a manual run';
+    case 'resume': return `resuming with ${decision.task}`;
+    case 'limit': return `${decision.task} reached the attempt limit`;
+    case 'dispatch': return `next is ${decision.task} attempt ${decision.attempt}`;
+    default: return decision.action;
+  }
+}
+
+// Reads the state of an open implementation pull request and decides how to continue it.
+async function decideForPull(client, { twin, folder, pullNumber, resume }) {
+  const pull = await client.getPullRequest(pullNumber);
+  const tasksMarkdown = await client.getFileContent(`specs/${folder}/tasks.md`, implementationBranch(folder));
+  if (tasksMarkdown === null) return { action: 'missing-tasks', pull };
+  const latestCheck = latestCheckRun(await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME));
+  const comments = await client.listIssueComments(pullNumber);
+  const resumedAt = markerTimes(comments, RESUME_COMMENT_MARKER);
+  const done = markerTimes(comments, DONE_COMMENT_MARKER).length > 0;
+  const windowStart = [pull.created_at, ...resumedAt].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+  const runs = (await client.listWorkflowRuns(TASK_WORKFLOW_FILE, windowStart))
+    .map((run) => ({ ...parseTaskRunName(run.display_title), status: run.status, conclusion: run.conclusion, created_at: run.created_at }))
+    .filter((run) => run.twin === twin);
+  return { ...decideContinuation({ tasksMarkdown, latestCheck, runs, windowStart, done, resume }), pull };
+}
+
+const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Starts one task run and waits until it is visible, so the next orchestrator run sees it as active.
+async function dispatchTask(client, env, { twin, pull, task, attempt }, { report, sleep, now }) {
+  const since = new Date(now() - 60_000).toISOString();
+  const title = renderTaskRunName(twin, task, attempt);
+  await client.dispatchWorkflow(TASK_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', {
+    twin: String(twin),
+    pull: String(pull),
+    task,
+    attempt: String(attempt),
+  });
+  for (let poll = 0; poll < 18; poll += 1) {
+    if ((await client.listWorkflowRuns(TASK_WORKFLOW_FILE, since, 1)).some((run) => run.display_title === title)) {
+      report.line(`- Started "${title}".`);
+      return;
+    }
+    await sleep(5000);
+  }
+  report.line(`- Warning: started "${title}", but the run was not visible after 90 seconds.`);
+}
+
+// Orchestrator: selects flagged twins, prepares new implementation workspaces, and starts, retries, resumes, or
+// stops task runs. Task runs hand control back through workflow_run.
+export async function runOrchestrate({ client, rootDir, env, log, sleep = defaultSleep, now = Date.now }) {
+  const selection = await runSelect({ client, rootDir, env, log });
+  const report = createReporter(env, log);
+  report.line();
+  report.line('### Actions');
+  report.line();
+  let actions = 0;
+  for (const twin of selection.ready) {
+    const started = await runStart({ client, rootDir, env, issueNumber: twin.number, folder: twin.folder, requester: twin.requester, reset: twin.reset, log });
+    if (!started.pull) continue;
+    const entry = readSpecFolder(rootDir, twin.folder);
+    const task = nextTask(entry?.tasks)?.id ?? FINALIZE_TASK;
+    await dispatchTask(client, env, { twin: twin.number, pull: started.pull.number, task, attempt: 1 }, { report, sleep, now });
+    actions += 1;
+  }
+  for (const twin of selection.inProgress) {
+    const { decision } = twin;
+    if (decision.action === 'dispatch') {
+      await dispatchTask(client, env, { twin: twin.number, pull: twin.pull, task: decision.task, attempt: decision.attempt }, { report, sleep, now });
+    } else if (decision.action === 'resume') {
+      await client.createComment(twin.pull, `${RESUME_COMMENT_MARKER}\nImplementation resumed by a manual run; the attempt count starts over with ${decision.task}.`);
+      await dispatchTask(client, env, { twin: twin.number, pull: twin.pull, task: decision.task, attempt: 1 }, { report, sleep, now });
+    } else if (decision.action === 'limit') {
+      await client.createCheckRun({
+        name: CHECK_RUN_NAME,
+        head_sha: decision.pull.head.sha,
+        status: 'completed',
+        conclusion: 'failure',
+        external_id: CHECK_LIMIT,
+        output: {
+          title: `${decision.task} reached the attempt limit`,
+          summary: `The implementation stopped at ${decision.task} after ${decision.attempts} task runs.`,
+        },
+      });
+      await client.createComment(twin.pull, [
+        `**Implementation stopped:** ${decision.task} did not succeed in ${decision.attempts} task runs (at most ${MAX_TASK_ATTEMPTS} failed attempts are allowed).`,
+        '',
+        'See the attempt comments above for the reasons. To try again, run the `Spec Kit implement` workflow manually with',
+        `\`twin\` set to ${twin.number}, which starts a new attempt count. To abandon this implementation, close this pull request.`,
+      ].join('\n'));
+      report.line(`- Stopped #${twin.number}: ${decision.task} reached the attempt limit.`);
+    } else {
+      continue;
+    }
+    actions += 1;
+  }
+  if (actions === 0) report.line('- Nothing to do.');
+  report.flush();
+  return { exitCode: 0, selection };
 }
 
 // Server side: prepares the implementation workspace of one ready twin. Every step checks what already exists,
@@ -196,7 +320,7 @@ export async function runStart({ client, rootDir, env, issueNumber, folder, requ
     report.line(`- Warning: could not assign @${requester}: ${error.message}`);
   }
   if ((await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME)).length === 0) {
-    await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: pull.head.sha, status: 'queued', output: checkRunOutput(tasks.count) });
+    await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: pull.head.sha, status: 'queued', external_id: CHECK_PROGRESS, output: checkRunOutput(tasks.count) });
     report.line(`- Created the \`${CHECK_RUN_NAME}\` check run.`);
   }
   const comments = await client.listIssueComments(pull.number);
@@ -351,6 +475,9 @@ export async function main(argv, { env = process.env, rootDir = process.cwd(), l
   if (options.command === 'select') {
     return (await runSelect({ client: actionsClient(), rootDir, env, log })).exitCode;
   }
+  if (options.command === 'orchestrate') {
+    return (await runOrchestrate({ client: actionsClient(), rootDir, env, log })).exitCode;
+  }
   if (options.command === 'start') {
     if (!Number.isInteger(options.issue) || options.issue <= 0 || !isValidFolderName(options.folder ?? '') || !options.requester) {
       throw new UsageError('start requires --issue <number>, --folder <folder>, and --requester <login>');
@@ -376,7 +503,7 @@ export async function main(argv, { env = process.env, rootDir = process.cwd(), l
     });
     return (await runRequest({ client: githubClient, git: gitRunner, rootDir, env, folder: options.folder, log })).exitCode;
   }
-  throw new UsageError('Usage: speckit-implement.mjs <select | start --issue <number> --folder <folder> --requester <login> [--reset [true|false]] | request [--folder <folder>]>');
+  throw new UsageError('Usage: speckit-implement.mjs <select | orchestrate | start --issue <number> --folder <folder> --requester <login> [--reset [true|false]] | request [--folder <folder>]>');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

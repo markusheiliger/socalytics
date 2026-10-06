@@ -88,7 +88,7 @@ export class FakeGitHub {
   }
 
   async createComment(number, body) {
-    this.comments.push({ number, body });
+    this.comments.push({ number, body, user: { login: this.commentAuthor ?? 'github-actions[bot]' }, created_at: this.tick() });
   }
 
   async listBlockedBy(number) {
@@ -103,9 +103,78 @@ export class FakeGitHub {
 
   get repo() {
     if (!this.repoState) {
-      this.repoState = { branches: { main: 'sha-main' }, commits: { 'sha-main': { tree: 'tree-main', parents: [] } }, pulls: [], checkRuns: [], linked: [], nextSha: 1 };
+      this.repoState = {
+        branches: { main: 'sha-main' },
+        commits: { 'sha-main': { tree: 'tree-main', parents: [] } },
+        pulls: [],
+        checkRuns: [],
+        linked: [],
+        runs: [],
+        files: new Map(),
+        reviewRequests: [],
+        nextSha: 1,
+        nextCheckRun: 1,
+        nextRun: 1,
+      };
     }
     return this.repoState;
+  }
+
+  // Test helper: content of a file at a branch name or commit SHA.
+  setFile(ref, filePath, content) {
+    this.repo.files.set(`${ref}:${filePath}`, content);
+  }
+
+  async getFileContent(filePath, ref) {
+    return this.repo.files.get(`${ref}:${filePath}`)
+      ?? this.repo.files.get(`${this.repo.branches[ref]}:${filePath}`)
+      ?? null;
+  }
+
+  async getPullRequest(number) {
+    const pull = this.repo.pulls.find((item) => item.number === number);
+    return structuredClone({ ...pull, head: { ...pull.head, sha: this.repo.branches[pull.head.ref] ?? pull.head.sha } });
+  }
+
+  async updatePullRequest(number, fields) {
+    Object.assign(this.repo.pulls.find((item) => item.number === number), fields);
+  }
+
+  async markReadyForReview(nodeId) {
+    this.repo.pulls.find((item) => item.node_id === nodeId).draft = false;
+  }
+
+  async requestReviewers(number, reviewers) {
+    this.repo.reviewRequests.push({ number, reviewers });
+  }
+
+  async updateCheckRun(id, fields) {
+    Object.assign(this.repo.checkRuns.find((run) => run.id === id), structuredClone(fields));
+  }
+
+  async listWorkflowRuns(workflowFile, since) {
+    return structuredClone(this.repo.runs
+      .filter((run) => run.workflow === workflowFile && Date.parse(run.created_at) >= Date.parse(since))
+      .sort((a, b) => b.id - a.id));
+  }
+
+  async dispatchWorkflow(workflowFile, ref, inputs) {
+    const id = this.repo.nextRun++;
+    this.repo.runs.push({
+      id,
+      workflow: workflowFile,
+      ref,
+      inputs: structuredClone(inputs),
+      display_title: `Spec Kit implement task #${inputs.twin} ${inputs.task} attempt ${inputs.attempt}`,
+      status: 'queued',
+      conclusion: null,
+      created_at: this.tick(),
+    });
+  }
+
+  // Test helper: marks a workflow run as completed.
+  completeRun(id, conclusion = 'failure') {
+    Object.assign(this.repo.runs.find((run) => run.id === id), { status: 'completed', conclusion });
   }
 
   async listIssueComments(number) {
@@ -155,7 +224,7 @@ export class FakeGitHub {
   async createPullRequest({ title, head, base, body, draft }) {
     if (this.repo.pulls.some((pull) => pull.head.ref === head && pull.state === 'open')) return null;
     const number = this.nextNumber++;
-    const pull = { number, title, body, draft, base: { ref: base }, head: { ref: head, sha: this.repo.branches[head] }, state: 'open', merged_at: null, closed_at: null, created_at: this.tick(), assignees: [] };
+    const pull = { number, node_id: `PR_${number}`, title, body, draft, base: { ref: base }, head: { ref: head, sha: this.repo.branches[head], repo: { full_name: 'octo/repo' } }, state: 'open', merged_at: null, closed_at: null, created_at: this.tick(), assignees: [] };
     this.repo.pulls.push(pull);
     return structuredClone(pull);
   }
@@ -171,8 +240,9 @@ export class FakeGitHub {
   }
 
   async createCheckRun(fields) {
-    this.repo.checkRuns.push(structuredClone(fields));
-    return fields;
+    const run = { id: this.repo.nextCheckRun++, ...structuredClone(fields) };
+    this.repo.checkRuns.push(run);
+    return structuredClone(run);
   }
 }
 

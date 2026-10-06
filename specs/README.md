@@ -58,7 +58,8 @@ in GitHub Copilot from the repository root:
     want; `/speckit-gha-request` requests it directly (see the repository
     [README](../README.md#requesting-implementation-on-github)). A GitHub
     request gets a `speckit/<folder>` branch and a draft pull request that
-    closes the twin when merged. For local work,
+    closes the twin when merged; the workflow implements the tasks one at a
+    time, in order, and requests your review when all are done. For local work,
     run `/speckit-implement` and `/speckit-converge` until convergence reports
     completion.
 

@@ -215,6 +215,61 @@ export class GitHubClient {
     return (await this.request('POST', this.repoPath('/check-runs'), fields)).data;
   }
 
+  async updateCheckRun(id, fields) {
+    return (await this.request('PATCH', this.repoPath(`/check-runs/${id}`), fields)).data;
+  }
+
+  async getPullRequest(number) {
+    return (await this.request('GET', this.repoPath(`/pulls/${number}`))).data;
+  }
+
+  async updatePullRequest(number, fields) {
+    return (await this.request('PATCH', this.repoPath(`/pulls/${number}`), fields)).data;
+  }
+
+  async markReadyForReview(pullNodeId) {
+    await this.graphql(
+      'mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } } }',
+      { id: pullNodeId },
+    );
+  }
+
+  async requestReviewers(number, reviewers) {
+    await this.request('POST', this.repoPath(`/pulls/${number}/requested_reviewers`), { reviewers });
+  }
+
+  // Returns the text of a file at a ref, or null when it does not exist there.
+  async getFileContent(filePath, ref) {
+    const encoded = filePath.split('/').map(encodeURIComponent).join('/');
+    const { status, data } = await this.request(
+      'GET',
+      this.repoPath(`/contents/${encoded}?ref=${encodeURIComponent(ref)}`),
+      undefined,
+      { allow: [404] },
+    );
+    if (status === 404 || !data || Array.isArray(data) || data.encoding !== 'base64') return null;
+    return Buffer.from(data.content, 'base64').toString('utf8');
+  }
+
+  // Lists runs of one workflow file created at or after `since` (ISO time), newest first.
+  async listWorkflowRuns(workflowFile, since, maxPages = 10) {
+    const runs = [];
+    for (let page = 1; page <= maxPages; page += 1) {
+      const created = encodeURIComponent(`>=${since}`);
+      const { data } = await this.request(
+        'GET',
+        this.repoPath(`/actions/workflows/${workflowFile}/runs?per_page=100&page=${page}&created=${created}`),
+      );
+      runs.push(...data.workflow_runs);
+      if (data.workflow_runs.length < 100) break;
+    }
+    return runs;
+  }
+
+  async dispatchWorkflow(workflowFile, ref, inputs) {
+    await this.request('POST', this.repoPath(`/actions/workflows/${workflowFile}/dispatches`), { ref, inputs });
+  }
+
   async getIssue(number) {
     const issue = (await this.request('GET', this.repoPath(`/issues/${number}`))).data;
     return { ...issue, labels: issue.labels.map((label) => ({ name: typeof label === 'string' ? label : label.name })) };

@@ -150,10 +150,11 @@ their "blocked by" issues are closed.
 - Later syncs keep a valid flag and revoke it, with a comment, once the stage
     or checklist conditions no longer hold, for example when all tasks are
     merged and the twin becomes `implemented`.
-- `Spec Kit implement` runs after every successful `Spec Kit prepare` run,
-    when an issue is closed or reopened, when a `speckit/**` pull request is
-    closed, and on demand. Dependency edits on GitHub trigger nothing, so they
-    apply with the next trigger or a manual run.
+- `Spec Kit implement` is the orchestrator. It runs after every successful
+    `Spec Kit prepare` run, after every `Spec Kit implement task` run, when an
+    issue is closed or reopened, when a `speckit/**` pull request is closed,
+    hourly as a safety net, and on demand. Dependency edits on GitHub trigger
+    nothing, so they apply with the next trigger.
 - For every ready twin it prepares an implementation workspace:
   - the branch `speckit/<folder>`, created as a linked branch so it appears in
       the twin's Development section, with an empty start commit;
@@ -161,21 +162,51 @@ their "blocked by" issues are closed.
       `Closes #<twin>`, the spec link, and the tasks from `tasks.md` as
       checkboxes, assigned to the person who set the flag;
   - a `Spec Kit implementation` check run on the pull request, which tracks the
-      implementation status, and a start comment; later progress is documented
-      in pull request comments.
+      implementation status, and a start comment.
+- It then starts one `Spec Kit implement task` run
+    (`.github/workflows/speckit-implement-task.yml`) per task, strictly in
+    `tasks.md` order, and finally a `finalize` run. Each run is short, so specs
+    of any size never hit the 6-hour job limit. A task run:
+  1. checks that its task is still the next unchecked task of the open, flagged
+      implementation; otherwise it does nothing;
+  2. runs Copilot CLI with `/speckit-implement Implement only task T###`
+      (60 minutes at most) in a job with a read-only token, which reaches the
+      CLI only as `COPILOT_GITHUB_TOKEN` and is hidden from the agent's shells;
+      `git push`, `gh`, `curl`, and `wget` are denied;
+  3. verifies the change in that job: the platform build and tests (with
+      Docker, so Testcontainers work) when `src/platform/**` changed, and the
+      Markdown check when Markdown changed;
+  4. lands it in a separate job that never runs agent-written code: it
+      re-checks that `tasks.md` changed only by checking the task and that
+      nothing else under `.github/`, `.specify/`, or `specs/` changed, then
+      commits, pushes, checks the box in the pull request body, updates the check
+      run, and comments the result.
+
+  The `finalize` run repeats the full verification, completes the check run,
+  marks the pull request ready for review, and requests a review from the
+  person who set the flag. Configure the Copilot credit cap per attempt with
+  the repository variable `SPECKIT_TASK_AI_CREDITS` (default 1000).
+- Every task gets at most three attempts, counted from the task runs' names
+  (`#<twin> <task> attempt <n>`), including crashed and timed-out runs. A failed
+  attempt is commented on the pull request; after the third, the check run
+  fails, and the implementation waits until someone runs `Spec Kit implement`
+  manually with the `twin` input, which starts a new attempt count.
 - An open implementation pull request marks the twin as in progress, so it is
-    never started twice. Every step checks what already exists, so a rerun
-    after a partial failure completes the work.
+    never started twice. Every step checks what already exists, so reruns after
+    partial failures complete the work.
 - Closing the pull request without merging removes the flag, and the twin
     falls back to its computed stage with a comment. GitHub keeps the closed
     pull request and its branch; flagging the twin again deletes and recreates
     the branch and opens a new draft pull request. Merging the pull request
     closes the twin as completed.
-- Task implementation is not wired up yet: the check run stays queued. Pull
-    requests and commits created with the workflow's `GITHUB_TOKEN` do not start
-    other workflows, so CI on these pull requests needs a GitHub App or token
-    later. Creating pull requests requires the repository setting "Allow GitHub
-    Actions to create and approve pull requests".
+- All Spec Kit workflows only run from `main`: manual runs started on another
+    branch are refused, implementation-PR events use `pull_request_target`
+    (always `main`'s workflow), the workflow token cannot push workflow files,
+    and scripts always run from a `main` checkout. Pull requests and commits
+    created with the workflow's `GITHUB_TOKEN` do not start other workflows, so
+    CI on these pull requests needs a GitHub App or token later. Creating pull
+    requests requires the repository setting "Allow GitHub Actions to create and
+    approve pull requests".
 
 The repository-local Spec Kit extension `gha`
 (source in [`.specify/extension-src/gha/`](.specify/extension-src/gha/README.md))
