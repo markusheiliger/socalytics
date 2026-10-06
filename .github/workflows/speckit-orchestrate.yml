@@ -99,7 +99,7 @@ jobs:
   # Runs agent-written code (the full verification), so it holds a read-only token. It is outside the global
   # orchestration concurrency group, so a long verification never delays decisions for other specs.
   merge-verify:
-    name: "Merge #${{ matrix.twin }}: integrate and verify"
+    name: "Merge: integrate and verify"
     needs: orchestrate
     if: needs.orchestrate.outputs.merge_count != '' && needs.orchestrate.outputs.merge_count != '0'
     runs-on: ubuntu-latest
@@ -186,7 +186,7 @@ jobs:
 
   # Never checks out or runs workspace code; it only uses the GitHub API.
   merge-land:
-    name: "Merge #${{ matrix.twin }}: merge and report"
+    name: "Merge: merge and report"
     needs: [orchestrate, merge-verify]
     if: always() && needs.orchestrate.outputs.merge_count != '' && needs.orchestrate.outputs.merge_count != '0'
     runs-on: ubuntu-latest
