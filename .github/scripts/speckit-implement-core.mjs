@@ -6,8 +6,8 @@ export const START_COMMENT_MARKER = '<!-- speckit-implement:start -->';
 export const RESUME_COMMENT_MARKER = '<!-- speckit-implement:resume -->';
 export const DONE_COMMENT_MARKER = '<!-- speckit-implement:done -->';
 export const BOT_LOGIN = 'github-actions[bot]';
-export const TASK_WORKFLOW_FILE = 'speckit-implement-task.yml';
-export const TASK_RUN_PREFIX = 'Spec Kit implement task';
+export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement.yml';
+export const TASK_RUN_PREFIX = 'Spec Kit implement';
 export const FINALIZE_TASK = 'finalize';
 export const MAX_TASK_ATTEMPTS = 3;
 // Check run external IDs tell the orchestrator what a check run means.
@@ -20,7 +20,7 @@ export const PROTECTED_PREFIXES = ['.github/', '.specify/', 'specs/'];
 
 const HEADING_PATTERN = /^(#{2,4})\s+(.+?)\s*$/;
 const TASK_PATTERN = /^\s*[-*] \[( |x|X)\]\s+(T\d{3,})\b\s*(.*)$/;
-const RUN_NAME_PATTERN = /#(\d+) (T\d{3,}|finalize) attempt (\d+)/;
+const RUN_NAME_PATTERN = new RegExp(`^${TASK_RUN_PREFIX} #(\\d+) (T\\d{3,}|finalize) attempt (\\d+)$`);
 
 export function implementationBranch(folder) {
   return `${BRANCH_PREFIX}${folder}`;
@@ -161,7 +161,7 @@ export function renderPullRequestBody({ twinNumber, folder, tasks, context }) {
     : `- [ ] ${item.id} ${item.text}`.trimEnd()));
   return [
     '> [!NOTE]',
-    '> Draft pull request prepared by the `Spec Kit implement` workflow. It tracks the implementation status',
+    '> Draft pull request prepared by the `Spec Kit orchestrate` workflow. It tracks the implementation status',
     '> with the `Spec Kit implementation` check run and documents progress in comments.',
     '',
     `Closes #${twinNumber}`,
@@ -179,7 +179,7 @@ export function renderStartComment({ twinNumber, folder, taskCount }) {
     START_COMMENT_MARKER,
     `Implementation workspace prepared for #${twinNumber} (\`specs/${folder}\`): ${taskCount} task(s) queued.`,
     '',
-    'The `Spec Kit implement task` workflow implements them one at a time, in order. Each task is verified, committed, and reported here.',
+    'The `Spec Kit implement` workflow implements them one at a time, in order. Each task is verified, committed, and reported here.',
   ].join('\n');
 }
 

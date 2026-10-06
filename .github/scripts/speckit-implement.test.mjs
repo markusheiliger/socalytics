@@ -1,461 +1,322 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
-import { TWIN_LABEL } from './speckit-prepare-core.mjs';
-import { runSync } from './speckit-prepare.mjs';
-import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-implement.mjs';
-import { CHECK_LIMIT, CHECK_RUN_NAME, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, START_COMMENT_MARKER } from './speckit-implement-core.mjs';
-import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
+import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
+import { CHECK_ATTEMPT, CHECK_DONE, CHECK_PROGRESS, CHECK_RUN_NAME } from './speckit-implement-core.mjs';
+import {
+  TaskInputError,
+  defaultGit,
+  lastAgentMessage,
+  main,
+  parseTaskInputs,
+  runBegin,
+  runLand,
+  runWork,
+} from './speckit-implement.mjs';
+import { FakeGitHub, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
-const TASKS_OPEN = '- [ ] T001 one\n- [ ] T002 two\n';
+const TASKS = '# Tasks\n\n## Phase 1\n\n- [ ] T001 Create docs/x.md\n- [ ] T002 Create docs/y.md\n';
+const context = { serverUrl: 'https://github.com', repository: 'octo/repo', branch: 'main' };
 
-async function start(github, root, twin, { reset = false, requester = 'dev' } = {}) {
-  return runStart({ client: github, rootDir: root, env: envFor(root), issueNumber: twin.number, folder: twin.folder ?? 'a', requester, reset, log: silent });
+function git(cwd, ...args) {
+  const result = spawnSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd, encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(`git ${args.join(' ')}: ${result.stderr}`);
+  return result.stdout;
 }
 
-// A repository with one tasked twin "a", flagged by a writer.
-async function flaggedRepo() {
-  const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks: '## Phase 1: Setup\n\n- [ ] T001 [P] Create project\n\n### Implementation\n\n- [ ] T002 [US1] Build it\n' }]);
-  github.permissions.dev = 'write';
-  const twin = github.issues[0];
-  flag(github, twin);
-  return { root, github, twin };
+// A bare "remote" with branch speckit/f plus two clones: one for the work job and one for the land job.
+function makeGitRepos(tasks = TASKS) {
+  const base = mkdtempSync(path.join(tmpdir(), 'speckit-task-'));
+  const remoteRoot = path.join(base, 'remote');
+  const bare = path.join(remoteRoot, 'octo', 'repo.git');
+  mkdirSync(bare, { recursive: true });
+  const seed = path.join(base, 'seed');
+  git(base, 'init', '-q', seed);
+  git(bare, 'init', '-q', '--bare');
+  mkdirSync(path.join(seed, 'specs', 'f'), { recursive: true });
+  writeFileSync(path.join(seed, 'specs', 'f', 'tasks.md'), tasks);
+  writeFileSync(path.join(seed, 'README.md'), '# Repo\n');
+  git(seed, 'add', '-A');
+  git(seed, 'commit', '-q', '-m', 'seed');
+  git(seed, 'push', '-q', bare, 'HEAD:refs/heads/speckit/f');
+  const work = path.join(base, 'work');
+  const land = path.join(base, 'land');
+  git(base, 'clone', '-q', '--branch', 'speckit/f', bare, work);
+  git(base, 'clone', '-q', '--branch', 'speckit/f', bare, land);
+  return { base, bare, remoteRoot, work, land, resultDir: path.join(base, 'result') };
 }
 
-test('start prepares the linked branch, draft pull request, assignee, check run, and start comment', async () => {
-  const { root, github, twin } = await flaggedRepo();
-  try {
-    const result = await start(github, root, twin);
-    assert.equal(result.exitCode, 0);
-    const pull = github.repo.pulls[0];
-    assert.deepEqual(github.repo.linked, [{ issueNodeId: twin.node_id, name: 'speckit/a' }]);
-    assert.equal(await github.aheadBy('main', 'speckit/a'), 1);
-    assert.equal(pull.draft, true);
-    assert.equal(pull.title, 'Implement: a title');
-    assert.equal(pull.base.ref, 'main');
-    assert.match(pull.body, new RegExp(`^Closes #${twin.number}$`, 'm'));
-    assert.match(pull.body, /^\*\*Spec\*\*: \[`specs\/a`\]/m);
-    assert.match(pull.body, /## Tasks \(2\)\n\n### Phase 1: Setup\n\n- \[ \] T001 \[P\] Create project\n\n#### Implementation\n\n- \[ \] T002 \[US1\] Build it/);
-    assert.deepEqual(pull.assignees, ['dev']);
-    assert.deepEqual(github.repo.checkRuns.map((run) => [run.name, run.status, run.head_sha, run.output.title]), [[CHECK_RUN_NAME, 'queued', pull.head.sha, '0 of 2 tasks implemented']]);
-    const comments = github.comments.filter((comment) => comment.number === pull.number);
-    assert.equal(comments.length, 1);
-    assert.match(comments[0].body, /2 task\(s\) queued/);
-
-    await start(github, root, twin);
-    assert.equal(github.repo.pulls.length, 1);
-    assert.equal(github.repo.checkRuns.length, 1);
-    assert.equal(github.comments.filter((comment) => comment.body.includes(START_COMMENT_MARKER)).length, 1);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
+function agentDoesT001(work, { tick = true, extra = {} } = {}) {
+  mkdirSync(path.join(work, 'docs'), { recursive: true });
+  writeFileSync(path.join(work, 'docs', 'x.md'), '# X\n');
+  if (tick) {
+    const file = path.join(work, 'specs', 'f', 'tasks.md');
+    writeFileSync(file, readFileSync(file, 'utf8').replace('- [ ] T001', '- [X] T001'));
   }
-});
-
-test('start completes a partially prepared workspace and tolerates assignee and link failures', async () => {
-  const { root, github, twin } = await flaggedRepo();
-  try {
-    github.failLinkedBranch = true;
-    github.failAssign = true;
-    await github.createBranch('speckit/a', 'sha-main');
-    const lines = [];
-    await runStart({ client: github, rootDir: root, env: envFor(root), issueNumber: twin.number, folder: 'a', requester: 'dev', reset: false, log: (line) => lines.push(line) });
-    assert.equal(github.repo.linked.length, 0);
-    assert.equal(github.repo.pulls.length, 1);
-    assert.match(lines.join('\n'), /Added the start commit[\s\S]*Warning: could not assign @dev/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
+  for (const [file, content] of Object.entries(extra)) {
+    mkdirSync(path.dirname(path.join(work, file)), { recursive: true });
+    writeFileSync(path.join(work, file), content);
   }
-});
-
-test('start skips twins that are no longer flagged', async () => {
-  const { root, github, twin } = await flaggedRepo();
-  try {
-    github.find(twin.number).labels = github.find(twin.number).labels.filter((label) => label.name !== IMPLEMENT);
-    await start(github, root, twin);
-    assert.equal(github.repo.pulls.length, 0);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('select tracks the pull request lifecycle: in progress, fallback, and a fresh restart', async () => {
-  const { root, github, twin } = await flaggedRepo();
-  try {
-    await start(github, root, twin);
-    const first = github.repo.pulls[0];
-    const inProgress = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.deepEqual(inProgress.inProgress.map(({ number, folder, pull }) => ({ number, folder, pull })), [{ number: twin.number, folder: 'a', pull: first.number }]);
-    assert.equal(inProgress.ready.length, 0);
-
-    github.closePull(first.number);
-    const fallback = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.deepEqual(fallback.fallback.map((item) => item.pull), [first.number]);
-    const issue = github.find(twin.number);
-    assert.deepEqual(issue.labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:')), ['speckit:stage:tasked']);
-    assert.match(github.comments.at(-1).body, new RegExp(`#${first.number} was closed without merging[\\s\\S]*stage \`tasked\``));
-
-    flag(github, issue);
-    const restart = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.deepEqual(restart.ready, [{ number: twin.number, folder: 'a', requester: 'dev', reset: true }]);
-    const staleHead = github.repo.branches['speckit/a'];
-    await start(github, root, twin, { reset: true });
-    assert.equal(github.repo.pulls.length, 2);
-    assert.notEqual(github.repo.branches['speckit/a'], staleHead);
-    assert.equal(await github.aheadBy('main', 'speckit/a'), 1);
-    assert.equal(github.repo.linked.length, 2);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('select reports a twin whose pull request was merged after the flag', async () => {
-  const { root, github, twin } = await flaggedRepo();
-  try {
-    await start(github, root, twin);
-    github.closePull(github.repo.pulls[0].number, { merged: true });
-    const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.equal(result.merged.length, 1);
-    assert.equal(result.ready.length + result.fallback.length, 0);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-async function twinsFor(folders) {
-  const root = makeRepo(folders);
-  const github = new FakeGitHub();
-  await runSync({ client: github, rootDir: root, env: envFor(root), dryRun: false, promptFile: path.join(root, 'prompt.txt'), log: silent });
-  github.updates = [];
-  return { root, github };
 }
 
-function flag(github, issue, login = 'dev') {
-  issue.labels = issue.labels.filter((label) => !label.name.startsWith('speckit:stage:'));
-  github.humanLabel(issue.number, IMPLEMENT, login);
-}
-
-// Fake git that serves files of one ref from a map of "path" -> content.
-function fakeGit(files, { fetchStatus = 0 } = {}) {
+function fakeRunner(status = 0) {
   const calls = [];
-  const git = (args) => {
-    calls.push(args);
-    if (args[0] === 'fetch') return { status: fetchStatus, stdout: '', stderr: fetchStatus ? 'network down' : '' };
-    if (args[0] === 'show') {
-      const file = args[1].replace(/^origin\/main:/, '');
-      return file in files ? { status: 0, stdout: files[file], stderr: '' } : { status: 128, stdout: '', stderr: 'missing' };
-    }
-    if (args[0] === 'ls-tree') {
-      assert.deepEqual(args.slice(0, 4), ['ls-tree', '-z', '--full-tree', '--name-only']);
-      const prefix = args[6];
-      const names = Object.keys(files).filter((file) => file.startsWith(prefix));
-      return { status: 0, stdout: names.map((name) => `${name}\0`).join(''), stderr: '' };
-    }
-    throw new Error(`unexpected git ${args.join(' ')}`);
+  const run = (command, args, options) => {
+    calls.push({ command, args, options });
+    return { status, output: status === 0 ? 'ok' : 'boom: something failed' };
   };
-  git.calls = calls;
-  return git;
+  run.calls = calls;
+  return run;
 }
 
-function remoteFiles(folder, { plan = true, tasks = TASKS_OPEN, checklists = { 'requirements.md': '- [x] ok\n' } } = {}) {
-  const files = { [`specs/${folder}/spec.md`]: SPEC_TEMPLATE(folder) };
-  if (plan) files[`specs/${folder}/plan.md`] = '# plan\n';
-  if (tasks !== null) files[`specs/${folder}/tasks.md`] = tasks;
-  for (const [name, content] of Object.entries(checklists)) files[`specs/${folder}/checklists/${name}`] = content;
-  return files;
+const TASK_INPUTS = { twin: 5, pull: 9, task: 'T001', attempt: 2, mode: 'task' };
+
+function work(repos, { inputs = TASK_INPUTS, agentExit = '0', run = fakeRunner(), env = {} } = {}) {
+  mkdirSync(repos.resultDir, { recursive: true });
+  if (agentExit !== null) writeFileSync(path.join(repos.resultDir, 'agent-exit.txt'), `${agentExit}\n`);
+  return runWork({ git: defaultGit(repos.work), run, env, inputs, folder: 'f', workspace: repos.work, resultDir: repos.resultDir, toolingDir: path.join(repos.base, 'tooling'), log: silent });
 }
 
-test('select reports ready, blocked, and inconsistent flagged twins', async () => {
-  const { root, github } = await twinsFor([
-    { folder: 'a', plan: true, tasks: TASKS_OPEN },
-    { folder: 'b', plan: true, tasks: TASKS_OPEN },
-    { folder: 'c', plan: true },
-    { folder: 'd', plan: true, tasks: TASKS_OPEN },
-    { folder: 'e', plan: true, tasks: TASKS_OPEN },
-  ]);
-  try {
-    github.permissions.dev = 'write';
-    github.permissions.outsider = 'triage';
-    const [a, b, c, , e] = github.issues;
-    for (const issue of [a, b, c]) flag(github, issue);
-    flag(github, e, 'outsider');
-    github.edges.push([b.number, github.issues[3].number]);
-    const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.deepEqual(result.ready, [{ number: a.number, folder: 'a', requester: 'dev', reset: false }]);
-    assert.deepEqual(result.blocked.map((twin) => [twin.folder, twin.blockers.map((blocker) => blocker.number)]), [['b', [github.issues[3].number]]]);
-    assert.deepEqual(result.inconsistent.map((twin) => twin.folder), ['c', 'e']);
-    assert.match(result.inconsistent[1].reasons[0], /@outsider needs at least write access/);
-    const output = readFileSync(path.join(root, 'output.txt'), 'utf8');
-    assert.match(output, /count=1/);
-    assert.match(output, new RegExp(`matrix=\\{"include":\\[\\{"number":${a.number},"folder":"a","requester":"dev","reset":false\\}\\]\\}`));
-
-    github.find(github.issues[3].number).state = 'closed';
-    const unblocked = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.deepEqual(unblocked.ready.map((twin) => twin.folder), ['a', 'b']);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('select reports nothing when no twin is flagged', async () => {
-  const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks: TASKS_OPEN }]);
-  try {
-    const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.equal(result.ready.length + result.blocked.length + result.inconsistent.length, 0);
-    assert.match(readFileSync(path.join(root, 'summary.md'), 'utf8'), /No spec twin is flagged/);
-    assert.match(readFileSync(path.join(root, 'output.txt'), 'utf8'), /matrix=\{"include":\[\]\}/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('resolves the folder from the argument, environment, or feature.json', () => {
-  const root = makeRepo([]);
-  try {
-    assert.equal(resolveFolder({ folder: 'specs/x/', env: {}, rootDir: root }), 'x');
-    assert.equal(resolveFolder({ env: { SPECIFY_FEATURE_DIRECTORY: 'specs\\y' }, rootDir: root }), 'y');
-    assert.throws(() => resolveFolder({ env: {}, rootDir: root }), UsageError);
-    mkdirSync(path.join(root, '.specify'));
-    writeFileSync(path.join(root, '.specify', 'feature.json'), '{ "feature_directory": "specs/z" }');
-    assert.equal(resolveFolder({ env: {}, rootDir: root }), 'z');
-    writeFileSync(path.join(root, '.specify', 'feature.json'), '{ nope');
-    assert.throws(() => resolveFolder({ env: {}, rootDir: root }), /not valid JSON/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('request flags a tasked twin with complete checklists in one update', async () => {
-  const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks: TASKS_OPEN }]);
-  try {
-    const lines = [];
-    const git = fakeGit(remoteFiles('a'));
-    const result = await runRequest({ client: github, git, rootDir: root, env: {}, folder: 'a', log: (line) => lines.push(line) });
-    assert.equal(result.exitCode, 0);
-    const issue = github.issues[0];
-    assert.deepEqual(issue.labels.map((label) => label.name), [TWIN_LABEL, 'speckit:deps-pending', IMPLEMENT]);
-    assert.equal(github.updates.length, 1);
-    assert.deepEqual(git.calls[0], ['fetch', '--quiet', 'origin', 'main']);
-    assert.match(lines.join('\n'), /Requested: .*speckit:stage:implement[\s\S]*No open blockers/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('request reports blockers, already flagged twins, and failed pre-checks', async () => {
-  const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks: TASKS_OPEN }, 'b']);
-  try {
-    const [a, b] = github.issues;
-    github.edges.push([a.number, b.number]);
-    const run = async (files, folder = 'a') => {
-      const lines = [];
-      const result = await runRequest({ client: github, git: fakeGit(files), rootDir: root, env: {}, folder, log: (line) => lines.push(line) });
-      return { code: result.exitCode, text: lines.join('\n') };
-    };
-
-    const checklist = await run(remoteFiles('a', { checklists: { 'ux.md': '- [ ] open\n' } }));
-    assert.equal(checklist.code, 1);
-    assert.match(checklist.text, /1 checklist item\(s\)/);
-
-    const planned = await run(remoteFiles('a', { tasks: null }));
-    assert.equal(planned.code, 1);
-    assert.match(planned.text, /stage `planned`/);
-
-    const notMerged = await run({});
-    assert.equal(notMerged.code, 1);
-    assert.match(notMerged.text, /not merged to main/);
-
-    const noTwin = await run(remoteFiles('zz'), 'zz');
-    assert.equal(noTwin.code, 1);
-    assert.match(noTwin.text, /no open spec twin/);
-
-    const requested = await run(remoteFiles('a'));
-    assert.equal(requested.code, 0);
-    assert.match(requested.text, new RegExp(`Open blockers: #${b.number}`));
-
-    github.updates = [];
-    const again = await run(remoteFiles('a'));
-    assert.equal(again.code, 0);
-    assert.match(again.text, /Already requested/);
-    assert.equal(github.updates.length, 0);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('request surfaces fetch failures and main validates commands', async () => {
-  const root = makeRepo([]);
-  try {
-    const github = new FakeGitHub();
-    await assert.rejects(
-      () => runRequest({ client: github, git: fakeGit({}, { fetchStatus: 1 }), rootDir: root, env: {}, folder: 'a', log: silent }),
-      (error) => error instanceof UsageError && /network down/.test(error.message),
-    );
-    await assert.rejects(() => main(['nope'], { env: {}, client: github, git: fakeGit({}) }), UsageError);
-    await assert.rejects(() => main(['request', '--bogus'], { env: {}, client: github, git: fakeGit({}) }), /Unknown argument/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-const BRANCH_TASKS = (t1, t2) => `## Phase 1: Setup\n\n- [${t1}] T001 [P] Create project\n\n- [${t2}] T002 [US1] Build it\n`;
-
-async function orchestrate(github, root, env = {}) {
-  const lines = [];
-  const result = await runOrchestrate({ client: github, rootDir: root, env: { ...envFor(root), ...env }, log: (line) => lines.push(line), sleep: async () => {}, now: () => github.clock });
-  return { ...result, text: lines.join('\n') };
+// A fake GitHub with twin #5 (flagged by "dev") and its implementation pull request #9.
+function fakeGitHub({ body = '## Tasks (2)\n\n- [ ] T001 Create docs/x.md\n- [ ] T002 Create docs/y.md\n' } = {}) {
+  const github = new FakeGitHub([{
+    number: 5,
+    id: 5000,
+    node_id: 'I_5',
+    state: 'open',
+    title: 'F',
+    body: renderTwinBody({ folder: 'f', title: 'F', summary: 's', dependencyNotes: [] }, ['spec.md'], context),
+    labels: [{ name: TWIN_LABEL }],
+  }]);
+  github.humanLabel(5, IMPLEMENT, 'dev');
+  github.permissions.dev = 'write';
+  github.repo.branches['speckit/f'] = 'sha-head';
+  github.repo.pulls.push({ number: 9, node_id: 'PR_9', title: 'Implement: F', body, draft: true, state: 'open', head: { ref: 'speckit/f', sha: 'sha-head', repo: { full_name: 'octo/repo' } }, created_at: github.tick() });
+  return github;
 }
 
-const taskRuns = (github) => github.repo.runs.map((run) => run.display_title.replace('Spec Kit implement task ', ''));
+function landEnv(repos) {
+  return { GITHUB_SERVER_URL: pathToFileURL(repos.remoteRoot).href, GITHUB_REPOSITORY: 'octo/repo', GITHUB_TOKEN: 'token' };
+}
 
-test('orchestrate prepares the workspace and starts the first task', async () => {
-  const { root, github, twin } = await flaggedRepo();
-  try {
-    const result = await orchestrate(github, root);
-    const pull = github.repo.pulls[0];
-    assert.equal(result.exitCode, 0);
-    assert.deepEqual(taskRuns(github), [`#${twin.number} T001 attempt 1`]);
-    assert.deepEqual(github.repo.runs[0].inputs, { twin: String(twin.number), pull: String(pull.number), task: 'T001', attempt: '1' });
-    assert.equal(github.repo.runs[0].ref, 'main');
-    assert.match(result.text, /Started "Spec Kit implement task #\d+ T001 attempt 1"/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
+async function land(repos, github, { inputs = TASK_INPUTS, workResult = 'success' } = {}) {
+  const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-head', status: 'in_progress', external_id: CHECK_ATTEMPT });
+  const result = await runLand({
+    client: github,
+    git: defaultGit(repos.land),
+    env: landEnv(repos),
+    inputs: { ...inputs, checkRun: check.id },
+    folder: 'f',
+    workspace: repos.land,
+    resultDir: repos.resultDir,
+    workResult,
+    log: silent,
+  });
+  return { ...result, check: github.repo.checkRuns.find((run) => run.id === check.id) };
+}
+
+const remoteHead = (repos) => git(repos.base, `--git-dir=${repos.bare}`, 'log', '-1', '--format=%H %s', 'speckit/f').trim();
+const remoteShow = (repos, spec) => git(repos.base, `--git-dir=${repos.bare}`, 'show', spec);
+
+test('parses and validates task inputs', () => {
+  assert.deepEqual(parseTaskInputs({ SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_TASK: 'T001', SPECKIT_ATTEMPT: '2' }), TASK_INPUTS);
+  assert.equal(parseTaskInputs({ SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_TASK: 'finalize', SPECKIT_ATTEMPT: '1' }).mode, 'finalize');
+  for (const env of [{}, { SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_TASK: 'rm -rf', SPECKIT_ATTEMPT: '1' }, { SPECKIT_TWIN: '0', SPECKIT_PULL: '9', SPECKIT_TASK: 'T001', SPECKIT_ATTEMPT: '1' }]) {
+    assert.throws(() => parseTaskInputs(env), TaskInputError);
   }
 });
 
-test('orchestrate waits, retries, stops at the attempt limit, and resumes on request', async () => {
-  const { root, github, twin } = await flaggedRepo();
+test('begin marks the attempt in progress when the task is the next step', async () => {
+  const github = fakeGitHub();
+  github.setFile('sha-head', 'specs/f/tasks.md', TASKS);
+  const outputFile = path.join(mkdtempSync(path.join(tmpdir(), 'speckit-out-')), 'out.txt');
+  const env = { GITHUB_REPOSITORY: 'octo/repo', GITHUB_OUTPUT: outputFile };
+  const result = await runBegin({ client: github, env, inputs: TASK_INPUTS, log: silent });
+  assert.equal(result.proceed, true);
+  const check = github.repo.checkRuns.at(-1);
+  assert.deepEqual([check.status, check.external_id, check.head_sha, check.output.title], ['in_progress', CHECK_ATTEMPT, 'sha-head', 'T001 attempt 2 in progress']);
+  const output = readFileSync(outputFile, 'utf8');
+  assert.match(output, /proceed=true\nfolder=f\nhead=sha-head\ncheck_run=\d+\nmode=task\nprompt=\/speckit-implement Implement only task T001\./);
+  rmSync(path.dirname(outputFile), { recursive: true, force: true });
+});
+
+test('begin takes over the queued progress check run of the head', async () => {
+  const github = fakeGitHub();
+  github.setFile('sha-head', 'specs/f/tasks.md', TASKS);
+  const progress = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-head', status: 'queued', external_id: CHECK_PROGRESS });
+  const result = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: TASK_INPUTS, log: silent });
+  assert.equal(result.check.id, progress.id);
+  assert.equal(github.repo.checkRuns.length, 1);
+  assert.deepEqual([github.repo.checkRuns[0].status, github.repo.checkRuns[0].external_id], ['in_progress', CHECK_ATTEMPT]);
+});
+
+test('begin does nothing when the inputs no longer match the state', async () => {
+  const cases = [
+    { name: 'wrong task', setup: (github) => github.setFile('sha-head', 'specs/f/tasks.md', TASKS.replace('- [ ] T001', '- [x] T001')), reason: /next step is T002/ },
+    { name: 'not flagged', setup: (github) => { github.issues[0].labels = [{ name: TWIN_LABEL }]; github.setFile('sha-head', 'specs/f/tasks.md', TASKS); }, reason: /not open and flagged/ },
+    { name: 'closed pull', setup: (github) => { github.repo.pulls[0].state = 'closed'; github.setFile('sha-head', 'specs/f/tasks.md', TASKS); }, reason: /not the open implementation pull request/ },
+    { name: 'finalize too early', inputs: { ...TASK_INPUTS, task: 'finalize', mode: 'finalize' }, setup: (github) => github.setFile('sha-head', 'specs/f/tasks.md', TASKS), reason: /next step is T001, not finalize/ },
+  ];
+  for (const testCase of cases) {
+    const github = fakeGitHub();
+    testCase.setup(github);
+    const result = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: testCase.inputs ?? TASK_INPUTS, log: silent });
+    assert.equal(result.proceed, false, testCase.name);
+    assert.match(result.reasons.join(), testCase.reason, testCase.name);
+    assert.equal(github.repo.checkRuns.length, 0, testCase.name);
+  }
+});
+
+test('work packages, validates, and verifies the agent change without tokens in the verification environment', () => {
+  const repos = makeGitRepos();
   try {
-    await orchestrate(github, root);
-    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
-    const pull = github.repo.pulls[0];
+    agentDoesT001(repos.work);
+    const run = fakeRunner();
+    const { result } = work(repos, { run, env: { PATH: process.env.PATH, GITHUB_TOKEN: 'secret', COPILOT_GITHUB_TOKEN: 'secret', ACTIONS_RUNTIME_TOKEN: 'secret' } });
+    assert.equal(result.verified, true);
+    assert.deepEqual(result.checks, [{ name: 'Markdown check', passed: true }]);
+    assert.deepEqual(result.changedFiles.sort(), ['docs/x.md', 'specs/f/tasks.md']);
+    assert.ok(readFileSync(path.join(repos.resultDir, 'changes.patch'), 'utf8').includes('docs/x.md'));
+    assert.equal(run.calls.length, 1);
+    assert.equal(run.calls[0].command, 'node');
+    assert.match(run.calls[0].args[0], /tooling[\\/]\.github[\\/]scripts[\\/]check-markdown\.mjs$/);
+    assert.equal(run.calls[0].options.cwd, repos.work);
+    assert.deepEqual(Object.keys(run.calls[0].options.env), ['PATH']);
+  } finally {
+    rmSync(repos.base, { recursive: true, force: true });
+  }
+});
 
-    await orchestrate(github, root);
-    assert.equal(github.repo.runs.length, 1, 'an active task run blocks new dispatches');
-
-    for (const attempt of [2, 3]) {
-      github.completeRun(github.repo.runs.at(-1).id);
-      await orchestrate(github, root);
-      assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt ${attempt}`);
+test('work rejects missing ticks, protected paths, agent failures, and failed verification', () => {
+  const cases = [
+    { name: 'no tick', agent: (r) => agentDoesT001(r.work, { tick: false }), reason: /T001 was not checked/, runs: 0 },
+    { name: 'protected path', agent: (r) => agentDoesT001(r.work, { extra: { '.github/workflows/evil.yml': 'x' } }), reason: /changed protected paths: \.github\/workflows\/evil\.yml/, runs: 0 },
+    { name: 'timeout', agent: (r) => agentDoesT001(r.work), agentExit: '124', reason: /did not finish within 60 minutes/, runs: 0 },
+    { name: 'no agent', agent: () => {}, agentExit: null, reason: /the agent did not run/, runs: 0 },
+    { name: 'verification', agent: (r) => agentDoesT001(r.work), status: 1, reason: /Markdown check failed/, runs: 1 },
+  ];
+  for (const testCase of cases) {
+    const repos = makeGitRepos();
+    try {
+      testCase.agent(repos);
+      const run = fakeRunner(testCase.status ?? 0);
+      const { result } = work(repos, { run, agentExit: testCase.agentExit === undefined ? '0' : testCase.agentExit });
+      assert.equal(result.verified, false, testCase.name);
+      assert.match(result.reasons.join(), testCase.reason, testCase.name);
+      assert.equal(run.calls.length, testCase.runs, testCase.name);
+      assert.ok(existsSync(path.join(repos.resultDir, 'result.json')), testCase.name);
+    } finally {
+      rmSync(repos.base, { recursive: true, force: true });
     }
-    github.completeRun(github.repo.runs.at(-1).id);
-    const limited = await orchestrate(github, root);
-    assert.equal(github.repo.runs.length, 3);
-    const limit = github.repo.checkRuns.at(-1);
-    assert.deepEqual([limit.external_id, limit.status, limit.conclusion, limit.head_sha], [CHECK_LIMIT, 'completed', 'failure', github.repo.branches['speckit/a']]);
-    assert.match(github.comments.at(-1).body, /Implementation stopped:\*\* T001 did not succeed in 3 task runs[\s\S]*`twin` set to \d+/);
-    assert.match(limited.text, /reached the attempt limit/);
-
-    await orchestrate(github, root);
-    assert.equal(github.repo.runs.length, 3, 'a stopped implementation waits for a person');
-
-    await orchestrate(github, root, { SPECKIT_RESUME_TWIN: String(twin.number) });
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 1`);
-    assert.match(github.comments.at(-1).body, new RegExp(RESUME_COMMENT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-
-    await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: github.repo.branches['speckit/a'], status: 'in_progress', external_id: 'speckit:attempt' });
-    github.completeRun(github.repo.runs.at(-1).id);
-    await orchestrate(github, root);
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 2`, 'the attempt count starts over after a resume');
-    assert.equal(pull.number, github.repo.pulls[0].number);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('orchestrate waits for the run that handed back before it decides', async () => {
-  const { root, github, twin } = await flaggedRepo();
+test('work runs the full verification in finalize mode', () => {
+  const repos = makeGitRepos(TASKS.replaceAll('- [ ]', '- [x]'));
   try {
-    await orchestrate(github, root);
-    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
-    const handingBack = github.repo.runs.at(-1);
-    let polls = 0;
-    const lines = [];
-    await runOrchestrate({
-      client: github,
-      rootDir: root,
-      env: { ...envFor(root), SPECKIT_AFTER_RUN: String(handingBack.id) },
-      log: (line) => lines.push(line),
-      sleep: async () => {
-        polls += 1;
-        if (polls === 2) github.completeRun(handingBack.id);
-      },
-      now: () => github.clock,
-    });
-    assert.equal(polls, 2);
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 2`, 'the completed run counts as a failed attempt');
-
-    polls = 0;
-    const stuck = github.repo.runs.at(-1);
-    const stuckLines = [];
-    await runOrchestrate({
-      client: github,
-      rootDir: root,
-      env: { ...envFor(root), SPECKIT_AFTER_RUN: String(stuck.id) },
-      log: (line) => stuckLines.push(line),
-      sleep: async () => { polls += 1; },
-      now: () => github.clock,
-    });
-    assert.equal(polls, 60);
-    assert.match(stuckLines.join('\n'), new RegExp(`Warning: task run ${stuck.id} was still active after 5 minutes[\\s\\S]*`));
-    assert.equal(github.repo.runs.length, 2, 'a still active run blocks new dispatches');
+    const run = fakeRunner();
+    const { result } = work(repos, { inputs: { ...TASK_INPUTS, task: 'finalize', mode: 'finalize' }, agentExit: null, run });
+    assert.equal(result.verified, true);
+    assert.deepEqual(result.checks.map((check) => check.name), ['platform build and tests', 'Markdown check']);
+    assert.deepEqual(run.calls.map((call) => `${call.command} ${call.args[0]}`).slice(0, 3), ['dotnet restore', 'dotnet build', 'dotnet test']);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(repos.base, { recursive: true, force: true });
   }
 });
 
-test('orchestrate continues with the next task, finalizes, and stops when done', async () => {
-  const { root, github, twin } = await flaggedRepo();
+test('land re-validates, commits, pushes, and reports a verified task', async () => {
+  const repos = makeGitRepos();
   try {
-    await orchestrate(github, root);
-    github.completeRun(github.repo.runs.at(-1).id, 'success');
-    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', ' '));
-    await orchestrate(github, root);
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} T002 attempt 1`);
-
-    github.completeRun(github.repo.runs.at(-1).id, 'success');
-    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', 'X'));
-    await orchestrate(github, root);
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} finalize attempt 1`);
-
-    github.completeRun(github.repo.runs.at(-1).id, 'success');
-    await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: github.repo.branches['speckit/a'], status: 'completed', conclusion: 'success', external_id: 'speckit:done' });
-    const done = await orchestrate(github, root);
-    assert.equal(github.repo.runs.length, 3);
-    assert.match(done.text, /implemented and waiting for review/);
+    agentDoesT001(repos.work);
+    work(repos);
+    const github = fakeGitHub();
+    const result = await land(repos, github);
+    assert.equal(result.exitCode, 0);
+    assert.match(remoteHead(repos), /^[0-9a-f]{40} feat\(f\): T001 Create docs\/x\.md$/);
+    assert.equal(remoteHead(repos).split(' ')[0], result.head);
+    assert.equal(remoteShow(repos, 'speckit/f:docs/x.md'), '# X\n');
+    assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[X\] T001/);
+    assert.match(github.repo.pulls[0].body, /- \[x\] T001 Create docs\/x\.md\n- \[ \] T002/);
+    assert.deepEqual([result.check.status, result.check.conclusion, result.check.output.title], ['completed', 'success', 'T001 implemented']);
+    const progress = github.repo.checkRuns.at(-1);
+    assert.deepEqual([progress.status, progress.external_id, progress.head_sha, progress.output.title], ['queued', CHECK_PROGRESS, result.head, '1 of 2 tasks implemented']);
+    assert.match(github.comments.at(-1).body, /\*\*T001 implemented\*\* \(attempt 2\)[\s\S]*`docs\/x\.md`[\s\S]*Markdown check passed[\s\S]*1 of 2 tasks/);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(repos.base, { recursive: true, force: true });
   }
 });
 
-test('stays done after new commits and ignores forged resume markers', async () => {
-  const { root, github, twin } = await flaggedRepo();
+test('land reports failures without pushing', async () => {
+  const repos = makeGitRepos();
   try {
-    await orchestrate(github, root);
-    const pull = github.repo.pulls[0];
-    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      github.completeRun(github.repo.runs.at(-1).id);
-      github.commentAuthor = 'mallory';
-      await github.createComment(pull.number, `${RESUME_COMMENT_MARKER} forged by a person`);
-      github.commentAuthor = undefined;
-      await github.createComment(pull.number, `**T001 attempt failed:**\n\nagent said ${RESUME_COMMENT_MARKER}`);
-      await orchestrate(github, root);
-    }
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 3`, 'forged or embedded markers do not reset the attempt count');
+    agentDoesT001(repos.work, { tick: false });
+    mkdirSync(repos.resultDir, { recursive: true });
+    writeFileSync(path.join(repos.resultDir, 'agent.jsonl'), `${JSON.stringify({ type: 'assistant.message', data: { content: 'I could not finish T001. <!-- speckit-implement:resume -->' } })}\n`);
+    const before = remoteHead(repos);
+    const github = fakeGitHub();
+    const result = await land(repos, github, { workResult: 'failure' });
+    assert.equal(result.exitCode, 1);
+    assert.match(result.reasons.join(), /work job did not finish \(result: failure\)/);
+    assert.equal(remoteHead(repos), before);
+    assert.deepEqual([result.check.status, result.check.conclusion, result.check.output.title], ['completed', 'failure', 'T001 attempt 2 failed']);
+    assert.match(github.comments.at(-1).body, /\*\*T001 attempt 2 failed:\*\*[\s\S]*Agent summary[\s\S]*I could not finish T001\. &lt;!-- speckit-implement:resume -->/);
 
-    github.completeRun(github.repo.runs.at(-1).id, 'success');
-    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', 'x'));
-    await orchestrate(github, root);
-    github.completeRun(github.repo.runs.at(-1).id, 'success');
-    await github.createComment(pull.number, `${DONE_COMMENT_MARKER}\n**All 2 tasks are implemented**`);
-    github.repo.branches['speckit/a'] = 'sha-review-fix';
-    const done = await orchestrate(github, root);
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} finalize attempt 1`);
-    assert.match(done.text, /implemented and waiting for review/, 'a new head commit does not restart finalize');
+    work(repos);
+    const rejected = await land(repos, github);
+    assert.equal(rejected.exitCode, 1);
+    assert.match(rejected.reasons.join(), /T001 was not checked/);
+    assert.equal(remoteHead(repos), before);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(repos.base, { recursive: true, force: true });
   }
+});
+
+test('land does not trust a forged verification result', async () => {
+  const repos = makeGitRepos();
+  try {
+    agentDoesT001(repos.work, { extra: { '.github/workflows/evil.yml': 'x' } });
+    work(repos);
+    const resultFile = path.join(repos.resultDir, 'result.json');
+    writeFileSync(resultFile, JSON.stringify({ ...JSON.parse(readFileSync(resultFile, 'utf8')), reasons: [], verified: true }));
+    const before = remoteHead(repos);
+    const result = await land(repos, fakeGitHub());
+    assert.equal(result.exitCode, 1);
+    assert.match(result.reasons.join(), /changed protected paths: \.github\/workflows\/evil\.yml/);
+    assert.equal(remoteHead(repos), before);
+  } finally {
+    rmSync(repos.base, { recursive: true, force: true });
+  }
+});
+
+test('land finalizes: success check run, ready for review, and a review request', async () => {
+  const repos = makeGitRepos(TASKS.replaceAll('- [ ]', '- [x]'));
+  try {
+    work(repos, { inputs: { ...TASK_INPUTS, task: 'finalize', mode: 'finalize' }, agentExit: null });
+    const github = fakeGitHub();
+    const result = await land(repos, github, { inputs: { ...TASK_INPUTS, task: 'finalize', mode: 'finalize' } });
+    assert.equal(result.exitCode, 0);
+    assert.deepEqual([result.check.status, result.check.conclusion, result.check.external_id, result.check.output.title], ['completed', 'success', CHECK_DONE, '2 of 2 tasks implemented']);
+    assert.equal(github.repo.pulls[0].draft, false);
+    assert.deepEqual(github.repo.reviewRequests, [{ number: 9, reviewers: ['dev'] }]);
+    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:done -->\n\*\*All 2 tasks are implemented\*\*[\s\S]*Review requested from @dev/);
+  } finally {
+    rmSync(repos.base, { recursive: true, force: true });
+  }
+});
+
+test('extracts the last agent message and validates commands', async () => {
+  const jsonl = [
+    JSON.stringify({ type: 'assistant.message', data: { content: 'first' } }),
+    'not json',
+    JSON.stringify({ type: 'assistant.message', data: { content: ' last ' } }),
+    JSON.stringify({ type: 'assistant.message', data: { content: '' } }),
+  ].join('\n');
+  assert.equal(lastAgentMessage(jsonl), 'last');
+  await assert.rejects(() => main(['nope'], { env: { SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_TASK: 'T001', SPECKIT_ATTEMPT: '1' } }), TaskInputError);
 });

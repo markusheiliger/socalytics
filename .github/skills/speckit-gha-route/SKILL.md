@@ -28,12 +28,12 @@ This command runs as a mandatory `before_implement` hook of `/speckit-implement`
      on GitHub, use that mode.
    - Otherwise ask the user exactly one question with these two choices:
      - **Implement locally**: continue with `/speckit-implement` in this session.
-     - **Request implementation on GitHub**: flag the spec for the speckit-implement GitHub Actions workflow and stop.
+     - **Request implementation on GitHub**: flag the spec for the speckit-orchestrate GitHub Actions workflow and stop.
 
 2. **Local mode**: reply `CONTINUE: implementing locally.` and nothing else, so `/speckit-implement` proceeds with its
    outline.
 
-3. **Remote mode**: run `node .github/scripts/speckit-implement.mjs request` from the repository root (add
+3. **Remote mode**: run `node .github/scripts/speckit-orchestrate.mjs request` from the repository root (add
    `--folder <folder>` only if the user named a specific spec folder). Report the result as `/speckit-gha-request`
    does: on exit code 0 share the issue link and any open blockers; on exit code 1 or 2 explain the reasons and next
    steps. Then end with this line, whatever the exit code:

@@ -137,8 +137,8 @@ manually; manual runs are dry runs unless `dry_run` is unchecked.
 
 `speckit:stage:implement` sits between `tasked` and `implementing` and is a
 "ready to act" flag that only people set; the sync never sets it. A flagged
-twin may still be blocked: the `Spec Kit implement` workflow
-(`.github/workflows/speckit-implement.yml`) picks up flagged twins once all
+twin may still be blocked: the `Spec Kit orchestrate` workflow
+(`.github/workflows/speckit-orchestrate.yml`) picks up flagged twins once all
 their "blocked by" issues are closed.
 
 - When someone adds the label, the `validate-implement` job of
@@ -150,8 +150,8 @@ their "blocked by" issues are closed.
 - Later syncs keep a valid flag and revoke it, with a comment, once the stage
     or checklist conditions no longer hold, for example when all tasks are
     merged and the twin becomes `implemented`.
-- `Spec Kit implement` is the orchestrator. It runs after every successful
-    `Spec Kit prepare` run, when a `Spec Kit implement task` run hands control
+- `Spec Kit orchestrate` is the orchestrator. It runs after every successful
+    `Spec Kit prepare` run, when a `Spec Kit implement` run hands control
     back, when an issue is closed or reopened, when a `speckit/**` pull request
     is closed, hourly as a safety net, and on demand. Dependency edits on GitHub
     trigger nothing, so they apply with the next trigger.
@@ -163,8 +163,8 @@ their "blocked by" issues are closed.
       checkboxes, assigned to the person who set the flag;
   - a `Spec Kit implementation` check run on the pull request, which tracks the
       implementation status, and a start comment.
-- It then starts one `Spec Kit implement task` run
-    (`.github/workflows/speckit-implement-task.yml`) per task, strictly in
+- It then starts one `Spec Kit implement` run
+    (`.github/workflows/speckit-implement.yml`) per task, strictly in
     `tasks.md` order, and finally a `finalize` run. Each run is short, so specs
     of any size never hit the 6-hour job limit. A task run:
   1. checks that its task is still the next unchecked task of the open, flagged
@@ -181,7 +181,7 @@ their "blocked by" issues are closed.
       nothing else under `.github/`, `.specify/`, or `specs/` changed, then
       commits, pushes, checks the box in the pull request body, updates the check
       run, and comments the result;
-  5. hands control back, whatever the outcome, by starting `Spec Kit implement`
+  5. hands control back, whatever the outcome, by starting `Spec Kit orchestrate`
       with its run id (`after_run`); the orchestrator waits until that run has
       finished and then decides the next step. An explicit dispatch is used
       because GitHub raises no `workflow_run` event for task runs started by
@@ -194,7 +194,7 @@ their "blocked by" issues are closed.
 - Every task gets at most three attempts, counted from the task runs' names
   (`#<twin> <task> attempt <n>`), including crashed and timed-out runs. A failed
   attempt is commented on the pull request; after the third, the check run
-  fails, and the implementation waits until someone runs `Spec Kit implement`
+  fails, and the implementation waits until someone runs `Spec Kit orchestrate`
   manually with the `twin` input, which starts a new attempt count.
 - An open implementation pull request marks the twin as in progress, so it is
     never started twice. Every step checks what already exists, so reruns after
@@ -225,7 +225,7 @@ makes this available from GitHub Copilot:
     question; inside GitHub Actions it always implements locally.
 - `/speckit-gha-request [folder]` requests implementation directly.
 
-Both run `node .github/scripts/speckit-implement.mjs request [--folder <folder>]`,
+Both run `node .github/scripts/speckit-orchestrate.mjs request [--folder <folder>]`,
 which checks the spec on `origin/main` with the same rules, finds its twin, and
 adds the label with your own `gh` token, so the request is validated on GitHub.
 Adding the label in the GitHub web interface or with

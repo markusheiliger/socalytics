@@ -101,10 +101,12 @@ test('lists tasks, the next task, and progress in file order', () => {
 });
 
 test('renders and parses task run names and the task prompt', () => {
-  assert.equal(renderTaskRunName(38, 'T002', 3), 'Spec Kit implement task #38 T002 attempt 3');
-  assert.deepEqual(parseTaskRunName('Spec Kit implement task #38 T002 attempt 3'), { twin: 38, task: 'T002', attempt: 3 });
-  assert.deepEqual(parseTaskRunName('Spec Kit implement task #7 finalize attempt 1'), { twin: 7, task: 'finalize', attempt: 1 });
-  assert.equal(parseTaskRunName('Spec Kit implement task'), null);
+  assert.equal(renderTaskRunName(38, 'T002', 3), 'Spec Kit implement #38 T002 attempt 3');
+  assert.deepEqual(parseTaskRunName('Spec Kit implement #38 T002 attempt 3'), { twin: 38, task: 'T002', attempt: 3 });
+  assert.deepEqual(parseTaskRunName('Spec Kit implement #7 finalize attempt 1'), { twin: 7, task: 'finalize', attempt: 1 });
+  assert.equal(parseTaskRunName('Spec Kit implement'), null);
+  assert.equal(parseTaskRunName('Spec Kit implement task #38 T002 attempt 3'), null, 'old task run names are ignored');
+  assert.equal(parseTaskRunName('Spec Kit orchestrate #38 T002 attempt 3'), null);
   assert.equal(renderTaskPrompt('T004'), '/speckit-implement Implement only task T004. Do not implement any other task. Do not commit and do not push.');
 });
 

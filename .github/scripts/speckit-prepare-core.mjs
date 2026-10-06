@@ -5,7 +5,7 @@ export const STAGES = {
   specified: { color: 'c5def5', description: 'Spec twin stage: spec.md exists, no plan yet' },
   planned: { color: '7fb8e8', description: 'Spec twin stage: plan.md exists, no task list yet' },
   tasked: { color: '1d76db', description: 'Spec twin stage: tasks.md exists, no task completed on the default branch' },
-  implement: { color: '5319e7', description: 'Spec twin stage: requested by a human; ready for the speckit-implement workflow' },
+  implement: { color: '5319e7', description: 'Spec twin stage: requested by a human; ready for the speckit-orchestrate workflow' },
   implementing: { color: 'f9d0c4', description: 'Spec twin stage: some tasks completed on the default branch' },
   implemented: { color: '0e8a16', description: 'Spec twin stage: all tasks completed on the default branch' },
   discarded: { color: 'cfd3d7', description: 'Spec twin stage: spec folder was removed; twin closed as not planned' },

@@ -4,7 +4,7 @@ extension:
   id: gha
   name: "GitHub Actions implementation routing"
   version: "1.0.0"
-  description: "Route /speckit-implement between local implementation and a validated implementation request for the speckit-implement GitHub Actions workflow"
+  description: "Route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow"
   author: socalytics
   repository: https://github.com/markusheiliger/socalytics
   license: MIT
@@ -17,7 +17,7 @@ requires:
       description: "Reads the spec folder from the remote default branch"
     - name: node
       required: true
-      description: "Runs .github/scripts/speckit-implement.mjs"
+      description: "Runs .github/scripts/speckit-orchestrate.mjs"
     - name: gh
       required: true
       description: "Provides the user's GitHub token for the implementation request"
@@ -29,7 +29,7 @@ provides:
       description: "Choose between implementing locally and requesting implementation on GitHub"
     - name: speckit.gha.request
       file: commands/speckit.gha.request.md
-      description: "Request implementation of the active spec by the speckit-implement GitHub Actions workflow"
+      description: "Request implementation of the active spec by the speckit-orchestrate GitHub Actions workflow"
 
 hooks:
   before_implement:

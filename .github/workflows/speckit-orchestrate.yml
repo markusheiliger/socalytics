@@ -1,0 +1,88 @@
+name: Spec Kit orchestrate
+
+# Orchestrates spec implementations. For spec twins with a validated speckit:stage:implement flag it prepares
+# the implementation workspace (linked speckit/<folder> branch, draft pull request, check run), then starts one
+# Spec Kit implement run per task, in tasks.md order, and finally a finalize run. Every task run hands control
+# back by dispatching this workflow with its run id (after_run); workflow_run is not used for that because GitHub
+# does not raise it for task runs that this workflow started. A task gets at most three attempts; after that the
+# twin waits for a manual run with the twin input. Implementation pull requests closed without merging send their
+# twin back to its computed stage.
+on:
+  workflow_run:
+    workflows: [Spec Kit prepare]
+    types: [completed]
+  issues:
+    types: [closed, reopened]
+  pull_request_target:
+    types: [closed]
+  schedule:
+    # Safety net: continues implementations whose hand-back was lost.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      twin:
+        description: Spec twin issue number to resume after it reached the attempt limit (optional)
+        required: false
+        type: string
+      after_run:
+        description: Task run id that handed control back (set by the task workflow; leave empty)
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  refuse:
+    name: Refuse non-default-branch runs
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Refuse the run
+        run: |
+          echo "::error::Spec Kit workflows only run from the default branch, not ${GITHUB_REF}."
+          exit 1
+
+  orchestrate:
+    name: Orchestrate spec implementations
+    # pull_request_target always uses this workflow from the default branch; the job never checks out pull
+    # request code.
+    if: >-
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name != 'pull_request_target' || (startsWith(github.event.pull_request.head.ref, 'speckit/') &&
+      github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Job-level so runs whose job is skipped never displace a pending orchestration; a replaced pending run is
+    # harmless because every run recomputes the complete state.
+    concurrency:
+      group: speckit-orchestrate
+      cancel-in-progress: false
+    permissions:
+      actions: write
+      checks: write
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Orchestrate spec implementations
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_RESUME_TWIN: ${{ inputs.twin }}
+          SPECKIT_AFTER_RUN: ${{ inputs.after_run }}
+        run: node .github/scripts/speckit-orchestrate.mjs orchestrate

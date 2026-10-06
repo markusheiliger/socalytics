@@ -165,7 +165,7 @@ export class FakeGitHub {
       workflow: workflowFile,
       ref,
       inputs: structuredClone(inputs),
-      display_title: `Spec Kit implement task #${inputs.twin} ${inputs.task} attempt ${inputs.attempt}`,
+      display_title: `Spec Kit implement #${inputs.twin} ${inputs.task} attempt ${inputs.attempt}`,
       status: 'queued',
       conclusion: null,
       created_at: this.tick(),

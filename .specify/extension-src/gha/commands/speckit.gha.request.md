@@ -1,5 +1,5 @@
 ---
-description: Request implementation of the active spec by the speckit-implement GitHub Actions workflow.
+description: Request implementation of the active spec by the speckit-orchestrate GitHub Actions workflow.
 ---
 
 ## User Input
@@ -14,15 +14,15 @@ Otherwise leave `FOLDER` empty so the active feature from `.specify/feature.json
 ## Outline
 
 1. From the repository root, run exactly one of:
-   - `node .github/scripts/speckit-implement.mjs request --folder <FOLDER>` when `FOLDER` is set;
-   - `node .github/scripts/speckit-implement.mjs request` otherwise.
+   - `node .github/scripts/speckit-orchestrate.mjs request --folder <FOLDER>` when `FOLDER` is set;
+   - `node .github/scripts/speckit-orchestrate.mjs request` otherwise.
 
    Do not edit files, create commits, or change labels yourself; the command does everything.
 
 2. Report the command output to the user, interpreting its exit code:
    - **0**: the spec twin is flagged `speckit:stage:implement` (or already was). Share the issue link and say that the
      Spec Kit prepare workflow validates the request on GitHub. List any open blockers it reported; the
-     speckit-implement workflow starts after they are closed.
+     speckit-orchestrate workflow starts after they are closed.
    - **1**: the request was not made. Explain every reason it printed and the next step, for example:
      - spec not merged to the default branch, or no twin yet: merge the spec, plan, and tasks first; the twin appears after the merge;
      - stage is not `tasked`: run `/speckit-plan` and `/speckit-tasks`, then merge;

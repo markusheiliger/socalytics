@@ -1,7 +1,7 @@
 # gha Spec Kit Extension
 
 Repository-local Spec Kit extension that connects `/speckit-implement` to the
-`Spec Kit implement` GitHub Actions workflow. The ID is `gha` (GitHub Actions)
+`Spec Kit orchestrate` GitHub Actions workflow. The ID is `gha` (GitHub Actions)
 because Spec Kit already bundles an extension with the ID `github`.
 
 ## Commands
@@ -11,7 +11,7 @@ because Spec Kit already bundles an extension with the ID `github`.
 | `speckit.gha.route` | `/speckit-gha-route` | Mandatory `before_implement` hook: choose local implementation or a GitHub request |
 | `speckit.gha.request` | `/speckit-gha-request [folder]` | Request implementation on GitHub directly |
 
-Both commands run `node .github/scripts/speckit-implement.mjs request`, which
+Both commands run `node .github/scripts/speckit-orchestrate.mjs request`, which
 checks the spec on the remote default branch (merged, stage `tasked`, all
 checklists checked), finds its twin issue, and adds the
 `speckit:stage:implement` label with the user's own GitHub token. The
