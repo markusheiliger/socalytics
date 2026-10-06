@@ -206,11 +206,11 @@ their "blocked by" issues are closed.
   pull request only if `main` still is the commit that was verified, sets the
   twin to `implemented` and closes it, deletes the branch, starts
   `Spec Kit prepare`, and comments "Merged into `main`" with an @mention of the
-  person who set the flag. If `main` moved, the merge simply runs again. Set the
-  repository variable `SPECKIT_AUTO_MERGE` to `false` to stop before merging:
-  the pull request is then marked ready for review and a review is requested
-  instead. Configure the Copilot credit cap per agent run with the repository
-  variable `SPECKIT_TASK_AI_CREDITS` (default 1000).
+  person who set the flag. If `main` moved, the merge simply runs again.
+  Instead of merging, the pull request is marked ready for review and a review
+  is requested when automatic merging is off, when it changes the environment
+  actions, or when the verification reports changed files that no check
+  covers.
 - The two composite actions are the solution-specific extension points; the
   Spec Kit workflows and scripts know nothing about the solution. Both are
   optional: the workflow skips a missing action, and without
@@ -221,7 +221,27 @@ their "blocked by" issues are closed.
       Markdown linters; Docker for Testcontainers is already on the runner;
   - `environment-verify` runs the platform restore, build, and tests when
       `src/platform/**` changed and the Markdown check when Markdown changed.
-      Add a check there when another source area gets build or test commands.
+      It lists the paths it covers in `COVERED`; changed files outside them
+      are reported as not covered, including platform files when the platform
+      solution is missing.
+- Specs extend these actions when they need a new framework, SDK, or tool, in
+  a standalone environment spec:
+  1. The environment spec's tasks change only
+      `.github/actions/environment-setup/` and
+      `.github/actions/environment-verify/`. These are the only paths under
+      `.github/` that agents may change, and only without other changes on the
+      same branch; mixing them fails the task.
+  2. New checks add their paths to `COVERED` only when their project exists,
+      run only when those paths changed (or before merging), and skip while
+      their project does not exist yet, because the environment spec merges
+      before the project is created.
+  3. Before merging, the merge jobs also run the branch's own versions of both
+      actions as a self-test; a failing self-test fails the merge attempt.
+  4. The pull request always waits for a person's review, because these
+      actions verify every later implementation.
+  5. Specs that need the new tooling name the environment spec under
+      Assumptions → Dependencies, so dependency inference blocks them until it
+      is merged (or add the "blocked by" link on GitHub).
 - Every step gets at most three failed attempts: tasks, convergence, and
   conflict resolution are counted from the run names (`#<twin> <task> attempt
   <n>`, `#<twin> attempt <n>`), merges from their check runs, including crashed
@@ -286,6 +306,25 @@ A local dry run against the repository needs only read access:
 $env:GITHUB_REPOSITORY = 'markusheiliger/socalytics'; $env:GH_TOKEN = gh auth token
 node .github/scripts/speckit-prepare.mjs sync --dry-run
 ```
+
+### Spec Kit Configuration
+
+Everything that adapts the Spec Kit automation to this repository, in one
+place. The workflows and scripts need no changes for any of it.
+
+| Setting | Kind | Default | Effect |
+| --- | --- | --- | --- |
+| `SPECKIT_AUTO_MERGE` | repository variable | `true` | `false` holds every implementation for review instead of merging it automatically |
+| `SPECKIT_TASK_AI_CREDITS` | repository variable | `1000` | Copilot CLI credit cap per agent run (tasks, convergence, conflict resolution) |
+| `.github/actions/environment-setup` | composite action, optional | not run | installs the SDKs and tools for building, testing, and verifying |
+| `.github/actions/environment-verify` | composite action, optional | no verification | runs the checks for changed paths and reports files no check covers |
+| `SPECKIT_IMPLEMENT_MODE` | local environment variable | ask | `local` or `remote` answers the `/speckit-implement` routing question |
+
+Set or remove repository variables in **Settings → Secrets and variables →
+Actions → Variables**, or with `gh variable set <NAME> --body <value>` and
+`gh variable delete <NAME>`; the next workflow run uses the new value. Change
+the composite actions only through an environment spec, as described in
+[Requesting Implementation on GitHub](#requesting-implementation-on-github).
 
 ### Markdown
 

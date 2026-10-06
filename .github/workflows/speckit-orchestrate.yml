@@ -166,13 +166,43 @@ jobs:
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: finalize
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      # An environment spec changes the actions above, which the workflows load from the default branch, so its own
+      # versions have not run yet. Run them once on the merged result before the merge. This job is read-only and
+      # already runs agent-written code, so loading the actions from the workspace grants nothing new.
+      - name: Self-test the changed environment setup
+        id: selftest-setup
+        if: >-
+          steps.integrate.outputs.environment == 'true' &&
+          hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
+        continue-on-error: true
+        uses: ./workspace/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Self-test the changed environment verification
+        id: selftest-verify
+        if: >-
+          steps.integrate.outputs.environment == 'true' &&
+          steps.selftest-setup.outcome != 'failure' &&
+          hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./workspace/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: finalize
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/selftest.log
 
       - name: Record the verdict
         env:
           SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
           SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+          SPECKIT_SELFTEST_OUTCOME: >-
+            ${{ steps.selftest-setup.outcome == 'failure' && 'failure' || steps.selftest-verify.outcome }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" verdict
 
       - name: Upload the result

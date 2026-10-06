@@ -12,9 +12,12 @@ import {
   convergenceRounds,
   decideContinuation,
   decideLifecycle,
+  environmentExclusivityReasons,
   extractTasks,
   hasConflictMarkers,
   implementationBranch,
+  isEnvironmentPath,
+  isProtectedPath,
   latestCheckRun,
   listTasks,
   markerTimes,
@@ -202,6 +205,25 @@ test('decides convergence, conflict resolution, and merging after the last task'
     decide({ runs: converged, checks: [check(8, CHECK_LIMIT, { conclusion: 'failure' })], resume: true }),
     { action: 'resume', step: 'merge', attempt: 1, stale: [] },
   );
+});
+
+test('environment specs: only the environment actions, and only without other changes on the branch', () => {
+  assert.equal(isEnvironmentPath('.github/actions/environment-setup/action.yml'), true);
+  assert.equal(isEnvironmentPath('.github/actions/other/action.yml'), false);
+  assert.equal(isProtectedPath('.github/actions/environment-verify/action.yml'), false);
+  assert.equal(isProtectedPath('.github/workflows/speckit-implement.yml'), true);
+  assert.equal(isProtectedPath('.github/actions/other/action.yml'), true);
+
+  const before = '- [ ] T001 One\n';
+  const after = '- [x] T001 One\n';
+  const task = (changedPaths) => validateTaskChange({ folder: 'f', taskId: 'T001', before, after, changedPaths });
+  assert.deepEqual(task(['specs/f/tasks.md', '.github/actions/environment-setup/action.yml']), []);
+  assert.match(task(['specs/f/tasks.md', '.github/actions/other/action.yml']).join(), /changed protected paths/);
+
+  const exclusive = (branchPaths) => environmentExclusivityReasons({ folder: 'f', branchPaths });
+  assert.deepEqual(exclusive(['specs/f/tasks.md', '.github/actions/environment-verify/action.yml']), []);
+  assert.deepEqual(exclusive(['src/a.cs', 'specs/f/tasks.md']), []);
+  assert.match(exclusive(['.github/actions/environment-setup/action.yml', 'src/a.cs', 'specs/f/tasks.md']).join(), /standalone environment spec, but the branch also changes src\/a\.cs$/);
 });
 
 test('accepts only an appended convergence phase with new unchecked tasks', () => {

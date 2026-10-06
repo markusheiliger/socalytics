@@ -1,5 +1,14 @@
 <!--
 Sync Impact Report
+- Version change: 1.0.0 → 1.1.0
+- Modified sections: Technology and Tooling Constraints (environment features
+  provide new build, test, and verification tooling before features use it)
+- Templates requiring updates: none (plan-template.md derives its Constitution
+  Check gates from this file; spec-template.md and tasks-template.md unchanged)
+- Follow-up TODOs: none
+-->
+<!--
+Earlier Sync Impact Report
 - Version change: template → 1.0.0
 - Added principles: I. Architecture Is the Design Authority; II. Respect Source-Area
   Ownership; III. API-First Control Plane; IV. Evidence Over Claims; V. Focused,
@@ -76,6 +85,14 @@ and never use destructive Git operations.
   only by a feature whose specification and plan adopt them.
 - `.gitignore` entries are derived from the actual stack and tooling, not
   generic catch-alls.
+- Implementation on GitHub builds, tests, and verifies with the composite
+  actions `.github/actions/environment-setup` and
+  `.github/actions/environment-verify`. A feature whose plan needs a
+  framework, SDK, or tool these actions do not provide depends on a separate
+  environment feature that changes only these two actions. The environment
+  feature is reviewed and merged first; the dependent feature names it under
+  Assumptions → Dependencies, and its plan's Constitution Check confirms that
+  the environment provides everything its tasks need.
 
 ## Development Workflow and Quality Gates
 
@@ -105,4 +122,4 @@ file) and MUST update dependent templates and guidance in the same change.
 Versioning follows semantic versioning: MAJOR for removed or redefined
 principles, MINOR for new principles or sections, PATCH for clarifications.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-05 | **Last Amended**: 2026-10-05
+**Version**: 1.1.0 | **Ratified**: 2026-10-05 | **Last Amended**: 2026-10-06

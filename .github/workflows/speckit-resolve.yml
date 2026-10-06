@@ -180,6 +180,7 @@ jobs:
           SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
           SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" verdict
 
       - name: Upload the result

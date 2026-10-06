@@ -105,7 +105,7 @@ function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { 
     const ready = inputs.step === 'merge' ? integrated.result.reasons.length === 0 && integrated.result.conflicts.length === 0 : packaged.verify;
     const verifyEnv = verify === null
       ? { SPECKIT_VERIFY_CONFIGURED: 'false' }
-      : { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: ready ? verify.outcome : 'skipped', SPECKIT_VERIFY_CHECKS: ready ? verify.checks : '' };
+      : { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: ready ? verify.outcome : 'skipped', SPECKIT_VERIFY_CHECKS: ready ? verify.checks : '', SPECKIT_VERIFY_UNCOVERED: ready ? verify.uncovered ?? '' : '', SPECKIT_SELFTEST_OUTCOME: verify.selfTest ?? '' };
     result = runVerdict({ env: verifyEnv, inputs, resultDir: repos.resultDir, log: silent }).result;
   }
   return { integrated, packaged, result, output: readFileSync(outputFile, 'utf8') };
@@ -365,7 +365,7 @@ test('merge: integrate merges the default branch and reports conflicts', async (
     assert.deepEqual(integrated.result.conflicts, []);
     assert.equal(integrated.result.mainSha, remoteSha(repos, 'main'));
     assert.equal(integrated.result.head, remoteSha(repos, 'speckit/f'));
-    assert.match(output, /conflicts=false\nagent=false\nverify=true\nprompt=\n/);
+    assert.match(output, /conflicts=false\nagent=false\nverify=true\nenvironment=false\nprompt=\n/);
     assert.equal(readFileSync(path.join(repos.work, 'docs/other.md'), 'utf8').replaceAll('\r\n', '\n'), '# Other\n', 'the verification sees the merged tree');
     assert.deepEqual([result.verified, result.checks.map((check) => check.name)], [true, ['platform build and tests', 'Markdown check']]);
   });
@@ -378,7 +378,7 @@ test('merge: integrate merges the default branch and reports conflicts', async (
 
 test('resolve: the agent resolution is verified, replayed, and pushed as a merge commit', () => withRepos(conflicting, async (repos) => {
   const { integrated, result, output } = work(repos, { inputs: RESOLVE_INPUTS, agent: resolveShared, verify: { outcome: 'success', checks: 'platform build and tests' } });
-  assert.match(output, /conflicts=true\nagent=true\nverify=false\nprompt=The working tree is in the middle of merging[^\n]*`docs\/shared\.md`/);
+  assert.match(output, /conflicts=true\nagent=true\nverify=false\nenvironment=false\nprompt=The working tree is in the middle of merging[^\n]*`docs\/shared\.md`/);
   assert.deepEqual(integrated.result.conflicts, ['docs/shared.md']);
   assert.deepEqual([result.verified, result.resolutions], [true, [{ path: 'docs/shared.md', deleted: false, blob: '0' }]]);
 
@@ -429,6 +429,52 @@ test('resolve: markers, changes outside the conflicts, and forged resolutions ar
     assert.equal(landed.exitCode, 1);
     assert.match(landed.reasons.join(), /is not on the default branch main/);
     assert.equal(remoteHead(repos), before);
+  });
+});
+
+const ENVIRONMENT_ACTION = '.github/actions/environment-setup/action.yml';
+
+test('environment specs: a task may change the environment actions, but not together with other changes', async () => {
+  await withRepos({}, async (repos) => {
+    const environmentTask = (r) => {
+      write(r.work, ENVIRONMENT_ACTION, 'name: x\n');
+      write(r.work, 'specs/f/tasks.md', TASKS.replace('- [ ] T001', '- [X] T001'));
+    };
+    const { result } = work(repos, { agent: environmentTask, verify: { outcome: 'success', checks: '', uncovered: '' } });
+    assert.deepEqual(result.reasons, []);
+    const github = fakeGitHub();
+    assert.equal((await land(repos, github)).exitCode, 0);
+    assert.equal(remoteShow(repos, `speckit/f:${ENVIRONMENT_ACTION}`), 'name: x\n');
+  });
+  await withRepos({ branch: (dir) => write(dir, 'src/a.cs', 'class A {}\n') }, async (repos) => {
+    const { result } = work(repos, { agent: (r) => agentDoesT001(r.work, { extra: { [ENVIRONMENT_ACTION]: 'name: x\n' } }) });
+    assert.match(result.reasons.join(), /standalone environment spec, but the branch also changes docs\/x\.md, src\/a\.cs/);
+    const landed = await land(repos, fakeGitHub());
+    assert.equal(landed.exitCode, 1, 'the land job re-checks the whole branch');
+    assert.match(landed.reasons.join(), /standalone environment spec/);
+  });
+});
+
+test('task comments list changed files that no check covers', () => withRepos({}, async (repos) => {
+  const { result } = work(repos, { agent: (r) => agentDoesT001(r.work, { extra: { 'src/clients/app.ts': 'x' } }), verify: { outcome: 'success', checks: 'Markdown check', uncovered: 'src/clients/app.ts' } });
+  assert.deepEqual(result.uncovered, ['src/clients/app.ts']);
+  const github = fakeGitHub();
+  assert.equal((await land(repos, github)).exitCode, 0);
+  assert.match(github.comments.at(-1).body, /- Not covered by any check: `src\/clients\/app\.ts`/);
+}));
+
+test('merge: integrate reports the changed paths and environment changes; the verdict records the self-test', async () => {
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, ENVIRONMENT_ACTION, 'name: x\n') }, (repos) => {
+    const { integrated, result, output } = work(repos, { inputs: MERGE_INPUTS, verify: { outcome: 'success', checks: 'Markdown check', selfTest: 'success' } });
+    assert.deepEqual(integrated.result.changedFiles, [ENVIRONMENT_ACTION]);
+    assert.equal(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8'), `${ENVIRONMENT_ACTION}\n`);
+    assert.match(output, /environment=true/);
+    assert.deepEqual([result.verified, result.selfTest], [true, 'success']);
+  });
+  await withRepos({ tasks: DONE_TASKS, branch: (dir) => write(dir, ENVIRONMENT_ACTION, 'name: x\n') }, (repos) => {
+    const { result } = work(repos, { inputs: MERGE_INPUTS, verify: { outcome: 'success', checks: 'Markdown check', selfTest: 'failure' } });
+    assert.equal(result.verified, false);
+    assert.match(result.reasons.join(), /changed environment actions failed their self-test \(failure\)/);
   });
 });
 
@@ -533,8 +579,39 @@ test('merge-land asks for review when automatic merging is off', async () => {
   assert.deepEqual([landed.check.conclusion, landed.check.external_id], ['success', CHECK_DONE]);
   assert.equal(github.repo.pulls[0].draft, false);
   assert.deepEqual(github.repo.reviewRequests, [{ number: 9, reviewers: ['dev'] }]);
-  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:done -->\n\*\*All 2 tasks are implemented\*\*, the implementation converged, and no verification is configured[\s\S]*SPECKIT_AUTO_MERGE=false[\s\S]*Review requested from @dev/);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:done -->\n\*\*All 2 tasks are implemented\*\*, the implementation converged, and no verification is configured[\s\S]*- automatic merging is off \(`SPECKIT_AUTO_MERGE=false`\)[\s\S]*Review requested from @dev/);
 });
+
+test('merge-land holds environment changes and uncovered files for review, whatever the work result claims', async () => {
+  const environment = mergeableGitHub();
+  environment.repo.pullFiles[9] = ['specs/f/tasks.md', '.github/actions/environment-verify/action.yml'];
+  const held = await mergeLand(environment, { ...verifiedMerge, environment: false });
+  assert.deepEqual([held.exitCode, environment.repo.merges.length, held.check.external_id], [0, 0, CHECK_DONE]);
+  assert.match(environment.comments.at(-1).body, /- it changes the environment actions \(`\.github\/actions\/environment-verify\/action\.yml`\), which every later implementation is verified with/);
+  assert.deepEqual(environment.repo.reviewRequests, [{ number: 9, reviewers: ['dev'] }]);
+
+  const uncovered = mergeableGitHub();
+  const review = await mergeLand(uncovered, { ...verifiedMerge, uncovered: ['src/clients/app.ts'] });
+  assert.deepEqual([review.exitCode, uncovered.repo.merges.length], [0, 0]);
+  assert.match(uncovered.comments.at(-1).body, /- no check covers `src\/clients\/app\.ts`; extend the environment actions with a standalone environment spec/);
+
+  const renamed = mergeableGitHub();
+  renamed.repo.pullFiles[9] = [{ filename: 'docs/verify.yml', previous_filename: '.github/actions/environment-verify/action.yml' }];
+  await mergeLand(renamed, verifiedMerge);
+  assert.equal(renamed.repo.merges.length, 0, 'moving files out of the environment actions is held for review');
+
+  const huge = mergeableGitHub();
+  huge.repo.pullFiles[9] = Array.from({ length: 3000 }, (_, index) => `src/f${index}.cs`);
+  await mergeLand(huge, verifiedMerge);
+  assert.equal(huge.repo.merges.length, 0);
+  assert.match(huge.comments.at(-1).body, /changes 3000 or more files/);
+});
+
+test('task checks fail closed when the default branch is not in the checkout', () => withRepos({}, (repos) => {
+  git(repos.work, 'update-ref', '-d', 'refs/remotes/origin/main');
+  const { result } = work(repos, { agent: (r) => agentDoesT001(r.work) });
+  assert.match(result.reasons.join(), /cannot be compared with main, because main is not in the checkout/);
+}));
 
 test('extracts the last agent message and validates commands', async () => {
   const jsonl = [

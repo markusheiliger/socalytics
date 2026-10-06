@@ -1,9 +1,11 @@
 name: Environment setup
 description: >-
   Installs what building, testing, and verifying this solution needs. Optional extension point of the Spec Kit
-  implement workflow, which runs it before the agent implements a task and before the final verification; the
-  workflow skips it when this file does not exist. Docker is already on the runner (used by Testcontainers), and the
-  calling workflow provides Node.js.
+  workflows, which run it before an agent works and before the verification; the workflows skip it when this file
+  does not exist. Docker is already on the runner (used by Testcontainers), and the calling workflow provides Node.js.
+# Extending: specs change this action, together with environment-verify, only in a standalone environment spec, which
+# is reviewed and merged before the specs that need it start. Pin tool versions, and install SDKs independently of
+# project files that do not exist yet (for example with an explicit version instead of a project's version file).
 inputs:
   workspace:
     description: Path of the checked-out code, relative to the GitHub workspace

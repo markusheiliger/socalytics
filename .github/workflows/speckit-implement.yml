@@ -111,11 +111,13 @@ jobs:
           path: tooling
           persist-credentials: false
 
+      # Full history, so the change can be compared with the default branch.
       - name: Check out the implementation branch
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.begin.outputs.head }}
           path: workspace
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js
@@ -182,6 +184,7 @@ jobs:
           SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
           SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" verdict
 
       - name: Upload the result
@@ -218,11 +221,13 @@ jobs:
           path: tooling
           persist-credentials: false
 
+      # Full history, so the change can be compared with the default branch.
       - name: Check out the implementation branch
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.begin.outputs.head }}
           path: workspace
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js

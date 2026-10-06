@@ -253,6 +253,10 @@ export class GitHubClient {
     return this.paginate(this.repoPath(`/pulls/${number}/commits`));
   }
 
+  async listPullRequestFiles(number) {
+    return this.paginate(this.repoPath(`/pulls/${number}/files`));
+  }
+
   async markReadyForReview(pullNodeId) {
     await this.graphql(
       'mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { isDraft } } }',

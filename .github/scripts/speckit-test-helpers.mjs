@@ -116,6 +116,7 @@ export class FakeGitHub {
         reviewRequests: [],
         merges: [],
         pullCommits: {},
+        pullFiles: {},
         nextSha: 1,
         nextCheckRun: 1,
         nextRun: 1,
@@ -196,6 +197,10 @@ export class FakeGitHub {
 
   async listPullRequestCommits(number) {
     return structuredClone(this.repo.pullCommits[number] ?? []);
+  }
+
+  async listPullRequestFiles(number) {
+    return (this.repo.pullFiles[number] ?? []).map((file) => (typeof file === 'string' ? { filename: file } : file));
   }
 
   async getWorkflowRun(id) {

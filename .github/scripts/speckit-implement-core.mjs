@@ -27,6 +27,23 @@ export const CHECK_MERGE = 'speckit:merge';
 export const CHECK_CONFLICT = 'speckit:conflict';
 // Paths the agent must never change; specs/<folder>/tasks.md may only receive the target task's tick.
 export const PROTECTED_PREFIXES = ['.github/', '.specify/', 'specs/'];
+// The solution's environment actions. Agents may change them, but only in a standalone environment spec, whose
+// pull request always waits for a person's review.
+export const ENVIRONMENT_PREFIXES = ['.github/actions/environment-setup/', '.github/actions/environment-verify/'];
+
+export const isEnvironmentPath = (file) => ENVIRONMENT_PREFIXES.some((prefix) => file.startsWith(prefix));
+export const isProtectedPath = (file) => !isEnvironmentPath(file) && PROTECTED_PREFIXES.some((prefix) => file.startsWith(prefix));
+
+// Reasons why a branch mixes changes to the environment actions with other changes. `branchPaths` are all paths
+// the implementation branch changes compared to the default branch.
+export function environmentExclusivityReasons({ folder, branchPaths }) {
+  if (!branchPaths.some(isEnvironmentPath)) return [];
+  const tasksPath = `specs/${folder}/tasks.md`;
+  const others = branchPaths.filter((file) => !isEnvironmentPath(file) && file !== tasksPath);
+  return others.length > 0
+    ? [`changes to the environment actions must come from a standalone environment spec, but the branch also changes ${others.join(', ')}`]
+    : [];
+}
 
 const HEADING_PATTERN = /^(#{2,4})\s+(.+?)\s*$/;
 const TASK_PATTERN = /^\s*[-*] \[( |x|X)\]\s+(T\d{3,})\b\s*(.*)$/;
@@ -247,7 +264,7 @@ export function appendPullRequestTasks(body, tasks, heading) {
 export function validateTaskChange({ folder, taskId, before, after, changedPaths }) {
   const reasons = [];
   const tasksPath = `specs/${folder}/tasks.md`;
-  const protectedPaths = changedPaths.filter((file) => file !== tasksPath && PROTECTED_PREFIXES.some((prefix) => file.startsWith(prefix)));
+  const protectedPaths = changedPaths.filter((file) => file !== tasksPath && isProtectedPath(file));
   if (protectedPaths.length > 0) reasons.push(`changed protected paths: ${protectedPaths.join(', ')}`);
 
   const beforeLines = (before ?? '').split(/\r?\n/);

@@ -17,11 +17,13 @@ import {
   DONE_COMMENT_MARKER,
   MAX_CONVERGE_ROUNDS,
   PREPARE_WORKFLOW_FILE,
-  PROTECTED_PREFIXES,
   appendPullRequestTasks,
   convergenceRounds,
+  environmentExclusivityReasons,
   hasConflictMarkers,
   implementationBranch,
+  isEnvironmentPath,
+  isProtectedPath,
   latestCheckRun,
   listTasks,
   neutralizeMarkers,
@@ -39,6 +41,8 @@ import {
 
 export const MAX_PATCH_BYTES = 5 * 1024 * 1024;
 export const MAX_CHANGED_FILES = 500;
+// GitHub lists at most this many files of a pull request.
+const MAX_PULL_FILES = 3000;
 export const STEP_NAMES = ['task', 'converge', 'resolve', 'merge'];
 const BOT_NAME = 'github-actions[bot]';
 const BOT_EMAIL = '41898282+github-actions[bot]@users.noreply.github.com';
@@ -203,11 +207,22 @@ function tasksFiles(git, workspace, folder) {
   return { before: before.status === 0 ? before.stdout : '', after: existsSync(afterFile) ? readFileSync(afterFile, 'utf8') : '' };
 }
 
+// Paths the implementation branch changes compared to the default branch, including the staged change, or null when
+// the default branch is not in the checkout.
+function branchPaths(git, defaultBranch) {
+  const base = git(['merge-base', 'HEAD', `refs/remotes/origin/${defaultBranch}`]);
+  if (base.status !== 0) return null;
+  return splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', base.stdout.trim()]));
+}
+
 // Validates the staged change of one task and returns the reasons it cannot be accepted.
-export function checkStagedTask({ git, workspace, folder, task, patchBytes }) {
+export function checkStagedTask({ git, workspace, folder, task, patchBytes, defaultBranch = 'main' }) {
   const paths = changedPaths(git);
   const reasons = sizeReasons(patchBytes, paths);
   reasons.push(...validateTaskChange({ folder, taskId: task, ...tasksFiles(git, workspace, folder), changedPaths: paths }));
+  const branch = branchPaths(git, defaultBranch);
+  if (branch === null) reasons.push(`the branch cannot be compared with ${defaultBranch}, because ${defaultBranch} is not in the checkout`);
+  else reasons.push(...environmentExclusivityReasons({ folder, branchPaths: branch }));
   return { reasons, paths };
 }
 
@@ -233,11 +248,12 @@ function stagePatch(git, resultDir) {
   return Buffer.byteLength(patch);
 }
 
-const isProtected = (file) => PROTECTED_PREFIXES.some((prefix) => file.startsWith(prefix));
+const isProtected = isProtectedPath;
 
 // Worker workflows, job "work", resolve and merge steps: merges the default branch into the checked-out
 // implementation branch without committing, records the default branch SHA and any conflicted files, and prepares
-// the agent prompt for conflict resolution. Conflicts in protected paths need a person.
+// the agent prompt for conflict resolution. Conflicts in protected paths need a person. After a clean merge it
+// writes the paths the implementation changes compared to the default branch for the verification.
 export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   mkdirSync(resultDir, { recursive: true });
   const defaultBranch = env.SPECKIT_BRANCH || 'main';
@@ -252,12 +268,18 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
     result.reasons.push(`conflicts in protected paths need a person: ${protectedConflicts.join(', ')}`);
     result.attention = true;
   }
-  writeFileSync(path.join(resultDir, 'changed-files.txt'), '');
+  const paths = conflicts.length === 0 && result.reasons.length === 0
+    ? splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', mainSha]))
+    : [];
+  result.changedFiles = paths;
+  result.environment = paths.some(isEnvironmentPath);
+  writeFileSync(path.join(resultDir, 'changed-files.txt'), paths.map((file) => `${file}\n`).join(''));
   writeResult(resultDir, result);
   const agent = inputs.step === 'resolve' && conflicts.length > 0 && result.reasons.length === 0;
   setOutput(env, 'conflicts', String(conflicts.length > 0));
   setOutput(env, 'agent', String(agent));
   setOutput(env, 'verify', String(inputs.step === 'merge' && conflicts.length === 0 && result.reasons.length === 0));
+  setOutput(env, 'environment', String(inputs.step === 'merge' && result.environment));
   setOutput(env, 'prompt', agent ? renderResolvePrompt({ folder, files: conflicts }) : '');
   log(conflicts.length > 0 ? `Conflicts with ${defaultBranch} (${mainSha}): ${conflicts.join(', ')}` : `Merged ${defaultBranch} (${mainSha}) cleanly.`);
   return { exitCode: 0, result };
@@ -274,7 +296,7 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
     const agent = agentReasons(resultDir);
     result = { step: 'task', task: inputs.task, agentExit: agent.agentExit, reasons: [...agent.reasons], checks: [], verified: false };
     result.patchBytes = stagePatch(git, resultDir);
-    const staged = checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes: result.patchBytes });
+    const staged = checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes: result.patchBytes, defaultBranch: env.SPECKIT_BRANCH || 'main' });
     paths = staged.paths;
     result.changedFiles = paths;
     result.reasons.push(...staged.reasons);
@@ -338,7 +360,9 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
 
 // Worker workflows, job "work": records the outcome of the optional environment-verify action in the result.
 // SPECKIT_VERIFY_CONFIGURED tells whether the action exists; SPECKIT_VERIFY_OUTCOME and SPECKIT_VERIFY_CHECKS are the
-// step's outcome and its "checks" output (comma-separated, in order; after a failure the last one failed).
+// step's outcome and its "checks" output (comma-separated, in order; after a failure the last one failed);
+// SPECKIT_VERIFY_UNCOVERED lists changed files that no check covers. For a merge that changes the environment
+// actions, SPECKIT_SELFTEST_OUTCOME is the outcome of running the changed actions themselves.
 export function runVerdict({ env, inputs, resultDir, log }) {
   mkdirSync(resultDir, { recursive: true });
   const resultFile = path.join(resultDir, 'result.json');
@@ -355,6 +379,12 @@ export function runVerdict({ env, inputs, resultDir, log }) {
       result.checks = names.map((name, index) => ({ name, passed: index < names.length - 1 }));
       result.reasons.push(names.length > 0 ? `${names.at(-1)} failed` : `the verification did not succeed (${outcome || 'not run'})`);
     }
+    result.uncovered = String(env.SPECKIT_VERIFY_UNCOVERED ?? '').split(',').map((file) => file.trim()).filter(Boolean);
+  }
+  if (result.reasons.length === 0 && inputs.step === 'merge' && result.environment && !pendingConflicts) {
+    const selfTest = String(env.SPECKIT_SELFTEST_OUTCOME ?? '');
+    result.selfTest = selfTest || 'skipped';
+    if (selfTest && !['success', 'skipped'].includes(selfTest)) result.reasons.push(`the changed environment actions failed their self-test (${selfTest})`);
   }
   result.verified = result.reasons.length === 0 && !pendingConflicts;
   writeFileSync(resultFile, `${JSON.stringify(result, null, 2)}\n`);
@@ -462,7 +492,9 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     report.flush();
     return { exitCode: 1, reasons };
   }
-  if (reasons.length === 0 && inputs.step === 'task') reasons.push(...applyPatch({ git, resultDir, check: (patchBytes) => checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes }).reasons }));
+  if (reasons.length === 0 && inputs.step === 'task') {
+    reasons.push(...applyPatch({ git, resultDir, check: (patchBytes) => checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes, defaultBranch: env.SPECKIT_BRANCH || 'main' }).reasons }));
+  }
   let appendedTasks = [];
   if (reasons.length === 0 && inputs.step === 'converge' && !result.converged) {
     let limit = false;
@@ -527,6 +559,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       '',
       `- Changed files: ${(result.changedFiles ?? []).map((file) => `\`${file}\``).join(', ') || 'none'}`,
       `- Verification: ${verification}`,
+      ...((result.uncovered ?? []).length > 0 ? [`- Not covered by any check: ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
       `- Progress: ${progress.done} of ${progress.total} tasks implemented`,
     ];
   } else if (inputs.step === 'converge') {
@@ -663,7 +696,17 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
   const { login, mention } = await requesterMention(client, inputs.twin);
   if (pull.draft) await client.markReadyForReview(pull.node_id);
 
-  if (String(env.SPECKIT_AUTO_MERGE ?? 'true').toLowerCase() === 'false') {
+  // Decided from the GitHub API, not from the work result, which agent-written code could forge. Renames count with
+  // both paths; a list cut off at GitHub's limit is held for review because it may hide environment changes.
+  const pullFiles = await client.listPullRequestFiles(inputs.pull);
+  const environmentFiles = [...new Set(pullFiles.flatMap((file) => [file.filename, file.previous_filename]).filter((file) => file && isEnvironmentPath(file)))];
+  const reviewReasons = [
+    ...(String(env.SPECKIT_AUTO_MERGE ?? 'true').toLowerCase() === 'false' ? ['automatic merging is off (`SPECKIT_AUTO_MERGE=false`)'] : []),
+    ...(environmentFiles.length > 0 ? [`it changes the environment actions (${environmentFiles.map((file) => `\`${file}\``).join(', ')}), which every later implementation is verified with, so a person reviews it`] : []),
+    ...(pullFiles.length >= MAX_PULL_FILES ? [`it changes ${MAX_PULL_FILES} or more files, more than GitHub lists for a pull request`] : []),
+    ...((result.uncovered ?? []).length > 0 ? [`no check covers ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}; extend the environment actions with a standalone environment spec`] : []),
+  ];
+  if (reviewReasons.length > 0) {
     await client.updateCheckRun(inputs.checkRun, {
       status: 'completed',
       conclusion: 'success',
@@ -683,11 +726,15 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
       DONE_COMMENT_MARKER,
       `**All ${progress.total} tasks are implemented**, the implementation converged, and ${verification}.`,
       '',
-      `Automatic merging is off (\`SPECKIT_AUTO_MERGE=false\`), so this pull request is ready for review.${reviewNote}`,
+      'This pull request is ready for review instead of being merged automatically, because:',
+      '',
+      ...reviewReasons.map((reason) => `- ${reason}`),
+      '',
+      `Merge it to complete the implementation.${reviewNote}`,
     ].join('\n'));
-    report.line(`Ready for review: #${inputs.pull}.${reviewNote}`);
+    report.line(`Ready for review: #${inputs.pull}: ${reviewReasons.join('; ')}.${reviewNote}`);
     report.flush();
-    return { exitCode: 0 };
+    return { exitCode: 0, review: reviewReasons };
   }
 
   const mainNow = await client.getBranchSha(defaultBranch);

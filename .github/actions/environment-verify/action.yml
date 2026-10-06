@@ -1,10 +1,15 @@
 name: Environment verify
 description: >-
-  Verifies a change to this solution. Optional extension point of the Spec Kit implement workflow, which runs it
-  after the agent implemented a task (mode task: only the checks the changed files call for) and in the final run
-  (mode finalize: every check); the workflow skips it when this file does not exist. It runs in a job with a
-  read-only token and no token environment variables, because the checks execute agent-written code. The step fails
-  when a check fails.
+  Verifies a change to this solution. Optional extension point of the Spec Kit workflows, which run it after the
+  agent implemented a task (mode task: only the checks the changed files call for), after a conflict resolution, and
+  before merging (mode finalize: every check); the workflows skip it when this file does not exist. It runs in a job
+  with a read-only token and no token environment variables, because the checks execute agent-written code. The step
+  fails when a check fails.
+# Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
+# is reviewed and merged before the specs that need it start. For a new framework or source area, add one block below
+# that (1) adds its scope to COVERED only when its project exists, (2) runs only when the scope changed or in finalize
+# mode, and (3) skips while its project does not exist yet, because the environment spec merges before the project is
+# created.
 inputs:
   workspace:
     description: Path of the code to verify
@@ -13,7 +18,7 @@ inputs:
     description: "task: run the checks that apply to the changed files; finalize: run every check"
     required: true
   changed-files:
-    description: Path of a file that lists the changed paths, one per line (ignored in finalize mode)
+    description: Path of a file that lists the changed paths, one per line; it also decides which files no check covers
     required: false
     default: ""
   log-file:
@@ -23,6 +28,9 @@ outputs:
   checks:
     description: Comma-separated names of the checks that ran, in order; after a failure the last one failed
     value: ${{ steps.verify.outputs.checks }}
+  uncovered:
+    description: Comma-separated changed files that no check covers; the workflows hold such changes for review
+    value: ${{ steps.verify.outputs.uncovered }}
 runs:
   using: composite
   steps:
@@ -38,22 +46,36 @@ runs:
       run: |
         set -uo pipefail
         PLATFORM_SOLUTION=src/platform/SocAlytics.Platform.slnx
+        # Paths that need no check (repository metadata, Spec Kit artifacts, and the environment actions, which the
+        # merge self-tests). A check adds its scope only when it can run, so changes in the scope of a check whose
+        # project is missing (for example a deleted solution) are reported as not covered.
+        COVERED=(
+          '\.md$'
+          '^specs/'
+          '^\.gitignore$'
+          '^\.gitattributes$'
+          '^\.editorconfig$'
+          '^\.github/actions/environment-(setup|verify)/'
+        )
+        [ -f "$WORKSPACE/$PLATFORM_SOLUTION" ] && COVERED+=('^src/platform/')
         mkdir -p "$(dirname "$LOG_FILE")"
         : > "$LOG_FILE"
+        changed=""
+        [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ] && changed="$(cat "$CHANGED_FILES")"
 
         # applies <regex>: true in finalize mode or when a changed path matches.
         applies() {
-          [ "$MODE" = finalize ] || { [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ] && grep -qE "$1" "$CHANGED_FILES"; }
+          [ "$MODE" = finalize ] || { [ -n "$changed" ] && grep -qE "$1" <<< "$changed"; }
         }
         step() {
           echo "\$ $*" | tee -a "$LOG_FILE"
           "$@" 2>&1 | tee -a "$LOG_FILE"
         }
 
-        cd "$WORKSPACE"
         checks=()
         status=0
-        if [ "$status" -eq 0 ] && applies '^src/platform/'; then
+        pushd "$WORKSPACE" > /dev/null
+        if [ "$status" -eq 0 ] && applies '^src/platform/' && [ -f "$PLATFORM_SOLUTION" ]; then
           checks+=("platform build and tests")
           { step dotnet restore "$PLATFORM_SOLUTION" &&
             step dotnet build "$PLATFORM_SOLUTION" --no-restore &&
@@ -63,6 +85,12 @@ runs:
           checks+=("Markdown check")
           step node "$MARKDOWN_CHECK" || status=1
         fi
+        popd > /dev/null
 
+        uncovered=""
+        if [ -n "$changed" ]; then
+          uncovered="$(grep -vE "$(IFS='|'; echo "${COVERED[*]}")" <<< "$changed" | grep -v '^$' | paste -sd, -)"
+        fi
         (IFS=,; echo "checks=${checks[*]}") >> "$GITHUB_OUTPUT"
+        echo "uncovered=${uncovered}" >> "$GITHUB_OUTPUT"
         exit "$status"
