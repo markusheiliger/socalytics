@@ -17,7 +17,18 @@ import {
   stageLabelChange,
 } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
-import { discoverSpecs, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
+import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
+import {
+  CHECK_RUN_NAME,
+  START_COMMENT_MARKER,
+  checkRunOutput,
+  decideLifecycle,
+  extractTasks,
+  implementationBranch,
+  renderPullRequestBody,
+  renderPullRequestTitle,
+  renderStartComment,
+} from './speckit-implement-core.mjs';
 
 export class UsageError extends Error {}
 
@@ -46,7 +57,8 @@ function blockerList(blockers) {
   return blockers.map((blocker) => `#${blocker.number}`).join(', ');
 }
 
-// Server side: lists flagged twins that are consistent with the default branch and have no open blockers.
+// Server side: lists flagged twins that are consistent with the default branch and have no open blockers,
+// and resolves what their implementation PRs mean (in progress, closed without merge, or ready to start).
 export async function runSelect({ client, rootDir, env, log }) {
   const report = createReporter(env, log);
   const specs = discoverSpecs(rootDir);
@@ -54,36 +66,154 @@ export async function runSelect({ client, rootDir, env, log }) {
   const ready = [];
   const blocked = [];
   const inconsistent = [];
+  const inProgress = [];
+  const fallback = [];
+  const merged = [];
   for (const [folder, issue] of [...byFolder.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     if (issue.state !== 'open' || !hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) continue;
     const entry = specs.get(folder);
+    const requester = entry ? await resolveImplementRequester(client, issue.number) : null;
+    const computedStage = entry ? deriveStage(entry.artifacts, entry.tasks) : null;
     const reasons = entry
       ? [
-        ...requesterBlockers(await resolveImplementRequester(client, issue.number)),
-        ...implementBlockers({ folder, computedStage: deriveStage(entry.artifacts, entry.tasks), openChecklistItems: entry.openChecklistItems }),
+        ...requesterBlockers(requester),
+        ...implementBlockers({ folder, computedStage, openChecklistItems: entry.openChecklistItems }),
       ]
       : [`\`specs/${folder}\` does not exist on the default branch`];
     if (reasons.length > 0) {
       inconsistent.push({ number: issue.number, folder, reasons });
       continue;
     }
+
+    const lifecycle = decideLifecycle({
+      pulls: await client.listPullRequestsForHead(implementationBranch(folder)),
+      flaggedAt: requester.labeledAt,
+    });
+    if (lifecycle.state === 'in-progress') {
+      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number });
+      continue;
+    }
+    if (lifecycle.state === 'merged') {
+      merged.push({ number: issue.number, folder, pull: lifecycle.pull.number });
+      continue;
+    }
+    if (lifecycle.state === 'fallback') {
+      await updateIssueWithLabels(client, issue, stageLabelChange(issue, computedStage));
+      await client.createComment(issue.number, [
+        `Implementation pull request #${lifecycle.pull.number} was closed without merging, so the \`${stageLabel(IMPLEMENT_STAGE)}\` flag was removed.`,
+        '',
+        `The twin is back at its computed stage \`${computedStage}\`. Flag it again to restart; the branch \`${implementationBranch(folder)}\` is then reset.`,
+      ].join('\n'));
+      fallback.push({ number: issue.number, folder, pull: lifecycle.pull.number });
+      continue;
+    }
+
     const open = openBlockers(await client.listBlockedBy(issue.number));
     if (open.length > 0) blocked.push({ number: issue.number, folder, blockers: open });
-    else ready.push({ number: issue.number, folder });
+    else ready.push({ number: issue.number, folder, requester: requester.login, reset: lifecycle.reset });
   }
 
   report.line('## Spec implementation selection');
   report.line();
-  for (const twin of ready) report.line(`- Ready: #${twin.number} \`${twin.folder}\``);
+  for (const twin of ready) report.line(`- Ready: #${twin.number} \`${twin.folder}\`${twin.reset ? ' (the branch is reset)' : ''}`);
+  for (const twin of inProgress) report.line(`- In progress: #${twin.number} \`${twin.folder}\` in pull request #${twin.pull}`);
   for (const twin of blocked) report.line(`- Blocked: #${twin.number} \`${twin.folder}\` by ${blockerList(twin.blockers)}`);
+  for (const twin of fallback) {
+    report.line(`- Flag removed: #${twin.number} \`${twin.folder}\` because pull request #${twin.pull} was closed without merging`);
+  }
+  for (const twin of merged) report.line(`- Merged: #${twin.number} \`${twin.folder}\` in pull request #${twin.pull}; the twin closes through it`);
   for (const twin of inconsistent) {
     report.line(`- Inconsistent (the next sync revokes the flag): #${twin.number} \`${twin.folder}\`: ${twin.reasons.join('; ')}`);
   }
-  if (ready.length + blocked.length + inconsistent.length === 0) report.line('- No spec twin is flagged for implementation.');
+  const total = ready.length + inProgress.length + blocked.length + fallback.length + merged.length + inconsistent.length;
+  if (total === 0) report.line('- No spec twin is flagged for implementation.');
   report.flush();
   setOutput(env, 'count', String(ready.length));
   setOutput(env, 'matrix', JSON.stringify({ include: ready }));
-  return { exitCode: 0, ready, blocked, inconsistent };
+  return { exitCode: 0, ready, blocked, inconsistent, inProgress, fallback, merged };
+}
+
+async function findOpenPull(client, branch) {
+  return (await client.listPullRequestsForHead(branch)).find((pull) => pull.state === 'open') ?? null;
+}
+
+// Server side: prepares the implementation workspace of one ready twin. Every step checks what already exists,
+// so a rerun after a partial failure completes the work instead of duplicating it.
+export async function runStart({ client, rootDir, env, issueNumber, folder, requester, reset, log }) {
+  const report = createReporter(env, log);
+  report.line(`## Implementation workspace for #${issueNumber}`);
+  report.line();
+  const branch = implementationBranch(folder);
+  const defaultBranch = env.SPECKIT_BRANCH || 'main';
+  const issue = await client.getIssue(issueNumber);
+  if (issue.state !== 'open' || !hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) {
+    report.line(`#${issueNumber} is no longer open and flagged; nothing to start.`);
+    report.flush();
+    return { exitCode: 0 };
+  }
+  const entry = readSpecFolder(rootDir, folder);
+  if (!entry || entry.tasks === null) throw new Error(`specs/${folder} has no tasks.md on the default branch`);
+  const tasks = extractTasks(entry.tasks);
+
+  let pull = await findOpenPull(client, branch);
+  if (pull) {
+    report.line(`- Pull request #${pull.number} is already open for \`${branch}\`.`);
+  } else {
+    const baseSha = await client.getBranchSha(defaultBranch);
+    if (reset && (await client.getBranchSha(branch))) {
+      await client.deleteBranch(branch);
+      report.line(`- Deleted the stale branch \`${branch}\`.`);
+    }
+    if (!(await client.getBranchSha(branch))) {
+      try {
+        await client.createLinkedBranch(issue.node_id, baseSha, branch);
+        report.line(`- Created \`${branch}\`, linked to #${issueNumber}.`);
+      } catch (error) {
+        await client.createBranch(branch, baseSha);
+        report.line(`- Created \`${branch}\` without an issue link (${error.message}).`);
+      }
+    }
+    if ((await client.aheadBy(defaultBranch, branch)) === 0) {
+      const head = await client.getBranchSha(branch);
+      const commit = await client.createEmptyCommit(head, `chore(speckit): start implementation of ${folder}`);
+      await client.updateBranch(branch, commit);
+      report.line('- Added the start commit.');
+    }
+    pull = await client.createPullRequest({
+      title: renderPullRequestTitle(entry.spec),
+      head: branch,
+      base: defaultBranch,
+      body: renderPullRequestBody({ twinNumber: issueNumber, folder, tasks, context: contextFromEnv(env) }),
+      draft: true,
+    }) ?? await findOpenPull(client, branch);
+    if (!pull) throw new Error(`Could not create or find the pull request for ${branch}`);
+    report.line(`- Opened draft pull request #${pull.number}.`);
+  }
+
+  try {
+    await client.addAssignees(pull.number, [requester]);
+  } catch (error) {
+    report.line(`- Warning: could not assign @${requester}: ${error.message}`);
+  }
+  if ((await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME)).length === 0) {
+    await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: pull.head.sha, status: 'queued', output: checkRunOutput(tasks.count) });
+    report.line(`- Created the \`${CHECK_RUN_NAME}\` check run.`);
+  }
+  const comments = await client.listIssueComments(pull.number);
+  if (!comments.some((comment) => comment.body?.includes(START_COMMENT_MARKER))) {
+    await client.createComment(pull.number, renderStartComment({ twinNumber: issueNumber, folder, taskCount: tasks.count }));
+    report.line('- Posted the start comment.');
+  }
+  report.flush();
+  return { exitCode: 0, pull };
+}
+
+function contextFromEnv(env) {
+  return {
+    serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, ''),
+    repository: env.GITHUB_REPOSITORY,
+    branch: env.SPECKIT_BRANCH || 'main',
+  };
 }
 
 export function defaultGit(cwd) {
@@ -187,6 +317,9 @@ function parseArgs(argv) {
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (arg === '--folder') options.folder = rest[++index];
+    else if (arg === '--issue') options.issue = Number(rest[++index]);
+    else if (arg === '--requester') options.requester = rest[++index];
+    else if (arg === '--reset') options.reset = rest[index + 1] === 'true' || rest[index + 1] === 'false' ? rest[++index] === 'true' : true;
     else throw new UsageError(`Unknown argument: ${arg}`);
   }
   return options;
@@ -209,14 +342,29 @@ function tokenFromGh() {
 
 export async function main(argv, { env = process.env, rootDir = process.cwd(), log = console.log, client, git } = {}) {
   const options = parseArgs(argv);
+  const actionsClient = () => client ?? new GitHubClient({
+    token: env.GITHUB_TOKEN || env.GH_TOKEN,
+    repository: env.GITHUB_REPOSITORY,
+    apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
+    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
+  });
   if (options.command === 'select') {
-    const githubClient = client ?? new GitHubClient({
-      token: env.GITHUB_TOKEN || env.GH_TOKEN,
-      repository: env.GITHUB_REPOSITORY,
-      apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
-      graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
-    });
-    return (await runSelect({ client: githubClient, rootDir, env, log })).exitCode;
+    return (await runSelect({ client: actionsClient(), rootDir, env, log })).exitCode;
+  }
+  if (options.command === 'start') {
+    if (!Number.isInteger(options.issue) || options.issue <= 0 || !isValidFolderName(options.folder ?? '') || !options.requester) {
+      throw new UsageError('start requires --issue <number>, --folder <folder>, and --requester <login>');
+    }
+    return (await runStart({
+      client: actionsClient(),
+      rootDir,
+      env,
+      issueNumber: options.issue,
+      folder: options.folder,
+      requester: options.requester,
+      reset: Boolean(options.reset),
+      log,
+    })).exitCode;
   }
   if (options.command === 'request') {
     const gitRunner = git ?? defaultGit(rootDir);
@@ -228,10 +376,10 @@ export async function main(argv, { env = process.env, rootDir = process.cwd(), l
     });
     return (await runRequest({ client: githubClient, git: gitRunner, rootDir, env, folder: options.folder, log })).exitCode;
   }
-  throw new UsageError('Usage: speckit-implement.mjs <select | request [--folder <folder>]>');
+  throw new UsageError('Usage: speckit-implement.mjs <select | start --issue <number> --folder <folder> --requester <login> [--reset [true|false]] | request [--folder <folder>]>');
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.argv.slice(2)).then(
     (code) => {
       process.exitCode = code;

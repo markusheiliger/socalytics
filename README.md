@@ -151,10 +151,31 @@ their "blocked by" issues are closed.
     or checklist conditions no longer hold, for example when all tasks are
     merged and the twin becomes `implemented`.
 - `Spec Kit implement` runs after every successful `Spec Kit prepare` run,
-    when an issue is closed or reopened, and on demand. It currently only
-    selects ready twins and reports "would implement"; it creates no branches,
-    pull requests, or agent runs yet. Dependency edits on GitHub trigger
-    nothing, so they apply with the next trigger or a manual run.
+    when an issue is closed or reopened, when a `speckit/**` pull request is
+    closed, and on demand. Dependency edits on GitHub trigger nothing, so they
+    apply with the next trigger or a manual run.
+- For every ready twin it prepares an implementation workspace:
+  - the branch `speckit/<folder>`, created as a linked branch so it appears in
+      the twin's Development section, with an empty start commit;
+  - a draft pull request `Implement: <spec title>` whose body contains
+      `Closes #<twin>`, the spec link, and the tasks from `tasks.md` as
+      checkboxes, assigned to the person who set the flag;
+  - a `Spec Kit implementation` check run on the pull request, which tracks the
+      implementation status, and a start comment; later progress is documented
+      in pull request comments.
+- An open implementation pull request marks the twin as in progress, so it is
+    never started twice. Every step checks what already exists, so a rerun
+    after a partial failure completes the work.
+- Closing the pull request without merging removes the flag, and the twin
+    falls back to its computed stage with a comment. GitHub keeps the closed
+    pull request and its branch; flagging the twin again deletes and recreates
+    the branch and opens a new draft pull request. Merging the pull request
+    closes the twin as completed.
+- Task implementation is not wired up yet: the check run stays queued. Pull
+    requests and commits created with the workflow's `GITHUB_TOKEN` do not start
+    other workflows, so CI on these pull requests needs a GitHub App or token
+    later. Creating pull requests requires the repository setting "Allow GitHub
+    Actions to create and approve pull requests".
 
 The repository-local Spec Kit extension `gha`
 (source in [`.specify/extension-src/gha/`](.specify/extension-src/gha/README.md))
@@ -177,7 +198,7 @@ Adding the label in the GitHub web interface or with
 The tooling tests run with:
 
 ```powershell
-node --test .github/scripts/speckit-prepare-core.test.mjs .github/scripts/speckit-prepare.test.mjs .github/scripts/speckit-implement.test.mjs
+node --test .github/scripts/speckit-*.test.mjs
 ```
 
 A local dry run against the repository needs only read access:

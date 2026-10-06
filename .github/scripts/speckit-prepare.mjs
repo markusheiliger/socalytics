@@ -236,7 +236,7 @@ export async function resolveImplementRequester(client, issueNumber, fallbackLog
   const last = events.filter((event) => event.event === 'labeled' && event.label?.name === implementLabel).at(-1);
   const login = last?.actor?.login ?? fallbackLogin;
   if (!login) return null;
-  return { login, canWrite: canWrite(await client.getPermission(login)) };
+  return { login, canWrite: canWrite(await client.getPermission(login)), labeledAt: last?.created_at ?? null };
 }
 
 export async function runValidateImplement({ client, rootDir, env, issueNumber, actor, log }) {
@@ -390,7 +390,7 @@ export async function main(argv, { env = process.env, rootDir = process.cwd(), l
   throw new Error('Usage: speckit-prepare.mjs <sync [--dry-run] --prompt-file <file> | apply --output-file <file> | validate-implement --issue <number> --actor <login>>');
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.argv.slice(2)).then(
     (code) => {
       process.exitCode = code;

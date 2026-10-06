@@ -56,7 +56,9 @@ in GitHub Copilot from the repository root:
 4. Merge the spec, plan, and tasks to `main`, then either implement locally or
     request implementation on GitHub. `/speckit-implement` asks which one you
     want; `/speckit-gha-request` requests it directly (see the repository
-    [README](../README.md#requesting-implementation-on-github)). For local work,
+    [README](../README.md#requesting-implementation-on-github)). A GitHub
+    request gets a `speckit/<folder>` branch and a draft pull request that
+    closes the twin when merged. For local work,
     run `/speckit-implement` and `/speckit-converge` until convergence reports
     completion.
 

@@ -14,13 +14,28 @@ export class FakeGitHub {
     this.permissions = {};
     this.events = [];
     this.nextNumber = 100;
+    this.clock = Date.parse('2026-10-01T00:00:00Z');
+  }
+
+  // Deterministic, strictly increasing timestamps for events, pull requests, and closings.
+  tick() {
+    this.clock += 1000;
+    return new Date(this.clock).toISOString();
   }
 
   // Simulates a person adding a label in the GitHub UI, including the issue event that records who did it.
   humanLabel(number, name, login) {
     const issue = this.find(number);
     if (!issue.labels.some((label) => label.name === name)) issue.labels.push({ name });
-    this.events.push({ issue: number, event: 'labeled', label: { name }, actor: { login } });
+    this.events.push({ issue: number, event: 'labeled', label: { name }, actor: { login }, created_at: this.tick() });
+  }
+
+  // Simulates a person closing (or merging) an implementation pull request.
+  closePull(number, { merged = false } = {}) {
+    const pull = this.repo.pulls.find((item) => item.number === number);
+    pull.state = 'closed';
+    pull.closed_at = this.tick();
+    pull.merged_at = merged ? pull.closed_at : null;
   }
 
   async listIssueEvents(number) {
@@ -37,7 +52,7 @@ export class FakeGitHub {
 
   async createIssue({ title, body, labels }) {
     const number = this.nextNumber++;
-    const issue = { number, id: number * 1000, state: 'open', state_reason: null, title, body, labels: labels.map((name) => ({ name })) };
+    const issue = { number, id: number * 1000, node_id: `I_${number}`, state: 'open', state_reason: null, title, body, labels: labels.map((name) => ({ name })) };
     this.issues.push(issue);
     return structuredClone(issue);
   }
@@ -82,6 +97,82 @@ export class FakeGitHub {
 
   async addBlockedBy(number, blockerId) {
     this.edges.push([number, this.issues.find((issue) => issue.id === blockerId).number]);
+  }
+
+  // --- implementation workspace (branches, commits, pull requests, check runs) ---
+
+  get repo() {
+    if (!this.repoState) {
+      this.repoState = { branches: { main: 'sha-main' }, commits: { 'sha-main': { tree: 'tree-main', parents: [] } }, pulls: [], checkRuns: [], linked: [], nextSha: 1 };
+    }
+    return this.repoState;
+  }
+
+  async listIssueComments(number) {
+    return structuredClone(this.comments.filter((comment) => comment.number === number));
+  }
+
+  async getBranchSha(branch) {
+    return this.repo.branches[branch] ?? null;
+  }
+
+  async createBranch(branch, sha) {
+    this.repo.branches[branch] = sha;
+  }
+
+  async updateBranch(branch, sha) {
+    this.repo.branches[branch] = sha;
+  }
+
+  async deleteBranch(branch) {
+    delete this.repo.branches[branch];
+  }
+
+  async aheadBy(base, head) {
+    const baseSha = this.repo.branches[base];
+    let count = 0;
+    for (let sha = this.repo.branches[head]; sha && sha !== baseSha; sha = this.repo.commits[sha]?.parents[0]) count += 1;
+    return count;
+  }
+
+  async createEmptyCommit(parentSha, message) {
+    const sha = `sha-${this.repo.nextSha++}`;
+    this.repo.commits[sha] = { tree: this.repo.commits[parentSha].tree, parents: [parentSha], message };
+    return sha;
+  }
+
+  async createLinkedBranch(issueNodeId, oid, name) {
+    if (this.failLinkedBranch) throw new Error('linking not permitted');
+    this.repo.branches[name] = oid;
+    this.repo.linked.push({ issueNodeId, name });
+    return name;
+  }
+
+  async listPullRequestsForHead(branch) {
+    return structuredClone(this.repo.pulls.filter((pull) => pull.head.ref === branch).sort((a, b) => b.number - a.number));
+  }
+
+  async createPullRequest({ title, head, base, body, draft }) {
+    if (this.repo.pulls.some((pull) => pull.head.ref === head && pull.state === 'open')) return null;
+    const number = this.nextNumber++;
+    const pull = { number, title, body, draft, base: { ref: base }, head: { ref: head, sha: this.repo.branches[head] }, state: 'open', merged_at: null, closed_at: null, created_at: this.tick(), assignees: [] };
+    this.repo.pulls.push(pull);
+    return structuredClone(pull);
+  }
+
+  async addAssignees(number, assignees) {
+    if (this.failAssign) throw new Error('assignee rejected');
+    const pull = this.repo.pulls.find((item) => item.number === number);
+    pull.assignees.push(...assignees);
+  }
+
+  async listCheckRuns(sha, name) {
+    return structuredClone(this.repo.checkRuns.filter((run) => run.head_sha === sha && run.name === name));
+  }
+
+  async createCheckRun(fields) {
+    this.repo.checkRuns.push(structuredClone(fields));
+    return fields;
   }
 }
 

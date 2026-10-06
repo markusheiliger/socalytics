@@ -5,11 +5,124 @@ import test from 'node:test';
 
 import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
-import { UsageError, main, resolveFolder, runRequest, runSelect } from './speckit-implement.mjs';
+import { UsageError, main, resolveFolder, runRequest, runSelect, runStart } from './speckit-implement.mjs';
+import { CHECK_RUN_NAME, START_COMMENT_MARKER } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
 const TASKS_OPEN = '- [ ] T001 one\n- [ ] T002 two\n';
+
+async function start(github, root, twin, { reset = false, requester = 'dev' } = {}) {
+  return runStart({ client: github, rootDir: root, env: envFor(root), issueNumber: twin.number, folder: twin.folder ?? 'a', requester, reset, log: silent });
+}
+
+// A repository with one tasked twin "a", flagged by a writer.
+async function flaggedRepo() {
+  const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks: '## Phase 1: Setup\n\n- [ ] T001 [P] Create project\n\n### Implementation\n\n- [ ] T002 [US1] Build it\n' }]);
+  github.permissions.dev = 'write';
+  const twin = github.issues[0];
+  flag(github, twin);
+  return { root, github, twin };
+}
+
+test('start prepares the linked branch, draft pull request, assignee, check run, and start comment', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    const result = await start(github, root, twin);
+    assert.equal(result.exitCode, 0);
+    const pull = github.repo.pulls[0];
+    assert.deepEqual(github.repo.linked, [{ issueNodeId: twin.node_id, name: 'speckit/a' }]);
+    assert.equal(await github.aheadBy('main', 'speckit/a'), 1);
+    assert.equal(pull.draft, true);
+    assert.equal(pull.title, 'Implement: a title');
+    assert.equal(pull.base.ref, 'main');
+    assert.match(pull.body, new RegExp(`^Closes #${twin.number}$`, 'm'));
+    assert.match(pull.body, /^\*\*Spec\*\*: \[`specs\/a`\]/m);
+    assert.match(pull.body, /## Tasks \(2\)\n\n### Phase 1: Setup\n\n- \[ \] T001 \[P\] Create project\n\n#### Implementation\n\n- \[ \] T002 \[US1\] Build it/);
+    assert.deepEqual(pull.assignees, ['dev']);
+    assert.deepEqual(github.repo.checkRuns.map((run) => [run.name, run.status, run.head_sha, run.output.title]), [[CHECK_RUN_NAME, 'queued', pull.head.sha, '0 of 2 tasks implemented']]);
+    const comments = github.comments.filter((comment) => comment.number === pull.number);
+    assert.equal(comments.length, 1);
+    assert.match(comments[0].body, /2 task\(s\) queued/);
+
+    await start(github, root, twin);
+    assert.equal(github.repo.pulls.length, 1);
+    assert.equal(github.repo.checkRuns.length, 1);
+    assert.equal(github.comments.filter((comment) => comment.body.includes(START_COMMENT_MARKER)).length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('start completes a partially prepared workspace and tolerates assignee and link failures', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    github.failLinkedBranch = true;
+    github.failAssign = true;
+    await github.createBranch('speckit/a', 'sha-main');
+    const lines = [];
+    await runStart({ client: github, rootDir: root, env: envFor(root), issueNumber: twin.number, folder: 'a', requester: 'dev', reset: false, log: (line) => lines.push(line) });
+    assert.equal(github.repo.linked.length, 0);
+    assert.equal(github.repo.pulls.length, 1);
+    assert.match(lines.join('\n'), /Added the start commit[\s\S]*Warning: could not assign @dev/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('start skips twins that are no longer flagged', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    github.find(twin.number).labels = github.find(twin.number).labels.filter((label) => label.name !== IMPLEMENT);
+    await start(github, root, twin);
+    assert.equal(github.repo.pulls.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('select tracks the pull request lifecycle: in progress, fallback, and a fresh restart', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    const first = github.repo.pulls[0];
+    const inProgress = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.deepEqual(inProgress.inProgress, [{ number: twin.number, folder: 'a', pull: first.number }]);
+    assert.equal(inProgress.ready.length, 0);
+
+    github.closePull(first.number);
+    const fallback = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.deepEqual(fallback.fallback.map((item) => item.pull), [first.number]);
+    const issue = github.find(twin.number);
+    assert.deepEqual(issue.labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:')), ['speckit:stage:tasked']);
+    assert.match(github.comments.at(-1).body, new RegExp(`#${first.number} was closed without merging[\\s\\S]*stage \`tasked\``));
+
+    flag(github, issue);
+    const restart = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.deepEqual(restart.ready, [{ number: twin.number, folder: 'a', requester: 'dev', reset: true }]);
+    const staleHead = github.repo.branches['speckit/a'];
+    await start(github, root, twin, { reset: true });
+    assert.equal(github.repo.pulls.length, 2);
+    assert.notEqual(github.repo.branches['speckit/a'], staleHead);
+    assert.equal(await github.aheadBy('main', 'speckit/a'), 1);
+    assert.equal(github.repo.linked.length, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('select reports a twin whose pull request was merged after the flag', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    github.closePull(github.repo.pulls[0].number, { merged: true });
+    const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.equal(result.merged.length, 1);
+    assert.equal(result.ready.length + result.fallback.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 async function twinsFor(folders) {
   const root = makeRepo(folders);
@@ -70,13 +183,13 @@ test('select reports ready, blocked, and inconsistent flagged twins', async () =
     flag(github, e, 'outsider');
     github.edges.push([b.number, github.issues[3].number]);
     const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.deepEqual(result.ready, [{ number: a.number, folder: 'a' }]);
+    assert.deepEqual(result.ready, [{ number: a.number, folder: 'a', requester: 'dev', reset: false }]);
     assert.deepEqual(result.blocked.map((twin) => [twin.folder, twin.blockers.map((blocker) => blocker.number)]), [['b', [github.issues[3].number]]]);
     assert.deepEqual(result.inconsistent.map((twin) => twin.folder), ['c', 'e']);
     assert.match(result.inconsistent[1].reasons[0], /@outsider needs at least write access/);
     const output = readFileSync(path.join(root, 'output.txt'), 'utf8');
     assert.match(output, /count=1/);
-    assert.match(output, new RegExp(`matrix=\\{"include":\\[\\{"number":${a.number},"folder":"a"\\}\\]\\}`));
+    assert.match(output, new RegExp(`matrix=\\{"include":\\[\\{"number":${a.number},"folder":"a","requester":"dev","reset":false\\}\\]\\}`));
 
     github.find(github.issues[3].number).state = 'closed';
     const unblocked = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });

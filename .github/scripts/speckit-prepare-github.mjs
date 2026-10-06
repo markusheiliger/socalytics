@@ -149,6 +149,72 @@ export class GitHubClient {
     return this.paginate(this.repoPath(`/issues/${number}/events`));
   }
 
+  async listIssueComments(number) {
+    return this.paginate(this.repoPath(`/issues/${number}/comments`));
+  }
+
+  async getBranchSha(branch) {
+    const { status, data } = await this.request('GET', this.repoPath(`/git/ref/heads/${branch}`), undefined, { allow: [404] });
+    return status === 404 ? null : data.object.sha;
+  }
+
+  async createBranch(branch, sha) {
+    await this.request('POST', this.repoPath('/git/refs'), { ref: `refs/heads/${branch}`, sha });
+  }
+
+  async updateBranch(branch, sha) {
+    await this.request('PATCH', this.repoPath(`/git/refs/heads/${branch}`), { sha, force: false });
+  }
+
+  async deleteBranch(branch) {
+    await this.request('DELETE', this.repoPath(`/git/refs/heads/${branch}`), undefined, { allow: [404, 422] });
+  }
+
+  async aheadBy(base, head) {
+    return (await this.request('GET', this.repoPath(`/compare/${base}...${head}`))).data.ahead_by;
+  }
+
+  async createEmptyCommit(parentSha, message) {
+    const parent = (await this.request('GET', this.repoPath(`/git/commits/${parentSha}`))).data;
+    const commit = (await this.request('POST', this.repoPath('/git/commits'), { message, tree: parent.tree.sha, parents: [parentSha] })).data;
+    return commit.sha;
+  }
+
+  // Creates a branch linked to the issue's Development section, like "Create a branch" in the issue sidebar.
+  async createLinkedBranch(issueNodeId, oid, name) {
+    const data = await this.graphql(
+      `mutation($issueId: ID!, $oid: GitObjectID!, $name: String!) {
+        createLinkedBranch(input: { issueId: $issueId, oid: $oid, name: $name }) { linkedBranch { ref { name } } }
+      }`,
+      { issueId: issueNodeId, oid, name },
+    );
+    return data.createLinkedBranch?.linkedBranch?.ref?.name ?? null;
+  }
+
+  async listPullRequestsForHead(branch) {
+    const owner = this.repository.split('/')[0];
+    const pulls = await this.paginate(this.repoPath(`/pulls?state=all&head=${encodeURIComponent(`${owner}:${branch}`)}`));
+    return pulls.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  }
+
+  async createPullRequest(fields) {
+    const { status, data } = await this.request('POST', this.repoPath('/pulls'), fields, { allow: [422] });
+    return status === 422 ? null : data;
+  }
+
+  async addAssignees(number, assignees) {
+    await this.request('POST', this.repoPath(`/issues/${number}/assignees`), { assignees });
+  }
+
+  async listCheckRuns(sha, name) {
+    const { data } = await this.request('GET', this.repoPath(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}`));
+    return data.check_runs;
+  }
+
+  async createCheckRun(fields) {
+    return (await this.request('POST', this.repoPath('/check-runs'), fields)).data;
+  }
+
   async getIssue(number) {
     const issue = (await this.request('GET', this.repoPath(`/issues/${number}`))).data;
     return { ...issue, labels: issue.labels.map((label) => ({ name: typeof label === 'string' ? label : label.name })) };

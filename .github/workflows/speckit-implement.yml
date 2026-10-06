@@ -1,31 +1,40 @@
 name: Spec Kit implement
 
-# Scaffold of the server-side implementation workflow. It selects spec twins that carry a validated
-# speckit:stage:implement flag, are consistent with the default branch, and have no open blockers.
-# The per-twin job is a stub: it creates no branches, pull requests, comments, or agent runs yet.
+# Selects spec twins that carry a validated speckit:stage:implement flag, are consistent with the
+# default branch, and have no open blockers, then prepares one implementation workspace per twin:
+# a linked speckit/<folder> branch, a draft pull request that closes the twin, a check run, and a
+# start comment. Implementation pull requests closed without merging send their twin back to its
+# computed stage. Task implementation itself is not wired up yet.
 on:
   workflow_run:
     workflows: [Spec Kit prepare]
     types: [completed]
   issues:
     types: [closed, reopened]
+  pull_request:
+    types: [closed]
   workflow_dispatch:
 
 permissions: {}
 
-concurrency:
-  group: speckit-implement-select
-  cancel-in-progress: false
-
 jobs:
   select:
     name: Select specs ready for implementation
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: >-
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name != 'pull_request' || (startsWith(github.event.pull_request.head.ref, 'speckit/') &&
+      github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Job-level so runs whose select job is skipped never displace a pending selection; a replaced
+    # pending selection is harmless because every selection recomputes the complete state.
+    concurrency:
+      group: speckit-implement-select
+      cancel-in-progress: false
     permissions:
       contents: read
-      issues: read
+      issues: write
+      pull-requests: read
     outputs:
       count: ${{ steps.select.outputs.count }}
       matrix: ${{ steps.select.outputs.matrix }}
@@ -45,16 +54,20 @@ jobs:
         id: select
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
         run: node .github/scripts/speckit-implement.mjs select
 
-  implement:
-    name: Implement #${{ matrix.number }}
+  start:
+    name: Prepare implementation of #${{ matrix.number }}
     needs: select
     if: needs.select.outputs.count != '0'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
+      issues: write
+      checks: write
     strategy:
       max-parallel: 1
       fail-fast: false
@@ -63,11 +76,25 @@ jobs:
       group: speckit-implement-${{ matrix.number }}
       cancel-in-progress: false
     steps:
-      - name: Report the selected spec (stub)
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Prepare the branch, draft pull request, and check run
         env:
-          NUMBER: ${{ matrix.number }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          ISSUE_NUMBER: ${{ matrix.number }}
           FOLDER: ${{ matrix.folder }}
-        run: |
-          message="Would implement #${NUMBER} (specs/${FOLDER}); implementation is not wired up yet."
-          echo "$message"
-          echo "- $message" >> "$GITHUB_STEP_SUMMARY"
+          REQUESTER: ${{ matrix.requester }}
+          RESET: ${{ matrix.reset }}
+        run: >-
+          node .github/scripts/speckit-implement.mjs start
+          --issue "$ISSUE_NUMBER" --folder "$FOLDER" --requester "$REQUESTER" --reset "$RESET"
