@@ -45,6 +45,11 @@ class FakeGitHub {
     issue.labels = issue.labels.filter((label) => label.name !== name);
   }
 
+  async addLabels(number, names) {
+    const issue = this.find(number);
+    for (const name of names) if (!issue.labels.some((label) => label.name === name)) issue.labels.push({ name });
+  }
+
   async createComment(number, body) {
     this.comments.push({ number, body });
   }
@@ -99,8 +104,8 @@ test('creates twins with labels and writes the prompt for pending twins', async 
     const result = await syncRepo(github, root);
     assert.equal(result.exitCode, 0);
     assert.deepEqual(github.issues.map((issue) => parseTwinFolder(issue.body)), ['20261005-130700-a', '20261005-130701-b']);
-    assert.ok(github.issues.every((issue) => issue.labels.map((l) => l.name).join() === `${TWIN_LABEL},${PENDING_LABEL}`));
-    assert.deepEqual([...github.labels].sort(), [PENDING_LABEL, TWIN_LABEL]);
+    assert.ok(github.issues.every((issue) => issue.labels.map((l) => l.name).join() === `${TWIN_LABEL},${PENDING_LABEL},speckit:stage:specified`));
+    assert.ok(['speckit:stage:specified', 'speckit:stage:discarded', PENDING_LABEL, TWIN_LABEL].every((name) => github.labels.has(name)));
     assert.match(readFileSync(path.join(root, 'prompt.txt'), 'utf8'), /### 20261005-130700-a \(NEW\)/);
     assert.match(readFileSync(path.join(root, 'output.txt'), 'utf8'), /pending=true/);
 
@@ -122,6 +127,42 @@ test('writes the prompt for twins created in this run even when listings lag', a
     assert.deepEqual(result.pending, ['20261005-130700-a']);
     assert.match(readFileSync(path.join(root, 'prompt.txt'), 'utf8'), /20261005-130700-a \(NEW\)/);
     assert.equal(calls, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('moves the stage label as plan.md and tasks.md appear and tasks get checked', async () => {
+  const folder = '20261005-130700-a';
+  const root = makeRepo([folder]);
+  const stageOf = (github) => github.issues[0].labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:'));
+  try {
+    const github = new FakeGitHub();
+    await syncRepo(github, root);
+    github.issues[0].labels.push({ name: 'human' });
+    assert.deepEqual(stageOf(github), ['speckit:stage:specified']);
+
+    writeFileSync(path.join(root, 'specs', folder, 'plan.md'), '# plan\n');
+    await syncRepo(github, root);
+    assert.deepEqual(stageOf(github), ['speckit:stage:planned']);
+
+    const tasksPath = path.join(root, 'specs', folder, 'tasks.md');
+    writeFileSync(tasksPath, '- [ ] T001 one\n- [ ] T002 two\n');
+    await syncRepo(github, root);
+    assert.deepEqual(stageOf(github), ['speckit:stage:tasked']);
+
+    writeFileSync(tasksPath, '- [x] T001 one\n- [ ] T002 two\n');
+    await syncRepo(github, root);
+    assert.deepEqual(stageOf(github), ['speckit:stage:implementing']);
+
+    writeFileSync(tasksPath, '- [x] T001 one\n- [X] T002 two\n');
+    const result = await syncRepo(github, root);
+    assert.deepEqual(result.plan.relabel.map((item) => item.stage), ['implemented']);
+    assert.deepEqual(stageOf(github), ['speckit:stage:implemented']);
+    assert.ok(github.issues[0].labels.some((label) => label.name === 'human'));
+
+    const again = await syncRepo(github, root);
+    assert.equal(again.plan.relabel.length + again.plan.update.length, 0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -150,14 +191,15 @@ test('closes twins of removed folders and reopens them when the folder returns',
     await syncRepo(github, root);
     assert.equal(github.issues[0].state, 'closed');
     assert.equal(github.issues[0].state_reason, 'not_planned');
-    assert.ok(!github.issues[0].labels.some((label) => label.name === PENDING_LABEL));
-    assert.match(github.comments.at(-1).body, /no longer exists/);
+    assert.deepEqual(github.issues[0].labels.map((label) => label.name), [TWIN_LABEL, 'speckit:stage:discarded']);
+    assert.match(github.comments.at(-1).body, /no longer exists[\s\S]*discarded/);
 
     rmSync(root, { recursive: true, force: true });
     const restored = makeRepo(['20261005-130700-a']);
     await syncRepo(github, restored);
     assert.equal(github.issues[0].state, 'open');
     assert.equal(github.issues.length, 1);
+    assert.deepEqual(github.issues[0].labels.map((label) => label.name), [TWIN_LABEL, 'speckit:stage:specified']);
     rmSync(restored, { recursive: true, force: true });
   } finally {
     rmSync(root, { recursive: true, force: true });

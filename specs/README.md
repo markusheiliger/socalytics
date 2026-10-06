@@ -27,7 +27,9 @@ parallel once their dependencies are merged.
 This table is a human-readable overview. The order that GitHub automation uses
 lives in the native "blocked by" dependencies of each feature's spec twin issue
 (label `speckit:spec`), which the `Spec Kit prepare` workflow infers once when
-it creates the twin; see the repository [README](../README.md#spec-twins).
+it creates the twin. Each twin also carries a generated `speckit:stage:*` label
+showing how far the feature has progressed on `main`; see the repository
+[README](../README.md#spec-twins).
 
 ## Folder Naming
 

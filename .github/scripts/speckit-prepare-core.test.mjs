@@ -5,12 +5,14 @@ import {
   PENDING_LABEL,
   TWIN_LABEL,
   buildPrompt,
+  deriveStage,
   findCycle,
   parseInferenceOutput,
   parseSpec,
   parseTwinFolder,
   planSync,
   renderTwinBody,
+  stageLabelChange,
   validateLinks,
 } from './speckit-prepare-core.mjs';
 
@@ -196,4 +198,46 @@ test('validates links against open twins, pending twins, duplicates, and cycles'
 test('exports the twin and pending label names', () => {
   assert.equal(TWIN_LABEL, 'speckit:spec');
   assert.equal(PENDING_LABEL, 'speckit:deps-pending');
+});
+
+test('derives the stage from artifacts and task checkboxes', () => {
+  assert.equal(deriveStage(['spec.md'], null), 'specified');
+  assert.equal(deriveStage(['spec.md', 'plan.md'], null), 'planned');
+  assert.equal(deriveStage(['spec.md', 'plan.md', 'tasks.md'], '# Tasks\n\nNo tasks yet.\n'), 'tasked');
+  assert.equal(deriveStage(['spec.md', 'plan.md', 'tasks.md'], '- [ ] T001 [P] [US1] one\n- [ ] T002 two\n'), 'tasked');
+  assert.equal(deriveStage(['spec.md', 'tasks.md'], '- [x] T001 one\r\n- [ ] T002 two\r\n'), 'implementing');
+  assert.equal(deriveStage(['spec.md', 'plan.md', 'tasks.md'], '- [x] T001 one\n  * [X] T1000 two\n- [ ] not a task\n'), 'implemented');
+  assert.equal(deriveStage(['spec.md', 'tasks.md'], '- [x] ST001 not a task id\n- [ ] T002 two\n'), 'tasked');
+});
+
+test('computes stage label changes without touching other labels', () => {
+  const issue = { labels: [{ name: TWIN_LABEL }, { name: 'speckit:stage:planned' }, { name: 'speckit:stage:tasked' }, { name: 'human' }] };
+  assert.deepEqual(stageLabelChange(issue, 'tasked'), { add: [], remove: ['speckit:stage:planned'] });
+  assert.deepEqual(stageLabelChange({ labels: [{ name: 'human' }] }, 'specified'), { add: ['speckit:stage:specified'], remove: [] });
+});
+
+test('plans stage labels for creates, relabels, reopens, and closes', () => {
+  const withStage = (issue, stage) => ({ ...issue, labels: [...issue.labels, { name: `speckit:stage:${stage}` }] });
+  const specs = new Map([
+    specEntry('new'),
+    ['a', { ...specEntry('a')[1], artifacts: ['spec.md', 'plan.md'] }],
+    specEntry('back'),
+    specEntry('same'),
+  ]);
+  const plan = planSync({
+    specs,
+    issues: [
+      withStage(twin(1, 'a'), 'specified'),
+      withStage(twin(2, 'back', { state: 'closed', stateReason: 'not_planned' }), 'discarded'),
+      withStage(twin(3, 'gone'), 'tasked'),
+      withStage(twin(4, 'same'), 'specified'),
+      twin(5, 'old-gone', { state: 'closed', stateReason: 'not_planned' }),
+      withStage(twin(6, 'done-gone', { state: 'closed', stateReason: 'completed' }), 'implemented'),
+    ],
+    context,
+  });
+  assert.deepEqual(plan.create.map((item) => [item.folder, item.stage]), [['new', 'specified']]);
+  assert.deepEqual(plan.reopen[0].labels, { add: ['speckit:stage:specified'], remove: ['speckit:stage:discarded'] });
+  assert.deepEqual(plan.close[0].labels, { add: ['speckit:stage:discarded'], remove: ['speckit:stage:tasked'] });
+  assert.deepEqual(plan.relabel.map((item) => [item.issue.number, item.stage]), [[1, 'planned'], [5, 'discarded']]);
 });

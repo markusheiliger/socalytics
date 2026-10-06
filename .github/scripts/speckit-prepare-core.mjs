@@ -1,14 +1,26 @@
 export const TWIN_LABEL = 'speckit:spec';
 export const PENDING_LABEL = 'speckit:deps-pending';
+export const STAGE_PREFIX = 'speckit:stage:';
+export const STAGES = {
+  specified: { color: 'c5def5', description: 'Spec twin stage: spec.md exists, no plan yet' },
+  planned: { color: '7fb8e8', description: 'Spec twin stage: plan.md exists, no task list yet' },
+  tasked: { color: '1d76db', description: 'Spec twin stage: tasks.md exists, no task completed on the default branch' },
+  implementing: { color: 'f9d0c4', description: 'Spec twin stage: some tasks completed on the default branch' },
+  implemented: { color: '0e8a16', description: 'Spec twin stage: all tasks completed on the default branch' },
+  discarded: { color: 'cfd3d7', description: 'Spec twin stage: spec folder was removed; twin closed as not planned' },
+};
+export const DISCARDED_STAGE = 'discarded';
 export const LABELS = [
   { name: TWIN_LABEL, color: '1d76db', description: 'Generated twin issue of a Spec Kit feature folder' },
   { name: PENDING_LABEL, color: 'fbca04', description: 'Spec twin whose dependencies still need to be inferred' },
+  ...Object.entries(STAGES).map(([stage, { color, description }]) => ({ name: stageLabel(stage), color, description })),
 ];
 export const ARTIFACTS = ['spec.md', 'plan.md', 'tasks.md'];
 export const MAX_PROMPT_BYTES = 100_000;
 export const MAX_REASON_LENGTH = 500;
 
 const FOLDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const TASK_LINE_PATTERN = /^\s*[-*] \[( |x|X)\]\s+T\d{3,}\b/;
 const SPEC_LINE_PATTERN = /^\*\*Spec\*\*:\s*\[`specs\/([^`/\s]+)`\]\([^)\s]+\)\s*$/gm;
 const TITLE_PREFIX = /^Feature Specification:\s*/i;
 const MAX_SUMMARY_LENGTH = 1000;
@@ -117,6 +129,41 @@ export function hasLabel(issue, name) {
   return labelNames(issue).includes(name);
 }
 
+export function stageLabel(stage) {
+  return `${STAGE_PREFIX}${stage}`;
+}
+
+export function deriveStage(artifacts, tasksMarkdown) {
+  if (artifacts.includes('tasks.md')) {
+    const tasks = (tasksMarkdown ?? '')
+      .split(/\r?\n/)
+      .map((line) => line.match(TASK_LINE_PATTERN))
+      .filter(Boolean);
+    const done = tasks.filter((match) => match[1] !== ' ').length;
+    if (done === 0) return 'tasked';
+    return done === tasks.length ? 'implemented' : 'implementing';
+  }
+  return artifacts.includes('plan.md') ? 'planned' : 'specified';
+}
+
+function stageLabelsOf(issue) {
+  return labelNames(issue).filter((name) => name.startsWith(STAGE_PREFIX));
+}
+
+// Labels to add and remove so that the issue carries exactly the target stage label.
+export function stageLabelChange(issue, stage) {
+  const target = stageLabel(stage);
+  const current = stageLabelsOf(issue);
+  return {
+    add: current.includes(target) ? [] : [target],
+    remove: current.filter((name) => name !== target),
+  };
+}
+
+function hasLabelChange(change) {
+  return change.add.length > 0 || change.remove.length > 0;
+}
+
 export function resolveTwins(issues) {
   const byFolder = new Map();
   const unreadable = [];
@@ -141,31 +188,43 @@ export function planSync({ specs, issues, context }) {
     update: [],
     reopen: [],
     close: [],
+    relabel: [],
     skippedCreates: [],
     unreadable,
     duplicates,
   };
 
-  for (const [folder, { spec, artifacts }] of [...specs.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [folder, { spec, artifacts, tasks }] of [...specs.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const title = renderTwinTitle(spec);
     const body = renderTwinBody(spec, artifacts, context);
+    const stage = deriveStage(artifacts, tasks);
     const twin = byFolder.get(folder);
     if (!twin) {
       if (unreadable.length > 0) plan.skippedCreates.push({ folder, title });
-      else plan.create.push({ folder, title, body });
+      else plan.create.push({ folder, title, body, stage });
       continue;
     }
     if (twin.state === 'closed') {
-      if (twin.state_reason === 'not_planned') plan.reopen.push({ folder, issue: twin, title, body });
+      if (twin.state_reason === 'not_planned') {
+        plan.reopen.push({ folder, issue: twin, title, body, stage, labels: stageLabelChange(twin, stage) });
+      }
       continue;
     }
     if (twin.title !== title || normalizeBody(twin.body) !== normalizeBody(body)) {
       plan.update.push({ folder, issue: twin, title, body });
     }
+    const labels = stageLabelChange(twin, stage);
+    if (hasLabelChange(labels)) plan.relabel.push({ folder, issue: twin, stage, labels });
   }
 
   for (const [folder, twin] of byFolder) {
-    if (!specs.has(folder) && twin.state === 'open') plan.close.push({ folder, issue: twin });
+    if (specs.has(folder)) continue;
+    const labels = stageLabelChange(twin, DISCARDED_STAGE);
+    if (twin.state === 'open') {
+      plan.close.push({ folder, issue: twin, labels });
+    } else if (twin.state_reason === 'not_planned' && hasLabelChange(labels)) {
+      plan.relabel.push({ folder, issue: twin, stage: DISCARDED_STAGE, labels });
+    }
   }
   return plan;
 }
@@ -175,7 +234,7 @@ function normalizeBody(body) {
 }
 
 export function hasPlannedChanges(plan) {
-  return ['create', 'update', 'reopen', 'close'].some((key) => plan[key].length > 0);
+  return ['create', 'update', 'reopen', 'close', 'relabel'].some((key) => plan[key].length > 0);
 }
 
 function byteLength(text) {

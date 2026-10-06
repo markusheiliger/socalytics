@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import {
   ARTIFACTS,
+  DISCARDED_STAGE,
   LABELS,
   PENDING_LABEL,
   TWIN_LABEL,
@@ -14,6 +15,7 @@ import {
   parseSpec,
   planSync,
   resolveTwins,
+  stageLabel,
   validateLinks,
 } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
@@ -28,7 +30,8 @@ export function discoverSpecs(rootDir) {
     const specPath = path.join(folderPath, 'spec.md');
     if (!existsSync(specPath)) continue;
     const artifacts = ARTIFACTS.filter((artifact) => existsSync(path.join(folderPath, artifact)));
-    specs.set(name, { spec: parseSpec(name, readFileSync(specPath, 'utf8')), artifacts });
+    const tasks = artifacts.includes('tasks.md') ? readFileSync(path.join(folderPath, 'tasks.md'), 'utf8') : null;
+    specs.set(name, { spec: parseSpec(name, readFileSync(specPath, 'utf8')), artifacts, tasks });
   }
   return specs;
 }
@@ -67,10 +70,11 @@ function reportPlan(report, plan, dryRun) {
   report.line(`## Spec twin synchronization${dryRun ? ' (dry run)' : ''}`);
   report.line();
   const rows = [
-    ...plan.create.map((item) => `- ${verb} create twin for \`${item.folder}\``),
+    ...plan.create.map((item) => `- ${verb} create twin for \`${item.folder}\` (stage \`${item.stage}\`)`),
     ...plan.update.map((item) => `- ${verb} update ${issueRef(item.issue)} for \`${item.folder}\``),
-    ...plan.reopen.map((item) => `- ${verb} reopen ${issueRef(item.issue)} for \`${item.folder}\``),
-    ...plan.close.map((item) => `- ${verb} close ${issueRef(item.issue)} as not planned (\`${item.folder}\` no longer exists)`),
+    ...plan.reopen.map((item) => `- ${verb} reopen ${issueRef(item.issue)} for \`${item.folder}\` (stage \`${item.stage}\`)`),
+    ...plan.close.map((item) => `- ${verb} close ${issueRef(item.issue)} as not planned and mark it \`discarded\` (\`${item.folder}\` no longer exists)`),
+    ...plan.relabel.map((item) => `- ${verb} set stage \`${item.stage}\` on ${issueRef(item.issue)} for \`${item.folder}\``),
   ];
   for (const row of rows.length > 0 ? rows : ['- No twin changes needed']) report.line(row);
   for (const duplicate of plan.duplicates) {
@@ -87,15 +91,27 @@ function reportPlan(report, plan, dryRun) {
   }
 }
 
+async function applyLabelChange(client, issue, { add, remove }) {
+  for (const name of remove) await client.removeLabel(issue.number, name);
+  if (add.length > 0) await client.addLabels(issue.number, add);
+  const kept = (issue.labels ?? []).filter((label) => !remove.includes(typeof label === 'string' ? label : label.name));
+  issue.labels = [...kept, ...add.map((name) => ({ name }))];
+}
+
 async function applyPlan(client, plan, issues) {
   for (const label of LABELS) await client.ensureLabel(label);
   for (const item of plan.create) {
-    item.issue = await client.createIssue({ title: item.title, body: item.body, labels: [TWIN_LABEL, PENDING_LABEL] });
+    item.issue = await client.createIssue({
+      title: item.title,
+      body: item.body,
+      labels: [TWIN_LABEL, PENDING_LABEL, stageLabel(item.stage)],
+    });
     issues.push(item.issue);
   }
   for (const item of plan.reopen) {
     await client.updateIssue(item.issue.number, { state: 'open', state_reason: 'reopened', title: item.title, body: item.body });
     Object.assign(item.issue, { state: 'open', state_reason: 'reopened', title: item.title, body: item.body });
+    await applyLabelChange(client, item.issue, item.labels);
   }
   for (const item of plan.update) {
     await client.updateIssue(item.issue.number, { title: item.title, body: item.body });
@@ -104,12 +120,14 @@ async function applyPlan(client, plan, issues) {
   for (const item of plan.close) {
     await client.createComment(
       item.issue.number,
-      `The spec folder \`specs/${item.folder}\` no longer exists on the default branch, so this twin is closed as not planned. It is reopened automatically if the folder returns.`,
+      `The spec folder \`specs/${item.folder}\` no longer exists on the default branch, so this twin is closed as not planned and marked \`${stageLabel(DISCARDED_STAGE)}\`. It is reopened automatically if the folder returns.`,
     );
     await client.updateIssue(item.issue.number, { state: 'closed', state_reason: 'not_planned' });
     Object.assign(item.issue, { state: 'closed', state_reason: 'not_planned' });
-    if (hasLabel(item.issue, PENDING_LABEL)) await client.removeLabel(item.issue.number, PENDING_LABEL);
+    const remove = hasLabel(item.issue, PENDING_LABEL) ? [...item.labels.remove, PENDING_LABEL] : item.labels.remove;
+    await applyLabelChange(client, item.issue, { add: item.labels.add, remove });
   }
+  for (const item of plan.relabel) await applyLabelChange(client, item.issue, item.labels);
 }
 
 function openTwinsWithSpecs(issues, specs) {

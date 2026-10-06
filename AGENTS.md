@@ -29,6 +29,7 @@
 - Each feature folder under `specs/` on `main` has one twin issue labelled `speckit:spec`. Its generated `**Spec**` link line is its identity; the workflow regenerates the title and description, so change the spec, never the twin body.
 - Twins are pointers, not trackers. The repository is authoritative for spec content; native GitHub issue dependencies between twins are authoritative for the order in which GitHub automation may implement features, and do not constrain local work.
 - `speckit:deps-pending` marks twins whose dependencies Copilot CLI has not yet inferred. Inference runs once per new twin; after that, humans maintain the dependencies on GitHub.
+- `speckit:stage:*` labels (`specified`, `planned`, `tasked`, `implementing`, `implemented`, `discarded`) are generated from the files on `main`; never set them by hand. The `**Status**` line in `spec.md` is not maintained or used.
 - Tooling lives in `.github/scripts/speckit-prepare*.mjs`. Run `node --test .github/scripts/speckit-prepare-core.test.mjs .github/scripts/speckit-prepare.test.mjs` after changing it, and keep a readable `name:` on every workflow job and step.
 
 ## Repository Setup

@@ -109,8 +109,16 @@ manually; manual runs are dry runs unless `dry_run` is unchecked.
     spec, not the issue.
 - A twin is not used for tracking. The repository stays authoritative for what
     a feature specifies.
-- When a folder disappears, its twin is closed as not planned; it is reopened
-    if the folder returns. Twins closed as completed are never changed.
+- When a folder disappears, its twin is closed as not planned and labelled
+    `speckit:stage:discarded`; it is reopened if the folder returns. Twins closed
+    as completed are never changed.
+- Every twin carries exactly one generated stage label, derived from the files
+    in its folder on `main`: `speckit:stage:specified` (only `spec.md`),
+    `speckit:stage:planned` (`plan.md`), `speckit:stage:tasked` (`tasks.md`, no
+    task checked), `speckit:stage:implementing` (some tasks checked), or
+    `speckit:stage:implemented` (all tasks checked). Implementation happens on
+    feature branches, so the implementation stages only reflect merged work. The
+    `**Status**` line in `spec.md` is not used.
 - If any `speckit:spec` issue lacks a readable `**Spec**` line, the run creates
     no new twins and fails, listing the affected issues. Restore the line from
     the issue's edit history, or remove the label.
