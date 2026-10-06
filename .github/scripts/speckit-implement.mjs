@@ -208,14 +208,29 @@ async function dispatchTask(client, env, { twin, pull, task, attempt }, { report
   report.line(`- Warning: started "${title}", but the run was not visible after 90 seconds.`);
 }
 
+// Waits until the task run that handed control back has completed, so its outcome counts and it no longer looks
+// active. The hand-back job is the run's last job, so this normally takes seconds.
+async function awaitHandBack(client, runId, { report, sleep }) {
+  for (let poll = 0; poll < 60; poll += 1) {
+    const run = await client.getWorkflowRun(runId);
+    if (!run || run.status === 'completed') return;
+    await sleep(5000);
+  }
+  report.line(`- Warning: task run ${runId} was still active after 5 minutes.`);
+}
+
 // Orchestrator: selects flagged twins, prepares new implementation workspaces, and starts, retries, resumes, or
-// stops task runs. Task runs hand control back through workflow_run.
+// stops task runs. Task runs hand control back by dispatching this workflow with their run id.
 export async function runOrchestrate({ client, rootDir, env, log, sleep = defaultSleep, now = Date.now }) {
+  const pending = [];
+  const afterRun = String(env.SPECKIT_AFTER_RUN ?? '').trim();
+  if (/^\d+$/.test(afterRun)) await awaitHandBack(client, afterRun, { report: { line: (text) => pending.push(text) }, sleep });
   const selection = await runSelect({ client, rootDir, env, log });
   const report = createReporter(env, log);
   report.line();
   report.line('### Actions');
   report.line();
+  for (const line of pending) report.line(line);
   let actions = 0;
   for (const twin of selection.ready) {
     const started = await runStart({ client, rootDir, env, issueNumber: twin.number, folder: twin.folder, requester: twin.requester, reset: twin.reset, log });

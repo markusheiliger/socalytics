@@ -1,10 +1,11 @@
 name: Spec Kit implement task
 
 # Implements exactly one task of a spec, or finalizes it, on its speckit/<folder> branch. Started by the
-# Spec Kit implement orchestrator, which reacts to every completion of this workflow (workflow_run).
-#   begin: checks that the inputs still match the state and marks the attempt as in progress
-#   work:  runs the agent and the verification with a read-only token
-#   land:  re-validates, commits, pushes, and reports; it never runs agent-written code
+# Spec Kit implement orchestrator; the hand-back job starts the orchestrator again when the run ends.
+#   begin:     checks that the inputs still match the state and marks the attempt as in progress
+#   work:      runs the agent and the verification with a read-only token
+#   land:      re-validates, commits, pushes, and reports; it never runs agent-written code
+#   hand-back: dispatches the orchestrator with this run id, whatever the outcome
 run-name: "Spec Kit implement task #${{ inputs.twin }} ${{ inputs.task }} attempt ${{ inputs.attempt }}"
 
 on:
@@ -214,3 +215,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node tooling/.github/scripts/speckit-implement-task.mjs land
+
+  # GitHub raises no workflow_run event for these runs, so the hand-back is an explicit dispatch.
+  hand-back:
+    name: Hand back to the orchestrator
+    needs: [begin, work, land]
+    if: always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Start the Spec Kit implement workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: >-
+          gh workflow run speckit-implement.yml --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH"
+          -f after_run="$GITHUB_RUN_ID"

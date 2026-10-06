@@ -177,6 +177,11 @@ export class FakeGitHub {
     Object.assign(this.repo.runs.find((run) => run.id === id), { status: 'completed', conclusion });
   }
 
+  async getWorkflowRun(id) {
+    const run = this.repo.runs.find((candidate) => String(candidate.id) === String(id));
+    return run ? structuredClone(run) : null;
+  }
+
   async listIssueComments(number) {
     return structuredClone(this.comments.filter((comment) => comment.number === number));
   }

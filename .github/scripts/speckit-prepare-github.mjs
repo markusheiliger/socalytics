@@ -270,6 +270,13 @@ export class GitHubClient {
     await this.request('POST', this.repoPath(`/actions/workflows/${workflowFile}/dispatches`), { ref, inputs });
   }
 
+  async getWorkflowRun(runId) {
+    const { status, data } = await this.request('GET', this.repoPath(`/actions/runs/${encodeURIComponent(runId)}`), undefined, {
+      allow: [404],
+    });
+    return status === 404 ? null : data;
+  }
+
   async getIssue(number) {
     const issue = (await this.request('GET', this.repoPath(`/issues/${number}`))).data;
     return { ...issue, labels: issue.labels.map((label) => ({ name: typeof label === 'string' ? label : label.name })) };

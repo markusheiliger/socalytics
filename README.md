@@ -151,10 +151,10 @@ their "blocked by" issues are closed.
     or checklist conditions no longer hold, for example when all tasks are
     merged and the twin becomes `implemented`.
 - `Spec Kit implement` is the orchestrator. It runs after every successful
-    `Spec Kit prepare` run, after every `Spec Kit implement task` run, when an
-    issue is closed or reopened, when a `speckit/**` pull request is closed,
-    hourly as a safety net, and on demand. Dependency edits on GitHub trigger
-    nothing, so they apply with the next trigger.
+    `Spec Kit prepare` run, when a `Spec Kit implement task` run hands control
+    back, when an issue is closed or reopened, when a `speckit/**` pull request
+    is closed, hourly as a safety net, and on demand. Dependency edits on GitHub
+    trigger nothing, so they apply with the next trigger.
 - For every ready twin it prepares an implementation workspace:
   - the branch `speckit/<folder>`, created as a linked branch so it appears in
       the twin's Development section, with an empty start commit;
@@ -180,7 +180,12 @@ their "blocked by" issues are closed.
       re-checks that `tasks.md` changed only by checking the task and that
       nothing else under `.github/`, `.specify/`, or `specs/` changed, then
       commits, pushes, checks the box in the pull request body, updates the check
-      run, and comments the result.
+      run, and comments the result;
+  5. hands control back, whatever the outcome, by starting `Spec Kit implement`
+      with its run id (`after_run`); the orchestrator waits until that run has
+      finished and then decides the next step. An explicit dispatch is used
+      because GitHub raises no `workflow_run` event for task runs started by
+      the orchestrator.
 
   The `finalize` run repeats the full verification, completes the check run,
   marks the pull request ready for review, and requests a review from the

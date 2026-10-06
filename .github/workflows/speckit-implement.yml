@@ -2,25 +2,30 @@ name: Spec Kit implement
 
 # Orchestrates spec implementations. For spec twins with a validated speckit:stage:implement flag it prepares
 # the implementation workspace (linked speckit/<folder> branch, draft pull request, check run), then starts one
-# Spec Kit implement task run per task, in tasks.md order, and finally a finalize run. Every completion of a task
-# run triggers this workflow again (workflow_run). A task gets at most three attempts; after that the twin waits
-# for a manual run with the twin input. Implementation pull requests closed without merging send their twin back
-# to its computed stage.
+# Spec Kit implement task run per task, in tasks.md order, and finally a finalize run. Every task run hands control
+# back by dispatching this workflow with its run id (after_run); workflow_run is not used for that because GitHub
+# does not raise it for task runs that this workflow started. A task gets at most three attempts; after that the
+# twin waits for a manual run with the twin input. Implementation pull requests closed without merging send their
+# twin back to its computed stage.
 on:
   workflow_run:
-    workflows: [Spec Kit prepare, Spec Kit implement task]
+    workflows: [Spec Kit prepare]
     types: [completed]
   issues:
     types: [closed, reopened]
   pull_request_target:
     types: [closed]
   schedule:
-    # Safety net: continues implementations whose workflow_run hand-back was dropped.
+    # Safety net: continues implementations whose hand-back was lost.
     - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
       twin:
         description: Spec twin issue number to resume after it reached the attempt limit (optional)
+        required: false
+        type: string
+      after_run:
+        description: Task run id that handed control back (set by the task workflow; leave empty)
         required: false
         type: string
 
@@ -46,8 +51,7 @@ jobs:
     # request code.
     if: >-
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
-      (github.event_name != 'workflow_run' || github.event.workflow_run.name == 'Spec Kit implement task' ||
-      github.event.workflow_run.conclusion == 'success') &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
       (github.event_name != 'pull_request_target' || (startsWith(github.event.pull_request.head.ref, 'speckit/') &&
       github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
@@ -80,4 +84,5 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_RESUME_TWIN: ${{ inputs.twin }}
+          SPECKIT_AFTER_RUN: ${{ inputs.after_run }}
         run: node .github/scripts/speckit-implement.mjs orchestrate

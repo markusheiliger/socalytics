@@ -365,6 +365,47 @@ test('orchestrate waits, retries, stops at the attempt limit, and resumes on req
   }
 });
 
+test('orchestrate waits for the run that handed back before it decides', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await orchestrate(github, root);
+    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+    const handingBack = github.repo.runs.at(-1);
+    let polls = 0;
+    const lines = [];
+    await runOrchestrate({
+      client: github,
+      rootDir: root,
+      env: { ...envFor(root), SPECKIT_AFTER_RUN: String(handingBack.id) },
+      log: (line) => lines.push(line),
+      sleep: async () => {
+        polls += 1;
+        if (polls === 2) github.completeRun(handingBack.id);
+      },
+      now: () => github.clock,
+    });
+    assert.equal(polls, 2);
+    assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 2`, 'the completed run counts as a failed attempt');
+
+    polls = 0;
+    const stuck = github.repo.runs.at(-1);
+    const stuckLines = [];
+    await runOrchestrate({
+      client: github,
+      rootDir: root,
+      env: { ...envFor(root), SPECKIT_AFTER_RUN: String(stuck.id) },
+      log: (line) => stuckLines.push(line),
+      sleep: async () => { polls += 1; },
+      now: () => github.clock,
+    });
+    assert.equal(polls, 60);
+    assert.match(stuckLines.join('\n'), new RegExp(`Warning: task run ${stuck.id} was still active after 5 minutes[\\s\\S]*`));
+    assert.equal(github.repo.runs.length, 2, 'a still active run blocks new dispatches');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('orchestrate continues with the next task, finalizes, and stops when done', async () => {
   const { root, github, twin } = await flaggedRepo();
   try {
