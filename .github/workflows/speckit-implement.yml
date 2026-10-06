@@ -58,7 +58,7 @@ jobs:
         run: node .github/scripts/speckit-implement.mjs select
 
   start:
-    name: Prepare implementation of #${{ matrix.number }}
+    name: "Prepare implementation of #${{ matrix.number }}"
     needs: select
     if: needs.select.outputs.count != '0'
     runs-on: ubuntu-latest
