@@ -5,11 +5,15 @@ export const STAGES = {
   specified: { color: 'c5def5', description: 'Spec twin stage: spec.md exists, no plan yet' },
   planned: { color: '7fb8e8', description: 'Spec twin stage: plan.md exists, no task list yet' },
   tasked: { color: '1d76db', description: 'Spec twin stage: tasks.md exists, no task completed on the default branch' },
+  implement: { color: '5319e7', description: 'Spec twin stage: requested by a human; ready for the speckit-implement workflow' },
   implementing: { color: 'f9d0c4', description: 'Spec twin stage: some tasks completed on the default branch' },
   implemented: { color: '0e8a16', description: 'Spec twin stage: all tasks completed on the default branch' },
   discarded: { color: 'cfd3d7', description: 'Spec twin stage: spec folder was removed; twin closed as not planned' },
 };
 export const DISCARDED_STAGE = 'discarded';
+export const IMPLEMENT_STAGE = 'implement';
+// The only computed stage from which a human may request implementation.
+export const IMPLEMENTABLE_STAGE = 'tasked';
 export const LABELS = [
   { name: TWIN_LABEL, color: '1d76db', description: 'Generated twin issue of a Spec Kit feature folder' },
   { name: PENDING_LABEL, color: 'fbca04', description: 'Spec twin whose dependencies still need to be inferred' },
@@ -21,6 +25,7 @@ export const MAX_REASON_LENGTH = 500;
 
 const FOLDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const TASK_LINE_PATTERN = /^\s*[-*] \[( |x|X)\]\s+T\d{3,}\b/;
+const OPEN_CHECKBOX_PATTERN = /^\s*[-*] \[ \]/;
 const SPEC_LINE_PATTERN = /^\*\*Spec\*\*:\s*\[`specs\/([^`/\s]+)`\]\([^)\s]+\)\s*$/gm;
 const TITLE_PREFIX = /^Feature Specification:\s*/i;
 const MAX_SUMMARY_LENGTH = 1000;
@@ -28,6 +33,17 @@ const DEPENDENCY_HINT = /depend|relationship|builds on|prerequisite|consumes|req
 
 export function isValidFolderName(folder) {
   return typeof folder === 'string' && FOLDER_PATTERN.test(folder) && folder !== '.' && folder !== '..';
+}
+
+// Builds the spec entry used by sync and request checks from raw file contents of one spec folder.
+export function buildSpecEntry(folder, { specMarkdown, hasPlan, tasksMarkdown, checklistMarkdowns }) {
+  const artifacts = ['spec.md', ...(hasPlan ? ['plan.md'] : []), ...(tasksMarkdown === null ? [] : ['tasks.md'])];
+  return {
+    spec: parseSpec(folder, specMarkdown),
+    artifacts,
+    tasks: tasksMarkdown,
+    openChecklistItems: countOpenChecklistItems(checklistMarkdowns),
+  };
 }
 
 function truncate(text, max) {
@@ -164,6 +180,64 @@ function hasLabelChange(change) {
   return change.add.length > 0 || change.remove.length > 0;
 }
 
+export function countOpenChecklistItems(markdownFiles) {
+  return markdownFiles
+    .flatMap((markdown) => markdown.split(/\r?\n/))
+    .filter((line) => OPEN_CHECKBOX_PATTERN.test(line)).length;
+}
+
+// Reasons why a spec cannot carry the implement flag, based on the files on the default branch.
+export function implementBlockers({ folder, computedStage, openChecklistItems }) {
+  const reasons = [];
+  if (computedStage !== IMPLEMENTABLE_STAGE) {
+    reasons.push(`the spec is at stage \`${computedStage}\`, but implementation can only be requested at \`${IMPLEMENTABLE_STAGE}\``);
+  }
+  if (openChecklistItems > 0) {
+    reasons.push(`${openChecklistItems} checklist item(s) in \`specs/${folder}/checklists/\` are not checked`);
+  }
+  return reasons;
+}
+
+// Decides the target stage of an open twin; a valid human implement flag is kept, otherwise the computed stage wins.
+// `twin.implementRequester` ({ login, canWrite }) is resolved by the caller from the issue's label history.
+export function targetStage(twin, folder, entry) {
+  const computed = deriveStage(entry.artifacts, entry.tasks);
+  if (!hasLabel(twin, stageLabel(IMPLEMENT_STAGE))) return { stage: computed, revoked: null };
+  const reasons = [
+    ...requesterBlockers(twin.implementRequester),
+    ...implementBlockers({ folder, computedStage: computed, openChecklistItems: entry.openChecklistItems ?? 0 }),
+  ];
+  return reasons.length === 0 ? { stage: IMPLEMENT_STAGE, revoked: null } : { stage: computed, revoked: reasons };
+}
+
+export function requesterBlockers(requester) {
+  if (requester === undefined) return [];
+  if (!requester?.login) return ['the person who set the flag could not be determined'];
+  return requester.canWrite ? [] : [`@${requester.login} needs at least write access to request implementation`];
+}
+
+// Validates a human request to flag a twin for implementation; `requester` is { login, canWrite } from the label history.
+export function planImplementRequest({ issue, entry, requester }) {
+  const implementLabel = stageLabel(IMPLEMENT_STAGE);
+  const onlyRemoveFlag = { add: [], remove: hasLabel(issue, implementLabel) ? [implementLabel] : [] };
+  const folder = hasLabel(issue, TWIN_LABEL) ? parseTwinFolder(issue.body) : null;
+  if (!folder) return { action: 'reject', labels: onlyRemoveFlag, reasons: ['this issue is not a spec twin'] };
+  if (issue.state !== 'open') return { action: 'reject', labels: onlyRemoveFlag, reasons: ['the spec twin is closed'] };
+  if (!entry) {
+    return { action: 'reject', labels: onlyRemoveFlag, reasons: [`\`specs/${folder}\` does not exist on the default branch`] };
+  }
+
+  const computed = deriveStage(entry.artifacts, entry.tasks);
+  const reasons = [
+    ...requesterBlockers(requester ?? null),
+    ...implementBlockers({ folder, computedStage: computed, openChecklistItems: entry.openChecklistItems ?? 0 }),
+  ];
+  if (reasons.length === 0) {
+    return { action: 'accept', folder, stage: IMPLEMENT_STAGE, labels: stageLabelChange(issue, IMPLEMENT_STAGE), reasons };
+  }
+  return { action: 'reject', folder, stage: computed, labels: stageLabelChange(issue, computed), reasons };
+}
+
 export function resolveTwins(issues) {
   const byFolder = new Map();
   const unreadable = [];
@@ -194,27 +268,29 @@ export function planSync({ specs, issues, context }) {
     duplicates,
   };
 
-  for (const [folder, { spec, artifacts, tasks }] of [...specs.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  for (const [folder, entry] of [...specs.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+    const { spec, artifacts, tasks } = entry;
     const title = renderTwinTitle(spec);
     const body = renderTwinBody(spec, artifacts, context);
-    const stage = deriveStage(artifacts, tasks);
     const twin = byFolder.get(folder);
     if (!twin) {
       if (unreadable.length > 0) plan.skippedCreates.push({ folder, title });
-      else plan.create.push({ folder, title, body, stage });
+      else plan.create.push({ folder, title, body, stage: deriveStage(artifacts, tasks) });
       continue;
     }
     if (twin.state === 'closed') {
       if (twin.state_reason === 'not_planned') {
+        const stage = deriveStage(artifacts, tasks);
         plan.reopen.push({ folder, issue: twin, title, body, stage, labels: stageLabelChange(twin, stage) });
       }
       continue;
     }
+    const { stage, revoked } = targetStage(twin, folder, entry);
     const labels = stageLabelChange(twin, stage);
     if (twin.title !== title || normalizeBody(twin.body) !== normalizeBody(body)) {
-      plan.update.push({ folder, issue: twin, title, body, stage, labels });
+      plan.update.push({ folder, issue: twin, title, body, stage, labels, revoked });
     } else if (hasLabelChange(labels)) {
-      plan.relabel.push({ folder, issue: twin, stage, labels });
+      plan.relabel.push({ folder, issue: twin, stage, labels, revoked });
     }
   }
 

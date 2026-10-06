@@ -1,0 +1,18 @@
+{
+  "schema_version": "1.0",
+  "extensions": {
+    "gha": {
+      "version": "1.0.0",
+      "source": "local",
+      "manifest_hash": "sha256:7277ea561817fd2811691289fff0b8de6ae6dac9d1a5057fddf2d3e7311629fb",
+      "enabled": true,
+      "priority": 10,
+      "registered_commands": {},
+      "registered_skills": [
+        "speckit-gha-route",
+        "speckit-gha-request"
+      ],
+      "installed_at": "2026-10-06T10:27:01.404808+00:00"
+    }
+  }
+}

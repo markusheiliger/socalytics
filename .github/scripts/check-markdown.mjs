@@ -2,9 +2,12 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const GENERATED_SPEC_KIT_PATHS = [
-  '.github/skills/speckit-',
-  '.specify/templates/',
+// Spec Kit-generated files and Spec Kit command sources, whose format (no top-level heading) Spec Kit defines.
+const SPEC_KIT_FORMAT_PATTERNS = [
+  /^\.github\/skills\/speckit-/,
+  /^\.specify\/templates\//,
+  /^\.specify\/extensions\//,
+  /^\.specify\/extension-src\/[^/]+\/commands\//,
 ];
 const GLOBAL_TOOL_ENTRIES = new Map([
   ['markdownlint-cli2', ['markdownlint-cli2', 'markdownlint-cli2-bin.mjs']],
@@ -25,7 +28,7 @@ export function parseMarkdownPaths(output) {
 
 export function isRepositoryAuthoredMarkdown(filePath) {
   const normalizedPath = normalizePath(filePath);
-  return !GENERATED_SPEC_KIT_PATHS.some((prefix) => normalizedPath.startsWith(prefix));
+  return !SPEC_KIT_FORMAT_PATTERNS.some((pattern) => pattern.test(normalizedPath));
 }
 
 export function executableName(name, platform = process.platform) {

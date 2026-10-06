@@ -2,14 +2,19 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  LABELS,
   PENDING_LABEL,
   TWIN_LABEL,
   buildPrompt,
+  buildSpecEntry,
+  countOpenChecklistItems,
   deriveStage,
   findCycle,
+  implementBlockers,
   parseInferenceOutput,
   parseSpec,
   parseTwinFolder,
+  planImplementRequest,
   planSync,
   renderTwinBody,
   stageLabelChange,
@@ -198,6 +203,73 @@ test('validates links against open twins, pending twins, duplicates, and cycles'
 test('exports the twin and pending label names', () => {
   assert.equal(TWIN_LABEL, 'speckit:spec');
   assert.equal(PENDING_LABEL, 'speckit:deps-pending');
+  assert.deepEqual(LABELS.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:')), [
+    'speckit:stage:specified',
+    'speckit:stage:planned',
+    'speckit:stage:tasked',
+    'speckit:stage:implement',
+    'speckit:stage:implementing',
+    'speckit:stage:implemented',
+    'speckit:stage:discarded',
+  ]);
+});
+
+test('counts open checklist items across files', () => {
+  assert.equal(countOpenChecklistItems([]), 0);
+  assert.equal(countOpenChecklistItems(['- [x] a\n- [ ] b\r\n', '  * [ ] c\n- [X] d\n- [ ]no space ok\n']), 3);
+});
+
+test('lists implement blockers for the stage and open checklist items', () => {
+  assert.deepEqual(implementBlockers({ folder: 'f', computedStage: 'tasked', openChecklistItems: 0 }), []);
+  const reasons = implementBlockers({ folder: 'f', computedStage: 'planned', openChecklistItems: 2 });
+  assert.equal(reasons.length, 2);
+  assert.match(reasons[0], /stage `planned`.*`tasked`/);
+  assert.match(reasons[1], /2 checklist item\(s\) in `specs\/f\/checklists\/`/);
+});
+
+test('builds spec entries from raw file contents', () => {
+  const entry = buildSpecEntry('f', { specMarkdown: SPEC, hasPlan: true, tasksMarkdown: '- [ ] T001 x\n', checklistMarkdowns: ['- [ ] a\n'] });
+  assert.deepEqual(entry.artifacts, ['spec.md', 'plan.md', 'tasks.md']);
+  assert.equal(entry.openChecklistItems, 1);
+  assert.equal(entry.spec.title, 'Platform Persistence Foundation');
+  assert.deepEqual(buildSpecEntry('f', { specMarkdown: SPEC, hasPlan: false, tasksMarkdown: null, checklistMarkdowns: [] }).artifacts, ['spec.md']);
+});
+
+test('plans implementation requests', () => {
+  const tasked = { artifacts: ['spec.md', 'plan.md', 'tasks.md'], tasks: '- [ ] T001 x\n', openChecklistItems: 0 };
+  const flagged = (issue) => ({ ...issue, labels: [...issue.labels, { name: 'speckit:stage:tasked' }, { name: 'speckit:stage:implement' }] });
+
+  const accepted = planImplementRequest({ issue: flagged(twin(1, 'a')), entry: tasked, requester: { login: 'dev', canWrite: true } });
+  assert.equal(accepted.action, 'accept');
+  assert.deepEqual(accepted.labels, { add: [], remove: ['speckit:stage:tasked'] });
+
+  const closed = planImplementRequest({ issue: flagged(twin(1, 'a', { state: 'closed' })), entry: tasked, requester: { login: 'dev', canWrite: true } });
+  assert.deepEqual([closed.action, closed.labels], ['reject', { add: [], remove: ['speckit:stage:implement'] }]);
+
+  const missing = planImplementRequest({ issue: flagged(twin(1, 'a')), entry: null, requester: { login: 'dev', canWrite: true } });
+  assert.match(missing.reasons[0], /does not exist on the default branch/);
+
+  const both = planImplementRequest({ issue: flagged(twin(1, 'a')), entry: { ...tasked, openChecklistItems: 1 }, requester: { login: 'dev', canWrite: false } });
+  assert.equal(both.action, 'reject');
+  assert.equal(both.stage, 'tasked');
+  assert.deepEqual(both.labels, { add: [], remove: ['speckit:stage:implement'] });
+  assert.equal(both.reasons.length, 2);
+});
+
+test('sync planning keeps a valid implement flag and revokes an invalid one', () => {
+  const tasks = '- [ ] T001 x\n';
+  const entry = (overrides) => ({ ...specEntry('a')[1], artifacts: ['spec.md', 'plan.md', 'tasks.md'], tasks, openChecklistItems: 0, ...overrides });
+  const flagged = { ...twin(1, 'a'), labels: [{ name: TWIN_LABEL }, { name: 'speckit:stage:implement' }] };
+
+  const keep = planSync({ specs: new Map([['a', entry()]]), issues: [structuredClone(flagged)], context });
+  assert.equal(keep.relabel.length, 0);
+  assert.deepEqual(keep.update.map((item) => [item.stage, item.labels, item.revoked]), [['implement', { add: [], remove: [] }, null]]);
+
+  const revoke = planSync({ specs: new Map([['a', entry({ openChecklistItems: 3 })]]), issues: [structuredClone(flagged)], context });
+  const [item] = [...revoke.update, ...revoke.relabel];
+  assert.equal(item.stage, 'tasked');
+  assert.deepEqual(item.labels, { add: ['speckit:stage:tasked'], remove: ['speckit:stage:implement'] });
+  assert.match(item.revoked[0], /3 checklist item/);
 });
 
 test('derives the stage from artifacts and task checkboxes', () => {

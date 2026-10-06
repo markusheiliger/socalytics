@@ -1,94 +1,153 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
 import { PENDING_LABEL, TWIN_LABEL, parseTwinFolder } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
-import { discoverSpecs, main, runApply, runSync } from './speckit-prepare.mjs';
+import { canWrite, discoverSpecs, main, runApply, runSync, runValidateImplement } from './speckit-prepare.mjs';
+import { FakeGitHub, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
-class FakeGitHub {
-  constructor(issues = []) {
-    this.issues = issues;
-    this.labels = new Set();
-    this.comments = [];
-    this.edges = [];
-    this.nextNumber = 100;
-  }
-
-  async listTwinIssues(label) {
-    return this.issues.filter((issue) => issue.labels.some((l) => l.name === label)).map((issue) => structuredClone(issue));
-  }
-
-  async ensureLabel({ name }) {
-    this.labels.add(name);
-  }
-
-  async createIssue({ title, body, labels }) {
-    const number = this.nextNumber++;
-    const issue = { number, id: number * 1000, state: 'open', state_reason: null, title, body, labels: labels.map((name) => ({ name })) };
-    this.issues.push(issue);
-    return structuredClone(issue);
-  }
-
-  find(number) {
-    return this.issues.find((issue) => issue.number === number);
-  }
-
-  async updateIssue(number, fields) {
-    this.updates = [...(this.updates ?? []), { number, fields: structuredClone(fields) }];
-    const { labels, ...rest } = fields;
-    Object.assign(this.find(number), rest);
-    if (labels) this.find(number).labels = labels.map((name) => ({ name }));
-  }
-
-  async removeLabel(number, name) {
-    this.removals = [...(this.removals ?? []), { number, name }];
-    const issue = this.find(number);
-    issue.labels = issue.labels.filter((label) => label.name !== name);
-  }
-
-  async getIssueLabels(number) {
-    return structuredClone(this.find(number).labels);
-  }
-
-  async createComment(number, body) {
-    this.comments.push({ number, body });
-  }
-
-  async listBlockedBy(number) {
-    return this.edges.filter(([blocked]) => blocked === number).map(([, blocker]) => structuredClone(this.find(blocker)));
-  }
-
-  async addBlockedBy(number, blockerId) {
-    this.edges.push([number, this.issues.find((issue) => issue.id === blockerId).number]);
-  }
-}
-
-function makeRepo(folders) {
-  const root = mkdtempSync(path.join(tmpdir(), 'speckit-prepare-'));
-  mkdirSync(path.join(root, 'specs'));
-  writeFileSync(path.join(root, 'specs', 'README.md'), '# index\n');
-  for (const folder of folders) {
-    mkdirSync(path.join(root, 'specs', folder));
-    writeFileSync(
-      path.join(root, 'specs', folder, 'spec.md'),
-      `# Feature Specification: ${folder} title\n\n**Input**: User description: "${folder} summary"\n\n## Assumptions\n\n- **Dependencies**: none.\n`,
-    );
-  }
-  return root;
-}
-
-function envFor(root) {
-  return { GITHUB_REPOSITORY: 'octo/repo', GITHUB_STEP_SUMMARY: path.join(root, 'summary.md'), GITHUB_OUTPUT: path.join(root, 'output.txt') };
-}
-
-const silent = () => {};
+const IMPLEMENT = 'speckit:stage:implement';
+const TASKS_OPEN = '- [ ] T001 one\n- [ ] T002 two\n';
+const stageLabels = (issue) => issue.labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:'));
 
 async function syncRepo(github, root, options = {}) {
   return runSync({ client: github, rootDir: root, env: envFor(root), dryRun: false, promptFile: path.join(root, 'prompt.txt'), log: silent, ...options });
 }
+
+// Creates the twin through a sync, then simulates a human adding the implement label.
+async function flaggedTwin(folders, login = 'dev') {
+  const root = makeRepo(folders);
+  const github = new FakeGitHub();
+  await syncRepo(github, root);
+  const issue = github.issues[0];
+  github.humanLabel(issue.number, IMPLEMENT, login);
+  github.updates = [];
+  return { root, github, issue };
+}
+
+async function validate(github, root, issue, actor = 'dev') {
+  return runValidateImplement({ client: github, rootDir: root, env: envFor(root), issueNumber: issue.number, actor, log: silent });
+}
+
+test('accepts an implementation request from a writer for a tasked spec with complete checklists', async () => {
+  const { root, github, issue } = await flaggedTwin([{ folder: 'a', plan: true, tasks: TASKS_OPEN, checklists: { 'requirements.md': '- [x] done\n' } }]);
+  try {
+    github.permissions.dev = 'write';
+    const result = await validate(github, root, issue);
+    assert.equal(result.decision.action, 'accept');
+    assert.deepEqual(stageLabels(issue), [IMPLEMENT]);
+    assert.equal(github.updates.length, 1);
+    assert.equal(github.comments.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('rejects requests without write access, outside tasked, or with open checklist items', async () => {
+  const cases = [
+    { name: 'triage user', permission: 'triage', folder: { folder: 'a', plan: true, tasks: TASKS_OPEN }, stage: 'tasked', reason: /needs at least write access/ },
+    { name: 'planned spec', permission: 'maintain', folder: { folder: 'a', plan: true }, stage: 'planned', reason: /stage `planned`/ },
+    { name: 'open checklist', permission: 'admin', folder: { folder: 'a', plan: true, tasks: TASKS_OPEN, checklists: { 'ux.md': '- [x] a\n- [ ] b\n* [ ] c\n' } }, stage: 'tasked', reason: /2 checklist item\(s\)/ },
+    { name: 'implemented spec', permission: 'write', folder: { folder: 'a', plan: true, tasks: '- [x] T001 one\n' }, stage: 'implemented', reason: /stage `implemented`/ },
+  ];
+  for (const testCase of cases) {
+    const { root, github, issue } = await flaggedTwin([testCase.folder]);
+    try {
+      github.permissions.dev = testCase.permission;
+      const result = await validate(github, root, issue);
+      assert.equal(result.decision.action, 'reject', testCase.name);
+      assert.deepEqual(stageLabels(issue), [`speckit:stage:${testCase.stage}`], testCase.name);
+      assert.ok(issue.labels.some((label) => label.name === TWIN_LABEL), testCase.name);
+      assert.match(github.comments.at(-1).body, testCase.reason, testCase.name);
+      assert.match(github.comments.at(-1).body, /^@dev, /, testCase.name);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('removes the implement flag from issues that are not open spec twins', async () => {
+  const root = makeRepo([]);
+  try {
+    const github = new FakeGitHub([
+      { number: 1, id: 1, state: 'open', title: 'bug', body: 'not a twin', labels: [{ name: IMPLEMENT }, { name: 'bug' }] },
+    ]);
+    github.permissions.dev = 'admin';
+    const result = await validate(github, root, github.issues[0]);
+    assert.equal(result.decision.action, 'reject');
+    assert.deepEqual(github.issues[0].labels.map((label) => label.name), ['bug']);
+    assert.match(github.comments[0].body, /not a spec twin/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('ignores a request whose label was already removed', async () => {
+  const { root, github, issue } = await flaggedTwin([{ folder: 'a', plan: true, tasks: TASKS_OPEN }]);
+  try {
+    issue.labels = issue.labels.filter((label) => label.name !== IMPLEMENT);
+    const result = await validate(github, root, issue);
+    assert.equal(result.decision, null);
+    assert.equal(github.updates.length + github.comments.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('sync keeps a valid implement flag and revokes it with a comment once it no longer holds', async () => {
+  const { root, github, issue } = await flaggedTwin([{ folder: 'a', plan: true, tasks: TASKS_OPEN }]);
+  try {
+    github.permissions.dev = 'write';
+    issue.labels = issue.labels.filter((label) => label.name !== 'speckit:stage:tasked');
+    const kept = await syncRepo(github, root);
+    assert.equal(kept.plan.relabel.length + kept.plan.update.length, 0);
+    assert.deepEqual(stageLabels(issue), [IMPLEMENT]);
+
+    writeFileSync(path.join(root, 'specs', 'a', 'tasks.md'), '- [x] T001 one\n- [x] T002 two\n');
+    const revoked = await syncRepo(github, root);
+    assert.deepEqual(revoked.plan.relabel.map((item) => item.stage), ['implemented']);
+    assert.deepEqual(stageLabels(issue), ['speckit:stage:implemented']);
+    assert.match(github.comments.at(-1).body, /flag was removed[\s\S]*stage `implemented`/);
+    assert.match(readFileSync(path.join(root, 'summary.md'), 'utf8'), /revoke the implement flag/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('judges the request by who actually added the label, not by the triggering actor', async () => {
+  const { root, github, issue } = await flaggedTwin([{ folder: 'a', plan: true, tasks: TASKS_OPEN }], 'outsider');
+  try {
+    github.permissions.dev = 'admin';
+    github.permissions.outsider = 'triage';
+    const result = await validate(github, root, issue, 'dev');
+    assert.equal(result.decision.action, 'reject');
+    assert.match(github.comments.at(-1).body, /^@outsider, [\s\S]*@outsider needs at least write access/);
+    assert.deepEqual(stageLabels(issue), ['speckit:stage:tasked']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('sync revokes a flag whose author lacks write access, even if validation never ran', async () => {
+  const { root, github, issue } = await flaggedTwin([{ folder: 'a', plan: true, tasks: TASKS_OPEN }], 'outsider');
+  try {
+    github.permissions.outsider = 'read';
+    await syncRepo(github, root);
+    assert.deepEqual(stageLabels(issue), ['speckit:stage:tasked']);
+    assert.match(github.comments.at(-1).body, /flag was removed[\s\S]*@outsider needs at least write access/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('treats write, maintain, and admin as write access', () => {
+  for (const role of ['write', 'maintain', 'admin']) assert.equal(canWrite({ role_name: role }), true, role);
+  for (const role of ['read', 'triage', 'none']) assert.equal(canWrite({ role_name: role, permission: 'read' }), false, role);
+  assert.equal(canWrite({ permission: 'write' }), true);
+  assert.equal(canWrite(undefined), false);
+});
 
 test('discovers only spec folders that contain spec.md', () => {
   const root = makeRepo(['20261005-130700-a']);

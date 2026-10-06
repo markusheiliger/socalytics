@@ -1,0 +1,14 @@
+installed:
+- gha
+settings:
+  auto_execute_hooks: true
+hooks:
+  before_implement:
+  - extension: gha
+    command: speckit.gha.route
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Execute speckit.gha.route?
+    description: Choose local implementation or request implementation on GitHub
+    condition: null

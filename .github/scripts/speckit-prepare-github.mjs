@@ -145,6 +145,25 @@ export class GitHubClient {
     return this.paginate(this.repoPath(`/issues/${number}/labels`));
   }
 
+  async listIssueEvents(number) {
+    return this.paginate(this.repoPath(`/issues/${number}/events`));
+  }
+
+  async getIssue(number) {
+    const issue = (await this.request('GET', this.repoPath(`/issues/${number}`))).data;
+    return { ...issue, labels: issue.labels.map((label) => ({ name: typeof label === 'string' ? label : label.name })) };
+  }
+
+  async getPermission(login) {
+    const { status, data } = await this.request(
+      'GET',
+      this.repoPath(`/collaborators/${encodeURIComponent(login)}/permission`),
+      undefined,
+      { allow: [404] },
+    );
+    return status === 404 ? { permission: 'none', role_name: 'none' } : data;
+  }
+
   async createComment(number, body) {
     await this.request('POST', this.repoPath(`/issues/${number}/comments`), { body });
   }

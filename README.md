@@ -116,7 +116,8 @@ manually; manual runs are dry runs unless `dry_run` is unchecked.
     in its folder on `main`: `speckit:stage:specified` (only `spec.md`),
     `speckit:stage:planned` (`plan.md`), `speckit:stage:tasked` (`tasks.md`, no
     task checked), `speckit:stage:implementing` (some tasks checked), or
-    `speckit:stage:implemented` (all tasks checked). Implementation happens on
+    `speckit:stage:implemented` (all tasks checked), or the human-requested
+    `speckit:stage:implement` flag described below. Implementation happens on
     feature branches, so the implementation stages only reflect merged work. The
     `**Status**` line in `spec.md` is not used. A twin's stage, state, title, and
     description change in a single request, so no intermediate label state is
@@ -132,10 +133,51 @@ manually; manual runs are dry runs unless `dry_run` is unchecked.
     GitHub: adjust them on the issues. They define the order in which GitHub
     automation may implement features, not the order of local work.
 
-The workflow's tooling tests run with:
+### Requesting Implementation on GitHub
+
+`speckit:stage:implement` sits between `tasked` and `implementing` and is a
+"ready to act" flag that only people set; the sync never sets it. A flagged
+twin may still be blocked: the `Spec Kit implement` workflow
+(`.github/workflows/speckit-implement.yml`) picks up flagged twins once all
+their "blocked by" issues are closed.
+
+- When someone adds the label, the `validate-implement` job of
+    `Spec Kit prepare` accepts it only if the person has at least write access,
+    the twin is open and its folder exists on `main`, the computed stage is
+    `tasked`, and every checkbox in `specs/<folder>/checklists/*.md` on `main`
+    is checked. Otherwise the twin falls back to its computed stage, which may
+    come before or after `implement`, and gets a comment with the reasons.
+- Later syncs keep a valid flag and revoke it, with a comment, once the stage
+    or checklist conditions no longer hold, for example when all tasks are
+    merged and the twin becomes `implemented`.
+- `Spec Kit implement` runs after every successful `Spec Kit prepare` run,
+    when an issue is closed or reopened, and on demand. It currently only
+    selects ready twins and reports "would implement"; it creates no branches,
+    pull requests, or agent runs yet. Dependency edits on GitHub trigger
+    nothing, so they apply with the next trigger or a manual run.
+
+The repository-local Spec Kit extension `gha`
+(source in [`.specify/extension-src/gha/`](.specify/extension-src/gha/README.md))
+makes this available from GitHub Copilot:
+
+- `/speckit-implement` first runs `/speckit-gha-route`, a mandatory
+    `before_implement` hook that asks whether to implement locally (the normal
+    Spec Kit flow continues) or to request implementation on GitHub (the
+    request is made and `/speckit-implement` stops). Set
+    `SPECKIT_IMPLEMENT_MODE=local` or `SPECKIT_IMPLEMENT_MODE=remote` to skip the
+    question; inside GitHub Actions it always implements locally.
+- `/speckit-gha-request [folder]` requests implementation directly.
+
+Both run `node .github/scripts/speckit-implement.mjs request [--folder <folder>]`,
+which checks the spec on `origin/main` with the same rules, finds its twin, and
+adds the label with your own `gh` token, so the request is validated on GitHub.
+Adding the label in the GitHub web interface or with
+`gh issue edit <number> --add-label speckit:stage:implement` works the same way.
+
+The tooling tests run with:
 
 ```powershell
-node --test .github/scripts/speckit-prepare-core.test.mjs .github/scripts/speckit-prepare.test.mjs
+node --test .github/scripts/speckit-prepare-core.test.mjs .github/scripts/speckit-prepare.test.mjs .github/scripts/speckit-implement.test.mjs
 ```
 
 A local dry run against the repository needs only read access:
@@ -163,7 +205,7 @@ node .github/scripts/check-markdown.mjs
 The command runs Markdown diagnostics on repository-authored files and checks
 repository-relative links in all tracked or unignored Markdown files. Spec Kit
 generated skills (`.github/skills/speckit-*`) and templates (`.specify/templates/`)
-are excluded from style rules because the `specify` CLI owns their formatting;
+as well as installed extensions (`.specify/extensions/`) and extension command sources (`.specify/extension-src/*/commands/`) are excluded from style rules because Spec Kit defines their format;
 their links are still checked. External URLs are ignored so
 validation does not depend on network availability or third-party uptime.
 Its own tests run with:

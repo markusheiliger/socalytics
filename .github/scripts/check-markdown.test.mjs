@@ -21,9 +21,12 @@ test('parses, normalizes, and sorts null-delimited Markdown paths', () => {
 test('excludes only Spec Kit-generated files from style checks', () => {
   assert.equal(isRepositoryAuthoredMarkdown('README.md'), true);
   assert.equal(isRepositoryAuthoredMarkdown('.specify/memory/constitution.md'), true);
+  assert.equal(isRepositoryAuthoredMarkdown('.specify/extension-src/gha/README.md'), true);
   assert.equal(isRepositoryAuthoredMarkdown('.github/skills/custom/SKILL.md'), true);
   assert.equal(isRepositoryAuthoredMarkdown('.github/skills/speckit-plan/SKILL.md'), false);
   assert.equal(isRepositoryAuthoredMarkdown('.specify\\templates\\plan-template.md'), false);
+  assert.equal(isRepositoryAuthoredMarkdown('.specify/extensions/gha/README.md'), false);
+  assert.equal(isRepositoryAuthoredMarkdown('.specify/extension-src/gha/commands/speckit.gha.route.md'), false);
 });
 
 test('uses platform-specific executable names', () => {

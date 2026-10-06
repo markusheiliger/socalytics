@@ -3,16 +3,17 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
-  ARTIFACTS,
   DISCARDED_STAGE,
+  IMPLEMENT_STAGE,
   LABELS,
   PENDING_LABEL,
   TWIN_LABEL,
   buildPrompt,
+  buildSpecEntry,
   hasLabel,
   isValidFolderName,
   parseInferenceOutput,
-  parseSpec,
+  planImplementRequest,
   planSync,
   resolveTwins,
   stageLabel,
@@ -20,18 +21,34 @@ import {
 } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 
+function readOptional(filePath) {
+  return existsSync(filePath) ? readFileSync(filePath, 'utf8') : null;
+}
+
+export function readSpecFolder(rootDir, name) {
+  const folderPath = path.join(rootDir, 'specs', name);
+  if (!isValidFolderName(name) || !existsSync(folderPath) || !statSync(folderPath).isDirectory()) return null;
+  const specMarkdown = readOptional(path.join(folderPath, 'spec.md'));
+  if (specMarkdown === null) return null;
+  const checklistDir = path.join(folderPath, 'checklists');
+  const checklistMarkdowns = existsSync(checklistDir)
+    ? readdirSync(checklistDir).filter((file) => file.endsWith('.md')).sort().map((file) => readFileSync(path.join(checklistDir, file), 'utf8'))
+    : [];
+  return buildSpecEntry(name, {
+    specMarkdown,
+    hasPlan: existsSync(path.join(folderPath, 'plan.md')),
+    tasksMarkdown: readOptional(path.join(folderPath, 'tasks.md')),
+    checklistMarkdowns,
+  });
+}
+
 export function discoverSpecs(rootDir) {
   const specsDir = path.join(rootDir, 'specs');
   const specs = new Map();
   if (!existsSync(specsDir)) return specs;
   for (const name of readdirSync(specsDir).sort()) {
-    const folderPath = path.join(specsDir, name);
-    if (!statSync(folderPath).isDirectory() || !isValidFolderName(name)) continue;
-    const specPath = path.join(folderPath, 'spec.md');
-    if (!existsSync(specPath)) continue;
-    const artifacts = ARTIFACTS.filter((artifact) => existsSync(path.join(folderPath, artifact)));
-    const tasks = artifacts.includes('tasks.md') ? readFileSync(path.join(folderPath, 'tasks.md'), 'utf8') : null;
-    specs.set(name, { spec: parseSpec(name, readFileSync(specPath, 'utf8')), artifacts, tasks });
+    const entry = readSpecFolder(rootDir, name);
+    if (entry) specs.set(name, entry);
   }
   return specs;
 }
@@ -77,6 +94,9 @@ function reportPlan(report, plan, dryRun) {
     ...plan.relabel.map((item) => `- ${verb} set stage \`${item.stage}\` on ${issueRef(item.issue)} for \`${item.folder}\``),
   ];
   for (const row of rows.length > 0 ? rows : ['- No twin changes needed']) report.line(row);
+  for (const item of [...plan.update, ...plan.relabel].filter((entry) => entry.revoked)) {
+    report.line(`- ${verb} revoke the implement flag on ${issueRef(item.issue)}: ${item.revoked.join('; ')}`);
+  }
   for (const duplicate of plan.duplicates) {
     report.line(`- Warning: ${issueRef(duplicate.issue)} duplicates ${issueRef(duplicate.primary)} for \`${duplicate.folder}\` and is ignored`);
   }
@@ -97,7 +117,7 @@ function labelName(label) {
 
 // Re-reads the issue's labels right before writing so concurrent label edits are kept, then writes
 // the complete label set together with any other issue fields in a single request.
-async function updateIssueWithLabels(client, issue, { add, remove }, fields = {}) {
+export async function updateIssueWithLabels(client, issue, { add, remove }, fields = {}) {
   if (add.length === 0 && remove.length === 0) {
     await client.updateIssue(issue.number, fields);
     Object.assign(issue, fields);
@@ -109,6 +129,16 @@ async function updateIssueWithLabels(client, issue, { add, remove }, fields = {}
   if (!changed && Object.keys(fields).length === 0) return;
   await client.updateIssue(issue.number, changed ? { ...fields, labels } : fields);
   Object.assign(issue, fields, { labels: labels.map((name) => ({ name })) });
+}
+
+function revocationComment(item) {
+  return [
+    `The \`${stageLabel(IMPLEMENT_STAGE)}\` flag was removed because:`,
+    '',
+    ...item.revoked.map((reason) => `- ${reason}`),
+    '',
+    `The twin is back at its computed stage \`${item.stage}\`. Request implementation again once the conditions hold.`,
+  ].join('\n');
 }
 
 async function applyPlan(client, plan, issues) {
@@ -128,6 +158,7 @@ async function applyPlan(client, plan, issues) {
   }
   for (const item of plan.update) {
     await updateIssueWithLabels(client, item.issue, item.labels, { title: item.title, body: item.body });
+    if (item.revoked) await client.createComment(item.issue.number, revocationComment(item));
   }
   for (const item of plan.close) {
     await client.createComment(
@@ -141,7 +172,10 @@ async function applyPlan(client, plan, issues) {
       { state: 'closed', state_reason: 'not_planned' },
     );
   }
-  for (const item of plan.relabel) await updateIssueWithLabels(client, item.issue, item.labels);
+  for (const item of plan.relabel) {
+    await updateIssueWithLabels(client, item.issue, item.labels);
+    if (item.revoked) await client.createComment(item.issue.number, revocationComment(item));
+  }
 }
 
 function openTwinsWithSpecs(issues, specs) {
@@ -155,6 +189,11 @@ export async function runSync({ client, rootDir, env, dryRun, promptFile, log })
   const report = createReporter(env, log);
   const specs = discoverSpecs(rootDir);
   const issues = await client.listTwinIssues(TWIN_LABEL);
+  for (const issue of issues) {
+    if (issue.state === 'open' && hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) {
+      issue.implementRequester = await resolveImplementRequester(client, issue.number);
+    }
+  }
   const plan = planSync({ specs, issues, context: contextFromEnv(env) });
   if (!dryRun) await applyPlan(client, plan, issues);
   reportPlan(report, plan, dryRun);
@@ -181,6 +220,58 @@ export async function runSync({ client, rootDir, env, dryRun, promptFile, log })
 
 function linkLine(direction, other, reason) {
   return `- ${direction} #${other.issue.number} (\`${other.folder}\`): ${reason}`;
+}
+
+const WRITE_ROLES = new Set(['admin', 'maintain', 'write']);
+
+export function canWrite(permission) {
+  return WRITE_ROLES.has(permission?.role_name) || WRITE_ROLES.has(permission?.permission);
+}
+
+// Finds who most recently added the implement label, using the issue's event history rather than the
+// workflow trigger, so a flag counts only if its actual author has write access.
+export async function resolveImplementRequester(client, issueNumber, fallbackLogin = null) {
+  const implementLabel = stageLabel(IMPLEMENT_STAGE);
+  const events = await client.listIssueEvents(issueNumber);
+  const last = events.filter((event) => event.event === 'labeled' && event.label?.name === implementLabel).at(-1);
+  const login = last?.actor?.login ?? fallbackLogin;
+  if (!login) return null;
+  return { login, canWrite: canWrite(await client.getPermission(login)) };
+}
+
+export async function runValidateImplement({ client, rootDir, env, issueNumber, actor, log }) {
+  const report = createReporter(env, log);
+  report.line(`## Implementation request on #${issueNumber}`);
+  report.line();
+  const implementLabel = stageLabel(IMPLEMENT_STAGE);
+  const issue = await client.getIssue(issueNumber);
+  if (!hasLabel(issue, implementLabel)) {
+    report.line(`The \`${implementLabel}\` label is no longer present; nothing to validate.`);
+    report.flush();
+    return { exitCode: 0, decision: null };
+  }
+  const folder = resolveTwins([issue]).byFolder.keys().next().value;
+  const entry = folder ? readSpecFolder(rootDir, folder) : null;
+  const requester = folder && entry ? await resolveImplementRequester(client, issueNumber, actor) : null;
+  const decision = planImplementRequest({ issue, entry, requester });
+  const mention = requester?.login ?? actor;
+
+  await updateIssueWithLabels(client, issue, decision.labels);
+  if (decision.action === 'accept') {
+    report.line(`Accepted: #${issueNumber} (\`${decision.folder}\`) is flagged \`${implementLabel}\` and waits for the \`speckit-implement\` workflow.`);
+  } else {
+    const fallback = decision.stage ? ` The twin is back at its computed stage \`${decision.stage}\`.` : '';
+    await client.createComment(issueNumber, [
+      `@${mention}, the \`${implementLabel}\` request was not accepted:`,
+      '',
+      ...decision.reasons.map((reason) => `- ${reason}`),
+      '',
+      `${fallback.trim()} Request implementation again once the conditions hold.`.trim(),
+    ].join('\n'));
+    report.line(`Rejected: ${decision.reasons.join('; ')}`);
+  }
+  report.flush();
+  return { exitCode: 0, decision };
 }
 
 export async function runApply({ client, rootDir, env, outputFile, log }) {
@@ -266,6 +357,8 @@ function parseArgs(argv) {
     if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--prompt-file') options.promptFile = rest[++index];
     else if (arg === '--output-file') options.outputFile = rest[++index];
+    else if (arg === '--issue') options.issue = Number(rest[++index]);
+    else if (arg === '--actor') options.actor = rest[++index];
     else throw new Error(`Unknown argument: ${arg}`);
   }
   return options;
@@ -288,7 +381,13 @@ export async function main(argv, { env = process.env, rootDir = process.cwd(), l
     if (!options.outputFile) throw new Error('apply requires --output-file');
     return (await runApply({ client: githubClient, rootDir, env, outputFile: options.outputFile, log })).exitCode;
   }
-  throw new Error('Usage: speckit-prepare.mjs <sync [--dry-run] --prompt-file <file> | apply --output-file <file>>');
+  if (options.command === 'validate-implement') {
+    if (!Number.isInteger(options.issue) || options.issue <= 0 || !options.actor) {
+      throw new Error('validate-implement requires --issue <number> and --actor <login>');
+    }
+    return (await runValidateImplement({ client: githubClient, rootDir, env, issueNumber: options.issue, actor: options.actor, log })).exitCode;
+  }
+  throw new Error('Usage: speckit-prepare.mjs <sync [--dry-run] --prompt-file <file> | apply --output-file <file> | validate-implement --issue <number> --actor <login>>');
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

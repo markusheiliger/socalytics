@@ -1,0 +1,73 @@
+name: Spec Kit implement
+
+# Scaffold of the server-side implementation workflow. It selects spec twins that carry a validated
+# speckit:stage:implement flag, are consistent with the default branch, and have no open blockers.
+# The per-twin job is a stub: it creates no branches, pull requests, comments, or agent runs yet.
+on:
+  workflow_run:
+    workflows: [Spec Kit prepare]
+    types: [completed]
+  issues:
+    types: [closed, reopened]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: speckit-implement-select
+  cancel-in-progress: false
+
+jobs:
+  select:
+    name: Select specs ready for implementation
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      count: ${{ steps.select.outputs.count }}
+      matrix: ${{ steps.select.outputs.matrix }}
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Select flagged and unblocked spec twins
+        id: select
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node .github/scripts/speckit-implement.mjs select
+
+  implement:
+    name: Implement #${{ matrix.number }}
+    needs: select
+    if: needs.select.outputs.count != '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    concurrency:
+      group: speckit-implement-${{ matrix.number }}
+      cancel-in-progress: false
+    steps:
+      - name: Report the selected spec (stub)
+        env:
+          NUMBER: ${{ matrix.number }}
+          FOLDER: ${{ matrix.folder }}
+        run: |
+          message="Would implement #${NUMBER} (specs/${FOLDER}); implementation is not wired up yet."
+          echo "$message"
+          echo "- $message" >> "$GITHUB_STEP_SUMMARY"

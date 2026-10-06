@@ -21,7 +21,8 @@
 - [`.specify/memory/constitution.md`](.specify/memory/constitution.md) governs every spec, plan, and task list. Amend it with `/speckit-constitution` and keep it consistent with this file.
 - Feature artifacts live in `specs/<YYYYMMDD-HHMMSS>-<short-name>/` folders created by `/speckit-specify` (`feature_numbering` is `timestamp` to avoid collisions between developers). The prefix MUST be the current UTC time; Spec Kit's helper scripts use local time, so run them with `TZ=UTC`. The prefix carries no dependency meaning: `specs/README.md` gives a human-readable overview, and spec twin issue dependencies define the automation order.
 - The helper scripts are Python (`.specify/scripts/python/`) and run as `python` from the repository root.
-- `.github/skills/speckit-*` and everything under `.specify/` except the constitution are managed by the `specify` CLI. Do not hand-edit them; refresh them through the `specify` CLI upgrade flow.
+- `.github/skills/speckit-*` and everything under `.specify/` except the constitution and `.specify/extension-src/` are managed by the `specify` CLI. Do not hand-edit them; refresh them through the `specify` CLI upgrade flow.
+- `.specify/extension-src/gha/` is the source of the repository-local Spec Kit extension `gha`. After changing it, reinstall with `specify extension add .specify/extension-src/gha --dev --force`, replace the generated `.github/skills/speckit-gha-*/SKILL.md` symbolic links with regular files as described in its README, and commit the source together with the generated `.specify/extensions/`, `.specify/extensions.yml`, and skill files.
 - Do not run `/speckit-taskstoissues`. Features, not tasks, are mirrored to GitHub as spec twins by `.github/workflows/speckit-prepare.yml`.
 
 ## Spec Twins
@@ -30,7 +31,9 @@
 - Twins are pointers, not trackers. The repository is authoritative for spec content; native GitHub issue dependencies between twins are authoritative for the order in which GitHub automation may implement features, and do not constrain local work.
 - `speckit:deps-pending` marks twins whose dependencies Copilot CLI has not yet inferred. Inference runs once per new twin; after that, humans maintain the dependencies on GitHub.
 - `speckit:stage:*` labels (`specified`, `planned`, `tasked`, `implementing`, `implemented`, `discarded`) are generated from the files on `main`; never set them by hand. The `**Status**` line in `spec.md` is not maintained or used.
-- Tooling lives in `.github/scripts/speckit-prepare*.mjs`. Run `node --test .github/scripts/speckit-prepare-core.test.mjs .github/scripts/speckit-prepare.test.mjs` after changing it, and keep a readable `name:` on every workflow job and step.
+- `speckit:stage:implement` is the only stage people set: a "ready to act" request for the `Spec Kit implement` workflow. It is accepted only from someone with at least write access, for an open twin whose computed stage is `tasked` and whose checklists are all checked on `main`; otherwise the twin falls back to its computed stage. Request it with `/speckit-gha-request`, by choosing GitHub when `/speckit-implement` asks (the `gha` extension's `before_implement` hook), or by adding the label. Open blockers do not invalidate the flag; the workflow waits for them.
+- When running `/speckit-implement` without a person to answer the routing question, set `SPECKIT_IMPLEMENT_MODE=local` or `SPECKIT_IMPLEMENT_MODE=remote`; inside GitHub Actions the hook always implements locally.
+- Tooling lives in `.github/scripts/speckit-*.mjs`. Run `node --test .github/scripts/speckit-prepare-core.test.mjs .github/scripts/speckit-prepare.test.mjs .github/scripts/speckit-implement.test.mjs` after changing it, and keep a readable `name:` on every workflow job and step.
 
 ## Repository Setup
 
@@ -50,7 +53,7 @@
 - Add only files justified by the adopted architecture and an approved change. Generate `.gitignore` from the actual stack and local tooling rather than using a generic catch-all.
 - Preserve `src/platform/`, `src/clients/`, `src/agents/`, and `src/analysts/` as the approved first-level ownership areas. Do not add another immediate child of `src` without an accepted architecture change.
 - Add nested source, test, or documentation directories only with their first meaningful artifacts; do not create empty placeholders or infer planned child paths from the source-area READMEs.
-- Add product CI workflows only after executable build, lint, or test commands exist. The `Spec Kit prepare` workflow is repository tooling, not product CI.
+- Add product CI workflows only after executable build, lint, or test commands exist. The `Spec Kit prepare` and `Spec Kit implement` workflows are repository tooling, not product CI.
 - Never commit, push, configure remotes, or publish without an explicit request.
 
 ## Changes and Validation

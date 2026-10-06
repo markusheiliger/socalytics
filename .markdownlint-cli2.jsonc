@@ -5,6 +5,8 @@
   "gitignore": true,
   "ignores": [
     ".github/skills/speckit-*/**/*.md",
-    ".specify/templates/**/*.md"
+    ".specify/templates/**/*.md",
+    ".specify/extensions/**/*.md",
+    ".specify/extension-src/*/commands/**/*.md"
   ]
 }

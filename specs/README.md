@@ -53,7 +53,11 @@ in GitHub Copilot from the repository root:
 2. `/speckit-plan` selects the technical approach from the architecture and
     checks it against the constitution.
 3. `/speckit-tasks`, then optionally `/speckit-analyze`.
-4. `/speckit-implement` and `/speckit-converge` until convergence reports
+4. Merge the spec, plan, and tasks to `main`, then either implement locally or
+    request implementation on GitHub. `/speckit-implement` asks which one you
+    want; `/speckit-gha-request` requests it directly (see the repository
+    [README](../README.md#requesting-implementation-on-github)). For local work,
+    run `/speckit-implement` and `/speckit-converge` until convergence reports
     completion.
 
 The skills locate the active feature through the machine-local

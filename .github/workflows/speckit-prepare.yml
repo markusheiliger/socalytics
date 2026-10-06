@@ -2,6 +2,7 @@ name: Spec Kit prepare
 
 # Keeps one non-authoritative twin issue per Spec Kit feature folder on the default branch and,
 # once per newly created twin, infers "blocked by" dependencies between open twins with Copilot CLI.
+# It also validates human requests to flag a twin with speckit:stage:implement.
 # The repository stays authoritative for spec content; dependencies are maintained on GitHub after
 # the initial inference.
 on:
@@ -9,6 +10,8 @@ on:
     branches: [main]
     paths:
       - specs/**
+  issues:
+    types: [labeled]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -18,14 +21,46 @@ on:
 
 permissions: {}
 
+# Label events run in their own group so they never displace a queued sync; only the
+# implement-request validation itself is serialized per issue (see the job below).
 concurrency:
-  group: speckit-prepare
+  group: ${{ github.event_name == 'issues' && format('speckit-label-{0}', github.run_id) || 'speckit-prepare' }}
   cancel-in-progress: false
 
 jobs:
+  validate-implement:
+    name: Validate implementation request
+    if: github.event_name == 'issues' && github.event.label.name == 'speckit:stage:implement'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: speckit-request-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Validate the request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ACTOR: ${{ github.event.sender.login }}
+        run: node .github/scripts/speckit-prepare.mjs validate-implement --issue "$ISSUE_NUMBER" --actor "$ACTOR"
+
   sync:
     name: Synchronize spec twin issues
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: github.event_name != 'issues' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
