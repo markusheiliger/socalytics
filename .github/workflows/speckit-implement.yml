@@ -116,11 +116,6 @@ jobs:
           path: workspace
           persist-credentials: false
 
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v5
-        with:
-          global-json-file: workspace/src/platform/global.json
-
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
@@ -131,8 +126,15 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install the Markdown linters and Copilot CLI
-        run: npm install --global markdownlint-cli2@0.23.3 markdown-link-check@3.15.0 @github/copilot
+      - name: Install Copilot CLI
+        run: npm install --global @github/copilot
+
+      # Optional, solution-owned extension point; loaded from the trusted tooling checkout, never from the workspace.
+      - name: Set up the solution environment
+        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-setup
+        with:
+          workspace: workspace
 
       # The token reaches Copilot CLI only as COPILOT_GITHUB_TOKEN, which --secret-env-vars strips from the
       # agent's shells. The job token is read-only, so even a leaked token cannot push.
@@ -155,8 +157,31 @@ jobs:
             --output-format json > "$SPECKIT_RESULT_DIR/agent.jsonl"
           echo "$?" > "$SPECKIT_RESULT_DIR/agent-exit.txt"
 
-      - name: Package and verify the change
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-implement.mjs" work
+      - name: Package the change
+        id: package
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-implement.mjs" package
+
+      # Optional, solution-owned extension point; loaded from the trusted tooling checkout. The job env holds no
+      # tokens, so the agent-written code it runs cannot reach one.
+      - name: Verify the change
+        id: verify
+        if: >-
+          steps.package.outputs.verify == 'true' &&
+          hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: ${{ needs.begin.outputs.mode }}
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      - name: Record the verdict
+        env:
+          SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
+          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-implement.mjs" verdict
 
       - name: Upload the result
         if: always()

@@ -1,0 +1,21 @@
+name: Environment setup
+description: >-
+  Installs what building, testing, and verifying this solution needs. Optional extension point of the Spec Kit
+  implement workflow, which runs it before the agent implements a task and before the final verification; the
+  workflow skips it when this file does not exist. Docker is already on the runner (used by Testcontainers), and the
+  calling workflow provides Node.js.
+inputs:
+  workspace:
+    description: Path of the checked-out code, relative to the GitHub workspace
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v5
+      with:
+        global-json-file: ${{ inputs.workspace }}/src/platform/global.json
+
+    - name: Install the Markdown linters
+      shell: bash
+      run: npm install --global markdownlint-cli2@0.23.3 markdown-link-check@3.15.0

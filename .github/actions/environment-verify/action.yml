@@ -1,0 +1,68 @@
+name: Environment verify
+description: >-
+  Verifies a change to this solution. Optional extension point of the Spec Kit implement workflow, which runs it
+  after the agent implemented a task (mode task: only the checks the changed files call for) and in the final run
+  (mode finalize: every check); the workflow skips it when this file does not exist. It runs in a job with a
+  read-only token and no token environment variables, because the checks execute agent-written code. The step fails
+  when a check fails.
+inputs:
+  workspace:
+    description: Path of the code to verify
+    required: true
+  mode:
+    description: "task: run the checks that apply to the changed files; finalize: run every check"
+    required: true
+  changed-files:
+    description: Path of a file that lists the changed paths, one per line (ignored in finalize mode)
+    required: false
+    default: ""
+  log-file:
+    description: Path of a file that receives the combined output of the checks
+    required: true
+outputs:
+  checks:
+    description: Comma-separated names of the checks that ran, in order; after a failure the last one failed
+    value: ${{ steps.verify.outputs.checks }}
+runs:
+  using: composite
+  steps:
+    - name: Run the checks
+      id: verify
+      shell: bash
+      env:
+        WORKSPACE: ${{ inputs.workspace }}
+        MODE: ${{ inputs.mode }}
+        CHANGED_FILES: ${{ inputs.changed-files }}
+        LOG_FILE: ${{ inputs.log-file }}
+        MARKDOWN_CHECK: ${{ github.action_path }}/../../scripts/check-markdown.mjs
+      run: |
+        set -uo pipefail
+        PLATFORM_SOLUTION=src/platform/SocAlytics.Platform.slnx
+        mkdir -p "$(dirname "$LOG_FILE")"
+        : > "$LOG_FILE"
+
+        # applies <regex>: true in finalize mode or when a changed path matches.
+        applies() {
+          [ "$MODE" = finalize ] || { [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ] && grep -qE "$1" "$CHANGED_FILES"; }
+        }
+        step() {
+          echo "\$ $*" | tee -a "$LOG_FILE"
+          "$@" 2>&1 | tee -a "$LOG_FILE"
+        }
+
+        cd "$WORKSPACE"
+        checks=()
+        status=0
+        if [ "$status" -eq 0 ] && applies '^src/platform/'; then
+          checks+=("platform build and tests")
+          { step dotnet restore "$PLATFORM_SOLUTION" &&
+            step dotnet build "$PLATFORM_SOLUTION" --no-restore &&
+            step dotnet test "$PLATFORM_SOLUTION" --no-build; } || status=1
+        fi
+        if [ "$status" -eq 0 ] && applies '\.md$'; then
+          checks+=("Markdown check")
+          step node "$MARKDOWN_CHECK" || status=1
+        fi
+
+        (IFS=,; echo "checks=${checks[*]}") >> "$GITHUB_OUTPUT"
+        exit "$status"

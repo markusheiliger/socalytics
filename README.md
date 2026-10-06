@@ -169,13 +169,15 @@ their "blocked by" issues are closed.
     of any size never hit the 6-hour job limit. A task run:
   1. checks that its task is still the next unchecked task of the open, flagged
       implementation; otherwise it does nothing;
-  2. runs Copilot CLI with `/speckit-implement Implement only task T###`
+  2. sets up the solution environment with the optional
+      `.github/actions/environment-setup` action, then runs Copilot CLI with
+      `/speckit-implement Implement only task T###`
       (60 minutes at most) in a job with a read-only token, which reaches the
       CLI only as `COPILOT_GITHUB_TOKEN` and is hidden from the agent's shells;
       `git push`, `gh`, `curl`, and `wget` are denied;
-  3. verifies the change in that job: the platform build and tests (with
-      Docker, so Testcontainers work) when `src/platform/**` changed, and the
-      Markdown check when Markdown changed;
+  3. verifies the change in that job with the optional
+      `.github/actions/environment-verify` action, which receives the changed
+      paths and runs the checks they call for;
   4. lands it in a separate job that never runs agent-written code: it
       re-checks that `tasks.md` changed only by checking the task and that
       nothing else under `.github/`, `.specify/`, or `specs/` changed, then
@@ -187,10 +189,22 @@ their "blocked by" issues are closed.
       because GitHub raises no `workflow_run` event for task runs started by
       the orchestrator.
 
-  The `finalize` run repeats the full verification, completes the check run,
+  The `finalize` run repeats the full verification (every check of
+  `environment-verify`), completes the check run,
   marks the pull request ready for review, and requests a review from the
   person who set the flag. Configure the Copilot credit cap per attempt with
   the repository variable `SPECKIT_TASK_AI_CREDITS` (default 1000).
+- The two composite actions are the solution-specific extension points; the
+  Spec Kit workflows and scripts know nothing about the solution. Both are
+  optional: the workflow skips a missing action, and without
+  `environment-verify` the pull request comments and check run say that no
+  verification is configured. The workflow always loads them from the default
+  branch, so an agent cannot change its own checks. In this repository:
+  - `environment-setup` installs .NET from `src/platform/global.json` and the
+      Markdown linters; Docker for Testcontainers is already on the runner;
+  - `environment-verify` runs the platform restore, build, and tests when
+      `src/platform/**` changed and the Markdown check when Markdown changed.
+      Add a check there when another source area gets build or test commands.
 - Every task gets at most three attempts, counted from the task runs' names
   (`#<twin> <task> attempt <n>`), including crashed and timed-out runs. A failed
   attempt is commented on the pull request; after the third, the check run

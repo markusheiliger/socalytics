@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,7 +16,8 @@ import {
   parseTaskInputs,
   runBegin,
   runLand,
-  runWork,
+  runPackage,
+  runVerdict,
 } from './speckit-implement.mjs';
 import { FakeGitHub, silent } from './speckit-test-helpers.mjs';
 
@@ -65,22 +66,19 @@ function agentDoesT001(work, { tick = true, extra = {} } = {}) {
   }
 }
 
-function fakeRunner(status = 0) {
-  const calls = [];
-  const run = (command, args, options) => {
-    calls.push({ command, args, options });
-    return { status, output: status === 0 ? 'ok' : 'boom: something failed' };
-  };
-  run.calls = calls;
-  return run;
-}
-
 const TASK_INPUTS = { twin: 5, pull: 9, task: 'T001', attempt: 2, mode: 'task' };
 
-function work(repos, { inputs = TASK_INPUTS, agentExit = '0', run = fakeRunner(), env = {} } = {}) {
+// Runs "package", then simulates the environment-verify step, then "verdict", like the work job does.
+function work(repos, { inputs = TASK_INPUTS, agentExit = '0', verify = { outcome: 'success', checks: 'Markdown check' } } = {}) {
   mkdirSync(repos.resultDir, { recursive: true });
   if (agentExit !== null) writeFileSync(path.join(repos.resultDir, 'agent-exit.txt'), `${agentExit}\n`);
-  return runWork({ git: defaultGit(repos.work), run, env, inputs, folder: 'f', workspace: repos.work, resultDir: repos.resultDir, toolingDir: path.join(repos.base, 'tooling'), log: silent });
+  const outputFile = path.join(repos.resultDir, 'github-output.txt');
+  const packaged = runPackage({ git: defaultGit(repos.work), env: { GITHUB_OUTPUT: outputFile }, inputs, folder: 'f', workspace: repos.work, resultDir: repos.resultDir, log: silent });
+  const env = verify === null
+    ? { SPECKIT_VERIFY_CONFIGURED: 'false', SPECKIT_VERIFY_OUTCOME: '' }
+    : { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: packaged.verify ? verify.outcome : 'skipped', SPECKIT_VERIFY_CHECKS: packaged.verify ? verify.checks : '' };
+  const { result } = runVerdict({ env, inputs, resultDir: repos.resultDir, log: silent });
+  return { packaged, result, output: readFileSync(outputFile, 'utf8') };
 }
 
 // A fake GitHub with twin #5 (flagged by "dev") and its implementation pull request #9.
@@ -173,58 +171,78 @@ test('begin does nothing when the inputs no longer match the state', async () =>
   }
 });
 
-test('work packages, validates, and verifies the agent change without tokens in the verification environment', () => {
+test('package writes the change and the changed paths, and verdict records the verification', () => {
   const repos = makeGitRepos();
   try {
     agentDoesT001(repos.work);
-    const run = fakeRunner();
-    const { result } = work(repos, { run, env: { PATH: process.env.PATH, GITHUB_TOKEN: 'secret', COPILOT_GITHUB_TOKEN: 'secret', ACTIONS_RUNTIME_TOKEN: 'secret' } });
+    const { packaged, result, output } = work(repos);
+    assert.equal(packaged.verify, true);
+    assert.match(output, /^verify=true$/m);
+    assert.deepEqual(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8').split('\n').filter(Boolean).sort(), ['docs/x.md', 'specs/f/tasks.md']);
+    assert.ok(readFileSync(path.join(repos.resultDir, 'changes.patch'), 'utf8').includes('docs/x.md'));
     assert.equal(result.verified, true);
+    assert.equal(result.verification, 'configured');
     assert.deepEqual(result.checks, [{ name: 'Markdown check', passed: true }]);
     assert.deepEqual(result.changedFiles.sort(), ['docs/x.md', 'specs/f/tasks.md']);
-    assert.ok(readFileSync(path.join(repos.resultDir, 'changes.patch'), 'utf8').includes('docs/x.md'));
-    assert.equal(run.calls.length, 1);
-    assert.equal(run.calls[0].command, 'node');
-    assert.match(run.calls[0].args[0], /tooling[\\/]\.github[\\/]scripts[\\/]check-markdown\.mjs$/);
-    assert.equal(run.calls[0].options.cwd, repos.work);
-    assert.deepEqual(Object.keys(run.calls[0].options.env), ['PATH']);
+    assert.deepEqual(JSON.parse(readFileSync(path.join(repos.resultDir, 'result.json'), 'utf8')).checks, result.checks);
   } finally {
     rmSync(repos.base, { recursive: true, force: true });
   }
 });
 
-test('work rejects missing ticks, protected paths, agent failures, and failed verification', () => {
+test('package rejects missing ticks, protected paths, and agent failures; verdict records failed verification', () => {
   const cases = [
-    { name: 'no tick', agent: (r) => agentDoesT001(r.work, { tick: false }), reason: /T001 was not checked/, runs: 0 },
-    { name: 'protected path', agent: (r) => agentDoesT001(r.work, { extra: { '.github/workflows/evil.yml': 'x' } }), reason: /changed protected paths: \.github\/workflows\/evil\.yml/, runs: 0 },
-    { name: 'timeout', agent: (r) => agentDoesT001(r.work), agentExit: '124', reason: /did not finish within 60 minutes/, runs: 0 },
-    { name: 'no agent', agent: () => {}, agentExit: null, reason: /the agent did not run/, runs: 0 },
-    { name: 'verification', agent: (r) => agentDoesT001(r.work), status: 1, reason: /Markdown check failed/, runs: 1 },
+    { name: 'no tick', agent: (r) => agentDoesT001(r.work, { tick: false }), reason: /T001 was not checked/, verify: false },
+    { name: 'protected path', agent: (r) => agentDoesT001(r.work, { extra: { '.github/workflows/evil.yml': 'x' } }), reason: /changed protected paths: \.github\/workflows\/evil\.yml/, verify: false },
+    { name: 'timeout', agent: (r) => agentDoesT001(r.work), agentExit: '124', reason: /did not finish within 60 minutes/, verify: false },
+    { name: 'no agent', agent: () => {}, agentExit: null, reason: /the agent did not run/, verify: false },
+    { name: 'failed check', agent: (r) => agentDoesT001(r.work), check: { outcome: 'failure', checks: 'platform build and tests,Markdown check' }, reason: /^Markdown check failed$/, verify: true },
+    { name: 'crashed verification', agent: (r) => agentDoesT001(r.work), check: { outcome: 'failure', checks: '' }, reason: /the verification did not succeed \(failure\)/, verify: true },
   ];
   for (const testCase of cases) {
     const repos = makeGitRepos();
     try {
       testCase.agent(repos);
-      const run = fakeRunner(testCase.status ?? 0);
-      const { result } = work(repos, { run, agentExit: testCase.agentExit === undefined ? '0' : testCase.agentExit });
+      const { packaged, result } = work(repos, { agentExit: testCase.agentExit === undefined ? '0' : testCase.agentExit, verify: testCase.check });
+      assert.equal(packaged.verify, testCase.verify, testCase.name);
       assert.equal(result.verified, false, testCase.name);
       assert.match(result.reasons.join(), testCase.reason, testCase.name);
-      assert.equal(run.calls.length, testCase.runs, testCase.name);
-      assert.ok(existsSync(path.join(repos.resultDir, 'result.json')), testCase.name);
+      if (testCase.name === 'failed check') {
+        assert.deepEqual(result.checks, [{ name: 'platform build and tests', passed: true }, { name: 'Markdown check', passed: false }]);
+      }
     } finally {
       rmSync(repos.base, { recursive: true, force: true });
     }
   }
 });
 
-test('work runs the full verification in finalize mode', () => {
+test('verdict counts a change as unverified but accepted when no environment-verify action exists', () => {
+  const repos = makeGitRepos();
+  try {
+    agentDoesT001(repos.work);
+    const { result } = work(repos, { verify: null });
+    assert.deepEqual([result.verified, result.verification, result.checks], [true, 'not-configured', []]);
+
+    const missing = makeGitRepos();
+    try {
+      const { result: unpackaged } = runVerdict({ env: { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: 'success' }, inputs: TASK_INPUTS, resultDir: missing.resultDir, log: silent });
+      assert.deepEqual([unpackaged.verified, unpackaged.reasons], [false, ['the change was not packaged']]);
+    } finally {
+      rmSync(missing.base, { recursive: true, force: true });
+    }
+  } finally {
+    rmSync(repos.base, { recursive: true, force: true });
+  }
+});
+
+test('package hands finalize runs straight to the full verification', () => {
   const repos = makeGitRepos(TASKS.replaceAll('- [ ]', '- [x]'));
   try {
-    const run = fakeRunner();
-    const { result } = work(repos, { inputs: { ...TASK_INPUTS, task: 'finalize', mode: 'finalize' }, agentExit: null, run });
+    const { packaged, result } = work(repos, { inputs: { ...TASK_INPUTS, task: 'finalize', mode: 'finalize' }, agentExit: null, verify: { outcome: 'success', checks: 'platform build and tests,Markdown check' } });
+    assert.equal(packaged.verify, true);
+    assert.equal(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8'), '');
     assert.equal(result.verified, true);
     assert.deepEqual(result.checks.map((check) => check.name), ['platform build and tests', 'Markdown check']);
-    assert.deepEqual(run.calls.map((call) => `${call.command} ${call.args[0]}`).slice(0, 3), ['dotnet restore', 'dotnet build', 'dotnet test']);
   } finally {
     rmSync(repos.base, { recursive: true, force: true });
   }
@@ -297,16 +315,42 @@ test('land does not trust a forged verification result', async () => {
 test('land finalizes: success check run, ready for review, and a review request', async () => {
   const repos = makeGitRepos(TASKS.replaceAll('- [ ]', '- [x]'));
   try {
-    work(repos, { inputs: { ...TASK_INPUTS, task: 'finalize', mode: 'finalize' }, agentExit: null });
+    work(repos, { inputs: { ...TASK_INPUTS, task: 'finalize', mode: 'finalize' }, agentExit: null, verify: { outcome: 'success', checks: 'platform build and tests,Markdown check' } });
     const github = fakeGitHub();
     const result = await land(repos, github, { inputs: { ...TASK_INPUTS, task: 'finalize', mode: 'finalize' } });
     assert.equal(result.exitCode, 0);
     assert.deepEqual([result.check.status, result.check.conclusion, result.check.external_id, result.check.output.title], ['completed', 'success', CHECK_DONE, '2 of 2 tasks implemented']);
     assert.equal(github.repo.pulls[0].draft, false);
     assert.deepEqual(github.repo.reviewRequests, [{ number: 9, reviewers: ['dev'] }]);
-    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:done -->\n\*\*All 2 tasks are implemented\*\*[\s\S]*Review requested from @dev/);
+    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:done -->\n\*\*All 2 tasks are implemented\*\* and the full verification passed \(platform build and tests, Markdown check\)[\s\S]*Review requested from @dev/);
   } finally {
     rmSync(repos.base, { recursive: true, force: true });
+  }
+});
+
+test('land says so when no verification is configured', async () => {
+  const repos = makeGitRepos();
+  try {
+    agentDoesT001(repos.work);
+    work(repos, { verify: null });
+    const github = fakeGitHub();
+    const result = await land(repos, github);
+    assert.equal(result.exitCode, 0);
+    assert.match(github.comments.at(-1).body, /- Verification: no verification configured \(no environment-verify action\)/);
+  } finally {
+    rmSync(repos.base, { recursive: true, force: true });
+  }
+  const done = makeGitRepos(TASKS.replaceAll('- [ ]', '- [x]'));
+  try {
+    const finalize = { ...TASK_INPUTS, task: 'finalize', mode: 'finalize' };
+    work(done, { inputs: finalize, agentExit: null, verify: null });
+    const github = fakeGitHub();
+    const result = await land(done, github, { inputs: finalize });
+    assert.equal(result.exitCode, 0);
+    assert.match(result.check.output.summary, /no verification is configured/);
+    assert.match(github.comments.at(-1).body, /\*\*All 2 tasks are implemented\*\*; no verification is configured \(no environment-verify action\)\./);
+  } finally {
+    rmSync(done.base, { recursive: true, force: true });
   }
 });
 
@@ -319,4 +363,5 @@ test('extracts the last agent message and validates commands', async () => {
   ].join('\n');
   assert.equal(lastAgentMessage(jsonl), 'last');
   await assert.rejects(() => main(['nope'], { env: { SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_TASK: 'T001', SPECKIT_ATTEMPT: '1' } }), TaskInputError);
+  await assert.rejects(() => main(['work'], { env: { SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_TASK: 'T001', SPECKIT_ATTEMPT: '1' } }), /begin \| package \| verdict \| land/);
 });
