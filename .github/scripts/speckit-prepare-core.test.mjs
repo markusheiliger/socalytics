@@ -239,5 +239,8 @@ test('plans stage labels for creates, relabels, reopens, and closes', () => {
   assert.deepEqual(plan.create.map((item) => [item.folder, item.stage]), [['new', 'specified']]);
   assert.deepEqual(plan.reopen[0].labels, { add: ['speckit:stage:specified'], remove: ['speckit:stage:discarded'] });
   assert.deepEqual(plan.close[0].labels, { add: ['speckit:stage:discarded'], remove: ['speckit:stage:tasked'] });
-  assert.deepEqual(plan.relabel.map((item) => [item.issue.number, item.stage]), [[1, 'planned'], [5, 'discarded']]);
+  assert.deepEqual(plan.relabel.map((item) => [item.issue.number, item.stage]), [[5, 'discarded']]);
+  assert.deepEqual(plan.update.map((item) => [item.issue.number, item.stage, item.labels]), [
+    [1, 'planned', { add: ['speckit:stage:planned'], remove: ['speckit:stage:specified'] }],
+  ]);
 });

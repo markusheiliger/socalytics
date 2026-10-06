@@ -71,7 +71,7 @@ function reportPlan(report, plan, dryRun) {
   report.line();
   const rows = [
     ...plan.create.map((item) => `- ${verb} create twin for \`${item.folder}\` (stage \`${item.stage}\`)`),
-    ...plan.update.map((item) => `- ${verb} update ${issueRef(item.issue)} for \`${item.folder}\``),
+    ...plan.update.map((item) => `- ${verb} update ${issueRef(item.issue)} for \`${item.folder}\`${item.labels.add.length > 0 ? ` (stage \`${item.stage}\`)` : ''}`),
     ...plan.reopen.map((item) => `- ${verb} reopen ${issueRef(item.issue)} for \`${item.folder}\` (stage \`${item.stage}\`)`),
     ...plan.close.map((item) => `- ${verb} close ${issueRef(item.issue)} as not planned and mark it \`discarded\` (\`${item.folder}\` no longer exists)`),
     ...plan.relabel.map((item) => `- ${verb} set stage \`${item.stage}\` on ${issueRef(item.issue)} for \`${item.folder}\``),
@@ -91,11 +91,24 @@ function reportPlan(report, plan, dryRun) {
   }
 }
 
-async function applyLabelChange(client, issue, { add, remove }) {
-  for (const name of remove) await client.removeLabel(issue.number, name);
-  if (add.length > 0) await client.addLabels(issue.number, add);
-  const kept = (issue.labels ?? []).filter((label) => !remove.includes(typeof label === 'string' ? label : label.name));
-  issue.labels = [...kept, ...add.map((name) => ({ name }))];
+function labelName(label) {
+  return typeof label === 'string' ? label : label.name;
+}
+
+// Re-reads the issue's labels right before writing so concurrent label edits are kept, then writes
+// the complete label set together with any other issue fields in a single request.
+async function updateIssueWithLabels(client, issue, { add, remove }, fields = {}) {
+  if (add.length === 0 && remove.length === 0) {
+    await client.updateIssue(issue.number, fields);
+    Object.assign(issue, fields);
+    return;
+  }
+  const current = (await client.getIssueLabels(issue.number)).map(labelName);
+  const labels = [...current.filter((name) => !remove.includes(name)), ...add.filter((name) => !current.includes(name))];
+  const changed = labels.length !== current.length || labels.some((name) => !current.includes(name));
+  if (!changed && Object.keys(fields).length === 0) return;
+  await client.updateIssue(issue.number, changed ? { ...fields, labels } : fields);
+  Object.assign(issue, fields, { labels: labels.map((name) => ({ name })) });
 }
 
 async function applyPlan(client, plan, issues) {
@@ -109,25 +122,26 @@ async function applyPlan(client, plan, issues) {
     issues.push(item.issue);
   }
   for (const item of plan.reopen) {
-    await client.updateIssue(item.issue.number, { state: 'open', state_reason: 'reopened', title: item.title, body: item.body });
-    Object.assign(item.issue, { state: 'open', state_reason: 'reopened', title: item.title, body: item.body });
-    await applyLabelChange(client, item.issue, item.labels);
+    await updateIssueWithLabels(client, item.issue, item.labels, {
+      state: 'open', state_reason: 'reopened', title: item.title, body: item.body,
+    });
   }
   for (const item of plan.update) {
-    await client.updateIssue(item.issue.number, { title: item.title, body: item.body });
-    Object.assign(item.issue, { title: item.title, body: item.body });
+    await updateIssueWithLabels(client, item.issue, item.labels, { title: item.title, body: item.body });
   }
   for (const item of plan.close) {
     await client.createComment(
       item.issue.number,
       `The spec folder \`specs/${item.folder}\` no longer exists on the default branch, so this twin is closed as not planned and marked \`${stageLabel(DISCARDED_STAGE)}\`. It is reopened automatically if the folder returns.`,
     );
-    await client.updateIssue(item.issue.number, { state: 'closed', state_reason: 'not_planned' });
-    Object.assign(item.issue, { state: 'closed', state_reason: 'not_planned' });
-    const remove = hasLabel(item.issue, PENDING_LABEL) ? [...item.labels.remove, PENDING_LABEL] : item.labels.remove;
-    await applyLabelChange(client, item.issue, { add: item.labels.add, remove });
+    await updateIssueWithLabels(
+      client,
+      item.issue,
+      { add: item.labels.add, remove: [...item.labels.remove, PENDING_LABEL] },
+      { state: 'closed', state_reason: 'not_planned' },
+    );
   }
-  for (const item of plan.relabel) await applyLabelChange(client, item.issue, item.labels);
+  for (const item of plan.relabel) await updateIssueWithLabels(client, item.issue, item.labels);
 }
 
 function openTwinsWithSpecs(issues, specs) {

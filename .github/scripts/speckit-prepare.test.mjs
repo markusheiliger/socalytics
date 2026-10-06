@@ -37,17 +37,20 @@ class FakeGitHub {
   }
 
   async updateIssue(number, fields) {
-    Object.assign(this.find(number), fields);
+    this.updates = [...(this.updates ?? []), { number, fields: structuredClone(fields) }];
+    const { labels, ...rest } = fields;
+    Object.assign(this.find(number), rest);
+    if (labels) this.find(number).labels = labels.map((name) => ({ name }));
   }
 
   async removeLabel(number, name) {
+    this.removals = [...(this.removals ?? []), { number, name }];
     const issue = this.find(number);
     issue.labels = issue.labels.filter((label) => label.name !== name);
   }
 
-  async addLabels(number, names) {
-    const issue = this.find(number);
-    for (const name of names) if (!issue.labels.some((label) => label.name === name)) issue.labels.push({ name });
+  async getIssueLabels(number) {
+    return structuredClone(this.find(number).labels);
   }
 
   async createComment(number, body) {
@@ -163,6 +166,41 @@ test('moves the stage label as plan.md and tasks.md appear and tasks get checked
 
     const again = await syncRepo(github, root);
     assert.equal(again.plan.relabel.length + again.plan.update.length, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('changes stage labels in one request and keeps labels added concurrently', async () => {
+  const folder = '20261005-130700-a';
+  const root = makeRepo([folder]);
+  try {
+    const github = new FakeGitHub();
+    await syncRepo(github, root);
+    writeFileSync(path.join(root, 'specs', folder, 'plan.md'), '# plan\n');
+    const listed = github.listTwinIssues.bind(github);
+    github.listTwinIssues = async (label) => {
+      const issues = await listed(label);
+      github.issues[0].labels.push({ name: 'added-meanwhile' });
+      return issues;
+    };
+    github.updates = [];
+    github.removals = [];
+    await syncRepo(github, root);
+    assert.equal(github.updates.length, 1);
+    assert.deepEqual(github.updates[0].fields.labels, [TWIN_LABEL, PENDING_LABEL, 'added-meanwhile', 'speckit:stage:planned']);
+    assert.deepEqual(github.removals, []);
+
+    rmSync(path.join(root, 'specs', folder), { recursive: true });
+    github.listTwinIssues = listed;
+    github.updates = [];
+    await syncRepo(github, root);
+    assert.equal(github.updates.length, 1);
+    assert.deepEqual(github.updates[0].fields, {
+      state: 'closed',
+      state_reason: 'not_planned',
+      labels: [TWIN_LABEL, 'added-meanwhile', 'speckit:stage:discarded'],
+    });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

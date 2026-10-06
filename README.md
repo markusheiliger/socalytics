@@ -118,7 +118,9 @@ manually; manual runs are dry runs unless `dry_run` is unchecked.
     task checked), `speckit:stage:implementing` (some tasks checked), or
     `speckit:stage:implemented` (all tasks checked). Implementation happens on
     feature branches, so the implementation stages only reflect merged work. The
-    `**Status**` line in `spec.md` is not used.
+    `**Status**` line in `spec.md` is not used. A twin's stage, state, title, and
+    description change in a single request, so no intermediate label state is
+    ever visible; labels the workflow does not own are preserved.
 - If any `speckit:spec` issue lacks a readable `**Spec**` line, the run creates
     no new twins and fails, listing the affected issues. Restore the line from
     the issue's edit history, or remove the label.

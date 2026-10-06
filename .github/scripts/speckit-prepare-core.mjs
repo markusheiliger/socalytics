@@ -210,11 +210,12 @@ export function planSync({ specs, issues, context }) {
       }
       continue;
     }
-    if (twin.title !== title || normalizeBody(twin.body) !== normalizeBody(body)) {
-      plan.update.push({ folder, issue: twin, title, body });
-    }
     const labels = stageLabelChange(twin, stage);
-    if (hasLabelChange(labels)) plan.relabel.push({ folder, issue: twin, stage, labels });
+    if (twin.title !== title || normalizeBody(twin.body) !== normalizeBody(body)) {
+      plan.update.push({ folder, issue: twin, title, body, stage, labels });
+    } else if (hasLabelChange(labels)) {
+      plan.relabel.push({ folder, issue: twin, stage, labels });
+    }
   }
 
   for (const [folder, twin] of byFolder) {
