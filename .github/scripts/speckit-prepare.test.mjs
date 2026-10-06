@@ -477,3 +477,45 @@ test('GitHub client creates missing labels and surfaces errors', async () => {
   assert.throws(() => new GitHubClient({ token: '', repository: 'octo/repo' }), /token/);
   assert.throws(() => new GitHubClient({ token: 't', repository: 'nope' }), /owner\/repo/);
 });
+
+test('GitHub client squash-merges with a head guard, reports refusals, and lists pull request commits', async () => {
+  const calls = [];
+  const responses = [
+    response(200, { merged: true, sha: 'abc', message: 'Pull Request successfully merged' }),
+    response(409, { message: 'Head branch was modified. Review and try the merge again.' }),
+    response(500, { message: 'boom' }),
+    response(200, [{ sha: 'c1', author: { login: 'dev' } }]),
+  ];
+  const client = new GitHubClient({
+    token: 't',
+    repository: 'octo/repo',
+    fetchImpl: async (url, init) => {
+      calls.push({ url, method: init.method, body: init.body });
+      return responses.shift();
+    },
+  });
+  const fields = { sha: 'head', merge_method: 'squash', commit_title: 'F (#9)', commit_message: 'body' };
+  assert.deepEqual(await client.mergePullRequest(9, fields), { merged: true, sha: 'abc', message: 'Pull Request successfully merged' });
+  assert.deepEqual([calls[0].method, calls[0].url, JSON.parse(calls[0].body)], ['PUT', 'https://api.github.com/repos/octo/repo/pulls/9/merge', fields]);
+  assert.deepEqual(await client.mergePullRequest(9, fields), { merged: false, message: 'Head branch was modified. Review and try the merge again.' });
+  await assert.rejects(() => client.mergePullRequest(9, fields), /HTTP 500/);
+  assert.deepEqual((await client.listPullRequestCommits(9)).map((commit) => commit.sha), ['c1']);
+  assert.match(calls[3].url, /\/repos\/octo\/repo\/pulls\/9\/commits\?per_page=100$/);
+});
+
+test('GitHub client lists the full check run history of a commit', async () => {
+  const calls = [];
+  const page = (count, offset) => Array.from({ length: count }, (_, index) => ({ id: offset + index }));
+  const responses = [response(200, { check_runs: page(100, 0) }), response(200, { check_runs: page(2, 100) })];
+  const client = new GitHubClient({
+    token: 't',
+    repository: 'octo/repo',
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return responses.shift();
+    },
+  });
+  assert.equal((await client.listCheckRuns('abc', 'Spec Kit implementation')).length, 102);
+  assert.match(calls[0], /\/commits\/abc\/check-runs\?check_name=Spec%20Kit%20implementation&filter=all&per_page=100&page=1$/);
+  assert.match(calls[1], /&page=2$/);
+});

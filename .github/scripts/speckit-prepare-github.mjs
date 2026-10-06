@@ -206,9 +206,19 @@ export class GitHubClient {
     await this.request('POST', this.repoPath(`/issues/${number}/assignees`), { assignees });
   }
 
+  // All check runs with the name on the commit. filter=all matters: GitHub's default (latest) returns only the
+  // newest run per name, but the orchestrator counts attempts from the full history.
   async listCheckRuns(sha, name) {
-    const { data } = await this.request('GET', this.repoPath(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}`));
-    return data.check_runs;
+    const runs = [];
+    for (let page = 1; page <= 10; page += 1) {
+      const { data } = await this.request(
+        'GET',
+        this.repoPath(`/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&filter=all&per_page=100&page=${page}`),
+      );
+      runs.push(...data.check_runs);
+      if (data.check_runs.length < 100) break;
+    }
+    return runs;
   }
 
   async createCheckRun(fields) {
@@ -225,6 +235,22 @@ export class GitHubClient {
 
   async updatePullRequest(number, fields) {
     return (await this.request('PATCH', this.repoPath(`/pulls/${number}`), fields)).data;
+  }
+
+  // Merges a pull request; `sha` makes GitHub refuse the merge when the head moved. GitHub's refusals
+  // (not mergeable, head moved) are returned as { merged: false, message } instead of thrown.
+  async mergePullRequest(number, { sha, merge_method, commit_title, commit_message }) {
+    const path = this.repoPath(`/pulls/${number}/merge`);
+    const response = await this.raw('PUT', `${this.apiUrl}${path}`, { sha, merge_method, commit_title, commit_message });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
+    if (response.ok) return { merged: data.merged !== false, sha: data.sha, message: data.message };
+    if ([405, 409, 422].includes(response.status)) return { merged: false, message: data.message ?? `HTTP ${response.status}` };
+    throw new GitHubError('PUT', path, response.status, text);
+  }
+
+  async listPullRequestCommits(number) {
+    return this.paginate(this.repoPath(`/pulls/${number}/commits`));
   }
 
   async markReadyForReview(pullNodeId) {

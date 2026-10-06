@@ -1,12 +1,14 @@
-name: Spec Kit implement
+name: Spec Kit converge
 
-# Implements exactly one task of a spec on its speckit/<folder> branch with /speckit-implement. Started by the
-# Spec Kit orchestrate workflow; the hand-back job starts the orchestrator again when the run ends.
+# Acceptance gate of a spec implementation: runs /speckit-converge on the speckit/<folder> branch once all tasks are
+# checked. It either reports that the implementation satisfies the spec, plan, and tasks, or appends the gaps as a
+# new "Phase N: Convergence" section to tasks.md, which the task chain implements next (at most 3 rounds). Started by
+# the Spec Kit orchestrate workflow; the hand-back job starts the orchestrator again when the run ends.
 #   begin:     checks that the inputs still match the state and marks the attempt as in progress
-#   work:      runs the agent and the verification with a read-only token
-#   land:      re-validates, commits, pushes, and reports; it never runs agent-written code
+#   work:      runs the agent with a read-only token
+#   land:      re-validates (append-only change of tasks.md), commits, pushes, and reports
 #   hand-back: dispatches the orchestrator with this run id, whatever the outcome
-run-name: "Spec Kit implement #${{ inputs.twin }} ${{ inputs.task }} attempt ${{ inputs.attempt }}"
+run-name: "Spec Kit converge #${{ inputs.twin }} attempt ${{ inputs.attempt }}"
 
 on:
   workflow_dispatch:
@@ -17,10 +19,6 @@ on:
         type: string
       pull:
         description: Implementation pull request number
-        required: true
-        type: string
-      task:
-        description: Task ID (T###)
         required: true
         type: string
       attempt:
@@ -35,11 +33,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SPECKIT_STEP: task
+  SPECKIT_STEP: converge
   SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
   SPECKIT_TWIN: ${{ inputs.twin }}
   SPECKIT_PULL: ${{ inputs.pull }}
-  SPECKIT_TASK: ${{ inputs.task }}
   SPECKIT_ATTEMPT: ${{ inputs.attempt }}
 
 jobs:
@@ -55,7 +52,7 @@ jobs:
           exit 1
 
   begin:
-    name: Check the task and mark the attempt
+    name: Check the state and mark the attempt
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -89,7 +86,7 @@ jobs:
         run: node .github/scripts/speckit-step.mjs begin
 
   work:
-    name: Implement and verify
+    name: Converge
     needs: begin
     if: needs.begin.outputs.proceed == 'true'
     runs-on: ubuntu-latest
@@ -132,6 +129,7 @@ jobs:
         run: npm install --global @github/copilot
 
       # Optional, solution-owned extension point; loaded from the trusted tooling checkout, never from the workspace.
+      # The agent may build and test while it assesses the implementation.
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
         uses: ./tooling/.github/actions/environment-setup
@@ -140,7 +138,7 @@ jobs:
 
       # The token reaches Copilot CLI only as COPILOT_GITHUB_TOKEN, which --secret-env-vars strips from the
       # agent's shells. The job token is read-only, so even a leaked token cannot push.
-      - name: Implement the task with Copilot CLI
+      - name: Converge with Copilot CLI
         working-directory: workspace
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
@@ -158,43 +156,20 @@ jobs:
             --output-format json > "$SPECKIT_RESULT_DIR/agent.jsonl"
           echo "$?" > "$SPECKIT_RESULT_DIR/agent-exit.txt"
 
-      - name: Package the change
-        id: package
+      - name: Package the result
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" package
-
-      # Optional, solution-owned extension point; loaded from the trusted tooling checkout. The job env holds no
-      # tokens, so the agent-written code it runs cannot reach one.
-      - name: Verify the change
-        id: verify
-        if: >-
-          steps.package.outputs.verify == 'true' &&
-          hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
-        continue-on-error: true
-        uses: ./tooling/.github/actions/environment-verify
-        with:
-          workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: task
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
-          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
-
-      - name: Record the verdict
-        env:
-          SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
-          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" verdict
 
       - name: Upload the result
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: speckit-task-result
+          name: speckit-step-result
           path: ${{ github.workspace }}/speckit-result
           retention-days: 7
           if-no-files-found: ignore
 
   land:
-    name: Land the change and report
+    name: Land the result and report
     needs: [begin, work]
     if: always() && needs.begin.outputs.proceed == 'true'
     runs-on: ubuntu-latest
@@ -234,10 +209,10 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          name: speckit-task-result
+          name: speckit-step-result
           path: ${{ github.workspace }}/speckit-result
 
-      - name: Land the change and report
+      - name: Land the result and report
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node tooling/.github/scripts/speckit-step.mjs land

@@ -2,6 +2,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { STEPS, renderStepRunName } from './speckit-implement-core.mjs';
+
 // In-memory stand-in for GitHubClient used by the speckit tooling tests.
 export class FakeGitHub {
   constructor(issues = []) {
@@ -112,6 +114,8 @@ export class FakeGitHub {
         runs: [],
         files: new Map(),
         reviewRequests: [],
+        merges: [],
+        pullCommits: {},
         nextSha: 1,
         nextCheckRun: 1,
         nextRun: 1,
@@ -126,8 +130,10 @@ export class FakeGitHub {
   }
 
   async getFileContent(filePath, ref) {
+    const branch = Object.entries(this.repo.branches).find(([, sha]) => sha === ref)?.[0];
     return this.repo.files.get(`${ref}:${filePath}`)
       ?? this.repo.files.get(`${this.repo.branches[ref]}:${filePath}`)
+      ?? (branch ? this.repo.files.get(`${branch}:${filePath}`) : undefined)
       ?? null;
   }
 
@@ -160,12 +166,13 @@ export class FakeGitHub {
 
   async dispatchWorkflow(workflowFile, ref, inputs) {
     const id = this.repo.nextRun++;
+    const step = Object.entries(STEPS).find(([, entry]) => entry.file === workflowFile)?.[0];
     this.repo.runs.push({
       id,
       workflow: workflowFile,
       ref,
       inputs: structuredClone(inputs),
-      display_title: `Spec Kit implement #${inputs.twin} ${inputs.task} attempt ${inputs.attempt}`,
+      display_title: step ? renderStepRunName({ step, twin: inputs.twin, task: inputs.task, attempt: inputs.attempt }) : workflowFile,
       status: 'queued',
       conclusion: null,
       created_at: this.tick(),
@@ -175,6 +182,20 @@ export class FakeGitHub {
   // Test helper: marks a workflow run as completed.
   completeRun(id, conclusion = 'failure') {
     Object.assign(this.repo.runs.find((run) => run.id === id), { status: 'completed', conclusion });
+  }
+
+  async mergePullRequest(number, { sha, merge_method, commit_title, commit_message }) {
+    const pull = this.repo.pulls.find((item) => item.number === number);
+    if (this.mergeRefusal) return { merged: false, message: this.mergeRefusal };
+    if (this.repo.branches[pull.head.ref] !== sha) return { merged: false, message: 'Head branch was modified' };
+    const merged = `sha-${this.repo.nextSha++}`;
+    this.repo.merges.push({ number, sha, merge_method, commit_title, commit_message, merged });
+    this.closePull(number, { merged: true });
+    return { merged: true, sha: merged };
+  }
+
+  async listPullRequestCommits(number) {
+    return structuredClone(this.repo.pullCommits[number] ?? []);
   }
 
   async getWorkflowRun(id) {
@@ -245,7 +266,7 @@ export class FakeGitHub {
   }
 
   async createCheckRun(fields) {
-    const run = { id: this.repo.nextCheckRun++, ...structuredClone(fields) };
+    const run = { id: this.repo.nextCheckRun++, started_at: this.tick(), ...structuredClone(fields) };
     this.repo.checkRuns.push(run);
     return structuredClone(run);
   }

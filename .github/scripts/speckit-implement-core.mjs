@@ -6,21 +6,31 @@ export const START_COMMENT_MARKER = '<!-- speckit-implement:start -->';
 export const RESUME_COMMENT_MARKER = '<!-- speckit-implement:resume -->';
 export const DONE_COMMENT_MARKER = '<!-- speckit-implement:done -->';
 export const BOT_LOGIN = 'github-actions[bot]';
-export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement.yml';
-export const TASK_RUN_PREFIX = 'Spec Kit implement';
-export const FINALIZE_TASK = 'finalize';
 export const MAX_TASK_ATTEMPTS = 3;
+export const MAX_CONVERGE_ROUNDS = 3;
+// A merge check run still in progress after this long belongs to a cancelled or crashed run.
+export const MERGE_STALE_MS = 2 * 60 * 60 * 1000;
+// Worker workflows and their run names. Merges run as jobs of the orchestrator and are tracked by check runs.
+export const STEPS = {
+  task: { file: 'speckit-implement.yml', prefix: 'Spec Kit implement' },
+  converge: { file: 'speckit-converge.yml', prefix: 'Spec Kit converge' },
+  resolve: { file: 'speckit-resolve.yml', prefix: 'Spec Kit resolve' },
+};
+export const ORCHESTRATE_WORKFLOW_FILE = 'speckit-orchestrate.yml';
+export const PREPARE_WORKFLOW_FILE = 'speckit-prepare.yml';
 // Check run external IDs tell the orchestrator what a check run means.
 export const CHECK_PROGRESS = 'speckit:progress';
 export const CHECK_ATTEMPT = 'speckit:attempt';
 export const CHECK_LIMIT = 'speckit:limit';
 export const CHECK_DONE = 'speckit:done';
+export const CHECK_MERGE = 'speckit:merge';
+export const CHECK_CONFLICT = 'speckit:conflict';
 // Paths the agent must never change; specs/<folder>/tasks.md may only receive the target task's tick.
 export const PROTECTED_PREFIXES = ['.github/', '.specify/', 'specs/'];
 
 const HEADING_PATTERN = /^(#{2,4})\s+(.+?)\s*$/;
 const TASK_PATTERN = /^\s*[-*] \[( |x|X)\]\s+(T\d{3,})\b\s*(.*)$/;
-const RUN_NAME_PATTERN = new RegExp(`^${TASK_RUN_PREFIX} #(\\d+) (T\\d{3,}|finalize) attempt (\\d+)$`);
+const CONVERGENCE_HEADING_PATTERN = /^##\s+Phase\s+\d+\s*:\s*Convergence\b/i;
 
 export function implementationBranch(folder) {
   return `${BRANCH_PREFIX}${folder}`;
@@ -71,17 +81,45 @@ export function taskProgress(tasksMarkdown) {
   return { done: tasks.filter((task) => task.done).length, total: tasks.length };
 }
 
-export function renderTaskRunName(twin, task, attempt) {
-  return `${TASK_RUN_PREFIX} #${twin} ${task} attempt ${attempt}`;
+// Run names of the worker workflows: "Spec Kit implement #<twin> T001 attempt 1", "Spec Kit converge #<twin> attempt 1".
+export function renderStepRunName({ step, twin, task, attempt }) {
+  return `${STEPS[step].prefix} #${twin} ${step === 'task' ? `${task} ` : ''}attempt ${attempt}`;
 }
 
-export function parseTaskRunName(title) {
-  const match = String(title ?? '').match(RUN_NAME_PATTERN);
-  return match ? { twin: Number(match[1]), task: match[2], attempt: Number(match[3]) } : null;
+export function parseStepRunName(step, title) {
+  const pattern = step === 'task'
+    ? new RegExp(`^${STEPS.task.prefix} #(\\d+) (T\\d{3,}) attempt (\\d+)$`)
+    : new RegExp(`^${STEPS[step].prefix} #(\\d+)() attempt (\\d+)$`);
+  const match = String(title ?? '').match(pattern);
+  return match ? { step, twin: Number(match[1]), task: match[2] || null, attempt: Number(match[3]) } : null;
 }
 
 export function renderTaskPrompt(taskId) {
   return `/speckit-implement Implement only task ${taskId}. Do not implement any other task. Do not commit and do not push.`;
+}
+
+export function renderConvergePrompt() {
+  return '/speckit-converge Assess the implementation and append remaining work as new tasks if needed. Do not commit and do not push.';
+}
+
+export function renderResolvePrompt({ folder, files }) {
+  return [
+    `The working tree is in the middle of merging the default branch into the implementation branch of the spec \`specs/${folder}\`.`,
+    `Git reported merge conflicts in these files: ${files.map((file) => `\`${file}\``).join(', ')}.`,
+    'Resolve every conflict: edit only these files, remove all conflict markers, and combine both sides so that the',
+    'intent of the spec and the changes from the default branch are both kept. Use the spec, plan, and tasks in',
+    `\`specs/${folder}\` to understand the implementation side. Do not change any other file, and do not run git`,
+    'commit, merge, checkout, reset, restore, stash, rebase, or push.',
+  ].join(' ');
+}
+
+// Number of convergence phases that /speckit-converge appended to a tasks.md.
+export function convergenceRounds(tasksMarkdown) {
+  return String(tasksMarkdown ?? '').split(/\r?\n/).filter((line) => CONVERGENCE_HEADING_PATTERN.test(line)).length;
+}
+
+export function hasConflictMarkers(text) {
+  return /^(<{7}|>{7})( |$)/m.test(String(text ?? '')) || /^={7}$/m.test(String(text ?? ''));
 }
 
 // The newest check run (highest ID) of a list, or null.
@@ -101,23 +139,107 @@ export function neutralizeMarkers(text) {
   return String(text ?? '').replaceAll('<!--', '&lt;!--');
 }
 
+const checkTime = (check) => Date.parse(check.started_at ?? check.created_at ?? 0);
+const latestSuccess = (runs) => Math.max(0, ...runs.filter((run) => run.status === 'completed' && run.conclusion === 'success').map((run) => Date.parse(run.created_at)));
+
 // Decides how the orchestrator continues an open implementation pull request.
-// `runs` are the task workflow runs of this twin ({ task, status, conclusion, created_at }), `windowStart` the
-// start of the current attempt window, `done` whether the implementation was finalized, and `resume` whether a
-// person asked to resume this twin. Only unsuccessful runs count as attempts; successful runs that left the task
-// unchecked were no-ops, and their number is capped separately so they cannot loop forever.
-export function decideContinuation({ tasksMarkdown, latestCheck, runs, windowStart, done = false, resume }) {
-  if (runs.some((run) => run.status !== 'completed')) return { action: 'wait' };
-  if (done || (latestCheck?.external_id === CHECK_DONE && latestCheck.conclusion === 'success')) return { action: 'done' };
-  const failed = latestCheck?.external_id === CHECK_LIMIT && latestCheck.conclusion === 'failure';
+// `runs` maps each worker step (task, converge, resolve) to that twin's runs since the pull request was opened
+// ({ task, status, conclusion, created_at }); `checks` are the `Spec Kit implementation` check runs of the current
+// head; `windowStart` starts the current attempt window (pull request, manual resume, or a person's push); `done`
+// tells whether the implementation was finalized for review; `resume` whether a person asked to resume this twin.
+// Order: next unchecked task → converge (until a successful converge is newer than the last successful task run)
+// → merge, or resolve after a merge found conflicts on this head. Only unsuccessful runs count as attempts;
+// the total number of runs per step is capped separately so no-op runs cannot loop forever.
+export function decideContinuation({ tasksMarkdown, checks = [], runs = {}, windowStart, done = false, resume = false, now = Date.now() }) {
+  const all = Object.values(runs).flat();
+  if (all.some((run) => run.status !== 'completed')) return { action: 'wait' };
+  const mergeChecks = checks.filter((check) => check.external_id === CHECK_MERGE);
+  const stale = mergeChecks.filter((check) => check.status !== 'completed' && now - checkTime(check) >= MERGE_STALE_MS);
+  if (mergeChecks.some((check) => check.status !== 'completed' && !stale.includes(check))) return { action: 'wait' };
+  const latest = latestCheckRun(checks);
+  if (done || (latest?.external_id === CHECK_DONE && latest.conclusion === 'success')) return { action: 'done' };
+  const failed = latest?.external_id === CHECK_LIMIT && latest.conclusion === 'failure';
   if (failed && !resume) return { action: 'failed' };
-  const task = nextTask(tasksMarkdown)?.id ?? FINALIZE_TASK;
-  if (failed) return { action: 'resume', task, attempt: 1 };
+
   const since = Date.parse(windowStart);
-  const forTask = runs.filter((run) => run.task === task && Date.parse(run.created_at) >= since);
-  const attempts = forTask.filter((run) => run.conclusion !== 'success').length;
-  if (attempts >= MAX_TASK_ATTEMPTS || forTask.length >= MAX_TASK_ATTEMPTS * 2) return { action: 'limit', task, attempts: forTask.length };
-  return { action: 'dispatch', task, attempt: forTask.length + 1 };
+  const taskRuns = runs.task ?? [];
+  const next = nextTask(tasksMarkdown);
+  let step;
+  let candidates;
+  if (next) {
+    step = { step: 'task', task: next.id };
+    candidates = taskRuns.filter((run) => run.task === next.id);
+  } else {
+    const lastTask = latestSuccess(taskRuns);
+    const converged = (runs.converge ?? []).length > 0 && latestSuccess(runs.converge) > lastTask;
+    if (!converged) {
+      step = { step: 'converge' };
+      candidates = (runs.converge ?? []).filter((run) => Date.parse(run.created_at) > lastTask);
+    } else if (latestCheckRun(checks.filter((check) => [CHECK_MERGE, CHECK_CONFLICT].includes(check.external_id)))?.external_id === CHECK_CONFLICT) {
+      step = { step: 'resolve' };
+      // Only attempts at the current conflict count; earlier, already resolved conflicts do not.
+      const conflictAt = checkTime(latestCheckRun(checks.filter((check) => check.external_id === CHECK_CONFLICT)));
+      candidates = (runs.resolve ?? []).filter((run) => Date.parse(run.created_at) >= conflictAt);
+    } else {
+      step = { step: 'merge' };
+      candidates = null;
+    }
+  }
+  if (failed) return { action: 'resume', ...step, attempt: 1, stale };
+
+  if (step.step === 'merge') {
+    const inWindow = mergeChecks.filter((check) => checkTime(check) >= since);
+    const attempts = inWindow.filter((check) => stale.includes(check) || check.conclusion === 'failure').length;
+    if (attempts >= MAX_TASK_ATTEMPTS || inWindow.length >= MAX_TASK_ATTEMPTS * 2) return { action: 'limit', ...step, attempts: inWindow.length, stale };
+    return { action: 'merge', ...step, attempt: inWindow.length + 1, stale };
+  }
+  const inWindow = candidates.filter((run) => Date.parse(run.created_at) >= since);
+  const attempts = inWindow.filter((run) => run.conclusion !== 'success').length;
+  if (attempts >= MAX_TASK_ATTEMPTS || inWindow.length >= MAX_TASK_ATTEMPTS * 2) return { action: 'limit', ...step, attempts: inWindow.length, stale };
+  return { action: 'dispatch', ...step, attempt: inWindow.length + 1, stale };
+}
+
+// Human-readable name of a step for comments and summaries.
+export function stepLabel({ step, task }) {
+  if (step === 'task') return task;
+  return { converge: 'convergence', resolve: 'conflict resolution', merge: 'merge' }[step] ?? step;
+}
+
+// Reasons why a /speckit-converge change cannot be accepted. It may only append a convergence phase with new,
+// unchecked tasks to specs/<folder>/tasks.md. `limit` is true when the append would exceed the round limit.
+export function validateConvergeChange({ folder, before, after, changedPaths }) {
+  const reasons = [];
+  const tasksPath = `specs/${folder}/tasks.md`;
+  const others = changedPaths.filter((file) => file !== tasksPath);
+  if (others.length > 0) reasons.push(`convergence may only change \`${tasksPath}\`, but it changed ${others.join(', ')}`);
+  const normalize = (text) => String(text ?? '').replaceAll('\r\n', '\n').replace(/\n+$/, '');
+  const base = normalize(before);
+  const next = normalize(after);
+  if (!next.startsWith(base) || (next.length > base.length && next[base.length] !== '\n')) {
+    reasons.push(`convergence may only append to \`${tasksPath}\`, not change existing lines`);
+    return { reasons, appended: [], limit: false };
+  }
+  const appendedText = next.slice(base.length);
+  const appended = listTasks(appendedText);
+  const known = new Set(listTasks(base).map((task) => task.id));
+  const maxId = Math.max(0, ...[...known].map((id) => Number(id.slice(1))));
+  if (appendedText.trim() && convergenceRounds(appendedText) !== 1) reasons.push('convergence must append exactly one `## Phase N: Convergence` section');
+  if (appendedText.trim() && appended.length === 0) reasons.push('the appended convergence section contains no tasks');
+  for (const task of appended) {
+    if (known.has(task.id) || Number(task.id.slice(1)) <= maxId) reasons.push(`appended task ${task.id} does not have a new ID`);
+    if (task.done) reasons.push(`appended task ${task.id} is already checked`);
+    known.add(task.id);
+  }
+  const limit = appended.length > 0 && convergenceRounds(base) >= MAX_CONVERGE_ROUNDS;
+  if (limit) reasons.push(`convergence still found gaps after ${MAX_CONVERGE_ROUNDS} rounds`);
+  return { reasons, appended, limit };
+}
+
+// Adds appended convergence tasks to the task list of the pull request body and updates the count.
+export function appendPullRequestTasks(body, tasks, heading) {
+  const lines = tasks.map((task) => `- [ ] ${task.id} ${task.text}`.trimEnd());
+  const text = String(body ?? '').replace(/^## Tasks \((\d+)\)$/m, (match, count) => `## Tasks (${Number(count) + tasks.length})`);
+  return `${text.replace(/\s+$/, '')}\n\n### ${heading}\n\n${lines.join('\n')}\n`;
 }
 
 // Reasons why the agent's change for `taskId` cannot be accepted. `before` and `after` are the contents of
@@ -180,6 +302,7 @@ export function renderStartComment({ twinNumber, folder, taskCount }) {
     `Implementation workspace prepared for #${twinNumber} (\`specs/${folder}\`): ${taskCount} task(s) queued.`,
     '',
     'The `Spec Kit implement` workflow implements them one at a time, in order. Each task is verified, committed, and reported here.',
+    'Then `Spec Kit converge` checks the result against the spec, and the implementation is merged into the default branch once it converged and passed the full verification.',
   ].join('\n');
 }
 

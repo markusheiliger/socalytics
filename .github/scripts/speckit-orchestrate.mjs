@@ -19,15 +19,16 @@ import {
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import {
+  BOT_LOGIN,
   CHECK_LIMIT,
+  CHECK_MERGE,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
   DONE_COMMENT_MARKER,
-  FINALIZE_TASK,
   MAX_TASK_ATTEMPTS,
   RESUME_COMMENT_MARKER,
   START_COMMENT_MARKER,
-  IMPLEMENT_WORKFLOW_FILE,
+  STEPS,
   checkRunOutput,
   decideContinuation,
   decideLifecycle,
@@ -36,11 +37,12 @@ import {
   latestCheckRun,
   markerTimes,
   nextTask,
-  parseTaskRunName,
+  parseStepRunName,
   renderPullRequestBody,
   renderPullRequestTitle,
   renderStartComment,
-  renderTaskRunName,
+  renderStepRunName,
+  stepLabel,
 } from './speckit-implement-core.mjs';
 
 export class UsageError extends Error {}
@@ -72,7 +74,7 @@ function blockerList(blockers) {
 
 // Server side: lists flagged twins that are consistent with the default branch and have no open blockers,
 // and resolves what their implementation PRs mean (in progress, closed without merge, or ready to start).
-export async function runSelect({ client, rootDir, env, log }) {
+export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   const report = createReporter(env, log);
   const specs = discoverSpecs(rootDir);
   const { byFolder } = resolveTwins(await client.listTwinIssues(TWIN_LABEL));
@@ -108,8 +110,9 @@ export async function runSelect({ client, rootDir, env, log }) {
         folder,
         pullNumber: lifecycle.pull.number,
         resume: String(env.SPECKIT_RESUME_TWIN ?? '') === String(issue.number),
+        now: now(),
       });
-      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, decision });
+      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision });
       continue;
     }
     if (lifecycle.state === 'merged') {
@@ -160,46 +163,61 @@ async function findOpenPull(client, branch) {
 
 function describeDecision(decision) {
   switch (decision.action) {
-    case 'wait': return 'a task run is active';
+    case 'wait': return 'a step is running';
     case 'done': return 'implemented and waiting for review';
-    case 'failed': return 'stopped after the attempt limit; resume with a manual run';
-    case 'resume': return `resuming with ${decision.task}`;
-    case 'limit': return `${decision.task} reached the attempt limit`;
-    case 'dispatch': return `next is ${decision.task} attempt ${decision.attempt}`;
+    case 'failed': return 'stopped and waiting for a person (push a fix or resume with a manual run)';
+    case 'resume': return `resuming with ${stepLabel(decision)}`;
+    case 'limit': return `${stepLabel(decision)} reached the attempt limit`;
+    case 'dispatch': return `next is ${stepLabel(decision)} attempt ${decision.attempt}`;
+    case 'merge': return `merging, attempt ${decision.attempt}`;
     default: return decision.action;
   }
 }
 
+// Creation time of the latest commit on the implementation branch that a person (not the workflow) made.
+function latestHumanCommit(commits) {
+  return commits
+    .filter((commit) => commit.author?.login !== BOT_LOGIN && commit.committer?.login !== BOT_LOGIN)
+    .map((commit) => commit.commit?.committer?.date ?? commit.commit?.author?.date)
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+}
+
 // Reads the state of an open implementation pull request and decides how to continue it.
-async function decideForPull(client, { twin, folder, pullNumber, resume }) {
+async function decideForPull(client, { twin, folder, pullNumber, resume, now }) {
   const pull = await client.getPullRequest(pullNumber);
-  const tasksMarkdown = await client.getFileContent(`specs/${folder}/tasks.md`, implementationBranch(folder));
+  const tasksMarkdown = await client.getFileContent(`specs/${folder}/tasks.md`, pull.head.sha);
   if (tasksMarkdown === null) return { action: 'missing-tasks', pull };
-  const latestCheck = latestCheckRun(await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME));
+  const checks = await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME);
   const comments = await client.listIssueComments(pullNumber);
   const resumedAt = markerTimes(comments, RESUME_COMMENT_MARKER);
+  const pushedAt = latestHumanCommit(await client.listPullRequestCommits(pullNumber));
   const done = markerTimes(comments, DONE_COMMENT_MARKER).length > 0;
-  const windowStart = [pull.created_at, ...resumedAt].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
-  const runs = (await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, windowStart))
-    .map((run) => ({ ...parseTaskRunName(run.display_title), status: run.status, conclusion: run.conclusion, created_at: run.created_at }))
-    .filter((run) => run.twin === twin);
-  return { ...decideContinuation({ tasksMarkdown, latestCheck, runs, windowStart, done, resume }), pull };
+  const windowStart = [pull.created_at, ...resumedAt, ...(pushedAt ? [pushedAt] : [])].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+  const runs = {};
+  for (const [step, { file }] of Object.entries(STEPS)) {
+    runs[step] = (await client.listWorkflowRuns(file, pull.created_at))
+      .map((run) => ({ ...parseStepRunName(step, run.display_title), status: run.status, conclusion: run.conclusion, created_at: run.created_at }))
+      .filter((run) => run.twin === twin);
+  }
+  return { ...decideContinuation({ tasksMarkdown, checks, runs, windowStart, done, resume, now }), pull };
 }
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Starts one task run and waits until it is visible, so the next orchestrator run sees it as active.
-async function dispatchTask(client, env, { twin, pull, task, attempt }, { report, sleep, now }) {
+// Starts one worker run and waits until it is visible, so the next orchestrator run sees it as active.
+async function dispatchStep(client, env, { step, twin, pull, task, attempt }, { report, sleep, now }) {
   const since = new Date(now() - 60_000).toISOString();
-  const title = renderTaskRunName(twin, task, attempt);
-  await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', {
+  const title = renderStepRunName({ step, twin, task, attempt });
+  const { file } = STEPS[step];
+  await client.dispatchWorkflow(file, env.SPECKIT_BRANCH || 'main', {
     twin: String(twin),
     pull: String(pull),
-    task,
+    ...(step === 'task' ? { task } : {}),
     attempt: String(attempt),
   });
   for (let poll = 0; poll < 18; poll += 1) {
-    if ((await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, since, 1)).some((run) => run.display_title === title)) {
+    if ((await client.listWorkflowRuns(file, since, 1)).some((run) => run.display_title === title)) {
       report.line(`- Started "${title}".`);
       return;
     }
@@ -208,7 +226,7 @@ async function dispatchTask(client, env, { twin, pull, task, attempt }, { report
   report.line(`- Warning: started "${title}", but the run was not visible after 90 seconds.`);
 }
 
-// Waits until the task run that handed control back has completed, so its outcome counts and it no longer looks
+// Waits until the run that handed control back has completed, so its outcome counts and it no longer looks
 // active. The hand-back job is the run's last job, so this normally takes seconds.
 async function awaitHandBack(client, runId, { report, sleep }) {
   for (let poll = 0; poll < 60; poll += 1) {
@@ -216,56 +234,84 @@ async function awaitHandBack(client, runId, { report, sleep }) {
     if (!run || run.status === 'completed') return;
     await sleep(5000);
   }
-  report.line(`- Warning: task run ${runId} was still active after 5 minutes.`);
+  report.line(`- Warning: run ${runId} was still active after 5 minutes.`);
 }
 
-// Orchestrator: selects flagged twins, prepares new implementation workspaces, and starts, retries, resumes, or
-// stops task runs. Task runs hand control back by dispatching this workflow with their run id.
+// Opens the merge check run that marks a merge as running, taking over a queued progress check run of the head.
+async function startMerge(client, { pull, attempt }) {
+  const fields = {
+    status: 'in_progress',
+    external_id: CHECK_MERGE,
+    output: { title: `Merge attempt ${attempt} in progress`, summary: 'Merges the default branch, runs the full verification, and merges the implementation.' },
+  };
+  const latest = latestCheckRun(await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME));
+  if (latest?.status === 'queued' && latest.external_id === CHECK_PROGRESS) {
+    await client.updateCheckRun(latest.id, fields);
+    return latest.id;
+  }
+  return (await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: pull.head.sha, ...fields })).id;
+}
+
+async function stopAtLimit(client, twin, decision) {
+  const label = stepLabel(decision);
+  await client.createCheckRun({
+    name: CHECK_RUN_NAME,
+    head_sha: decision.pull.head.sha,
+    status: 'completed',
+    conclusion: 'failure',
+    external_id: CHECK_LIMIT,
+    output: { title: `${label} reached the attempt limit`, summary: `The implementation stopped at ${label} after ${decision.attempts} attempts.` },
+  });
+  await client.createComment(twin.pull, [
+    `**Implementation needs attention**${twin.requester ? ` @${twin.requester}` : ''}: ${label} did not succeed in ${decision.attempts} attempts (at most ${MAX_TASK_ATTEMPTS} failed attempts are allowed).`,
+    '',
+    'See the comments above for the reasons. Push a fix to the implementation branch, which continues automatically, or run the',
+    `\`Spec Kit orchestrate\` workflow manually with \`twin\` set to ${twin.number}, which starts a new attempt count. To abandon this`,
+    'implementation, close this pull request.',
+  ].join('\n'));
+}
+
+// Orchestrator: selects flagged twins, prepares new implementation workspaces, starts, retries, resumes, or stops
+// worker runs, and lists the twins whose implementation is merged by the merge jobs of this workflow run. Worker
+// runs and merge jobs hand control back by dispatching this workflow with their run id.
 export async function runOrchestrate({ client, rootDir, env, log, sleep = defaultSleep, now = Date.now }) {
   const pending = [];
   const afterRun = String(env.SPECKIT_AFTER_RUN ?? '').trim();
   if (/^\d+$/.test(afterRun)) await awaitHandBack(client, afterRun, { report: { line: (text) => pending.push(text) }, sleep });
-  const selection = await runSelect({ client, rootDir, env, log });
+  const selection = await runSelect({ client, rootDir, env, log, now });
   const report = createReporter(env, log);
   report.line();
   report.line('### Actions');
   report.line();
   for (const line of pending) report.line(line);
   let actions = 0;
+  const merges = [];
   for (const twin of selection.ready) {
     const started = await runStart({ client, rootDir, env, issueNumber: twin.number, folder: twin.folder, requester: twin.requester, reset: twin.reset, log });
     if (!started.pull) continue;
     const entry = readSpecFolder(rootDir, twin.folder);
-    const task = nextTask(entry?.tasks)?.id ?? FINALIZE_TASK;
-    await dispatchTask(client, env, { twin: twin.number, pull: started.pull.number, task, attempt: 1 }, { report, sleep, now });
+    const task = nextTask(entry?.tasks)?.id;
+    const first = task ? { step: 'task', task } : { step: 'converge' };
+    await dispatchStep(client, env, { ...first, twin: twin.number, pull: started.pull.number, attempt: 1 }, { report, sleep, now });
     actions += 1;
   }
   for (const twin of selection.inProgress) {
     const { decision } = twin;
-    if (decision.action === 'dispatch') {
-      await dispatchTask(client, env, { twin: twin.number, pull: twin.pull, task: decision.task, attempt: decision.attempt }, { report, sleep, now });
-    } else if (decision.action === 'resume') {
-      await client.createComment(twin.pull, `${RESUME_COMMENT_MARKER}\nImplementation resumed by a manual run; the attempt count starts over with ${decision.task}.`);
-      await dispatchTask(client, env, { twin: twin.number, pull: twin.pull, task: decision.task, attempt: 1 }, { report, sleep, now });
+    for (const stale of decision.stale ?? []) {
+      await client.updateCheckRun(stale.id, { status: 'completed', conclusion: 'failure', output: { title: 'Merge attempt abandoned', summary: 'The merge did not finish within 2 hours.' } });
+    }
+    if (decision.action === 'resume') {
+      await client.createComment(twin.pull, `${RESUME_COMMENT_MARKER}\nImplementation resumed by a manual run; the attempt count starts over with ${stepLabel(decision)}.`);
+    }
+    if (decision.action === 'dispatch' || (decision.action === 'resume' && decision.step !== 'merge')) {
+      await dispatchStep(client, env, { step: decision.step, task: decision.task, twin: twin.number, pull: twin.pull, attempt: decision.attempt }, { report, sleep, now });
+    } else if (decision.action === 'merge' || (decision.action === 'resume' && decision.step === 'merge')) {
+      const checkRun = await startMerge(client, { pull: decision.pull, attempt: decision.attempt });
+      merges.push({ twin: twin.number, pull: twin.pull, folder: twin.folder, head: decision.pull.head.sha, attempt: decision.attempt, check_run: checkRun });
+      report.line(`- Merging #${twin.number} (pull request #${twin.pull}), attempt ${decision.attempt}.`);
     } else if (decision.action === 'limit') {
-      await client.createCheckRun({
-        name: CHECK_RUN_NAME,
-        head_sha: decision.pull.head.sha,
-        status: 'completed',
-        conclusion: 'failure',
-        external_id: CHECK_LIMIT,
-        output: {
-          title: `${decision.task} reached the attempt limit`,
-          summary: `The implementation stopped at ${decision.task} after ${decision.attempts} task runs.`,
-        },
-      });
-      await client.createComment(twin.pull, [
-        `**Implementation stopped:** ${decision.task} did not succeed in ${decision.attempts} task runs (at most ${MAX_TASK_ATTEMPTS} failed attempts are allowed).`,
-        '',
-        'See the attempt comments above for the reasons. To try again, run the `Spec Kit orchestrate` workflow manually with',
-        `\`twin\` set to ${twin.number}, which starts a new attempt count. To abandon this implementation, close this pull request.`,
-      ].join('\n'));
-      report.line(`- Stopped #${twin.number}: ${decision.task} reached the attempt limit.`);
+      await stopAtLimit(client, twin, decision);
+      report.line(`- Stopped #${twin.number}: ${stepLabel(decision)} reached the attempt limit.`);
     } else {
       continue;
     }
@@ -273,7 +319,9 @@ export async function runOrchestrate({ client, rootDir, env, log, sleep = defaul
   }
   if (actions === 0) report.line('- Nothing to do.');
   report.flush();
-  return { exitCode: 0, selection };
+  setOutput(env, 'merge_count', String(merges.length));
+  setOutput(env, 'merges', JSON.stringify({ include: merges }));
+  return { exitCode: 0, selection, merges };
 }
 
 // Server side: prepares the implementation workspace of one ready twin. Every step checks what already exists,

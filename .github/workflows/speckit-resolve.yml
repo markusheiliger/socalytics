@@ -1,12 +1,15 @@
-name: Spec Kit implement
+name: Spec Kit resolve
 
-# Implements exactly one task of a spec on its speckit/<folder> branch with /speckit-implement. Started by the
-# Spec Kit orchestrate workflow; the hand-back job starts the orchestrator again when the run ends.
-#   begin:     checks that the inputs still match the state and marks the attempt as in progress
-#   work:      runs the agent and the verification with a read-only token
-#   land:      re-validates, commits, pushes, and reports; it never runs agent-written code
+# Resolves merge conflicts between the default branch and a speckit/<folder> branch with Copilot CLI after the
+# merge jobs of Spec Kit orchestrate found them. The agent edits only the conflicted files; the full verification
+# runs on the result; the land job replays the merge itself, takes only the agent's versions of the conflicted
+# files, and pushes the merge commit. Started by the Spec Kit orchestrate workflow; the hand-back job starts the
+# orchestrator again when the run ends.
+#   begin:     checks that a conflict is recorded for the current head and marks the attempt as in progress
+#   work:      merges the default branch, runs the agent and the full verification with a read-only token
+#   land:      re-validates, commits the merge, pushes, and reports; it never runs agent-written code
 #   hand-back: dispatches the orchestrator with this run id, whatever the outcome
-run-name: "Spec Kit implement #${{ inputs.twin }} ${{ inputs.task }} attempt ${{ inputs.attempt }}"
+run-name: "Spec Kit resolve #${{ inputs.twin }} attempt ${{ inputs.attempt }}"
 
 on:
   workflow_dispatch:
@@ -17,10 +20,6 @@ on:
         type: string
       pull:
         description: Implementation pull request number
-        required: true
-        type: string
-      task:
-        description: Task ID (T###)
         required: true
         type: string
       attempt:
@@ -35,11 +34,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SPECKIT_STEP: task
+  SPECKIT_STEP: resolve
   SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
   SPECKIT_TWIN: ${{ inputs.twin }}
   SPECKIT_PULL: ${{ inputs.pull }}
-  SPECKIT_TASK: ${{ inputs.task }}
   SPECKIT_ATTEMPT: ${{ inputs.attempt }}
 
 jobs:
@@ -55,7 +53,7 @@ jobs:
           exit 1
 
   begin:
-    name: Check the task and mark the attempt
+    name: Check the state and mark the attempt
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -69,7 +67,6 @@ jobs:
       folder: ${{ steps.begin.outputs.folder }}
       head: ${{ steps.begin.outputs.head }}
       check_run: ${{ steps.begin.outputs.check_run }}
-      prompt: ${{ steps.begin.outputs.prompt }}
     steps:
       - name: Check out the default branch
         uses: actions/checkout@v5
@@ -89,7 +86,7 @@ jobs:
         run: node .github/scripts/speckit-step.mjs begin
 
   work:
-    name: Implement and verify
+    name: Resolve and verify
     needs: begin
     if: needs.begin.outputs.proceed == 'true'
     runs-on: ubuntu-latest
@@ -111,22 +108,19 @@ jobs:
           path: tooling
           persist-credentials: false
 
+      # Full history, so the default branch can be merged locally.
       - name: Check out the implementation branch
         uses: actions/checkout@v5
         with:
           ref: ${{ needs.begin.outputs.head }}
           path: workspace
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24
-
-      - name: Set up Python for the Spec Kit scripts
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
 
       - name: Install Copilot CLI
         run: npm install --global @github/copilot
@@ -138,33 +132,38 @@ jobs:
         with:
           workspace: workspace
 
+      - name: Merge the default branch
+        id: integrate
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" integrate
+
       # The token reaches Copilot CLI only as COPILOT_GITHUB_TOKEN, which --secret-env-vars strips from the
       # agent's shells. The job token is read-only, so even a leaked token cannot push.
-      - name: Implement the task with Copilot CLI
+      - name: Resolve the conflicts with Copilot CLI
+        if: steps.integrate.outputs.agent == 'true'
         working-directory: workspace
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
-          SPECIFY_FEATURE_DIRECTORY: specs/${{ needs.begin.outputs.folder }}
-          PROMPT: ${{ needs.begin.outputs.prompt }}
+          PROMPT: ${{ steps.integrate.outputs.prompt }}
           AI_CREDITS: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
         run: |
-          mkdir -p "$SPECKIT_RESULT_DIR"
           set +e
           timeout --kill-after=60s 60m copilot -p "$PROMPT" \
             --no-ask-user --no-auto-update --allow-all-tools --disable-builtin-mcps \
-            --deny-tool 'shell(git push:*)' --deny-tool 'shell(git commit:*)' --deny-tool 'shell(gh:*)' \
+            --deny-tool 'shell(git push:*)' --deny-tool 'shell(git commit:*)' --deny-tool 'shell(git merge:*)' \
+            --deny-tool 'shell(git checkout:*)' --deny-tool 'shell(git reset:*)' --deny-tool 'shell(git restore:*)' \
+            --deny-tool 'shell(git stash:*)' --deny-tool 'shell(git rebase:*)' --deny-tool 'shell(gh:*)' \
             --deny-tool 'shell(curl:*)' --deny-tool 'shell(wget:*)' \
             --secret-env-vars=COPILOT_GITHUB_TOKEN --max-ai-credits "$AI_CREDITS" \
             --output-format json > "$SPECKIT_RESULT_DIR/agent.jsonl"
           echo "$?" > "$SPECKIT_RESULT_DIR/agent-exit.txt"
 
-      - name: Package the change
+      - name: Package the resolution
         id: package
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" package
 
       # Optional, solution-owned extension point; loaded from the trusted tooling checkout. The job env holds no
       # tokens, so the agent-written code it runs cannot reach one.
-      - name: Verify the change
+      - name: Verify the merged result
         id: verify
         if: >-
           steps.package.outputs.verify == 'true' &&
@@ -173,8 +172,7 @@ jobs:
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: task
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          mode: finalize
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
 
       - name: Record the verdict
@@ -188,13 +186,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: speckit-task-result
+          name: speckit-step-result
           path: ${{ github.workspace }}/speckit-result
           retention-days: 7
           if-no-files-found: ignore
 
   land:
-    name: Land the change and report
+    name: Land the merge and report
     needs: [begin, work]
     if: always() && needs.begin.outputs.proceed == 'true'
     runs-on: ubuntu-latest
@@ -223,6 +221,7 @@ jobs:
         with:
           ref: ${{ needs.begin.outputs.head }}
           path: workspace
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js
@@ -234,10 +233,10 @@ jobs:
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          name: speckit-task-result
+          name: speckit-step-result
           path: ${{ github.workspace }}/speckit-result
 
-      - name: Land the change and report
+      - name: Land the merge and report
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node tooling/.github/scripts/speckit-step.mjs land

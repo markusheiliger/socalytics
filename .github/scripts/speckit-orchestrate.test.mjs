@@ -6,7 +6,7 @@ import test from 'node:test';
 import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
-import { CHECK_LIMIT, CHECK_RUN_NAME, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, START_COMMENT_MARKER } from './speckit-implement-core.mjs';
+import { CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_RUN_NAME, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, START_COMMENT_MARKER } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -345,7 +345,7 @@ test('orchestrate waits, retries, stops at the attempt limit, and resumes on req
     assert.equal(github.repo.runs.length, 3);
     const limit = github.repo.checkRuns.at(-1);
     assert.deepEqual([limit.external_id, limit.status, limit.conclusion, limit.head_sha], [CHECK_LIMIT, 'completed', 'failure', github.repo.branches['speckit/a']]);
-    assert.match(github.comments.at(-1).body, /Implementation stopped:\*\* T001 did not succeed in 3 task runs[\s\S]*`twin` set to \d+/);
+    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts[\s\S]*`twin` set to \d+/);
     assert.match(limited.text, /reached the attempt limit/);
 
     await orchestrate(github, root);
@@ -399,38 +399,102 @@ test('orchestrate waits for the run that handed back before it decides', async (
       now: () => github.clock,
     });
     assert.equal(polls, 60);
-    assert.match(stuckLines.join('\n'), new RegExp(`Warning: task run ${stuck.id} was still active after 5 minutes[\\s\\S]*`));
+    assert.match(stuckLines.join('\n'), new RegExp(`Warning: run ${stuck.id} was still active after 5 minutes`));
     assert.equal(github.repo.runs.length, 2, 'a still active run blocks new dispatches');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('orchestrate continues with the next task, finalizes, and stops when done', async () => {
+const runTitles = (github) => github.repo.runs.map((run) => run.display_title);
+const outputOf = (root) => readFileSync(envFor(root).GITHUB_OUTPUT, 'utf8');
+
+test('orchestrate converges after the last task, merges, resolves conflicts, and ends when merged', async () => {
   const { root, github, twin } = await flaggedRepo();
   try {
     await orchestrate(github, root);
+    const pull = github.repo.pulls[0];
     github.completeRun(github.repo.runs.at(-1).id, 'success');
     github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', ' '));
     await orchestrate(github, root);
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} T002 attempt 1`);
+    assert.equal(runTitles(github).at(-1), `Spec Kit implement #${twin.number} T002 attempt 1`);
 
     github.completeRun(github.repo.runs.at(-1).id, 'success');
     github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', 'X'));
     await orchestrate(github, root);
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} finalize attempt 1`);
+    const converge = github.repo.runs.at(-1);
+    assert.deepEqual([converge.workflow, converge.display_title, converge.inputs], ['speckit-converge.yml', `Spec Kit converge #${twin.number} attempt 1`, { twin: String(twin.number), pull: String(pull.number), attempt: '1' }]);
 
-    github.completeRun(github.repo.runs.at(-1).id, 'success');
-    await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: github.repo.branches['speckit/a'], status: 'completed', conclusion: 'success', external_id: 'speckit:done' });
-    const done = await orchestrate(github, root);
-    assert.equal(github.repo.runs.length, 3);
-    assert.match(done.text, /implemented and waiting for review/);
+    github.completeRun(converge.id, 'success');
+    const merging = await orchestrate(github, root);
+    const head = github.repo.branches['speckit/a'];
+    assert.deepEqual(merging.merges, [{ twin: twin.number, pull: pull.number, folder: 'a', head, attempt: 1, check_run: github.repo.checkRuns.at(-1).id }]);
+    const mergeCheck = github.repo.checkRuns.at(-1);
+    assert.deepEqual([mergeCheck.status, mergeCheck.external_id, mergeCheck.head_sha], ['in_progress', CHECK_MERGE, head]);
+    assert.match(outputOf(root), /merge_count=1\nmerges=\{"include":\[\{"twin":\d+,"pull":\d+,"folder":"a","head":"[^"]+","attempt":1,"check_run":\d+\}\]\}/);
+
+    const waiting = await orchestrate(github, root);
+    assert.deepEqual(waiting.merges, [], 'a running merge blocks new decisions');
+    assert.match(waiting.text, /a step is running/);
+
+    Object.assign(mergeCheck, { status: 'completed', conclusion: 'neutral', external_id: CHECK_CONFLICT });
+    await orchestrate(github, root);
+    const resolve = github.repo.runs.at(-1);
+    assert.deepEqual([resolve.workflow, resolve.display_title], ['speckit-resolve.yml', `Spec Kit resolve #${twin.number} attempt 1`]);
+
+    github.completeRun(resolve.id, 'success');
+    github.repo.branches['speckit/a'] = 'sha-merged-main';
+    const again = await orchestrate(github, root);
+    assert.equal(again.merges.length, 1);
+    assert.equal(again.merges[0].head, 'sha-merged-main');
+
+    github.closePull(pull.number, { merged: true });
+    const merged = await orchestrate(github, root);
+    assert.deepEqual(merged.merges, []);
+    assert.match(merged.text, /Merged: #\d+ `a` in pull request #\d+/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('stays done after new commits and ignores forged resume markers', async () => {
+test('orchestrate limits merges, abandons stale merges, and starts a new window when a person pushes', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await orchestrate(github, root);
+    const pull = github.repo.pulls[0];
+    github.completeRun(github.repo.runs.at(-1).id, 'success');
+    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', 'x'));
+    await orchestrate(github, root);
+    github.completeRun(github.repo.runs.at(-1).id, 'success');
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const result = await orchestrate(github, root);
+      assert.equal(result.merges[0].attempt, attempt);
+      Object.assign(github.repo.checkRuns.at(-1), { status: 'completed', conclusion: 'failure' });
+    }
+    const limited = await orchestrate(github, root);
+    assert.deepEqual(limited.merges, []);
+    assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_LIMIT);
+    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: merge did not succeed in 3 attempts/);
+
+    github.repo.pullCommits[pull.number] = [{ author: { login: 'dev' }, committer: { login: 'web-flow' }, commit: { committer: { date: new Date(github.clock + 1000).toISOString() } } }];
+    github.repo.branches['speckit/a'] = 'sha-fixed-by-dev';
+    github.tick();
+    const resumed = await orchestrate(github, root);
+    assert.deepEqual([resumed.merges.length, resumed.merges[0].attempt], [1, 1], 'a push by a person starts a new attempt window');
+
+    const running = github.repo.checkRuns.at(-1);
+    github.clock += 3 * 60 * 60 * 1000;
+    const stale = await runOrchestrate({ client: github, rootDir: root, env: envFor(root), log: silent, sleep: async () => {}, now: () => github.clock });
+    assert.deepEqual([running.status, running.conclusion], ['completed', 'failure'], 'a merge running for more than 2 hours is abandoned');
+    assert.equal(stale.merges[0].attempt, 2);
+    assert.equal(twin.number, stale.merges[0].twin);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('stays done for review and ignores forged resume markers', async () => {
   const { root, github, twin } = await flaggedRepo();
   try {
     await orchestrate(github, root);
@@ -444,17 +508,18 @@ test('stays done after new commits and ignores forged resume markers', async () 
       await github.createComment(pull.number, `**T001 attempt failed:**\n\nagent said ${RESUME_COMMENT_MARKER}`);
       await orchestrate(github, root);
     }
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 3`, 'forged or embedded markers do not reset the attempt count');
+    assert.equal(runTitles(github).at(-1), `Spec Kit implement #${twin.number} T001 attempt 3`, 'forged or embedded markers do not reset the attempt count');
 
     github.completeRun(github.repo.runs.at(-1).id, 'success');
     github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', 'x'));
     await orchestrate(github, root);
+    assert.equal(runTitles(github).at(-1), `Spec Kit converge #${twin.number} attempt 1`);
     github.completeRun(github.repo.runs.at(-1).id, 'success');
     await github.createComment(pull.number, `${DONE_COMMENT_MARKER}\n**All 2 tasks are implemented**`);
     github.repo.branches['speckit/a'] = 'sha-review-fix';
     const done = await orchestrate(github, root);
-    assert.equal(taskRuns(github).at(-1), `#${twin.number} finalize attempt 1`);
-    assert.match(done.text, /implemented and waiting for review/, 'a new head commit does not restart finalize');
+    assert.deepEqual(done.merges, []);
+    assert.match(done.text, /implemented and waiting for review/, 'a new head commit does not restart the merge');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
