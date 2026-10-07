@@ -48,10 +48,12 @@ runs:
         # outputs, so a non-matching grep (for example when every changed file is covered) must not end it early.
         set +e -uo pipefail
         PLATFORM_SOLUTION=src/platform/SocAlytics.Platform.slnx
-        PLATFORM_SCOPE='^src/platform/'
+        PLATFORM_SCOPE='^(src/platform|contracts)/'
         # Paths that need no check (repository metadata, Spec Kit artifacts, and the environment actions, which the
         # merge self-tests). A check adds its scope only when it can run, so changes in the scope of a check whose
-        # project is missing (for example a deleted solution) are reported as not covered.
+        # project is missing (for example a deleted solution) are reported as not covered. The platform scope also
+        # covers the repository-root contracts/ folder, whose schemas the platform contract tests validate, and is
+        # covered only while the platform solution exists.
         COVERED=(
           '\.md$'
           '^specs/'
