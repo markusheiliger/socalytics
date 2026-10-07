@@ -157,15 +157,42 @@ CQRS is logical rather than physical:
 
 Optimistic concurrency protects contested writes. Every mutable aggregate root
 (a record together with the child rows that always change with it, such as a
-team or an analysis run) carries a `version` column. A write applies only when
-it names the current `version`, advances it by one in the same statement, and
-also advances it for changes to the aggregate's child rows; a stale `version` is
-reported as a conflict instead of overwriting another change. Immutable records
-(recording versions, timeline mappings, finalized recording sets, accepted
-results, lineage) have no `version`; their identity or digest identifies them.
-Views and projections are read-only and never carry their own `version`; see
+team or an analysis run) carries a `version` column. The platform guarantees,
+independently of the database product, that:
+
+- every write that changes an aggregate, including changes to its child rows
+  and data migrations, advances the root's `version` by exactly one, atomically
+  with the change;
+- a write that changes nothing does not advance it;
+- a handler names the version it read in its change
+  (`WHERE id = @Id AND version = @ExpectedVersion`), and zero affected rows is
+  reported as a concurrency conflict instead of overwriting another change.
+
+Immutable records (recording versions, timeline mappings, finalized recording
+sets, accepted results, lineage) have no `version`; their identity or digest
+identifies them. Views and projections are read-only and never carry their own
+`version`; see
 [Contracts and Compatibility](contracts-and-compatibility.md#representation-conventions)
-for how versions appear as HTTP ETags. Database changes and outgoing
+for how versions appear as HTTP ETags.
+
+PostgreSQL realizes the guarantee with triggers that the Infrastructure layer's
+migrations create, so no handler can forget an increment:
+
+- one shared `BEFORE UPDATE` trigger function, attached to every table with a
+  `version` column, sets `version = OLD.version + 1` and fires only when the row
+  actually changes (`WHEN (OLD.* IS DISTINCT FROM NEW.*)`); it does not check
+  versions, which stays the handler's visible responsibility;
+- `AFTER INSERT`, `UPDATE`, and `DELETE` triggers on an aggregate's child tables
+  touch the aggregate root, which advances its `version` through the same
+  increment trigger;
+- a migration may suppress the increment for its own transaction with a
+  transaction-local setting that only migration scripts use; by default,
+  migrations and backfills advance versions like any other change.
+
+If the platform moved to another database, the guarantee would stay and only
+this mechanism would change.
+
+Database changes and outgoing
 events commit atomically through a PostgreSQL transactional outbox. A background
 publisher delivers outbox records to NATS JetStream with retries; consumers and
 completion handlers remain idempotent.
@@ -324,7 +351,10 @@ The initial platform-host change provides this executable evidence:
 The following remain validation targets rather than claims of current evidence:
 
 - PostgreSQL integration tests cover ordered checksum-aware migrations, Dapper
-  mappings, explicit transactions, optimistic concurrency, idempotency,
+  mappings, explicit transactions, optimistic concurrency, the version
+  guarantee (increments on change, none on no-op writes, root increments from
+  child changes, migration behavior) and the presence of the version triggers
+  on every versioned and child table, idempotency,
   authorization, immutable lineage, registry versions, analysis recovery, and
   state-plus-outbox atomicity;
 - NATS recovery tests cover broker outage, retry, publisher restart,

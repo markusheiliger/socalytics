@@ -123,6 +123,7 @@ defined in the
 - REST and JSON with OpenAPI; Kiota-generated clients
 - PostgreSQL
 - Npgsql, Dapper, logical CQRS, and plain typed handlers
+- trigger-managed `version` columns for optimistic concurrency
 - DbUp and one ordered sequence of versioned PostgreSQL SQL migrations
 - ASP.NET Core Identity with Dapper stores, always-available local accounts,
     and optional external OpenID Connect providers
