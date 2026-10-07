@@ -17,6 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\SocAlytics.Platform.AppHost\PostgresInit\01-socalytics-roles.sh" Link="PostgresInit\01-socalytics-roles.sh" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
