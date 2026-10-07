@@ -4,6 +4,8 @@ using Aspire.Hosting;
 using Aspire.Hosting.ApplicationModel;
 using Aspire.Hosting.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Options;
 using Shouldly;
 using SocAlytics.Platform.Application;
 using SocAlytics.Platform.Infrastructure;
@@ -102,6 +104,11 @@ public sealed class PlatformHostTests
         services.AddInfrastructure().ShouldBeSameAs(services);
         services.ShouldContain(static descriptor =>
             descriptor.ServiceType.FullName == "SocAlytics.Platform.Infrastructure.Persistence.PlatformDataSource");
+
+        using var provider = services.BuildServiceProvider();
+        var registration = provider.GetRequiredService<IOptions<HealthCheckServiceOptions>>().Value.Registrations
+            .Single(static r => r.Name == "database");
+        registration.Tags.ShouldNotContain("live");
     }
 
     private static async Task ShouldReturnSuccessAsync(HttpClient client, string path, CancellationToken cancellationToken)
