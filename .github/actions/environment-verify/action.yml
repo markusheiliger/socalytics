@@ -4,12 +4,19 @@ description: >-
   agent implemented a task (mode task: only the checks the changed files call for), after a conflict resolution, and
   before merging (mode finalize: every check); the workflows skip it when this file does not exist. It runs in a job
   with a read-only token and no token environment variables, because the checks execute agent-written code. The step
-  fails when a check fails.
+  fails when a check fails. Checks, in order: "platform build and tests" covers src/platform/ and the repository-root
+  contracts/ folder and is active only while src/platform/SocAlytics.Platform.slnx exists; "Analyst Manager build and
+  tests" runs when src/analysts/manager/ or contracts/analyst-manager/ (the Manager's shared golden fixtures) changed
+  or in finalize mode, covers only src/analysts/manager/ (contract files stay covered by the platform scope), is
+  active only while src/analysts/manager/SocAlytics.Analysts.Manager.slnx exists, and fails when its global.json sdk
+  object differs from the platform's; other paths under src/analysts/ stay uncovered; "Markdown check" follows.
 # Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
 # is reviewed and merged before the specs that need it start. For a new framework or source area, add one block below
 # that (1) adds its scope to COVERED only when its project exists, (2) runs only when the scope changed or in finalize
 # mode, and (3) skips while its project does not exist yet, because the environment spec merges before the project is
-# created.
+# created. Current coverage: the platform scope (src/platform/ and contracts/) is covered while the platform solution
+# exists; the Analyst Manager scope (src/analysts/manager/) is covered while the Manager solution exists, and its
+# check also runs for contracts/analyst-manager/ changes without covering those files.
 inputs:
   workspace:
     description: Path of the code to verify
@@ -48,9 +55,15 @@ runs:
         # outputs, so a non-matching grep (for example when every changed file is covered) must not end it early.
         set +e -uo pipefail
         PLATFORM_SOLUTION=src/platform/SocAlytics.Platform.slnx
+        PLATFORM_SCOPE='^(src/platform|contracts)/'
+        MANAGER_SOLUTION=src/analysts/manager/SocAlytics.Analysts.Manager.slnx
+        MANAGER_SCOPE='^src/analysts/manager/'
+        MANAGER_TRIGGER='^(src/analysts/manager|contracts/analyst-manager)/'
         # Paths that need no check (repository metadata, Spec Kit artifacts, and the environment actions, which the
         # merge self-tests). A check adds its scope only when it can run, so changes in the scope of a check whose
-        # project is missing (for example a deleted solution) are reported as not covered.
+        # project is missing (for example a deleted solution) are reported as not covered. The platform scope also
+        # covers the repository-root contracts/ folder, whose schemas the platform contract tests validate, and is
+        # covered only while the platform solution exists.
         COVERED=(
           '\.md$'
           '^specs/'
@@ -59,7 +72,8 @@ runs:
           '^\.editorconfig$'
           '^\.github/actions/environment-(setup|verify)/'
         )
-        [ -f "$WORKSPACE/$PLATFORM_SOLUTION" ] && COVERED+=('^src/platform/')
+        [ -f "$WORKSPACE/$PLATFORM_SOLUTION" ] && COVERED+=("$PLATFORM_SCOPE")
+        [ -f "$WORKSPACE/$MANAGER_SOLUTION" ] && COVERED+=("$MANAGER_SCOPE")
         mkdir -p "$(dirname "$LOG_FILE")"
         : > "$LOG_FILE"
         changed=""
@@ -73,15 +87,33 @@ runs:
           echo "\$ $*" | tee -a "$LOG_FILE"
           "$@" 2>&1 | tee -a "$LOG_FILE"
         }
+        sdk_pin() { node -e 'const s=require(process.argv[1]).sdk||{};console.log(JSON.stringify(Object.fromEntries(Object.entries(s).sort())))' "$PWD/$1" 2>/dev/null; }
 
         checks=()
         status=0
         pushd "$WORKSPACE" > /dev/null
-        if [ "$status" -eq 0 ] && applies '^src/platform/' && [ -f "$PLATFORM_SOLUTION" ]; then
+        if [ "$status" -eq 0 ] && applies "$PLATFORM_SCOPE" && [ -f "$PLATFORM_SOLUTION" ]; then
           checks+=("platform build and tests")
           { step dotnet restore "$PLATFORM_SOLUTION" &&
             step dotnet build "$PLATFORM_SOLUTION" --no-restore &&
             step dotnet test "$PLATFORM_SOLUTION" --no-build; } || status=1
+        fi
+        # Active only once the Analyst Manager solution exists; it also runs for changes under contracts/analyst-manager/
+        # because the Manager tests read the shared golden fixtures there.
+        if [ "$status" -eq 0 ] && applies "$MANAGER_TRIGGER" && [ -f "$MANAGER_SOLUTION" ]; then
+          checks+=("Analyst Manager build and tests")
+          platform_pin="$(sdk_pin src/platform/global.json)"
+          manager_pin="$(sdk_pin src/analysts/manager/global.json)"
+          if [ -z "$manager_pin" ] || [ "$manager_pin" != "$platform_pin" ]; then
+            echo "Analyst Manager SDK pin ${manager_pin:-<missing>} in src/analysts/manager/global.json differs from the platform pin ${platform_pin:-<missing>} in src/platform/global.json" | tee -a "$LOG_FILE"
+            status=1
+          else
+            pushd src/analysts/manager > /dev/null
+            { step dotnet restore SocAlytics.Analysts.Manager.slnx &&
+              step dotnet build SocAlytics.Analysts.Manager.slnx --no-restore &&
+              step dotnet test SocAlytics.Analysts.Manager.slnx --no-build; } || status=1
+            popd > /dev/null
+          fi
         fi
         if [ "$status" -eq 0 ] && applies '\.md$'; then
           checks+=("Markdown check")

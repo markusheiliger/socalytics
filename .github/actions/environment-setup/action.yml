@@ -3,6 +3,8 @@ description: >-
   Installs what building, testing, and verifying this solution needs. Optional extension point of the Spec Kit
   workflows, which run it before an agent works and before the verification; the workflows skip it when this file
   does not exist. Docker is already on the runner (used by Testcontainers), and the calling workflow provides Node.js.
+  The Analyst Manager (src/analysts/manager) pins the same SDK version as src/platform/global.json, so the Set up .NET
+  step serves both solutions. SoftHSM2 serves the Manager's Linux PKCS#11 key-provider tests.
 # Extending: specs change this action, together with environment-verify, only in a standalone environment spec, which
 # is reviewed and merged before the specs that need it start. Pin tool versions, and install SDKs independently of
 # project files that do not exist yet (for example with an explicit version instead of a project's version file).
@@ -21,3 +23,9 @@ runs:
     - name: Install the Markdown linters
       shell: bash
       run: npm install --global markdownlint-cli2@0.23.3 markdown-link-check@3.15.0
+
+    # softhsm2 is the runner distribution's package and intentionally not version-pinned: the Manager tests depend only
+    # on the stable PKCS#11 interface. No token is created here; each test run creates its own through SOFTHSM2_CONF.
+    - name: Install the SoftHSM2 PKCS#11 token
+      shell: bash
+      run: sudo apt-get update && sudo apt-get install --yes softhsm2
