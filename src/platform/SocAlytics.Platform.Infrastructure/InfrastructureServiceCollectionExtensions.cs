@@ -1,5 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocAlytics.Platform.Infrastructure.Persistence;
 
 namespace SocAlytics.Platform.Infrastructure;
 
@@ -9,10 +9,8 @@ public static class InfrastructureServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<InfrastructureLayerMarker>();
+        PersistenceRegistration.AddPersistence(services);
 
         return services;
     }
 }
-
-internal sealed class InfrastructureLayerMarker;

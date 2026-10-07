@@ -43,9 +43,10 @@ public sealed class PlatformHostTests
         IServiceCollection services = new ServiceCollection();
 
         ShouldAddOneRegistration(services, static collection => collection.AddApplication());
-        ShouldAddOneRegistration(services, static collection => collection.AddInfrastructure());
 
-        services.Count.ShouldBe(2);
+        services.AddInfrastructure().ShouldBeSameAs(services);
+        services.ShouldContain(static descriptor =>
+            descriptor.ServiceType.FullName == "SocAlytics.Platform.Infrastructure.Persistence.PlatformDataSource");
     }
 
     private static async Task ShouldReturnSuccessAsync(HttpClient client, string path, CancellationToken cancellationToken)
