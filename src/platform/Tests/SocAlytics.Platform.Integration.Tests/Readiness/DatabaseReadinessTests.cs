@@ -17,7 +17,7 @@ namespace SocAlytics.Platform.Integration.Tests.Readiness;
 
 public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
 {
-    private static WebApplicationFactory<Program> CreateFactory(string? connectionString, CapturingLoggerProvider capture) =>
+    internal static WebApplicationFactory<Program> CreateFactory(string? connectionString, CapturingLoggerProvider capture) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.ConfigureAppConfiguration((_, configuration) =>
@@ -31,7 +31,7 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
             builder.ConfigureLogging(logging => logging.AddProvider(capture));
         });
 
-    private static async Task<string?> DescriptionAsync(WebApplicationFactory<Program> factory, CancellationToken ct)
+    internal static async Task<string?> DescriptionAsync(WebApplicationFactory<Program> factory, CancellationToken ct)
     {
         var report = await factory.Services.GetRequiredService<HealthCheckService>()
             .CheckHealthAsync(registration => registration.Name == "database", ct);

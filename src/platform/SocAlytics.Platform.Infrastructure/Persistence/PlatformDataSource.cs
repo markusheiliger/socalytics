@@ -25,7 +25,13 @@ internal sealed class PlatformDataSource(IConfiguration configuration) : IAsyncD
                     return false;
                 }
 
-                _dataSource = NpgsqlDataSource.Create(connectionString);
+                // A hung server must not hold a connection attempt or cancellation beyond the readiness budget.
+                var builder = new NpgsqlConnectionStringBuilder(connectionString)
+                {
+                    Timeout = 3,
+                    CancellationTimeout = 1000,
+                };
+                _dataSource = NpgsqlDataSource.Create(builder.ConnectionString);
             }
 
             dataSource = _dataSource;
