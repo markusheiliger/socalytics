@@ -17,6 +17,8 @@
 - Q: How are recordings larger than one storage write (5 GiB) uploaded? → A: Every upload is a multi-part upload: the client declares a fixed part size, the part count, the size of the whole recording, and the content digest of each part; the platform issues one upload grant per part, and the recording's verified content digest is a composite digest over the declared part digests (algorithm `sha-256-parts`, which records the part size and part count).
 - Q: How is the integrity of a multi-part upload verified without the platform reading media bytes? → A: Each part grant binds the part's number, exact size, and declared part digest, so storage rejects any other bytes or size; on completion the platform assembles the parts itself and accepts the recording only when storage reports the expected composite digest and total size, failing closed otherwise.
 - Q: What happens to storage held by an upload session that is never completed? → A: The session expires after a configurable time; expiry discards the stored parts and makes the session unusable, so abandoned uploads hold storage for at most the session lifetime.
+- Q: What does a repeated start-upload request with the same retry key return after the session was completed or expired? → A: The original session in its current state (completed or expired) with no upload grants.
+- Q: How many recordings may one finalized recording set contain? → A: A configurable maximum, 100 by default; larger sets are rejected as a whole and create nothing.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -111,6 +113,8 @@ Members with access to a Team (its Coaches and Viewers, and Club Admins) can see
 - **Membership or role revoked mid-upload**: Authorization is re-evaluated at grant issuance, completion, and finalization; after revocation these are forbidden. An already-issued grant may still permit storing bytes until it expires, but those bytes can never be accepted as lineage by the revoked member.
 - **Replay after revocation**: A retried request with a previously successful retry key is re-authorized first; a member who lost authority is forbidden and the stored outcome is not disclosed.
 - **Finalized set modification attempts**: No operation modifies, reorders, or deletes a finalized set version, its memberships, or its event record; corrections only create new versions.
+- **Start-upload replay after completion or expiry**: The original session is returned in its completed or expired state without any upload grant.
+- **Too many recordings in one set**: A finalization listing more members than the configured maximum (100 by default) is rejected as a whole and creates nothing.
 - **Same recording twice in one set**: A finalization listing the same recording version more than once is rejected.
 - **Match in an archived Season**: Archived Seasons are read-only, so mutating recording operations for their Matches are rejected; lineage remains readable.
 - **Match deleted or not found / Team scope unresolvable**: The request fails closed with not-found or forbidden and changes no state.
@@ -151,8 +155,8 @@ Members with access to a Team (its Coaches and Viewers, and Club Admins) can see
 
 #### Finalization and finalized-event evidence
 
-- **FR-019**: Authorized actors MUST be able to finalize a Match's recording set by submitting a nonempty ordered list of recording-version and timeline-mapping pairs; a successful finalization MUST create a new immutable recording-set version for that Match and Team whose memberships preserve the submitted order.
-- **FR-020**: The system MUST reject the entire finalization request, creating nothing, if the list is empty, if any recording version or timeline mapping does not exist or is not accepted, if any member belongs to another Match or Team, if any mapping is not bound to its paired recording version, or if the same recording version appears more than once.
+- **FR-019**: Authorized actors MUST be able to finalize a Match's recording set by submitting a nonempty ordered list of recording-version and timeline-mapping pairs, with at most the configured maximum number of members (100 by default); a successful finalization MUST create a new immutable recording-set version for that Match and Team whose memberships preserve the submitted order.
+- **FR-020**: The system MUST reject the entire finalization request, creating nothing, if the list is empty or longer than the configured maximum, if any recording version or timeline mapping does not exist or is not accepted, if any member belongs to another Match or Team, if any mapping is not bound to its paired recording version, or if the same recording version appears more than once.
 - **FR-021**: Finalized recording-set versions and their memberships MUST NOT be modified, reordered, or deleted; a correction MUST be made by a new finalization producing a new recording-set version, and earlier versions MUST remain unchanged and addressable alongside it.
 - **FR-022**: A successful finalization MUST commit the recording-set version, all of its ordered memberships, its successful retry outcome, and exactly one recordings-finalized event record together, such that either all are durably recorded or none are.
 - **FR-023**: The recordings-finalized event record MUST contain an event identity, its event contract version, the recording-set-version identity, the Match and Team, the occurrence time, and the ordered membership lineage (recording-version identities, timeline-mapping identities, and their digests), and MUST describe the same frozen lineage returned to the caller.
@@ -160,7 +164,7 @@ Members with access to a Team (its Coaches and Viewers, and Club Admins) can see
 
 #### Safe retries
 
-- **FR-025**: Start upload, complete upload, revise timeline mapping, and finalize recording set MUST require a caller-supplied opaque retry key scoped to the operation and Match. Repeating a request with the same scoped key and the same request content MUST return the original outcome without repeating the change; reusing the key with different content MUST be rejected as a conflict; the same key in a different operation or Match MUST be evaluated independently.
+- **FR-025**: Start upload, complete upload, revise timeline mapping, and finalize recording set MUST require a caller-supplied opaque retry key scoped to the operation and Match. Repeating a request with the same scoped key and the same request content MUST return the original outcome without repeating the change; reusing the key with different content MUST be rejected as a conflict; the same key in a different operation or Match MUST be evaluated independently. A repeated start-upload request MUST return the original session in its current state and MUST include upload grants only while that session is still pending.
 - **FR-026**: Requests that fail validation, authorization, or storage verification MUST NOT record a successful retry outcome and MAY be retried after correction.
 
 #### Lineage reads
