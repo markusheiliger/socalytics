@@ -25,6 +25,7 @@ public sealed class PlatformArchitectureTests
         [ApplicationAssemblyName] = [DomainAssemblyName],
         [InfrastructureAssemblyName] = [ApplicationAssemblyName, DomainAssemblyName],
         [ApiAssemblyName] = [ApplicationAssemblyName, InfrastructureAssemblyName, "SocAlytics.Platform.ServiceDefaults"],
+        ["SocAlytics.Platform.Migrator"] = [InfrastructureAssemblyName, "SocAlytics.Platform.ServiceDefaults"],
     };
 
     private static readonly CompositionBoundary[] CompositionBoundaries =

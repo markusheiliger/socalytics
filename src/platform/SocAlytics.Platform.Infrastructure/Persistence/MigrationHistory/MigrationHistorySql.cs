@@ -26,4 +26,10 @@ internal static class MigrationHistorySql
 
     public const string Insert =
         "INSERT INTO socalytics_migrations.history (sequence, identity, checksum) VALUES (@sequence, @identity, @checksum)";
+
+    public const string TableExistsAsRow =
+        "SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'socalytics_migrations' AND c.relname = 'history'";
+
+    public const string CancelBackendsByApplicationName =
+        "SELECT pg_cancel_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND application_name = @ApplicationName";
 }

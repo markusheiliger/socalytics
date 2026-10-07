@@ -20,6 +20,7 @@
     <ProjectReference Include="..\..\SocAlytics.Platform.Application\SocAlytics.Platform.Application.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Platform.Domain\SocAlytics.Platform.Domain.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Migrator\SocAlytics.Platform.Migrator.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,5 +28,6 @@
     <None Include="..\..\SocAlytics.Platform.Application\SocAlytics.Platform.Application.csproj" Link="InspectedProjects\SocAlytics.Platform.Application.csproj" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\SocAlytics.Platform.Domain\SocAlytics.Platform.Domain.csproj" Link="InspectedProjects\SocAlytics.Platform.Domain.csproj" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" Link="InspectedProjects\SocAlytics.Platform.Infrastructure.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\SocAlytics.Platform.Migrator\SocAlytics.Platform.Migrator.csproj" Link="InspectedProjects\SocAlytics.Platform.Migrator.csproj" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

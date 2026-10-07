@@ -19,6 +19,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Migrator\SocAlytics.Platform.Migrator.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="TestMigrations/**/*.sql" />
   </ItemGroup>
 
   <ItemGroup>
