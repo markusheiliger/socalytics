@@ -26,9 +26,12 @@ outcome. The foundation migrations create the shared trigger functions
 `socalytics.advance_version()` and `socalytics.touch_aggregate_root()` plus
 attachment helpers that later features' migrations call. Version suppression
 works only through `socalytics.suppress_version` and only for the migration
-role. The local AppHost composes PostgreSQL, then the Migrator
-(`WaitForCompletion`), then the API, and provisions both roles with generated
-development-only passwords. A new `SocAlytics.Platform.Integration.Tests`
+role. The local AppHost composes `postgres:18`, then the Migrator
+(`WaitFor(postgres)`), then the API (`WaitForCompletion(migrator)`). A `.sh`
+init script provisions both roles from generated development-only passwords,
+which persist in the AppHost user secrets. DbUp runs with
+`WithTransactionPerScript`, `WithVariablesDisabled`, and a custom
+`TableJournal`. Spikes A1 to A3 confirmed every one of these mechanisms. A new `SocAlytics.Platform.Integration.Tests`
 project proves every behavior against disposable PostgreSQL containers
 (Testcontainers) with test-only migrations. Architecture tests gain the
 Migrator layering and the rule that the API references no migration execution
@@ -38,9 +41,9 @@ code.
 
 **Language/Version**: C# on .NET 10 (SDK `10.0.400`, `rollForward: latestPatch`, pinned by `src/platform/global.json`); nullable enabled; warnings as errors (existing `Directory.Build.props`).
 
-**Primary Dependencies**: ASP.NET Core minimal API host (existing); Npgsql `10.0.3`; Dapper `2.1.66` (latest stable 2.1.x; confirm on the feed at implementation); `dbup-postgresql` `7.0.1` (Migrator only); `Microsoft.Extensions.Diagnostics.HealthChecks`, `.Configuration.Abstractions`, `.Logging.Abstractions`, and `.Hosting` on the 10.0.x line aligned with the transitive requirements of Npgsql and `Microsoft.AspNetCore.Mvc.Testing` (see [research.md](research.md#r14-package-versions-and-central-management)); `Aspire.Hosting.PostgreSQL` `13.4.6` (AppHost, matching `Aspire.AppHost.Sdk/13.4.6`). All versions are managed centrally in `src/platform/Directory.Packages.props`.
+**Primary Dependencies**: ASP.NET Core minimal API host (existing); Npgsql `10.0.3`; Dapper `2.1.89`; `dbup-postgresql` `7.0.1` (Migrator only; brings `dbup-core` `6.1.1`); `Microsoft.Extensions.Diagnostics.HealthChecks`, `.Configuration.Abstractions`, `.Logging.Abstractions`, and `.Hosting` at `10.0.12`, the central floor for every directly referenced `Microsoft.Extensions.*` package (the existing `DependencyInjection.Abstractions` pin rises from `10.0.0`; see [research.md](research.md#r14-package-versions-and-central-management)); `Aspire.Hosting.PostgreSQL` `13.4.6` (AppHost, matching `Aspire.AppHost.Sdk/13.4.6`). All versions are managed centrally in `src/platform/Directory.Packages.props`.
 
-**Storage**: PostgreSQL 18 (image `postgres:18`, pinned identically in the AppHost and in Testcontainers). There is one database per stamp, named `socalytics` locally. It has the application schema `socalytics` and the migration history schema `socalytics_migrations` with the table `history`. Two roles: `socalytics_migrator` (DDL, owns all objects) and `socalytics_app` (runtime DML, read-only history, no DDL). See [data-model.md](data-model.md).
+**Storage**: PostgreSQL 18 (image `postgres:18` pinned by tag in the AppHost and in Testcontainers; the spikes ran 18.6). There is one database per stamp, named `socalytics` locally. It has the application schema `socalytics` and the migration history schema `socalytics_migrations` with the table `history`. Two roles: `socalytics_migrator` (DDL, owns all objects) and `socalytics_app` (runtime DML, read-only history, no DDL). See [data-model.md](data-model.md).
 
 **Testing**: xUnit v3 `3.2.2`, Shouldly `4.3.0`, NetArchTest.Rules `1.3.2` (existing); Testcontainers.PostgreSql `4.15.0` and Microsoft.AspNetCore.Mvc.Testing `10.0.12` (new, Integration.Tests only); Aspire.Hosting.Testing `13.4.6` (existing Host.Tests). NSubstitute is not needed by this feature. Docker is a prerequisite for Host.Tests and Integration.Tests (already present on GitHub runners per `.github/actions/environment-setup`).
 
@@ -71,8 +74,8 @@ No `NEEDS CLARIFICATION` items remain; every open technical choice is resolved i
 | V. Focused, minimal changes | PASS | Dependencies are limited to those the architecture names (Npgsql, Dapper, DbUp, Aspire PostgreSQL, Testcontainers) plus the Microsoft.Extensions abstractions they need. No outbox, NATS, S3, authentication, MediatR, or EF Core. Abstractions are limited to `IUnitOfWork`, `IUnitOfWorkScope`, and `VersionedWriteResult`, which FR-015 to FR-018 require and later features consume. |
 | Technology: pinned SDK, solution, supported commands | PASS | The four documented commands stay unchanged. New projects are added to `SocAlytics.Platform.slnx`, so restore, build, and test cover them. The AppHost stays the local entry point. |
 | Technology: deferred technologies adopted only by a feature that plans them | PASS | This spec and plan adopt PostgreSQL, Npgsql, Dapper, and DbUp. NATS, S3, the outbox, and authentication stay deferred. |
-| Technology: `.gitignore` derived from the stack | PASS | No new generated artifacts need ignoring. Containers and volumes live in Docker, not in the worktree. |
-| Technology: environment feature rule | PASS | `environment-setup` provides the .NET SDK from `global.json` and Node. Docker is on the runner, so Testcontainers and the Aspire PostgreSQL container work. NuGet packages restore through the solution. `environment-verify` restores, builds, and tests `src/platform/SocAlytics.Platform.slnx`, which will include the Migrator and Integration.Tests, and runs the Markdown check. All changes are under `src/platform/`, Markdown files, and `specs/`, all covered. No environment feature is needed, so none is named under Dependencies. |
+| Technology: `.gitignore` derived from the stack | PASS | No new generated artifacts need ignoring. Containers and volumes live in Docker, not in the worktree. The new root `.gitattributes` holds only `*.sh text eol=lf`, which the stack requires because the PostgreSQL init shell script fails with CRLF line endings. |
+| Technology: environment feature rule | PASS | `environment-setup` provides the .NET SDK from `global.json` and Node. Docker is on the runner, so Testcontainers and the Aspire PostgreSQL container work. NuGet packages restore through the solution. `environment-verify` restores, builds, and tests `src/platform/SocAlytics.Platform.slnx`, which will include the Migrator and Integration.Tests, and runs the Markdown check. All changes are under `src/platform/`, Markdown files, `specs/`, and `.gitattributes`, all covered by `environment-verify`. No environment feature is needed, so none is named under Dependencies. |
 | Workflow: docs, Markdown check, CI, commits | PASS | `README.md`, `AGENTS.md`, and `src/platform/README.md` get the updates listed in [Documentation Updates](#documentation-updates). The Markdown check must pass. No product CI workflow is added. No commits or pushes are made by the plan. |
 
 ### Post-design re-evaluation
@@ -113,10 +116,13 @@ specs/20261005-130700-platform-persistence-foundation/
 Legend: `+` new, `~` modified, `-` removed; unmarked entries are unchanged context.
 
 ```text
++ .gitattributes                          # *.sh text eol=lf (the PostgreSQL init shell script must keep LF)
 src/platform/
-├── ~ Directory.Packages.props            # + Npgsql, Dapper, dbup-postgresql, Aspire.Hosting.PostgreSQL,
-│                                         #   Testcontainers.PostgreSql, Microsoft.AspNetCore.Mvc.Testing,
-│                                         #   Microsoft.Extensions.* (HealthChecks, Configuration/Logging abstractions, Hosting)
+├── ~ Directory.Packages.props            # + Npgsql 10.0.3, Dapper 2.1.89, dbup-postgresql 7.0.1,
+│                                         #   Aspire.Hosting.PostgreSQL 13.4.6, Testcontainers.PostgreSql 4.15.0,
+│                                         #   Microsoft.AspNetCore.Mvc.Testing 10.0.12, Microsoft.Extensions.* 10.0.12
+│                                         #   (HealthChecks, Configuration/Logging abstractions, Hosting);
+│                                         #   ~ M.E.DependencyInjection.Abstractions 10.0.0 -> 10.0.12
 ├── ~ SocAlytics.Platform.slnx            # + Migrator, + Tests/Integration.Tests
 ├── ~ README.md                           # commands, prerequisites, persistence status
 ├── SocAlytics.Platform.Domain/           # unchanged
@@ -141,8 +147,8 @@ src/platform/
 │       ├── Readiness/
 │       │   └── DatabaseReadinessHealthCheck.cs
 │       ├── MigrationHistory/
-│       │   ├── EnsureHistory.sql             # embedded; bootstrap schema socalytics_migrations + history
-│       │   ├── MigrationHistoryStore.cs      # read history, ensure, insert SQL constants
+│       │   ├── MigrationHistorySql.cs        # history DDL + grant, exists, entries, insert SQL (used by the journal)
+│       │   ├── MigrationHistoryStore.cs      # read history (missing table = empty)
 │       │   └── MigrationLock.cs              # session advisory lock with bounded wait
 │       └── Migrations/
 │           ├── 0001_foundation_application_schema.sql
@@ -157,17 +163,18 @@ src/platform/
 │   ├── Program.cs                            # namespaced Main -> MigratorEntryPoint.RunAsync
 │   ├── MigratorEntryPoint.cs                 # Generic Host build, run, exit code
 │   ├── MigratorOptions.cs                    # ConnectTimeout, LockWaitTimeout, ScriptTimeout
-│   ├── MigrationRunner.cs                    # connect, lock, ensure history, verify, DbUp apply
-│   ├── DbUpHistoryJournal.cs                 # DbUp IJournal over socalytics_migrations.history
+│   ├── MigrationRunner.cs                    # connect, lock, read history, verify, DbUp apply
+│   ├── SocAlyticsHistoryJournal.cs           # DbUp TableJournal subclass over socalytics_migrations.history
 │   ├── PendingMigrationScriptProvider.cs     # DbUp IScriptProvider yielding only verified pending scripts
 │   ├── MigratorExitCode.cs
 │   └── MigratorLog.cs                        # LoggerMessage source-generated diagnostics
 ├── SocAlytics.Platform.Api/                  # unchanged code; readiness comes from AddInfrastructure()
 ├── SocAlytics.Platform.AppHost/
-│   ├── ~ SocAlytics.Platform.AppHost.csproj  # + Aspire.Hosting.PostgreSQL, + Migrator ProjectReference, + UserSecretsId
-│   ├── ~ Program.cs                          # postgres -> migrator (WaitFor) -> api (WaitForCompletion)
+│   ├── ~ SocAlytics.Platform.AppHost.csproj  # + Aspire.Hosting.PostgreSQL, + Migrator ProjectReference, + <UserSecretsId>
+│   ├── ~ Program.cs                          # persisted generated passwords; postgres:18 -> migrator (WaitFor(postgres))
+│   │                                         #   -> api (WaitFor(postgres), WaitForCompletion(migrator))
 │   └── + PostgresInit/
-│       └── 01-socalytics-roles.sql           # dev-only role + database provisioning via psql \getenv
+│       └── 01-socalytics-roles.sh            # dev-only roles from env vars; ALTER DATABASE OWNER; revokes/grants
 ├── SocAlytics.Platform.ServiceDefaults/      # unchanged
 └── Tests/
     ├── SocAlytics.Platform.Architecture.Tests/
@@ -178,7 +185,7 @@ src/platform/
     │   └── ~ PlatformHostTests.cs                           # postgres + migrator(exit 0) + api; registration assertions
     └── + SocAlytics.Platform.Integration.Tests/
         ├── SocAlytics.Platform.Integration.Tests.csproj     # refs Api, Migrator, Infrastructure, Application;
-        │                                                    #   links AppHost PostgresInit/*.sql; embeds TestMigrations/**
+        │                                                    #   links AppHost PostgresInit/*.sh; embeds TestMigrations/**
         ├── Infrastructure/
         │   ├── PostgresContainerFixture.cs                  # assembly fixture: postgres:18 + init script, per-test databases
         │   ├── IsolatedDatabase.cs                          # migrator/app connection strings for one fresh database
@@ -205,15 +212,14 @@ src/platform/
 
 The detailed decisions are in [research.md](research.md), the schema and types in [data-model.md](data-model.md), and the external behavior in [contracts/](contracts/). The main flows are:
 
-1. **Local start** (`dotnet run --project src/platform/SocAlytics.Platform.AppHost`). The AppHost first starts `postgres` (`postgres:18`, named volume `socalytics-postgres-data`). On first initialization the container's init script creates `socalytics_migrator` and `socalytics_app` with generated, persisted, development-only passwords, and creates the `socalytics` database owned by `socalytics_migrator`. Next, `migrator` waits for the `postgres` health check, receives `ConnectionStrings__socalytics-migrator`, runs once, and exits. Finally, `api` receives `ConnectionStrings__socalytics` (runtime role) and starts only after `migrator` finished with exit code 0 (`WaitForCompletion`). The dashboard shows the PostgreSQL health, the Migrator's finished state and exit code, and the API health.
+1. **Local start** (`dotnet run --project src/platform/SocAlytics.Platform.AppHost`). The AppHost first starts `postgres` (`postgres:18`, named volume `socalytics-postgres-data`). The entrypoint creates database `socalytics` from `POSTGRES_DB`. On first initialization of an empty data directory, `PostgresInit/01-socalytics-roles.sh` creates `socalytics_migrator` and `socalytics_app`. It reads their passwords from `SOCALYTICS_*_PASSWORD` environment variables, which come from `GenerateParameterDefault` parameters persisted to the AppHost user secrets. It then transfers database ownership to `socalytics_migrator`. Next, `migrator` waits for the `postgres` health check (`WaitFor(postgres)`), receives `ConnectionStrings__socalytics-migrator` (an `AddConnectionString` over a `ReferenceExpression`), runs once, and exits. Finally, `api` receives `ConnectionStrings__socalytics` (runtime role) and starts only after `migrator` finished with exit code 0 (`WaitForCompletion(migrator)`). The dashboard shows the PostgreSQL health, the Migrator's finished state and exit code, and the API health.
 2. **Migrator run**:
    1. Validate configuration and the embedded catalog.
    2. Connect with bounded retry.
    3. Take the session advisory lock with a bounded wait.
-   4. Ensure the history schema and table exist.
-   5. Read the history and evaluate it against the catalog. Fail on a checksum mismatch or sequence conflict; report unknown applied migrations.
-   6. Apply the verified pending scripts with DbUp, one transaction per script that includes its history row.
-   7. Release the lock and exit `0`. Failures exit with the codes in [contracts/migrator-cli.md](contracts/migrator-cli.md).
+   4. Read the history (a missing table counts as empty) and evaluate it against the catalog. Fail on a checksum mismatch or sequence conflict; report unknown applied migrations.
+   5. Apply the verified pending scripts with DbUp, one transaction per script that includes its history row. The `SocAlyticsHistoryJournal` (`TableJournal` subclass) creates the history table in the first script's transaction when it is missing.
+   6. Release the lock and exit `0`. Failures exit with the codes in [contracts/migrator-cli.md](contracts/migrator-cli.md).
 3. **API readiness**. The `database` health check, registered by `AddInfrastructure()` and not tagged `live`, reads `socalytics_migrations.history` with the runtime role. It evaluates the same `MigrationStateEvaluator` against the catalog embedded in Infrastructure and reports Healthy only for a current state. `/alive` is unaffected.
 4. **State change** (pattern for later features). A command handler calls `IUnitOfWork.BeginAsync` and performs Dapper writes through Infrastructure code bound to the scoped `IDbSession`. Guarded edits use `VersionedWrites`, which returns `VersionedWriteResult`. The handler commits, or disposes the scope to roll back, which also happens on conflict, exception, or cancellation. Triggers advance `version`.
 
@@ -298,13 +304,25 @@ The coordinator applies the design refinements (A) with this plan. The current-s
    - Remove those items from the validation-target bullets, leaving Dapper mappings of domain records, idempotency, authorization, immutable lineage, registry versions, analysis recovery, and state-plus-outbox atomicity as targets.
 6. Same file, *Architecture Reassessment*: in "Prototype, measurement, or implementation evidence supports the choice", change "Persistence, publication, …" to "Domain persistence, publication, …" and add "the persistence foundation (migrations, Migrator, units of work, version triggers)" to the implemented items.
 
-## Open Risks
+## Risk Register
 
-- **Aspire API surface**: `WithInitFiles`, `AddConnectionString(name, ReferenceExpression)`, `WaitForCompletion`, and generated persisted parameters are expected in Aspire 13.4.6. [research.md](research.md#r6-local-role-provisioning-and-apphost-wiring) records fallbacks if a member differs.
-- **DbUp statement handling**: `dbup-postgresql` 7.0.1 must execute dollar-quoted function bodies and run the journal insert in the script's transaction. Integration tests (0002 and `MigrationRollbackTests`) prove both. [research.md](research.md#r3-dbup-usage-and-journal) describes the fallback.
-- **Package downgrade errors**: central pins of `Microsoft.Extensions.*` must not be lower than the versions Npgsql 10.0.3 and Mvc.Testing 10.0.12 require, or NU1605 fails the build under warnings-as-errors.
-- **Host test duration**: Host.Tests now pull `postgres:18` and run the Migrator. The AppHost test timeout grows from 2 to 5 minutes.
-- **Local volume and secrets drift**: if a developer deletes the AppHost user secrets but keeps `socalytics-postgres-data`, the generated passwords no longer match. The documented recovery is the manual volume reset.
+| ID | Risk | Disposition | Evidence / Owner | Revisit trigger |
+| --- | --- | --- | --- | --- |
+| PF-R1 | Aspire 13.4.6 lacks or changes the members the AppHost relies on (`WithInitFiles`, `GenerateParameterDefault` persistence, `AddConnectionString` with `ReferenceExpression`, `WaitFor`, `WaitForCompletion`) | Mitigated | Spike A1(a)–(d) confirmed every member with 0 build warnings. The API started only after the Migrator exited 0 on every run. Design: [research.md R6](research.md#r6-local-role-provisioning-and-apphost-wiring). | Aspire SDK or `Aspire.Hosting.PostgreSQL` version change |
+| PF-R2 | Role passwords cannot reach the init script (a static `.sql` file cannot read secrets) | Mitigated | Spike A1(a): a `.sh` init file reads `SOCALYTICS_*_PASSWORD` set by `WithEnvironment`, and the custom roles connected. Design: `PostgresInit/01-socalytics-roles.sh`. | Change of the PostgreSQL image entrypoint |
+| PF-R3 | The `.sh` init script breaks on Windows checkouts with CRLF endings | Mitigated | Root `.gitattributes` `*.sh text eol=lf`. Integration.Tests run the same script in every container start, so a broken script fails tests. | New shell scripts or `.gitattributes` changes |
+| PF-R4 | DbUp splits or mangles dollar-quoted PL/pgSQL, or writes the journal outside the script transaction | Mitigated | Spike A2(a): `$$` works; named `$tag$` quotes need `WithVariablesDisabled()`, which the design sets. Spike A2(b): `TableJournal` subclass plus `WithTransactionPerScript()` share one transaction id, and failures roll back the script, journal row, and history table creation. Re-proven by `MigrationRollbackTests` and migration `0002`. | DbUp major or minor version change |
+| PF-R5 | Migration identity drifts when the namespace or folder changes (DbUp names scripts by manifest resource) | Mitigated | Spike A2(c). Design: identity is the file name without `.sql` ([data-model.md](data-model.md#migration-catalog-entry)). | Change of the catalog loader |
+| PF-R6 | Checksums differ between Windows and Linux checkouts | Mitigated | Spike A2(c): SHA-256 over BOM-stripped content with CRLF and CR normalized to LF gives the same hash for CRLF and LF files. | Change of the checksum algorithm |
+| PF-R7 | History `sequence` gaps after failed scripts | Mitigated | Spike A2(b) showed gaps with an identity column. Design: `sequence` is derived from the script number. | — |
+| PF-R8 | Package downgrade errors (NU1605) under warnings-as-errors | Mitigated | Spike A3: the full graph restored and built clean. Central floor `Microsoft.Extensions.*` 10.0.12 removes the reproduced test-project NU1605. Dapper 2.1.89 confirmed latest stable. | Any package version change in `Directory.Packages.props` |
+| PF-R9 | Docker is required for Host.Tests and Integration.Tests and for the local AppHost | Accepted | Documented prerequisite in `README.md`, `AGENTS.md`, and `src/platform/README.md`. GitHub runners provide Docker (`environment-setup`). The tests fail visibly without Docker and never fall back (FR-027). | A required CI runner without Docker |
+| PF-R10 | Host test duration grows (image pull plus Migrator run) | Accepted | The AppHost test timeout rises from 2 to 5 minutes. Pulled images are cached on runners between steps. | Host test flakiness from timeouts |
+| PF-R11 | Local password drift: the persisted passwords are lost while the data volume keeps the old roles, because init does not rerun on a populated volume | Mitigated | `<UserSecretsId>` plus `GenerateParameterDefault` with `persist: true` gave a stable value across runs (spike A1(b)). The documented manual reset `docker volume rm socalytics-postgres-data` recovers ([quickstart.md](quickstart.md#8-reset-the-local-development-database-manual-development-data-only)). | Reports of local login failures |
+| PF-R12 | The container image drifts under a floating default tag (the Aspire default may move past 18, with a different volume layout) | Mitigated | `postgres:18` is pinned by tag in the AppHost (`WithImageTag("18")`) and in Testcontainers. Patch updates within 18 are accepted. | PostgreSQL major upgrade decision |
+| PF-R13 | The PostgreSQL health check briefly reports Unhealthy during the entrypoint's init restart | Accepted | Spike A1(a): expected behavior, and `WaitFor(postgres)` absorbs it. | — |
+| PF-R14 | Production scheduling of the Migrator, role-to-identity mapping, credentials, and secret source are unresolved | Deferred | Owner: production operations profile ([production-operations.md](../../docs/architecture/production-operations.md)) and the future deployment feature. This plan adds no deployment configuration. | Start of the deployment or production-profile feature |
+| PF-R15 | The API image could gain migration code through a future reference | Mitigated | `PersistenceArchitectureTests`: DbUp only in the Migrator, no Migrator reference from the API, and `InternalsVisibleTo` limited to the Migrator and Integration.Tests. | Changes to project references |
 
 ## Complexity Tracking
 

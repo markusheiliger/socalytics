@@ -19,11 +19,25 @@ features it depends on are merged.
 | [Platform Persistence Foundation](20261005-130700-platform-persistence-foundation/spec.md) | Shared durable storage, one ordered platform-wide migration sequence, transactions and optimistic concurrency, and database-aware readiness | None |
 | [Club and Identity Foundation](20261005-130701-club-identity-foundation/spec.md) | Club, season, team, and match hierarchy with authenticated sessions and role-based access | Platform Persistence Foundation |
 | [Recording Lineage and Upload](20261005-130702-recording-lineage-upload/spec.md) | Direct-to-storage recording upload, immutable lineage, and authorized finalization | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation |
-| [Durable Analysis Workflow](20261005-130703-durable-analysis-workflow/spec.md) | Durable analysis runs, readiness evaluation, fenced attempts, reliable work publication, and versioned job contracts | Environment Verification Coverage, Platform Persistence Foundation, Recording Lineage and Upload |
+| [Durable Analysis Workflow](20261005-130703-durable-analysis-workflow/spec.md) | Durable analysis runs, readiness evaluation, fenced attempts, reliable work publication, and versioned job contracts | Environment Verification Coverage, Platform Persistence Foundation, Recording Lineage and Upload, Analyst Manager Registration |
 | [Analyst Manager Registration](20261005-130704-analyst-manager-registration/spec.md) | Device-bound Analyst Manager registration, safe restore, revocation, runtime preflight, and local operating controls | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation |
 
-Durable Analysis Workflow and Analyst Manager Registration can be developed in
-parallel once their dependencies are merged.
+Analyst Manager Registration can be developed in parallel with Recording
+Lineage and Upload; Durable Analysis Workflow starts after both are merged,
+because its Manager operations use the Analyst Manager authentication.
+
+### Cross-Feature Interfaces
+
+Each plan defines the interfaces it provides; later plans consume them by these
+names and do not redefine them.
+
+| Interface | Provided by | Consumed by |
+| --- | --- | --- |
+| `IUnitOfWork` / `IUnitOfWorkScope`, `VersionedWriteResult`, version trigger helpers, `PersistedTableClassifications`, the Migrator, `SocAlytics.Platform.Integration.Tests` | Platform Persistence Foundation | all platform features |
+| `IRequestContext`, `IAuditTrail`, `OperationResult<T>`, `ITeamScopeResolver`, `IAccessAuthorizer`, session cookie, `X-CSRF-Token`, `urn:socalytics:problem:<code>` errors, `member_account` / `team` / `match` tables | Club and Identity Foundation | Recording Lineage and Upload, Durable Analysis Workflow, Analyst Manager Registration |
+| Repository-root `contracts/` with its index and `$id` convention, `SocAlytics.Platform.Contracts.Tests`, `IObjectStorage`, `IRecordingSetLookup`, `recording_finalized_events` | Recording Lineage and Upload | Durable Analysis Workflow (contracts also Analyst Manager Registration) |
+| `IOutbox`, `outbox_messages`, NATS JetStream publication, Analyst job and completion contracts | Durable Analysis Workflow | later Analyst execution features |
+| `AnalystManagerDPoP` authentication scheme, `AnalystManager` policy, registration golden fixtures under `contracts/` | Analyst Manager Registration | Durable Analysis Workflow (Manager operations), the Analyst Manager solution |
 
 This table is a human-readable overview. The order that GitHub automation uses
 lives in the native "blocked by" dependencies of each feature's spec twin issue

@@ -1,57 +1,90 @@
-# Analyst Manager Local-Control Contract
+# Analyst Manager Local Controls
 
-This is the host-local operating interface of the Analyst Manager
-(FR-024). Message shapes are authoritative in
-[local-control.schema.json](local-control.schema.json); this page defines the
-transport, the command-line surface, and the behavioral guarantees. At
-implementation the schema moves with its owner to the Manager component and is
-validated by the Manager tests (component-local executable contract).
+The host operator controls the Manager from its **tray menu**, or from its
+**status window** where the desktop has no tray area (FR-024). This page
+defines those controls, the single-instance hand-off, and the optional
+scripting CLI that uses the same local-control protocol. Message shapes are
+authoritative in [local-control.schema.json](local-control.schema.json); at
+implementation the schema moves to `src/analysts/manager/contracts/` and the
+Manager tests validate every message against it.
 
-## Transport
+## Tray menu and status window
 
-- Unix domain socket `control.sock` in the Manager state directory
-  (`Manager:StateDirectory`), on Windows, Linux, and macOS.
-- The state directory is created with an owner-only DACL on Windows and mode
-  `0700` elsewhere; the socket is `0600` where the OS applies modes. Only the
-  Manager process account can connect. No network listener exists.
-- One request per connection: the client writes one UTF-8 JSON line, the host
-  writes one JSON line and closes. Requests larger than 16 KiB are refused with
-  `invalid-request`.
-- `protocolVersion` is `1`; other versions receive
-  `unsupported-protocol-version`.
-
-## Command-line surface
-
-The executable is `socalytics-manager`. `run` hosts the Manager; every other
-command is a client of a running host.
-
-| Command | Request | Effect |
+| Item | Enabled when | Effect |
 | --- | --- | --- |
-| `socalytics-manager run` | none | Starts the Generic Host: restore, platform confirmation, preflight, local-control listener. `Ctrl+C` requests safe exit. |
-| `socalytics-manager register --platform URL [--stamp-id ID] [--host-label TEXT] [--no-wait]` | `register` | Creates a fresh non-exportable device key, requests pairing, prints the verification address and pairing code, then (unless `--no-wait`) follows `status` until `active`, rejection, or expiry. Refused with `no-supported-key-store` when no supported protected store exists. |
-| `socalytics-manager status [--json]` | `status` | Prints registration state, stamp, club, connectivity, operating state, uptime, latest preflight result, and diagnostics. |
-| `socalytics-manager pause` | `pause` | Stops new work admission immediately; records intent `paused`. |
-| `socalytics-manager resume` | `resume` | Returns to `running` only when Active and the latest preflight passed; otherwise records intent `running` and stays `runtime-unavailable`. |
-| `socalytics-manager exit` | `exit` | Safe exit: drain, keep registration and last intent, stop the host. |
-| `socalytics-manager unregister [--discard-local]` | `unregister` | Drain, start and complete platform unregistration, delete local stamp state and the device key, return to `unregistered`. `--discard-local` only in `restore-failed`. |
+| Status | always | Opens the status window: registration state, stamp, club, connectivity, operating state, uptime, latest preflight with failed checks and remediation, remaining pause time, diagnostics |
+| Register… | registration `unregistered` | Platform endpoint input; creates a fresh non-exportable key (a software-backed key only if the stamp allows software keys), shows the verification address, the pairing code, and the device fingerprint with the instruction to give both to the Registrar in person, follows the pairing to `active`, rejection, or expiry |
+| Pause | `active`, not draining | Stops new admission immediately; intent `paused` |
+| Pause for ▸ 30 min, 1 h, 2 h, 4 h, 8 h, Custom… | `active`, not draining | Timed pause (FR-036); intent `paused-until` |
+| Resume | intent `paused` or `paused-until` | Ends any pause; returns to `running` only when Active and the latest preflight passed |
+| Safe exit | always | Drain, keep registration and intent, quit |
+| Unregister… | `active` | Confirmation, then drain, platform unregistration, local state and key removal |
+| Discard local registration… | `restore-failed` | Deletes unusable remnants; tells the operator a Club Admin must revoke the old registration |
+| Start at sign-in (check mark) | always | Enables or disables per-user autostart; the check mark shows the read-back state |
+
+On Linux without a StatusNotifierItem host, and whenever the tray icon cannot
+be created, the status window opens at start and offers every item above.
+
+## Transport and single instance
+
+- One Unix domain socket per user, `manager.sock`, in an owner-only run
+  directory: Windows `%LOCALAPPDATA%\SocAlytics\AnalystManager\run\` (protected
+  DACL for the current user), Linux `$XDG_RUNTIME_DIR/socalytics/` (fallback
+  `~/.local/state/socalytics/run/`), macOS
+  `~/Library/Application Support/SocAlytics/AnalystManager/run/` (fallback
+  `$TMPDIR/socalytics/` when the path exceeds 104 bytes). Directory `0700` and
+  socket `0600` where the OS applies modes. No network listener exists.
+- Every connection is checked against the owning user before a request is
+  read: Linux `SO_PEERCRED` uid, Windows `SIO_AF_UNIX_GETPEERPID` then the
+  process-token SID, macOS `getpeereid` uid. Other peers are disconnected.
+- One request per connection: the client writes one UTF-8 JSON line, the server
+  writes one JSON line and closes. Requests larger than 16 KiB are refused with
+  `invalid-request`; `protocolVersion` other than `1` gets
+  `unsupported-protocol-version`.
+- Single instance: a starting app binds the socket. If the file exists it
+  connects; when a live instance answers, it sends `show-status` and exits;
+  otherwise it removes the stale file and binds.
+
+## Scripting CLI
+
+The tray executable `socalytics-manager` acts as a client when started with a
+command and never starts the UI then. On Windows it attaches to the parent
+console. Without a command (or with `--autostart`) it starts the tray app.
+
+| Command | Request |
+| --- | --- |
+| `socalytics-manager status [--json]` | `status` |
+| `socalytics-manager register --platform URL [--stamp-id ID] [--host-label TEXT] [--no-wait]` | `register` |
+| `socalytics-manager pause [--for MINUTES \| --until RFC3339]` | `pause` |
+| `socalytics-manager resume` | `resume` |
+| `socalytics-manager exit` | `exit` |
+| `socalytics-manager unregister [--discard-local]` | `unregister` |
+| `socalytics-manager autostart [on \| off]` | `autostart` |
 
 Exit codes: `0` success, `1` refused by the Manager (error code printed), `2`
 usage error, `3` Manager not running or socket not accessible.
 
 ## Behavioral guarantees
 
-- Commands other than `status` and `register` are refused with
-  `invalid-registration-state` unless the registration is `active`
-  (FR-023); `register` is refused unless the state is `unregistered`.
-- `pause`, `resume`, and `exit` never create, activate, revoke, or rebind a
-  registration.
+- Tray, status window, and CLI call the same worker operations; none creates,
+  activates, revokes, or rebinds a registration except register and unregister
+  (FR-023).
+- `pause`, `resume`, and `exit` are refused with `invalid-registration-state`
+  unless the registration is `active`; `register` is refused unless it is
+  `unregistered`.
+- Timed pauses outside 1 minute to `Operating:MaxTimedPause` are refused with
+  `invalid-pause-duration`.
 - Drain obeys `Operating:DrainTimeout`, `Operating:DrainTimeoutPolicy`, and
-  `Operating:CleanupBound`; `status` reports the drain deadline.
-- No response, log entry, or diagnostic contains human credentials, access
-  tokens, client assertions, DPoP or activation proofs, polling handles,
-  challenges, broker credentials, or private key material. The pairing code
-  appears only in the `register` result (FR-034).
+  `Operating:CleanupBound` (session end: `Operating:SessionEndDrainBound`);
+  status reports the drain deadline.
+- No response, log entry, window, or diagnostic contains human credentials,
+  access tokens, client assertions, DPoP or activation proofs, polling handles,
+  challenges, broker credentials, the PKCS#11 PIN, or private key material. The
+  pairing code appears only in the register dialog and the `register` result
+  (FR-034). The device fingerprint is not a secret and is shown in the register
+  dialog, the status window, and `status` (FR-040).
 - `restore-failed` diagnostics use bounded codes (`state-missing`,
-  `state-unreadable`, `state-integrity`, `key-missing`, `key-inaccessible`,
-  `key-mismatch`, `stamp-mismatch`) and never include protected values.
+  `state-unreadable`, `state-permissions`, `state-signature`, `key-missing`,
+  `key-inaccessible`, `key-mismatch`, `stamp-mismatch`) and never include
+  protected values.
 - Preflight check identifiers are listed in [data-model.md](../data-model.md#preflightresult).

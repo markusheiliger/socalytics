@@ -13,7 +13,8 @@ Analyst Manager solution `src/analysts/manager/SocAlytics.Analysts.Manager.slnx`
 gets its own restore, build, and test check. Both coverages activate only once
 their project exists, keep today's behavior otherwise, and add no new tool:
 the Manager pins the same SDK as the platform, which `environment-setup`
-already installs. See [research.md](research.md) for the decisions.
+already installs, and the only new tool is the SoftHSM2 software PKCS#11 token
+that the Manager's Linux key-provider tests use. See [research.md](research.md) for the decisions.
 
 ## Technical Context
 
@@ -22,7 +23,8 @@ invoke the .NET 10 SDK pinned by `src/platform/global.json` (`10.0.400`,
 `rollForward: latestPatch`).
 
 **Primary Dependencies**: `actions/setup-dotnet@v5` (already used), `dotnet`
-CLI, Node.js for the existing Markdown check. No new dependency.
+CLI, Node.js for the existing Markdown check, and the Ubuntu package
+`softhsm2` (new, installed with `apt-get`).
 
 **Storage**: N/A
 
@@ -56,7 +58,7 @@ scopes; no secrets or tokens in the verify job.
 | II. Source-area ownership | PASS | PASS | No source files added; only the environment extension points change. |
 | III. API-first control plane | N/A | N/A | No product behavior. |
 | IV. Evidence over claims | PASS | PASS | Coverage is proven by the merge self-test and the quickstart scenarios; skipped checks never report success for code that exists. |
-| V. Focused, minimal changes | PASS | PASS | Contracts reuse the platform check; the Manager reuses the installed SDK; no new tool. |
+| V. Focused, minimal changes | PASS | PASS | Contracts reuse the platform check; the Manager reuses the installed SDK; the only new tool is SoftHSM2, required by the Manager's PKCS#11 provider tests (spec FR-006). |
 | Technology: environment features | PASS | PASS | This *is* the environment feature for Recording Lineage and Upload, Durable Analysis Workflow, and Analyst Manager Registration; it changes only the two action folders and is held for human review by design. |
 | Workflow: documentation | PASS | PASS | The action descriptions document the coverage (FR-009); README updates follow when dependent features create the covered projects (spec Assumptions). |
 
@@ -82,7 +84,7 @@ specs/20261007-115855-environment-verification-coverage/
 ```text
 .github/actions/
 ├── environment-setup/
-│   └── action.yml       # Description notes that the Manager reuses the platform SDK pin
+│   └── action.yml       # Installs softhsm2; notes that the Manager reuses the platform SDK pin
 └── environment-verify/
     └── action.yml       # contracts/ joins the platform scope; new Manager check block
 ```
@@ -113,8 +115,21 @@ constitution's environment-feature rule requires.
    activation rule (FR-009). Existing check names, order (platform, Manager,
    Markdown), outputs, and uncovered reporting stay unchanged (FR-008).
 
-`environment-setup`: no step changes; only the description gains the
-statement that the Analyst Manager pins the same SDK version (FR-006, FR-007).
+`environment-setup`: a new step installs the Ubuntu package `softhsm2`
+(`sudo apt-get update && sudo apt-get install --yes softhsm2`) so the Manager's
+PKCS#11 key-provider tests find `libsofthsm2.so` and `softhsm2-util`; each
+test run creates its own token directory through `SOFTHSM2_CONF`, so the setup
+creates no token. The description also states that the Analyst Manager pins the
+same SDK version (FR-006, FR-007).
+
+## Risk Register
+
+| ID | Risk | Disposition | Evidence / Owner | Revisit trigger |
+| --- | --- | --- | --- | --- |
+| ENV-R1 | A contract change runs the full platform build and tests, which is slower than a contract-only check | Accepted | One scope keeps the platform check single-run (FR-002); contract tests live in the platform solution (R1) | Contract-only runs become a bottleneck |
+| ENV-R2 | The Manager pins a different SDK than the platform | Mitigated | The Manager check fails fast on a pin mismatch (Design step 4, R4) | A second SDK is genuinely needed |
+| ENV-R3 | `apt-get` install of `softhsm2` fails or slows setup | Accepted | Standard Ubuntu package used by the Manager spike on the runner image (R4a) | Setup failures on runner image updates |
+| ENV-R4 | Windows CNG and macOS Secure Enclave providers are not verified by the environment | Accepted | Verified manually per the Manager quickstart (R5) | A Windows or macOS CI job is added |
 
 ## Complexity Tracking
 

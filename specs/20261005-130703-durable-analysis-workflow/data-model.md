@@ -18,6 +18,7 @@ storage type chosen by their owning feature (planned as `uuid`). Timestamps are
 | Logical Job (`analysis_logical_jobs`) | Yes | `analysis_logical_job_snapshots`, `analysis_logical_job_inputs`, `analysis_readiness_occurrences`, `analysis_execution_attempts` | `analysis_logical_job_snapshots`, `analysis_logical_job_inputs`, `analysis_readiness_occurrences` |
 | Accepted Result Reference (`analysis_accepted_results`) | No (immutable record) | — | itself |
 | Completion Outcome (`analysis_completion_outcomes`) | No (immutable record) | — | itself |
+| Claim Key (`analysis_claim_keys`) | No (immutable record) | — | itself |
 | Notification Receipt (`analysis_notification_receipts`) | No (immutable record) | — | itself |
 | Outbox Message (`outbox_messages`) | No (operational record; row lock plus state guard) | — | — |
 
@@ -190,6 +191,25 @@ PK `(logical_job_id, idempotency_key)`; `attempt_id`, `request_fingerprint`
 (`sha-256:` of the RFC 8785 canonical payload), `outcome` (`accepted`,
 `failure-recorded`), `accepted_result_id null`, `recorded_at`. Immutable.
 
+### Claim key (idempotency) — `analysis_claim_keys`
+
+PK `(manager_id, idempotency_key)` (FR-045: the key is scoped to the claiming
+Manager); `logical_job_id`, `readiness_occurrence_id`, `attempt_id` (unique),
+`recorded_at`. Inserted in the same transaction as the attempt it produced;
+immutable. Claim resolution under the Logical Job row lock:
+
+| Stored key for this Manager | Condition | Outcome |
+| --- | --- | --- |
+| None | Job `Ready`, occurrence current, budget remains | New attempt and key row; `201`, `replayed = false` |
+| None | Otherwise | `409 claim-obsolete` (or `404` for an unknown job); nothing stored |
+| Present, same job and occurrence | Attempt still current (`current_attempt_id` matches, `Active`, lease not expired) | Same attempt, current lease expiry, same fencing token; `200`, `replayed = true`; nothing created, no budget consumed, lease not renewed |
+| Present, same job and occurrence | Attempt no longer current | `409 claim-obsolete` |
+| Present | Different job or occurrence | `409 idempotency-key-reuse` |
+
+Another Manager presenting the same key is in a different scope and makes an
+ordinary claim, which is rejected as `claim-obsolete` because the job is no
+longer `Ready`.
+
 ### Notification receipt — `analysis_notification_receipts`
 
 PK `message_id` (the inbound event identity); `message_type`
@@ -197,7 +217,15 @@ PK `message_id` (the inbound event identity); `message_type`
 (`run-created`, `run-exists`, `rejected`), `rejection_category null`
 (`schema-invalid`, `lineage-not-found`, `lineage-mismatch`, `scope-mismatch`),
 `run_id null`, `received_at`. Immutable. Dependency-unavailable outcomes are not
-recorded (the message is retried).
+recorded (the message is retried). While no workflow definition can be
+resolved (FR-046), no receipt is written either: the message stays pending in
+the transport and is processed once the definition becomes resolvable.
+
+Recording content digests from `IRecordingSetLookup` use the Recordings
+composite form `sha-256-parts:<partSize>:<partCount>:<hex>`; this feature only
+compares them for equality with the notification and never stores or
+recomputes them. Analysis-segment identity uses the timeline-mapping and
+segmentation-policy digests, so segment math is unaffected.
 
 ### Outbox message — `outbox_messages` (platform-shared)
 
@@ -242,6 +270,7 @@ erDiagram
     analysis_logical_jobs ||--o| analysis_accepted_results : "accepted once"
     analysis_execution_attempts ||--o| analysis_accepted_results : "accepted attempt"
     analysis_logical_jobs ||--o{ analysis_completion_outcomes : "idempotency"
+    analysis_execution_attempts ||--|| analysis_claim_keys : "claimed with key"
     analysis_readiness_occurrences ||--|| outbox_messages : "ready-work message"
     analysis_notification_receipts }o--o| analysis_runs : "created"
 ```
@@ -340,6 +369,8 @@ stateDiagram-v2
 | Hardware neutrality (FR-013) | Contract schema (closed objects) plus no such columns |
 | Readiness only from durable state (FR-015, FR-016, FR-018) | Domain `ReadinessEvaluator` under run lock |
 | Consecutive attempt numbers and budget (FR-021, FR-025) | Job row lock, unique constraint, `attempts_used <= max_attempts` |
+| Claim retry key scoped to the Manager; replay of a still-current attempt; conflict and obsolete outcomes (FR-045) | `analysis_claim_keys` PK under the job row lock |
+| Unresolvable workflow definition leaves notifications pending (FR-046) | Consumer pauses, `analysis-workflow` readiness check |
 | Fencing match for heartbeat and completion (FR-023, FR-026, FR-030) | Guarded `UPDATE`/`SELECT` on attempt |
 | At most one accepted result per job (FR-027) | Unique `logical_job_id` |
 | Idempotent completion (FR-029) | `analysis_completion_outcomes` PK plus fingerprint |

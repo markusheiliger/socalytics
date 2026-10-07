@@ -60,7 +60,13 @@
     },
     "sha256Digest": {
       "type": "string",
-      "pattern": "^sha-256:[0-9a-f]{64}$"
+      "pattern": "^sha-256:[0-9a-f]{64}$",
+      "description": "Plain SHA-256 digest, used for timeline mappings."
+    },
+    "compositeDigest": {
+      "type": "string",
+      "description": "Composite multipart content digest sha-256-parts:<partSizeBytes>:<partCount>:<hex>; hex is SHA-256 over the concatenated raw SHA-256 digests of the parts in order. Never comparable with a plain sha-256 digest.",
+      "pattern": "^sha-256-parts:[1-9][0-9]{0,9}:[1-9][0-9]{0,4}:[0-9a-f]{64}$"
     },
     "member": {
       "type": "object",
@@ -82,7 +88,7 @@
           "$ref": "#/$defs/identifier"
         },
         "recordingContentDigest": {
-          "$ref": "#/$defs/sha256Digest"
+          "$ref": "#/$defs/compositeDigest"
         },
         "timelineMappingId": {
           "$ref": "#/$defs/identifier"
@@ -106,7 +112,7 @@
         {
           "position": 1,
           "recordingVersionId": "0192f3a0-7c1e-7b2a-9d3e-5f6a7b8c9d05",
-          "recordingContentDigest": "sha-256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+          "recordingContentDigest": "sha-256-parts:5242880:3:8e41531920a37a7ca28af60841220d3147df4c1c06170b60dfca248e6f662770",
           "timelineMappingId": "0192f3a0-7c1e-7b2a-9d3e-5f6a7b8c9d06",
           "timelineMappingDigest": "sha-256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
         }

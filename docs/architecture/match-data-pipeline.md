@@ -17,11 +17,13 @@ sequenceDiagram
 
     User->>API: Start Upload
 
-    API->>User: Presigned Upload
+    API->>User: Presigned part grants
 
-    User->>S3: Upload immutable recording
+    User->>S3: Upload parts of immutable recording
 
     User->>API: Complete recording upload
+
+    API->>S3: Assemble declared parts and verify composite digest
 
     User->>API: Finalize match recording set
 
@@ -36,12 +38,17 @@ sequenceDiagram
   creates a new recording-set version and a new run rather than overwriting
   accepted evidence.
 
-  An upload grant will be a presigned single-object `PUT` for one
-  platform-chosen key whose declared SHA-256 is bound as a signed
-  `x-amz-checksum-sha256` header. Completion will accept the object only when
-  object storage reports the declared size and a full-object SHA-256 checksum
-  equal to the declaration; when storage cannot report that evidence,
-  completion fails closed. The API never reads or relays the media.
+  Every recording upload will be one multipart upload of one platform-chosen
+  object. The client declares the total size, a fixed part size, and the
+  SHA-256 digest of every part; the platform issues one short-lived presigned
+  grant per part that signs the part number, its exact `Content-Length`, and
+  its declared checksum, so storage refuses any other bytes, size, or part.
+  On completion the platform lists the stored parts, assembles exactly the
+  declared parts itself, and accepts the recording only when object storage
+  reports the expected composite SHA-256 digest and total size; when storage
+  cannot report that evidence, completion fails closed. An upload session
+  expires after a configured lifetime, and expiry aborts its multipart upload
+  and discards its stored parts. The API never reads or relays the media.
 
 ### Planned Recording-Lineage Foundation
 
@@ -95,7 +102,9 @@ flowchart TD
 The accepted logical-segment design uses immutable values, not mutable labels:
 
 - A **recording version** identifies one immutable source-video version owned
-  by one match.
+  by one match. Its content digest is the composite
+  [`sha-256-parts` digest](contracts-and-compatibility.md#representation-conventions)
+  of its upload, recorded with its part size, part count, and total size.
 - A **timeline mapping** immutably maps that recording version's media time to
   match time as an ordered list of spans, each mapping a half-open media
   interval to match time at a 1:1 rate, strictly increasing and

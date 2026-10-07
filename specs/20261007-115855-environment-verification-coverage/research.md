@@ -47,12 +47,24 @@
   Manager's `global.json` (more setup time, and a missing file would break
   setup before the Manager exists).
 
-## R5: Windows-only Manager tests
+## R4a: Software PKCS#11 token for the Manager's Linux key tests
 
-- **Decision**: Nothing in the environment; the Manager's tests skip
-  Windows-only protected-store tests on Linux, as its plan defines.
-- **Rationale**: The runner cannot provide Windows CNG or DPAPI; emulation
-  would test nothing real.
+- **Decision**: Install the Ubuntu package `softhsm2` in `environment-setup`;
+  tests create per-run tokens through `SOFTHSM2_CONF`.
+- **Rationale**: The Manager's Linux device-key provider is a PKCS#11 client;
+  the spike proved SoftHSM2 with Pkcs11Interop 5.3.0 creates non-extractable
+  P-256 keys, signs ES256, and refuses export on the Ubuntu runner image.
+- **Alternatives considered**: A software TPM with tpm2-pkcs11 (closer to
+  production but needs swtpm, tpm2-abrmd, and D-Bus; optional later); mocking
+  PKCS#11 (tests nothing real).
+
+## R5: Windows and macOS Manager tests
+
+- **Decision**: Nothing in the environment; the Manager's tests skip the
+  Windows CNG and macOS Secure Enclave provider tests on Linux, and those are
+  verified manually as its plan defines.
+- **Rationale**: The runner cannot provide Windows CNG or the macOS Secure
+  Enclave; emulation would test nothing real.
 - **Alternatives considered**: A Windows runner job (out of scope for the
   verify contract, which runs in one Linux job).
 

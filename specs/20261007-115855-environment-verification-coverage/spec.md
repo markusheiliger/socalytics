@@ -8,6 +8,12 @@
 
 **Input**: User description: "Environment feature that extends the repository's automated build-and-verify environment so that changes to the planned repository-root machine-readable contracts folder and to the planned Analyst Manager solution under the analysts source area are verified like platform changes, before Recording Lineage and Upload, Durable Analysis Workflow, and Analyst Manager Registration start. It changes only the environment setup and verify extension points."
 
+## Clarifications
+
+### Session 2026-10-07
+
+- Q: Which extra tooling does the Analyst Manager's automated verification need on the Linux runner? → A: A software key-store token (SoftHSM2) so the Manager's Linux key-provider tests run against a real PKCS#11 token; its desktop UI tests run headless and need nothing extra. Windows and macOS key-store tests are not run by this environment.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Contract changes are verified automatically (Priority: P1)
@@ -54,6 +60,7 @@ The setup step installs everything the Analyst Manager build and tests need on t
 **Acceptance Scenarios**:
 
 1. **Given** the setup step runs, **When** the Manager solution later builds, **Then** it uses the same pinned development kit version as the platform.
+2. **Given** the setup step runs, **When** the Manager's key-provider tests run, **Then** a software PKCS#11 token is available to them without any test-time installation.
 
 ### Edge Cases
 
@@ -71,7 +78,7 @@ The setup step installs everything the Analyst Manager build and tests need on t
 - **FR-003**: The verification MUST treat changes under the Analyst Manager area as covered only while the Manager solution exists.
 - **FR-004**: When the Manager solution exists, the verification MUST restore, build, and test it whenever a Manager file changed or in finalize mode, and MUST fail when any of these steps fails, naming the Manager check.
 - **FR-005**: While the Manager solution does not exist, the verification MUST skip the Manager check without failing.
-- **FR-006**: The setup MUST provide the development kit version pinned for the platform to the Manager build and MUST NOT install additional tools unless the Manager build requires them.
+- **FR-006**: The setup MUST provide the development kit version pinned for the platform to the Manager build, MUST install a software PKCS#11 token (SoftHSM2) that the Manager's key-provider tests use, and MUST NOT install other tools unless the Manager build requires them.
 - **FR-007**: The feature MUST change only the environment setup and environment verify extension points (the only paths an environment feature may change); it MUST NOT add product code, tests, contracts, documentation outside those extension points, or the Manager solution.
 - **FR-008**: The order of checks, their names in the verification output, and the uncovered-file reporting MUST keep their existing behavior for platform and Markdown changes.
 - **FR-009**: The descriptions inside the two extension points MUST describe the new contract and Manager coverage, including that each becomes active only once its project exists.
@@ -95,7 +102,7 @@ The setup step installs everything the Analyst Manager build and tests need on t
 - **Dependents**: Recording Lineage and Upload (`specs/20261005-130702-recording-lineage-upload`), Durable Analysis Workflow (`specs/20261005-130703-durable-analysis-workflow`), and Analyst Manager Registration (`specs/20261005-130704-analyst-manager-registration`) depend on this feature, which is reviewed and merged before they start, as the constitution's environment-feature rule requires.
 - **Contracts validation lives in the platform**: the platform contract test project created by Recording Lineage and Upload validates the contracts folder, so contract coverage reuses the platform checks instead of adding a separate tool.
 - **Manager location and toolchain**: the Analyst Manager is a separate solution in the analysts source area at the path its plan defines, pinned to the same development kit version as the platform.
-- **Runner capabilities**: the automation runner is Linux; Windows-only Manager tests (protected key stores) run only on Windows developer machines, as the Manager plan states.
+- **Runner capabilities**: the automation runner is Linux; the Manager's PKCS#11 key provider is tested against the software token and its UI view models headless, while the Windows and macOS key-store providers are verified manually on their operating systems, as the Manager plan states.
 - **Self-test**: the merge workflow self-tests a branch's own environment actions, so this feature is verified by its own merge run; environment changes are held for human review by design.
 - **Repository documentation**: the repository README describes only active coverage. Recording Lineage and Upload updates its description of the verification when it creates the contracts folder, and Analyst Manager Registration does so when it creates the Manager solution.
 - **Architecture References**: [docs/architecture/contracts-and-compatibility.md](../../docs/architecture/contracts-and-compatibility.md), [docs/architecture/platform-implementation.md](../../docs/architecture/platform-implementation.md), [docs/architecture/analyst-manager.md](../../docs/architecture/analyst-manager.md).

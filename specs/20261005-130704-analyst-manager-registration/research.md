@@ -8,6 +8,9 @@ values only; production-approved values remain unresolved under
 [Production Deployment and Operations](../../docs/architecture/production-operations.md)
 and `GOV-CRED-002`/`GOV-CRED-003` in
 [Security and Data Governance](../../docs/architecture/security-and-data-governance.md).
+Manager decisions (R11–R14, R19–R24) rest on the 2026-10-07 Manager spikes
+M1–M6 (PKCS#11 with SoftHSM2 and tpm2-pkcs11, Windows CNG, macOS research,
+Avalonia tray and headless tests, autostart, control socket).
 
 ## R1. Machine token issuance: in-API token endpoint vs. an OAuth server library
 
@@ -142,7 +145,7 @@ and `GOV-CRED-002`/`GOV-CRED-003` in
 
 - **Decision**: One aggregate `analyst_manager_registration` carries the whole
   lifecycle from `Pairing` to a terminal state. Every transition handler runs in
-  one `IUnitOfWork` and updates `WHERE id = @Id AND state = @ExpectedState`
+  one `IUnitOfWork.BeginAsync` scope (`IUnitOfWorkScope`) and updates `WHERE id = @Id AND state = @ExpectedState`
   (state guard, no `If-Match`); zero rows means a `409` conflict, except for the
   pairing-code submission, which returns the indistinguishable refusal. Expiry is
   evaluated by the platform clock (`TimeProvider`) inside each command and, for
@@ -178,7 +181,9 @@ and `GOV-CRED-002`/`GOV-CRED-003` in
   Manager-facing operations are mapped outside `MapMemberApi`: the anonymous
   ones (stamp discovery, pairing, status, activation, token) are added to the
   Club and Identity anonymous allow list checked by the architecture tests, and
-  the `self` operations require only the `AnalystManagerDPoP` scheme. The DPoP
+  the `self` operations require the policy `AnalystManager` (scheme
+  `AnalystManagerDPoP`, scope `analyst-manager`), which this feature defines
+  and Durable Analysis Workflow reuses for its Manager operations. The DPoP
   scheme is never accepted by human operations, and the session cookie is never
   accepted by Manager operations.
 - **Rationale**: FR-005, FR-006, FR-008, FR-013, and the architecture's
@@ -241,86 +246,154 @@ and `GOV-CRED-002`/`GOV-CRED-003` in
   creation (rejected: one transition would yield two events, contradicting
   SC-008).
 
-## R11. Analyst Manager host shape (no Avalonia in this slice)
+## R11. Analyst Manager application shape: per-user Avalonia tray app
 
-- **Decision**: One executable project `SocAlytics.Analysts.Manager`
-  (assembly `socalytics-manager`) using the .NET 10 Generic Host for `run`, and
-  `System.CommandLine` 2.0.12 for the command surface (`run`, `register`,
-  `status`, `pause`, `resume`, `exit`, `unregister`). All commands except `run`
-  are thin local-control clients of the running host.
-- **Rationale**: The architecture adopts the Generic Host and keeps the worker
-  testable without the UI; the spec excludes the desktop interface. A single
-  production project keeps the change minimal; `System.CommandLine` is the
-  Microsoft-supported stable parser (2.0 GA with .NET 10).
-- **Alternatives considered**: Avalonia tray now (out of scope); a separate CLI
-  project (rejected: no reuse benefit); hand-written argument parsing (rejected:
-  more code, worse help output).
+- **Decision**: The Manager is a per-user desktop application (no service, no
+  administrator rights; FR-037) built from two production projects:
+  `SocAlytics.Analysts.Manager.Core` (class library, no Avalonia reference)
+  holds the .NET 10 Generic Host worker and every behavior (registration,
+  restore, revocation, key providers, signed state, platform client, operating
+  state machine, timed pause, preflight, autostart, local-control server and
+  client); `SocAlytics.Analysts.Manager` (Avalonia 12.1.3 `WinExe`, assembly
+  `socalytics-manager`, plain `net10.0`) hosts the worker in-process and adds
+  the tray icon, tray menu, status window, and view models. The tray menu offers
+  status, pause, timed pause (presets 30 min, 1 h, 2 h, 4 h, 8 h, and a custom
+  duration), resume, safe exit, register, unregister, and a "Start at sign-in"
+  toggle (FR-024). The app uses `ShutdownMode.OnExplicitShutdown` with no main
+  window, creates the `TrayIcon` only after its properties are set, and opens
+  the status window on demand. On Linux it checks whether
+  `org.kde.StatusNotifierWatcher` owns a name on the session bus; without a
+  StatusNotifierItem host (and on any tray failure) it shows the status window,
+  which offers the same controls (edge case "no tray area"). View models are
+  plain `INotifyPropertyChanged` classes over the worker's state API, so they are
+  tested without Avalonia; windows and the tray menu are tested with
+  `Avalonia.Headless.XUnit` 12.1.3, which runs on Linux without a display
+  (spike M4). xUnit v3 stays on 3.2.x because 4.x breaks `[AvaloniaFact]`
+  (Avalonia issue #22072).
+- **Rationale**: The architecture adopts the Generic Host plus Avalonia and
+  keeps the worker testable without the UI; the spec's clarification makes the
+  tray app the primary surface on all three operating systems. Splitting Core
+  from the UI project enforces "UI-free worker" by the reference graph rather
+  than by convention, and lets every behavior test run without UI types.
+- **Alternatives considered**: A Windows service or systemd/launchd daemon
+  (rejected by FR-037 and the clarification); one project with UI and worker
+  mixed (rejected: nothing stops UI types leaking into the worker); Electron or
+  Tauri (the architecture's fallbacks, not needed because spike M4 passed);
+  XEmbed tray fallback on Linux (does not exist in Avalonia; the status window
+  covers it).
 
-## R12. Local operating controls transport
+## R12. Single instance and local-control channel
 
-- **Decision**: Newline-delimited JSON requests and responses (one request per
-  connection, schema in [local-control.schema.json](contracts/local-control.schema.json))
-  over a Unix domain socket on every operating system (`AF_UNIX`, supported by
-  .NET on Windows 10 1803+/Server 2019+, Linux, and macOS). The socket file
-  `control.sock` lives in the Manager state directory, which is created with an
-  owner-only DACL on Windows and mode `0700` on Linux/macOS; the socket is mode
-  `0600` where applicable. Only the Manager's process account (the host operator
-  in the autostart model) can connect.
-- **Rationale**: One transport means the Linux CI runner exercises exactly the
-  production IPC code path. Owner-only filesystem permissions provide the
-  authorization boundary without credentials (FR-005, FR-024).
-- **Alternatives considered**: Windows named pipes plus Unix sockets (rejected:
-  two transports, Windows path untestable on the Linux runner); Kestrel HTTP over
-  a socket (rejected: pulls the ASP.NET Core framework into the Manager for four
-  commands); gRPC (rejected: dependencies and code generation); loopback TCP
-  (rejected: reachable by any local user).
+- **Decision**: One Unix domain socket per user (`UnixDomainSocketEndPoint`,
+  `SocketType.Stream`, `ProtocolType.Unspecified`) serves two purposes:
+  single-instance detection and the optional scripting CLI. Paths:
+  Windows `%LOCALAPPDATA%\SocAlytics\AnalystManager\run\manager.sock` in a
+  directory with a protected owner-only DACL; Linux
+  `$XDG_RUNTIME_DIR/socalytics/manager.sock` (fallback
+  `~/.local/state/socalytics/run/manager.sock`), directory `0700`, socket `0600`;
+  macOS `~/Library/Application Support/SocAlytics/AnalystManager/run/manager.sock`
+  (fallback `$TMPDIR/socalytics/manager.sock` when the path exceeds 104 bytes).
+  Every accepted connection is verified against the owning user: Linux
+  `SO_PEERCRED` uid, Windows `SIO_AF_UNIX_GETPEERPID` then process-token SID,
+  macOS `getpeereid` uid; mismatches are rejected. On start the app binds the
+  socket; if the file exists it connects, and a live instance receives
+  `show-status` (bringing its status window forward) while the new process
+  exits; an unanswered socket is stale and is replaced. The same executable
+  started with a command (`status`, `pause`, `resume`, `exit`, `register`,
+  `unregister`, `autostart`) acts as a client and never starts the UI; on
+  Windows it attaches to the parent console (`AttachConsole`) so output is
+  visible from a `WinExe`. Messages are newline-delimited JSON as defined in
+  [local-control.schema.json](contracts/local-control.schema.json).
+- **Rationale**: Spike M6 confirmed sockets, owner-only directories, Windows
+  ACL enforcement at `connect()`, and peer-identity checks on Windows and
+  Linux. One transport means the Linux runner exercises the production IPC path
+  and single-instance logic. The CLI keeps the controls scriptable and gives a
+  guaranteed control surface when no tray host exists.
+- **Alternatives considered**: Named mutex plus named pipes (rejected: two
+  mechanisms and Windows-only); Kestrel over a socket (rejected: ASP.NET Core in
+  the Manager for a handful of commands); loopback TCP (rejected: reachable by
+  other local users).
 
-## R13. Device-key store per operating system
+## R13. Device-key providers per operating system
 
-- **Decision**: ECDSA P-256 (ES256) device keys behind `IDeviceKeyStore`.
-  Windows: Windows CNG `Microsoft Software Key Storage Provider`, user-scoped
-  persisted key (scoped to the Manager process account), `ExportPolicy = None`,
-  one fresh key per pairing attempt, key name recorded as the device-key
-  reference. This is the only built-in store in this slice and is an
-  implementation candidate, not an approved production store (`GOV-CRED-002`).
-  Linux and macOS: an `UnsupportedDeviceKeyStore` reports "no supported protected
-  key store on this operating system" with remediation text; registration is
-  refused and nothing is created (FR-002, acceptance scenario US1-10). The
-  test-only store (in-memory ECDSA, no export API) exists only in the test
-  assembly and is registered only by test hosts, so it cannot be selected
-  outside validation. TPM-backed keys (`Microsoft Platform Crypto Provider`) are
-  deferred; hardware backing is optional per architecture.
-- **Rationale**: The first supported Analyst execution host is Windows
-  ([Analyst Runtime and Recovery](../../docs/architecture/analyst-runtime-and-recovery.md#oci-container-runtime-boundary)).
-  .NET has managed CNG APIs (`CngKey.Create`, `ECDsaCng`) for non-exportable
-  persisted keys but no managed API for macOS Keychain/Secure Enclave key
-  creation or a standard Linux non-exportable key store; adding native interop or
-  `tpm2-pkcs11` now would exceed this slice, and the spec defers per-OS evidence.
-- **Alternatives considered**: Linux kernel keyring `asymmetric` keys
-  (rejected: key must exist outside first; no managed API); `tpm2-pkcs11`
-  (deferred: native dependency and evidence spike); macOS Keychain via
-  Security.framework P/Invoke (deferred); exportable PEM file with file
-  permissions (prohibited by FR-002).
+- **Decision**: `IDeviceKeyProvider` creates, opens, signs with, and deletes a
+  per-user ECDSA P-256 key and reports `keyProtection` (sent to the platform as
+  `claimedKeyProtection`, R26). JWS ES256 needs raw
+  `r‖s`, which every provider returns. One fresh key per pairing attempt.
+  - **Windows (CNG)**: Microsoft Platform Crypto Provider (TPM) first; the
+    Microsoft Software Key Storage Provider only when stamp discovery reports
+    `softwareKeysAllowed` (R26); user scope (no `MachineKey`),
+    `ExportPolicy = None`, `KeyUsage = Signing`. `keyProtection` is `tpm` or
+    `software`. Every private export fails with `NTE_NOT_SUPPORTED` and the
+    policy cannot be loosened later (spike M2). Software keys live in the
+    roaming profile, which is why they are refused unless the stamp allows
+    software keys.
+  - **macOS**: a small Swift library `SocAlyticsMacBridge` (universal
+    arm64/x86_64 dylib with `@_cdecl` exports, bundled in the `.app`) over
+    CryptoKit `SecureEnclave.P256.Signing.PrivateKey`; the SE-wrapped
+    `dataRepresentation` is the key reference, usable only by that Secure
+    Enclave; `.rawRepresentation` signatures are already `r‖s`.
+    Without a Secure Enclave, and only when the stamp allows software keys,
+    the bridge creates a non-extractable Keychain key (`keyProtection`
+    `software`; DER signatures converted to `r‖s` in C#).
+    Plain .NET cannot create persistent or Secure Enclave keys (spike M3). The
+    dylib is built on macOS only; entitlement needs are verified in a Mac spike
+    before macOS release.
+  - **Linux (PKCS#11)**: `Pkcs11Interop` 5.3.0 with
+    `NativeLibrary.SetDllImportResolver` mapping `libdl` to `libdl.so.2`
+    (glibc ≥ 2.34). Production module tpm2-pkcs11
+    (`/usr/lib/x86_64-linux-gnu/pkcs11/libtpm2_pkcs11.so`, per-user store via
+    `TPM2_PKCS11_STORE` in a `0700` directory, TCTI `device:/dev/tpmrm0` with
+    the `tss` group or `tabrmd`). The operator provisions the token once
+    (`tpm2_ptool init` / `addtoken`, label `socalytics-device`); the Manager
+    generates the key with `CKM_EC_KEY_PAIR_GEN` (private template
+    `CKA_TOKEN`, `CKA_PRIVATE`, `CKA_SENSITIVE`, `CKA_SIGN` true,
+    `CKA_EXTRACTABLE` false) and signs with `CKM_ECDSA` over SHA-256. It never
+    sets `CKA_EXTRACTABLE=true` or `CKA_SENSITIVE=false`, because tpm2-pkcs11
+    accepts such metadata changes; non-exportability comes from the TPM
+    (`fixedtpm|fixedparent`). The user PIN is a random per-install value in an
+    owner-only file; device binding comes from the TPM. `keyProtection` is
+    `pkcs11-token`. Module paths come from a built-in allow-list.
+  - **SoftHSM2** is a test-only module: the test host registers it with a
+    per-user token created via `SOFTHSM2_CONF` and `softhsm2-util --init-token
+    --free`; production configuration cannot select it because it is not on
+    the allow-list (FR-038 assumption "test-only store"). It reports
+    `software`, so the Linux tests also exercise the software-key refusal.
+  - Any other host, or a missing store, dylib, module, or token, refuses
+    registration with an actionable explanation and creates nothing (FR-002).
+- **Rationale**: Implements FR-038 with the spike-verified mechanisms (M1, M2,
+  M3). SoftHSM2 exercises the same PKCS#11 code path as production on the Linux
+  runner.
+- **Alternatives considered**: `net10.0-macos` provider assembly (rejected:
+  macOS-only builds for the whole app); raw P/Invoke to Security.framework
+  (rejected: CoreFoundation memory management without precedent); Linux kernel
+  keyring (rejected: no managed API, key must exist outside first); exportable
+  key files (prohibited by FR-002).
 
-## R14. Protected local registration state
+## R14. Signed owner-only local state (no DPAPI)
 
-- **Decision**: `IProtectedStateStore` persists one versioned JSON document
-  (`ProtectedRegistrationState`) protected with Windows DPAPI
-  (`System.Security.Cryptography.ProtectedData` 10.0.12, `CurrentUser` scope,
-  fixed application entropy) to `registration.state` in the state directory
-  (default `%LOCALAPPDATA%\SocAlytics\AnalystManager`), written atomically
-  (temporary file plus replace). DPAPI's authenticated encryption is the
-  integrity check; restore additionally requires the referenced key to open and
-  its thumbprint to equal the recorded thumbprint. Linux/macOS have no supported
-  state store in this slice (consistent with R13). Tests use a test-only AES-GCM
-  store to exercise tamper, missing, and unreadable cases on any OS.
-- **Rationale**: FR-017, FR-019, SC-005. DPAPI user scope prevents use by other
-  accounts or machines and needs no extra key management.
-- **Alternatives considered**: ASP.NET Core Data Protection (rejected: key ring
-  on disk is another secret to protect); Windows Credential Manager (rejected:
-  size limits, no added benefit); signing the state with the device key
-  (rejected: thumbprint comparison plus DPAPI integrity already bind state and
-  key).
+- **Decision**: The local registration state is one file `registration.state`
+  in the per-user state directory (Windows `%LOCALAPPDATA%\SocAlytics\AnalystManager`,
+  macOS `~/Library/Application Support/SocAlytics/AnalystManager`, Linux
+  `$XDG_STATE_HOME/socalytics/analyst-manager`), created owner-only (protected
+  DACL for the current user; `0600` in a `0700` directory). Its content is a
+  compact JWS (`typ` `socalytics-manager-state+jwt`, `alg` `ES256`, `kid` =
+  device-key thumbprint) whose payload is the canonical JSON of
+  `ProtectedRegistrationState` (UTF-8, sorted property names, no insignificant
+  whitespace), signed with the device key. Start-up reads the payload, opens the
+  referenced key through its provider, verifies the signature with that key's
+  public key, compares the thumbprint, checks the owner-only permissions, and
+  fails closed on any mismatch (FR-017, FR-019). Writes are atomic (temporary
+  file plus replace) and re-signed on every intent change. The state contains no
+  secret; the macOS Secure Enclave `dataRepresentation` is a key handle usable
+  only by that enclave.
+- **Rationale**: A signature with the non-exportable key detects edits and
+  copies to another account or machine on every OS, replacing the Windows-only
+  DPAPI design. Owner-only permissions keep other accounts out.
+- **Alternatives considered**: DPAPI (rejected: Windows-only, and the
+  clarification requires one mechanism on all three OSes); an HMAC key stored
+  beside the file (rejected: one more secret to protect); encrypting the state
+  (unnecessary: it holds no secret).
 
 ## R15. Container-runtime preflight in a slice without runtime integrations
 
@@ -396,42 +469,201 @@ and `GOV-CRED-002`/`GOV-CRED-003` in
 - **Decision**: Platform behavior is verified in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry`
   (Testcontainers PostgreSQL, `WebApplicationFactory`, a test-side Manager
-  simulator signing with in-memory ECDSA, `FakeTimeProvider` from
-  `Microsoft.Extensions.TimeProvider.Testing` 10.10.0) plus architecture tests.
-  Manager behavior is verified in `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests`
-  (xUnit v3, Shouldly, `FakeTimeProvider`, `FakeLogger` from
-  `Microsoft.Extensions.Diagnostics.Testing` 10.10.0, and `JsonSchema.Net` 8.0.5 (last MIT-licensed line, as in the platform contract tests)
-  to validate every local-control message against the component-local schema)
-  against an in-process fake
-  platform implementing [openapi.yaml](contracts/openapi.yaml), the test-only key
-  and state stores, and the simulated runtime. Windows CNG and DPAPI adapter
-  tests use xUnit v3 `SkipUnless` on Windows and report as skipped on the Linux
-  runner. Secret-leak tests (SC-007) scan captured logs, audit rows, status
-  output, and state files for every generated secret value.
+  simulator, `FakeTimeProvider` from `Microsoft.Extensions.TimeProvider.Testing`
+  10.10.0) plus architecture tests. Manager behavior is verified in
+  `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests` with xUnit v3
+  3.2.2 (pinned `[3.2.2,4.0)`), Shouldly, `FakeTimeProvider`, `FakeLogger`
+  (`Microsoft.Extensions.Diagnostics.Testing` 10.10.0), `JsonSchema.Net` 8.0.5
+  (last MIT release; validates every local-control message), and
+  `Avalonia.Headless.XUnit` 12.1.3 for the tray menu and status window. On the
+  Linux runner the Manager tests use the PKCS#11 provider against SoftHSM2
+  (keygen template, ES256 encoding, reload by `CKA_ID`, export refusal, the
+  `libdl` resolver), the real signed-state store, the socket channel with peer
+  checks, the XDG autostart registrar under a temporary `XDG_CONFIG_HOME`, the
+  in-process fake platform, the simulated runtime, and simulated work. Windows
+  CNG, Windows autostart and socket ACL behavior, and every macOS provider are
+  covered by tests marked `SkipUnless` their OS and are verified manually per
+  [quickstart.md](quickstart.md); pure logic (DER to `r‖s`, plist and Run-key
+  generation) runs everywhere. Both sides also run the shared golden fixtures
+  (R23). Secret-leak tests (SC-007) scan captured logs, audit rows, status
+  output, diagnostics, and state files for every generated secret value.
 - **Rationale**: Each solution validates what it owns without a cross-area
-  project reference; both sides are tied to the same contract.
+  project reference; golden fixtures plus the manual end-to-end run catch drift
+  between them (spec clarification).
 - **Alternatives considered**: A cross-solution end-to-end test project
-  (rejected: couples the platform and analysts builds; the manual quickstart
-  covers the composed flow on Windows).
+  (rejected: couples the two builds); a Windows or macOS runner (not available
+  through the composite environment actions).
 
-## R20. Build environment for the new Manager solution
+## R20. Build environment for the Manager solution
 
 - **Decision**: The Manager solution is
   `src/analysts/manager/SocAlytics.Analysts.Manager.slnx`. It pins the SDK with
-  its own `src/analysts/manager/global.json`, whose content is identical to
+  its own `src/analysts/manager/global.json`, identical to
   `src/platform/global.json` (`10.0.400`, `rollForward: latestPatch`,
-  `allowPrerelease: false`), so running `dotnet` inside `src/analysts/manager`
-  resolves the same SDK without depending on the platform folder. The combined
-  environment feature
+  `allowPrerelease: false`). The combined environment feature
   [20261007-115855-environment-verification-coverage](../20261007-115855-environment-verification-coverage/spec.md)
-  extends `.github/actions/environment-verify` so the Linux runner restores,
-  builds, and tests that solution and covers `^src/analysts/manager/`; setup
-  keeps installing the SDK from `src/platform/global.json`, which the identical
-  Manager pin satisfies. It must merge before this feature.
-- **Rationale**: Constitution 1.1.0 Technology and Tooling Constraints; the
-  current verify action builds only the platform solution and would report every
-  Manager file as uncovered.
+  installs SoftHSM2 (`softhsm2`) in `environment-setup` and extends
+  `environment-verify` so the Linux runner restores, builds, and tests the
+  Manager solution when `src/analysts/manager/**` or
+  `contracts/analyst-manager/**` changes and in finalize mode. Avalonia headless
+  tests need no X server or extra packages (spike M4). The macOS Swift bridge is
+  not built on the runner (it needs Xcode); the .NET code that loads it builds
+  everywhere. The environment feature must merge before this feature.
+- **Rationale**: Constitution 1.1.0 Technology and Tooling Constraints and the
+  spike's CI coverage table.
 - **Alternatives considered**: Adding the Manager projects to the platform
-  solution (rejected: crosses source-area ownership and the shared conventions);
-  a Windows runner job (rejected: environment features change only the two
-  composite actions, not the runner).
+  solution (rejected: crosses source-area ownership); a tpm2-pkcs11 + swtpm job
+  (deferred: proven in the spike but optional; SoftHSM2 covers the provider
+  logic).
+
+## R21. Per-user autostart
+
+- **Decision**: `IAutostartRegistrar` with three implementations, written only
+  on explicit opt-in from the tray toggle, which always reads back the real
+  state (FR-037):
+  - Windows: value `SocAlytics.AnalystManager` = `"<exe>" --autostart` under
+    `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`; the undocumented
+    `StartupApproved\Run` flag is read to show a disabled state but never
+    written.
+  - macOS: `SMAppService.mainApp.register()` / `unregister()` through the Swift
+    bridge (macOS 13+, signed `.app`); fallback
+    `~/Library/LaunchAgents/<bundle-id>.plist` with `RunAtLoad`,
+    `ProgramArguments`, and `LimitLoadToSessionType=Aqua`.
+  - Linux: `${XDG_CONFIG_HOME:-~/.config}/autostart/socalytics-analyst-manager.desktop`
+    (`Type=Application`, `Exec=… --autostart`); disabling removes the file.
+  An `--autostart` start behaves like any start (FR-018) and stays in the tray
+  without opening the status window.
+- **Rationale**: Spike M5 found no mature cross-platform library; each
+  implementation is small and per-user, needing no administrator rights.
+- **Alternatives considered**: AutoLaunch 1.0.1 (rejected: single author, low
+  adoption); systemd user units (unnecessary: XDG autostart is converted by
+  systemd sessions); Startup-folder shortcuts (rejected: COM `IShellLink`).
+
+## R22. Timed pause
+
+- **Decision**: The operating intent is `Running`, `Paused`, or
+  `PausedUntil(endUtc)`. A timed pause stops admission immediately, persists the
+  end time in the signed state, and is evaluated by a `TimeProvider` timer with a
+  1 s tick. At the end time the intent becomes `Running`; the Manager enters
+  Running only when the registration is confirmed Active and the latest
+  preflight passed, otherwise it stays Runtime unavailable or restoring under
+  the normal rules (FR-036, edge case). An explicit resume ends it early.
+  After a restart an unexpired pause continues to its original end; an expired
+  one restores intent `Running`. Durations are 1 minute to
+  `Operating:MaxTimedPause` (non-production default 7 days). Status shows the
+  end time and remaining time. The local clock is used because the pause is a
+  local operating decision, not a platform expiry.
+- **Rationale**: FR-036, US5 scenarios 7–8, and SC-012 (resume within 5 s of
+  the end time).
+- **Alternatives considered**: Platform-side scheduling (rejected: operating
+  state is local); storing a remaining duration (rejected: drifts across
+  restarts).
+
+## R23. Shared golden fixtures
+
+- **Decision**: Committed reference examples of every registration exchange
+  live under repository-root `contracts/analyst-manager/registration/v1/` with a
+  manifest `fixtures.json` (`$id`
+  `https://socalytics.invalid/contracts/analyst-manager/registration/v1/fixtures.schema.json`
+  for its schema). The fixed test key is the published P-256 example key of
+  RFC 7515 Appendix A.3, so no real secret is committed. Fixed context: clock
+  `2026-01-01T00:00:00Z`, stamp `fixture-stamp`, base URI
+  `https://stamp.example.test`. Vectors: stamp discovery, pairing request and
+  issued response, status responses (awaiting, pending, approved with
+  challenge, rejected), activation request with a signed activation proof and
+  result, token request (form fields, `private_key_jwt` assertion, DPoP proof)
+  and response, inactive token error, `self/registration` request (DPoP proof
+  with `ath`) and response, the inactive `401` problem, the device
+  fingerprint of the test key, a pairing-code submission with the right and
+  with a wrong fingerprint, and negative vectors (replayed `jti`, wrong `aud`,
+  wrong key, stale `iat`, wrong `htu`). The
+  platform runs each request vector through the API with `FakeTimeProvider` set
+  to the fixture clock and asserts the expected outcome and response shape; the
+  Manager parses every response vector with its client types, builds each
+  request with an in-memory signer over the fixture key, and compares headers
+  and claims (except `jti` and signature) with the vector, verifying signatures
+  with the fixture public key. `SocAlytics.Platform.Contracts.Tests` validates
+  the manifest, its schema, and the index entry in `contracts/README.md`
+  (created by Recording Lineage and Upload; if that index does not yet exist
+  when this feature is implemented, the first fixture task creates it with the
+  same columns: Artifact, Owner, Version, Example, Validation command).
+- **Rationale**: FR-039 and the clarification: a format change on either side
+  fails verification without a cross-solution project reference. ECDSA
+  signatures are randomized, so the Manager compares structure and verifies
+  rather than comparing bytes.
+- **Alternatives considered**: Generated client code (rejected: Kiota adoption
+  is not part of this slice); a private test key generated for the repository
+  (rejected: a committed private key invites secret-scanning noise; the RFC key
+  is public).
+
+## R24. Sign-out, shutdown, and session end
+
+- **Decision**: On operating-system session end (Avalonia `ShutdownRequested`,
+  Windows `WM_QUERYENDSESSION`, macOS `applicationShouldTerminate`, Linux
+  `SIGTERM`), the app requests a safe exit with a drain bound of
+  `Operating:SessionEndDrainBound` (non-production default 5 s), keeps the
+  registration and last intent, and exits.
+- **Rationale**: Edge case "user signs out or the host shuts down".
+- **Alternatives considered**: Ignoring session end (rejected: the OS kills the
+  process and the intent could be stale).
+
+## R25. Device fingerprint and pairing origin (device-code phishing)
+
+- **Decision**: Countering RFC 8628 §5.4 (remote phishing of user codes), the
+  Manager shows a short device fingerprint next to the pairing code: eight
+  base-20 characters (`XXXX-XXXX`, ≈34.6 bits) derived from the RFC 7638
+  thumbprint as defined in
+  [proof-profiles.md](contracts/proof-profiles.md#device-fingerprint). The
+  pairing response carries the platform's derivation, which the Manager checks
+  against its own. The Registrar submits the code and the fingerprint read from
+  the Manager's screen; the platform compares the fingerprint in constant time
+  with the stored value. A mismatch gets the same indistinguishable refusal as
+  an invalid code (FR-040), records `analyst-manager.submission-refused`
+  (reason `fingerprint-mismatch`) independently, and does not consume the code;
+  after `Registry:Pairing:MaxFingerprintMismatches` (default 3) the pairing
+  expires (reason `fingerprint-mismatch-limit`). The registration stores the
+  connection source address and the time of the pairing request; the
+  registration representation used by decision views returns the fingerprint,
+  `pairingOrigin`, and a fixed `approvalNotice` ("Approve only an Analyst
+  Manager you can physically identify by the device fingerprint shown on it")
+  while a decision is pending.
+- **Rationale**: A phished pairing code alone no longer creates a request; the
+  attacker must also persuade the Registrar to type a fingerprint that is not
+  on the Registrar's machine, and approvers see an unexpected origin and the
+  warning. The fingerprint is public (derived from the public key), so it needs
+  no protection. Its 34.6 bits suffice: blind guessing is bounded by the
+  mismatch limit and rate limits, and forging a key whose fingerprint matches
+  a genuine Manager would require knowing that Manager's fingerprint and about
+  2^34 key generations within one pairing window.
+- **Alternatives considered**: Showing the request origin only (rejected: easy
+  to overlook); a QR code that binds code and fingerprint (deferred with QR
+  rendering by the spec); a longer fingerprint (rejected: harder to read aloud,
+  little gain given the mismatch limit). Residual risk: an attacker who
+  persuades the Registrar to type both values from a message (Risk Register
+  R-12).
+
+## R26. Claimed key protection and the software-key gate
+
+- **Decision**: The Manager sends `claimedKeyProtection` (`tpm`,
+  `secure-enclave`, `pkcs11-token`, `software`) at pairing; the platform stores
+  it, and API representations, audit details, and decision views label it as
+  claimed. It is never an input to authorization or approval logic (FR-041).
+  Its single effect: `software` is refused at pairing with `409
+  analyst-manager-software-key-not-allowed` unless `Registry:AllowSoftwareKeys`
+  is true. The setting defaults to `false` and is meant to be true only in
+  development and test (the AppHost sets it; integration tests set it per
+  test). Stamp discovery returns `softwareKeysAllowed`, and the Manager falls
+  back to the Windows software KSP or a non-Secure-Enclave Keychain key only
+  when it is true; otherwise it refuses registration before creating any key.
+  Hardware key attestation (Windows Platform Crypto Provider key attestation,
+  `TPM2_Certify` for tpm2-pkcs11 keys; macOS offers no general attestation for
+  Secure Enclave keys) is Deferred to the credential and key authority under
+  `GOV-CRED-002`.
+- **Rationale**: Without attestation a modified Manager can claim any value, so
+  the claim must not grant anything; refusing honest software claims by
+  default still removes roaming software keys from production stamps.
+- **Alternatives considered**: Trusting the claim for policy (rejected by
+  FR-041); implementing attestation now (rejected: per-OS evidence, attestation
+  CA trust, and policy are unresolved, and macOS lacks a mechanism); always
+  allowing software keys (rejected: roaming-profile copies, edge case in the
+  spec).

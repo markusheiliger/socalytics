@@ -116,6 +116,12 @@ the prior major remains addressable for its supported compatibility window.
 - Idempotency keys are opaque nonempty strings. Fencing tokens are positive
   integers whose ordering is interpreted only by the owning workflow.
 - SHA-256 digests use `sha-256:<64 lowercase hexadecimal characters>`.
+- Composite multipart content digests use
+  `sha-256-parts:<partSizeBytes>:<partCount>:<64 lowercase hexadecimal characters>`,
+  where the hexadecimal value is SHA-256 over the concatenated raw SHA-256
+  digests of the parts in order. The value identifies content only together
+  with its part size and part count, is never compared with a plain `sha-256`
+  digest, and is accompanied by the total size in bytes as a separate field.
 - Optimistic concurrency uses HTTP validators. A representation of one mutable
   aggregate returns its `version` as a strong ETag, and every edit of it (a
   change that replaces or modifies fields the client read) requires `If-Match`

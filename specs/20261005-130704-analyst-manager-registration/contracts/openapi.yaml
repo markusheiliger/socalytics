@@ -15,9 +15,13 @@ info:
       `X-CSRF-Token`; a missing or invalid token yields `403`
       `antiforgery-failed` before any change. DPoP credentials are refused on
       these operations.
-    - Manager operations under `/api/v1/analyst-managers/self` use
-      `Authorization: DPoP` with an opaque access token and a DPoP proof signed
-      by the registered device key. Cookie sessions are refused there.
+    - Manager operations under `/api/v1/analyst-managers/self` require the
+      policy `AnalystManager` (scheme `AnalystManagerDPoP`, scope
+      `analyst-manager`): `Authorization: DPoP` with an opaque access token and
+      a DPoP proof signed by the registered device key. Cookie sessions are
+      refused there.
+    - Request and response examples for every exchange are the golden fixtures
+      under `contracts/analyst-manager/registration/v1/` (FR-039).
     - Discovery, pairing, status, activation, and token operations are
       anonymous at the HTTP layer, rate-limited, and require HTTPS.
 
@@ -79,7 +83,7 @@ paths:
         '400': { $ref: '#/components/responses/ValidationProblem' }
         '403': { $ref: '#/components/responses/HttpsRequired' }
         '409':
-          description: The device key is already bound to a non-terminal registration (`analyst-manager-key-in-use`), or the stamp identifier does not match (`analyst-manager-stamp-mismatch`).
+          description: The device key is already bound to a non-terminal registration (`analyst-manager-key-in-use`), the stamp identifier does not match (`analyst-manager-stamp-mismatch`), or the claimed key protection is `software` while the stamp does not allow software keys (`analyst-manager-software-key-not-allowed`).
           content:
             application/problem+json:
               schema: { $ref: '#/components/schemas/Problem' }
@@ -249,9 +253,13 @@ paths:
       summary: Registrar submits a pairing code, creating a key-bound pending registration request.
       description: |
         Requires `ClubPermission.Register` (Registrar or Club Admin), checked
-        before the code is looked up. Every invalid, expired, consumed,
-        unknown, or concurrently consumed code receives the identical `400`
-        (FR-006, FR-007, SC-006).
+        before the code is looked up. The Registrar enters the pairing code
+        and the device fingerprint shown on the Manager. Every invalid,
+        expired, consumed, unknown, or concurrently consumed code, and every
+        fingerprint that does not match the paired key, receives the identical
+        `400` (FR-006, FR-007, FR-040, SC-006). A fingerprint mismatch does not
+        consume the code; after `Registry:Pairing:MaxFingerprintMismatches`
+        mismatches the pairing expires.
       security:
         - sessionCookie: []
           antiforgeryHeader: []
@@ -512,6 +520,7 @@ components:
             - analyst-manager-rate-limited
             - analyst-manager-stamp-mismatch
             - analyst-manager-key-in-use
+            - analyst-manager-software-key-not-allowed
             - analyst-manager-pairing-code-invalid
             - analyst-manager-polling-handle-invalid
             - analyst-manager-activation-proof-invalid
@@ -546,18 +555,25 @@ components:
     DeviceMetadata:
       type: object
       additionalProperties: false
-      required: [os, osVersion, architecture, managerVersion]
+      required: [os, osVersion, architecture, managerVersion, claimedKeyProtection]
       properties:
         os: { type: string, enum: [windows, linux, macos] }
+        claimedKeyProtection:
+          type: string
+          enum: [tpm, secure-enclave, pkcs11-token, software]
+          description: Key protection as claimed by the Manager (FR-041). Not attested; never used for authorization. Its only effect is the refusal of `software` unless `softwareKeysAllowed` is true.
         osVersion: { type: string, minLength: 1, maxLength: 64 }
         architecture: { type: string, enum: [x64, arm64] }
         managerVersion: { type: string, minLength: 1, maxLength: 32 }
         hostLabel: { type: string, minLength: 1, maxLength: 64 }
     StampDiscovery:
       type: object
-      required: [stampId, pairingEndpoint, activationEndpoint, tokenEndpoint]
+      required: [stampId, pairingEndpoint, activationEndpoint, tokenEndpoint, softwareKeysAllowed]
       properties:
         stampId: { type: string, minLength: 1 }
+        softwareKeysAllowed:
+          type: boolean
+          description: Value of `Registry:AllowSoftwareKeys` (false outside development and test). When false, pairing with `claimedKeyProtection` `software` is refused and the Manager does not fall back to a software key (FR-041).
         pairingEndpoint: { type: string, format: uri }
         activationEndpoint: { type: string, format: uri }
         tokenEndpoint: { type: string, format: uri }
@@ -572,8 +588,12 @@ components:
         deviceMetadata: { $ref: '#/components/schemas/DeviceMetadata' }
     PairingIssued:
       type: object
-      required: [pairingCode, pollingHandle, verificationUri, expiresAt, pollingIntervalSeconds, stampId]
+      required: [pairingCode, deviceFingerprint, pollingHandle, verificationUri, expiresAt, pollingIntervalSeconds, stampId]
       properties:
+        deviceFingerprint:
+          type: string
+          description: Device fingerprint the platform derived from the paired key (see `proof-profiles.md`); the Manager checks it equals its own derivation and shows it next to the pairing code (FR-040). Not a secret.
+          pattern: '^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$'
         pairingCode:
           type: string
           description: Shown to humans only; twelve characters from the alphabet BCDFGHJKLMNPQRSTVWXZ in groups of four.
@@ -673,9 +693,14 @@ components:
     PairingCodeSubmission:
       type: object
       additionalProperties: false
-      required: [pairingCode]
+      required: [pairingCode, deviceFingerprint]
       properties:
         pairingCode: { type: string, minLength: 1, maxLength: 32 }
+        deviceFingerprint:
+          type: string
+          minLength: 1
+          maxLength: 16
+          description: Fingerprint as shown on the Manager; compared case-insensitively without separators.
     ReasonRequest:
       type: object
       additionalProperties: false
@@ -684,14 +709,27 @@ components:
         reason: { type: string, minLength: 1, maxLength: 500 }
     Registration:
       type: object
-      required: [registrationId, stampId, state, keyThumbprint, deviceMetadata, pairingExpiresAt, createdAt, version]
+      required: [registrationId, stampId, state, keyThumbprint, deviceFingerprint, deviceMetadata, pairingOrigin, pairingExpiresAt, createdAt, version]
       properties:
         registrationId: { type: string }
         managerId: { type: [string, 'null'] }
         stampId: { type: string }
         state: { $ref: '#/components/schemas/RegistrationState' }
         keyThumbprint: { type: string }
+        deviceFingerprint:
+          type: string
+          pattern: '^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$'
         deviceMetadata: { $ref: '#/components/schemas/DeviceMetadata' }
+        pairingOrigin:
+          type: object
+          required: [requestedAt]
+          description: Network origin and time of the Manager's pairing request (FR-040). The address is the connection address seen by the API; behind a proxy it is the proxy until forwarded headers are configured.
+          properties:
+            sourceAddress: { type: [string, 'null'] }
+            requestedAt: { type: string, format: date-time }
+        approvalNotice:
+          type: [string, 'null']
+          description: Present while the registration awaits a decision; every decision view displays it. Fixed text "Approve only an Analyst Manager you can physically identify by the device fingerprint shown on it."
         submittedBy: { type: [string, 'null'] }
         submittedAt: { type: [string, 'null'], format: date-time }
         decidedBy: { type: [string, 'null'] }

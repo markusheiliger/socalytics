@@ -31,10 +31,9 @@ environment variables, then `--Key=value` command-line arguments.
 1. Validate the configuration, then load and validate the embedded catalog.
 2. Connect, retrying until `ConnectTimeout`.
 3. Acquire the session advisory lock `pg_try_advisory_lock(5459779, 1)`, polling every 500 ms until `LockWaitTimeout`.
-4. Ensure `socalytics_migrations.history` exists.
-5. Read the history and evaluate it (checksum mismatch, then sequence conflict, then pending). Report unknown applied migrations without blocking.
-6. Apply each pending migration in ascending sequence. The script and its history row commit in one transaction. Stop at the first failure.
-7. Release the lock and exit.
+4. Read the history and evaluate it (checksum mismatch, then sequence conflict, then pending). A missing history table counts as an empty history. Report unknown applied migrations without blocking.
+5. Apply each pending migration in ascending sequence with DbUp, using `WithTransactionPerScript`, `WithVariablesDisabled`, and the `TableJournal` subclass `SocAlyticsHistoryJournal`. The script and its history row (sequence from the script number, identity from the file name, normalized SHA-256 checksum) commit in one transaction. The journal creates `socalytics_migrations.history` in the first script's transaction when it is missing. Stop at the first failure.
+6. Release the lock and exit.
 
 ## Exit Codes
 

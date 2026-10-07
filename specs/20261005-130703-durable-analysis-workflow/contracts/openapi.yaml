@@ -88,8 +88,17 @@ paths:
         Succeeds only while the Logical Job is Ready, the named readiness occurrence is current,
         and attempt budget remains. Creates exactly one Execution Attempt with the next consecutive
         attempt number, a new lease, and a new fencing token, and consumes one unit of budget.
-        The Manager acknowledges the ready-work delivery after 201, 404, or 409 (deterministic
-        outcomes) and leaves it unacknowledged after 401, 403, or 5xx.
+        Every claim carries an Idempotency-Key scoped to the authenticated Manager (FR-045). A
+        retry with the same key, Logical Job, and readiness occurrence while that attempt is still
+        current (Active, lease not expired) returns 200 with the same attempt, lease expiry, and
+        fencing token and replayed=true, creating nothing and consuming no budget. The same key
+        for a different Logical Job or readiness occurrence returns 409 idempotency-key-reuse; the
+        same key whose attempt is no longer current returns 409 claim-obsolete. Keys are scoped per
+        Manager, so another Manager presenting the same key makes an independent claim, which is
+        rejected with 409 claim-obsolete because the job is no longer Ready. The Manager
+        acknowledges the ready-work delivery after 200, 201, 404, or 409 claim-obsolete
+        (deterministic outcomes) and leaves it unacknowledged after 401, 403, 409
+        idempotency-key-reuse (a client defect), or 5xx.
       security:
         - dpop: []
       parameters:
@@ -98,6 +107,12 @@ paths:
           required: true
           schema:
             $ref: './schemas/common/v1/common.schema.json#/$defs/identifier'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          description: Opaque claim retry key chosen by the Manager; unique per claim intent and reused only to retry that claim.
+          schema:
+            $ref: './schemas/common/v1/common.schema.json#/$defs/idempotencyKey'
       requestBody:
         required: true
         content:
@@ -105,8 +120,14 @@ paths:
             schema:
               $ref: '#/components/schemas/ClaimRequest'
       responses:
+        '200':
+          description: Replayed claim; the same still-current attempt, lease expiry, and fencing token (replayed=true).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimGranted'
         '201':
-          description: Claim granted; a new Execution Attempt exists.
+          description: Claim granted; a new Execution Attempt exists (replayed=false).
           headers:
             Location:
               description: /api/v1/analysis/attempts/{attemptId}
@@ -130,9 +151,11 @@ paths:
                 $ref: '#/components/schemas/Problem'
         '409':
           description: >-
-            Claim obsolete (code claim-obsolete): the Logical Job is already claimed,
-            completed, blocked, failed, or the readiness occurrence is superseded. No attempt was
-            created and no budget consumed. Deterministic; acknowledge the delivery as obsolete.
+            One of: claim-obsolete (the Logical Job is already claimed, completed, blocked, or
+            failed, the readiness occurrence is superseded, or a replayed key's attempt is no longer
+            current; deterministic, acknowledge the delivery as obsolete) or idempotency-key-reuse
+            (the key already belongs to a claim of this Manager for a different Logical Job or
+            readiness occurrence). No attempt was created and no budget consumed.
           content:
             application/problem+json:
               schema:
@@ -611,11 +634,13 @@ components:
     ClaimGranted:
       type: object
       additionalProperties: false
-      required: [attemptId, logicalJobId, attemptNumber, fencingToken, leaseExpiresAt, leaseSeconds, staleTimeoutSeconds, executionTimeoutSeconds]
+      required: [attemptId, logicalJobId, readinessOccurrenceId, attemptNumber, fencingToken, leaseExpiresAt, leaseSeconds, staleTimeoutSeconds, executionTimeoutSeconds, replayed]
       properties:
         attemptId:
           type: string
         logicalJobId:
+          type: string
+        readinessOccurrenceId:
           type: string
         attemptNumber:
           $ref: './schemas/common/v1/common.schema.json#/$defs/attemptNumber'
@@ -624,12 +649,16 @@ components:
         leaseExpiresAt:
           type: string
           format: date-time
+          description: Current lease expiry; a replay returns the current value without renewing the lease.
         leaseSeconds:
           type: integer
         staleTimeoutSeconds:
           type: integer
         executionTimeoutSeconds:
           type: integer
+        replayed:
+          type: boolean
+          description: True when this response repeats an earlier successful claim with the same Idempotency-Key.
     HeartbeatRequest:
       type: object
       additionalProperties: false
@@ -742,8 +771,23 @@ components:
         - outboxPending
         - outboxFailed
         - oldestPendingAgeSeconds
+        - workflowDefinition
         - observedAt
       properties:
+        workflowDefinition:
+          type: object
+          additionalProperties: false
+          required: [state]
+          description: Same sanitized status that the analysis-workflow readiness check reports (FR-046).
+          properties:
+            state:
+              enum: [resolvable, unresolvable]
+            category:
+              type: [string, 'null']
+              enum: [not-configured, invalid-definition, registry-unavailable, null]
+            since:
+              type: [string, 'null']
+              format: date-time
         runsByState:
           type: object
           additionalProperties:

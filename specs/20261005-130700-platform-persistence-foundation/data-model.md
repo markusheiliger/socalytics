@@ -17,9 +17,12 @@ prove the behavior. Decisions behind each element are in
 
 ## Roles and Privileges
 
-Roles are provisioned by the environment. Locally this is
-`SocAlytics.Platform.AppHost/PostgresInit/01-socalytics-roles.sql`, which the
-integration tests reuse. Migrations only grant privileges.
+Roles are provisioned by the environment. Locally this is the shell init
+script `SocAlytics.Platform.AppHost/PostgresInit/01-socalytics-roles.sh`,
+which the integration tests reuse. It reads the generated passwords from
+`SOCALYTICS_MIGRATOR_PASSWORD` and `SOCALYTICS_APP_PASSWORD` and transfers
+ownership of the `POSTGRES_DB` database `socalytics` to `socalytics_migrator`.
+Migrations only grant privileges.
 
 | Privilege | `socalytics_migrator` | `socalytics_app` | `PUBLIC` |
 | --- | --- | --- | --- |
@@ -47,7 +50,7 @@ An immutable, registered migration loaded from embedded resources.
 | Field | Type | Rule |
 | --- | --- | --- |
 | `Sequence` | `int` | Four-digit prefix, `1`–`9999`; unique within the catalog. |
-| `Identity` | `string` | File name without `.sql`, matching `^[0-9]{4}_[a-z][a-z0-9]*_[a-z0-9]+(_[a-z0-9]+)*$`; unique within the catalog; stable forever. |
+| `Identity` | `string` | File name without `.sql`, matching `^[0-9]{4}_[a-z][a-z0-9]*_[a-z0-9]+(_[a-z0-9]+)*$`; unique within the catalog; stable forever. Never DbUp's manifest resource name, which changes with the namespace or folder. |
 | `Area` | `string` | Second name segment (for example `foundation`, `club`, `identityaccess`, `recordings`, `registry`, `analysis`, `agentorchestration`; `test` only in test catalogs). Informational. |
 | `Checksum` | `string` | `sha-256:` followed by the lowercase hex SHA-256 of the UTF-8 content, after stripping a leading BOM and normalizing CRLF and CR to LF. |
 | `Content` | `string` | Script text. Never logged. |
@@ -60,13 +63,16 @@ Catalog validation fails as `catalog-invalid` (Migrator exit `4`) when:
 
 ## Migration History Record
 
-Table `socalytics_migrations.history`. The Migrator creates it idempotently
-from the embedded `Persistence/MigrationHistory/EnsureHistory.sql` while it
-holds the lock.
+Table `socalytics_migrations.history`. The Migrator's DbUp journal
+(`SocAlyticsHistoryJournal`, a `TableJournal` subclass) creates the schema,
+the table, and the read grant for `socalytics_app` when the table does not
+exist. This happens inside the first script's transaction, so a failing first
+script also rolls back the table creation. The DDL text lives in
+Infrastructure (`MigrationHistorySql`).
 
 | Column | Type | Constraint |
 | --- | --- | --- |
-| `sequence` | `integer` | `PRIMARY KEY`, `CHECK (sequence BETWEEN 1 AND 9999)` |
+| `sequence` | `integer` | `PRIMARY KEY`, `CHECK (sequence BETWEEN 1 AND 9999)`. Derived from the script number, never an identity column, so it stays gapless after failed scripts. |
 | `identity` | `text` | `NOT NULL`, `UNIQUE` |
 | `checksum` | `text` | `NOT NULL`, `CHECK (checksum ~ '^sha-256:[0-9a-f]{64}$')` |
 | `applied_at` | `timestamptz` | `NOT NULL DEFAULT now()` |
@@ -104,7 +110,7 @@ stateDiagram-v2
     LoadingCatalog --> Failed: exit 4
     Connecting --> AwaitingLock: connected within ConnectTimeout
     Connecting --> Failed: exit 3
-    AwaitingLock --> Evaluating: lock acquired, history ensured and read
+    AwaitingLock --> Evaluating: lock acquired, history read (missing table = empty)
     AwaitingLock --> Failed: exit 8 (LockWaitTimeout)
     Evaluating --> Failed: exit 5 or 6
     Evaluating --> Succeeded: Current
@@ -194,6 +200,7 @@ stateDiagram-v2
 | `Migrator:LockWaitTimeout` | Migrator | Bounded advisory-lock wait, default `00:02:00`. |
 | `Migrator:ScriptTimeout` | Migrator | Per-script command timeout, default `00:05:00`. |
 | `SocAlytics:LocalDatabase:Persistent` | AppHost | `true` (default) mounts volume `socalytics-postgres-data`; host tests set `false`. |
+| `Parameters:socalytics-migrator-password`, `Parameters:socalytics-app-password` | AppHost | Generated (`GenerateParameterDefault { MinLength = 24, Special = false }`), secret, persisted to the AppHost user secrets (`<UserSecretsId>`). Passed to the PostgreSQL container as `SOCALYTICS_MIGRATOR_PASSWORD` and `SOCALYTICS_APP_PASSWORD` and into the `ReferenceExpression` connection strings. Development-only values. |
 
 ## Test-Only Data
 

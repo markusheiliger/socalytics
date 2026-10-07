@@ -43,6 +43,20 @@ public readonly record struct VersionedWriteResult(VersionedWriteOutcome Outcome
 | `VersionedWriteResult.NotFound` | No record with the identity exists. `Version` is `null`. |
 | `VersionedWriteResult.ConcurrencyConflict` | The record exists but the expected version (or state) did not match. `Version` is the current persisted version. The handler returns without committing, so disposal rolls back the contested change (FR-018). |
 
+## Canonical Names
+
+Later features use these names exactly; none of them may be redefined.
+
+| Kind | Name |
+| --- | --- |
+| Unit of work | `IUnitOfWork.BeginAsync` → `IUnitOfWorkScope` (`CommitAsync`, `RollbackAsync`, `DisposeAsync`) |
+| Internal session (Infrastructure only) | `IDbSession` (`GetConnectionAsync`, `Transaction`, `RequireTransaction`) |
+| Concurrency result | `VersionedWriteResult` with `VersionedWriteOutcome` values `Applied`, `NotFound`, `ConcurrencyConflict` |
+| Trigger functions | `socalytics.advance_version()`, `socalytics.touch_aggregate_root()` |
+| Attachment procedures | `socalytics.attach_version_trigger(regclass)`, `socalytics.attach_aggregate_child_triggers(regclass, regclass, name, name)` |
+| Version opt-out setting | `socalytics.suppress_version` |
+| Table classification manifest | `Tests/SocAlytics.Platform.Integration.Tests/Structure/PersistedTableClassifications.cs` |
+
 ## Handler Pattern
 
 1. Begin a scope with `await using`.

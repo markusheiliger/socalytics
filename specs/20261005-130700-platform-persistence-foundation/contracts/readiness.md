@@ -48,9 +48,13 @@ content (FR-023).
 
 | Resource | Kind | Waits for | Reported state |
 | --- | --- | --- | --- |
-| `postgres` | PostgreSQL 18 container, init script `PostgresInit/01-socalytics-roles.sql`, volume `socalytics-postgres-data` | — | Health (server connection check) |
-| `migrator` | Project `SocAlytics.Platform.Migrator` | `postgres` healthy (`WaitFor`) | `Finished` with exit code (see [migrator-cli.md](migrator-cli.md#exit-codes)) |
-| `api` | Project `SocAlytics.Platform.Api` | `migrator` finished with exit code 0 (`WaitForCompletion`) | Health from `/health` |
+| `postgres` | PostgreSQL container `postgres:18` (pinned tag), `POSTGRES_DB=socalytics`, init script `PostgresInit/01-socalytics-roles.sh`, volume `socalytics-postgres-data` | — | Health (server connection check) |
+| `migrator` | Project `SocAlytics.Platform.Migrator`, connection `socalytics-migrator` (`AddConnectionString` + `ReferenceExpression`) | `postgres` healthy (`WaitFor(postgres)`) | `Finished` with exit code (see [migrator-cli.md](migrator-cli.md#exit-codes)) |
+| `api` | Project `SocAlytics.Platform.Api`, connection `socalytics` (`AddConnectionString` + `ReferenceExpression`) | `postgres` healthy and `migrator` finished with exit code 0 (`WaitFor(postgres)`, `WaitForCompletion(migrator)`) | Health from `/health` |
+
+The connection-string resources have no health of their own, so every wait
+targets the PostgreSQL resource or the Migrator. Spike A1 confirmed this
+wiring on Aspire 13.4.6.
 
 If the Migrator exits non-zero, the API resource is not started. If the API
 runs against a database whose migration state is not current, `/health`

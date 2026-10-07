@@ -15,6 +15,9 @@
 - Q: Which club-identity changes must be based on the version the requester last saw, and which are lifecycle actions protected by their state rules instead? → A: Edits that send back changed fields (club settings, team details, match details) require the last-seen version; lifecycle actions (season activate and archive, membership deactivate and reactivate, role assign and revoke, account unlock, credential issuance, ending sessions) require no version and are checked against the current state and rules.
 - Q: What should happen when someone sends an edit of club settings, team details or match details without saying which version they last saw? → A: Refuse it without change, with an outcome distinct from the outdated-version conflict.
 - Q: When several platform instances start at the same time against a fresh database with the same first-Club-Admin configuration, what must the result be? → A: Exactly one club and one first Club Admin with one bootstrap audit event; every other instance changes nothing and starts normally.
+- Q: How does a club recover when its only Club Admin can no longer sign in (forgotten password or lockout)? → A: Through a one-time break-glass recovery directive in protected deployment configuration that names an existing account, a single-use recovery identifier, and a temporary credential; the platform applies it once at start, audits it, ends the account's sessions, requires a password change at the next sign-in, and ignores the directive after its identifier was used. No credential is written to logs or diagnostics.
+- Q: Must the first Club Admin change the password supplied through bootstrap configuration? → A: Yes; the first sign-in requires a password change before anything else, so the configured value never stays a working credential, and bootstrap no longer needs it once the club exists.
+- Q: What happens to unused reset or set-password credentials when their issuer loses the Club Admin role or is deactivated, or their target is deactivated? → A: They stop working immediately, redemption also requires an active target membership, and each revocation is audited.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -131,6 +134,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 3. **Given** a signed-in member, **When** they change their password after proving their current password, **Then** their other existing sessions stop authorizing requests.
 4. **Given** a reset credential issued by a Club Admin, **When** the member uses it within its validity period to set an acceptable password, **Then** the password changes, all of the member's prior sessions stop authorizing requests, and the credential cannot be used again.
 5. **Given** an expired or already-used reset credential, **When** it is submitted, **Then** the request is rejected and the password is unchanged.
+6. **Given** the only Club Admin can no longer sign in, **When** an operator supplies a break-glass recovery directive for that account through protected deployment configuration and the platform starts, **Then** the account's temporary credential is set once, its existing sessions end, the next sign-in must change the password, a recovery audit event is recorded without any secret value, and starting again with the same directive changes nothing.
 
 ### Edge Cases
 
@@ -147,9 +151,11 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - Several platform instances start at the same time on a fresh deployment with the same bootstrap configuration. Exactly one club and one first Club Admin are created, one bootstrap audit event is recorded, and no instance fails to start because another instance bootstrapped first.
 - A Club Admin tries to activate a second season while one is active, or to change anything in an archived season. Both are rejected.
 - A one-time set-password or reset credential is presented twice, after it expired, or for a different account. It is rejected each time.
+- A Club Admin issues reset credentials and then loses the Club Admin role or is deactivated, or the target account is deactivated. The unused credentials stop working immediately and the revocation is audited.
 - A member is reactivated after deactivation. They start with no club or team roles.
 - A Registrar who holds no team role tries to read team data or change hierarchy data. The request is refused.
 - A sign-in attempt names an account that does not exist. The response cannot be distinguished from a wrong password.
+- A break-glass recovery directive names an unknown or deactivated account, reuses an already-used recovery identifier, or carries a temporary credential that violates the password policy. The directive is refused without change, the refusal is audited without secret values, and the platform still starts.
 
 ## Requirements *(mandatory)*
 
@@ -160,6 +166,9 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - **FR-001**: The system MUST represent exactly one club per deployment. That club is the implicit root of all club data, and the system MUST reject any attempt to create a second club.
 - **FR-002**: The system MUST establish the club and its first Club Admin only from protected deployment-supplied configuration. Running the bootstrap again with the same configuration MUST change nothing, and bootstraps performed at the same time by several starting platform instances MUST together create exactly one club, one first Club Admin, and one bootstrap audit event without preventing any instance from starting.
 - **FR-003**: The system MUST refuse bootstrap configuration that conflicts with an already established first administrator, MUST NOT ship or accept any default credential, and MUST NOT expose any unauthenticated operation that creates an administrator.
+- **FR-051**: The first Club Admin created by bootstrap MUST be required to change the configured initial password at the first sign-in before any other operation, so that the configured value never remains a working credential; once a club exists, bootstrap MUST no longer require the initial password in configuration.
+- **FR-052**: Unused set-password and reset credentials MUST stop working as soon as their issuer loses the Club Admin role or is deactivated, or their target account is deactivated, and redemption MUST require an active target membership; each such revocation MUST be audited.
+- **FR-050**: The system MUST support break-glass account recovery only through protected deployment configuration: a recovery directive names an existing active account, a single-use recovery identifier, and a temporary credential that meets the password policy. At start, the system MUST apply each recovery identifier at most once (also when several instances start together), set the temporary credential, end the account's existing sessions, require a password change at the account's next sign-in, and record a recovery audit event. It MUST refuse directives for unknown or deactivated accounts or already-used identifiers without change, MUST NOT grant roles, and MUST NOT expose any unauthenticated recovery operation.
 - **FR-004**: Club Admins MUST be able to view and update club settings, such as the club's display name.
 
 #### Seasons, teams, and matches
@@ -180,7 +189,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - **FR-015**: Only Club Admins MUST be able to create member accounts. Each new account MUST start as an active member with no roles.
 - **FR-016**: Creating an account MUST issue a single-use, time-limited set-password credential to the issuing Club Admin only. The system MUST NOT generate or store a usable initial password.
 - **FR-017**: The system MUST store passwords only in a form that cannot be reversed, and MUST reject passwords that do not meet the configured password policy.
-- **FR-018**: Sign-in failures MUST return the same response whether the account does not exist, the password is wrong, the account is locked, or the membership is inactive.
+- **FR-018**: Sign-in failures MUST return the same response, with no measurable difference in response time, whether the account does not exist, has no password yet, the password is wrong, the account is locked, or the membership is inactive.
 - **FR-019**: The system MUST lock an account for a configured period once it reaches the configured number of consecutive failed sign-in attempts. Club Admins MUST be able to unlock accounts.
 - **FR-020**: Signed-in members MUST be able to change their own password after proving their current password. Doing so MUST end all of the member's other sessions.
 - **FR-021**: Club Admins MUST be able to issue a single-use, time-limited password reset credential for a member. Using that credential MUST change the password, end all of that member's existing sessions, and make the credential unusable.
@@ -216,7 +225,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - **FR-042**: Every edit of club settings, team details, or match details MUST be based on the version the requester last saw. Edits based on an outdated version MUST be rejected as conflicts without any partial change. An edit that names no version MUST be refused without any change, with an outcome distinguishable from the outdated-version conflict.
 - **FR-049**: Lifecycle actions (season activation and archiving, membership deactivation and reactivation, club and team role assignment and revocation, account unlock, set-password and reset credential issuance, and ending sessions) MUST NOT require a previously seen version. Each MUST be decided against the current state and rules at the time it commits, and an action that the current state does not allow (for example assigning a role to a deactivated membership or archiving a draft season) MUST be rejected as a conflict without any partial change.
 - **FR-043**: Every capability in this feature MUST be available through the platform API and described in its published, versioned API description, including authentication, anti-forgery, denial, conflict, and version-required outcomes.
-- **FR-044**: The system MUST record security audit events for at least these actions: bootstrap, sign-in success and failure, sign-out, lockout and unlock, password change, set-password and reset credential issuance and use, session termination, membership creation, deactivation, and reactivation, club and team role changes, authorization denials, and season, team, and match administration.
+- **FR-044**: The system MUST record security audit events for at least these actions: bootstrap, sign-in success and failure, sign-out, lockout and unlock, password change, set-password and reset credential issuance and use, break-glass recovery applied or refused, session termination, membership creation, deactivation, and reactivation, club and team role changes, authorization denials, and season, team, and match administration.
 - **FR-045**: Each audit event MUST record an event identifier, event type, time, actor when known, affected resource, team scope when applicable, action, outcome, and correlation identifier.
 - **FR-046**: Audit events and diagnostic output MUST NOT contain passwords, one-time credentials, session credentials, anti-forgery proofs, or identity tokens.
 - **FR-047**: Every role, membership, and hierarchy change MUST commit together with its audit event. Neither the change nor the event MUST persist without the other.
@@ -243,7 +252,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - **SC-002**: A Club Admin can create a season, create a team in it, create a member account, and give that member the Coach role on the team in under 5 minutes.
 - **SC-003**: In an authorization test matrix that covers every role, every operation in this feature, and same-team, other-team, and unknown-team targets, 100% of cross-team, revoked-role, deactivated-member, and unauthenticated attempts are denied and disclose no protected data.
 - **SC-004**: Revoking a team role, revoking a club role, deactivating a membership, or ending sessions takes effect on 100% of the affected member's next requests, with zero requests authorized after the change.
-- **SC-005**: Sign-in responses for an unknown account, a wrong password, a locked account, and an inactive membership cannot be told apart by their content in 100% of tested cases.
+- **SC-005**: Sign-in responses for an unknown account, an account without a password yet, a wrong password, a locked account, and an inactive membership cannot be told apart by their content in 100% of tested cases, and their response-time distributions show no statistically significant difference in automated tests.
 - **SC-006**: 100% of the state-changing requests sent without valid anti-forgery proof are rejected with no resulting change.
 - **SC-007**: Every security event type listed in this specification produces an audit event in tests, and zero audit events or diagnostic outputs contain a password, one-time credential, session credential, anti-forgery proof, or identity token.
 - **SC-008**: In concurrent-edit tests, 100% of edits based on an outdated version are detected and rejected, and 100% of edits that name no version are refused with the version-required outcome; in concurrent lifecycle-action tests, 100% of outcomes match the current state rules with 0 actions refused merely because of an outdated version; and no test run leaves the club without an active Club Admin.
@@ -258,7 +267,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - **Explicitly out of scope or deferred**:
   - Deferred features include external identity provider sign-in (OpenID Connect), Analyst Manager pairing and machine credentials, and agent and MCP access.
   - Deferred features include recording uploads and recording-set finalization, production ingress and encrypted-transport configuration, and self-registration and invitations.
-  - Self-service password recovery is deferred because the architecture has not adopted a delivery channel such as email or SMS. In the meantime, recovery uses credentials that a Club Admin issues and hands over outside the platform.
+  - Self-service password recovery is deferred because the architecture has not adopted a delivery channel such as email or SMS. In the meantime, recovery uses credentials that a Club Admin issues and hands over outside the platform, and a club whose only Club Admin cannot sign in recovers through the break-glass directive of FR-050.
   - Second-factor sign-in is deferred because MFA factors and enrollment policy are not adopted. Accounts are only kept ready for it.
 - **Unresolved production values**:
   - Session idle and maximum lifetimes, the failed-attempt threshold and lockout duration, password policy, and one-time credential validity are configurable.

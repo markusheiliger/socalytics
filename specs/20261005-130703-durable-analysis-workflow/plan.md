@@ -39,11 +39,11 @@ Analyst execution is out of scope.
 
 **Language/Version**: C# on .NET 10 (SDK `10.0.400` with `latestPatch` roll-forward from `src/platform/global.json`; nullable enabled, warnings as errors); PostgreSQL SQL for DbUp migrations; JSON Schema draft 2020-12 and OpenAPI 3.1 for contracts.
 
-**Primary Dependencies**: ASP.NET Core minimal APIs with built-in OpenAPI (`Microsoft.AspNetCore.OpenApi` 10.0.0, existing); Npgsql 10.0.3 and Dapper (from the persistence foundation); `NATS.Client.JetStream` 2.8.2 (Infrastructure only); `JsonSchema.Net` 8.0.5 (already pinned and used by the contract test project of Recording Lineage and Upload; this feature adds an Infrastructure reference for runtime validation; last MIT release); `Microsoft.Extensions.Hosting.Abstractions` and `Microsoft.Extensions.Diagnostics.HealthChecks` 10.0.x (Infrastructure workers and the `nats` health check); `Aspire.Hosting.Nats` 13.4.6 (AppHost only, matching `Aspire.AppHost.Sdk/13.4.6`); OpenTelemetry via ServiceDefaults (existing). See [research.md](research.md) R1, R2, R10.
+**Primary Dependencies**: ASP.NET Core minimal APIs with built-in OpenAPI (`Microsoft.AspNetCore.OpenApi` 10.0.0, existing); Npgsql 10.0.3 and Dapper 2.1.89 (from the persistence foundation); `NATS.Client.JetStream` 2.8.2 (Infrastructure only); `JsonSchema.Net` 8.0.5 (already pinned and used by the contract test project of Recording Lineage and Upload; this feature adds an Infrastructure reference for runtime validation; last MIT release); `Microsoft.Extensions.Hosting.Abstractions` and `Microsoft.Extensions.Diagnostics.HealthChecks` at the central floor 10.0.12 for directly referenced `Microsoft.Extensions.*` packages (Infrastructure workers and the `nats` and `analysis-workflow` health checks); `Aspire.Hosting.Nats` 13.4.6 (AppHost only, matching `Aspire.AppHost.Sdk/13.4.6`; `AddNats("nats").WithJetStream()` runs `nats:2.14`, confirmed by the platform spike); OpenTelemetry via ServiceDefaults (existing). See [research.md](research.md) R1, R2, R10.
 
 **Storage**: PostgreSQL (one database per stamp, schema `socalytics`) is workflow truth: Analysis tables, the platform-wide `outbox_messages` table, and the sequence `analysis_fencing_token_seq`, created by four forward-only migrations (see [Migrations](#migrations)). NATS JetStream is transport only (events stream and analysis-jobs work-queue stream). No object-storage access: result manifests are referenced, not read.
 
-**Testing**: xUnit v3 3.2.2, Shouldly 4.3.0, NSubstitute (version pinned by the persistence plan), NetArchTest.Rules 1.3.2, Aspire.Hosting.Testing 13.4.6, Microsoft.AspNetCore.Mvc.Testing 10.0.12, Testcontainers.PostgreSql 4.15.0, Testcontainers.Nats 4.15.0 (image `nats:2.11`), Microsoft.Extensions.TimeProvider.Testing 10.8.0 (`FakeTimeProvider` for leases and retry schedules), JsonSchema.Net 8.0.5 in the existing contract test project.
+**Testing**: xUnit v3 3.2.2, Shouldly 4.3.0, NSubstitute (version pinned by the persistence plan), NetArchTest.Rules 1.3.2, Aspire.Hosting.Testing 13.4.6, Microsoft.AspNetCore.Mvc.Testing 10.0.12, Testcontainers.PostgreSql 4.15.0, Testcontainers.Nats 4.15.0 (image `nats:2.14`, aligned with Aspire), Microsoft.Extensions.TimeProvider.Testing 10.8.0 (`FakeTimeProvider` for leases and retry schedules), JsonSchema.Net 8.0.5 in the existing contract test project.
 
 **Target Platform**: Linux OCI images for the API and the Migrator (cloud-neutral; Compose first, Azure Container Apps provisional); local development through the Aspire AppHost on Windows, macOS, or Linux with Docker.
 
@@ -81,7 +81,7 @@ All Technical Context unknowns are resolved in [research.md](research.md); no `N
 | I. Architecture authority | PASS | [data-model.md](data-model.md) realizes the hierarchy, immutable snapshots and accepted results, `version` triggers only on mutable aggregate roots (Analysis Run, Logical Job), and state-guarded transitions; fencing tokens come from a dedicated sequence, independent of `version`. The [Required Architecture Updates](#required-architecture-updates) (items 1 to 7) document clarifications (in-process workers, analysis contracts and shared definitions, compatibility baselines, predicate vocabulary, operator authorization, technology list); none contradicts an adopted decision. |
 | II. Source-area ownership | PASS | [Project Structure](#project-structure) lists only existing `src/platform/` projects (including the contract test project created by Recording Lineage and Upload) and additions under the existing repository-root `contracts/`. |
 | III. API-first | PASS | [contracts/openapi.yaml](contracts/openapi.yaml) exposes status, Manager, and operations endpoints; no run-creation endpoint exists because creation is notification-driven; schemas reject URLs, secrets, connection details, and media by construction ([contracts/README.md](contracts/README.md)). |
-| IV. Evidence | PASS | [quickstart.md](quickstart.md) lists 15 runnable scenario classes, the contract command, and the AppHost smoke check, covering SC-001 to SC-010. |
+| IV. Evidence | PASS | [quickstart.md](quickstart.md) lists 17 runnable scenario classes, the contract command, and the AppHost smoke check, covering SC-001 to SC-010. |
 | V. Focused changes | PASS | No new project: analysis contract tests extend the existing `Contracts.Tests` project, container-free Domain unit tests reuse `Integration.Tests`, and workers live in the API process. |
 | Environment features | PASS with dependency | Unchanged: [specs/20261007-115855-environment-verification-coverage](../20261007-115855-environment-verification-coverage/spec.md) covers `contracts/`; no other SDK, tool, or check is needed. |
 
@@ -100,6 +100,7 @@ No violations require Complexity Tracking.
 | Application | `…Application.Messaging` | Commands `PublishOutboxBatch`, `PurgeOutboxMessages`; queries `ListOutboxMessages`, `GetOutboxMessage`; retry and backoff policy |
 | Infrastructure | `…Infrastructure.Persistence` (+ `Persistence/Migrations`) | Dapper stores for Analysis and the outbox, the four migrations, `IOutbox` over the current unit-of-work transaction |
 | Infrastructure | `…Infrastructure.Messaging.Nats` | `NatsConnection` lifetime, topology provisioning (development), `NatsJetStreamTransport : IMessageTransport`, `nats` health check (degraded on failure), reconnect detection that triggers reconciliation |
+| Infrastructure | `…Infrastructure.Registry` (availability) | `WorkflowDefinitionAvailability` (periodic and change-triggered resolvability check) and the readiness health check `analysis-workflow` (unhealthy with a sanitized category while no workflow definition resolves, FR-046) |
 | Infrastructure | `…Infrastructure.Workers` | Hosted services `OutboxPublisherWorker`, `OutboxRetentionWorker`, `LeaseExpiryWorker` (Job Monitor), `RecordingsFinalizedConsumerWorker`, `PublicationReconciliationWorker` (startup and on reconnect); each waits for the database readiness check and backs off on failure |
 | Infrastructure | `…Infrastructure.Contracts` | `JsonSchemaContractValidator : IContractValidator` over embedded copies of the `contracts/` schema files (the Recordings event schema, the shared definitions, and the analysis schemas); RFC 8785 canonicalizer for completion fingerprints |
 | Infrastructure | `…Infrastructure.Registry` | Development stand-in `ConfiguredWorkflowDefinitionResolver` (reports "dependency unavailable" when unconfigured) |
@@ -128,10 +129,17 @@ All Application and Infrastructure implementation types stay internal; only
    jobs, and job snapshots, evaluates readiness (root jobs `Ready`, input
    snapshots, readiness occurrences, ready-work outbox messages), moves the run
    to `Running`, writes run-state-changed outbox messages, commits, and acks.
-   Dependency unavailable → rollback and negative acknowledgement with delay.
-2. **Claim**: lock job; guard `Ready`, current occurrence, budget; insert
-   attempt `n = attempts_used + 1` with lease and a token from the sequence;
-   job → `Claimed`.
+   Recordings lookup unavailable → rollback and negative acknowledgement with
+   delay. Workflow definition unresolvable → the consumer has already stopped
+   fetching and `analysis-workflow` reports not ready (FR-046); a message in
+   hand is negatively acknowledged with delay.
+2. **Claim**: lock job; look up `(manager_id, Idempotency-Key)` in
+   `analysis_claim_keys` (same job and occurrence with a still-current attempt →
+   replay the same attempt, lease expiry, and token with `200`; different job or
+   occurrence → `409 idempotency-key-reuse`; attempt no longer current → `409
+   claim-obsolete`); otherwise guard `Ready`, current occurrence, budget; insert
+   attempt `n = attempts_used + 1` with lease and a token from the sequence and
+   the claim-key row; job → `Claimed`; `201`.
 3. **Heartbeat**: lock job, then guarded update of the attempt lease
    (`Active`, not expired, token, Manager, job).
 4. **Completion**: schema validation; replay check by `(logical_job_id,
@@ -158,7 +166,7 @@ All Application and Infrastructure implementation types stay internal; only
 | `ConnectionStrings:nats` | Injected by Aspire locally; supplied by the deployment profile elsewhere |
 | `Messaging:Nats` | `ProvisionTopology` (true in Development), `EventsStream` `SOCALYTICS_EVENTS` (subjects `matches.>`, `analysis.events.>`), `JobsStream` `SOCALYTICS_ANALYSIS_JOBS` (subjects `analysis.jobs.ready.>`, work-queue retention), `DuplicateWindowSeconds` 120 |
 | `Messaging:Outbox` | `PollIntervalSeconds` 1, `BatchSize` 50, `MaxAttempts` 8, `BackoffBaseSeconds` 2, `BackoffMaxSeconds` 300, `RetentionPeriodHours` 168, `RetentionIntervalMinutes` 60 |
-| `Analysis:Notifications` | `ConsumerName` `analysis-scheduler-recordings-finalized`, `NakDelaySeconds` 10, `MaxDeliver` -1 (unbounded in development) |
+| `Analysis:Notifications` | `ConsumerName` `analysis-scheduler-recordings-finalized`, `NakDelaySeconds` 10, `ResolveRecheckSeconds` 15; the consumer always uses `MaxDeliver` -1 (a design rule, not a tunable) and pauses fetching while the workflow definition is unresolvable (FR-046) |
 | `Analysis:Leases` | `MonitorIntervalSeconds` 5, `BatchSize` 50 |
 | `Analysis:Reconciliation` | `OnStartup` true, `OnReconnect` true, `BatchSize` 200 |
 | `Analysis:Workers` | `Enabled` true (tests may disable workers and drive the commands directly) |
@@ -183,7 +191,8 @@ implementation time (`NNNN_<area>_<description>.sql` under
    triggers and `UPDATE`/`DELETE` revoked from `socalytics_app` on immutable
    tables.
 3. `analysis_logical_jobs_and_attempts` — Logical Jobs (versioned), job
-   snapshots, input snapshots, readiness occurrences, attempts, sequence
+   snapshots, input snapshots, readiness occurrences, attempts, claim keys
+   (`analysis_claim_keys`, immutable), sequence
    `analysis_fencing_token_seq` (`MAXVALUE 9007199254740991`; `USAGE` comes
    from the persistence default privileges); triggers and revokes.
 4. `analysis_results_receipts_and_idempotency` — accepted results, completion
@@ -202,11 +211,12 @@ Each table without `version` is added to the persistence foundation's
 | Consumed | Table `recording_finalized_events`, schema `contracts/recordings/recordings-finalized/v1/recordings-finalized.schema.json`, the finalize command handler, `socalytics.reject_immutable_change()` | Recording Lineage and Upload | Event relay through the outbox (handler gains one `IOutbox` call; existing rows backfilled; row never updated); immutability trigger reused |
 | Consumed | Repository-root `contracts/` with the index `contracts/README.md`, the `$id` convention `https://socalytics.invalid/contracts/<path>`, the test project `src/platform/Tests/SocAlytics.Platform.Contracts.Tests` (JsonSchema.Net 8.0.5), and the contract command `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests` | Recording Lineage and Upload | Extended with shared definitions, analysis schemas, index entries, examples, released copies, and same-major compatibility checks |
 | Consumed | Authenticated principal, `ITeamScopeResolver`, `IAuditTrail`, Club Admin authorization, `X-CSRF-Token` antiforgery, shared problem envelope (`urn:socalytics:problem:<code>`, `code`, `correlationId`, `errors`) | Club and Identity | Run status scope, operator authorization, audit of operator reconciliation, errors |
-| Consumed | Authentication scheme `AnalystManagerDPoP`, scope `analyst-manager`, Manager identity `client_id` (`uuid`) | Analyst Manager Registration | Satisfies policy `AnalystManager`; tests use a test-only scheme |
+| Consumed | Authentication scheme `AnalystManagerDPoP`, policy `AnalystManager`, scope `analyst-manager`, Manager identity `client_id` (`uuid`) | Analyst Manager Registration (merged before this feature) | Manager-facing operations require the policy; tests may also use a test-only scheme |
 | Provided | `IOutbox`, `IMessageTransport`, `outbox_messages`, `OutboxPublisherWorker` | This feature (shared plumbing) | Any feature that publishes events; first used for the Recordings finalized event |
 | Provided | `IContractValidator` (runtime validation); `contracts/common/v1/common.schema.json`; the same-major compatibility checker and released-copy baselines in `Contracts.Tests` | This feature | Later contracts and runtime validation |
 | Provided | `IWorkflowDefinitionResolver` (port; development stand-in), `IAnalysisSegmentSource` (port; lineage-based implementation) | This feature; the Registry and Segment Service may later provide implementations | Run creation |
-| Provided | `ICurrentAnalystManager`, policy `AnalystManager` | This feature | Manager-facing operations |
+| Provided | `ICurrentAnalystManager` | This feature | Manager-facing operations |
+| Provided | Readiness health check `analysis-workflow` (FR-046) | This feature | Deployment readiness and operators |
 | Provided | REST operations in [contracts/openapi.yaml](contracts/openapi.yaml); subjects `matches.recordings-finalized` (relay), `analysis.jobs.ready.<capabilityId>`, and `analysis.events.run-state-changed`; schemas analyst-job v1, attempt-completion v1, run-state-changed v1 | This feature | Analyst Managers, future clients and agents |
 
 ## Project Structure
@@ -270,7 +280,7 @@ src/platform/
 │   ├── Workers/OutboxPublisherWorker.cs, OutboxRetentionWorker.cs, LeaseExpiryWorker.cs,
 │   │           RecordingsFinalizedConsumerWorker.cs, PublicationReconciliationWorker.cs
 │   ├── Contracts/JsonSchemaContractValidator.cs, JsonCanonicalizer.cs   # Embeds ../../../contracts/**/*.schema.json
-│   ├── Registry/ConfiguredWorkflowDefinitionResolver.cs
+│   ├── Registry/ConfiguredWorkflowDefinitionResolver.cs, WorkflowDefinitionAvailability.cs, AnalysisWorkflowHealthCheck.cs
 │   └── Analysis/LineageAnalysisSegmentSource.cs
 ├── SocAlytics.Platform.Api/
 │   ├── Analysis/AnalysisRunEndpoints.cs, AnalystManagerEndpoints.cs, AnalystManagerAuthorization.cs
@@ -281,12 +291,14 @@ src/platform/
 └── Tests/
     ├── SocAlytics.Platform.Architecture.Tests/       # + Domain/Application free of NATS, Npgsql, Dapper, JsonSchema.Net;
     │                                                 #   workers and transports internal
-    ├── SocAlytics.Platform.Host.Tests/               # + nats resource, OpenAPI operations present, degraded nats health
+    ├── SocAlytics.Platform.Host.Tests/               # + nats resource, OpenAPI operations present, degraded nats health,
+    │                                                 #   analysis-workflow unhealthy without a definition
     ├── SocAlytics.Platform.Integration.Tests/        # From persistence; + NATS fixture and Analysis/ test classes:
     │   ├── Analysis/                                 #   RunCreationTests, ReadinessRecoveryTests, ExecutionAttemptTests,
     │                                                 #   CompletionTests, OutboxPublicationTests, TransportRecoveryTests,
     │                                                 #   OutboxRetentionTests, RestartMatrixTests, PayloadConformanceTests,
-    │                                                 #   AnalysisTelemetryTests, AnalysisEndpointTests
+    │                                                 #   AnalysisTelemetryTests, AnalysisEndpointTests, ClaimIdempotencyTests,
+    │                                                 #   WorkflowAvailabilityTests
     │   └── Analysis/Domain/                          #   WorkflowGraphTests, LogicalJobPlanningTests, ReadinessEvaluatorTests
     └── SocAlytics.Platform.Contracts.Tests/          # Existing (Recordings): + analysis schema registrations, example
                                                       #   outcomes, compatibility checker, breaking-revision fixtures, determinism
@@ -398,29 +410,16 @@ The coordinator applies these; this plan does not edit `docs/architecture/` or
    > without modifying it. Tests may also inject canonical notifications
    > directly into the message transport.
 
-## Open Risks
+## Risk Register
 
-- **JsonSchema.Net licence line**: 8.0.5 is the last MIT release; fixes now ship
-  only in the OSMF-licensed 9.x line. Switching to Corvus (Apache-2.0, runtime
-  Roslyn) or accepting the OSMF EULA is an explicit future decision.
-- **NATS.Net major**: pinned to 2.x to stay binary-compatible with Aspire
-  hosting; moving to 3.x waits for an Aspire release built on it.
-- **Contract test project ownership**: `Contracts.Tests`, the index, and the
-  `$id` convention come from Recording Lineage and Upload; if that feature's
-  test project structures schema registration differently, the analysis tests
-  adapt to it rather than adding a parallel mechanism.
-- **Manager authentication timing**: Manager operations are reachable only once
-  Analyst Manager Registration provides `AnalystManagerDPoP`; revocation
-  fencing of active attempts is deferred to that work.
-- **Development workflow stand-in**: without `Analysis:DefaultWorkflow`,
-  notifications are retried indefinitely (development `MaxDeliver` -1);
-  production requires the Registry boundary. Segment identities need no
-  stand-in because they are computed from lineage spans.
-- **Clock skew across replicas**: leases use the injected `TimeProvider`; stale
-  timeouts must exceed heartbeat interval plus tolerated skew.
-- **Claim response loss**: a Manager that loses the claim response cannot
-  recover its attempt and the lease must expire, consuming budget; the spec does
-  not ask for claim idempotency keys.
-- **Run creation size**: very long matches with many capabilities create
-  hundreds of rows in one transaction under the run lock; acceptable at
-  development scale, to be measured before production objectives are set.
+| ID | Risk | Disposition | Evidence / Owner | Revisit trigger |
+| --- | --- | --- | --- | --- |
+| DAW-R1 | JsonSchema.Net licence: fixes after 8.0.5 ship only in the OSMF-EULA 9.x line | **Accepted**: pinned to 8.0.5, the last MIT release, which fully supports draft 2020-12 for the planned use | Platform spike and risk brief confirm 8.0.5 MIT; [research.md](research.md) R10. Owner: platform maintainers | A security advisory or required fix affecting 8.0.5, or a needed feature only in 9.x |
+| DAW-R2 | NATS.Net 3.x not adopted | **Deferred** until an Aspire release ships on NATS.Net 3 | Spike: `Aspire.Hosting.Nats` 13.4.6 depends on NATS.Net 2.7.3; plan uses 2.8.2 within the same major ([research.md](research.md) R1). Owner: platform maintainers at the next AppHost SDK upgrade | Aspire hosting depends on NATS.Net 3.x, or a fix is needed only in 3.x |
+| DAW-R3 | Active attempts of a revoked Analyst Manager | **Mitigated** | Every Manager call passes `AnalystManagerDPoP`, which checks the active registration on each request, so a revoked Manager can no longer claim, heartbeat, or complete; its attempts stop renewing and recover through lease expiry (`LeaseExpiryWorker`, FR-024, FR-025; [research.md](research.md) R8) | Revocation must free work faster than the stale timeout, or Manager authentication changes |
+| DAW-R4 | Missing or unresolvable workflow definition stalls notifications or exhausts delivery limits | **Mitigated** (FR-046) | `analysis-workflow` readiness check reports not ready with a sanitized category; the consumer pauses fetching with `MaxDeliver` -1 and resumes when resolvable ([research.md](research.md) R5, R12; quickstart scenario 16) | Registry boundary replaces the development stand-in |
+| DAW-R5 | Clock skew between API replicas affects lease expiry | **Accepted** with a configuration rule: stale timeout must exceed the heartbeat interval plus tolerated clock skew; hosts use synchronized clocks | Leases use the injected `TimeProvider` ([research.md](research.md) R8); production values follow Production Deployment and Operations. Owner: operations owner | Observed premature expiry, or multi-host deployment without clock synchronization |
+| DAW-R6 | Lost claim response costs an attempt and waits for lease expiry | **Mitigated** (FR-045) | Claim `Idempotency-Key` scoped to the Manager; `analysis_claim_keys` replays the still-current attempt, lease, and token ([data-model.md](data-model.md), [contracts/openapi.yaml](contracts/openapi.yaml)) | Manager protocol changes or keys need expiry under POL-006 |
+| DAW-R7 | Large run creation (hundreds of rows in one transaction under the run lock) | **Deferred**: measure before production objectives are set | Development target in Technical Context. Owner: Scheduler and Job Registry owner, with GOV-OBJ job-acceptance objective | Production capacity work, or local run creation exceeding the development target |
+| DAW-R8 | Cross-area relay of the Recordings finalized event | **Mitigated**: decided by the coordinator | The Recordings finalize handler enqueues through `IOutbox`; existing rows are backfilled; the Recordings row is never updated ([research.md](research.md) R4; spec clarification) | Recordings changes its event record or finalize handler |
+| DAW-R9 | Recordings schema registration and contract test ownership diverge | **Mitigated**: canonical names | Recording Lineage and Upload owns `contracts/`, the `$id` base `https://socalytics.invalid/contracts/`, `contracts/recordings/recordings-finalized/v1/recordings-finalized.schema.json`, and `Tests/SocAlytics.Platform.Contracts.Tests`; this feature only extends them ([research.md](research.md) R10, R11) | Contract layout or test-project registration changes |

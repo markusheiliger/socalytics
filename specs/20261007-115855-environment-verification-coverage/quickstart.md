@@ -11,6 +11,7 @@ environment variables the action defines (`WORKSPACE`, `MODE`,
 
 - .NET SDK matching `src/platform/global.json`, Node.js, and the Markdown
   linters installed by `environment-setup`.
+- `softhsm2` installed (as `environment-setup` does) for scenario 9.
 - A scratch workspace; nothing is pushed.
 
 ## Scenarios
@@ -35,6 +36,9 @@ environment variables the action defines (`WORKSPACE`, `MODE`,
    1 with a message naming both versions.
 8. **Outside the Manager**: change a non-Markdown file under
    `src/analysts/` outside `manager/`. Expect that file in `uncovered`.
+
+9. **SoftHSM2 available**: after `environment-setup`, `softhsm2-util --version`
+   succeeds and `/usr/lib/softhsm/libsofthsm2.so` exists.
 
 On GitHub, the merge workflow self-tests the branch's own actions; the
 environment pull request is then held for human review.

@@ -16,8 +16,10 @@ not demonstrate deployment support or production readiness.
   PostgreSQL resource from the persistence foundation.
 - The persistence foundation
   (`specs/20261005-130700-platform-persistence-foundation`) is merged. It
-  provides the Migrator, the version triggers, and the Integration.Tests
-  PostgreSQL fixture.
+  provides the Migrator, the version triggers, the Integration.Tests
+  PostgreSQL fixture, and the `<UserSecretsId>` in
+  `SocAlytics.Platform.AppHost.csproj`. That property is what makes the
+  generated first-admin password stable across runs.
 - For the manual walk-through only:
   - a trusted ASP.NET Core development certificate (`dotnet dev-certs https
     --trust`);
@@ -38,7 +40,7 @@ Expected outcome: every test passes. The feature's tests live in these places:
 | Location | Evidence |
 | --- | --- |
 | `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Club/` | Hierarchy, season lifecycle, archived read-only, match immutability, edit versus lifecycle concurrency, and visibility filtering |
-| `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/` | Bootstrap (including concurrent starts), sign-in, sessions, anti-forgery, lockout, credentials, membership and roles, last Club Admin, the authorization matrix, and audit evidence and secret scanning |
+| `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/` | Bootstrap (including concurrent starts and the forced first password change), break-glass recovery (including concurrent starts and refusals), sign-in (including the timing-distribution test), sessions and restricted sessions, anti-forgery derivation, lockout, credentials and their revocation, membership and roles, last Club Admin, the authorization matrix, and audit evidence and secret scanning |
 | `src/platform/Tests/SocAlytics.Platform.Architecture.Tests/` | Layer and visibility rules for Identity and persistence types, anonymous-endpoint allow list, and anti-forgery coverage of unsafe methods |
 | `src/platform/Tests/SocAlytics.Platform.Host.Tests/` | Aspire start with bootstrap parameters, `/health` readiness including `club-bootstrap`, and contract operations present in `/openapi/v1.json` |
 
@@ -54,7 +56,7 @@ against disposable PostgreSQL containers with the production cookie flags.
 
 | # | Scenario | Expected outcome | Spec |
 | --- | --- | --- | --- |
-| A1 | Fresh database with bootstrap configuration; start the API | One `club` row, one active member holding `club-admin`, one `club.bootstrapped` audit event without secrets, and readiness healthy | US1-1, FR-002 |
+| A1 | Fresh database with bootstrap configuration; start the API | One `club` row, one active member holding `club-admin` with `password_change_required = true`, one `club.bootstrapped` audit event without secrets, and readiness healthy | US1-1, FR-002, FR-051 |
 | A2 | Restart with the same configuration | No new account, member, club, or audit event | US1-2 |
 | A3 | Start 4 API hosts concurrently on a fresh database | Exactly one club, one admin, and one bootstrap event; every host reports ready | US1-3, FR-002 |
 | A4 | Restart with a different first-admin account name | Nothing changes; `club-bootstrap` readiness is unhealthy (`bootstrap-conflict`); a refusal audit event exists | FR-003 |
@@ -62,7 +64,7 @@ against disposable PostgreSQL containers with the production cookie flags.
 | A6 | Sign in, then call `getCurrentMember` | `200` with identity and roles; `Set-Cookie` has `Secure`, `HttpOnly`, `SameSite=Strict`, and `Path=/`; the body contains no password, hash, or session token | US1-4, FR-023, FR-024 |
 | A7 | Sign out, then replay the old cookie | `401` problem details with no redirect | US1-5, FR-027, FR-030 |
 | A8 | Each authenticated unsafe-method operation without, and with a wrong, `X-CSRF-Token` | `403 antiforgery-failed` with no state change (verified by reading the database before and after) | US1-7, FR-025, SC-006 |
-| A9 | Sign-in with an unknown account, wrong password, locked account, inactive member, and member without a password | Byte-identical `401 sign-in-failed` bodies apart from `correlationId` | US1-8, FR-018, SC-005 |
+| A9 | Sign-in with an unknown account, wrong password, locked account, inactive member, and member without a password | Byte-identical `401 sign-in-failed` bodies apart from `correlationId`; exactly one password-hash verification per attempt (counted through a test hasher decorator) | US1-8, FR-018, SC-005 |
 | A10 | Create a member, then redeem the set-password credential twice, after expiry, and for another account | First redemption `204`; the rest `400 credential-invalid`; the password is unchanged on failures | US2-1, US2-2, FR-016 |
 | A11 | Assign `registrar`, then call the member's next request | The member holds Registrar; an audit event names the actor, target, role, and outcome | US2-3 |
 | A12 | Deactivate a member with live sessions | The next request on every session gets `401`; roles are gone; sign-in fails generically | US2-4, FR-031 |
@@ -94,6 +96,23 @@ against disposable PostgreSQL containers with the production cookie flags.
 | A38 | Authorization matrix: every role × every operation × same, other, and unknown team, plus unauthenticated, revoked, and deactivated callers | 100% of disallowed combinations are denied and disclose no data | SC-003 |
 | A39 | 100 sequential sign-in, sign-out, and single-resource reads and updates | 95th percentile under 1 second, reported as a local measurement | SC-009 |
 | A40 | Each `operationId` in [contracts/openapi.yaml](contracts/openapi.yaml) | Present in `/openapi/v1.json` with the same path, method, and documented status codes | FR-043 |
+| A41 | Lock out the only Club Admin, then start the API with a `BreakGlassRecovery` directive (account name, new recovery id, policy-compliant temporary credential) | One `recovery_directive_use` row; the old sessions get `401`; the lockout is cleared; roles are unchanged; one `break-glass-recovery.applied` event; readiness is healthy | US6-6, FR-050 |
+| A42 | Sign in with the temporary credential after A41 | `200` with `passwordChangeRequired: true`; `getClub` and every other `ActiveMember` operation get `403 password-change-required`; `changeOwnPassword` gets `204`; the same session's next `getClub` gets `200` | FR-050 |
+| A43 | Restart with the same directive after the member changed their password | No change: the password from A42 still works; one `break-glass-recovery.refused` event with `recovery-id-used` | US6-6, FR-050 |
+| A44 | Start 4 API hosts concurrently with the same new directive | Exactly one applied event and one ledger row; the others record `recovery-id-used`; every host is ready | FR-050 |
+| A45 | Directives for an unknown account, a deactivated account, a policy-violating credential, or an incomplete section | No account, session, or credential change; the id is not consumed; a refusal event with the matching reason code; readiness healthy | Edge case, FR-050 |
+| A46 | Recover an account that holds no `club-admin` role | Password reset and change forced; the account still holds no club role | FR-050 |
+| A47 | As the runtime role, `DELETE` or `UPDATE` on `recovery_directive_use` | Permission denied | FR-050 |
+| A48 | Secret scan (A34) extended with every temporary credential used in A41 to A46 | Zero matches in audit rows, logs, and problem details; no API operation accepts a recovery directive | FR-046, FR-050 |
+| A49 | First sign-in of the bootstrap Club Admin | `passwordChangeRequired: true`; `getClub` and `createSeason` get `403 password-change-required`; after `changeOwnPassword`, the same session is unrestricted and the configured initial password no longer signs in | FR-051 |
+| A50 | Restart with a club present and `InitialPassword` removed (and, separately, with the whole `ClubBootstrap` section removed) | Start succeeds; readiness healthy; no change and no audit event | FR-051 |
+| A51 | Club Admin X issues a reset and a set-password credential; another admin revokes X's `club-admin` | Both credentials get `revocation_reason = issuer-lost-authority` with one `credential.revoked` event each, in the same transaction as the role change; redemption gets `400 credential-invalid` | FR-052 |
+| A52 | Club Admin X issues credentials and is then deactivated | Same as A51 (`issuer-lost-authority`) | FR-052 |
+| A53 | Target with an open credential is deactivated, then reactivated | The credential is revoked as `target-deactivated` and audited; redemption fails before and after reactivation | FR-052 |
+| A54 | Deactivation of the target and redemption run concurrently, repeated 50 times | Either the redemption commits before the deactivation (and the deactivation then ends the new sessions), or it gets `400 credential-invalid`; a deactivated account never ends with a newly set password and a valid session | FR-052 |
+| A55 | Timing distribution: at least 200 interleaved, warmed-up sign-in failures per class (unknown account, no password, wrong password, locked, inactive) | Two-sample Kolmogorov–Smirnov test against the wrong-password class shows no significant difference at α = 0.01 | FR-018, SC-005 |
+| A56 | Failed sign-ins against a locked account, including with the correct password | `access_failed_count` and `lockout_end` are unchanged; the lockout ends at the original time | FR-019 |
+| A57 | Anti-forgery derivation | The `antiforgeryToken` equals `base64url(HMAC-SHA256(session token, "socalytics-csrf"))`; a token from session A is rejected (`403 antiforgery-failed`) on session B; the token stops working after sign-out; `member_session` has no anti-forgery column | FR-025, SC-006 |
 
 ## 3. Manual walk-through with the local composition
 
@@ -105,8 +124,10 @@ against disposable PostgreSQL containers with the production cookie flags.
 
    Expected outcome: the dashboard shows PostgreSQL, the Migrator (completed),
    and the API (healthy). The AppHost generates the
-   `first-club-admin-password` secret parameter once per developer. Read it
-   from the dashboard parameter view, or with:
+   `first-club-admin-password` secret parameter once per developer and
+   persists it in the AppHost user secrets, which uses the `<UserSecretsId>`
+   from the persistence feature. Restarts therefore reuse the same value.
+   Read it from the dashboard parameter view, or with:
 
    ```powershell
    dotnet user-secrets list --project src/platform/SocAlytics.Platform.AppHost
@@ -125,9 +146,25 @@ against disposable PostgreSQL containers with the production cookie flags.
      "$api/api/v1/session"
    ```
 
-   Expected outcome: `200` with `member.clubRoles` containing `club-admin`
-   and an `antiforgeryToken`. Store the token in `$csrf`. The cookie jar holds
-   `__Host-socalytics-session` and nothing else.
+   Expected outcome: `200` with `member.clubRoles` containing `club-admin`,
+   `passwordChangeRequired: true`, and an `antiforgeryToken`. Store the token
+   in `$csrf`. The cookie jar holds `__Host-socalytics-session` and nothing
+   else.
+
+   The bootstrap administrator must change the configured password first
+   (FR-051). Until then, `GET $api/api/v1/club` returns `403` with `code`
+   `password-change-required`. Change it:
+
+   ```powershell
+   curl.exe -s -b jar.txt -H "Content-Type: application/json" -H "X-CSRF-Token: $csrf" `
+     -d '{"currentPassword":"<generated password>","newPassword":"<your new password>"}' `
+     "$api/api/v1/me/password"
+   ```
+
+   Expected outcome: `204`. The same session is now unrestricted, and the
+   generated password no longer signs in. In a deployment, the operator now
+   removes `ClubBootstrap__FirstClubAdmin__InitialPassword` from the secret
+   store; later starts do not need it.
 
 3. Check the anti-forgery protection:
 
@@ -168,6 +205,12 @@ against disposable PostgreSQL containers with the production cookie flags.
    gives `409` with `season-archived`, while reads still return `200`.
 
 10. Stop the composition with `Ctrl+C`.
+
+Break-glass recovery (FR-050) is an operator action without an AppHost
+parameter. Scenarios A41 to A48 validate it with test-host configuration. In a
+deployment, the operator supplies the three `BreakGlassRecovery__*` values
+through the secret store, starts the API, confirms the
+`break-glass-recovery.applied` audit event, and then removes the directive.
 
 SC-001 (the first Club Admin signs in within 2 minutes of readiness) and SC-002
 (season, team, member, and Coach role in under 5 minutes) are confirmed by

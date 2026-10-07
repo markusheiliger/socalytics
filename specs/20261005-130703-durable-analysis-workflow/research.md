@@ -44,9 +44,9 @@ is not directly reachable from this environment.
 ## R2. Aspire local composition for NATS
 
 - **Decision**: Add `Aspire.Hosting.Nats` **13.4.6** to
-  `SocAlytics.Platform.AppHost` and declare `nats` with JetStream enabled
-  (`AddNats("nats")` with JetStream; implementation follows the 13.4.6 API, which
-  exposes `WithJetStream()` and `WithDataVolume()`). The API resource gets
+  `SocAlytics.Platform.AppHost` and declare `builder.AddNats("nats").WithJetStream()`
+  (confirmed by the platform spike: the package exists for 13.4.6, depends on
+  NATS.Net 2.7.3, and runs the `nats:2.14` image). The API resource gets
   `.WithReference(nats).WaitFor(nats)` in addition to the PostgreSQL and
   Migrator ordering defined by the persistence foundation.
 - **Rationale**: Matches the pinned `Aspire.AppHost.Sdk/13.4.6`; mirrors the
@@ -63,8 +63,9 @@ is not directly reachable from this environment.
 
 - **Decision**: Add `Testcontainers.Nats` **4.15.0** to
   `Tests/SocAlytics.Platform.Integration.Tests` (the project introduced by the
-  persistence foundation), pinning an explicit `nats:2.11` image instead of the
-  module default (`nats:2.9`). The module starts the server with `--jetstream`.
+  persistence foundation), pinning the `nats:2.14` image (the same image Aspire
+  13.4.6 runs locally) instead of the module default (`nats:2.9`). The module
+  starts the server with `--jetstream`.
 - **Rationale**: Same Testcontainers major as `Testcontainers.PostgreSql`
   4.15.0; a real JetStream server is required by the architecture's evidence
   list (broker outage, publisher restart, emptied transport). Docker is
@@ -152,9 +153,17 @@ is not directly reachable from this environment.
   - **run created / run already existed** → ack;
   - **rejected** (lookup returns `null`, or match, team, members, or digests
     differ; schema violation) → receipt with sanitized rejection category, ack;
-  - **dependency unavailable** (Recordings lookup throws, or the workflow
-    resolver is unavailable) → transaction rolled back, no receipt, `NakAsync`
-    with the configured delay so the notification is retried.
+    member recording digests are the Recordings composite form
+    `sha-256-parts:<partSize>:<partCount>:<hex>` and are compared only for
+    equality;
+  - **Recordings lookup unavailable** (throws) → transaction rolled back, no
+    receipt, `NakAsync` with the configured delay.
+  - **Workflow definition unresolvable** (FR-046) → no receipt; the consumer
+    stops pulling (see R12) and naks any message already in hand with the
+    configured delay.
+  The consumer is created with unlimited `MaxDeliver` (-1) by design, not only
+  in development, so transient unavailability never exhausts a delivery limit
+  and drops a notification.
 - **Rationale**: FR-002 and FR-036; run uniqueness is additionally enforced by a
   unique constraint on `(recording_set_version_id, workflow_id,
   workflow_version)`, so differing event identities for the same version cannot
@@ -228,6 +237,19 @@ is not directly reachable from this environment.
     and remaining budget; otherwise it is rejected as obsolete (HTTP 409) or
     unknown (HTTP 404). Both are deterministic, so the Manager acknowledges the
     delivery.
+  - Claims are retry-safe (FR-045): every claim carries an `Idempotency-Key`
+    header scoped to the authenticated Manager. The table
+    `analysis_claim_keys` maps `(manager_id, idempotency_key)` to
+    `(logical_job_id, readiness_occurrence_id, attempt_id)` and is written in
+    the attempt's transaction. Under the job row lock, a repeated key for the
+    same job and occurrence whose attempt is still current (`Active`, lease not
+    expired, still the job's current attempt) returns `200` with the same
+    attempt, current lease expiry, and fencing token (`replayed = true`)
+    without creating anything, consuming budget, or renewing the lease; a key
+    bound to a different job or occurrence returns `409
+    idempotency-key-reuse`; a key whose attempt is no longer current returns
+    `409 claim-obsolete`. Returning the stored fencing token is safe because
+    only the same authenticated Manager can present its own key.
   - Heartbeats and completions must match attempt id, Logical Job, Manager,
     fencing token, `state = 'active'`, and `lease_expires_at > now`.
   - Lease expiry is detected by `LeaseExpiryWorker` (the architecture's Job
@@ -247,7 +269,15 @@ is not directly reachable from this environment.
 - **Alternatives considered**: Token = attempt number (trivially predictable and
   conflates two concepts); random 53-bit tokens (no ordering, collision
   handling needed); database `now()` as the clock (correct across replicas but
-  makes lease tests depend on wall-clock sleeps).
+  makes lease tests depend on wall-clock sleeps); claim retries without a key
+  (a lost response would cost an attempt and wait for lease expiry); keys scoped
+  per Logical Job instead of per Manager (would let one Manager's key collide
+  with another's).
+- **Revocation**: every Manager request passes the `AnalystManagerDPoP`
+  authentication of Analyst Manager Registration, which checks the active
+  registration on each call, so a revoked Manager can no longer claim,
+  heartbeat, or complete. Its active attempts stop renewing and are recovered
+  by normal lease expiry, so no separate fencing step is required here.
 
 ## R9. Idempotent completion and canonical comparison
 
@@ -340,9 +370,22 @@ is not directly reachable from this environment.
     profile, digests, policies, resources, attempt budget, timeouts, edges, and
     the segmentation policy (version, fixed positive duration, digest).
     Infrastructure provides the configuration-backed development stand-in
-    `ConfiguredWorkflowDefinitionResolver` bound to `Analysis:DefaultWorkflow`;
-    without configuration it reports "dependency unavailable", so notifications
-    are retried rather than producing unverifiable runs. Tests supply fixtures.
+    `ConfiguredWorkflowDefinitionResolver` bound to `Analysis:DefaultWorkflow`
+    (reloaded through `IOptionsMonitor`). Tests supply fixtures.
+  - **Unresolvable definition (FR-046)**: the singleton
+    `WorkflowDefinitionAvailability` re-checks resolvability at startup, on
+    configuration change, and every `Analysis:Notifications:ResolveRecheckSeconds`.
+    While unresolvable, the readiness health check `analysis-workflow` reports
+    unhealthy with a sanitized diagnostic (category `not-configured`,
+    `invalid-definition`, or `registry-unavailable`; no configuration values),
+    the operational summary shows the same status, a warning is logged once per
+    state change, and `RecordingsFinalizedConsumerWorker` stops fetching, so
+    notifications stay pending in JetStream without deliveries counting against
+    any limit. A message already in hand is negatively acknowledged with the
+    configured delay. When the definition becomes resolvable, the check turns
+    healthy and the consumer resumes. A definition that resolves but whose
+    graph is invalid is not covered by this rule: it produces a `Failed` run
+    (FR-008, FR-009).
   - `IAnalysisSegmentSource` (namespace
     `SocAlytics.Platform.Application.Analysis`) returns the analysis-segment
     references of a finalized lineage. Its Infrastructure implementation
@@ -358,7 +401,11 @@ is not directly reachable from this environment.
   the Recordings lookup already returns, so no stand-in is needed for it.
 - **Alternatives considered**: Persisting registry tables now (out of scope); a
   configured segment-count stand-in (unnecessary once lineage spans are
-  available, and it would not follow the Segment Contract).
+  available, and it would not follow the Segment Contract); redelivering
+  notifications indefinitely while the definition is missing (hides the
+  misconfiguration and inflates delivery counts; replaced by FR-046);
+  rejecting notifications as invalid (they are valid; only the platform is
+  not ready).
 
 ## R13. HTTP surface and authorization
 

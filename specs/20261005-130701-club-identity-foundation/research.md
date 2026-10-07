@@ -16,10 +16,11 @@ re-decided here.
   `IdentityMemberAccount` maps the `member_account` table. An internal Dapper
   store implements `IUserStore`, `IUserPasswordStore`,
   `IUserSecurityStampStore`, `IUserLockoutStore`, and `IUserTwoFactorStore`.
-  It runs every statement on the connection and transaction of the current
-  `IUnitOfWork`. Application code reaches Identity only through Application
-  abstractions (`IAccountCredentialService`). No `SignInManager`, no EF Core,
-  and no Identity UI are used.
+  It runs every statement through the persistence foundation's internal
+  `IDbSession`, which is bound to the current `IUnitOfWorkScope` (opened by
+  `IUnitOfWork.BeginAsync`). Application code reaches Identity only through
+  Application abstractions (`IAccountCredentialService`). No `SignInManager`,
+  no EF Core, and no Identity UI are used.
 - **Rationale**: The architecture assigns password hashing, security stamps,
   recovery tokens, lockout, and MFA readiness to ASP.NET Core Identity with
   Dapper and PostgreSQL stores ([platform-implementation.md](../../docs/architecture/platform-implementation.md#api-and-identity)).
@@ -75,29 +76,45 @@ re-decided here.
 
 ## R3. Anti-forgery for state-changing requests
 
-- **Decision**: Use a per-session synchronizer token. Sign-in generates a
-  random 256-bit anti-forgery token, stores its SHA-256 hash in the session
-  row, and returns the raw value in the response body (`antiforgeryToken`).
-  `GET /api/v1/session` returns it again for page reloads. An endpoint filter
-  `SessionAntiforgeryFilter` on every session-authenticated `POST`, `PUT`,
-  `PATCH`, and `DELETE` endpoint requires the header `X-CSRF-Token` and
-  compares its hash with the stored hash in fixed time. A missing or wrong
-  value is rejected with `403` and problem type `antiforgery-failed` before any
-  handler runs. The two anonymous state-changing endpoints (sign-in and
-  credential redemption) accept only `application/json` (other media types get
-  `415`), which a cross-site form cannot send without a CORS preflight. No CORS
-  policy is enabled.
-- **Rationale**: This satisfies FR-025 and SC-006 for JSON APIs. The token is
-  bound to one session, survives multi-instance routing because it lives in
-  the database, and needs no Data Protection keys (see R2). Combined with
-  `SameSite=Strict`, it is defense in depth.
+- **Decision**: Use a per-session synchronizer token derived from the session
+  token: `antiforgeryToken = base64url(HMAC-SHA256(key = raw session token,
+  message = "socalytics-csrf"))`. Nothing is stored for it.
+  - Sign-in returns the derived value in the response body
+    (`antiforgeryToken`), and `GET /api/v1/session` returns it again for page
+    reloads.
+  - The endpoint filter `SessionAntiforgeryFilter` runs on every
+    session-authenticated `POST`, `PUT`, `PATCH`, and `DELETE` endpoint. It
+    recomputes the value from the raw session token in the request cookie,
+    which the authentication handler has already validated, and compares it
+    with the `X-CSRF-Token` header in fixed time
+    (`CryptographicOperations.FixedTimeEquals`).
+  - A missing or wrong value is rejected with `403` and problem type
+    `antiforgery-failed` before any handler runs.
+  - The two anonymous state-changing endpoints (sign-in and credential
+    redemption) accept only `application/json` (other media types get `415`),
+    which a cross-site form cannot send without a CORS preflight. No CORS
+    policy is enabled.
+- **Rationale**:
+  - This satisfies FR-025 and SC-006 for JSON APIs.
+  - The token is bound to exactly one session. It cannot be computed without
+    the `HttpOnly` session cookie, which scripts cannot read, so other sites
+    cannot obtain it.
+  - Recomputation works on every instance without stored state, Data
+    Protection keys (R2), or a database read. It also removes any stored token
+    material.
+  - Domain separation through the fixed message keeps the value distinct from
+    the session token and its stored SHA-256 hash.
+  - Combined with `SameSite=Strict`, it is defense in depth.
 - **Alternatives considered**:
+  - An independent random token with its hash stored in the session row was
+    rejected after the security design review. It needs an extra column and a
+    read, and adds nothing: both values die with the session.
   - `IAntiforgery` was rejected because it depends on Data Protection keys and
     has the same multi-instance key ring problem as R2.
   - Relying on `SameSite=Strict` alone was rejected because the spec requires
     explicit anti-forgery proof.
-  - A double-submit cookie was rejected because a server-stored synchronizer
-    token is simpler to validate and audit.
+  - A double-submit cookie was rejected because a session-bound derived token
+    is simpler to validate and audit.
 
 ## R4. Session lifetime, invalidation, and security stamps
 
@@ -108,11 +125,11 @@ re-decided here.
   write on every request. Idle expiry is checked against the stored value
   before sliding.
   - The security stamp rotates on password set, change, or reset (Identity
-    behavior), on membership deactivation, and when a Club Admin ends a
-    member's sessions.
+    behavior), on membership deactivation, when a Club Admin ends a member's
+    sessions, and on break-glass recovery (R19).
   - Session rows are also marked ended with a reason: `sign-out`,
-    `password-changed`, `password-reset`, `deactivated`, `ended-by-admin`, or
-    `replaced`.
+    `password-changed`, `password-reset`, `deactivated`, `ended-by-admin`,
+    `replaced`, or `break-glass-recovery`.
   - A password change keeps the current session but records the new stamp on
     it, and ends every other session of the account.
   - A sign-in that presents an existing session cookie ends that session
@@ -142,23 +159,49 @@ re-decided here.
   - **Redemption**: `POST /api/v1/credentials/redeem` takes the account name,
     the credential, and the new password. The new password is validated
     against the password policy first, so a policy failure reveals nothing
-    about the credential. The credential is then consumed atomically with
-    `UPDATE ... SET consumed_at = now() WHERE credential_hash = @Hash AND
-    member_account_id = @AccountId AND purpose = @Purpose AND consumed_at IS
-    NULL AND revoked_at IS NULL AND expires_at > now() RETURNING id`.
+    about the credential. The account row is locked `FOR UPDATE`, and the
+    credential is consumed atomically with `UPDATE socalytics.one_time_credential
+    c SET consumed_at = now() FROM socalytics.member_account a WHERE
+    c.credential_hash = @Hash AND c.member_account_id = @AccountId AND
+    a.id = c.member_account_id AND a.membership_status = 'active' AND
+    c.purpose = @Purpose AND c.consumed_at IS NULL AND c.revoked_at IS NULL
+    AND c.expires_at > now() RETURNING c.id` (FR-052).
+  - **Revocation (FR-052)**: open credentials (unconsumed, unrevoked) get
+    `revoked_at` and one `credential.revoked` audit event each
+    (`details.purpose`, `reason_code`). This happens in the same unit of work
+    as the change that triggers it:
+    - When a member loses `club-admin`, through revocation or deactivation,
+      every open credential they issued
+      (`issued_by_account_id = @AccountId`, index
+      `ix_one_time_credential_issuer_open`) is revoked with reason
+      `issuer-lost-authority`.
+    - When a member is deactivated, their own open credentials are also
+      revoked, with reason `target-deactivated`.
+    - Issuing a newer credential for the account revokes earlier ones, with
+      reason `superseded`.
+    - Break-glass recovery revokes the account's open credentials, with reason
+      `break-glass-recovery`.
+
+    The active-membership guard in the redemption `UPDATE` also covers a
+    deactivation that commits concurrently, because the account row lock
+    serializes the two.
   - The password is set through `UserManager`, which rotates the security
     stamp. All sessions end, and the redemption audit event is written in the
     same unit of work.
-  - Every failure (unknown, expired, used, revoked, or another account's
-    credential) returns the same `400 credential-invalid`. On rollback the
-    credential stays unused.
+  - Every failure (unknown, expired, used, revoked, inactive target, or
+    another account's credential) returns the same `400 credential-invalid`.
+    On rollback the credential stays unused.
   - The raw credential appears only in the issuing response, which carries
     `Cache-Control: no-store`.
 - **Rationale**: This meets single use and time limits (FR-016, FR-021), binding
-  to one account (edge case), and secret-free storage. It stays within the
-  Identity token-provider model the architecture names ("recovery tokens").
-  Set-password and reset share one mechanism.
+  to one account (edge case), and secret-free storage. Credentials die with
+  their issuer's authority or their target's membership (FR-052). It stays
+  within the Identity token-provider model the architecture names ("recovery
+  tokens"). Set-password and reset share one mechanism.
 - **Alternatives considered**:
+  - Checking the issuer's current authority at redemption time instead of
+    revoking eagerly was rejected. The spec requires an audited revocation
+    event, and eager revocation leaves an explicit trail.
   - `DataProtectorTokenProvider` was rejected. It needs Data Protection keys,
     and its tokens are not intrinsically single-use; they are only invalidated
     by a stamp change.
@@ -170,27 +213,52 @@ re-decided here.
 ## R6. Uniform sign-in failure and lockout
 
 - **Decision**: Sign-in normalizes the account name and loads the account.
-  - Unknown accounts run one password-hash verification against a fixed dummy
-    hash, so timing is comparable.
+  - **One hash verification on every path.** Before any refusal decision,
+    every attempt runs exactly one `IPasswordHasher.VerifyHashedPassword`
+    call. The call uses the stored hash when the account has one, and a fixed
+    dummy hash otherwise: for an unknown account, or an account without a
+    password yet. The dummy hash has the same PBKDF2 format and iteration
+    count as real hashes and is generated once at start-up. Only then are the
+    lockout, membership, and no-password checks evaluated. Locked and inactive
+    accounts therefore cost the same as a wrong password (FR-018).
   - Lockout uses Identity options (`MaxFailedAccessAttempts`,
     `DefaultLockoutTimeSpan`, `AllowedForNewUsers = true`) from
     `IdentityAccess:Lockout`.
-  - Locked accounts are refused before the password is checked.
-  - Wrong passwords increment the failure counter. Reaching the threshold sets
-    `lockout_end` and records `account.locked-out`.
-  - Accounts with an inactive membership or no password yet are refused.
+  - **Counter rules.** While an account is locked, a sign-in attempt is
+    refused even when the password is correct. It does not increment
+    `access_failed_count`, so the lockout cannot be extended.
+  - Outside lockout, a wrong password increments the counter. Reaching the
+    threshold sets `lockout_end` and records `account.locked-out`.
+  - Accounts with an inactive membership or no password yet are refused
+    without touching the counter.
   - Every failure returns the identical `401` problem body
     (`sign-in-failed`, fixed title and detail).
+  - The failure path performs the same database work on every branch: one
+    account lookup, one audit insert, and the commit. Only the conditional
+    counter update differs; it is a single-row `UPDATE` with negligible cost
+    next to PBKDF2.
   - The failure counter, lockout, and `session.sign-in` audit event (outcome
     `failed`, internal `reason_code`) commit in one unit of work.
   - The audit event names the account only when it exists. Unknown account
     names are not recorded, because users sometimes type passwords into the
     name field.
+  - **Evidence.** A timing-distribution test samples at least 200 attempts
+    per failure class against the in-process host. The classes are: unknown
+    account, account without a password, wrong password, locked account, and
+    inactive membership. The test compares each class with the wrong-password
+    class using a two-sample Kolmogorov–Smirnov test at α = 0.01, after
+    warm-up, with interleaved order. It fails on a statistically significant
+    difference (SC-005).
 - **Rationale**: This satisfies FR-018, FR-019, SC-005, and the US6 lockout
   scenarios with framework lockout semantics, while keeping audit evidence
-  minimized (FR-046).
+  minimized (FR-046). PBKDF2 dominates request time, so equalizing hash work
+  equalizes the response-time distributions.
 - **Alternatives considered**:
   - Distinct error messages were rejected because FR-018 forbids them.
+  - Refusing locked or inactive accounts before hashing was rejected after the
+    security design review, because it created a measurable timing oracle.
+  - A fixed artificial delay was rejected. It does not hide hashing variance
+    and slows every sign-in.
   - Recording attempted unknown names was rejected for minimization.
   - IP-based rate limiting was deferred. It is not required, and production
     ingress is out of scope.
@@ -203,21 +271,34 @@ re-decided here.
   `ClubBootstrap` provides `ClubDisplayName`,
   `FirstClubAdmin:AccountName`, and `FirstClubAdmin:InitialPassword`. The
   password is protected configuration (user secrets locally, a secret store in
-  deployments) and is never logged.
+  deployments) and is never logged. The section is not validated at start-up;
+  each value is read only on the path that needs it.
   - The handler runs in one unit of work. It first takes
     `pg_advisory_xact_lock` on the constant key for `club-bootstrap`, then
     reads the club.
-  - **No club**: validate the configuration, create the member account (hash
-    the initial password through `UserManager`), assign `club-admin`, insert
-    the singleton `club` row with `bootstrap_admin_account_id`, record
-    `club.bootstrapped`, and commit.
-  - **Club exists and the configured account name matches the recorded
-    bootstrap administrator**: change nothing and record nothing. The initial
-    password is not re-applied.
-  - **Club exists and the names differ**: change nothing, log a diagnostic
-    without secrets, record `club.bootstrap-refused` in an independent
-    transaction, and report the readiness check `club-bootstrap` as unhealthy
-    with reason `bootstrap-conflict`.
+  - **No club**: validate `ClubDisplayName`, `AccountName`, and
+    `InitialPassword` against the password policy, then:
+    - create the member account, hashing the initial password through
+      `UserManager`, with `password_change_required = true` (FR-051);
+    - assign `club-admin`;
+    - insert the singleton `club` row with `bootstrap_admin_account_id`;
+    - record `club.bootstrapped`, and commit.
+
+    The first sign-in therefore yields the restricted session of R20. The
+    administrator must change the configured password before any other
+    operation, so the configured value never remains a working credential.
+  - **Club exists**: the handler never reads `InitialPassword`. Its absence is
+    valid, so the operator removes the secret from the deployment
+    configuration after the first Club Admin has signed in and changed the
+    password. `AccountName` is optional at this point.
+    - If it is absent, nothing is checked and nothing changes.
+    - If it matches the recorded bootstrap administrator, nothing changes and
+      nothing is recorded.
+  - **Club exists and the configured account name differs** from the recorded
+    bootstrap administrator: change nothing, log a diagnostic without secrets,
+    record `club.bootstrap-refused` in an independent transaction, and report
+    the readiness check `club-bootstrap` as unhealthy with reason
+    `bootstrap-conflict`.
   - **No club and no configuration**: create nothing, and report readiness
     unhealthy with reason `club-not-established`. No default credential and no
     unauthenticated setup operation exist.
@@ -227,6 +308,9 @@ re-decided here.
   - The singleton constraint on `club` and the unique normalized account name
     are backstops. A unique violation is treated as "another instance won":
     roll back, re-read, and continue.
+  - In the same unit of work and under the same lock, the service then
+    evaluates an optional break-glass recovery directive (R19). Its outcome
+    never affects readiness.
 - **Rationale**:
   - The transaction-scoped advisory lock serializes concurrent starts of
     several API instances. Exactly one creates the club, administrator, and
@@ -248,8 +332,12 @@ re-decided here.
   - Failing the process on conflicting configuration was rejected. It would
     crash-loop replicas, and readiness already blocks traffic.
   - A configured one-time bootstrap credential instead of an initial password
-    was rejected. It can expire before first use with no recovery path, and
-    SC-001 expects direct sign-in.
+    was rejected. It can expire before first use with no recovery path. The
+    forced first-sign-in change (FR-051) already keeps the configured value
+    from remaining a working credential.
+  - Re-applying or re-validating `InitialPassword` on every start was
+    rejected. It would keep a secret in configuration indefinitely and could
+    reset an administrator's own password (FR-051).
 
 ## R8. Configuration values and no production defaults
 
@@ -262,10 +350,20 @@ re-decided here.
     lifetime 8 hours, 5 failed attempts, 15 minutes lockout, minimum password
     length 12 with no composition rules, and one-time credential lifetime 24
     hours.
-  - The AppHost provides bootstrap parameters. The password is a secret
-    parameter generated per developer and persisted to AppHost user secrets
-    (`AddParameter` with a generated default). The account name defaults to
-    `club-admin`, and the club display name defaults to `Development Club`.
+  - The AppHost provides bootstrap parameters:
+    - The password parameter is
+      `AddParameter("first-club-admin-password", new GenerateParameterDefault { MinLength = 24, Special = false }, secret: true, persist: true)`.
+      It is generated once per developer and persisted to AppHost user
+      secrets. The platform spike confirmed this on Aspire 13.4.6: the value
+      was identical across three runs. Persistence works only when
+      `SocAlytics.Platform.AppHost.csproj` has a `<UserSecretsId>`; without one,
+      a new value is generated every run, silently. The persistence foundation
+      adds that `<UserSecretsId>` for its own generated role passwords, and
+      this feature reuses it without adding a second one.
+    - The account name defaults to `club-admin`, and the club display name
+      defaults to `Development Club`.
+    - The break-glass recovery directive (R19) has no AppHost parameter. It is
+      an operator action supplied only when needed.
 - **Rationale**: The spec and POL-001 and POL-002 leave production values
   unresolved. Requiring explicit configuration prevents development values from
   becoming implicit production defaults. A per-developer generated password is
@@ -280,10 +378,17 @@ re-decided here.
 
 - **Decision**:
   - `club`, `season`, `team`, `match`, and `member_account` are versioned
-    aggregate roots with `version bigint not null default 1` and the shared
-    `socalytics.advance_version()` trigger. `club_role_assignment` and
-    `team_role_assignment` are declared children of `member_account` and use
-    the persistence foundation's child-touch trigger.
+    aggregate roots with `version bigint not null default 1`. Each is attached
+    with `CALL socalytics.attach_version_trigger(...)`, which uses
+    `socalytics.advance_version()`.
+  - `club_role_assignment` and `team_role_assignment` are attached with
+    `CALL socalytics.attach_aggregate_child_triggers(child, 'socalytics.member_account', 'member_account_id')`,
+    which uses `socalytics.touch_aggregate_root()`.
+  - Unversioned tables are classified in `PersistedTableClassifications.cs`
+    (see [data-model.md](data-model.md#aggregates-and-version-ownership)).
+  - Guarded writes go through the persistence foundation's versioned-write
+    helpers. Their `VersionedWriteResult` (`Applied`, `NotFound`,
+    `ConcurrencyConflict`) maps to `OperationFailure`.
   - Edits use `WHERE id = @Id AND version = @ExpectedVersion`, and zero rows is
     reported as a concurrency conflict.
   - Season activation and archive use
@@ -340,9 +445,19 @@ re-decided here.
 - **Decision**: Every membership or role action first locks the target account
   with `SELECT ... FROM member_account WHERE id = @Id FOR UPDATE`, then checks
   the current state.
-  - **Deactivate** (`active` → `deactivated`): delete all club and team role
-    assignments, rotate the security stamp, end all sessions, and record
-    `member.deactivated`.
+  - **Deactivate** (`active` → `deactivated`), in one unit of work:
+    - delete all club and team role assignments;
+    - rotate the security stamp and end all sessions;
+    - revoke the member's own open one-time credentials
+      (`target-deactivated`);
+    - if the member held `club-admin`, revoke every open credential they
+      issued (`issuer-lost-authority`);
+    - record `member.deactivated` and one `credential.revoked` per credential
+      (FR-052).
+  - **Revoke `club-admin`**: in the same unit of work, revoke every open
+    credential the member issued (`issuer-lost-authority`), with
+    `credential.revoked` events (FR-052). Revoking `registrar` revokes nothing
+    else, because only Club Admins issue credentials.
   - **Reactivate** (`deactivated` → `active`): no roles are restored and no
     sessions are revived.
   - An action the current state does not allow is rejected with
@@ -372,8 +487,10 @@ re-decided here.
 ## R12. Authorization model and team scope
 
 - **Decision**: Authorization is decided in the Application layer.
-  - The API applies one coarse policy, `ActiveMember`, which requires a valid
-    `SocAlyticsSession` principal, to the `/api/v1` group. Only sign-in and
+  - The API applies one coarse policy, `ActiveMember`, which requires a valid,
+    unrestricted `SocAlyticsSession` principal, to the `/api/v1` group. Four
+    self-service operations use `SessionHolder` instead, which also admits a
+    session restricted by a required password change (R20). Only sign-in and
     credential redemption are marked anonymous.
   - Application handlers call `IAccessAuthorizer`:
     - `AuthorizeClubAsync(ClubPermission)`: `Administer` requires
@@ -570,3 +687,118 @@ re-decided here.
     keeps history stable.
   - Member display names and contact data were rejected because the spec does
     not require them and they add personal data.
+
+## R19. Break-glass account recovery (FR-050)
+
+- **Decision**: An operator recovers an account through an optional
+  protected-configuration section `BreakGlassRecovery`. It has three keys:
+  `AccountName`, `RecoveryId` (an operator-chosen single-use identifier of 8
+  to 128 characters), and `TemporaryCredential` (an operator-supplied secret
+  that must satisfy the password policy). The section comes from the
+  deployment secret store, as environment variables or user secrets.
+  - `ClubBootstrapHostedService` evaluates the directive at every start, after
+    the bootstrap step (R7), in the same unit of work under
+    `pg_advisory_xact_lock('club-bootstrap')`. The Application command
+    `ApplyBreakGlassRecoveryCommand` (area `IdentityAccess`) runs these checks
+    in order, and the first one that fails refuses the directive:
+    1. incomplete section (`directive-incomplete`);
+    2. recovery id already in `recovery_directive_use` (`recovery-id-used`);
+    3. unknown account (`unknown-account`);
+    4. deactivated membership, checked after locking the account
+       `FOR UPDATE` (`account-inactive`);
+    5. password policy violation (`password-policy`).
+  - When every check passes, one unit of work applies the directive:
+    - set the password hash through `UserManager`;
+    - set `member_account.password_change_required = true`;
+    - clear the lockout;
+    - rotate the security stamp, which invalidates every session;
+    - mark the sessions ended (`break-glass-recovery`);
+    - revoke open one-time credentials;
+    - insert the `recovery_directive_use` row;
+    - record `break-glass-recovery.applied`.
+  - A refusal changes no account state. It records
+    `break-glass-recovery.refused` with the reason code and logs a diagnostic
+    that names the reason and configuration key only.
+  - Readiness stays healthy either way. The `club-bootstrap` check reflects
+    bootstrap state only.
+  - Recovery never assigns or removes roles. No API operation, endpoint, or
+    unauthenticated path can trigger it.
+  - The temporary credential is bound through an options type that is never
+    logged. Validation messages name keys, never values. The credential is
+    never written to audit `details`, problem details, or diagnostics
+    (FR-046).
+  - The runtime role holds only `INSERT` and `SELECT` on
+    `recovery_directive_use`, so a used identifier cannot be deleted to make
+    it reusable.
+  - Leaving the directive configured after use is harmless. Each later start
+    records a `recovery-id-used` refusal, which also signals the operator to
+    remove it.
+- **Rationale**:
+  - The ledger's unique recovery id plus the bootstrap lock gives "at most
+    once, also when several instances start together" (FR-050).
+  - Refusals that do not consume the id let an operator fix a typo and retry
+    with the same id.
+  - Stamp rotation reuses the existing next-request invalidation (R4).
+  - The forced change (R20) limits the temporary credential's exposure,
+    because the operator knows it.
+  - Recovery reuses the bootstrap lock and the start path, so it adds no
+    operation and no new lock key.
+  - It resolves the sole-administrator lockout risk without an unauthenticated
+    recovery endpoint.
+- **Alternatives considered**:
+  - The platform could generate a temporary credential and emit it to logs or
+    console output for the operator. This was rejected because FR-046 forbids
+    credentials in diagnostic output, and logs are copied to telemetry stores
+    with weaker protection (DAT-010, POL-010).
+  - An unauthenticated recovery endpoint protected by a shared recovery secret
+    was rejected. FR-050 forbids any unauthenticated recovery operation, and
+    the endpoint would widen the attack surface permanently.
+  - Applying recovery in the Migrator was rejected for the same reasons as
+    bootstrap (R7): it would need the DDL role, application secrets, and
+    domain logic.
+  - Direct operator SQL against the database was rejected. It bypasses
+    password hashing, the audit trail, and session invalidation, and needs
+    privileged database access (CTL-012).
+  - Making the directive idempotent by content, without a ledger, was
+    rejected. Restarting with the same directive would reset the password
+    again and undo the member's own password change, which violates "starting
+    again with the same directive changes nothing" (US6 scenario 6).
+  - Recording refused directives in the ledger was rejected because the
+    operator could then not correct an account-name typo while keeping the
+    same id.
+  - Granting `club-admin` during recovery was rejected because FR-050 forbids
+    role changes. Restoring roles stays a Club Admin action.
+
+## R20. Password change required at next sign-in
+
+- **Decision**: `member_account.password_change_required` marks an account
+  whose current password was supplied by an operator. That covers the first
+  Club Admin created by bootstrap (FR-051, R7) and an account recovered by
+  break-glass (FR-050, R19).
+  - Sign-in still succeeds with the uniform failure rules (R6), but the
+    session is restricted. `SessionInfo` and `CurrentMember` carry
+    `passwordChangeRequired: true`.
+  - A second API policy, `AuthorizationPolicyNames.SessionHolder`, admits a
+    valid restricted session for `getSession`, `getCurrentMember`,
+    `changeOwnPassword`, and `signOut` only.
+  - Every other `/api/v1` operation uses `ActiveMember`, which rejects a
+    restricted session with `403` and problem code `password-change-required`
+    before any handler or role check runs.
+  - `changeOwnPassword` clears the flag in its unit of work. The rest of its
+    behavior is unchanged: it rotates the stamp, keeps the current session,
+    and ends other sessions.
+- **Rationale**:
+  - The member proves knowledge of the operator-supplied password through the
+    normal sign-in path, including lockout and audit, and then uses the
+    existing password-change operation, so no new credential-bearing endpoint
+    is needed.
+  - Restriction is evaluated per request from current account state, so it
+    lifts immediately after the change (FR-039 semantics).
+  - The extra fields and problem code are additive to the contract.
+- **Alternatives considered**:
+  - Refusing sign-in with a special status and adding an unauthenticated
+    "change expired password" endpoint was rejected. It creates a second
+    credential-accepting anonymous endpoint, and a distinct status on sign-in
+    reveals that the account was recovered.
+  - Silently allowing full access with a reminder was rejected because FR-050
+    and FR-051 require the change.

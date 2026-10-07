@@ -7,7 +7,7 @@ unless stated otherwise.
 
 ## R1. Migrator host and where DbUp lives
 
-- **Decision**: Add `src/platform/SocAlytics.Platform.Migrator`, an `Exe` built on the .NET Generic Host (`Host.CreateApplicationBuilder`). It references `SocAlytics.Platform.Infrastructure` and `SocAlytics.Platform.ServiceDefaults` and is the only project with a `PackageReference` to `dbup-postgresql`. Infrastructure owns all SQL: the embedded migration scripts, the history bootstrap script, lock statements, and history queries. It also owns the migration catalog, the checksum, and the state evaluator. The Migrator owns DbUp wiring, the run lifecycle, options, and exit codes. `Program.cs` declares `namespace SocAlytics.Platform.Migrator` with an explicit `Main`, so test projects that also reference the API do not see two global `Program` types. The Migrator calls `AddServiceDefaults()` for OpenTelemetry logs and traces in the Aspire dashboard, and starts and stops the host around the run so the exporters flush.
+- **Decision**: Add `src/platform/SocAlytics.Platform.Migrator`, an `Exe` built on the .NET Generic Host (`Host.CreateApplicationBuilder`). It references `SocAlytics.Platform.Infrastructure` and `SocAlytics.Platform.ServiceDefaults` and is the only project with a `PackageReference` to `dbup-postgresql`. Infrastructure owns all SQL: the embedded migration scripts, the history DDL, the journal statements used by the Migrator's `TableJournal` subclass (`MigrationHistorySql`), lock statements, and history queries. It also owns the migration catalog, the checksum, and the state evaluator. The Migrator owns DbUp wiring, the run lifecycle, options, and exit codes. `Program.cs` declares `namespace SocAlytics.Platform.Migrator` with an explicit `Main`, so test projects that also reference the API do not see two global `Program` types. The Migrator calls `AddServiceDefaults()` for OpenTelemetry logs and traces in the Aspire dashboard, and starts and stops the host around the run so the exporters flush.
 - **Rationale**: The architecture requires that the API image contain "no migration execution path" and that the Migrator be "the only component that ever receives database access able to create or alter data structures". Keeping DbUp out of Infrastructure removes it from the API's dependency closure entirely. Architecture tests can then prove that cheaply (see R16). The readiness check still needs the catalog and checksums, so those stay in Infrastructure.
 - **Alternatives considered**:
   - DbUp in Infrastructure: rejected because DbUp.dll would ship in the API image and the "no migration code in the API" rule could only be enforced by convention.
@@ -29,17 +29,28 @@ unless stated otherwise.
   - DbUp's default script naming (full resource name) and journal: rejected because there is no checksum or sequence column.
   - Timestamp-based names: rejected because the architecture requires one ordered sequence and the convention fixes four digits.
   - Hashing raw bytes: rejected because of the line-ending drift.
-  - Adding `.gitattributes eol=lf`: unnecessary once checksums are normalized.
+  - Adding `.gitattributes eol=lf` for `.sql`: unnecessary once checksums are normalized. Spike A2(c) confirmed that a CRLF file and its LF copy hash identically after normalization and differently without it. (A `.gitattributes` rule is still needed for the `.sh` init script; see R6.)
+  - DbUp's default script identity: rejected. DbUp names an embedded script by its manifest resource name, for example `Root.Namespace.Folder.0001_x.sql`, so the identity would change when a namespace or folder is renamed (spike A2(c)). The identity is therefore the file name.
 
 ## R3. DbUp usage and journal
 
-- **Decision**: The Migrator computes the pending set itself (R4, R5) and hands DbUp only those scripts:
-  - **Script provider**: `PendingMigrationScriptProvider`, a DbUp `IScriptProvider` that yields `SqlScript(identity, content)` in sequence order.
-  - **Journal**: `DbUpHistoryJournal`, a DbUp `IJournal`. `GetExecutedScripts` returns the identities in history. `StoreExecutedScript` inserts `(sequence, identity, checksum)` using the command factory DbUp passes in, so the insert runs on the script's connection and transaction. `EnsureTableExistsAndIsLatestVersion` is a no-op because bootstrap happens earlier under the lock.
-  - **Engine options**: `PostgresqlDatabase(connectionString)`, `WithScripts(provider)`, `JournalTo(journal)`, `WithTransactionPerScript()`, `WithVariablesDisabled()` (so `$name$` tokens in PL/pgSQL are untouched), `WithExecutionTimeout(ScriptTimeout)`, `LogToNowhere()`. The `ScriptExecuted` event drives sanitized progress logs, and `DatabaseUpgradeResult.ErrorScript` names the failing identity.
-  - **Verification**: Integration tests prove that `0002_foundation_version_triggers.sql` (dollar-quoted bodies) executes and that a failing script leaves no history row.
-  - **Fallback**: If `dbup-postgresql` 7.0.1 splits dollar-quoted bodies or stores the journal outside the script transaction, override the connection manager's statement splitting to return the whole script. The journal insert is then issued explicitly inside the same `IDbCommand` factory scope.
-- **Rationale**: The architecture adopts DbUp. Restricting it to execution keeps every safety check (checksums, sequence rules, unknown history, locking) in code that this feature owns and tests. That code is also shared with readiness.
+- **Decision**: `dbup-postgresql` 7.0.1 (which depends on `dbup-core` 6.1.1 and `Npgsql >= 10.0.1`). The Migrator computes the pending set itself (R4, R5) and hands DbUp only those scripts:
+  - **Script provider**: `PendingMigrationScriptProvider`, a DbUp `IScriptProvider` that yields `SqlScript(identity, content)` in sequence order. The identity is the file name without `.sql`, not DbUp's manifest resource name.
+  - **Journal**: `SocAlyticsHistoryJournal`, a subclass of `DbUp.Support.TableJournal`. Its constructor is `(connectionManager, log, new PostgresqlObjectParser(), "socalytics_migrations", "history")`, and it is wired with `.JournalTo((connectionManager, log) => new SocAlyticsHistoryJournal(connectionManager, log))`. It overrides:
+    - `CreateSchemaTableSql`: creates schema `socalytics_migrations` and table `history`, then grants read access to `socalytics_app`;
+    - `DoesTableExistSql` and `GetJournalEntriesSql` (returns identities);
+    - `GetInsertScriptCommand(Func<IDbCommand>, SqlScript)`: a parameterized insert of `sequence`, `identity`, and `checksum`. `sequence` is parsed from the script number and `checksum` is computed from `script.Contents`.
+
+    The SQL text of these overrides comes from Infrastructure constants (`MigrationHistorySql`), so the Migrator holds no SQL.
+  - **History sequence**: `history.sequence` is a plain `integer` primary key derived from the script number, not an identity column. Spike A2(b) showed that an identity column leaves gaps after failed scripts.
+  - **Engine options**: `PostgresqlDatabase(connectionString)`, `WithScripts(provider)`, `JournalTo(…)`, `WithTransactionPerScript()`, `WithVariablesDisabled()`, `WithExecutionTimeout(ScriptTimeout)`, `LogToNowhere()`. The `ScriptExecuted` event drives sanitized progress logs, and `DatabaseUpgradeResult.ErrorScript` names the failing identity.
+  - **Why variables are disabled**: Without `WithVariablesDisabled()`, named dollar quotes such as `$fn$` fail with "Variable fn has no value defined". Plain `$$` works either way (spike A2(a)).
+  - **Spike evidence (A2(b))**:
+    - The command from DbUp's factory carries the script's transaction, and the script and journal row share one `pg_current_xact_id()`.
+    - A failing journal insert rolls back the script's DDL, and a failing script leaves no table, row, or history record.
+    - `CreateSchemaTableSql` runs inside the first script's transaction, so a failing first script also rolls back the history table creation.
+  - **Integration tests** re-prove these properties in this repository (`MigrationRollbackTests`, and `0002` with dollar-quoted bodies).
+- **Rationale**: The architecture adopts DbUp. Restricting it to execution keeps every safety check (checksums, sequence rules, unknown history, locking) in code that this feature owns and tests. That code is also shared with readiness. A `TableJournal` subclass is the supported extension point and keeps the journal insert inside the script transaction.
 - **Alternatives considered**:
   - Letting DbUp decide what is pending: rejected because it would have no checksum awareness and could diverge from readiness.
   - Hand-written execution without DbUp: rejected because it contradicts the adopted architecture.
@@ -50,7 +61,7 @@ unless stated otherwise.
 - **Decision**:
   - **Locking**: A dedicated lock connection takes the session-level advisory lock `pg_try_advisory_lock(5459779, 1)` (class key `0x534F43`, "SOC"; object key `1`, migrations). The Migrator polls every 500 ms until it acquires the lock or `Migrator:LockWaitTimeout` (default 2 minutes) expires. It logs "waiting for migration lock" once.
   - **Timeout**: Expiry exits with code 8 without touching anything.
-  - **After acquiring**: The Migrator ensures the history exists, re-reads it, and recomputes the pending set, so a waiting run applies only what is still pending (usually nothing).
+  - **After acquiring**: The Migrator re-reads the history and recomputes the pending set, so a waiting run applies only what is still pending (usually nothing). A missing history table counts as an empty history. The journal creates the table in the first script's transaction (R3).
   - **Release**: The lock is held for the whole run and released by `pg_advisory_unlock` or implicitly when the session closes, including on crash.
 - **Rationale**: The architecture names a session-level advisory lock held for the whole run. Advisory locks are scoped per database, which matches "the same database". Polling `pg_try_advisory_lock` avoids depending on how `lock_timeout` interacts with advisory locks and lets the wait be logged and cancelled. The history PK and UNIQUE constraints remain a second line of defense against double recording (FR-003).
 - **Alternatives considered**:
@@ -64,7 +75,7 @@ unless stated otherwise.
   - **Provisioning**: Two roles, `socalytics_migrator` and `socalytics_app`, are provisioned by the environment, not by migrations. Locally that is the AppHost init script (R6) and, in tests, the same script through Testcontainers. Production provisioning is deferred.
   - **Effective role**: The Migrator adds `Options=-c role=socalytics_migrator` to its connections. When the login identity is only a member of the role (a possible production mapping), all objects are still owned by `socalytics_migrator`, and the trigger suppression check sees that role.
   - **Database-level privileges**: The database `socalytics` is owned by `socalytics_migrator`. `REVOKE ALL ON DATABASE socalytics FROM PUBLIC` and `GRANT CONNECT ON DATABASE socalytics TO socalytics_app` remove `TEMP` and `CREATE` from runtime access.
-  - **Schema privileges**: Migration 0001 creates `socalytics`, revokes it from `PUBLIC`, grants `USAGE` to `socalytics_app`, and sets default privileges on tables (`SELECT, INSERT, UPDATE, DELETE`) and on sequences (`USAGE, SELECT, UPDATE`) for objects later created by `socalytics_migrator`. The history bootstrap grants `USAGE` on `socalytics_migrations` and `SELECT` on `history` to `socalytics_app`.
+  - **Schema privileges**: Migration 0001 creates `socalytics`, revokes it from `PUBLIC`, grants `USAGE` to `socalytics_app`, and sets default privileges on tables (`SELECT, INSERT, UPDATE, DELETE`) and on sequences (`USAGE, SELECT, UPDATE`) for objects later created by `socalytics_migrator`. The journal's table creation (R3) grants `USAGE` on `socalytics_migrations` and `SELECT` on `history` to `socalytics_app`.
   - **Fail fast**: Migration 0001 starts with a check that raises if `socalytics_app` is missing.
 - **Rationale**: FR-012 and SC-006 require runtime access that cannot create or alter structures. Ownership by `socalytics_migrator` plus default privileges means later features' tables are reachable by the API without per-table grants. Creating login roles inside migrations would need `CREATEROLE` and embedded credentials, which the spec defers to production.
 - **Alternatives considered**:
@@ -74,26 +85,38 @@ unless stated otherwise.
 
 ## R6. Local role provisioning and AppHost wiring
 
-- **Decision**: In `SocAlytics.Platform.AppHost/Program.cs`:
-  - **Parameters**: `socalytics-migrator-password` and `socalytics-app-password` are secret parameters with generated defaults, persisted to the AppHost user secrets. A `UserSecretsId` is added to the AppHost csproj.
-  - **PostgreSQL**: `builder.AddPostgres("postgres").WithImageTag("18")`, with:
-    - `WithEnvironment("SOCALYTICS_MIGRATOR_PASSWORD", …)` and `WithEnvironment("SOCALYTICS_APP_PASSWORD", …)`;
-    - `WithInitFiles("./PostgresInit")`;
-    - `WithDataVolume("socalytics-postgres-data")`, unless configuration `SocAlytics:LocalDatabase:Persistent` is `false`. Host tests set it to `false`.
-  - **Init script**: `PostgresInit/01-socalytics-roles.sql` runs through the image's `psql`. It uses `\getenv` to read the passwords, creates both roles with `LOGIN`, creates database `socalytics` owned by `socalytics_migrator`, and applies the database-level revokes and grants.
-  - **Connection strings**: `builder.AddConnectionString("socalytics-migrator", ReferenceExpression.Create(…))` and `builder.AddConnectionString("socalytics", …)` are built from the PostgreSQL endpoint host and port, database `socalytics`, the role name, and its password parameter.
-  - **Resources**: `migrator` is `AddProject<Projects.SocAlytics_Platform_Migrator>` with `.WithReference(migratorConnection).WaitFor(postgres)`. `api` adds `.WithReference(appConnection).WaitForCompletion(migrator)` to its existing endpoint and health configuration.
-  - **Fallbacks, if an Aspire 13.4.6 member differs**: `WithBindMount("./PostgresInit", "/docker-entrypoint-initdb.d")` instead of `WithInitFiles`. A `.WithEnvironment("ConnectionStrings__…", ReferenceExpression)` on each project instead of `AddConnectionString`. A parameter value from user secrets plus a documented `dotnet user-secrets set` step only if generated parameters are unavailable. That last fallback would add a manual step and must be raised before implementation, because it conflicts with SC-001.
+All Aspire members below were confirmed against Aspire 13.4.6 in spike A1. The
+spike build had 0 warnings and no experimental-API diagnostics.
+
+- **Decision**: In `SocAlytics.Platform.AppHost`:
+  - **User secrets**: Add `<UserSecretsId>` (a fixed GUID) to `SocAlytics.Platform.AppHost.csproj`. Without it, generated parameters get a new value on every run and Aspire emits no warning (spike A1(b)).
+  - **Parameters**: `builder.AddParameter("socalytics-migrator-password", new GenerateParameterDefault { MinLength = 24, Special = false }, secret: true, persist: true)`, and the same for `socalytics-app-password`. With `<UserSecretsId>`, the value stayed identical across separate AppHost runs (spike A1(b)).
+  - **PostgreSQL**: `var postgres = builder.AddPostgres("postgres")`, then:
+    - `.WithImageTag("18")`;
+    - `.WithEnvironment("POSTGRES_DB", "socalytics")`;
+    - `.WithEnvironment("SOCALYTICS_MIGRATOR_PASSWORD", migratorPassword)` and `.WithEnvironment("SOCALYTICS_APP_PASSWORD", appPassword)`;
+    - `.WithInitFiles(Path.Combine(builder.AppHostDirectory, "PostgresInit"))`;
+    - `.WithDataVolume("socalytics-postgres-data")`, unless configuration `SocAlytics:LocalDatabase:Persistent` is `false`. Host tests set it to `false`.
+  - **Init script**: `PostgresInit/01-socalytics-roles.sh` (LF line endings). It calls `psql -v ON_ERROR_STOP=1 -v migrator_pw="$SOCALYTICS_MIGRATOR_PASSWORD" -v app_pw="$SOCALYTICS_APP_PASSWORD" --dbname "$POSTGRES_DB"` and does the following:
+    - creates `socalytics_migrator` and `socalytics_app` with `LOGIN PASSWORD :'migrator_pw'` and `:'app_pw'`;
+    - runs `ALTER DATABASE socalytics OWNER TO socalytics_migrator`;
+    - applies `REVOKE ALL ON DATABASE socalytics FROM PUBLIC` and `GRANT CONNECT ON DATABASE socalytics TO socalytics_app`.
+
+    A plain `.sql` init file cannot read secrets, so a `.sh` file reading environment variables is required (spike A1(a)). The repository gains a `.gitattributes` with `*.sh text eol=lf`, so Windows checkouts keep LF endings. That entry follows from the stack, as the constitution's `.gitattributes` rule requires.
+  - **Connection strings**: `builder.AddConnectionString(name, ReferenceExpression.Create($"Host={endpoint.Property(EndpointProperty.Host)};Port={endpoint.Property(EndpointProperty.Port)};Username=<role>;Password={passwordParameter};Database=socalytics"))`, where `endpoint` is `postgres.Resource.PrimaryEndpoint`. It is created once for `socalytics-migrator` (role `socalytics_migrator`) and once for `socalytics` (role `socalytics_app`). Spike A1(c) observed `current_user` equal to the custom role for both.
+  - **Resources**: `migrator` is `AddProject<Projects.SocAlytics_Platform_Migrator>("migrator").WithReference(migratorConnection).WaitFor(postgres)`. `api` adds `.WithReference(appConnection).WaitFor(postgres).WaitForCompletion(migrator)` to its existing endpoint and health configuration.
+  - **Health waits**: `WaitFor` targets the PostgreSQL resource, because a connection-string resource has no health of its own. Spike A1(d) showed the API starting only after the Migrator exited `0`, on every run.
 - **Rationale**:
-  - **Single init path**: The Docker image runs `/docker-entrypoint-initdb.d` scripts once, on first initialization, before it opens TCP. The `postgres` health check therefore passes only after the roles exist, and `WaitFor(postgres)` is enough.
-  - **Repeat starts**: The data volume plus persisted passwords make US2 scenario 4 (repeat start applies nothing) true across separate starts.
+  - **Single init path**: The image runs `/docker-entrypoint-initdb.d` files once, on an empty data directory, before it opens TCP. During the entrypoint's init restart the health check can briefly report Unhealthy, and `WaitFor` absorbs this (spike A1(a)). The roles therefore exist before the Migrator connects.
+  - **Repeat starts**: The data volume plus persisted passwords make US2 scenario 4 (repeat start applies nothing) true across separate starts. Init does not run again on a populated volume. If the persisted passwords are lost while the volume remains, the documented manual volume reset recovers ([quickstart.md](quickstart.md#8-reset-the-local-development-database-manual-development-data-only)).
   - **Test isolation**: Turning persistence off in tests keeps host tests on disposable instances (FR-027).
-  - **Version pinning**: Pinning `18` (the Aspire 13.4 default) in both the AppHost and Testcontainers keeps "instances of the same kind" (FR-026) and avoids volume-layout surprises on a future default bump.
+  - **Version pinning**: `postgres:18` is pinned by tag in both the AppHost and Testcontainers. The spikes ran 18.6. This keeps "instances of the same kind" (FR-026) and avoids volume-layout surprises when the Aspire default changes.
   - **Shared script**: Tests reuse the same init script, which proves it.
 - **Alternatives considered**:
-  - `AddDatabase("socalytics")`: rejected because its connection string uses the superuser and its creation step races the init script.
+  - A `.sql` init file with `psql \getenv`: rejected. The spike confirmed only the `.sh` plus environment-variable pattern, and a static `.sql` file cannot carry secrets.
+  - `AddDatabase("socalytics")`: rejected because its connection string uses the superuser and the database is already created by `POSTGRES_DB`.
+  - Injecting connection strings with `WithEnvironment("ConnectionStrings__…", ReferenceExpression)`: it works (spike A1(c)), but was rejected because `AddConnectionString` shows the connection as a dashboard resource and composes with `WithReference`.
   - Fixed literal development passwords: rejected because they are secrets in source and trip secret scanning.
-  - A shell init script: rejected because CRLF checkouts on Windows break `.sh` files.
   - Provisioning roles from the Migrator with superuser access: rejected because it gives the Migrator superuser power.
   - No data volume: rejected because every start would be a fresh database, which cannot show "already migrated" behavior.
 
@@ -192,7 +215,7 @@ unless stated otherwise.
 
 - **Decision**:
   - **Project**: `src/platform/Tests/SocAlytics.Platform.Integration.Tests` uses xUnit v3, Shouldly, Testcontainers.PostgreSql 4.15.0, and Microsoft.AspNetCore.Mvc.Testing 10.0.12. It references Api, Migrator, Infrastructure, and Application.
-  - **Shared container**: An assembly fixture starts one `postgres:18` container. It maps the AppHost's `PostgresInit/01-socalytics-roles.sql` (linked into the test output) to `/docker-entrypoint-initdb.d/` and passes generated passwords through the same environment variables.
+  - **Shared container**: An assembly fixture starts one `postgres:18` container with `POSTGRES_DB=socalytics`. It maps the AppHost's `PostgresInit/01-socalytics-roles.sh` (linked into the test output) to `/docker-entrypoint-initdb.d/` and passes generated passwords through the same `SOCALYTICS_*_PASSWORD` environment variables. Spike A3 ran Testcontainers `postgres:18` with DbUp, Dapper, and `WebApplicationFactory<Program>` successfully.
   - **Per-test databases**: Each test creates its own database `t_<guid>` through the container superuser, with the same owner, revokes, and grants as the init script, and receives migrator and app connection strings.
   - **Dedicated containers**: Tests that pause the database (readiness recovery) use a dedicated container in a non-parallel collection.
   - **Test-only migrations**: Embedded resources under `TestMigrations/<Scenario>/` with sequences `9001+`. Catalogs combine the platform catalog with one scenario folder.
@@ -211,18 +234,19 @@ unless stated otherwise.
 
 ## R14. Package versions and central management
 
-- **Decision**: Add to `src/platform/Directory.Packages.props`:
+- **Decision**: Add to `src/platform/Directory.Packages.props` the versions that spike A3 resolved together under central package management and warnings-as-errors. Restore and build had 0 warnings and no NU1605 or NU1608:
   - `Npgsql` 10.0.3;
-  - `Dapper` 2.1.66 (confirm it is the latest 2.1.x on the feed);
-  - `dbup-postgresql` 7.0.1;
+  - `Dapper` 2.1.89 (latest stable, no dependencies);
+  - `dbup-postgresql` 7.0.1 (brings `dbup-core` 6.1.1; requires `Npgsql >= 10.0.1`);
   - `Aspire.Hosting.PostgreSQL` 13.4.6;
   - `Testcontainers.PostgreSql` 4.15.0;
   - `Microsoft.AspNetCore.Mvc.Testing` 10.0.12;
-  - `Microsoft.Extensions.Diagnostics.HealthChecks`, `Microsoft.Extensions.Configuration.Abstractions`, `Microsoft.Extensions.Logging.Abstractions`, and `Microsoft.Extensions.Hosting` on one 10.0.x patch at least as high as any transitive requirement of Npgsql, DbUp, and Mvc.Testing. Raise the existing `Microsoft.Extensions.DependencyInjection.Abstractions` pin to the same patch if restore reports NU1605.
+  - `Microsoft.Extensions.Diagnostics.HealthChecks`, `Microsoft.Extensions.Configuration.Abstractions`, `Microsoft.Extensions.Logging.Abstractions`, and `Microsoft.Extensions.Hosting` at 10.0.12.
 
-  Use the feed proxy `packagefeedproxy.microsoft.io` for lookups if direct nuget.org access fails on TLS.
-- **Rationale**: Central package management is already enabled, and warnings are errors, so a downgrade warning (NU1605) breaks the build.
+  Raise the existing `Microsoft.Extensions.DependencyInjection.Abstractions` pin from 10.0.0 to 10.0.12. The rule is a central floor of 10.0.12 for every directly referenced `Microsoft.Extensions.*` package. `Mvc.Testing` pulls 10.0.12 and `Aspire.Hosting.Testing` 13.4.6 pulls 10.0.8. A test project that directly referenced a `Microsoft.Extensions.*` package at 10.0.0 reproduced `NU1605` in spike A3, and pinning 10.0.12 removed it.
+- **Rationale**: Central package management is already enabled, and warnings are errors, so a downgrade warning breaks the build. The 10.0.12 floor matches the installed runtime and `Mvc.Testing`.
 - **Alternatives considered**:
+  - Keeping 10.0.0 for production projects only: rejected because a single floor is simpler and was proven clean.
   - The `Aspire.Npgsql` client integration in the API: rejected because it would couple Infrastructure registration to Aspire hosting extensions. Its health check would also duplicate the migration-aware readiness.
   - The `Npgsql.DependencyInjection` package: rejected because the data source is built directly in Infrastructure.
 

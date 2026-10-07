@@ -21,9 +21,10 @@ SocAlytics uses one `src` root with these first-level ownership areas:
 - `src/clients` owns the future Web UI and Electron Coach Client source
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
-- `src/analysts` owns the future Analyst Manager, whose first headless slice is
-  planned under `src/analysts/manager`, and the future Analyst SDK and Analyst
-  capability implementations across their required runtimes
+- `src/analysts` owns the future Analyst Manager, a per-user desktop
+  application whose first slice is planned under `src/analysts/manager`, and
+  the future Analyst SDK and Analyst capability implementations across their
+  required runtimes
 
 The executable platform projects are peers under `src/platform`, except for the
 two test projects grouped under `src/platform/Tests`:
@@ -93,10 +94,11 @@ regardless of the API replica count. Locally, the Aspire AppHost will mirror
 that order: PostgreSQL, then the Migrator, then the API, which waits for the
 Migrator to complete and for the S3-compatible RustFS container to report
 healthy. The local PostgreSQL container will provision both database roles from
-a committed initialization script with generated development-only passwords
-and keep its data in a named development volume; these local values are not
-production values, and production credentials, role-to-identity mapping, and
-the scheduling of the Migrator remain unresolved.
+a committed initialization shell script that reads generated development-only
+passwords, which the AppHost persists in its user secrets, and keep its data in
+a named development volume; these local values are not production values, and
+production credentials, role-to-identity mapping, and the scheduling of the
+Migrator remain unresolved.
 
 Azure Container Apps is the Provisional target cloud profile, and Compose
 remains supported as the self-hostable profile. Both run the same cloud-neutral
@@ -149,19 +151,21 @@ Each stamp uses one PostgreSQL database with one application schema,
 functional area where that improves readability, but areas do not have separate
 schemas, roles, or access separation. Migration history is kept apart from
 domain data in `socalytics_migrations.history`, which records each applied
-migration's sequence, identity, SHA-256 checksum, and application time but
-contains no domain state. Two database roles separate access:
-`socalytics_migrator` owns both schemas and is the only role that creates or
-alters data structures, and `socalytics_app` may read and write tables in
-`socalytics` and read the migration history. The environment provisions both
-roles and their login identities before the Migrator first runs; migrations
-grant privileges but never create roles or credentials. The one exception to
-uniform runtime access is the security audit table: the runtime role may only
-insert and read audit events, and a trigger rejects updates, deletes, and
-truncation, so audit evidence is append-protected and kept apart from
-application logs. This table will hold development audit evidence; the
-production audit store, integrity verification, and retention remain governed
-by POL-009 in
+migration's sequence (the number in its script name), identity, SHA-256
+checksum, and application time but contains no domain state. Two database
+roles separate access: `socalytics_migrator` owns both schemas and is the only
+role that creates or alters data structures, and `socalytics_app` may read and
+write tables in `socalytics` and read the migration history. The environment
+provisions both roles and their login identities before the Migrator first
+runs; migrations grant privileges but never create roles or credentials. The
+exceptions to uniform runtime access are the security audit table and the
+break-glass recovery ledger: the runtime role may only insert and read them. A
+trigger also rejects updates, deletes, and truncation of the audit table, so
+audit evidence is append-protected and kept apart from application logs, and
+because ledger entries cannot be changed or removed, a used recovery
+identifier can never be made reusable. The audit table will hold development
+audit evidence; the production audit store, integrity verification, and
+retention remain governed by POL-009 in
 [Security and Data Governance](security-and-data-governance.md#audit-events).
 
 Table definitions and SQL live in the Infrastructure layer. The API references
@@ -179,8 +183,9 @@ migrations, outbox, or infrastructure integration.
 
 Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Dapper
 provide database access; Entity Framework Core is not part of the baseline.
-DbUp applies one ordered sequence of versioned PostgreSQL SQL scripts for the
-whole platform; the scripts live in the Infrastructure layer.
+DbUp applies one ordered sequence of numbered, versioned PostgreSQL SQL scripts
+for the whole platform; the scripts live in the Infrastructure layer, and a
+custom DbUp journal records them in `socalytics_migrations.history`.
 
 Migrations run only in the one-off Migrator, never inside the API:
 
@@ -288,12 +293,18 @@ and backups are governed by
 The Recordings area will adopt S3-compatible object storage through the S3
 protocol only. Infrastructure will use `AWSSDK.S3` with path-style addressing
 against a configured endpoint; Application and Domain depend only on a storage
-abstraction. The API will issue presigned single-object upload grants and read
-storage-reported integrity evidence; it never receives media bytes. Locally the
-Aspire AppHost will run a pinned RustFS container and create the development
-bucket, and integration tests will use the same image through Testcontainers.
+abstraction. Every upload will be a multipart upload with composite SHA-256
+checksums: the API issues presigned per-part grants that sign each part's
+length and checksum, assembles the declared parts itself, and verifies the
+storage-reported composite digest and size; it never receives media bytes. A
+hosted worker in the API host will expire abandoned upload sessions and abort
+their multipart uploads. Locally the Aspire AppHost will run a pinned RustFS
+container as a plain container resource, the API will create the development
+bucket, and integration tests will use the same image through Testcontainers
+together with a store conformance probe that any production store must pass.
 Bucket provisioning, production storage selection, encryption, credentials,
-browser CORS, grant lifetime, and lifecycle policy remain governed by
+browser CORS, public endpoints, grant and session lifetimes, and lifecycle
+policy remain governed by
 [Production Deployment and Operations](production-operations.md) and
 [Security and Data Governance](security-and-data-governance.md).
 
@@ -327,21 +338,36 @@ data enforced by the API.
 
 The BFF session will be server-validated. The cookie carries only an opaque
 random session token, and the database stores its hash together with idle and
-absolute expiry, the account's security stamp at issue, and the hash of a
-per-session anti-forgery token that clients send in a request header on every
-state-changing request. Every request revalidates the session, the account's
+absolute expiry and the account's security stamp at issue. Clients send a
+per-session anti-forgery token, derived from the session token with HMAC-SHA256
+and recomputed on every request, in a request header on every state-changing
+request. Every request revalidates the session, the account's
 active membership, and its security stamp, and reads current roles, so
 sign-out, session termination, password changes, deactivation, and role
 revocation take effect on the affected member's next request. No session or
 anti-forgery secret is stored in recoverable form, and the API needs no shared
 key ring across instances. Single-use, time-limited set-password and reset
 credentials are issued by a Club Admin through an ASP.NET Core Identity token
-provider and stored only as hashes. The club and its first Club Admin are
+provider and stored only as hashes; unused credentials stop working when
+their issuer loses the Club Admin role or is deactivated, or their target is
+deactivated. Every refused sign-in performs the same password-hash work, so
+refusal reasons cannot be told apart by timing. The club and its first Club Admin are
 established from protected deployment configuration by the API, not the
 Migrator. The API serializes this one-time bootstrap with a database
 transaction lock and uniqueness constraints, so concurrently starting API
 instances create exactly one club and administrator, and an instance reports
 not ready while no club is established or the configuration conflicts with it.
+The first Club Admin must change the configured initial password at the first
+sign-in, and bootstrap no longer needs that value once the club exists.
+A club whose only Club Admin can no longer sign in will recover through a
+break-glass directive in protected deployment configuration. The directive
+names an existing active account, a single-use recovery identifier, and an
+operator-supplied temporary credential. The API applies it at start under the
+same lock, at most once per identifier, which it records in the recovery
+ledger. Applying it sets the credential, ends the account's sessions, and
+requires a password change at the next sign-in. It grants no roles and is
+audited. The platform never writes the credential to logs or diagnostics, and
+no API operation, authenticated or not, performs recovery.
 
 Analyst Manager registration uses browser device-code pairing initiated by a
 club `Registrar` and explicitly approved by a `Club Admin`. Club Admin inherits
@@ -418,13 +444,19 @@ OS-protected per-installation encryption keys.
 
 ## Analyst Technology
 
-The Analyst Manager uses a .NET 10 Generic Host for lifecycle, registration,
-queue, hardware, and OCI-runtime responsibilities. Avalonia supplies its
-cross-platform tray and status UI. The worker remains testable without the UI.
-Its source will be a separate .NET solution under `src/analysts/manager` with
-its own tests. The first slice will be headless: it registers, restores its
-registration, observes revocation, runs runtime preflight, and accepts local
-controls without the Avalonia UI.
+The Analyst Manager will be a per-user desktop application in a separate .NET
+solution under `src/analysts/manager` with its own tests. A .NET 10 Generic
+Host worker in a library without UI dependencies owns lifecycle,
+registration, key providers, signed local state, queue, hardware, autostart,
+and OCI-runtime responsibilities; Avalonia supplies the cross-platform tray
+and status UI in the same process. Device keys use Windows CNG, a small Swift
+bridge over CryptoKit and the Keychain on macOS, and PKCS#11 through
+Pkcs11Interop on Linux. The worker and UI are tested without a display using
+Avalonia headless tests; Linux CI uses a SoftHSM2 token, while the Windows and
+macOS key stores are verified on those systems. Shared golden fixtures under
+`contracts/analyst-manager/` are verified by both the platform and the Manager
+test suites so the two implementations of the registration exchanges cannot
+drift.
 
 Analyst Containers use Python because PyTorch, ONNX Runtime, OpenCV, NumPy,
 SciPy, scikit-learn, SAHI, and accelerator-vendor tooling provide the paved

@@ -6,8 +6,11 @@ info:
   description: >-
     Fragment of the platform `/api/v1` surface owned by the Recordings functional area
     (feature 20261005-130702-recording-lineage-upload). The platform never receives media
-    bytes: uploads go directly to S3-compatible object storage through short-lived,
-    single-object upload grants. Authentication, the session cookie, anti-forgery, and the
+    bytes: every upload is one S3 multipart upload with composite SHA-256 checksums, written
+    directly to S3-compatible object storage through short-lived per-part grants that bind
+    each part's number, exact length, and digest. Recording content digests use
+    sha-256-parts:<partSizeBytes>:<partCount>:<hex>. Authentication, the session cookie,
+    anti-forgery, and the
     shared problem-details catalog are owned by the Club and Identity contract; this fragment
     references them and adds only recording operations and problem codes. Problem `type` URIs
     are `urn:socalytics:problem:<code>`, using the codes listed on each response.
@@ -28,12 +31,15 @@ paths:
     post:
       operationId: startRecordingUpload
       tags: [Recording uploads]
-      summary: Start an upload session and receive a single-object upload grant.
+      summary: Start a multipart upload session and receive grants for its first parts.
       description: >-
-        Requires Club Admin or the Coach role on the Match's Team. Creates a pending upload
-        session and returns a time-limited grant to write exactly one platform-chosen object.
-        Replaying the same Idempotency-Key with the same content returns the original session
-        with a freshly issued grant (grants are never stored).
+        Requires Club Admin or the Coach role on the Match's Team (TeamPermission.Write).
+        Validates the part declaration, creates a pending upload session with one storage
+        multipart upload (SHA-256 composite checksums) at a platform-chosen location, and
+        returns grants for parts 1..min(partCount, configured maximum per request). Request
+        further grants with issueRecordingUploadGrants. Replaying the same Idempotency-Key with
+        the same content returns the original session with freshly issued grants (grants are
+        never stored).
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/AntiforgeryToken'
@@ -45,7 +51,7 @@ paths:
               $ref: '#/components/schemas/StartUploadRequest'
       responses:
         '201':
-          description: Upload session created (or replayed) with a fresh grant.
+          description: Upload session created (or replayed) with fresh grants for its first parts.
           headers:
             Location:
               $ref: '#/components/headers/Location'
@@ -56,7 +62,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadSessionWithGrant'
+                $ref: '#/components/schemas/UploadSessionWithGrants'
         '400':
           $ref: '#/components/responses/ValidationProblem'
         '401':
@@ -99,25 +105,34 @@ paths:
       - $ref: '#/components/parameters/MatchId'
       - $ref: '#/components/parameters/UploadSessionId'
     post:
-      operationId: issueRecordingUploadGrant
+      operationId: issueRecordingUploadGrants
       tags: [Recording uploads]
-      summary: Issue a fresh upload grant for a pending session.
+      summary: Issue fresh upload grants for requested parts of a pending session.
       description: >-
-        Requires current Club Admin or Coach authority. The grant targets the same single
-        storage location as every earlier grant of the session and conveys no other authority.
-        Unknown or differently scoped sessions yield 404; completed sessions yield 409.
+        Requires current Club Admin or Coach authority. Each grant permits writing only its
+        part, with exactly the declared size and digest, to the session's single storage
+        location, and conveys no other authority. Unknown or differently scoped sessions yield
+        404; completed or expired sessions yield 409.
       parameters:
         - $ref: '#/components/parameters/AntiforgeryToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PartGrantRequest'
       responses:
         '200':
-          description: A fresh time-limited upload grant.
+          description: Fresh time-limited grants for the requested parts.
           headers:
             Cache-Control:
               $ref: '#/components/headers/NoStore'
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadGrant'
+                $ref: '#/components/schemas/PartGrantBatch'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -135,12 +150,15 @@ paths:
     post:
       operationId: completeRecordingUpload
       tags: [Recording uploads]
-      summary: Verify the stored object and accept it as an immutable recording version.
+      summary: Assemble the declared parts and accept the verified object as a recording version.
       description: >-
-        Verifies, using storage-provided integrity evidence, that the object at the session's
-        location exists and that its size and SHA-256 equal the declaration; then atomically
-        creates one recording version, its first timeline mapping, and marks the session
-        completed. Any rejection leaves the session pending and creates nothing.
+        The platform lists the stored parts, requires exactly parts 1..partCount with their
+        declared sizes, completes the multipart upload itself with the declared per-part and
+        composite SHA-256 checksums, and accepts the object only when storage reports the
+        expected sha-256-parts composite (type COMPOSITE) and total size. It then atomically
+        creates one recording version and its first timeline mapping and marks the session
+        completed. Rejections before assembly leave the session pending so parts can be
+        re-uploaded.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/AntiforgeryToken'
@@ -378,10 +396,10 @@ components:
     sessionCookie:
       type: apiKey
       in: cookie
-      name: __Host-SocAlytics.Session
+      name: __Host-socalytics-session
       description: >-
         Server-validated human session established by Club and Identity (Secure, HttpOnly,
-        SameSite=Strict). The cookie name is owned by the Club and Identity contract.
+        SameSite=Strict).
   parameters:
     MatchId:
       name: matchId
@@ -426,12 +444,10 @@ components:
         maxLength: 255
         pattern: '^[\x21-\x7E]+$'
     AntiforgeryToken:
-      name: RequestVerificationToken
+      name: X-CSRF-Token
       in: header
       required: true
-      description: >-
-        Anti-forgery proof issued for the current session. Header name and issuance are owned
-        by the Club and Identity contract.
+      description: Anti-forgery proof issued by Club and Identity for the current session.
       schema:
         type: string
         minLength: 1
@@ -458,8 +474,9 @@ components:
     ValidationProblem:
       description: >-
         The request is invalid. Codes: `validation-failed`, `idempotency-key-missing`,
+        `upload-declaration-invalid`, `part-numbers-invalid`, `content-type-not-allowed`,
         `timeline-mapping-invalid`, `recording-set-empty`, `recording-set-member-invalid`,
-        `recording-set-duplicate-recording`, `content-type-not-allowed`, `upload-size-out-of-range`.
+        `recording-set-duplicate-recording`.
       content:
         application/problem+json:
           schema:
@@ -493,7 +510,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     GrantConflict:
-      description: 'Codes: `season-archived`, `upload-session-completed`.'
+      description: 'Codes: `season-archived`, `upload-session-completed`, `upload-session-expired`.'
       content:
         application/problem+json:
           schema:
@@ -501,8 +518,9 @@ components:
     CompletionConflict:
       description: >-
         Codes: `season-archived`, `idempotency-key-reused`, `upload-session-completed`,
-        `upload-object-missing`, `upload-object-mismatch`, `integrity-evidence-unavailable`.
-        Verification failures leave the session pending.
+        `upload-session-expired`, `upload-parts-incomplete`, `upload-part-mismatch`,
+        `upload-object-mismatch`, `integrity-evidence-unavailable`. Rejections before
+        assembly leave the session pending.
       content:
         application/problem+json:
           schema:
@@ -527,6 +545,13 @@ components:
     Sha256Digest:
       type: string
       pattern: '^sha-256:[0-9a-f]{64}$'
+    CompositeDigest:
+      type: string
+      description: >-
+        Composite multipart content digest sha-256-parts:<partSizeBytes>:<partCount>:<hex>,
+        where hex is SHA-256 over the concatenated raw SHA-256 digests of the parts in order.
+        Never comparable with a plain sha-256 digest.
+      pattern: '^sha-256-parts:[1-9][0-9]{0,9}:[1-9][0-9]{0,4}:[0-9a-f]{64}$'
     Timestamp:
       type: string
       format: date-time
@@ -578,20 +603,33 @@ components:
     StartUploadRequest:
       type: object
       additionalProperties: false
-      required: [recording, sizeBytes, contentDigest]
+      description: >-
+        Multipart declaration. partCount = ceil(totalSizeBytes / partSizeBytes) must equal the
+        number of partDigests; every part except the last is exactly partSizeBytes; when more
+        than one part is declared, partSizeBytes must be at least 5242880 (storage minimum).
+        The stamp's configured maximum object size, part size bounds, and part count apply.
+      required: [recording, totalSizeBytes, partSizeBytes, partDigests]
       properties:
         recording:
           $ref: '#/components/schemas/RecordingDescriptor'
-        sizeBytes:
+        totalSizeBytes:
+          type: integer
+          minimum: 1
+          maximum: 5497558138880
+        partSizeBytes:
           type: integer
           minimum: 1
           maximum: 5368709120
-          description: Expected object size; also bounded by the stamp's configured maximum.
-        contentDigest:
-          $ref: '#/components/schemas/Sha256Digest'
+        partDigests:
+          type: array
+          description: SHA-256 digest of each part, in part order (part 1 first).
+          minItems: 1
+          maxItems: 10000
+          items:
+            $ref: '#/components/schemas/Sha256Digest'
     UploadSession:
       type: object
-      required: [id, matchId, teamId, state, recording, sizeBytes, contentDigest, createdAt, version]
+      required: [id, matchId, teamId, state, recording, totalSizeBytes, partSizeBytes, partCount, contentDigest, createdAt, expiresAt, version]
       properties:
         id:
           $ref: '#/components/schemas/Identifier'
@@ -601,27 +639,60 @@ components:
           $ref: '#/components/schemas/Identifier'
         state:
           type: string
-          enum: [pending, completed]
+          enum: [pending, completed, expired]
         recording:
           $ref: '#/components/schemas/RecordingDescriptor'
-        sizeBytes:
+        totalSizeBytes:
           type: integer
+        partSizeBytes:
+          type: integer
+        partCount:
+          type: integer
+          minimum: 1
+          maximum: 10000
         contentDigest:
-          $ref: '#/components/schemas/Sha256Digest'
+          $ref: '#/components/schemas/CompositeDigest'
         createdAt:
           $ref: '#/components/schemas/Timestamp'
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
         completedAt:
+          $ref: '#/components/schemas/Timestamp'
+        expiredAt:
           $ref: '#/components/schemas/Timestamp'
         recordingVersionId:
           $ref: '#/components/schemas/Identifier'
         version:
           type: integer
           minimum: 1
-    UploadGrant:
+    PartGrantRequest:
       type: object
-      description: Transient authority to PUT exactly one object. Never stored or logged by the platform.
-      required: [method, url, requiredHeaders, expiresAt]
+      additionalProperties: false
+      required: [partNumbers]
       properties:
+        partNumbers:
+          type: array
+          description: >-
+            Distinct part numbers within 1..partCount; at most the stamp's configured maximum
+            per request.
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          items:
+            type: integer
+            minimum: 1
+            maximum: 10000
+    PartGrant:
+      type: object
+      description: >-
+        Transient authority to PUT exactly one part with its declared size and digest. Never
+        stored or logged by the platform.
+      required: [partNumber, method, url, requiredHeaders]
+      properties:
+        partNumber:
+          type: integer
+          minimum: 1
+          maximum: 10000
         method:
           type: string
           const: PUT
@@ -630,26 +701,38 @@ components:
           format: uri
         requiredHeaders:
           type: object
-          description: Headers the client must send unchanged with the PUT.
-          required: [Content-Type, x-amz-checksum-sha256]
-          additionalProperties:
-            type: string
+          description: >-
+            Headers the client must send unchanged with the PUT; no other x-amz-* header may be
+            sent.
+          required: [Content-Length, x-amz-checksum-sha256]
+          additionalProperties: false
           properties:
-            Content-Type:
+            Content-Length:
               type: string
+              pattern: '^[1-9][0-9]*$'
+              description: Exact byte length of this part.
             x-amz-checksum-sha256:
               type: string
-              description: Base64 SHA-256 of the declared content.
+              description: Base64 SHA-256 of this part's declared digest.
+    PartGrantBatch:
+      type: object
+      required: [expiresAt, parts]
+      properties:
         expiresAt:
           $ref: '#/components/schemas/Timestamp'
-    UploadSessionWithGrant:
+        parts:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PartGrant'
+    UploadSessionWithGrants:
       type: object
-      required: [session, grant]
+      required: [session, grants]
       properties:
         session:
           $ref: '#/components/schemas/UploadSession'
-        grant:
-          $ref: '#/components/schemas/UploadGrant'
+        grants:
+          $ref: '#/components/schemas/PartGrantBatch'
     TimelineSpan:
       type: object
       additionalProperties: false
@@ -690,7 +773,7 @@ components:
           $ref: '#/components/schemas/TimelineMappingContent'
     RecordingVersion:
       type: object
-      required: [id, matchId, teamId, uploadSessionId, recording, sizeBytes, contentDigest, createdAt]
+      required: [id, matchId, teamId, uploadSessionId, recording, totalSizeBytes, partSizeBytes, partCount, contentDigest, createdAt]
       properties:
         id:
           $ref: '#/components/schemas/Identifier'
@@ -702,10 +785,14 @@ components:
           $ref: '#/components/schemas/Identifier'
         recording:
           $ref: '#/components/schemas/RecordingDescriptor'
-        sizeBytes:
+        totalSizeBytes:
+          type: integer
+        partSizeBytes:
+          type: integer
+        partCount:
           type: integer
         contentDigest:
-          $ref: '#/components/schemas/Sha256Digest'
+          $ref: '#/components/schemas/CompositeDigest'
         createdAt:
           $ref: '#/components/schemas/Timestamp'
     TimelineMapping:
@@ -764,7 +851,7 @@ components:
         recordingVersionId:
           $ref: '#/components/schemas/Identifier'
         recordingContentDigest:
-          $ref: '#/components/schemas/Sha256Digest'
+          $ref: '#/components/schemas/CompositeDigest'
         timelineMappingId:
           $ref: '#/components/schemas/Identifier'
         timelineMappingDigest:

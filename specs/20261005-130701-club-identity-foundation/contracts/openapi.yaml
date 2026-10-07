@@ -28,6 +28,12 @@ info:
       and optional `errors`.
     - Visibility: a team-owned resource the caller cannot read is reported as
       `404` so its existence is not disclosed.
+    - Required password change: for the first Club Admin created by
+      bootstrap and after break-glass recovery, the account's session is
+      restricted (`passwordChangeRequired: true`). Only `getSession`,
+      `getCurrentMember`, `changeOwnPassword`, and `signOut` are allowed;
+      every other operation returns `403` with problem code
+      `password-change-required` until the password is changed.
     - Collections: `items` plus an opaque `continuationToken`.
 servers:
   - url: /
@@ -52,7 +58,11 @@ paths:
         Ends any session presented in the request cookie, then issues a new
         session cookie. Unknown account, wrong password, locked account,
         inactive membership, and missing password all yield the identical
-        `401` `sign-in-failed` response.
+        `401` `sign-in-failed` response with no measurable timing difference
+        (every path performs exactly one password-hash verification). For
+        the bootstrap Club Admin's first sign-in and after break-glass
+        recovery the session is established with
+        `passwordChangeRequired: true`.
       security: []
       requestBody:
         required: true
@@ -133,7 +143,9 @@ paths:
       description: >
         Rotates the security stamp and ends every other session of the
         caller; the current session stays valid. A wrong current password
-        yields `400` with field violation `currentPassword`/`invalid`.
+        yields `400` with field violation `currentPassword`/`invalid`. Allowed
+        on a session restricted by a required password change, and clears
+        that requirement.
       security:
         - sessionCookie: []
           antiforgeryHeader: []
@@ -162,9 +174,9 @@ paths:
       description: >
         The new password is checked against the password policy before the
         credential is examined. Every credential failure (unknown, expired,
-        used, revoked, or bound to another account) yields the identical
-        `400` `credential-invalid` response. Success ends all sessions of the
-        account.
+        used, revoked, bound to another account, or target membership not
+        active) yields the identical `400` `credential-invalid` response.
+        Success ends all sessions of the account.
       security: []
       requestBody:
         required: true
@@ -734,8 +746,10 @@ paths:
       operationId: deactivateMember
       summary: Deactivate a membership (Club Admin; lifecycle action, no If-Match).
       description: >
-        Revokes all club and team roles, rotates the security stamp, and ends
-        every session of the member. Rejected with `409` `last-club-admin`
+        Revokes all club and team roles, rotates the security stamp, ends
+        every session of the member, revokes the member's unused one-time
+        credentials and, when the member was a Club Admin, every unused
+        credential the member issued. Rejected with `409` `last-club-admin`
         when it would leave no active Club Admin.
       security:
         - sessionCookie: []
@@ -817,7 +831,7 @@ paths:
       tags: [Members]
       operationId: revokeClubRole
       summary: Revoke a club role (Club Admin; idempotent lifecycle action, no If-Match).
-      description: Revoking `club-admin` from the last active Club Admin is rejected with `409` `last-club-admin`.
+      description: Revoking `club-admin` from the last active Club Admin is rejected with `409` `last-club-admin`. Revoking `club-admin` also revokes every unused one-time credential the member issued.
       security:
         - sessionCookie: []
           antiforgeryHeader: []
@@ -954,7 +968,7 @@ components:
       type: apiKey
       in: header
       name: X-CSRF-Token
-      description: Anti-forgery token bound to the current session, returned by signIn and getSession.
+      description: Anti-forgery token derived from the current session token (HMAC-SHA256, not stored), returned by signIn and getSession.
   parameters:
     SeasonId:
       name: seasonId
@@ -1062,7 +1076,7 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     Forbidden:
-      description: Missing or invalid anti-forgery proof (`antiforgery-failed`), or the caller lacks the required role (`forbidden`).
+      description: Missing or invalid anti-forgery proof (`antiforgery-failed`), the caller lacks the required role (`forbidden`), or the session is restricted until the password is changed (`password-change-required`).
       content:
         application/problem+json:
           schema:
@@ -1173,6 +1187,7 @@ components:
             - unauthenticated
             - antiforgery-failed
             - forbidden
+            - password-change-required
             - not-found
             - invalid-state-transition
             - season-already-active
@@ -1213,7 +1228,7 @@ components:
           $ref: '#/components/schemas/Password'
     SessionInfo:
       type: object
-      required: [sessionId, idleExpiresAt, absoluteExpiresAt, antiforgeryToken, member]
+      required: [sessionId, idleExpiresAt, absoluteExpiresAt, antiforgeryToken, passwordChangeRequired, member]
       properties:
         sessionId:
           $ref: '#/components/schemas/Identifier'
@@ -1221,6 +1236,9 @@ components:
           $ref: '#/components/schemas/Timestamp'
         absoluteExpiresAt:
           $ref: '#/components/schemas/Timestamp'
+        passwordChangeRequired:
+          type: boolean
+          description: True when the session is restricted until the member changes their password (first sign-in of the bootstrap Club Admin, or after break-glass recovery).
         antiforgeryToken:
           type: string
           description: Send as `X-CSRF-Token` on every state-changing request of this session.
@@ -1228,7 +1246,7 @@ components:
           $ref: '#/components/schemas/CurrentMember'
     CurrentMember:
       type: object
-      required: [id, accountName, membershipStatus, clubRoles, teamRoles]
+      required: [id, accountName, membershipStatus, passwordChangeRequired, clubRoles, teamRoles]
       properties:
         id:
           $ref: '#/components/schemas/Identifier'
@@ -1236,6 +1254,9 @@ components:
           $ref: '#/components/schemas/AccountName'
         membershipStatus:
           $ref: '#/components/schemas/MembershipStatus'
+        passwordChangeRequired:
+          type: boolean
+          description: True for the bootstrap Club Admin before the first password change and after break-glass recovery, until the member changes their password; while true the session is restricted to getSession, getCurrentMember, changeOwnPassword, and signOut.
         clubRoles:
           type: array
           items:

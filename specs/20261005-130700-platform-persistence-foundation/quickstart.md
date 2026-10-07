@@ -55,7 +55,8 @@ dotnet run --project src/platform/SocAlytics.Platform.AppHost
 
 Expected in the Aspire dashboard (URL printed on start):
 
-- `postgres` is Running and Healthy.
+- `postgres` (`postgres:18`) is Running and Healthy. A brief Unhealthy state during the first initialization restart is expected.
+- On the first run, the AppHost generates both role passwords and stores them in its user secrets, which works because the AppHost has a `<UserSecretsId>`. There is no prompt and no manual step. The `.sh` init script creates both roles on the empty volume.
 - `migrator` is Finished with exit code `0`. Its logs show event `1006` "Migration run finished; 2 applied, database current" on a fresh volume.
 - `api` starts only after the Migrator finished, then shows Running and Healthy.
 
@@ -74,9 +75,11 @@ No other command or manual step is required (SC-001). Stop with `Ctrl+C`.
 
 Run scenario 3 again and stop it, three times in a row.
 
-Expected each time: the `migrator` logs show "0 applied, database current"
-and no "Applying migration" events. The API becomes healthy (US2 scenario 4,
-SC-003).
+Expected each time:
+
+- The `migrator` logs show "0 applied, database current" and no "Applying migration" events.
+- No authentication failure occurs, because the persisted passwords still match the roles in the volume.
+- The API becomes healthy (US2 scenario 4, SC-003).
 
 ## 5. Inspect the migration history
 
@@ -92,7 +95,7 @@ docker exec $pg psql -U postgres -d socalytics -c "\du socalytics_*"
 Expected:
 
 - History contains exactly `1 | 0001_foundation_application_schema` and `2 | 0002_foundation_version_triggers`, each with a `sha-256:` checksum.
-- Schemas `socalytics` and `socalytics_migrations` are owned by `socalytics_migrator`.
+- Database `socalytics` and schemas `socalytics` and `socalytics_migrations` are owned by `socalytics_migrator`. Check the database owner with `docker exec $pg psql -U postgres -c "\l socalytics"`.
 - Roles `socalytics_migrator` and `socalytics_app` exist.
 - No table exists in `socalytics` (no domain tables).
 
@@ -157,7 +160,9 @@ docker volume rm socalytics-postgres-data
 
 Expected: the next scenario 3 run initializes a fresh database, provisions
 both roles again, and applies both migrations. Use this reset also if the
-AppHost user secrets were deleted and the stored passwords no longer match.
+AppHost user secrets were deleted and the stored passwords no longer match the
+roles in the volume (risk PF-R11). The init script runs only on an empty data
+directory, so it never updates existing roles.
 
 ## 9. Documentation check
 

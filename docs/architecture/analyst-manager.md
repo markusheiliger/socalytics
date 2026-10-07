@@ -65,10 +65,10 @@ For runtime operations and attempt fencing, see
 ## Desktop Application Profile
 
 The Analyst Manager uses one cross-platform implementation for Windows, macOS,
-and Linux. It supports operating-system autostart and always launches minimized
-to the system tray. Coordination and active Analysts continue without an open
-window. The tray provides actions to open status, pause or resume dequeue, and
-exit safely.
+and Linux. It supports opt-in per-user autostart and launches minimized to the
+system tray where the desktop provides one. Coordination and active Analysts
+continue without an open window. The tray provides actions to open status,
+pause or resume dequeue, and exit safely.
 
 The status window shows:
 
@@ -85,25 +85,28 @@ Queue depth is operational guidance, not a transactional guarantee. The AM
 obtains it through the registered stamp API and does not infer permission to
 pull work from the displayed value.
 
-The provisional desktop implementation uses a .NET 10 Generic Host for the
-Manager lifecycle and Avalonia for the tray and status UI. The worker remains
-testable without the UI. This keeps runtime coordination, credentials, queue
-consumption, hardware inspection, and OCI adapters in C# without embedding a
-browser runtime alongside Analyst workloads.
+The Analyst Manager is a per-user desktop application: it runs in the context
+of the signed-in user on Windows, macOS, and Linux, without an
+operating-system service and without administrator rights. A .NET 10 Generic
+Host worker without UI dependencies runs in-process with an Avalonia tray
+application. This keeps runtime coordination, credentials, queue consumption,
+hardware inspection, and OCI adapters in C# without embedding a browser
+runtime alongside Analyst workloads. The tray menu offers status, pause, pause
+for a chosen time with automatic resume, resume, safe exit, register,
+unregister, and start at sign-in; where the desktop has no tray host (for
+example Linux without StatusNotifierItem support), a status window offers the
+same controls. One owner-only local socket per user provides single-instance
+hand-off and an optional scripting client; the Manager verifies that every
+peer belongs to the same user and never listens on the network. Autostart is
+opt-in and per user: the Windows `Run` key of the current user,
+`SMAppService` (or a per-user launch agent) on macOS, and an XDG autostart
+entry on Linux.
 
-The worker will expose its local operating controls (status, register, pause,
-resume, safe exit, and unregister) to a command-line client through an
-owner-only local IPC endpoint: a Unix domain socket in the Manager state
-directory on every operating system. The endpoint accepts connections only from
-the Manager's process account and never listens on the network. The headless
-worker and its command-line client will be the first control surface; the tray
-UI, when introduced, uses the same controls.
-
-Promotion requires an Avalonia spike on Windows, macOS, and Linux covering tray
-and autostart support, signed installation and updates, runtime footprint while
-Analysts execute, operating-system-protected local storage, accessibility, and
-long-term maintenance. Electron with React and Tauri with React remain the
-evaluated alternatives if the spike fails a required platform capability.
+The 2026-10 spike confirmed the Avalonia tray, headless UI tests, and the
+local socket. Signed installers, updates, runtime footprint while Analysts
+execute, accessibility, and long-term maintenance remain open promotion items,
+with Electron with React and Tauri with React as the evaluated alternatives if
+a required platform capability fails.
 
 ---
 
@@ -127,23 +130,35 @@ operating-system-protected keystore. Activation is refused when no supported
 protected store is available; an exportable key-file fallback is not supported.
 Hardware-backed storage may be used but is not required.
 
-The first candidate store will be a non-exportable ECDSA P-256 key in the
-Windows CNG software key storage provider, scoped to the Manager's process
-account, with the local registration state protected by Windows DPAPI for the
-same account. Until another operating system has an approved store, the Manager
-refuses registration there. Production approval of any store remains governed
-by `GOV-CRED-002` in
+Supported keystores are per-user and non-exportable: on Windows a CNG key in
+the Microsoft Platform Crypto Provider (TPM) when available, otherwise in the
+software key storage provider; on macOS a Secure Enclave key when available,
+otherwise a Keychain key, reached through a small native bridge because .NET
+has no Secure Enclave API; on Linux a key in a PKCS#11 token, with tpm2-pkcs11
+as the production module, generated without the extractable attribute because
+non-exportability comes from the TPM. The AM reports the kind of protection at
+registration; the platform records and shows it as claimed by the AM and never
+bases authorization on it, and it refuses software-backed keys unless the stamp
+explicitly allows them (by default only for development and test). Hardware key
+attestation is a later decision.
+Production approval of any store remains governed by `GOV-CRED-002` in
 [Security and Data Governance](security-and-data-governance.md#credential-class-entries).
 
 The untrusted AM requests a short-lived, single-use pairing code bound to its
 public key, target stamp, nonce, expiry, and reported device metadata. It shows
-the platform verification URL and may also show a QR code. The user completes
+the platform verification URL, the pairing code, and a short device fingerprint
+derived from its public key, and may also show a QR code. The user completes
 normal local or external OpenID Connect authentication in the system browser;
 human credentials and tokens never pass through the AM.
 
-The authenticated user selects the target club and submits the pairing code.
-The platform verifies the Registrar capability and creates a key-bound pending
-request. The human-facing code expires after approximately ten minutes. Once
+The authenticated user selects the target club and submits the pairing code
+together with the device fingerprint read from the AM. The platform verifies
+the Registrar capability and the fingerprint against the paired key, and
+creates a key-bound pending request; a wrong fingerprint is refused like an
+invalid code, which defeats phished pairing codes (RFC 8628, section 5.4). The
+Club Admin decision view shows the fingerprint, the time and network origin of
+the pairing request, and a warning to approve only Managers the approver can
+physically identify. The human-facing code expires after approximately ten minutes. Once
 consumed, the pending request remains available for Club Admin action for 24
 hours. Codes and polling handles are high-entropy, rate-limited, narrowly
 scoped, and do not reveal request existence through distinguishable failures.
@@ -196,11 +211,13 @@ identity only after proving possession of both the registered old key and the
 replacement key. A lost key cannot be recovered, escrowed, or rebound by an
 administrator; the old registration is revoked and the host registers anew.
 
-The AM stores its Manager identity, endpoint, stamp binding, and key reference
-in operating-system-protected local storage and restores them across restart
-and autostart. It obtains short-lived, stamp- and subject-scoped NATS
-credentials through the authenticated API rather than storing a durable broker
-secret.
+The AM stores its Manager identity, endpoint, stamp binding, key reference,
+and last operating intent in a local file readable only by the user's account
+and signed with the device key, and restores them across restart and
+autostart; any change, or a copy to another account or machine, fails
+verification and the AM fails closed. It obtains short-lived, stamp- and
+subject-scoped NATS credentials through the authenticated API rather than
+storing a durable broker secret.
 
 Every capability advertisement, queue query, dequeue, heartbeat, object-storage
 grant, and completion callback is validated against the registered stamp.
@@ -297,8 +314,10 @@ the new limit.
 
 Pause keeps the AM registered, connected, visible to the platform, and updating
 its status. It stops new dequeues immediately while active Analysts continue,
-including heartbeats, result uploads, and completion callbacks. Resume restores
-pulling subject to the effective concurrency limit and capability matching.
+including heartbeats, result uploads, and completion callbacks. A pause may be
+set for a chosen time, after which the AM resumes automatically. Resume
+restores pulling subject to the effective concurrency limit and capability
+matching.
 
 If runtime access is lost, the AM stops dequeue and reports degraded status. It
 retries failed heartbeat submissions with bounded backoff while the attempt
