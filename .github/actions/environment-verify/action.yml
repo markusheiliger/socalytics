@@ -48,6 +48,7 @@ runs:
         # outputs, so a non-matching grep (for example when every changed file is covered) must not end it early.
         set +e -uo pipefail
         PLATFORM_SOLUTION=src/platform/SocAlytics.Platform.slnx
+        PLATFORM_SCOPE='^src/platform/'
         # Paths that need no check (repository metadata, Spec Kit artifacts, and the environment actions, which the
         # merge self-tests). A check adds its scope only when it can run, so changes in the scope of a check whose
         # project is missing (for example a deleted solution) are reported as not covered.
@@ -59,7 +60,7 @@ runs:
           '^\.editorconfig$'
           '^\.github/actions/environment-(setup|verify)/'
         )
-        [ -f "$WORKSPACE/$PLATFORM_SOLUTION" ] && COVERED+=('^src/platform/')
+        [ -f "$WORKSPACE/$PLATFORM_SOLUTION" ] && COVERED+=("$PLATFORM_SCOPE")
         mkdir -p "$(dirname "$LOG_FILE")"
         : > "$LOG_FILE"
         changed=""
@@ -77,7 +78,7 @@ runs:
         checks=()
         status=0
         pushd "$WORKSPACE" > /dev/null
-        if [ "$status" -eq 0 ] && applies '^src/platform/' && [ -f "$PLATFORM_SOLUTION" ]; then
+        if [ "$status" -eq 0 ] && applies "$PLATFORM_SCOPE" && [ -f "$PLATFORM_SOLUTION" ]; then
           checks+=("platform build and tests")
           { step dotnet restore "$PLATFORM_SOLUTION" &&
             step dotnet build "$PLATFORM_SOLUTION" --no-restore &&
