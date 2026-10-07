@@ -9,6 +9,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 using Shouldly;
+using SocAlytics.Platform.Infrastructure.Persistence.Migrations;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using SocAlytics.Platform.Migrator;
 using Xunit;
@@ -67,6 +68,24 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
         await connection.OpenAsync(ct);
         await using var command = new NpgsqlCommand("SELECT to_regclass('socalytics_migrations.history') IS NULL", connection);
         ((bool)(await command.ExecuteScalarAsync(ct))!).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task HealthIsUnavailableWhenOnlyFirstPlatformMigrationIsApplied()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await postgres.CreateDatabaseAsync(ct);
+        var result = await MigratorHarness.RunAsync(
+            db,
+            () => MigrationCatalog.Create(MigrationCatalog.Platform.Scripts.Where(script => script.Sequence == 1)),
+            ct);
+        result.ExitCode.ShouldBe(MigratorExitCode.Success);
+
+        await using var factory = CreateFactory(db.AppConnectionString, new CapturingLoggerProvider());
+        using var client = factory.CreateClient();
+
+        (await client.GetAsync("/health", ct)).StatusCode.ShouldBe(HttpStatusCode.ServiceUnavailable);
+        (await DescriptionAsync(factory, ct)).ShouldStartWith("migration-state-not-current");
     }
 
     [Fact]
