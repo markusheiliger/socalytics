@@ -212,7 +212,11 @@ their "blocked by" issues are closed.
   Instead of merging, the pull request is marked ready for review and a review
   is requested when automatic merging is off, when it changes the environment
   actions, or when the verification reports changed files that no check
-  covers.
+  covers. When a person merges such a pull request, the next orchestrate run
+  (it starts when the pull request or the twin closes) finds the flagged twin
+  whose pull request was merged after the flag, sets it to `implemented`
+  (closing it if it is still open), deletes the branch, and comments on the
+  twin.
 - The two composite actions are the solution-specific extension points; the
   Spec Kit workflows and scripts know nothing about the solution. Both are
   optional: the workflow skips a missing action, and without

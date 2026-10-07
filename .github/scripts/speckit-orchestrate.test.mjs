@@ -111,14 +111,65 @@ test('select tracks the pull request lifecycle: in progress, fallback, and a fre
   }
 });
 
-test('select reports a twin whose pull request was merged after the flag', async () => {
+test('select finalizes a twin whose pull request a person merged while the twin is still open', async () => {
   const { root, github, twin } = await flaggedRepo();
   try {
     await start(github, root, twin);
     github.closePull(github.repo.pulls[0].number, { merged: true });
     const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.equal(result.merged.length, 1);
+    assert.deepEqual(result.merged, [{ number: twin.number, folder: 'a', pull: github.repo.pulls[0].number, branchDeleted: true, note: null }]);
     assert.equal(result.ready.length + result.fallback.length, 0);
+    const issue = github.find(twin.number);
+    assert.deepEqual([issue.state, issue.state_reason], ['closed', 'completed']);
+    assert.deepEqual(issue.labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:')), ['speckit:stage:implemented']);
+    assert.equal(github.repo.branches['speckit/a'], undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('select finalizes a twin that GitHub closed when a person merged its held pull request, once', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    const pull = github.repo.pulls[0];
+    github.closePull(pull.number, { merged: true });
+    Object.assign(github.find(twin.number), { state: 'closed', state_reason: 'completed' });
+    const lines = [];
+    const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: (line) => lines.push(line) });
+    assert.equal(result.merged.length, 1);
+    const issue = github.find(twin.number);
+    assert.deepEqual(issue.labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:')), ['speckit:stage:implemented']);
+    assert.equal(github.repo.branches['speckit/a'], undefined);
+    const comments = github.comments.filter((comment) => comment.number === twin.number);
+    assert.equal(comments.length, 1);
+    assert.match(comments[0].body, new RegExp(`#${pull.number} was merged, so the twin is now \`speckit:stage:implemented\` and the branch \`speckit/a\` was deleted`));
+    assert.match(lines.join('\n'), new RegExp(`Finalized: #${twin.number} \`a\` merged in pull request #${pull.number}`));
+
+    const updates = github.updates.length;
+    const again = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.equal(again.merged.length, 0);
+    assert.equal(github.updates.length, updates);
+    assert.equal(github.comments.filter((comment) => comment.number === twin.number).length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('select leaves closed twins alone unless their pull request was merged after the flag', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    Object.assign(github.find(twin.number), { state: 'closed', state_reason: 'completed' });
+    const running = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.equal(running.merged.length + running.inProgress.length + running.ready.length, 0);
+
+    github.closePull(github.repo.pulls[0].number, { merged: true });
+    Object.assign(github.find(twin.number), { state: 'closed', state_reason: 'not_planned' });
+    const notPlanned = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.equal(notPlanned.merged.length, 0);
+    assert.ok(github.find(twin.number).labels.some((label) => label.name === IMPLEMENT));
+    assert.equal(github.repo.branches['speckit/a'] !== undefined, true);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -451,7 +502,7 @@ test('orchestrate converges after the last task, merges, resolves conflicts, and
     github.closePull(pull.number, { merged: true });
     const merged = await orchestrate(github, root);
     assert.deepEqual(merged.merges, []);
-    assert.match(merged.text, /Merged: #\d+ `a` in pull request #\d+/);
+    assert.match(merged.text, /Finalized: #\d+ `a` merged in pull request #\d+; the twin is `speckit:stage:implemented` and the branch was deleted/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

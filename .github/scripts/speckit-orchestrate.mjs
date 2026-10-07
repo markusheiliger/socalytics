@@ -85,9 +85,21 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   const fallback = [];
   const merged = [];
   for (const [folder, issue] of [...byFolder.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    if (issue.state !== 'open' || !hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) continue;
+    if (!hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) continue;
+    const open = issue.state === 'open';
+    // A person who merges a pull request held for review closes the twin through "Closes #<twin>", which leaves
+    // the flag and the branch behind; such twins are finalized here like an automatic merge.
+    if (!open && issue.state_reason !== 'completed') continue;
     const entry = specs.get(folder);
-    const requester = entry ? await resolveImplementRequester(client, issue.number) : null;
+    const requester = entry || !open ? await resolveImplementRequester(client, issue.number) : null;
+    const lifecycle = requester
+      ? decideLifecycle({ pulls: await client.listPullRequestsForHead(implementationBranch(folder)), flaggedAt: requester.labeledAt })
+      : null;
+    if (lifecycle?.state === 'merged') {
+      merged.push({ number: issue.number, folder, pull: lifecycle.pull.number, ...(await finalizeMerged(client, issue, folder, lifecycle.pull.number)) });
+      continue;
+    }
+    if (!open) continue;
     const computedStage = entry ? deriveStage(entry.artifacts, entry.tasks) : null;
     const reasons = entry
       ? [
@@ -100,10 +112,6 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       continue;
     }
 
-    const lifecycle = decideLifecycle({
-      pulls: await client.listPullRequestsForHead(implementationBranch(folder)),
-      flaggedAt: requester.labeledAt,
-    });
     if (lifecycle.state === 'in-progress') {
       const decision = await decideForPull(client, {
         twin: issue.number,
@@ -113,10 +121,6 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
         now: now(),
       });
       inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision });
-      continue;
-    }
-    if (lifecycle.state === 'merged') {
-      merged.push({ number: issue.number, folder, pull: lifecycle.pull.number });
       continue;
     }
     if (lifecycle.state === 'fallback') {
@@ -130,8 +134,8 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       continue;
     }
 
-    const open = openBlockers(await client.listBlockedBy(issue.number));
-    if (open.length > 0) blocked.push({ number: issue.number, folder, blockers: open });
+    const openBlocking = openBlockers(await client.listBlockedBy(issue.number));
+    if (openBlocking.length > 0) blocked.push({ number: issue.number, folder, blockers: openBlocking });
     else ready.push({ number: issue.number, folder, requester: requester.login, reset: lifecycle.reset });
   }
 
@@ -145,7 +149,9 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   for (const twin of fallback) {
     report.line(`- Flag removed: #${twin.number} \`${twin.folder}\` because pull request #${twin.pull} was closed without merging`);
   }
-  for (const twin of merged) report.line(`- Merged: #${twin.number} \`${twin.folder}\` in pull request #${twin.pull}; the twin closes through it`);
+  for (const twin of merged) {
+    report.line(`- Finalized: #${twin.number} \`${twin.folder}\` merged in pull request #${twin.pull}; the twin is \`${stageLabel('implemented')}\`${twin.branchDeleted ? ' and the branch was deleted' : ''}${twin.note ? ` (${twin.note})` : ''}`);
+  }
   for (const twin of inconsistent) {
     report.line(`- Inconsistent (the next sync revokes the flag): #${twin.number} \`${twin.folder}\`: ${twin.reasons.join('; ')}`);
   }
@@ -159,6 +165,28 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
 
 async function findOpenPull(client, branch) {
   return (await client.listPullRequestsForHead(branch)).find((pull) => pull.state === 'open') ?? null;
+}
+
+// Completes what the merge step does after an automatic merge for a pull request that a person merged:
+// marks the twin implemented (closing it if needed) and deletes the implementation branch.
+async function finalizeMerged(client, issue, folder, pullNumber) {
+  await updateIssueWithLabels(client, issue, stageLabelChange(issue, 'implemented'), issue.state === 'open' ? { state: 'closed', state_reason: 'completed' } : {});
+  const branch = implementationBranch(folder);
+  let branchDeleted = false;
+  let note = null;
+  try {
+    if (await client.getBranchSha(branch)) {
+      await client.deleteBranch(branch);
+      branchDeleted = true;
+    }
+  } catch (error) {
+    note = `the branch \`${branch}\` could not be deleted: ${error.message}`;
+  }
+  await client.createComment(issue.number, [
+    `Implementation pull request #${pullNumber} was merged, so the twin is now \`${stageLabel('implemented')}\`${branchDeleted ? ` and the branch \`${branch}\` was deleted` : ''}.`,
+    ...(note ? ['', `Note: ${note}.`] : []),
+  ].join('\n'));
+  return { branchDeleted, note };
 }
 
 function describeDecision(decision) {
