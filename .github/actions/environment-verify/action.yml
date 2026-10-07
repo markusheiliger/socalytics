@@ -4,12 +4,19 @@ description: >-
   agent implemented a task (mode task: only the checks the changed files call for), after a conflict resolution, and
   before merging (mode finalize: every check); the workflows skip it when this file does not exist. It runs in a job
   with a read-only token and no token environment variables, because the checks execute agent-written code. The step
-  fails when a check fails.
+  fails when a check fails. Checks, in order: "platform build and tests" covers src/platform/ and the repository-root
+  contracts/ folder and is active only while src/platform/SocAlytics.Platform.slnx exists; "Analyst Manager build and
+  tests" runs when src/analysts/manager/ or contracts/analyst-manager/ (the Manager's shared golden fixtures) changed
+  or in finalize mode, covers only src/analysts/manager/ (contract files stay covered by the platform scope), is
+  active only while src/analysts/manager/SocAlytics.Analysts.Manager.slnx exists, and fails when its global.json sdk
+  object differs from the platform's; other paths under src/analysts/ stay uncovered; "Markdown check" follows.
 # Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
 # is reviewed and merged before the specs that need it start. For a new framework or source area, add one block below
 # that (1) adds its scope to COVERED only when its project exists, (2) runs only when the scope changed or in finalize
 # mode, and (3) skips while its project does not exist yet, because the environment spec merges before the project is
-# created.
+# created. Current coverage: the platform scope (src/platform/ and contracts/) is covered while the platform solution
+# exists; the Analyst Manager scope (src/analysts/manager/) is covered while the Manager solution exists, and its
+# check also runs for contracts/analyst-manager/ changes without covering those files.
 inputs:
   workspace:
     description: Path of the code to verify
