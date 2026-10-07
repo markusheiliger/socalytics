@@ -55,6 +55,13 @@ namespaces inside the layers, for example
 Application and Infrastructure each expose one public dependency-injection
 composition method and keep their implementation types internal.
 
+The persistence foundation will add a second, planned host next to the API:
+`SocAlytics.Platform.Migrator`, a console application that depends on
+Infrastructure, applies pending migrations once, and exits with a success or
+failure outcome. It ships as its own OCI image and is the only component that
+ever receives database access able to create or alter data structures; the API
+image contains no migration execution path.
+
 Executable components use or will use the native workspace and dependency tools
 of each ecosystem:
 
@@ -78,11 +85,21 @@ platform API and Web UI as separate OCI containers: the API container will be
 built from the platform source area, while the Web UI container will be built
 from the client source area and release-coupled to the platform API. Future
 Compose deployments will also include PostgreSQL, NATS JetStream, and
-S3-compatible storage on durable stamp-dedicated logical resources. Production
-topology, configuration, secrets, persistence, recovery, objectives, telemetry,
-capacity, and promotion evidence remain unresolved and are governed by
+S3-compatible storage on durable stamp-dedicated logical resources, plus the
+Migrator as a one-shot service that every API service depends on with
+`condition: service_completed_successfully`, so it runs once per deployment
+regardless of the API replica count. Locally, the Aspire AppHost will mirror
+that order: PostgreSQL, then the Migrator, then the API, which waits for the
+Migrator to complete.
+
+Azure Container Apps is the Provisional target cloud profile, and Compose
+remains supported as the self-hostable profile. Both run the same cloud-neutral
+images, and application code takes no dependency that only one profile can
+satisfy. Production topology, configuration, secrets, persistence, recovery,
+objectives, telemetry, capacity, and promotion evidence remain unresolved for
+every profile and are governed by
 [Production Deployment and Operations](production-operations.md); this profile
-does not make Aspire a production dependency or select a cloud provider.
+does not make Aspire a production dependency.
 
 ## Control Plane
 
@@ -116,7 +133,8 @@ and the API composes them. State changes go through Application command
 handlers rather than direct table writes from the API or Infrastructure code.
 Splitting the application into separate deployments would require a future
 architecture change backed by measured scaling, fault-isolation, or operational
-evidence.
+evidence. The one-off Migrator is not such a split: it shares the
+Infrastructure layer and runs only before API instances start.
 
 ### Planned Data Organization
 
@@ -145,6 +163,22 @@ provide database access; Entity Framework Core is not part of the baseline.
 DbUp applies one ordered sequence of versioned PostgreSQL SQL scripts for the
 whole platform; the scripts live in the Infrastructure layer.
 
+Migrations run only in the one-off Migrator, never inside the API:
+
+- the Migrator uses a migration role that may create and alter data structures;
+  the API uses a runtime role that may read and write application data and read
+  the migration history, but cannot change structures;
+- the API reports ready only while the database is reachable and its migration
+  state is current, meaning every registered migration is recorded as applied
+  with a matching checksum; otherwise it stays not ready and reports why;
+- a Migrator run that starts while another is in progress waits, up to a bounded
+  time, for that run to finish and then applies only what is still pending; if
+  the wait expires it fails without applying anything. PostgreSQL realizes this
+  with a session-level advisory lock held for the whole run, so repeated runs,
+  pipeline retries, and per-instance runs stay safe;
+- history records for migrations the Migrator does not know are left untouched
+  and reported, so a backward-compatible older release can still start.
+
 CQRS is logical rather than physical:
 
 - commands use plain typed C# handlers in the Application layer, resolved
@@ -160,10 +194,13 @@ Optimistic concurrency protects contested writes. Every mutable aggregate root
 team or an analysis run) carries a `version` column. The platform guarantees,
 independently of the database product, that:
 
-- every write that changes an aggregate, including changes to its child rows
+- every individual change to an aggregate, including changes to its child rows
   and data migrations, advances the root's `version` by exactly one, atomically
-  with the change;
+  with the change, so one transaction that changes several rows of an
+  aggregate may advance it more than once;
 - a write that changes nothing does not advance it;
+- consumers compare versions only for equality and never derive meaning from
+  the size of a step;
 - a handler names the version it read in its change
   (`WHERE id = @Id AND version = @ExpectedVersion`), and zero affected rows is
   reported as a concurrency conflict instead of overwriting another change.
@@ -357,6 +394,10 @@ The following remain validation targets rather than claims of current evidence:
   on every versioned and child table, idempotency,
   authorization, immutable lineage, registry versions, analysis recovery, and
   state-plus-outbox atomicity;
+- Migrator tests cover concurrent runs serializing on the lock, the bounded
+  wait, distinguishable exit outcomes, and unknown applied migrations; API
+  readiness tests cover a non-current migration state; access tests prove the
+  runtime role cannot create or alter data structures;
 - NATS recovery tests cover broker outage, retry, publisher restart,
   expired-lease recovery, duplicate notification handling, and PostgreSQL
   revalidation;

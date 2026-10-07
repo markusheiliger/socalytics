@@ -74,7 +74,8 @@ invariants summarized here.
 
 The [Production Deployment and Operations](production-operations.md) topic
 maps the control, data, execution, and intelligence planes to the initial
-Provisional Docker Compose profile and owns recovery, service objectives,
+Provisional Docker Compose profile, records Azure Container Apps as the
+Provisional target cloud profile, and owns recovery, service objectives,
 telemetry, capacity, incidents, upgrades, and production-readiness evidence.
 
 ---

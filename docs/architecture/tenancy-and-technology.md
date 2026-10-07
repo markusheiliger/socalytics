@@ -85,13 +85,19 @@ readiness contract is defined in
 provider, ports, secret source, resource values, and numeric objectives remain
 profile-specific and Open / Blocking until approved with evidence.
 
+Azure Container Apps is the **Provisional target cloud profile**. It is
+unverified and Open / Blocking until its own profile values and evidence exist.
+Compose stays a supported self-hostable profile, so both profiles run the same
+images and preserve the same single-club stamp invariants, and application code
+takes no dependency that only one of them can satisfy.
+
 The profile also adopts exact approved versions from the
 [Security-Governance Decision Register](security-and-data-governance.md#security-governance-decision-register)
 and a valid profile-scoped `GOV-SIGN-001`. This gate does not reopen the
 single-club stamp: each stamp still has exactly one club and dedicated logical
 data, messaging, credentials, configuration, networks, and volumes. PostgreSQL
-remains domain and workflow authority, NATS remains transport only, and the
-architecture remains cloud-neutral. Any unresolved or mismatched governance
+remains domain and workflow authority, NATS remains transport only, and
+application artifacts remain cloud-neutral. Any unresolved or mismatched governance
 entry keeps production promotion blocked.
 
 ---
@@ -124,7 +130,8 @@ defined in the
 - PostgreSQL
 - Npgsql, Dapper, logical CQRS, and plain typed handlers
 - trigger-managed `version` columns for optimistic concurrency
-- DbUp and one ordered sequence of versioned PostgreSQL SQL migrations
+- DbUp and one ordered sequence of versioned PostgreSQL SQL migrations,
+  applied only by the one-off `SocAlytics.Platform.Migrator` host
 - ASP.NET Core Identity with Dapper stores, always-available local accounts,
     and optional external OpenID Connect providers
 

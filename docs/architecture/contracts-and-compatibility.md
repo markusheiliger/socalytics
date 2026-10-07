@@ -107,7 +107,8 @@ the prior major remains addressable for its supported compatibility window.
   (`If-None-Match`) only, and such a representation includes the `version` of
   each aggregate a client may change, because writes always target one
   aggregate, never a view. Non-HTTP consumers (events, agent claims, offline
-  sync) use the `version` value directly.
+  sync) use the `version` value directly. Clients compare versions and ETags
+  only for equality; a version may advance by more than one between two reads.
 
 ## Validation Authority
 

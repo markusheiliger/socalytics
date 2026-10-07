@@ -6,9 +6,10 @@ and rollback. It defines the initial production profile and the evidence gates
 that a deployment stamp must satisfy before accepting production data.
 
 The architecture remains **Provisional / Blocking production**. Docker Compose
-is the selected initial profile, but no profile is production-ready until its
-owners, values, approvals, and live exercise evidence are complete. This topic
-does not provide deployment manifests or select a cloud provider.
+is the selected initial profile and Azure Container Apps the Provisional target
+cloud profile, but no profile is production-ready until its owners, values,
+approvals, and live exercise evidence are complete. This topic does not provide
+deployment manifests.
 
 ## Scope and Invariants
 
@@ -36,7 +37,9 @@ PostgreSQL. Hermes is a separate recoverable OCI runtime with no direct database
 access. Its JetStream notifications are bounded Transport copies reconstructed
 from PostgreSQL and the outbox. A later production profile may use externally
 operated state services or another orchestrator only after separate
-architecture and evidence meet the same requirements.
+architecture and evidence meet the same requirements. The
+[Azure Container Apps target profile](#azure-container-apps-target-profile-provisional)
+is such a profile; naming it here does not approve it.
 
 ## Versioned Production Profile
 
@@ -74,6 +77,46 @@ with evidence. Undocumented public exposure, plaintext transport over an
 untrusted or shared boundary, a cross-stamp credential, or a missing health
 contract fails preflight.
 
+In the Compose profile, the one-off `SocAlytics.Platform.Migrator` runs as a
+one-shot service that every API service depends on with
+`condition: service_completed_successfully`, so migrations complete once per
+deployment before any API replica starts.
+
+### Azure Container Apps Target Profile (Provisional)
+
+Azure Container Apps is the target cloud hosting for SocAlytics stamps. It is
+recorded as intent, not as a verified profile: no deployment has been
+exercised, and every value below is **Open / Blocking** until an accountable
+owner approves it with evidence. Compose remains a supported self-hostable
+profile so that operating SocAlytics never depends on one cloud provider.
+
+Portability rules that bind both profiles:
+
+- both profiles run the same cloud-neutral OCI images built from the same
+  release;
+- application code uses only protocol-level dependencies (PostgreSQL, NATS,
+  S3-compatible object storage, OpenID Connect, OpenTelemetry) and no service
+  that only one profile can provide;
+- profile differences stay in deployment configuration, never in application
+  behavior;
+- every invariant under [Scope and Invariants](#scope-and-invariants) holds
+  unchanged, including one club and dedicated logical resources per stamp.
+
+Open / Blocking decisions for this profile:
+
+| Area | Open decision |
+| --- | --- |
+| Stamp isolation | Whether one Container Apps environment, resource group, or subscription represents one stamp, and how network and identity isolation is proven |
+| PostgreSQL | Managed Azure Database for PostgreSQL or a containerized instance, with backup, restore, and recovery evidence |
+| Object storage | An S3-compatible service or gateway, since Azure Blob Storage does not speak the S3 protocol natively, or an adapter that preserves the S3 data-plane contract |
+| NATS JetStream | Hosting and durable storage that meet the JetStream durability and recovery requirements |
+| Migration step | A Container Apps Job run by the release before a new revision, or per-replica init containers that rely on the Migrator's lock and bounded wait |
+| Ingress and TLS | Ingress mode, custom domains, certificates, and denied endpoints |
+| Secrets and identity | Secret source, managed identities, rotation, and revocation |
+| Telemetry | OpenTelemetry export target and retention |
+| Analyst Managers | How externally registered Analyst Managers reach the stamp's control plane and object storage |
+| Evidence | Preflight, restore, failure, capacity, upgrade, and rollback exercises on the real platform |
+
 ### Security-Governance Register Adoption
 
 Each immutable production-profile version references one exact version set from
@@ -97,8 +140,9 @@ or resolve any currently open value.
 
 ## Environment and Preflight Contract
 
-The local Aspire and production Compose topologies must map every logical
-component, dependency, configuration key, health signal, and telemetry source.
+The local Aspire topology and every production profile topology must map every
+logical component, dependency, configuration key, health signal, and telemetry
+source.
 The mapping does not require identical orchestration or secret delivery.
 
 Production preflight verifies, without accepting user traffic or work:
@@ -342,7 +386,8 @@ Analyst Manager versions, and lifecycle-policy versions.
 
 Before upgrade, the change record requires successful profile preflight,
 current backup and isolated-restore proof, capacity headroom, pause/drain or
-admission control, old/new compatibility windows, ordered migrations, an
+admission control, old/new compatibility windows, ordered migrations applied by
+the one-off Migrator before any new API instance starts, an
 approved rollback deadline, and health and objective gates. Expand/contract
 evolution is preferred when versions overlap.
 
