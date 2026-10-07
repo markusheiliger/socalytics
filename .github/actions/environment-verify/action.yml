@@ -44,7 +44,9 @@ runs:
         LOG_FILE: ${{ inputs.log-file }}
         MARKDOWN_CHECK: ${{ github.action_path }}/../../scripts/check-markdown.mjs
       run: |
-        set -uo pipefail
+        # GitHub runs `shell: bash` with `-e`; this script handles failures itself (status) and must always write its
+        # outputs, so a non-matching grep (for example when every changed file is covered) must not end it early.
+        set +e -uo pipefail
         PLATFORM_SOLUTION=src/platform/SocAlytics.Platform.slnx
         # Paths that need no check (repository metadata, Spec Kit artifacts, and the environment actions, which the
         # merge self-tests). A check adds its scope only when it can run, so changes in the scope of a check whose
