@@ -155,10 +155,17 @@ CQRS is logical rather than physical:
 - command and query paths share the stamp database
 - event sourcing and separate read and write databases are not implied
 
-Optimistic concurrency protects contested writes: changeable records carry a
-version, a write applies only when it names the current version and then
-advances it, and a stale version is reported as a conflict instead of
-overwriting another change. Database changes and outgoing
+Optimistic concurrency protects contested writes. Every mutable aggregate root
+(a record together with the child rows that always change with it, such as a
+team or an analysis run) carries a `version` column. A write applies only when
+it names the current `version`, advances it by one in the same statement, and
+also advances it for changes to the aggregate's child rows; a stale `version` is
+reported as a conflict instead of overwriting another change. Immutable records
+(recording versions, timeline mappings, finalized recording sets, accepted
+results, lineage) have no `version`; their identity or digest identifies them.
+Views and projections are read-only and never carry their own `version`; see
+[Contracts and Compatibility](contracts-and-compatibility.md#representation-conventions)
+for how versions appear as HTTP ETags. Database changes and outgoing
 events commit atomically through a PostgreSQL transactional outbox. A background
 publisher delivers outbox records to NATS JetStream with retries; consumers and
 completion handlers remain idempotent.

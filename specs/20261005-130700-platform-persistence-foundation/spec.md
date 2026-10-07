@@ -105,7 +105,7 @@ Platform code performing a state change does so inside an explicit all-or-nothin
 
 - **FR-015**: Every state-changing operation MUST execute within an explicit all-or-nothing unit of work that commits only when the whole operation succeeds.
 - **FR-016**: When a state-changing operation fails or is cancelled before commit, all of its changes MUST be undone, and the resources it used MUST be reusable without a leftover open unit of work.
-- **FR-017**: The foundation MUST provide an optimistic-concurrency capability that compares a caller-supplied expected version with the persisted version and, on match, advances the version by exactly one atomically within the caller's unit of work.
+- **FR-017**: The foundation MUST provide an optimistic-concurrency capability for records that can change, which compares a caller-supplied expected version with the persisted version and, on match, advances the version by exactly one atomically within the caller's unit of work; immutable records need no version.
 - **FR-018**: A version mismatch MUST be reported to the caller as a distinguishable concurrency conflict, MUST NOT be treated as a successful write, and MUST leave no part of the contested change committed.
 
 #### Single-club stamp invariant
@@ -134,7 +134,7 @@ Platform code performing a state change does so inside an explicit all-or-nothin
 - **Migration**: A versioned, immutable change to the application data area, identified by its position in the platform-wide sequence, a stable identity, and a content fingerprint.
 - **Migration History Record**: The domain-free record of one successfully applied migration: sequence, identity, content fingerprint, and time applied; unique per identity and per sequence; kept apart from application data.
 - **Unit of Work**: An explicit all-or-nothing scope within which a state change is committed entirely or not at all.
-- **Record Version**: A per-record counter used for optimistic concurrency; a write succeeds only when it supplies the current version, which then advances by exactly one.
+- **Record Version**: A counter on each record that can change (for a group of records that always change together, on the main record of the group) used for optimistic concurrency; a write succeeds only when it supplies the current version, which then advances by exactly one. Immutable records have no version.
 
 ## Success Criteria *(mandatory)*
 
