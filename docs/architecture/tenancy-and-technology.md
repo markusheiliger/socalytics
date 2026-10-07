@@ -141,7 +141,7 @@ defined in the
 
 - NATS
 - JetStream
-- NATS.Net v2 client (`NATS.Client.JetStream`)
+- NATS.Net v3 client (`NATS.Client.JetStream`)
 - PostgreSQL transactional outbox and idempotent consumers
 
 ### Data Plane

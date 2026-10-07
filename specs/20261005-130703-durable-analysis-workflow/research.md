@@ -9,31 +9,46 @@ is not directly reachable from this environment.
 
 ## R1. .NET NATS client
 
-- **Decision**: Use `NATS.Client.JetStream` **2.8.2** (with its dependency
-  `NATS.Client.Core` 2.8.2) from the official NATS.Net v2 family, referenced only
-  by `SocAlytics.Platform.Infrastructure`. Do not reference the `NATS.Net`
-  meta-package (it also pulls Key-Value, Object Store, Services, and hosting
-  extensions that this feature does not use). Payloads are serialized by the
-  platform with `System.Text.Json` and passed to NATS as raw bytes, so no NATS
-  serializer package is needed.
-- **Rationale**: NATS.Net v2 is the maintained, async-first .NET client from
-  nats-io (Apache-2.0) with first-class JetStream support: stream and consumer
-  management (`CreateOrUpdateStreamAsync`, `CreateOrUpdateConsumerAsync`),
-  publish with server acknowledgement (`PublishAsync` returning `PubAckResponse`
-  that exposes `Duplicate`), message de-duplication through the `Nats-Msg-Id`
-  header, and pull consumers with explicit `AckAsync`, `NakAsync(delay)`, and
-  `AckTerminateAsync`. The feed also offers NATS.Net 3.x (3.3.0), but every
-  Aspire release up to 13.6.1 (including `Aspire.Hosting.Nats` 13.4.6, which
-  matches the AppHost SDK) depends on NATS.Net 2.x (2.7.3 for 13.4.6).
-  `Tests/SocAlytics.Platform.Host.Tests` loads the AppHost in process through
-  `Aspire.Hosting.Testing` and also references Infrastructure, so a v3 client
-  would force a cross-major binary unification inside one test process. 2.8.2 is
-  the newest 2.x release and satisfies Aspire's 2.7.3 lower bound within the same
-  major version.
+- **Decision**: Use `NATS.Client.JetStream` **3.3.0** (with `NATS.Client.Core`
+  3.3.0) from the official NATS.Net v3 family, referenced only by
+  `SocAlytics.Platform.Infrastructure`. Do not reference the `NATS.Net`
+  meta-package in production code (it also pulls Key-Value, Object Store,
+  Services, and hosting extensions that this feature does not use). Enable
+  `CentralPackageTransitivePinningEnabled` and pin `NATS.Net` 3.3.0 in
+  `Directory.Packages.props`, so the `NATS.Net` 2.7.3 dependency of
+  `Aspire.Hosting.Nats` 13.4.6 resolves to 3.3.0 as well and no project mixes
+  NATS majors. Payloads are serialized by the platform with `System.Text.Json`
+  and passed to NATS as raw bytes, so no NATS serializer package is needed.
+- **Rationale**: NATS.Net v3 is the current, stable major (3.0.0 released
+  2026-07-10; 3.3.0 on 2026-09-30); the last 2.x release is 2.8.2. A greenfield
+  feature should not start on the previous major. The calls this feature uses
+  are source-compatible between 2.8.2 and 3.3.0 (additions only): stream and
+  consumer management (`CreateOrUpdateStreamAsync`,
+  `CreateOrUpdateConsumerAsync`), `PublishAsync` with headers returning
+  `PubAckResponse` with `Duplicate`, de-duplication through `Nats-Msg-Id`, and
+  pull consumers with `AckAsync`, `NakAsync(delay)`, and `AckTerminateAsync`.
+  The NATS.Net 3 spike (2026-10-07) built a replica of the AppHost,
+  `Aspire.Hosting.Testing` host test, and Infrastructure library: NuGet raises
+  the AppHost's NATS dependency to 3.3.0 with no NU1605/NU1608/NU1107, Aspire's
+  in-process NATS health check reports Healthy against `NATS.Client.Core`
+  3.3.0 with no binding exceptions (its 17 member references all resolve), and
+  publish with duplicate detection, ack, delayed nak, and terminate behave as
+  required. With transitive pinning, every NATS package in the AppHost and the
+  test project resolves to 3.3.0.
+- **Implementation notes**: v3 changes some defaults: `RequestReplyMode` is
+  `Direct`, `SubPendingChannelCapacity` is 16384, and `NatsHeaders` is no
+  longer read-only after publish, so the publisher creates one `NatsHeaders`
+  instance per message. `SkipSubjectValidation` is obsolete and must not be
+  used (warnings are errors). `EnsureSuccess()` throws on duplicates; the
+  publisher treats `Duplicate = true` as success and checks `Error` instead.
 - **Alternatives considered**:
-  - *NATS.Net 3.3.0*: newest, but splits the dependency graph across majors with
-    Aspire hosting; revisit when the AppHost SDK moves to an Aspire release built
-    on NATS.Net 3.
+  - *NATS.Net 2.8.2*: matches the Aspire hosting dependency's major, but is the
+    previous major with no further feature development; rejected after the
+    spike showed no conflict with 3.3.0.
+  - *Replacing `Aspire.Hosting.Nats` with a plain `AddContainer("nats", ...)`*:
+    also verified by the spike and removes every NATS client dependency from
+    the AppHost, but loses generated credentials and the connection-string
+    resource; kept as the fallback if a future Aspire upgrade conflicts.
   - *Legacy `NATS.Client` (v1)*: synchronous-first and in maintenance mode.
   - *`Aspire.NATS.Net` client integration*: convenient registration, health
     check, and telemetry, but it binds production configuration to Aspire
