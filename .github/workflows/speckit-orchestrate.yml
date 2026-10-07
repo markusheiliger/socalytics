@@ -94,6 +94,7 @@ jobs:
           SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_RESUME_TWIN: ${{ inputs.twin }}
           SPECKIT_AFTER_RUN: ${{ inputs.after_run }}
+          SPECKIT_MAX_PARALLEL_TASKS: ${{ vars.SPECKIT_MAX_PARALLEL_TASKS || '3' }}
         run: node .github/scripts/speckit-orchestrate.mjs orchestrate
 
   # Runs agent-written code (the full verification), so it holds a read-only token. It is outside the global

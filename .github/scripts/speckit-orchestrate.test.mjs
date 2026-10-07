@@ -457,6 +457,57 @@ test('orchestrate waits for the run that handed back before it decides', async (
   }
 });
 
+const PARALLEL = (t1, t2, t3, t4) => `## Phase 1\n\n- [${t1}] T001 [P] A\n- [${t2}] T002 [P] B\n- [${t3}] T003 [P] C\n- [${t4}] T004 D\n`;
+
+test('orchestrate runs a [P] group in parallel and the next sequential task after the whole group', async () => {
+  const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks: PARALLEL(' ', ' ', ' ', ' ') }]);
+  github.permissions.dev = 'write';
+  const twin = github.issues[0];
+  flag(github, twin);
+  try {
+    const started = await orchestrate(github, root);
+    assert.deepEqual(taskRuns(github), ['T001', 'T002', 'T003'].map((task) => `#${twin.number} ${task} attempt 1`));
+    assert.equal(started.exitCode, 0);
+    const [t1, t2, t3] = github.repo.runs;
+
+    github.completeRun(t1.id, 'success');
+    github.setFile('speckit/a', 'specs/a/tasks.md', PARALLEL('x', ' ', ' ', ' '));
+    const waiting = await orchestrate(github, root);
+    assert.equal(github.repo.runs.length, 3, 'the group is still running and has no free task');
+    assert.match(waiting.text, /a step is running/);
+    assert.match(github.repo.pulls[0].body, /- \[x\] T001 \[P\] A\n- \[ \] T002/, 'the pull request body follows the branch');
+
+    github.completeRun(t2.id);
+    const retried = await orchestrate(github, root);
+    assert.equal(taskRuns(github).at(-1), `#${twin.number} T002 attempt 2`, 'a failed task is retried while a sibling runs');
+    assert.match(retried.text, /Started "Spec Kit implement #\d+ T002 attempt 2"/);
+
+    github.completeRun(t3.id, 'success');
+    github.completeRun(github.repo.runs.at(-1).id, 'success');
+    github.setFile('speckit/a', 'specs/a/tasks.md', PARALLEL('x', 'x', 'x', ' '));
+    await orchestrate(github, root);
+    assert.equal(taskRuns(github).at(-1), `#${twin.number} T004 attempt 1`);
+    assert.match(github.repo.pulls[0].body, /- \[x\] T001[^\n]*\n- \[x\] T002[^\n]*\n- \[x\] T003[^\n]*\n- \[ \] T004/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('orchestrate runs one task at a time when SPECKIT_MAX_PARALLEL_TASKS is 1', async () => {
+  const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks: PARALLEL(' ', ' ', ' ', ' ') }]);
+  github.permissions.dev = 'write';
+  const twin = github.issues[0];
+  flag(github, twin);
+  try {
+    await orchestrate(github, root, { SPECKIT_MAX_PARALLEL_TASKS: '1' });
+    github.setFile('speckit/a', 'specs/a/tasks.md', PARALLEL(' ', ' ', ' ', ' '));
+    await orchestrate(github, root, { SPECKIT_MAX_PARALLEL_TASKS: '1' });
+    assert.deepEqual(taskRuns(github), [`#${twin.number} T001 attempt 1`]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 const runTitles = (github) => github.repo.runs.map((run) => run.display_title);
 const outputOf = (root) => readFileSync(envFor(root).GITHUB_OUTPUT, 'utf8');
 

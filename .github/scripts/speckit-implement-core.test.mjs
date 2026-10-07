@@ -23,6 +23,8 @@ import {
   markerTimes,
   neutralizeMarkers,
   nextTask,
+  nextTaskGroup,
+  parseMaxParallel,
   parseStepRunName,
   renderConvergePrompt,
   renderPullRequestBody,
@@ -34,8 +36,10 @@ import {
   RESUME_COMMENT_MARKER,
   START_COMMENT_MARKER,
   stepLabel,
+  syncPullRequestTicks,
   taskProgress,
   tickPullRequestBody,
+  tickTask,
   validateConvergeChange,
   validateTaskChange,
 } from './speckit-implement-core.mjs';
@@ -158,6 +162,88 @@ test('decides how to continue the tasks of an implementation', () => {
   assert.deepEqual(decide({ checks: [limited] }), { action: 'failed' });
   assert.deepEqual(decide({ checks: [limited], resume: true }), { action: 'resume', step: 'task', task: 'T002', attempt: 1, stale: [] });
   assert.deepEqual(decide({ checks: [{ id: 1, external_id: CHECK_ATTEMPT, conclusion: 'failure' }] }), { action: 'dispatch', step: 'task', task: 'T002', attempt: 1, stale: [] });
+});
+
+const PARALLEL_TASKS = [
+  '## Phase 1',
+  '',
+  '- [x] T001 Setup',
+  '- [ ] T002 [P] [US1] A',
+  '- [ ] T003 [P] [US1] B',
+  '- [ ] T004 [US1] [P] C',
+  '- [ ] T005 [P] D',
+  '- [ ] T006 Sequential',
+  '- [ ] T007 [P] After the sequential task',
+  '',
+  '## Phase 2',
+  '',
+  '- [ ] T008 [P] Other phase',
+  '',
+].join('\r\n');
+
+test('groups consecutive unticked [P] tasks under one heading', () => {
+  const ids = (markdown, max) => nextTaskGroup(markdown, max).map((task) => task.id);
+  assert.deepEqual(ids(PARALLEL_TASKS, 3), ['T002', 'T003', 'T004']);
+  assert.deepEqual(ids(PARALLEL_TASKS, 10), ['T002', 'T003', 'T004', 'T005']);
+  assert.deepEqual(ids(PARALLEL_TASKS, 1), ['T002']);
+  assert.deepEqual(ids(PARALLEL_TASKS.replace('- [ ] T003', '- [x] T003'), 3), ['T002', 'T004', 'T005'], 'a landed sibling is skipped');
+  assert.deepEqual(ids(PARALLEL_TASKS.replace('- [ ] T002 [P]', '- [ ] T002'), 3), ['T002'], 'a sequential task runs alone');
+  assert.deepEqual(ids(PARALLEL_TASKS.replace(/- \[ \] T00[2-6]/g, (line) => line.replace('[ ]', '[x]')), 3), ['T007']);
+  assert.deepEqual(ids(PARALLEL_TASKS.replace(/- \[ \] T00[2-7]/g, (line) => line.replace('[ ]', '[x]')), 3), ['T008'], 'a group never crosses a heading');
+  assert.deepEqual(ids('- [ ] T001 Not [P] in the text\n- [ ] T002 [P] x\n', 3), ['T001'], 'only leading tags count');
+  assert.deepEqual(ids('- [x] T001 done\n', 3), []);
+  assert.deepEqual([parseMaxParallel(undefined), parseMaxParallel(''), parseMaxParallel('1'), parseMaxParallel(' 5 '), parseMaxParallel('0'), parseMaxParallel('x')], [3, 3, 1, 5, 3, 3]);
+});
+
+test('ticks a task in tasks.md and syncs the pull request body with it', () => {
+  const ticked = tickTask(PARALLEL_TASKS, 'T003');
+  assert.match(ticked, /- \[x\] T003 \[P\] \[US1\] B\r\n/);
+  assert.equal(ticked.replace('- [x] T003', '- [ ] T003'), PARALLEL_TASKS);
+  assert.equal(tickTask(PARALLEL_TASKS, 'T001'), null);
+  assert.equal(tickTask(PARALLEL_TASKS, 'T999'), null);
+  const body = '## Tasks\n\n- [ ] T001 Setup\n- [ ] T002 A\n- [ ] T003 B\n';
+  assert.equal(syncPullRequestTicks(body, ticked), '## Tasks\n\n- [x] T001 Setup\n- [ ] T002 A\n- [x] T003 B\n');
+});
+
+test('runs a [P] group in parallel, fills free slots, and stops at a limit after the siblings', () => {
+  const windowStart = '2026-10-06T10:00:00Z';
+  const run = (task, status = 'completed', conclusion = 'failure') => ({ task, status, conclusion, created_at: '2026-10-06T11:00:00Z' });
+  const decide = (fields) => decideContinuation({ tasksMarkdown: PARALLEL_TASKS, windowStart, maxParallel: 3, ...fields });
+  const tasks = (...runs) => ({ task: runs });
+
+  assert.deepEqual(decide({}), { action: 'dispatch-tasks', step: 'task', tasks: [{ task: 'T002', attempt: 1 }, { task: 'T003', attempt: 1 }, { task: 'T004', attempt: 1 }], stale: [] });
+  assert.deepEqual(decideContinuation({ tasksMarkdown: PARALLEL_TASKS, windowStart }), { action: 'dispatch', step: 'task', task: 'T002', attempt: 1, stale: [] }, 'one at a time by default');
+  assert.deepEqual(decide({ runs: tasks(run('T002', 'in_progress'), run('T003', 'in_progress'), run('T004', 'in_progress')) }), { action: 'wait' });
+  const afterLand = PARALLEL_TASKS.replace('- [ ] T002', '- [x] T002');
+  assert.deepEqual(
+    decide({ tasksMarkdown: afterLand, runs: tasks(run('T002', 'completed', 'success'), run('T003', 'in_progress'), run('T004', 'in_progress')) }),
+    { action: 'dispatch', step: 'task', task: 'T005', attempt: 1, stale: [] },
+    'a landed task frees a slot for the next group member',
+  );
+  assert.deepEqual(
+    decide({ runs: tasks(run('T002'), run('T003', 'in_progress'), run('T004', 'in_progress')) }),
+    { action: 'dispatch', step: 'task', task: 'T002', attempt: 2, stale: [] },
+    'a failed task is retried while its siblings run',
+  );
+  assert.deepEqual(
+    decide({ runs: tasks(run('T002', 'completed', 'success'), run('T003'), run('T004')) }),
+    { action: 'dispatch', step: 'task', task: 'T002', attempt: 2, stale: [] },
+    'a redone task (successful run, still unticked) does not count as a failure and goes first',
+  );
+  assert.deepEqual(
+    decide({ runs: tasks(run('T002', 'completed', 'success'), run('T002', 'in_progress'), run('T003')) }),
+    { action: 'wait' },
+    'no sibling starts while a task is being redone',
+  );
+  const limited = tasks(run('T003'), run('T003'), run('T003'), run('T002', 'in_progress'));
+  assert.deepEqual(decide({ runs: limited }), { action: 'wait' }, 'the limit waits for running siblings');
+  assert.deepEqual(decide({ runs: tasks(run('T003'), run('T003'), run('T003')) }), { action: 'limit', step: 'task', task: 'T003', attempts: 3, stale: [] });
+  const sequentialNext = PARALLEL_TASKS.replace(/- \[ \] T00[2-5]/g, (line) => line.replace('[ ]', '[x]'));
+  assert.deepEqual(decide({ tasksMarkdown: sequentialNext, runs: tasks(run('T005', 'in_progress')) }), { action: 'wait' }, 'a sequential task waits for the group');
+  const allDone = PARALLEL_TASKS.replace(/- \[ \] T/g, '- [x] T');
+  assert.deepEqual(decide({ tasksMarkdown: allDone, runs: tasks(run('T008', 'in_progress')) }), { action: 'wait' }, 'convergence waits for running tasks');
+  assert.deepEqual(decide({ runs: { ...tasks(run('T002', 'in_progress')), converge: [run(null, 'queued')] } }), { action: 'wait' });
+  assert.deepEqual(decide({ runs: tasks(run('T002', 'in_progress')), checks: [{ id: 1, external_id: CHECK_LIMIT, conclusion: 'failure' }], resume: true }), { action: 'wait' });
 });
 
 test('decides convergence, conflict resolution, and merging after the last task', () => {

@@ -27,14 +27,16 @@ import {
   latestCheckRun,
   listTasks,
   neutralizeMarkers,
-  nextTask,
+  nextTaskGroup,
+  parseMaxParallel,
   progressOutput,
   renderConvergePrompt,
   renderResolvePrompt,
   renderTaskPrompt,
   stepLabel,
+  syncPullRequestTicks,
   taskProgress,
-  tickPullRequestBody,
+  tickTask,
   validateConvergeChange,
   validateTaskChange,
 } from './speckit-implement-core.mjs';
@@ -131,14 +133,18 @@ export async function runBegin({ client, env, inputs, log }) {
   }
   let tasksMarkdown = null;
   let checks = [];
+  let takeOver = true;
   if (reasons.length === 0) {
     tasksMarkdown = await client.getFileContent(`specs/${folder}/tasks.md`, pull.head.sha);
     checks = await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME);
-    const next = nextTask(tasksMarkdown)?.id ?? null;
+    const group = nextTaskGroup(tasksMarkdown, parseMaxParallel(env.SPECKIT_MAX_PARALLEL_TASKS)).map((task) => task.id);
+    const next = group[0] ?? null;
     if (tasksMarkdown === null) reasons.push(`\`specs/${folder}/tasks.md\` is missing on the branch`);
-    else if (inputs.step === 'task' && next !== inputs.task) reasons.push(`the next task is ${next ?? 'none'}, not ${inputs.task}`);
+    else if (inputs.step === 'task' && !group.includes(inputs.task)) reasons.push(`the next task${group.length > 1 ? 's are' : ' is'} ${group.join(', ') || 'none'}, not ${inputs.task}`);
     else if (inputs.step !== 'task' && next) reasons.push(`task ${next} is not implemented yet`);
     else if (inputs.step === 'resolve' && latestMergeState(checks)?.external_id !== CHECK_CONFLICT) reasons.push('no merge conflict is recorded for the current head');
+    // Only the first task of a group takes over the queued progress check run, so parallel tasks never share one.
+    takeOver = inputs.step !== 'task' || inputs.task === next;
   }
   if (reasons.length > 0) {
     report.line(`Nothing to do: ${reasons.join('; ')}.`);
@@ -155,9 +161,9 @@ export async function runBegin({ client, env, inputs, log }) {
   }[inputs.step]();
   const attemptFields = { status: 'in_progress', external_id: CHECK_ATTEMPT, output: { title: `${title(inputs)} in progress`, summary } };
   // Take over the queued progress check run of this head, so no check run stays queued forever.
-  const latest = latestCheckRun(checks);
-  const check = latest?.status === 'queued' && latest.external_id === CHECK_PROGRESS
-    ? { ...latest, ...(await client.updateCheckRun(latest.id, attemptFields)), id: latest.id }
+  const queued = latestCheckRun(checks.filter((item) => item.status === 'queued' && item.external_id === CHECK_PROGRESS));
+  const check = takeOver && queued
+    ? { ...queued, ...(await client.updateCheckRun(queued.id, attemptFields)), id: queued.id }
     : await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: pull.head.sha, ...attemptFields });
   report.line(`Working on ${stepLabel(inputs)} of \`specs/${folder}\` at ${pull.head.sha}.`);
   report.flush();
@@ -454,10 +460,92 @@ async function requestAttention({ client, inputs, reason, next, resultDir }) {
   ].join('\n'));
 }
 
-function pushArgs(env, branch) {
+function remoteAuth(env) {
   const server = (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '');
   const basic = Buffer.from(`x-access-token:${env.GITHUB_TOKEN}`).toString('base64');
-  return ['-c', `http.${server}/.extraheader=AUTHORIZATION: basic ${basic}`, 'push', `${server}/${env.GITHUB_REPOSITORY}.git`, `HEAD:refs/heads/${branch}`];
+  return { config: ['-c', `http.${server}/.extraheader=AUTHORIZATION: basic ${basic}`], url: `${server}/${env.GITHUB_REPOSITORY}.git` };
+}
+
+function pushArgs(env, branch) {
+  const { config, url } = remoteAuth(env);
+  return [...config, 'push', url, `HEAD:refs/heads/${branch}`];
+}
+
+const LANDED_HEAD_REF = 'refs/speckit/land-head';
+
+function fetchArgs(env, branch) {
+  const { config, url } = remoteAuth(env);
+  return [...config, 'fetch', '--quiet', url, `+refs/heads/${branch}:${LANDED_HEAD_REF}`];
+}
+
+// How often a task is rebuilt on a moved branch before it is redone from the newest head.
+const MAX_LAND_TRIES = 5;
+
+// Pushes the committed task. When the branch moved (a parallel task or a person pushed first), the task is rebuilt
+// on the new head: its change without tasks.md is applied again and its tick is set in the new tasks.md, then
+// everything is validated again. A change that no longer applies, or touches files that changed on the branch since
+// the task started, has to be redone from the new head: that is a requeue, not a failed attempt.
+function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
+  const branch = implementationBranch(folder);
+  const tasksPath = `specs/${folder}/tasks.md`;
+  const patchFile = path.join(resultDir, 'changes.patch');
+  const base = gitOrThrow(git, ['rev-parse', 'HEAD~1']).trim();
+  const ours = splitZ(gitOrThrow(git, ['diff', '--name-only', '--no-renames', '-z', base, 'HEAD'])).filter((file) => file !== tasksPath);
+  let onto = base;
+  for (let tries = 0; tries < MAX_LAND_TRIES; tries += 1) {
+    const pushed = git(pushArgs(env, branch));
+    if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim() };
+    const rejection = pushed.stderr.trim().split('\n').at(-1);
+    const fetched = git(fetchArgs(env, branch));
+    if (fetched.status !== 0) {
+      return { reasons: [`the push to \`${branch}\` was rejected (${rejection}) and the branch could not be read (${fetched.stderr.trim().split('\n').at(-1)})`] };
+    }
+    const newHead = gitOrThrow(git, ['rev-parse', LANDED_HEAD_REF]).trim();
+    // An unmoved branch means the push itself was refused (rules, hooks, permissions), which a retry cannot fix.
+    if (newHead === onto) return { reasons: [`the push to \`${branch}\` was rejected: ${rejection}`] };
+    if (git(['merge-base', '--is-ancestor', base, newHead]).status !== 0) return { requeue: [`the branch \`${branch}\` was rewritten since the task started`] };
+    const moved = new Set(splitZ(gitOrThrow(git, ['diff', '--name-only', '--no-renames', '-z', base, newHead])));
+    const overlap = ours.filter((file) => moved.has(file));
+    if (overlap.length > 0) return { requeue: [`${overlap.map((file) => `\`${file}\``).join(', ')} changed on the branch since the task started`] };
+    gitOrThrow(git, ['checkout', '-q', '--detach', newHead]);
+    const applied = git(['apply', '--index', '--whitespace=nowarn', `--exclude=${tasksPath}`, patchFile]);
+    if (applied.status !== 0) return { requeue: [`the change no longer applies to the branch (${applied.stderr.trim().split('\n').at(-1)})`] };
+    const tasksFile = path.join(workspace, tasksPath);
+    const ticked = tickTask(readFileSync(tasksFile, 'utf8'), task);
+    if (ticked === null) return { requeue: [`${task} is already checked on the branch`] };
+    writeFileSync(tasksFile, ticked);
+    gitOrThrow(git, ['add', '--', tasksPath]);
+    const staged = checkStagedTask({ git, workspace, folder, task, patchBytes: statSync(patchFile).size, defaultBranch: env.SPECKIT_BRANCH || 'main' });
+    if (staged.reasons.length > 0) return { reasons: staged.reasons };
+    gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
+    onto = newHead;
+  }
+  return { requeue: [`the branch \`${branch}\` kept moving during ${MAX_LAND_TRIES} tries`] };
+}
+
+async function reportRequeue({ client, inputs, reasons }) {
+  const safeReasons = reasons.map(neutralizeMarkers);
+  await client.updateCheckRun(inputs.checkRun, {
+    status: 'completed',
+    conclusion: 'neutral',
+    output: { title: `${title(inputs)} is redone from the new head`, summary: safeReasons.map((reason) => `- ${reason}`).join('\n') },
+  });
+  await client.createComment(inputs.pull, [
+    `**${title(inputs)} runs again** from the new head of the implementation branch, because a parallel task or a person changed it first:`,
+    '',
+    ...safeReasons.map((reason) => `- ${reason}`),
+    '',
+    'This does not count as a failed attempt.',
+  ].join('\n'));
+}
+
+// A queued progress check run of the commit a task landed on is no longer needed once a newer head exists.
+async function completeSupersededProgress(client, parent, head) {
+  for (const check of await client.listCheckRuns(parent, CHECK_RUN_NAME)) {
+    if (check.status === 'queued' && check.external_id === CHECK_PROGRESS) {
+      await client.updateCheckRun(check.id, { status: 'completed', conclusion: 'neutral', output: { title: 'Superseded', summary: `The implementation continued on ${head}.` } });
+    }
+  }
 }
 
 async function push({ client, git, env, inputs, folder, resultDir, report }) {
@@ -540,7 +628,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
 
   const tasksPath = path.join(workspace, 'specs', folder, 'tasks.md');
   const tasksMarkdown = readFileSync(tasksPath, 'utf8');
-  const progress = taskProgress(tasksMarkdown);
+  let progress = taskProgress(tasksMarkdown);
   let message;
   let checkTitle;
   let comment;
@@ -549,7 +637,6 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     const task = listTasks(tasksMarkdown).find((item) => item.id === inputs.task);
     message = [`feat(${folder}): ${inputs.task} ${task?.text ?? ''}`.trimEnd(), `Implemented by the Spec Kit implement workflow (attempt ${inputs.attempt}).`];
     checkTitle = `${inputs.task} implemented`;
-    body = tickPullRequestBody(pull.body, inputs.task);
     const checks = (result.checks ?? []).map((check) => `${check.name} passed`);
     const verification = result.verification === 'not-configured'
       ? 'no verification configured (no environment-verify action)'
@@ -560,7 +647,6 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       `- Changed files: ${(result.changedFiles ?? []).map((file) => `\`${file}\``).join(', ') || 'none'}`,
       `- Verification: ${verification}`,
       ...((result.uncovered ?? []).length > 0 ? [`- Not covered by any check: ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
-      `- Progress: ${progress.done} of ${progress.total} tasks implemented`,
     ];
   } else if (inputs.step === 'converge') {
     const round = convergenceRounds(tasksMarkdown);
@@ -591,8 +677,34 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     ];
   }
   gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
-  const head = await push({ client, git, env, inputs, folder, resultDir, report });
-  if (!head) return { exitCode: 1, reasons: ['push rejected'] };
+  let head;
+  if (inputs.step === 'task') {
+    const landed = pushTask({ git, env, folder, task: inputs.task, message, resultDir, workspace });
+    if (landed.requeue) {
+      await reportRequeue({ client, inputs, reasons: landed.requeue });
+      report.line(`${title(inputs)} is redone from the new head: ${landed.requeue.join('; ')}`);
+      report.flush();
+      return { exitCode: 0, requeue: landed.requeue };
+    }
+    if (landed.reasons) {
+      await reportFailure({ client, inputs, reasons: landed.reasons, resultDir });
+      report.line(`${title(inputs)} failed: ${landed.reasons.join('; ')}`);
+      report.flush();
+      return { exitCode: 1, reasons: landed.reasons };
+    }
+    head = landed.head;
+    // The branch may now hold the ticks of parallel tasks that landed first.
+    const landedTasks = readFileSync(tasksPath, 'utf8');
+    progress = taskProgress(landedTasks);
+    comment.push(`- Progress: ${progress.done} of ${progress.total} tasks implemented`);
+    const current = String((await client.getPullRequest(inputs.pull)).body ?? '');
+    body = syncPullRequestTicks(current, landedTasks);
+    pull.body = current;
+    await completeSupersededProgress(client, gitOrThrow(git, ['rev-parse', 'HEAD~1']).trim(), head);
+  } else {
+    head = await push({ client, git, env, inputs, folder, resultDir, report });
+    if (!head) return { exitCode: 1, reasons: ['push rejected'] };
+  }
   if (body !== pull.body) await client.updatePullRequest(inputs.pull, { body });
   await client.updateCheckRun(inputs.checkRun, { status: 'completed', conclusion: 'success', output: { title: checkTitle, summary: message.join('\n\n') } });
   await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'queued', external_id: CHECK_PROGRESS, output: progressOutput(progress) });

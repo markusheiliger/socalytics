@@ -7,6 +7,8 @@ export const RESUME_COMMENT_MARKER = '<!-- speckit-implement:resume -->';
 export const DONE_COMMENT_MARKER = '<!-- speckit-implement:done -->';
 export const BOT_LOGIN = 'github-actions[bot]';
 export const MAX_TASK_ATTEMPTS = 3;
+// Default number of `[P]` tasks of one spec that run at the same time (repository variable SPECKIT_MAX_PARALLEL_TASKS).
+export const DEFAULT_MAX_PARALLEL_TASKS = 3;
 export const MAX_CONVERGE_ROUNDS = 3;
 // A merge check run still in progress after this long belongs to a cancelled or crashed run.
 export const MERGE_STALE_MS = 2 * 60 * 60 * 1000;
@@ -93,6 +95,64 @@ export function nextTask(tasksMarkdown) {
   return listTasks(tasksMarkdown).find((task) => !task.done) ?? null;
 }
 
+// Tasks in file order with their `[P]` marker and the heading (any level) they are listed under.
+function tasksWithSections(tasksMarkdown) {
+  const tasks = [];
+  let section = '';
+  for (const line of String(tasksMarkdown ?? '').split(/\r?\n/)) {
+    const heading = line.match(HEADING_PATTERN);
+    if (heading) {
+      section = line;
+      continue;
+    }
+    const task = line.match(TASK_PATTERN);
+    if (!task) continue;
+    const tags = task[3].match(/^(?:\[[^\]]+\]\s*)+/)?.[0] ?? '';
+    tasks.push({ id: task[2], text: task[3].trim(), done: task[1] !== ' ', parallel: /\[P\]/.test(tags), section });
+  }
+  return tasks;
+}
+
+// The tasks that may run now: the first unticked task, followed (only when it is marked `[P]`) by the next unticked
+// `[P]` tasks under the same heading, up to `max`. An unticked task without `[P]` or a new heading ends the group,
+// so a group never skips over unfinished sequential work.
+export function nextTaskGroup(tasksMarkdown, max = 1) {
+  const tasks = tasksWithSections(tasksMarkdown);
+  const start = tasks.findIndex((task) => !task.done);
+  if (start < 0) return [];
+  const first = tasks[start];
+  const group = [first];
+  if (!first.parallel) return group;
+  for (const task of tasks.slice(start + 1)) {
+    if (group.length >= max || task.section !== first.section) break;
+    if (task.done) continue;
+    if (!task.parallel) break;
+    group.push(task);
+  }
+  return group;
+}
+
+// Parses SPECKIT_MAX_PARALLEL_TASKS; anything but a positive integer falls back to the default.
+export function parseMaxParallel(value) {
+  const number = Number(String(value ?? '').trim());
+  return Number.isInteger(number) && number > 0 ? number : DEFAULT_MAX_PARALLEL_TASKS;
+}
+
+// Checks `taskId` in a tasks.md; null when the task is missing or already checked.
+export function tickTask(tasksMarkdown, taskId) {
+  const lines = String(tasksMarkdown ?? '').split('\n');
+  const matchOf = (line) => line.replace(/\r$/, '').match(TASK_PATTERN);
+  const index = lines.findIndex((line) => matchOf(line)?.[2] === taskId);
+  if (index < 0 || matchOf(lines[index])[1] !== ' ') return null;
+  lines[index] = lines[index].replace('[ ]', '[x]');
+  return lines.join('\n');
+}
+
+// Checks every task of a pull request body that is checked in tasks.md; concurrent lands may each miss a sibling's tick.
+export function syncPullRequestTicks(body, tasksMarkdown) {
+  return listTasks(tasksMarkdown).filter((task) => task.done).reduce((text, task) => tickPullRequestBody(text, task.id), String(body ?? ''));
+}
+
 export function taskProgress(tasksMarkdown) {
   const tasks = listTasks(tasksMarkdown);
   return { done: tasks.filter((task) => task.done).length, total: tasks.length };
@@ -164,43 +224,72 @@ const latestSuccess = (runs) => Math.max(0, ...runs.filter((run) => run.status =
 // ({ task, status, conclusion, created_at }); `checks` are the `Spec Kit implementation` check runs of the current
 // head; `windowStart` starts the current attempt window (pull request, manual resume, or a person's push); `done`
 // tells whether the implementation was finalized for review; `resume` whether a person asked to resume this twin.
-// Order: next unchecked task → converge (until a successful converge is newer than the last successful task run)
-// → merge, or resolve after a merge found conflicts on this head. Only unsuccessful runs count as attempts;
-// the total number of runs per step is capped separately so no-op runs cannot loop forever.
-export function decideContinuation({ tasksMarkdown, checks = [], runs = {}, windowStart, done = false, resume = false, now = Date.now() }) {
-  const all = Object.values(runs).flat();
-  if (all.some((run) => run.status !== 'completed')) return { action: 'wait' };
+// Order: next unchecked task (or group of `[P]` tasks, see nextTaskGroup) → converge (until a successful converge is
+// newer than the last successful task run) → merge, or resolve after a merge found conflicts on this head. Only
+// unsuccessful runs count as attempts; the total number of runs per step is capped separately so no-op runs (such
+// as a parallel task that had to be redone from a newer head) cannot loop forever. While tasks of a group run,
+// free slots (up to `maxParallel`) are filled with the group's other tasks; everything else waits for them.
+export function decideContinuation({ tasksMarkdown, checks = [], runs = {}, windowStart, done = false, resume = false, now = Date.now(), maxParallel = 1 }) {
+  const active = Object.entries(runs).flatMap(([step, list]) => list.filter((run) => run.status !== 'completed').map((run) => ({ ...run, step })));
+  if (active.some((run) => run.step !== 'task')) return { action: 'wait' };
   const mergeChecks = checks.filter((check) => check.external_id === CHECK_MERGE);
   const stale = mergeChecks.filter((check) => check.status !== 'completed' && now - checkTime(check) >= MERGE_STALE_MS);
   if (mergeChecks.some((check) => check.status !== 'completed' && !stale.includes(check))) return { action: 'wait' };
   const latest = latestCheckRun(checks);
-  if (done || (latest?.external_id === CHECK_DONE && latest.conclusion === 'success')) return { action: 'done' };
+  const isDone = done || (latest?.external_id === CHECK_DONE && latest.conclusion === 'success');
   const failed = latest?.external_id === CHECK_LIMIT && latest.conclusion === 'failure';
+  if (active.length > 0 && (isDone || failed)) return { action: 'wait' };
+  if (isDone) return { action: 'done' };
   if (failed && !resume) return { action: 'failed' };
 
   const since = Date.parse(windowStart);
   const taskRuns = runs.task ?? [];
-  const next = nextTask(tasksMarkdown);
+  const group = nextTaskGroup(tasksMarkdown, maxParallel);
+  if (group.length > 0) {
+    if (failed) return { action: 'resume', step: 'task', task: group[0].id, attempt: 1, stale };
+    const busy = new Set(active.map((run) => run.task));
+    // Runs outside the group (a sequential task, or a task that landed but whose run has not ended) finish first.
+    if ([...busy].some((task) => !group.some((member) => member.id === task))) return { action: 'wait' };
+    const ready = [];
+    const redone = new Set();
+    let limit = null;
+    for (const task of group) {
+      const inWindow = taskRuns.filter((run) => run.task === task.id && Date.parse(run.created_at) >= since);
+      const attempts = inWindow.filter((run) => run.status === 'completed' && run.conclusion !== 'success').length;
+      // A successful run that left the task unchecked had to be redone because a sibling landed first.
+      if (inWindow.some((run) => run.status === 'completed' && run.conclusion === 'success')) redone.add(task.id);
+      if (attempts >= MAX_TASK_ATTEMPTS || inWindow.length >= MAX_TASK_ATTEMPTS * 2) {
+        limit ??= { task: task.id, attempts: inWindow.length };
+      } else if (!busy.has(task.id)) {
+        ready.push({ task: task.id, attempt: inWindow.length + 1 });
+      }
+    }
+    // A task at its limit stops the implementation once its running siblings have finished.
+    if (limit) return active.length > 0 ? { action: 'wait' } : { action: 'limit', step: 'task', ...limit, stale };
+    // While a task is being redone, no new siblings start, so a slow task cannot keep losing the race to land.
+    const candidates = redone.size > 0 ? ready.filter((item) => redone.has(item.task)) : ready;
+    const chosen = candidates.slice(0, Math.max(0, maxParallel - active.length));
+    if (chosen.length === 0) return { action: 'wait' };
+    if (chosen.length === 1) return { action: 'dispatch', step: 'task', ...chosen[0], stale };
+    return { action: 'dispatch-tasks', step: 'task', tasks: chosen, stale };
+  }
+  if (active.length > 0) return { action: 'wait' };
+
   let step;
   let candidates;
-  if (next) {
-    step = { step: 'task', task: next.id };
-    candidates = taskRuns.filter((run) => run.task === next.id);
+  const lastTask = latestSuccess(taskRuns);
+  const converged = (runs.converge ?? []).length > 0 && latestSuccess(runs.converge) > lastTask;
+  if (!converged) {
+    step = { step: 'converge' };
+    candidates = (runs.converge ?? []).filter((run) => Date.parse(run.created_at) > lastTask);
+  } else if (latestCheckRun(checks.filter((check) => [CHECK_MERGE, CHECK_CONFLICT].includes(check.external_id)))?.external_id === CHECK_CONFLICT) {
+    step = { step: 'resolve' };
+    // Only attempts at the current conflict count; earlier, already resolved conflicts do not.
+    const conflictAt = checkTime(latestCheckRun(checks.filter((check) => check.external_id === CHECK_CONFLICT)));
+    candidates = (runs.resolve ?? []).filter((run) => Date.parse(run.created_at) >= conflictAt);
   } else {
-    const lastTask = latestSuccess(taskRuns);
-    const converged = (runs.converge ?? []).length > 0 && latestSuccess(runs.converge) > lastTask;
-    if (!converged) {
-      step = { step: 'converge' };
-      candidates = (runs.converge ?? []).filter((run) => Date.parse(run.created_at) > lastTask);
-    } else if (latestCheckRun(checks.filter((check) => [CHECK_MERGE, CHECK_CONFLICT].includes(check.external_id)))?.external_id === CHECK_CONFLICT) {
-      step = { step: 'resolve' };
-      // Only attempts at the current conflict count; earlier, already resolved conflicts do not.
-      const conflictAt = checkTime(latestCheckRun(checks.filter((check) => check.external_id === CHECK_CONFLICT)));
-      candidates = (runs.resolve ?? []).filter((run) => Date.parse(run.created_at) >= conflictAt);
-    } else {
-      step = { step: 'merge' };
-      candidates = null;
-    }
+    step = { step: 'merge' };
+    candidates = null;
   }
   if (failed) return { action: 'resume', ...step, attempt: 1, stale };
 

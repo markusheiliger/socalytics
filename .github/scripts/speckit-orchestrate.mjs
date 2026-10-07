@@ -36,13 +36,15 @@ import {
   implementationBranch,
   latestCheckRun,
   markerTimes,
-  nextTask,
+  nextTaskGroup,
+  parseMaxParallel,
   parseStepRunName,
   renderPullRequestBody,
   renderPullRequestTitle,
   renderStartComment,
   renderStepRunName,
   stepLabel,
+  syncPullRequestTicks,
 } from './speckit-implement-core.mjs';
 
 export class UsageError extends Error {}
@@ -119,6 +121,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
         pullNumber: lifecycle.pull.number,
         resume: String(env.SPECKIT_RESUME_TWIN ?? '') === String(issue.number),
         now: now(),
+        maxParallel: parseMaxParallel(env.SPECKIT_MAX_PARALLEL_TASKS),
       });
       inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision });
       continue;
@@ -197,6 +200,7 @@ function describeDecision(decision) {
     case 'resume': return `resuming with ${stepLabel(decision)}`;
     case 'limit': return `${stepLabel(decision)} reached the attempt limit`;
     case 'dispatch': return `next is ${stepLabel(decision)} attempt ${decision.attempt}`;
+    case 'dispatch-tasks': return `next are ${decision.tasks.map(({ task, attempt }) => `${task} attempt ${attempt}`).join(', ')} in parallel`;
     case 'merge': return `merging, attempt ${decision.attempt}`;
     default: return decision.action;
   }
@@ -211,11 +215,14 @@ function latestHumanCommit(commits) {
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
 }
 
-// Reads the state of an open implementation pull request and decides how to continue it.
-async function decideForPull(client, { twin, folder, pullNumber, resume, now }) {
+// Reads the state of an open implementation pull request and decides how to continue it. It also checks the tasks of
+// the pull request body that are checked on the branch, because parallel tasks land concurrently.
+async function decideForPull(client, { twin, folder, pullNumber, resume, now, maxParallel }) {
   const pull = await client.getPullRequest(pullNumber);
   const tasksMarkdown = await client.getFileContent(`specs/${folder}/tasks.md`, pull.head.sha);
   if (tasksMarkdown === null) return { action: 'missing-tasks', pull };
+  const body = syncPullRequestTicks(pull.body, tasksMarkdown);
+  if (body !== String(pull.body ?? '')) await client.updatePullRequest(pullNumber, { body });
   const checks = await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME);
   const comments = await client.listIssueComments(pullNumber);
   const resumedAt = markerTimes(comments, RESUME_COMMENT_MARKER);
@@ -228,7 +235,7 @@ async function decideForPull(client, { twin, folder, pullNumber, resume, now }) 
       .map((run) => ({ ...parseStepRunName(step, run.display_title), status: run.status, conclusion: run.conclusion, created_at: run.created_at }))
       .filter((run) => run.twin === twin);
   }
-  return { ...decideContinuation({ tasksMarkdown, checks, runs, windowStart, done, resume, now }), pull };
+  return { ...decideContinuation({ tasksMarkdown, checks, runs, windowStart, done, resume, now, maxParallel }), pull };
 }
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -318,9 +325,11 @@ export async function runOrchestrate({ client, rootDir, env, log, sleep = defaul
     const started = await runStart({ client, rootDir, env, issueNumber: twin.number, folder: twin.folder, requester: twin.requester, reset: twin.reset, log });
     if (!started.pull) continue;
     const entry = readSpecFolder(rootDir, twin.folder);
-    const task = nextTask(entry?.tasks)?.id;
-    const first = task ? { step: 'task', task } : { step: 'converge' };
-    await dispatchStep(client, env, { ...first, twin: twin.number, pull: started.pull.number, attempt: 1 }, { report, sleep, now });
+    const group = nextTaskGroup(entry?.tasks, parseMaxParallel(env.SPECKIT_MAX_PARALLEL_TASKS));
+    const steps = group.length > 0 ? group.map((task) => ({ step: 'task', task: task.id })) : [{ step: 'converge' }];
+    for (const first of steps) {
+      await dispatchStep(client, env, { ...first, twin: twin.number, pull: started.pull.number, attempt: 1 }, { report, sleep, now });
+    }
     actions += 1;
   }
   for (const twin of selection.inProgress) {
@@ -331,7 +340,11 @@ export async function runOrchestrate({ client, rootDir, env, log, sleep = defaul
     if (decision.action === 'resume') {
       await client.createComment(twin.pull, `${RESUME_COMMENT_MARKER}\nImplementation resumed by a manual run; the attempt count starts over with ${stepLabel(decision)}.`);
     }
-    if (decision.action === 'dispatch' || (decision.action === 'resume' && decision.step !== 'merge')) {
+    if (decision.action === 'dispatch-tasks') {
+      for (const { task, attempt } of decision.tasks) {
+        await dispatchStep(client, env, { step: 'task', task, twin: twin.number, pull: twin.pull, attempt }, { report, sleep, now });
+      }
+    } else if (decision.action === 'dispatch' || (decision.action === 'resume' && decision.step !== 'merge')) {
       await dispatchStep(client, env, { step: decision.step, task: decision.task, twin: twin.number, pull: twin.pull, attempt: decision.attempt }, { report, sleep, now });
     } else if (decision.action === 'merge' || (decision.action === 'resume' && decision.step === 'merge')) {
       const checkRun = await startMerge(client, { pull: decision.pull, attempt: decision.attempt });

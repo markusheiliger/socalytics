@@ -1,7 +1,8 @@
 name: Spec Kit implement
 
 # Implements exactly one task of a spec on its speckit/<folder> branch with /speckit-implement. Started by the
-# Spec Kit orchestrate workflow; the hand-back job starts the orchestrator again when the run ends.
+# Spec Kit orchestrate workflow, which may run several `[P]` tasks of one spec at the same time; the hand-back job
+# starts the orchestrator again when the run ends.
 #   begin:     checks that the inputs still match the state and marks the attempt as in progress
 #   work:      runs the agent and the verification with a read-only token
 #   land:      re-validates, commits, pushes, and reports; it never runs agent-written code
@@ -30,8 +31,10 @@ on:
 
 permissions: {}
 
+# One run per task: parallel tasks of a spec must not share a group, because GitHub keeps only one pending run per
+# group and cancels the others. The orchestrator starts converge, resolve, and merge only when no task runs.
 concurrency:
-  group: speckit-twin-${{ inputs.twin }}
+  group: speckit-task-${{ inputs.twin }}-${{ inputs.task }}
   cancel-in-progress: false
 
 env:
@@ -41,6 +44,7 @@ env:
   SPECKIT_PULL: ${{ inputs.pull }}
   SPECKIT_TASK: ${{ inputs.task }}
   SPECKIT_ATTEMPT: ${{ inputs.attempt }}
+  SPECKIT_MAX_PARALLEL_TASKS: ${{ vars.SPECKIT_MAX_PARALLEL_TASKS || '3' }}
 
 jobs:
   refuse:

@@ -171,15 +171,16 @@ their "blocked by" issues are closed.
 
   | Step | Runs in | What it does |
   | --- | --- | --- |
-  | Tasks | `Spec Kit implement` (`speckit-implement.yml`), one run per task | implements the next unchecked task with `/speckit-implement`, strictly in `tasks.md` order |
+  | Tasks | `Spec Kit implement` (`speckit-implement.yml`), one run per task | implements the next unchecked task with `/speckit-implement` in `tasks.md` order; consecutive unchecked `[P]` tasks under the same heading run in parallel (see below) |
   | Acceptance gate | `Spec Kit converge` (`speckit-converge.yml`) | runs `/speckit-converge` once all tasks are checked; gaps are appended as a `Phase N: Convergence` section with new tasks, which the task chain implements before converge runs again (at most 3 rounds) |
   | Merge | merge jobs of `Spec Kit orchestrate` | merges `main` into the branch, runs the full verification on the result, and squash-merges the pull request into `main` |
   | Conflicts | `Spec Kit resolve` (`speckit-resolve.yml`) | resolves conflicts with `main` with Copilot CLI, verifies, and pushes the merge commit; then the merge step runs again |
 
   Each run is short, so specs of any size never hit the 6-hour job limit.
   Every worker run (implement, converge, resolve):
-  1. checks that its step is still the next step of the open, flagged
-      implementation; otherwise it does nothing;
+  1. checks that its step is still the next step (for a task: still part of
+      the next group of tasks) of the open, flagged implementation; otherwise
+      it does nothing;
   2. sets up the solution environment with the optional
       `.github/actions/environment-setup` action, then runs Copilot CLI
       (60 minutes at most) in a job with a read-only token, which reaches the
@@ -248,6 +249,22 @@ their "blocked by" issues are closed.
   5. Specs that need the new tooling name the environment spec under
       Assumptions → Dependencies, so dependency inference blocks them until it
       is merged (or add the "blocked by" link on GitHub).
+- Tasks marked `[P]` run in parallel, up to `SPECKIT_MAX_PARALLEL_TASKS`
+  (default 3) at a time. A group starts at the next unchecked task when that
+  task is `[P]` and takes the following unchecked `[P]` tasks under the same
+  heading; an unchecked task without `[P]` or a new heading ends it. A task
+  without `[P]`, convergence, and merging wait until every running task has
+  finished. Each parallel task starts from the branch head of its start and is
+  verified on its own; the combined result is verified by later tasks and
+  always by the full verification before the merge. When a sibling landed
+  first, the land job rebuilds the task on the new head (its change without
+  `tasks.md`, plus its own tick) and validates it again. If the task touches a
+  file that changed on the branch since it started, or no longer applies, it
+  runs again from the new head; that does not count as a failed attempt, but
+  every task has at most six runs, and no new sibling starts while a task is
+  redone. A push that is refused although the branch did not move counts as a
+  failed attempt. `SPECKIT_MAX_PARALLEL_TASKS=1` restores
+  one task at a time.
 - Every step gets at most three failed attempts: tasks, convergence, and
   conflict resolution are counted from the run names (`#<twin> <task> attempt
   <n>`, `#<twin> attempt <n>`), merges from their check runs, including crashed
@@ -322,6 +339,7 @@ place. The workflows and scripts need no changes for any of it.
 | --- | --- | --- | --- |
 | `SPECKIT_AUTO_MERGE` | repository variable | `true` | `false` holds every implementation for review instead of merging it automatically |
 | `SPECKIT_TASK_AI_CREDITS` | repository variable | `1000` | Copilot CLI credit cap per agent run (tasks, convergence, conflict resolution) |
+| `SPECKIT_MAX_PARALLEL_TASKS` | repository variable | `3` | how many `[P]` tasks of one spec run at the same time; `1` runs one task at a time |
 | `.github/actions/environment-setup` | composite action, optional | not run | installs the SDKs and tools for building, testing, and verifying |
 | `.github/actions/environment-verify` | composite action, optional | no verification | runs the checks for changed paths and reports files no check covers |
 | `SPECKIT_IMPLEMENT_MODE` | local environment variable | ask | `local` or `remote` answers the `/speckit-implement` routing question |

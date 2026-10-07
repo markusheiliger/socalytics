@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -265,6 +265,87 @@ test('task: land re-validates, commits, pushes, and reports a verified task', ()
   const progress = github.repo.checkRuns.at(-1);
   assert.deepEqual([progress.status, progress.external_id, progress.head_sha, progress.output.title], ['queued', CHECK_PROGRESS, result.head, '1 of 2 tasks implemented']);
   assert.match(github.comments.at(-1).body, /\*\*T001 implemented\*\* \(attempt 2\)[\s\S]*`docs\/x\.md`[\s\S]*Markdown check passed[\s\S]*1 of 2 tasks/);
+}));
+
+const PARALLEL_TASKS = '# Tasks\n\n## Phase 1\n\n- [ ] T001 [P] Create docs/x.md\n- [ ] T002 [P] Create docs/y.md\n';
+
+// Simulates a parallel sibling (or a person) pushing to the implementation branch after the task started.
+function siblingLands(repos, change) {
+  const dir = path.join(repos.base, `sibling-${Date.now()}`);
+  git(repos.base, 'clone', '-q', '--branch', 'speckit/f', repos.bare, dir);
+  change(dir);
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'sibling');
+  git(dir, 'push', '-q', 'origin', 'HEAD:refs/heads/speckit/f');
+  return git(dir, 'rev-parse', 'HEAD').trim();
+}
+
+const siblingDoesT002 = (extra = {}) => (dir) => {
+  write(dir, 'docs/y.md', '# Y\n');
+  write(dir, 'specs/f/tasks.md', readFileSync(path.join(dir, 'specs/f/tasks.md'), 'utf8').replace('- [ ] T002', '- [x] T002'));
+  for (const [file, content] of Object.entries(extra)) write(dir, file, content);
+};
+
+test('begin accepts any task of the next [P] group and leaves the progress check run to the first', async () => {
+  const github = fakeGitHub();
+  github.setFile('sha-head', 'specs/f/tasks.md', PARALLEL_TASKS);
+  const progress = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-head', status: 'queued', external_id: CHECK_PROGRESS });
+  const second = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: { ...TASK_INPUTS, task: 'T002' }, log: silent });
+  assert.equal(second.proceed, true);
+  assert.notEqual(second.check.id, progress.id);
+  assert.equal(github.repo.checkRuns.find((run) => run.id === progress.id).status, 'queued');
+  const first = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: TASK_INPUTS, log: silent });
+  assert.equal(first.check.id, progress.id);
+
+  const sequential = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_MAX_PARALLEL_TASKS: '1' }, inputs: { ...TASK_INPUTS, task: 'T002' }, log: silent });
+  assert.deepEqual([sequential.proceed, sequential.reasons], [false, ['the next task is T001, not T002']]);
+  github.setFile('sha-head', 'specs/f/tasks.md', `${PARALLEL_TASKS}- [ ] T003 [P] Create docs/z.md\n`);
+  const outside = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_MAX_PARALLEL_TASKS: '2' }, inputs: { ...TASK_INPUTS, task: 'T003' }, log: silent });
+  assert.deepEqual(outside.reasons, ['the next tasks are T001, T002, not T003']);
+});
+
+test('task: land rebuilds a parallel task on a branch that a sibling moved', () => withRepos({ tasks: PARALLEL_TASKS }, async (repos) => {
+  work(repos, { agent: (r) => agentDoesT001(r.work) });
+  const sibling = siblingLands(repos, siblingDoesT002());
+  const github = fakeGitHub({ body: '## Tasks (2)\n\n- [ ] T001 [P] Create docs/x.md\n- [ ] T002 [P] Create docs/y.md\n' });
+  const superseded = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: sibling, status: 'queued', external_id: CHECK_PROGRESS });
+  const result = await land(repos, github);
+  assert.equal(result.exitCode, 0);
+  assert.match(remoteHead(repos), new RegExp(`^${result.head} ${sibling}\\|feat\\(f\\): T001 \\[P\\] Create docs/x\\.md$`));
+  assert.equal(remoteShow(repos, 'speckit/f:docs/x.md'), '# X\n');
+  assert.equal(remoteShow(repos, 'speckit/f:docs/y.md'), '# Y\n');
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001 \[P\] Create docs\/x\.md\n- \[x\] T002/);
+  assert.match(github.repo.pulls[0].body, /- \[x\] T001 [^\n]*\n- \[x\] T002/);
+  assert.equal(result.check.output.title, 'T001 implemented');
+  assert.equal(github.repo.checkRuns.at(-1).output.title, '2 of 2 tasks implemented');
+  assert.match(github.comments.at(-1).body, /2 of 2 tasks implemented/);
+  assert.deepEqual([github.repo.checkRuns.find((run) => run.id === superseded.id).status, github.repo.checkRuns.find((run) => run.id === superseded.id).output.title], ['completed', 'Superseded']);
+}));
+
+test('task: land redoes a parallel task whose files a sibling changed, without counting a failure', () => withRepos({ tasks: PARALLEL_TASKS }, async (repos) => {
+  work(repos, { agent: (r) => agentDoesT001(r.work) });
+  const sibling = siblingLands(repos, siblingDoesT002({ 'docs/x.md': '# Sibling\n' }));
+  const github = fakeGitHub();
+  const result = await land(repos, github);
+  assert.equal(result.exitCode, 0);
+  assert.match(result.requeue.join(), /`docs\/x\.md` changed on the branch since the task started/);
+  assert.equal(remoteSha(repos, 'speckit/f'), sibling);
+  assert.deepEqual([result.check.status, result.check.conclusion, result.check.output.title], ['completed', 'neutral', 'T001 attempt 2 is redone from the new head']);
+  assert.match(github.comments.at(-1).body, /\*\*T001 attempt 2 runs again\*\*[\s\S]*does not count as a failed attempt/);
+}));
+
+test('task: land reports a refused push as a failure instead of redoing the task', () => withRepos({ tasks: PARALLEL_TASKS }, async (repos) => {
+  work(repos, { agent: (r) => agentDoesT001(r.work) });
+  const hook = path.join(repos.bare, 'hooks', 'pre-receive');
+  writeFileSync(hook, '#!/bin/sh\necho "denied by a rule" >&2\nexit 1\n');
+  chmodSync(hook, 0o755);
+  const before = remoteHead(repos);
+  const github = fakeGitHub();
+  const result = await land(repos, github);
+  assert.equal(result.exitCode, 1);
+  assert.match(result.reasons.join(), /the push to `speckit\/f` was rejected: /);
+  assert.equal(remoteHead(repos), before);
+  assert.deepEqual([result.check.conclusion, result.check.output.title], ['failure', 'T001 attempt 2 failed']);
 }));
 
 test('task: land reports failures without pushing and does not trust a forged result', () => withRepos({}, async (repos) => {
