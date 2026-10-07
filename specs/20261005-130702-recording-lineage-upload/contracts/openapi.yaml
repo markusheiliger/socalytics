@@ -38,11 +38,14 @@ paths:
         multipart upload (SHA-256 composite checksums) at a platform-chosen location, and
         returns grants for parts 1..min(partCount, configured maximum per request). Request
         further grants with issueRecordingUploadGrants. Replaying the same Idempotency-Key with
-        the same content returns the original session with freshly issued grants (grants are
-        never stored).
+        the same content returns the original session in its current state: with freshly
+        issued grants while it is still pending and unexpired, and without grants once it is
+        completed or expired (grants are never stored).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/AntiforgeryToken'
       requestBody:
         required: true
         content:
@@ -51,7 +54,9 @@ paths:
               $ref: '#/components/schemas/StartUploadRequest'
       responses:
         '201':
-          description: Upload session created (or replayed) with fresh grants for its first parts.
+          description: >-
+            Upload session created (or replayed) with fresh grants for its first parts; a replay
+            of a completed or expired session returns the session without grants.
           headers:
             Location:
               $ref: '#/components/headers/Location'
@@ -113,8 +118,9 @@ paths:
         part, with exactly the declared size and digest, to the session's single storage
         location, and conveys no other authority. Unknown or differently scoped sessions yield
         404; completed or expired sessions yield 409.
-      parameters:
-        - $ref: '#/components/parameters/AntiforgeryToken'
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
       requestBody:
         required: true
         content:
@@ -159,9 +165,11 @@ paths:
         creates one recording version and its first timeline mapping and marks the session
         completed. Rejections before assembly leave the session pending so parts can be
         re-uploaded.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/AntiforgeryToken'
       requestBody:
         required: true
         content:
@@ -227,9 +235,11 @@ paths:
         Creates a new immutable timeline mapping with a new identity and digest. Content
         identical to an existing mapping of the same recording version returns that mapping
         with 200 instead of creating a duplicate. Prior mappings are never changed.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/AntiforgeryToken'
       requestBody:
         required: true
         content:
@@ -303,9 +313,11 @@ paths:
         the list is empty, any member is unknown or belongs to another Match, a mapping is not
         bound to its paired recording version, or a recording version repeats. Distinct
         Idempotency-Keys create distinct set versions.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
-        - $ref: '#/components/parameters/AntiforgeryToken'
       requestBody:
         required: true
         content:
@@ -400,6 +412,13 @@ components:
       description: >-
         Server-validated human session established by Club and Identity (Secure, HttpOnly,
         SameSite=Strict).
+    antiforgeryHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: >-
+        Anti-forgery token issued by Club and Identity for the current session; required with the
+        session cookie on every unsafe-method operation (shared Club and Identity scheme).
   parameters:
     MatchId:
       name: matchId
@@ -437,20 +456,14 @@ components:
       required: true
       description: >-
         Opaque caller-chosen retry key scoped to this operation and Match. Same key and same
-        content replays the original outcome; same key with different content is a 409.
+        content replays the original outcome; same key with different content is a 409. Shared
+        platform problem codes: a missing key is `400 idempotency-key-missing`, a key reused with
+        different content is `409 idempotency-key-reused`.
       schema:
         type: string
         minLength: 1
         maxLength: 255
         pattern: '^[\x21-\x7E]+$'
-    AntiforgeryToken:
-      name: X-CSRF-Token
-      in: header
-      required: true
-      description: Anti-forgery proof issued by Club and Identity for the current session.
-      schema:
-        type: string
-        minLength: 1
   headers:
     Location:
       description: URI of the created or returned resource.
@@ -475,8 +488,8 @@ components:
       description: >-
         The request is invalid. Codes: `validation-failed`, `idempotency-key-missing`,
         `upload-declaration-invalid`, `part-numbers-invalid`, `content-type-not-allowed`,
-        `timeline-mapping-invalid`, `recording-set-empty`, `recording-set-member-invalid`,
-        `recording-set-duplicate-recording`.
+        `timeline-mapping-invalid`, `recording-set-empty`, `recording-set-too-large`,
+        `recording-set-member-invalid`, `recording-set-duplicate-recording`.
       content:
         application/problem+json:
           schema:
@@ -640,6 +653,10 @@ components:
         state:
           type: string
           enum: [pending, completed, expired]
+          description: >-
+            Derived on read: `expired` as soon as `expiresAt` has passed for a session that was not
+            completed, even before the expiry sweep records the transition (the ETag stays the
+            stored version until then).
         recording:
           $ref: '#/components/schemas/RecordingDescriptor'
         totalSizeBytes:
@@ -727,7 +744,10 @@ components:
             $ref: '#/components/schemas/PartGrant'
     UploadSessionWithGrants:
       type: object
-      required: [session, grants]
+      required: [session]
+      description: >-
+        `grants` is present while the session is pending and unexpired; it is omitted when a
+        start-upload replay returns a completed or expired session.
       properties:
         session:
           $ref: '#/components/schemas/UploadSession'
@@ -837,8 +857,12 @@ components:
       properties:
         members:
           type: array
+          description: >-
+            Ordered members. At most the configured maximum (`Recordings:Sets:MaxMembers`, 100 by
+            default, never above 1000); a longer list is rejected as a whole with
+            `400 recording-set-too-large`.
           minItems: 1
-          maxItems: 100
+          maxItems: 1000
           items:
             $ref: '#/components/schemas/RecordingSetMemberInput'
     RecordingSetMember:

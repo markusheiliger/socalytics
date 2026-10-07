@@ -220,7 +220,7 @@ The detailed decisions are in [research.md](research.md), the schema and types i
    4. Read the history (a missing table counts as empty) and evaluate it against the catalog. Fail on a checksum mismatch or sequence conflict; report unknown applied migrations.
    5. Apply the verified pending scripts with DbUp, one transaction per script that includes its history row. The `SocAlyticsHistoryJournal` (`TableJournal` subclass) creates the history table in the first script's transaction when it is missing.
    6. Release the lock and exit `0`. Failures exit with the codes in [contracts/migrator-cli.md](contracts/migrator-cli.md).
-3. **API readiness**. The `database` health check, registered by `AddInfrastructure()` and not tagged `live`, reads `socalytics_migrations.history` with the runtime role. It evaluates the same `MigrationStateEvaluator` against the catalog embedded in Infrastructure and reports Healthy only for a current state. `/alive` is unaffected.
+3. **API readiness**. The `database` health check, registered by `AddInfrastructure()` and not tagged `live`, reads `socalytics_migrations.history` with the runtime role. It evaluates the same `MigrationStateEvaluator` against the catalog embedded in Infrastructure and reports Healthy only for a current state. Connect and query run under an internal 3-second budget, so an unreachable or hung database reports `database-unavailable` within the 5-second check timeout. `/alive` is unaffected.
 4. **State change** (pattern for later features). A command handler calls `IUnitOfWork.BeginAsync` and performs Dapper writes through Infrastructure code bound to the scoped `IDbSession`. Guarded edits use `VersionedWrites`, which returns `VersionedWriteResult`. The handler commits, or disposes the scope to roll back, which also happens on conflict, exception, or cancellation. Triggers advance `version`.
 
 ## Requirement Coverage
@@ -238,7 +238,7 @@ The detailed decisions are in [research.md](research.md), the schema and types i
 | FR-017, FR-018, FR-030, FR-031, FR-032, SC-008 | `version` column, `advance_version`, `touch_aggregate_root`, suppression check, `VersionedWrites` | `Concurrency/VersionAdvancementTests`, `Concurrency/OptimisticConcurrencyTests`, `Concurrency/MigrationVersionAdvancementTests`, `Structure/PersistenceStructureTests` |
 | FR-019, SC-009 | No `club_id`/`tenant_id` columns; no `ClubId` members | `Structure/PersistenceStructureTests`, `PersistenceArchitectureTests` |
 | FR-020, FR-024, FR-025, SC-001, SC-012 | AppHost order and health; unchanged endpoints | `PlatformHostTests` (Host.Tests) |
-| FR-021, FR-022, SC-011 | `database` readiness check; Migrator failure exit codes | `Readiness/DatabaseReadinessTests`, `Migrations/MigratorExitCodeTests` |
+| FR-021, FR-022, SC-011 | `database` readiness check; Migrator failure exit codes; API not started after a failed Migrator | `Readiness/DatabaseReadinessTests`, `Migrations/MigratorExitCodeTests`, `PlatformHostTests` (Host.Tests) |
 | FR-023 | Sanitized diagnostics, no connection string or script text | `Migrations/MigratorDiagnosticsRedactionTests`, `Readiness/DatabaseReadinessTests` |
 | FR-026, FR-027, SC-010 | Testcontainers fixture, per-test databases, Ryuk cleanup, no fallback | `Infrastructure/PostgresContainerFixture` (all integration tests) |
 | FR-029, SC-013 | README, AGENTS, platform README updates | Markdown check plus review |
@@ -255,15 +255,15 @@ The implementation must make these documentation changes in the same change:
   - Replace "PostgreSQL persistence with Dapper and DbUp … remain deferred" with an accurate statement: the persistence foundation (schema, migrations, Migrator, units of work, optimistic concurrency, database-aware readiness) is implemented as development evidence. Domain data and behavior, NATS, S3-compatible storage, the transactional outbox, authentication, deployment images and configuration, production credentials, and production readiness remain deferred.
   - Clarify that "Docker support" still means deployment images and Compose files (deferred), not the local container runtime prerequisite.
 - `AGENTS.md`:
-  - *Current State*: replace "No domain behavior, PostgreSQL/Dapper/DbUp, …" with the implemented persistence-foundation evidence and the remaining deferrals.
+  - *Current State*: rewrite the bullet that begins "Current executable evidence is limited to the dependency-free API host" so that "dependency-free", "Aspire local composition of the API alone", and "internal layer markers" (the Infrastructure marker is removed) no longer appear, and replace "No domain behavior, PostgreSQL/Dapper/DbUp, …" with the implemented persistence-foundation evidence and the remaining deferrals.
   - *Repository Setup*: add the Docker prerequisite, the Migrator command, and the integration-test command. State that tests must never target developer or production databases.
   - New conventions:
-    - Migrations are forward-only files `NNNN_<area>_<description>.sql` under `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/`, numbered at implementation time as the next free number.
+    - Migrations are forward-only files `NNNN_<area>_<description>.sql` under `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/`, numbered at implementation time as the next free number on an up-to-date `main` (features merge sequentially; a feature renumbers before merge if its number was taken).
     - Applied migrations are never edited.
     - Versioned tables call the trigger helpers from [contracts/migration-authoring.md](contracts/migration-authoring.md).
     - Every new table gets an entry in the Integration.Tests table classification manifest.
 - `src/platform/README.md`:
-  - *Current Status*: the Migrator and Integration.Tests projects, the AppHost order, the readiness semantics, and the deferrals.
+  - *Current Status*: replace "a dependency-free ASP.NET Core API" and the paragraph beginning "Domain behavior, PostgreSQL persistence with Dapper and DbUp"; describe the Migrator and Integration.Tests projects, the AppHost order, the readiness semantics, and only the remaining deferrals.
   - *Development*: the commands above, the dev-only local credentials (generated and kept in AppHost user secrets), and the manual local reset (`docker volume rm socalytics-postgres-data` after stopping the AppHost; development data only).
   - A short component-local contract section that links the Migrator invocation and exit codes and the migration authoring rules. Their content moves from this plan's `contracts/` into the component documentation when implemented.
 
@@ -296,13 +296,17 @@ The coordinator applies the design refinements (A) with this plan. The current-s
    - Add `SocAlytics.Platform.Migrator` to the project list and `Tests/SocAlytics.Platform.Integration.Tests` to the test projects.
    - Change "references only the API" to "references the API and the Migrator".
    - Change "The persistence foundation will add a second, planned host next to the API:" to "The persistence foundation adds a second host next to the API:".
-2. Same file, *Control Plane*, first paragraph: replace "The Aspire AppHost composes only the API resource and uses `/health` for readiness." with "The Aspire AppHost composes PostgreSQL, the one-off Migrator, and the API in that order; the API's `/health` readiness includes a `database` check that requires a reachable database with a current migration state."
+   - Keep the following "It ships as its own OCI image …" sentence in future tense ("It will ship as its own OCI image and will be the only component that ever receives database access able to create or alter data structures; the API image will contain no migration execution path."), because images and deployment remain deferred.
+2. Same file, *Control Plane*, first paragraph: replace "a dependency-free ASP.NET Core host" with "an ASP.NET Core host", and replace "The Aspire AppHost composes only the API resource and uses `/health` for readiness." with "The Aspire AppHost composes PostgreSQL, the one-off Migrator, and the API in that order; the API's `/health` readiness includes a `database` check that requires a reachable database with a current migration state." In *API And Identity*, replace "The current dependency-free API" with "The current API".
 3. Same file, *Persistence And CQRS*: replace the first paragraph ("This persistence and messaging baseline remains unimplemented; …") with "The persistence foundation implements PostgreSQL access with Npgsql and Dapper, DbUp migrations applied by the Migrator, explicit units of work, and trigger-managed versions; NATS JetStream, S3-compatible storage, the transactional outbox, and all domain tables remain unimplemented."
 4. Same file, *Test And Observability Baseline*: append "Testcontainers runs disposable PostgreSQL instances for `SocAlytics.Platform.Integration.Tests`."
 5. Same file, *Planned Acceptance Evidence*:
+   - Replace the bullet "Aspire starts the API as its sole resource and reports `/health` readiness;" with "Aspire starts PostgreSQL, the one-off Migrator, and the API in that order and reports `/health` readiness, including the `database` check;".
    - Add to the evidence list: "PostgreSQL integration tests cover ordered checksum-aware migrations, repeat and concurrent Migrator runs with the bounded lock wait, rollback of failing migrations, unknown applied migrations, distinguishable Migrator exit outcomes, explicit units of work, optimistic concurrency, the version guarantee including child-root and migration behavior, trigger presence, absence of `club_id`, runtime-role access limits, and API readiness against current and non-current migration states".
    - Remove those items from the validation-target bullets, leaving Dapper mappings of domain records, idempotency, authorization, immutable lineage, registry versions, analysis recovery, and state-plus-outbox atomicity as targets.
-6. Same file, *Architecture Reassessment*: in "Prototype, measurement, or implementation evidence supports the choice", change "Persistence, publication, …" to "Domain persistence, publication, …" and add "the persistence foundation (migrations, Migrator, units of work, version triggers)" to the implemented items.
+6. Same file, *Architecture Reassessment*:
+   - In "Consequences and operational tradeoffs understood", replace "Layer dependency rules, host composition, and dependency-free startup are exercised." and move local transaction boundaries and local database unavailability from the unevidenced list to the exercised list, together with host composition with PostgreSQL and the Migrator. Duplicate delivery, restart recovery, other local infrastructure failure, production database access control, and the remaining items stay unevidenced.
+   - In "Prototype, measurement, or implementation evidence supports the choice", change "Persistence, publication, …" to "Domain persistence, publication, …" and add "the persistence foundation (migrations, Migrator, units of work, version triggers)" to the implemented items.
 
 ## Risk Register
 

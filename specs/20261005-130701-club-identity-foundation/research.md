@@ -245,10 +245,22 @@ re-decided here.
   - **Evidence.** A timing-distribution test samples at least 200 attempts
     per failure class against the in-process host. The classes are: unknown
     account, account without a password, wrong password, locked account, and
-    inactive membership. The test compares each class with the wrong-password
-    class using a two-sample Kolmogorov–Smirnov test at α = 0.01, after
-    warm-up, with interleaved order. It fails on a statistically significant
-    difference (SC-005).
+    inactive membership. The test compares each of the four other classes
+    with the wrong-password class using a two-sample Kolmogorov–Smirnov test,
+    after warm-up, with interleaved order, in a test collection that never
+    runs in parallel with other tests. The family-wise significance level is
+    α = 0.001, Bonferroni-corrected to α = 0.00025 per comparison
+    (critical-value coefficient `c(α) = sqrt(-ln(α / 2) / 2)` ≈ 2.120). When a
+    comparison is significant, the test collects one fresh, independent sample
+    of every class and fails only if a comparison is significant again
+    (SC-005). The wrong-password class alone performs the conditional
+    single-row counter `UPDATE` (an unknown account has no row to update);
+    this is the expected residual difference and is not removed. If it alone
+    stays significant after the re-sample, the counter write moves into the
+    same statement and round trip as the shared refusal work, or an
+    equivalent single-row write is added to every refusal path; the test is
+    never weakened. No other test in the assembly runs concurrently, and
+    interleaved sampling controls noise from other test assemblies.
 - **Rationale**: This satisfies FR-018, FR-019, SC-005, and the US6 lockout
   scenarios with framework lockout semantics, while keeping audit evidence
   minimized (FR-046). PBKDF2 dominates request time, so equalizing hash work
@@ -304,13 +316,20 @@ re-decided here.
     unauthenticated setup operation exist.
   - Database unavailability is retried with bounded exponential backoff. The
     process keeps running, and readiness stays unhealthy until bootstrap
-    succeeds.
+    succeeds. Every exception other than cancellation at host shutdown is
+    treated as retryable and never escapes the background service. When no
+    `ConnectionStrings:socalytics` is configured, the service logs one
+    diagnostic naming that key and does not run the command; readiness then
+    reports `club-not-established` without querying the database.
   - The singleton constraint on `club` and the unique normalized account name
     are backstops. A unique violation is treated as "another instance won":
-    roll back, re-read, and continue.
+    roll back (which releases the lock), begin a new unit of work, take the
+    lock again, re-read, and continue.
   - In the same unit of work and under the same lock, the service then
     evaluates an optional break-glass recovery directive (R19). Its outcome
-    never affects readiness.
+    never affects readiness. After a bootstrap conflict or a lost race, whose
+    unit of work rolled back, the recovery step runs in a new unit of work
+    that takes the lock again.
 - **Rationale**:
   - The transaction-scoped advisory lock serializes concurrent starts of
     several API instances. Exactly one creates the club, administrator, and
@@ -490,8 +509,13 @@ re-decided here.
   - The API applies one coarse policy, `ActiveMember`, which requires a valid,
     unrestricted `SocAlyticsSession` principal, to the `/api/v1` group. Four
     self-service operations use `SessionHolder` instead, which also admits a
-    session restricted by a required password change (R20). Only sign-in and
-    credential redemption are marked anonymous.
+    session restricted by a required password change (R20, FR-053). Only
+    sign-in and credential redemption are marked anonymous.
+  - Club and season reads (`getClub`, `listSeasons`, `getSeason`) need no
+    club or team role: every active member with an unrestricted session may
+    read the club's display name and every season. Changing them requires
+    `club-admin` (FR-004). Team and match data stays limited to the member's
+    teams.
   - Application handlers call `IAccessAuthorizer`:
     - `AuthorizeClubAsync(ClubPermission)`: `Administer` requires
       `club-admin`; `Register` requires `registrar` or `club-admin`.
@@ -654,12 +678,18 @@ re-decided here.
 
 - **Decision**: The AppHost keeps the API's HTTP endpoint for health checks and
   adds an HTTPS endpoint (`WithHttpsEndpoint()`, ASP.NET Core development
-  certificate) for interactive sign-in. It passes the `ClubBootstrap__*`
-  environment variables from AppHost parameters (see R8). Readiness includes
-  the persistence `database` check and the new `club-bootstrap` check.
+  certificate) for interactive sign-in. The HTTPS endpoint is declared unless
+  the AppHost configuration value `SocAlytics:ApiHttpsEndpoint` is `false`;
+  the Aspire host test passes `--SocAlytics:ApiHttpsEndpoint=false`, so Kestrel
+  binds no HTTPS address and CI runners need no development certificate
+  (`environment-setup` does not create one). The AppHost passes the
+  `ClubBootstrap__*` environment variables from AppHost parameters (see R8).
+  Readiness includes the persistence `database` check and the new
+  `club-bootstrap` check.
 - **Rationale**: `Secure` and `__Host-` cookies require a secure context. The
-  HTTP health endpoint keeps the existing host smoke test independent of
-  certificates on CI runners.
+  HTTP health endpoint and the opt-out keep the existing host smoke test
+  independent of certificates on CI runners; Kestrel fails at start when an
+  HTTPS address is configured and no certificate is found.
 - **Alternatives considered**:
   - An HTTPS-only API was rejected because CI runners may lack a trusted
     development certificate.
@@ -698,7 +728,9 @@ re-decided here.
   deployment secret store, as environment variables or user secrets.
   - `ClubBootstrapHostedService` evaluates the directive at every start, after
     the bootstrap step (R7), in the same unit of work under
-    `pg_advisory_xact_lock('club-bootstrap')`. The Application command
+    `pg_advisory_xact_lock('club-bootstrap')`, or, when the bootstrap step
+    rolled back, in a new unit of work that takes the lock again. The
+    Application command
     `ApplyBreakGlassRecoveryCommand` (area `IdentityAccess`) runs these checks
     in order, and the first one that fails refuses the directive:
     1. incomplete section (`directive-incomplete`);
@@ -774,7 +806,7 @@ re-decided here.
 - **Decision**: `member_account.password_change_required` marks an account
   whose current password was supplied by an operator. That covers the first
   Club Admin created by bootstrap (FR-051, R7) and an account recovered by
-  break-glass (FR-050, R19).
+  break-glass (FR-050, R19). FR-053 states the restriction for both.
   - Sign-in still succeeds with the uniform failure rules (R6), but the
     session is restricted. `SessionInfo` and `CurrentMember` carry
     `passwordChangeRequired: true`.
@@ -783,7 +815,9 @@ re-decided here.
     `changeOwnPassword`, and `signOut` only.
   - Every other `/api/v1` operation uses `ActiveMember`, which rejects a
     restricted session with `403` and problem code `password-change-required`
-    before any handler or role check runs.
+    before any handler or role check runs. The code is distinct from
+    `forbidden` and `antiforgery-failed`, so clients can tell the restriction
+    apart (FR-053), and every such operation documents the `403`.
   - `changeOwnPassword` clears the flag in its unit of work. The rest of its
     behavior is unchanged: it rotates the stamp, keeps the current session,
     and ends other sessions.

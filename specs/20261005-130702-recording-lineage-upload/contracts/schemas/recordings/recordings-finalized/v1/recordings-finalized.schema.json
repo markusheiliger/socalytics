@@ -44,9 +44,9 @@
     },
     "members": {
       "type": "array",
-      "description": "Ordered memberships; array order equals position order.",
+      "description": "Ordered memberships; array order equals position order. The platform limits a set to its configured maximum (100 by default), which is never above 1000.",
       "minItems": 1,
-      "maxItems": 100,
+      "maxItems": 1000,
       "items": {
         "$ref": "#/$defs/member"
       }

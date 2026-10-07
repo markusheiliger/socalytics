@@ -22,7 +22,7 @@ Aspire uses `/health` as the API resource's health probe.
 | Name | `database` |
 | Tags | none (excluded from `/alive`) |
 | Failure status | `Unhealthy` |
-| Timeout | 5 seconds |
+| Timeout | 5 seconds (registration); the check itself runs connect and query under an internal 3-second budget and maps cancellation or timeout to `database-unavailable`, so a hung database never yields the framework's generic timeout description |
 | Connection | `ConnectionStrings:socalytics` (runtime role `socalytics_app`) |
 | Query | `SELECT sequence, identity, checksum FROM socalytics_migrations.history` |
 | Evaluation | `MigrationStateEvaluator` against the migration catalog embedded in `SocAlytics.Platform.Infrastructure` (see [data-model.md](../data-model.md#migration-state)) |
@@ -34,7 +34,7 @@ Aspire uses `/health` as the API resource's health probe.
 | Situation | Result | Description category (logged, not in the body) |
 | --- | --- | --- |
 | Every registered migration recorded with matching checksum | Healthy | — |
-| As above, plus history rows unknown to the catalog | Healthy | `unknown-applied-migrations` (warning, once per distinct set) |
+| As above, plus history rows unknown to the catalog | Healthy | `unknown-applied-migrations` (warning, once per distinct set per host) |
 | Connection string missing or empty | Unhealthy | `configuration` |
 | Connection refused, DNS failure, authentication failure, or timeout | Unhealthy | `database-unavailable` |
 | History table missing (`42P01`) or at least one registered migration not recorded | Unhealthy | `migration-state-not-current` |
@@ -43,6 +43,12 @@ Aspire uses `/health` as the API resource's health probe.
 
 Diagnostics never contain the connection string, the password, or migration
 content (FR-023).
+
+The description is the `HealthReportEntry.Description` of the `database`
+entry. ASP.NET Core's health check service logs it; the `/health` body stays
+the plain `Healthy` or `Unhealthy` text. Tests read it through
+`HealthCheckService.CheckHealthAsync` with a predicate selecting `database`,
+never by parsing the `/health` body.
 
 ## Local Composition Order (AppHost)
 

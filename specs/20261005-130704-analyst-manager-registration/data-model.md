@@ -87,7 +87,7 @@ stateDiagram-v2
   PendingApproval --> Expired: Approval window elapses
   Approved --> Active: Valid fresh challenge proof
   Approved --> Expired: Activation window elapses
-  Active --> Unregistering: Manager starts unregistration
+  Active --> Unregistering: Manager starts unregistration after a completed drain
   Unregistering --> Unregistered: Manager completes unregistration
   Active --> Revoked: Club Admin revokes
   Unregistering --> Revoked: Club Admin revokes
@@ -105,7 +105,7 @@ stateDiagram-v2
 | `PendingApproval → Rejected` | `RejectRegistration` | `ClubPermission.Administer` at decision time | State, window, reason present | `analyst-manager.rejected` |
 | `Approved → Active` | `ActivateRegistration` | Manager holding polling handle | Proof signature by stored key, challenge hash matches and unexpired, `jti` unused, now < `activation_expires_at` | `analyst-manager.activated` (refusals: `analyst-manager.activation-refused`) |
 | `* → Expired` | `ExpireDueRegistrations` and inline checks | System | Window elapsed in `Pairing`/`PendingApproval`/`Approved`, or fingerprint mismatch limit reached in `Pairing` | `analyst-manager.expired` |
-| `Active → Unregistering` | `BeginUnregistration` | Manager (DPoP) | State `Active` (idempotent in `Unregistering`) | `analyst-manager.unregistration-started` |
+| `Active → Unregistering` | `BeginUnregistration` | Manager (DPoP), called only after its local unregister drain completed | State `Active` (idempotent in `Unregistering`) | `analyst-manager.unregistration-started` |
 | `Unregistering → Unregistered` | `CompleteUnregistration` | Manager (DPoP) | State `Unregistering` | `analyst-manager.unregistered` |
 | `Active/Unregistering → Revoked` | `RevokeRegistration` | `ClubPermission.Administer` at decision time | State, reason present | `analyst-manager.revoked` |
 
@@ -139,8 +139,10 @@ Registry writes the Club and Identity `AuditEvent` shape:
 Free-text reasons and the operator `hostLabel` stay on the registration row
 (`decision_reason`, `end_reason`, `device_metadata`); the audit event references
 them through `resource_id` because `details` accepts no free text. The migration
-adds `analyst-manager` to the `actor_kind` check and `analyst-manager-registration`
-to the `resource_type` values if Club and Identity constrains them.
+drops and re-adds the Club and Identity constraint
+`ck_security_audit_event_actor_kind` under the same name with `analyst-manager`
+added; `resource_type` has no value check, so `analyst-manager-registration`
+needs no schema change.
 
 Operations allowed per state:
 
@@ -191,7 +193,7 @@ revocation or unregistration completion and purged after expiry.
 | Key | Default | Notes |
 | --- | --- | --- |
 | `Stamp:Id` | none (required) | AppHost sets `local-dev-stamp` |
-| `Stamp:PublicBaseUri` | none (required, `https`) | AppHost sets from the API HTTPS endpoint |
+| `Stamp:PublicBaseUri` | none (required, `https`; `http` accepted only in `Development`) | AppHost sets from the API HTTPS endpoint, or from the HTTP endpoint when `SocAlytics:ApiHttpsEndpoint` is false |
 | `Registry:AllowSoftwareKeys` | `false` | Must stay false outside development and test (FR-041); the AppHost sets `true` for local development; integration tests set it per test |
 | `Registry:Pairing:MaxFingerprintMismatches` | 3 | Pairing expires after this many wrong fingerprints |
 | `Registry:Pairing:Window` | 10 min | Architecture value |
@@ -232,7 +234,7 @@ sorted property names, no insignificant whitespace) of:
 | `deviceKeyThumbprint` | string | Must equal the `kid` and the opened key's thumbprint |
 | `operatingIntent` | `Running`, `Paused`, `PausedUntil` | Last deliberate intent (FR-026) |
 | `pausedUntil` | RFC 3339 UTC or null | Required with `PausedUntil` (FR-036) |
-| `pendingUnregister` | boolean | Part of operating intent; resumes unregister after restart |
+| `pendingUnregister` | boolean | Part of operating intent; set before the unregister drain, cleared when that drain is cancelled; resumes the unregister after restart |
 | `writtenAt` | RFC 3339 UTC | Diagnostics only |
 
 Restore order: read the file and check owner-only permissions → parse header
@@ -244,8 +246,10 @@ Every intent change re-signs and atomically replaces the file.
 Never stored (FR-017, FR-034): human credentials, access tokens, client
 assertions, DPoP or activation proofs, pairing codes, polling handles,
 challenges, broker credentials, private key material. The Linux PKCS#11 user
-PIN is a random per-install value in the owner-only file `pkcs11.pin`; it gates
-key use only, and device binding comes from the TPM.
+PIN is the random value the operator chose when provisioning the token
+(`tpm2_ptool addtoken --userpin`) and wrote to the owner-only file
+`pkcs11.pin`; the Manager only reads it (it never generates or initializes the
+PIN). It gates key use only, and device binding comes from the TPM.
 
 ### Device identity (`IDeviceKeyProvider`)
 
@@ -278,13 +282,16 @@ stateDiagram-v2
   [*] --> Restoring: Start with protected state
   [*] --> Unregistered: Start without protected state
   Restoring --> Active: Key proof and platform confirm Active
+  Restoring --> Unregistering: Platform reports Unregistering
   Restoring --> RestoreFailed: State or key missing, unreadable, unsigned, tampered, or mismatched
   Restoring --> Restoring: Platform unreachable; retry with backoff
   Restoring --> Revoked: Platform reports inactive
   Unregistered --> Pairing: Operator registers; supported key store present
   Pairing --> Active: Activation succeeds
   Pairing --> Unregistered: Rejected, expired, abandoned, or restarted
-  Active --> Unregistering: Operator unregisters
+  Active --> Active: Unregister drain cancelled by timeout policy
+  Active --> Unregistering: Unregister drain completed
+  Active --> RestoreFailed: Key or signed state inaccessible at runtime
   Unregistering --> Unregistered: Platform confirms completion
   Active --> Revoked: Inactive signal observed
   Unregistering --> Revoked: Inactive signal observed
@@ -292,12 +299,30 @@ stateDiagram-v2
   RestoreFailed --> Unregistered: Operator discards local state
 ```
 
+Local unregister (FR-022, spec clarification 2026-10-07): the Manager sets
+`pendingUnregister` in the signed state and drains with purpose `unregister`
+while the registration stays `Active`, locally and on the platform. Only a
+completed drain moves it to `Unregistering`, where it calls
+`self/unregistration` and then `self/unregistration/completion` (retrying while
+the platform is unreachable). A drain cancelled by the `CancelRequest` timeout
+policy makes no platform call, clears `pendingUnregister`, keeps the
+registration `Active`, and returns the operating state to its prior state with
+the previous intent. After a restart, `pendingUnregister` with a platform
+`active` registration repeats the drain; a platform `unregistering`
+registration (with or without the flag) resumes at begin and completion,
+because the platform enters `Unregistering` only after the Manager's
+successful drain.
+
 `Pairing` has the sub-phases `awaiting-submission`, `pending-approval`, and
 `activating`; the pairing code is shown only in the register dialog of the tray
 app (or the `register` CLI output). `RestoreFailed` admits no work, requests no
 credentials, and reports a bounded diagnostic code (`state-missing`,
 `state-unreadable`, `state-permissions`, `state-signature`, `key-missing`,
-`key-inaccessible`, `key-mismatch`, `stamp-mismatch`). It never recreates or
+`key-inaccessible`, `key-mismatch`, `stamp-mismatch`). It is also entered from
+`Active` or `Unregistering` when signing with the device key or re-signing the
+state fails at runtime (edge case "protected store becomes inaccessible"); the
+state file and key reference are kept and nothing falls back to unprotected
+storage. It never recreates or
 rebinds the identity; the tray action "Discard local registration" (CLI
 `unregister --discard-local`) deletes the remnants and returns to
 `Unregistered`, reporting that a Club Admin must revoke the old registration.
@@ -319,6 +344,7 @@ stateDiagram-v2
   RuntimeUnavailable --> Draining: Safe exit or unregister
   Draining --> Running: Timeout policy CancelRequest; prior Running
   Draining --> Paused: Timeout policy CancelRequest; prior Paused
+  Draining --> RuntimeUnavailable: Timeout policy CancelRequest; prior Runtime unavailable
   Draining --> [*]: Exit or unregister proceeds
 ```
 
@@ -341,7 +367,10 @@ Rules:
   state, and `deadline`; it never outlives drain timeout plus cleanup bound
   (FR-027). Session end uses `Operating:SessionEndDrainBound`.
 - Safe exit keeps the signed state and intent; unregister clears them after the
-  platform confirms.
+  platform confirms. A cancelled drain (`CancelRequest`) keeps the intent and
+  returns to the prior state; for unregister it also clears
+  `pendingUnregister` and leaves the platform registration `Active`, because
+  the platform is contacted only after a completed drain.
 
 ### Autostart state (`IAutostartRegistrar`)
 

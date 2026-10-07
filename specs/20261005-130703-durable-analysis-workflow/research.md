@@ -113,6 +113,14 @@ is not directly reachable from this environment.
      when `attempt_count` reaches the configured maximum.
   Publication is at least once; publication state, attempt count, age, and lag
   are queryable without reading NATS.
+- **Worker resilience**: every worker runs on one internal loop that catches
+  every non-shutdown failure (including `transport-unavailable`), logs a
+  sanitized category, and backs off, so no exception escapes a hosted service
+  and stops the API. The NATS connection attempt starts at application startup
+  when `ConnectionStrings:nats` is configured, so the `nats` check reflects the
+  real state without a prior publish; without that connection string the
+  publisher, consumer, and reconciliation workers return immediately, outbox
+  rows stay `pending`, and `/health` stays `Healthy`.
 - **Rationale**: Architecture mandates the PostgreSQL outbox as the durable
   publication boundary and at-least-once delivery; row locks with
   `SKIP LOCKED` give work distribution without leader election; the stable
@@ -262,7 +270,7 @@ is not directly reachable from this environment.
     attempt, current lease expiry, and fencing token (`replayed = true`)
     without creating anything, consuming budget, or renewing the lease; a key
     bound to a different job or occurrence returns `409
-    idempotency-key-reuse`; a key whose attempt is no longer current returns
+    idempotency-key-reused`; a key whose attempt is no longer current returns
     `409 claim-obsolete`. Returning the stored fencing token is safe because
     only the same authenticated Manager can present its own key.
   - Heartbeats and completions must match attempt id, Logical Job, Manager,
@@ -304,7 +312,7 @@ is not directly reachable from this environment.
   field order and insignificant whitespace do not matter. The completion
   contract contains no floating-point numbers, which keeps JCS number
   serialization trivial. Replays with an equal fingerprint return the stored
-  outcome; a different fingerprint returns `409` (`idempotency-key-reuse`).
+  outcome; a different fingerprint returns `409` (`idempotency-key-reused`).
   Deterministic rejections are not stored and are re-derived on replay.
 - **Rationale**: FR-029 and the US5 ordering scenario; JCS is a published
   standard that Python and TypeScript consumers can reproduce.
@@ -354,7 +362,17 @@ is not directly reachable from this environment.
     `contracts/analysis/`. Each gets an index entry with owner, exact version,
     examples, and the contract command.
   - Under that `$id` convention, `$ref` values are relative, so authoring
-    references stay repository-relative and resolve offline. The exact version
+    references stay repository-relative and resolve offline: the merged
+    `ContractCatalog.LoadRegistry()` of the contract test project registers
+    every catalog schema by `$id`, and a relative `$ref` resolves against the
+    referencing schema's `$id` (for example
+    `../../../common/v1/common.schema.json` from an analysis schema resolves to
+    `https://socalytics.invalid/contracts/common/v1/common.schema.json`). This
+    feature adds no second schema loader to the test project. The shared
+    definitions path is the one form outside
+    `contracts/<area>/<contract>/v<major>/<contract>.schema.json`; it is named
+    by the architecture, and the merged index path rule already accepts it. The
+    exact version
     is carried by `x-socalytics-version` and by each payload's
     `contractVersion` (`^1\.\d+\.\d+$`, any 1.x accepted).
   - Every object is closed (`additionalProperties: false`), which rejects
@@ -433,8 +451,15 @@ is not directly reachable from this environment.
     `AnalystManagerDPoP` and scope `analyst-manager`, both provided by Analyst
     Manager Registration (which also enforces the Active registration on every
     request). The Application abstraction `ICurrentAnalystManager` exposes the
-    Manager identity (the registration's `client_id`, a `uuid`). Tests use a
-    test-only scheme that issues the same identity and scope.
+    Manager identity (the registration's `client_id`, a `uuid`) read from the
+    claim named by the merged constant `AnalystManagerClaimTypes.ManagerId`;
+    the policy and scheme are referenced through
+    `AuthorizationPolicyNames.AnalystManager` and
+    `AnalystManagerDPoPDefaults.AuthenticationScheme`, never string literals.
+    Most tests replace the scheme's handler with a test-only handler that
+    issues the same claim types (through the same constants) and scope; a
+    successful claim and a revocation are also proven through the real
+    `AnalystManagerDPoP` scheme.
   - Operational inspection and reconciliation
     (`/api/v1/operations/...`) are restricted to Club Admins until a dedicated
     stamp-operator role exists; state-changing operator requests require the
@@ -443,8 +468,11 @@ is not directly reachable from this environment.
   - Errors use the shared envelope of Club and Identity:
     `type = urn:socalytics:problem:<code>` with members `code`,
     `correlationId`, and `errors`. This feature adds the codes
-    `claim-obsolete`, `attempt-obsolete`, `idempotency-key-reuse`, and
-    `completion-rejected`.
+    `claim-obsolete`, `attempt-obsolete`, and `completion-rejected`, and reuses
+    the shared codes `idempotency-key-missing` (400, missing `Idempotency-Key`
+    header on a claim) and `idempotency-key-reused` (409, key reused with
+    different content or for a different claim) introduced by Recording Lineage
+    and Upload, through its Api constants class `SharedProblemCodes`.
   - There is no HTTP operation that creates runs: the spec defers a
     user-facing analysis request, so the creation interface is the inbound
     `recordings-finalized` notification.

@@ -24,7 +24,7 @@ Expected:
 
 - The solution includes `SocAlytics.Platform.Migrator` and `Tests/SocAlytics.Platform.Integration.Tests` and builds with zero warnings.
 - Architecture, host, and integration tests all pass.
-- Afterwards, `docker ps -a` shows no leftover test containers (SC-010).
+- Afterwards, `docker ps -a --filter "label=org.testcontainers=true"` and `docker ps -a --filter "ancestor=postgres:18"` show no leftover test containers (SC-010). Ryuk and Aspire remove containers asynchronously, so poll every 5 seconds for up to 60 seconds before treating a remaining container as a failure.
 
 ## 2. Run only the persistence verification
 

@@ -236,8 +236,8 @@ Avalonia tray and headless tests, autostart, control socket).
   window expiry, minimized device metadata without `hostLabel`, registration
   correlation id). Free-text reasons stay on the registration row and are
   referenced by `resource_id`, because `details` accepts no free text. The
-  Registry migration extends the `actor_kind` check (and `resource_type` values
-  if constrained). Full mapping in
+  Registry migration drops and re-adds `ck_security_audit_event_actor_kind`
+  with `analyst-manager` added (`resource_type` has no check). Full mapping in
   [data-model.md](data-model.md#audit-events-security_audit_event).
 - **Rationale**: FR-033, SC-008 (exactly one event per transition or decision),
   and the [Audit Events](../../docs/architecture/security-and-data-governance.md#audit-events)
@@ -351,8 +351,16 @@ Avalonia tray and headless tests, autostart, control socket).
     `CKA_EXTRACTABLE` false) and signs with `CKM_ECDSA` over SHA-256. It never
     sets `CKA_EXTRACTABLE=true` or `CKA_SENSITIVE=false`, because tpm2-pkcs11
     accepts such metadata changes; non-exportability comes from the TPM
-    (`fixedtpm|fixedparent`). The user PIN is a random per-install value in an
-    owner-only file; device binding comes from the TPM. `keyProtection` is
+    (`fixedtpm|fixedparent`). The user PIN is a random value that the operator
+    chooses when provisioning the token (`tpm2_ptool addtoken --userpin`) and
+    stores in the owner-only file `pkcs11.pin` in the Manager state directory;
+    the Manager only reads it and never generates, changes, or initializes it
+    (no `C_InitPIN`, which would need the SO PIN). A missing or non-owner-only
+    PIN file or a failed `C_Login` makes the provider unavailable
+    (`no-supported-key-store` at registration, `key-inaccessible` for an
+    existing key). The SoftHSM2 test fixture writes the PIN it initialized the
+    token with into the test state directory the same way. Device binding comes
+    from the TPM. `keyProtection` is
     `pkcs11-token`. Module paths come from a built-in allow-list.
   - **SoftHSM2** is a test-only module: the test host registers it with a
     per-user token created via `SOFTHSM2_CONF` and `softhsm2-util --init-token
@@ -449,20 +457,41 @@ Avalonia tray and headless tests, autostart, control socket).
 
 ## R18. Platform-side `Unregistering`
 
-- **Decision**: Local unregister calls
-  `POST /api/v1/analyst-managers/self/unregistration` before draining
-  (`Active → Unregistering`, idempotent), drains locally, then calls
+- **Decision**: Local unregister drains first and contacts the platform only
+  after a successful drain (spec clarification 2026-10-07, FR-022). The Manager
+  records `pendingUnregister` in its signed state, drains with purpose
+  `unregister` while the registration stays Active locally and on the
+  platform, and then, only when the drain completed (work finished, or the
+  `StopAndCleanUp` timeout policy cleaned it up), calls
+  `POST /api/v1/analyst-managers/self/unregistration`
+  (`Active → Unregistering`, idempotent) followed by
   `POST /api/v1/analyst-managers/self/unregistration/completion`
-  (`Unregistering → Unregistered`). `Unregistering` registrations may still obtain
-  tokens and report status but are visible to Club Admins and may be revoked.
-  The Manager persists a pending-unregister flag with its operating intent so a
-  restart resumes the unregister; when the platform is unreachable it retries and
+  (`Unregistering → Unregistered`). When the drain is cancelled by the
+  `CancelRequest` timeout policy, no platform call is made: the registration
+  stays Active, `pendingUnregister` is cleared, and the Manager returns to its
+  previous Running or Paused intent (and to Runtime unavailable if that was its
+  prior state). `Unregistering` registrations may still obtain tokens and
+  report status, are visible to Club Admins, and may be revoked; there is no
+  `Unregistering → Active` transition because nothing can cancel an unregister
+  after begin. A restart with `pendingUnregister` resumes the unregister: with
+  the platform still `active` the drain repeats, and with the platform
+  `unregistering` (which means the drain already succeeded) the Manager goes
+  straight to begin and completion; a platform `unregistering` without the
+  local flag is treated the same way. When the platform is unreachable after
+  the drain the Manager stays `unregistering` and non-admitting, retries, and
   completes on confirmation or on observing revocation.
-- **Rationale**: Matches the lifecycle states in the spec's key entity and the
-  architecture state diagram, and keeps drain-time token use possible for later
-  work slices.
-- **Alternatives considered**: A single unregister call after drain (rejected:
-  the platform would never record `Unregistering`).
+- **Rationale**: The clarification requires that a cancelled unregister leaves
+  the platform registration Active; calling begin before the drain would leave
+  it `Unregistering` with no way back. Keeping the begin call still records an
+  auditable `Unregistering` state while completion may be retried after
+  network failures, matching the lifecycle in the spec's key entity and the
+  architecture state diagram.
+- **Alternatives considered**: Calling begin before the drain (rejected by the
+  2026-10-07 clarification: a cancelled drain would strand the registration in
+  `Unregistering`, which admits only status and completion); adding an
+  `Unregistering → Active` cancel transition (rejected: widens the platform
+  lifecycle beyond the architecture); a single unregister call after drain
+  (rejected: the platform would never record `Unregistering`).
 
 ## R19. Testing strategy across two solutions
 
@@ -563,9 +592,11 @@ Avalonia tray and headless tests, autostart, control socket).
 
 - **Decision**: Committed reference examples of every registration exchange
   live under repository-root `contracts/analyst-manager/registration/v1/` with a
-  manifest `fixtures.json` (`$id`
-  `https://socalytics.invalid/contracts/analyst-manager/registration/v1/fixtures.schema.json`
-  for its schema). The fixed test key is the published P-256 example key of
+  manifest `fixtures.json` described by the schema `registration.schema.json`
+  (`$id`
+  `https://socalytics.invalid/contracts/analyst-manager/registration/v1/registration.schema.json`,
+  following the architecture's path rule
+  `contracts/<area>/<name>/v<major>/<name>.schema.json`). The fixed test key is the published P-256 example key of
   RFC 7515 Appendix A.3, so no real secret is committed. Fixed context: clock
   `2026-01-01T00:00:00Z`, stamp `fixture-stamp`, base URI
   `https://stamp.example.test`. Vectors: stamp discovery, pairing request and
@@ -576,17 +607,19 @@ Avalonia tray and headless tests, autostart, control socket).
   with `ath`) and response, the inactive `401` problem, the device
   fingerprint of the test key, a pairing-code submission with the right and
   with a wrong fingerprint, and negative vectors (replayed `jti`, wrong `aud`,
-  wrong key, stale `iat`, wrong `htu`). The
+  wrong key, stale `iat`, wrong `htu`, missing `ath`). The
   platform runs each request vector through the API with `FakeTimeProvider` set
   to the fixture clock and asserts the expected outcome and response shape; the
   Manager parses every response vector with its client types, builds each
-  request with an in-memory signer over the fixture key, and compares headers
-  and claims (except `jti` and signature) with the vector, verifying signatures
-  with the fixture public key. `SocAlytics.Platform.Contracts.Tests` validates
-  the manifest, its schema, and the index entry in `contracts/README.md`
-  (created by Recording Lineage and Upload; if that index does not yet exist
-  when this feature is implemented, the first fixture task creates it with the
-  same columns: Artifact, Owner, Version, Example, Validation command).
+  request with an in-memory signer over the fixture key, and compares it with
+  the vector: JWS headers and claims except `jti` (signatures verified with the
+  fixture public key, never compared), and plain JSON bodies property by
+  property except the random pairing `nonce`. `SocAlytics.Platform.Contracts.Tests` validates
+  the manifest against its schema through `ContractCatalog.LoadRegistry()`, and
+  its existing generic checks cover the schema and its single index row in
+  `contracts/README.md`; Recording Lineage and Upload creates the index, the
+  project, and the catalog and merges before this feature, which only extends
+  them.
 - **Rationale**: FR-039 and the clarification: a format change on either side
   fails verification without a cross-solution project reference. ECDSA
   signatures are randomized, so the Manager compares structure and verifies

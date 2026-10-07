@@ -86,7 +86,10 @@ response carries the platform's value so the Manager can detect a mismatch.
 ## Golden fixtures
 
 Every profile above has positive and negative reference vectors in
-repository-root `contracts/analyst-manager/registration/v1/` (FR-039), signed
+repository-root `contracts/analyst-manager/registration/v1/` (FR-039): the
+manifest `fixtures.json`, described by `registration.schema.json` (`$id`
+`https://socalytics.invalid/contracts/analyst-manager/registration/v1/registration.schema.json`),
+lists every vector file with its expected outcome. The vectors are signed
 with the public RFC 7515 Appendix A.3 P-256 example key at the fixed clock
 `2026-01-01T00:00:00Z`, stamp `fixture-stamp`, and base URI
 `https://stamp.example.test`. Negative vectors cover a replayed `jti`, a wrong

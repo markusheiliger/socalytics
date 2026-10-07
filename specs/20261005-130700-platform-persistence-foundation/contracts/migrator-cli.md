@@ -48,7 +48,7 @@ environment variables, then `--Key=value` command-line arguments.
 | `6` | `SequenceConflict` | A pending migration is numbered at or below the highest applied sequence. | No |
 | `7` | `MigrationFailed` | A script failed; its effects and history row were rolled back; later scripts were not attempted. | Earlier scripts in this run stay committed. |
 | `8` | `LockTimeout` | Another run held the lock beyond `LockWaitTimeout`. | No |
-| `9` | `Cancelled` | Shutdown signal received; the in-flight script was rolled back. | Earlier scripts in this run stay committed. |
+| `9` | `Cancelled` | Shutdown signal received (Ctrl+C, SIGTERM, or any other host shutdown through `IHostApplicationLifetime.ApplicationStopping`); the in-flight script was rolled back. | Earlier scripts in this run stay committed. |
 
 ## Diagnostics
 

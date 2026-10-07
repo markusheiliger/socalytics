@@ -210,7 +210,8 @@ paths:
     post:
       operationId: beginAnalystManagerUnregistration
       tags: [Analyst Manager machine access]
-      summary: Start local unregister (Active to Unregistering); idempotent.
+      summary: Start platform unregistration (Active to Unregistering); idempotent.
+      description: The Manager calls this only after its local unregister drain completed successfully; a drain cancelled by the timeout policy never reaches the platform, so the registration stays Active. The registration then moves to Unregistering until the Manager completes the unregistration or a Club Admin revokes it.
       security:
         - dpop: []
       parameters:

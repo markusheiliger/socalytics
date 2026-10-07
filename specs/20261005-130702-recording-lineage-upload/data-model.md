@@ -116,6 +116,10 @@ stateDiagram-v2
   sets `storage_released_at`.
 - Grants and completion refuse a session whose `expires_at <= now()` even
   before the worker runs (`409 upload-session-expired`).
+- Reads derive the reported state: a row with `state = 'pending'` and
+  `expires_at <= now()` (database time) is reported as `expired` by the
+  session read and by start-upload replays even before the worker records the
+  transition; the strong ETag remains the stored `version` until then.
 - No edit operation exists; the strong ETag is `"<version>"` for reads only.
 
 ## Upload Part Grant (transient)
@@ -175,7 +179,7 @@ non-overlapping in media time and match time
 | `id` | `uuid` PK | |
 | `match_id` | `uuid` not null | |
 | `team_id` | `uuid` not null | |
-| `member_count` | `integer` not null | `CHECK (member_count BETWEEN 1 AND 100)` |
+| `member_count` | `integer` not null | `CHECK (member_count BETWEEN 1 AND 1000)` (structural ceiling; the configured maximum `Recordings:Sets:MaxMembers`, default 100, is enforced by the application) |
 | `created_by` | `uuid` not null | Finalizing actor |
 | `finalized_at` | `timestamptz` not null | |
 
@@ -194,7 +198,10 @@ Constraints: `UNIQUE (id, match_id)`. Index `(match_id, finalized_at)`.
 Constraints: `PRIMARY KEY (recording_set_version_id, position)`;
 `UNIQUE (recording_set_version_id, recording_version_id)`.
 
-**Finalization validation (FR-019, FR-020)**: 1–100 members; every recording
+**Finalization validation (FR-019, FR-020)**: 1 to `MaxMembers` members, where
+`MaxMembers` is the configured `Recordings:Sets:MaxMembers` (default 100,
+validated at startup to `1 … 1000`); an empty list is `recording-set-empty`
+and a longer list is `recording-set-too-large`; every recording
 version exists in the route Match; every mapping is bound to its paired
 recording version; no recording version repeats. Any failure rejects the whole
 request with `400` and field violations by member index, without disclosing
@@ -216,8 +223,14 @@ whether an id exists in another Match.
 Constraint: `PRIMARY KEY (operation, match_id, idempotency_key)`. Inserted only
 with a successful change (FR-026); never contains grants or credentials
 (FR-029). Replay: authorize first; same digest → original status with re-read
-resources (start upload issues fresh grants); different digest →
-`409 idempotency-key-reused`.
+resources; different digest → `409 idempotency-key-reused`. A start-upload
+replay returns the original session in its current state: while it is
+`pending` and `expires_at > now()` the response carries freshly issued grants;
+once it is `completed` or expired (`state = 'expired'` or
+`expires_at <= now()`) the response carries no grants and nothing is
+presigned (FR-009, FR-034). A revise-mapping request whose content equals an
+existing mapping of that recording version stores an outcome with status
+`200` and the existing mapping id, so its replay also returns `200`.
 
 ## Recordings-Finalized Event Record — `recording_finalized_events`
 
@@ -248,6 +261,23 @@ keyed by `event_id`; it never updates this row.
 | Finalize | none | set version, memberships, finalized event record, retry outcome, audit event (FR-022) |
 | Expire (worker) | after commit: `AbortMultipartUpload`, `DeleteObject`, then a second transaction sets `storage_released_at` | session transition, system audit event |
 | Denial | none | audit event through `IAccessAuthorizer` |
+
+**Audit evidence (FR-030)**: every successful start, grant issuance,
+completion, mapping revision, finalization, and expiry writes exactly one
+`socalytics.security_audit_event` row: `event_type` `recording.upload.start`,
+`recording.upload.grant`, `recording.upload.complete`,
+`recording.timeline-mapping.revise`, `recording.set.finalize`, or
+`recording.upload.expire`; `action` `start-upload`, `issue-grants`,
+`complete-upload`, `revise-timeline-mapping`, `finalize-recording-set`, or
+`expire-upload-session` respectively; the acting member (`actor_kind = member`,
+`actor_account_id`) or `actor_kind = system` for expiry; `resource_type`
+`upload-session`, `recording-version`, `timeline-mapping`, or
+`recording-set-version` with the created or changed resource id; the Match's
+`team_id`; `outcome` `succeeded` (`unchanged` when a revision matches an
+existing mapping); the request's or background run's `correlation_id`; and
+`details` limited to the allow-listed keys `matchId`, `partCount`,
+`grantedPartCount`, `grantExpiresAt`, and `memberCount`. No URL, object key,
+upload id, or credential is ever recorded.
 
 ## Application read model for other features
 

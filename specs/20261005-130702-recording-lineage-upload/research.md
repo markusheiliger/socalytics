@@ -208,7 +208,7 @@ summarized in the coordinator's risk brief.
   default). Grants and completion refuse an expired session
   (`409 upload-session-expired`) using database time, independent of the
   worker. A hosted `UploadSessionExpiryWorker` (Infrastructure, registered by
-  `AddInfrastructure(...)`) runs every `Recordings:Upload:ExpirySweepInterval`
+  `AddInfrastructure()`) runs every `Recordings:Upload:ExpirySweepInterval`
   and calls the Application command `ExpireUploadSessionsHandler`, which:
   1. transitions due sessions in one unit of work per session
      (`state = 'pending' AND expires_at <= now()` → `expired`, `expired_at`),
@@ -289,7 +289,9 @@ summarized in the coordinator's risk brief.
   referenced resources; different → `409 idempotency-key-reused`. A concurrent
   duplicate hits the unique key after the winner commits; the loser rolls back,
   aborts any multipart upload it created, and replays. A start-upload replay
-  returns the original session with freshly issued grants for the first parts.
+  returns the original session in its current state: with freshly issued
+  grants for the first parts while it is pending and unexpired, and without
+  grants once it is completed or expired.
 - **Rationale**: Identities instead of response bodies keep grants out of
   durable records (FR-029); the unique key makes duplicates safe (SC-006);
   failed requests never record an outcome (FR-026).
@@ -365,7 +367,9 @@ summarized in the coordinator's risk brief.
   `IAuditTrail.RecordIndependentAsync`, and maps a missing Match to not found.
   The returned `TeamScope.SeasonState` rejects mutations for archived Seasons
   (`409 season-archived`) and is re-checked inside the unit of work. Success
-  audit events use `IAuditTrail.RecordAsync` in the same unit of work; the
+  audit events use `IAuditTrail.RecordAsync` in the same unit of work and
+  record the resource, the Match's `team_id`, and `details.matchId` (the audit
+  table has no Match column); the
   expiry worker records system events with the correlation from
   `IRequestContext`. Handlers return `OperationResult<T>` with
   `OperationFailure` mapped to problem details by the API.
@@ -389,6 +393,9 @@ summarized in the coordinator's risk brief.
     `ExpirySweepInterval`, `MaxObjectSizeBytes`, `MinPartSizeBytes`,
     `MaxPartSizeBytes`, `MaxPartCount`, `MaxGrantsPerRequest`,
     `AllowedContentTypes`, `KeyPrefix`.
+  - `Recordings:Sets`: `MaxMembers` (default 100, the spec's default
+    maximum; validated to `1 … 1000`, the structural ceiling shared by the
+    database check, the OpenAPI request, and the event schema).
 
   All values without a stated default are required and validated at startup
   against the storage limits; the AppHost and tests supply explicit development
@@ -418,7 +425,13 @@ summarized in the coordinator's risk brief.
   it before a deployment profile adopts it. `LargeRecordingUploadTests`
   uploads a recording slightly above 5 GiB (64 MiB parts, generated
   deterministically and streamed, never held in memory) through the API and
-  RustFS to evidence SC-010.
+  RustFS to evidence SC-010. Because it needs about 12 GB of free Docker disk
+  and several minutes, it runs only when the environment variable
+  `SOCALYTICS_RUN_LARGE_UPLOAD_TEST` is `true` and otherwise reports as
+  skipped with that reason, so the per-task full suite stays within the
+  runner's disk and time budget. This feature owns the evidence: the task
+  that adds the test and the final validation task run it explicitly with the
+  variable set.
 - **Rationale**: AWS documents composite SHA-256 for multipart uploads but not
   presigned `UploadPart` with a signed checksum explicitly; the probe turns the
   store contract into executable evidence for every store and catches
@@ -444,7 +457,8 @@ summarized in the coordinator's risk brief.
 
 - **Decision**: Add `AWSSDK.S3` 4.0.103.4 (Infrastructure), `Testcontainers`
   4.15.0 (Integration.Tests), and `JsonSchema.Net` 8.0.5 (Contracts.Tests) to
-  `src/platform/Directory.Packages.props`; the AppHost needs no new package.
+  `src/platform/Directory.Packages.props`, each only if no entry for that
+  package exists yet (duplicates fail the build); the AppHost needs no new package.
   Directly referenced `Microsoft.Extensions.*` packages follow the central
   10.0.12 floor set by the persistence foundation.
 - **Rationale**: Versions verified through the configured package feed;
@@ -463,20 +477,53 @@ summarized in the coordinator's risk brief.
   `contracts/recordings/recordings-finalized/v1/recordings-finalized.schema.json`,
   and the index `contracts/README.md` listing, per artifact, its path, owner
   (Recordings / control plane), exact version, example location, and validation
-  command. Schemas follow `contracts/<area>/<name>/v<major>/<name>.schema.json`
-  with `$id` =
-  `https://socalytics.invalid/contracts/<area>/<name>/v<major>/<name>.schema.json`
+  command. Schemas follow `contracts/<area>/<name>/v<major>/<name>.schema.json`,
+  or, for the shared definitions named in
+  [contracts-and-compatibility.md](../../docs/architecture/contracts-and-compatibility.md),
+  `contracts/common/v<major>/common.schema.json` (area `common`, no name
+  segment), with `$id` = `https://socalytics.invalid/` + the repository path
+  (for example
+  `https://socalytics.invalid/contracts/<area>/<name>/v<major>/<name>.schema.json`)
   and the exact version in `x-socalytics-version`; the event payload repeats it
   in `contractVersion`. Shared definitions stay local until Durable Analysis
-  adds `contracts/common/v1`. The contract command is
+  adds its shared schemas. This feature owns the bootstrap: it creates the
+  folder, the index, and the test project if they are missing and otherwise
+  extends them, never overwriting existing files or index rows; Analyst
+  Manager Registration and Durable Analysis only add schemas, index rows, and
+  fixture tests. The contract command is
   `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`, a new
-  xUnit v3 + Shouldly project using `JsonSchema.Net` 8.0.5 that (1) discovers
-  every `*.schema.json` under `contracts/` (linked into the test output by a
-  csproj glob), (2) validates it against the 2020-12 meta-schema, (3) checks
-  that its `$id` matches its path and that `x-socalytics-version` is a semantic
-  version whose major equals the path's `v<major>`, (4) validates every
-  `examples` entry with format assertion enabled, and (5) checks that every
-  schema is listed in `contracts/README.md`. The OpenAPI fragment stays in this
+  xUnit v3 + Shouldly project using `JsonSchema.Net` 8.0.5 (central package
+  version added only if absent) with three shared pieces:
+  - `ContractCatalog` (the only discovery code; namespace
+    `SocAlytics.Platform.Contracts.Tests`) enumerates every
+    `contracts/**/*.schema.json` linked into the test output by a csproj glob,
+    excluding `**/releases/**` (immutable released copies that reuse their
+    `$id`), and exposes `Schemas`, `Releases` (the released copies under
+    `**/releases/**`, each linked to its current schema, so later features
+    never enumerate files themselves), `IndexRows` (the rows of the
+    `Artifact | Owner | Version | Example | Validation command` table in
+    `contracts/README.md`, keyed by the first link of the Artifact cell), and
+    `LoadRegistry()`, which returns one fresh offline `SchemaRegistry` (never
+    the global one, no fetching) containing every catalog schema keyed by its
+    `$id`.
+  - `ContractIndexTests` checks that every schema has exactly one index row
+    and every row names a catalog schema, that each `$id` equals
+    `https://socalytics.invalid/contracts/` plus the path below `contracts/`,
+    and that each path follows `contracts/<area>/<name>/v<major>/<name>.schema.json`
+    or the shared-definitions form `contracts/common/v<major>/common.schema.json`
+    (built in from the start so Durable Analysis need not extend the test).
+  - `SchemaMetaValidationTests` validates each schema against the 2020-12
+    meta-schema, checks `$schema` and that `x-socalytics-version` is a semantic
+    version whose major equals the path's `v<major>`, resolves every `$ref`
+    offline through `LoadRegistry()` (relative references resolved against
+    the schema's `$id`; the target must be a catalog schema and its JSON
+    pointer must resolve), so cross-file references such as Durable
+    Analysis's shared definitions are supported, and validates every
+    `examples` entry with format assertion enabled through the registry.
+
+  Feature-specific fixture tests (for example the recordings-finalized
+  negative cases) live beside them and use `ContractCatalog`. The OpenAPI
+  fragment stays in this
   feature folder; the generated `/openapi/v1.json` is the published REST
   description.
 - **Rationale**: [contracts-and-compatibility.md](../../docs/architecture/contracts-and-compatibility.md)

@@ -46,7 +46,9 @@ authority.
 - `$id` values follow the convention established by Recording Lineage and
   Upload: the reserved, never-resolvable base
   `https://socalytics.invalid/contracts/` followed by the repository-relative
-  path; every `$ref` is relative and resolves offline.
+  path; every `$ref` is relative and resolves offline against the referencing
+  schema's `$id`, through the single `ContractCatalog.LoadRegistry()` of the
+  contract test project (and the embedded registry of the runtime validator).
 - The exact version is recorded by the `x-socalytics-version` annotation and by
   each payload's `contractVersion` (`1.x.y` accepted by the v1 family).
 - Every object is closed (`additionalProperties: false`). This is what rejects
@@ -62,7 +64,9 @@ authority.
 
 ## Examples and compatibility corpus (created at implementation)
 
-Each new analysis schema directory and `contracts/common/v1/` receive:
+Each new analysis schema directory receives the example files below, and every
+new schema directory, including `contracts/common/v1/`, receives a released
+copy (the shared definitions are exercised through the analysis examples):
 
 - `examples/valid/*.json`: at least a segment-scoped job, a match-scoped job
   with segment-barrier lineage, a succeeded completion, a failed completion, and
@@ -79,8 +83,11 @@ Proposed breaking revisions (removed or renamed property, newly required
 property, narrowed enum, narrowed pattern, newly closed object) live as fixtures
 in the existing `src/platform/Tests/SocAlytics.Platform.Contracts.Tests` and
 must fail the compatibility check this feature adds there. The existing index
-`contracts/README.md` gains one entry per new schema (owner, exact version,
-examples, command).
+`contracts/README.md` gains one appended row per new schema (artifact, owner,
+exact version, example, validation command); existing rows are never rewritten.
+The merged `ContractCatalog` keeps `releases/` copies out of discovery, the
+index check, and `LoadRegistry()`, and exposes them through
+`ContractCatalog.Releases` for the compatibility check.
 
 ## Validation command
 

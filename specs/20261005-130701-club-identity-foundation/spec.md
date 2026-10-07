@@ -181,7 +181,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - **FR-007**: The system MUST allow at most one active season at any time. Activating a second season while one is active MUST be rejected.
 - **FR-008**: The system MUST treat an archived season and all of its teams and matches as read-only.
 - **FR-009**: Club Admins MUST be able to create and update teams. Every team MUST belong to exactly one existing season, and its season MUST NOT change after creation.
-- **FR-010**: Club Admins, and Coaches of the owning team, MUST be able to create and update matches. Every match MUST belong to exactly one existing team, and its owning team MUST NOT change after creation.
+- **FR-010**: Club Admins and Coaches of the owning team (authorized per FR-036 and FR-037) MUST be able to create and update matches. Every match MUST belong to exactly one existing team, and its owning team MUST NOT change after creation.
 - **FR-011**: Every match MUST capture an opponent snapshot when it is created, and that snapshot MUST NOT be changeable afterward.
 - **FR-012**: The system MUST reject any creation or change that names a parent that does not exist or would leave a season, team, or match without its required parent.
 - **FR-013**: In this feature, the system MUST NOT permanently delete clubs, seasons, teams, or matches.
@@ -192,7 +192,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - **FR-015**: Only Club Admins MUST be able to create member accounts. Each new account MUST start as an active member with no roles.
 - **FR-016**: Creating an account MUST issue a single-use, time-limited set-password credential to the issuing Club Admin only. The system MUST NOT generate or store a usable initial password.
 - **FR-017**: The system MUST store passwords only in a form that cannot be reversed, and MUST reject passwords that do not meet the configured password policy.
-- **FR-018**: Sign-in failures MUST return the same response, with no measurable difference in response time, whether the account does not exist, has no password yet, the password is wrong, the account is locked, or the membership is inactive.
+- **FR-018**: Sign-in failures MUST return the same response, with no statistically significant difference in response time in automated tests (SC-005), whether the account does not exist, has no password yet, the password is wrong, the account is locked, or the membership is inactive.
 - **FR-019**: The system MUST lock an account for a configured period once it reaches the configured number of consecutive failed sign-in attempts. Club Admins MUST be able to unlock accounts.
 - **FR-020**: Signed-in members MUST be able to change their own password after proving their current password. Doing so MUST end all of the member's other sessions.
 - **FR-021**: Club Admins MUST be able to issue a single-use, time-limited password reset credential for a member. Using that credential MUST change the password, end all of that member's existing sessions, and make the credential unusable.
@@ -216,7 +216,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - **FR-033**: In this feature, the Registrar role MUST grant no access to team data and no hierarchy, membership, or role administration.
 - **FR-034**: The system MUST reject any change that would leave the club without at least one active member holding the Club Admin role, including when such changes happen concurrently.
 - **FR-035**: Only Club Admins MUST be able to assign and revoke a Coach or Viewer role for a member on a specific team. A member MUST hold at most one role per team, and assigning a new role on a team MUST replace the previous one.
-- **FR-036**: Viewers MUST be able to read their team and its matches. Coaches MUST additionally be able to create and update their team's matches. Neither role MUST authorize any action outside that team.
+- **FR-036**: Viewers MUST be able to read their team and its matches. Coaches MUST additionally be able to create and update their team's matches (FR-010). Neither role MUST authorize any action outside that team.
 - **FR-037**: Club Admins MUST have access to every season, team, and match without holding team roles.
 - **FR-038**: Before authorizing any operation on a team-owned resource, the system MUST resolve that resource to its owning team. Non-admin access MUST require an active membership and a current role on that team.
 - **FR-039**: Authorization MUST use current membership and role state on every request. Revocations and deactivations MUST take effect no later than the affected member's next request, regardless of session age.
@@ -244,6 +244,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - **Club role assignment**: An assignment of the Club Admin or Registrar role to a member. Club Admin includes Registrar. Each assignment can be revoked; it carries no version of its own, and assigning or revoking it advances the member account's version.
 - **Team role assignment**: An assignment of the Coach or Viewer role to one member on one team. A member has at most one per team, and each assignment can be revoked; it carries no version of its own, and assigning or revoking it advances the member account's version.
 - **Session**: A server-validated period during which a signed-in member is authenticated. It has idle and maximum-lifetime expiry, and sign-out, password changes, or administrative action can end it.
+- **Recovery directive use**: An insert-only record that a break-glass recovery identifier was applied to one account, so each identifier takes effect at most once (FR-050).
 - **One-time credential**: A single-use, time-limited set-password or reset credential bound to one account and issued by a Club Admin.
 - **Security audit event**: A minimized, append-protected record of a security-relevant action and its outcome.
 

@@ -57,8 +57,11 @@ requires an active target membership (FR-052).
 Club Admin from protected configuration. It runs inside one unit of work under
 a PostgreSQL transaction advisory lock, backed by uniqueness constraints, so
 concurrent API starts create exactly one club, one admin, and one audit event.
-The first Club Admin must change the configured password at first sign-in.
-Once the club exists, bootstrap no longer reads the initial password (FR-051).
+The first Club Admin must change the configured password at first sign-in;
+until then the session is restricted to viewing the own session and identity,
+changing the password, and signing out, and every other operation returns
+`403 password-change-required` (FR-053). Once the club exists, bootstrap no
+longer reads the initial password (FR-051).
 
 **Break-glass recovery (FR-050).** The same service then evaluates an optional
 recovery directive from protected configuration, in the same unit of work and
@@ -69,7 +72,7 @@ ledger enforces single use.
 - **Applying** the directive sets the password, clears the lockout, and
   rotates the security stamp, which ends all sessions. It also forces a
   password change at the next sign-in through a restricted session that
-  allows only self-service operations. It records
+  allows only self-service operations (FR-053). It records
   `break-glass-recovery.applied`.
 - **Refusals** record `break-glass-recovery.refused` without any change. They
   leave readiness healthy.
@@ -84,7 +87,9 @@ convention:
 - the last-Club-Admin invariant is serialized through an advisory lock.
 
 **Authorization.** It is decided in Application handlers through
-`IAccessAuthorizer` and a pluggable `ITeamScopeResolver`.
+`IAccessAuthorizer` and a pluggable `ITeamScopeResolver`. Every active member
+with an unrestricted session may read the club and every season without a
+role; only Club Admins change them (FR-004).
 
 **Audit.** `IAuditTrail` writes minimized audit events to an append-protected
 table in the same unit of work as each change.
@@ -123,7 +128,10 @@ new tables:
   `member_account`);
 - `member_session` and `one_time_credential` (unversioned operational
   records);
-- `security_audit_event` (append-protected).
+- `recovery_directive_use` (insert-only break-glass recovery ledger);
+- `security_audit_event` (append-protected, with named checks
+  `ck_security_audit_event_outcome` and `ck_security_audit_event_actor_kind`
+  that later features extend by name).
 
 They are created by five forward-only migrations named by description (see
 [data-model.md](data-model.md#migrations-infrastructure-persistencemigrations)).
@@ -199,7 +207,7 @@ No `NEEDS CLARIFICATION` items remain. Every open choice is resolved in
 | IV. Evidence over claims | PASS | Each FR and SC maps to automated tests on real PostgreSQL ([quickstart.md](quickstart.md#2-automated-scenario-checklist)). Host and architecture suites stay green with updated assertions. The readiness disclaimer is kept, and audit output is development evidence only. |
 | V. Focused, minimal changes | PASS | One new package (`Microsoft.Extensions.Identity.Core`). No EF Core, Data Protection persistence, MediatR, or extra projects. Contract fields are limited to what the spec requires. The `ITeamScopeSource` extension point is required by later features under the shared conventions. |
 | Deferred technologies are introduced only by an adopting feature | PASS | Authentication is listed as deferred, and this feature's spec and plan adopt it. PostgreSQL, Dapper, and DbUp come from the persistence dependency. |
-| Environment features (constitution 1.1.0) | PASS | Tasks need only the .NET SDK from `global.json` and Docker for Testcontainers. `environment-setup` provides both (Docker is on the runner). All code is inside `src/platform/`, so `environment-verify` builds and tests it unchanged. CI needs no development certificate: Integration tests use the in-process test server with an `https://localhost` base address, and the Aspire host test uses the API's HTTP endpoint. No separate environment feature is needed, so none is named under Assumptions → Dependencies. |
+| Environment features (constitution 1.1.0) | PASS | Tasks need only the .NET SDK from `global.json` and Docker for Testcontainers. `environment-setup` provides both (Docker is on the runner). All code is inside `src/platform/`, so `environment-verify` builds and tests it unchanged. CI needs no development certificate: Integration tests use the in-process test server with an `https://localhost` base address, and the Aspire host test starts the AppHost with `--SocAlytics:ApiHttpsEndpoint=false`, so the API declares and binds only its HTTP endpoint (Kestrel would fail at start on an HTTPS address without a certificate, and `environment-setup` does not create one; research.md R17). No separate environment feature is needed, so none is named under Assumptions → Dependencies. |
 | Workflow and quality gates | PASS | The supported restore, build, and test commands are unchanged. README, `src/platform/README.md`, and `AGENTS.md` "Current State" are updated at implementation to describe the implemented identity foundation and the bootstrap parameters. Markdown validation is required for documentation changes. Nothing is committed or pushed. |
 
 ### Post-design re-evaluation
@@ -285,7 +293,7 @@ src/platform/
 │   ├── appsettings.Development.json                 # IdentityAccess development values (not production defaults)
 │   ├── Security/                                    # SessionAuthenticationHandler, SessionCookie,
 │   │                                                # SessionAntiforgeryFilter, AuthorizationPolicyNames,
-│   │                                                # HttpRequestContext, MemberApiRouteGroup (MapMemberApi)
+│   │                                                # HttpRequestContext, SessionClaimTypes, MemberApiRouteGroup (MapMemberApi)
 │   ├── Http/                                        # IfMatchHeader, ProblemResults, OpenApiSecuritySchemesTransformer
 │   ├── Bootstrap/                                   # ClubBootstrapHostedService (bootstrap + break-glass step),
 │   │                                                # ClubBootstrapHealthCheck, ClubBootstrapOptions,
@@ -294,7 +302,8 @@ src/platform/
 │       ├── Club/                                    # ClubEndpoints, SeasonEndpoints, TeamEndpoints, MatchEndpoints
 │       └── IdentityAccess/                          # SessionEndpoints, SelfEndpoints, CredentialEndpoints, MemberEndpoints
 ├── SocAlytics.Platform.AppHost/
-│   └── Program.cs                                   # + API HTTPS endpoint; bootstrap parameters (generated persisted
+│   └── Program.cs                                   # + API HTTPS endpoint (omitted when SocAlytics:ApiHttpsEndpoint
+│                                                    #   is false, as in Host.Tests); bootstrap parameters (generated persisted
 │                                                    #   secret password via GenerateParameterDefault, account name,
 │                                                    #   club display name) → ClubBootstrap__*; relies on the
 │                                                    #   <UserSecretsId> added by the persistence feature
@@ -332,11 +341,13 @@ fixed by the shared conventions.
 | `IRequestContext` | `SocAlytics.Platform.Application.Abstractions` | Current member account id, session id, and correlation id in handlers |
 | `IAuditTrail` (`RecordAsync`, `RecordIndependentAsync`), `AuditEvent`, `AuditOutcome`, `AuditResource` | `SocAlytics.Platform.Application.Abstractions` | Audit events committed with each change, and independent denials |
 | `ITeamScopeResolver`, `ITeamScopeSource`, `TeamOwnedResource`, `TeamScope` | `SocAlytics.Platform.Application.IdentityAccess` | Resolve recordings, runs, and agent evidence to their owning team by registering one `ITeamScopeSource` per resource kind |
-| `IAccessAuthorizer`, `ClubPermission` (`Administer`, `Register`), `TeamPermission` (`Read`, `Write`), `AccessDecision` | `SocAlytics.Platform.Application.IdentityAccess` | Team-scoped and club-role authorization with built-in denial audit; `ClubPermission.Register` serves Analyst Manager registration |
-| `OperationResult<T>`, `OperationFailure` | `SocAlytics.Platform.Application.Abstractions` | Uniform handler outcomes mapped to problem details |
+| `IAccessAuthorizer`, `ClubPermission` (`Administer`, `Register`), `TeamPermission` (`Read`, `Write`), `AccessDecision` | `SocAlytics.Platform.Application.IdentityAccess` | Team-scoped and club-role authorization with built-in denial audit; `ClubPermission.Register` serves Analyst Manager registration, and the `AuthorizeClubAsync(ClubPermission, AuditResource, CancellationToken)` overload names the denied resource (for example a registration) in `authorization.denied` |
+| `OperationResult<T>`, `OperationFailure` | `SocAlytics.Platform.Application.Abstractions` | Uniform handler outcomes mapped to problem details; `Code` is open on every kind, so `Validation(code, …)` and `Conflict(code)` carry later features' codes without type changes |
+| `IAuditTrail` details allow-list | `PostgresAuditTrail` (Infrastructure, internal) | One internal key set; later features add their `details` keys to it in their own tasks |
 | `SocAlyticsSession` scheme, `AuthorizationPolicyNames.ActiveMember`, `AuthorizationPolicyNames.SessionHolder`, `SessionAntiforgeryFilter`, `MapMemberApi`, `IfMatchHeader`, `ProblemResults` | `SocAlytics.Platform.Api` (internal) | Mapping new `/api/v1` endpoints with the same session, anti-forgery, concurrency, and error behavior; new endpoints use `ActiveMember` |
-| Cookie `__Host-socalytics-session`, header `X-CSRF-Token`, problem types `urn:socalytics:problem:<code>` | HTTP contract | Shared transport conventions; this feature is their canonical owner |
+| Cookie `__Host-socalytics-session`, header `X-CSRF-Token`, problem types `urn:socalytics:problem:<code>` | HTTP contract | Shared transport conventions; this feature is their canonical owner. It defines no idempotency problem codes: the shared `idempotency-key-missing` and `idempotency-key-reused` codes are owned by the recording feature (`SharedProblemCodes`) |
 | Tables `team`, `match`, `member_account` | `socalytics` schema | Foreign-key targets for recordings (`match_id`) and audit actor references |
+| Shared test helpers `PlatformApiFactory`, `ApiSession`, `TestMembers`, `PlatformServices` (with `TestRequestContext`, `MutableTimeProvider`, `TestIdentityAccessSettings`) | `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/Support/` | Later features' integration tests reuse them for API hosts, signed-in sessions with anti-forgery, seeded members with roles, and service-level tests. They create no seasons, teams, or matches; the recording feature adds `ClubHierarchyBuilder` for that |
 
 This feature is the canonical owner of every name in this table, as recorded in
 the risk-resolution brief. Other features reuse these names and do not
@@ -345,8 +356,10 @@ redefine them.
 ## Required Architecture Updates
 
 The coordinator applies these updates. Updates 1 and 2 record design decisions
-and are applied with this plan. Update 3 records implementation evidence and is
-applied only when the implementation is merged.
+and are already applied with this plan; they are quoted below exactly as
+applied, in the future tense. Update 3 records implementation evidence, moves
+updates 1 and 2 to the present tense, and is applied only when the
+implementation is merged (task T038).
 
 ### 1. Server-side sessions, credentials, and bootstrap
 
@@ -358,37 +371,39 @@ applied only when the implementation is merged.
 and external login paths establish the same ASP.NET Core backend-for-frontend
 session."
 
-> The BFF session is server-validated. The cookie carries only an opaque random
-> session token, and the database stores its hash together with idle and
-> absolute expiry and the account's security stamp at issue. A per-session
-> anti-forgery token, which clients send in a request header on every
-> state-changing request, is derived from the session token with a keyed hash
-> and is never stored. Every request revalidates the session, the
-> account's active membership, and its security stamp, and reads current
-> roles, so sign-out, session termination, password changes, deactivation, and
-> role revocation take effect on the affected member's next request. No session
-> or anti-forgery secret is stored in recoverable form, and the API needs no
-> shared key ring across instances. Sign-in failures are indistinguishable in
-> content and timing. Single-use, time-limited set-password and
+> The BFF session will be server-validated. The cookie carries only an opaque
+> random session token, and the database stores its hash together with idle and
+> absolute expiry and the account's security stamp at issue. Clients send a
+> per-session anti-forgery token, derived from the session token with
+> HMAC-SHA256 and recomputed on every request, in a request header on every
+> state-changing request. Every request revalidates the session, the account's
+> active membership, and its security stamp, and reads current roles, so
+> sign-out, session termination, password changes, deactivation, and role
+> revocation take effect on the affected member's next request. No session or
+> anti-forgery secret is stored in recoverable form, and the API needs no
+> shared key ring across instances. Single-use, time-limited set-password and
 > reset credentials are issued by a Club Admin through an ASP.NET Core Identity
-> token provider and stored only as hashes. They are revoked, with an audit
-> event, when the issuer loses Club Admin authority or the target is
-> deactivated. The club and its first Club Admin
-> are established from protected deployment configuration by the API, not the
-> Migrator. The first Club Admin must change the configured password at first
-> sign-in, and bootstrap no longer needs it once the club exists. The API
-> serializes this one-time bootstrap with a database
-> transaction lock and uniqueness constraints, so concurrently starting API
-> instances create exactly one club and administrator, and an instance reports
-> not ready while no club is established or the configuration conflicts with
-> it. A club whose only Club Admin can no longer sign in recovers through a
-> break-glass directive in protected deployment configuration. The directive
-> names an existing active account, a single-use recovery identifier, and an
-> operator-supplied temporary credential. The API applies it at start under
-> the same lock, at most once per identifier. Applying it sets the credential,
-> ends the account's sessions, and requires a password change at the next
-> sign-in. It grants no roles and is audited. The platform never writes the
-> credential to logs or diagnostics, and no API operation performs recovery.
+> token provider and stored only as hashes; unused credentials stop working
+> when their issuer loses the Club Admin role or is deactivated, or their
+> target is deactivated. Every refused sign-in performs the same password-hash
+> work, so refusal reasons cannot be told apart by timing. The club and its
+> first Club Admin are established from protected deployment configuration by
+> the API, not the Migrator. The API serializes this one-time bootstrap with a
+> database transaction lock and uniqueness constraints, so concurrently
+> starting API instances create exactly one club and administrator, and an
+> instance reports not ready while no club is established or the configuration
+> conflicts with it. The first Club Admin must change the configured initial
+> password at the first sign-in, and bootstrap no longer needs that value once
+> the club exists. A club whose only Club Admin can no longer sign in will
+> recover through a break-glass directive in protected deployment
+> configuration. The directive names an existing active account, a single-use
+> recovery identifier, and an operator-supplied temporary credential. The API
+> applies it at start under the same lock, at most once per identifier, which
+> it records in the recovery ledger. Applying it sets the credential, ends the
+> account's sessions, and requires a password change at the next sign-in. It
+> grants no roles and is audited. The platform never writes the credential to
+> logs or diagnostics, and no API operation, authenticated or not, performs
+> recovery.
 
 ### 2. Append-protected security audit table and recovery ledger
 
@@ -399,14 +414,14 @@ session."
 **Placement**: Append to the end of the first paragraph, which ends "...but
 contains no domain state."
 
-> The exceptions to uniform runtime access are the security audit table and
-> the break-glass recovery ledger: the runtime role may only insert and read
-> them. For the audit table, a trigger also rejects updates, deletes, and
-> truncation, so audit evidence is append-protected and kept apart from
-> application logs, and a used recovery identifier can never be made reusable.
-> The audit table is development audit evidence; the production audit store,
-> integrity verification, and retention remain governed by POL-009 in Security
-> and Data Governance.
+> The exceptions to uniform runtime access are the security audit table and the
+> break-glass recovery ledger: the runtime role may only insert and read them.
+> A trigger also rejects updates, deletes, and truncation of the audit table,
+> so audit evidence is append-protected and kept apart from application logs,
+> and because ledger entries cannot be changed or removed, a used recovery
+> identifier can never be made reusable. The audit table will hold development
+> audit evidence; the production audit store, integrity verification, and
+> retention remain governed by POL-009 in Security and Data Governance.
 
 In the architecture file, "Security and Data Governance" links to
 `security-and-data-governance.md#audit-events`.
@@ -436,6 +451,16 @@ implements only the operational and OpenAPI surface..." with:
 > its domain paths are limited to the club hierarchy, accounts, sessions,
 > membership, and roles under `/api/v1`
 
+**Sections**: `## API And Identity` (update 1 text) and
+`### Planned Data Organization` (update 2 text)
+
+**Change**: Move the applied future-tense statements to the present tense
+without changing their meaning: "The BFF session will be server-validated" →
+"The BFF session is server-validated", "will recover through a break-glass
+directive" → "recovers through a break-glass directive", and "The audit table
+will hold development audit evidence" → "The audit table holds development
+audit evidence".
+
 ## Risk Register
 
 | ID | Risk | Disposition | Evidence / Owner | Revisit trigger |
@@ -449,5 +474,6 @@ implements only the operational and OpenAPI surface..." with:
 | CI-R7 | Readiness coupling: without bootstrap configuration, or with conflicting configuration, the stamp never becomes ready | Accepted | Intended fail-visible behavior (R7). Recovery refusals never affect readiness. Operator documentation must state it. Owner: club-identity plan (documentation in `src/platform/README.md`) | Production operations define a different readiness contract |
 | CI-R8 | Security review finding 1 (medium): unused one-time credentials survive revocation of their issuer or deactivation of their target | Mitigated | FR-052. Club Admin revocation or deactivation revokes all open credentials with `issued_by_account_id` = that member (`ix_one_time_credential_issuer_open`). Deactivation also revokes the member's own credentials. Redemption requires `membership_status = 'active'` under the account row lock. Each revocation records `credential.revoked`. See [research.md](research.md) R5 and R11, [data-model.md](data-model.md#one_time_credential), and scenarios A51 to A54. Owner: club-identity plan | A new path grants credential-issuing authority |
 | CI-R9 | Security review finding 2 (medium): the bootstrap initial password stays a working credential, and bootstrap keeps requiring it in configuration | Mitigated | FR-051. The bootstrap administrator is created with `password_change_required = true`, which yields the restricted session of R20. Bootstrap never reads `InitialPassword` once the club exists, and the operator removes it after the first sign-in. See R7, and scenarios A1, A49, and A50. Owner: club-identity plan | The bootstrap flow changes |
-| CI-R10 | Security review finding 3 (medium): sign-in response time reveals locked, inactive, or password-less accounts | Mitigated | FR-018 and SC-005. Exactly one hash verification runs on every path, using the stored hash or a dummy hash, before any refusal decision. The counter is not incremented while locked. See R6, and scenarios A9 (hash-call count), A55 (Kolmogorov–Smirnov timing distribution), and A56. Owner: club-identity plan | The password hasher, its iteration count, or the sign-in flow changes |
+| CI-R10 | Security review finding 3 (medium): sign-in response time reveals locked, inactive, or password-less accounts | Mitigated | FR-018 and SC-005. Exactly one hash verification runs on every path, using the stored hash or a dummy hash, before any refusal decision. The counter is not incremented while locked. See R6, and scenarios A9 (hash-call count), A55 (Kolmogorov–Smirnov timing distribution at a Bonferroni-corrected family-wise α = 0.001, one fresh re-sample, non-parallel collection; the wrong-password counter `UPDATE` is the expected residual difference, folded into the shared refusal statement or equalized on every refusal path if it alone stays significant), and A56. Owner: club-identity plan | The password hasher, its iteration count, or the sign-in flow changes |
+| CI-R12 | Kestrel fails at start on the AppHost's HTTPS endpoint on CI runners without a development certificate | Mitigated | The AppHost declares the API HTTPS endpoint unless `SocAlytics:ApiHttpsEndpoint` is `false`; the Aspire host test passes `--SocAlytics:ApiHttpsEndpoint=false` and uses the `http` endpoint; Integration tests use the in-process test server (R17, task T011). Owner: club-identity plan | CI starts the AppHost without the opt-out, or interactive HTTPS becomes required in tests |
 | CI-R11 | Security review finding 4 (low): the stored anti-forgery hash contradicted the stateless design and added stored token material | Mitigated | `HMAC-SHA256(key = raw session token, "socalytics-csrf")` is recomputed per request and compared in fixed time; there is no column (R3, [data-model.md](data-model.md#member_session), scenario A57). Owner: club-identity plan | The session token format changes |

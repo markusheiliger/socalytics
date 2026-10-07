@@ -28,9 +28,13 @@ CLI, Node.js for the existing Markdown check, and the Ubuntu package
 
 **Storage**: N/A
 
-**Testing**: The merge workflow's self-test of a branch's own environment
-actions, plus the validation scenarios in [quickstart.md](quickstart.md), run
-in Bash against a scratch copy of the repository.
+**Testing**: The validation scenarios in [quickstart.md](quickstart.md), run
+by the final task (T007) in Bash against a scratch copy of the repository
+outside the working tree, prove contract and Manager coverage (SC-001,
+SC-003); T007 reports each scenario's expected and actual outcome in its final
+summary for the reviewer. The merge workflow's self-test of the branch's own
+environment actions proves only the unchanged baseline (SC-002), because
+neither `contracts/` nor the Manager solution exists when this feature merges.
 
 **Target Platform**: GitHub-hosted `ubuntu-latest` runners used by the Spec Kit
 workflows.
@@ -38,7 +42,8 @@ workflows.
 **Project Type**: CI extension point (composite actions).
 
 **Performance Goals**: No additional runtime for platform-only or
-Markdown-only changes; Manager check runs only when its scope changed or in
+Markdown-only changes; Manager check runs only when its trigger
+(`src/analysts/manager/` or `contracts/analyst-manager/`) changed or in
 finalize mode.
 
 **Constraints**: Change only `.github/actions/environment-setup/` and
@@ -57,7 +62,7 @@ scopes; no secrets or tokens in the verify job.
 | I. Architecture is the design authority | PASS | PASS | Repository-root `contracts/` is the location planned by `docs/architecture/contracts-and-compatibility.md`; the Manager location follows `src/analysts/README.md`. No architecture change needed. |
 | II. Source-area ownership | PASS | PASS | No source files added; only the environment extension points change. |
 | III. API-first control plane | N/A | N/A | No product behavior. |
-| IV. Evidence over claims | PASS | PASS | Coverage is proven by the merge self-test and the quickstart scenarios; skipped checks never report success for code that exists. |
+| IV. Evidence over claims | PASS | PASS | The merge self-test proves only the unchanged baseline (SC-002); contract and Manager coverage (SC-001, SC-003) are proven by the quickstart scenarios that T007 runs and reports per scenario in its final summary for the reviewer; skipped checks never report success for code that exists. |
 | V. Focused, minimal changes | PASS | PASS | Contracts reuse the platform check; the Manager reuses the installed SDK; the only new tool is SoftHSM2, required by the Manager's PKCS#11 provider tests (spec FR-006). |
 | Technology: environment features | PASS | PASS | This *is* the environment feature for Recording Lineage and Upload, Durable Analysis Workflow, and Analyst Manager Registration; it changes only the two action folders and is held for human review by design. |
 | Workflow: documentation | PASS | PASS | The action descriptions document the coverage (FR-009); README updates follow when dependent features create the covered projects (spec Assumptions). |
@@ -99,18 +104,27 @@ constitution's environment-feature rule requires.
 1. Platform scope becomes `^(src/platform|contracts)/`, used for both
    `COVERED` (only when the platform solution exists) and `applies`, so a
    change touching both areas runs the platform check once (FR-001, FR-002).
-2. New variable `MANAGER_SOLUTION=src/analysts/manager/SocAlytics.Analysts.Manager.slnx`.
-   When it exists, `^src/analysts/manager/` joins `COVERED` (FR-003).
+2. New variables `MANAGER_SOLUTION=src/analysts/manager/SocAlytics.Analysts.Manager.slnx`,
+   `MANAGER_SCOPE='^src/analysts/manager/'`, and
+   `MANAGER_TRIGGER='^(src/analysts/manager|contracts/analyst-manager)/'`.
+   When the solution exists, only `MANAGER_SCOPE` joins `COVERED` (FR-003);
+   `contracts/` files stay covered only by the platform scope (FR-001).
 3. New block after the platform check and before the Markdown check: when
-   `status` is 0, the scope applies, and the solution exists, append the check
-   name `Analyst Manager build and tests` and run, from
+   `status` is 0, `applies "$MANAGER_TRIGGER"` holds, and the solution exists,
+   append the check name `Analyst Manager build and tests` and run, from
    `src/analysts/manager`, `dotnet restore`, `dotnet build --no-restore`, and
    `dotnet test --no-build` on the solution; any failure sets `status=1`
-   (FR-004). While the solution is missing the block is skipped (FR-005).
-4. Before restoring, the Manager block compares the `sdk.version` of
-   `src/analysts/manager/global.json` with `src/platform/global.json` and
-   fails the check with a clear message when they differ (FR-006), so the
-   setup step never needs a second SDK install.
+   (FR-004). The trigger includes `contracts/analyst-manager/` because the
+   Manager tests read the shared golden fixtures there (research.md § R3a);
+   such a change runs the platform check first and then the Manager check.
+   While the solution is missing the block is skipped (FR-005).
+4. Before entering `src/analysts/manager` (while the working directory is
+   still the workspace root), the Manager block compares the complete `sdk`
+   objects (`version`, `rollForward`, `allowPrerelease`) of
+   `src/analysts/manager/global.json` and `src/platform/global.json`, and fails
+   the check with a message naming both values, without restoring, when they
+   differ or the Manager file is missing (FR-006), so the setup step never
+   needs a second SDK install.
 5. Comments in both action files describe the new coverage and its
    activation rule (FR-009). Existing check names, order (platform, Manager,
    Markdown), outputs, and uncovered reporting stay unchanged (FR-008).
@@ -127,7 +141,8 @@ same SDK version (FR-006, FR-007).
 | ID | Risk | Disposition | Evidence / Owner | Revisit trigger |
 | --- | --- | --- | --- | --- |
 | ENV-R1 | A contract change runs the full platform build and tests, which is slower than a contract-only check | Accepted | One scope keeps the platform check single-run (FR-002); contract tests live in the platform solution (R1) | Contract-only runs become a bottleneck |
-| ENV-R2 | The Manager pins a different SDK than the platform | Mitigated | The Manager check fails fast on a pin mismatch (Design step 4, R4) | A second SDK is genuinely needed |
+| ENV-R2 | The Manager pins a different SDK than the platform | Mitigated | The Manager check fails fast when the `global.json` `sdk` objects differ (Design step 4, R4) | A second SDK is genuinely needed |
+| ENV-R5 | A change to the Manager's shared golden fixtures under `contracts/analyst-manager/` does not run the Manager tests | Mitigated | `MANAGER_TRIGGER` includes `contracts/analyst-manager/` (Design steps 2–3, R3a) | The Manager reads fixtures from another path |
 | ENV-R3 | `apt-get` install of `softhsm2` fails or slows setup | Accepted | Standard Ubuntu package used by the Manager spike on the runner image (R4a) | Setup failures on runner image updates |
 | ENV-R4 | Windows CNG and macOS Secure Enclave providers are not verified by the environment | Accepted | Verified manually per the Manager quickstart (R5) | A Windows or macOS CI job is added |
 

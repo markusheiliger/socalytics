@@ -18,7 +18,7 @@ Manager tests validate every message against it.
 | Pause for ▸ 30 min, 1 h, 2 h, 4 h, 8 h, Custom… | `active`, not draining | Timed pause (FR-036); intent `paused-until` |
 | Resume | intent `paused` or `paused-until` | Ends any pause; returns to `running` only when Active and the latest preflight passed |
 | Safe exit | always | Drain, keep registration and intent, quit |
-| Unregister… | `active` | Confirmation, then drain, platform unregistration, local state and key removal |
+| Unregister… | `active` | Confirmation, then drain; only after a completed drain, platform unregistration and local state and key removal. A drain cancelled by the timeout policy cancels the unregister: the registration stays `active` and the previous intent returns |
 | Discard local registration… | `restore-failed` | Deletes unusable remnants; tells the operator a Club Admin must revoke the old registration |
 | Start at sign-in (check mark) | always | Enables or disables per-user autostart; the check mark shows the read-back state |
 

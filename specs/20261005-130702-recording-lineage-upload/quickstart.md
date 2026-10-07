@@ -16,9 +16,9 @@ readiness (POL-003, THR-003, and the recording owner remain Open / Blocking).
 
 - .NET SDK selected by `src/platform/global.json`.
 - Docker running locally (Testcontainers starts PostgreSQL and
-  `rustfs/rustfs:1.0.1`; the AppHost starts the same images) with about 12 GB
-  of free disk for the above-5-GiB acceptance upload (parts plus the assembled
-  object inside the RustFS container).
+  `rustfs/rustfs:1.0.1`; the AppHost starts the same images). The opt-in
+  above-5-GiB acceptance upload additionally needs about 12 GB of free Docker
+  disk (parts plus the assembled object inside the RustFS container).
 - The environment feature
   `specs/20261007-115855-environment-verification-coverage` is merged, so
   automated verification runs the platform checks for repository-root
@@ -50,14 +50,28 @@ dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --no-build
 The first command is the repository contract command (also listed in
 `contracts/README.md`); drop `--no-build` when running it on its own.
 
-**Expected**: all suites pass. The contract tests find
-`contracts/recordings/recordings-finalized/v1/recordings-finalized.schema.json`,
-validate it against the JSON Schema 2020-12 meta-schema, confirm that its
+The above-5-GiB acceptance upload (SC-010) is opt-in because it needs about
+12 GB of free Docker disk and several minutes; without the variable it reports
+as skipped. Run it explicitly to record the SC-010 evidence:
+
+```powershell
+$env:SOCALYTICS_RUN_LARGE_UPLOAD_TEST = 'true'
+dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build --filter "FullyQualifiedName~LargeRecordingUploadTests"
+Remove-Item Env:SOCALYTICS_RUN_LARGE_UPLOAD_TEST
+```
+
+**Expected**: all suites pass. The contract tests discover every schema under
+`contracts/` through `ContractCatalog` (excluding `**/releases/**`), including
+`contracts/recordings/recordings-finalized/v1/recordings-finalized.schema.json`;
+validate it against the JSON Schema 2020-12 meta-schema; confirm that its
 `$id` is
 `https://socalytics.invalid/contracts/recordings/recordings-finalized/v1/recordings-finalized.schema.json`,
+that its path follows `contracts/<area>/<name>/v<major>/<name>.schema.json`
+(or the shared-definitions form `contracts/common/v<major>/common.schema.json`),
 that `x-socalytics-version` is `1.0.0` with major version matching `v1`, that
-every embedded example validates, and that the schema is listed in
-`contracts/README.md`. Breaking the schema or an example makes the contract
+every `$ref` resolves offline to a catalog schema and pointer, that every
+embedded example validates, that a plain `sha-256` recording digest is
+rejected, and that the schema has exactly one row in `contracts/README.md`. Breaking the schema or an example makes the contract
 command fail and name the file. The integration suite covers the scenarios in
 the table below against real PostgreSQL and RustFS containers.
 
@@ -66,7 +80,7 @@ the table below against real PostgreSQL and RustFS containers.
 | Store conformance probe against the RustFS container (composite initiation, signed part checksum and length, `ListParts`, composite completion, `HeadObject`, abort) | research R16 | All probe assertions pass; the same test passes against any store named by `SOCALYTICS_CONFORMANCE_S3_*` before a profile adopts it |
 | Coach starts a 3-part upload (5 MiB, 5 MiB, 1 234 567 B), PUTs each part directly to RustFS with its grant, completes with a valid mapping | US1 AS1–AS2, SC-001 | `201`; recording version with `sha-256-parts:5242880:3:<hex>`, `totalSizeBytes = 11720327`, and a `sha-256:` mapping digest; session `completed`; the API received only JSON bodies ≤ 1 MiB |
 | Single-part upload (1 KiB) | R3, R4 | `201`; `sha-256-parts:<partSize>:1:<hex>` where hex is SHA-256 of the part digest (not the plain file digest) |
-| Upload slightly above 5 GiB with 64 MiB parts (`LargeRecordingUploadTests`) | US1 AS11, SC-010 | `201`; recording version records composite digest, part size, part count, and total size; `ListParts` before completion shows exactly the declared sizes |
+| Upload slightly above 5 GiB with 64 MiB parts (`LargeRecordingUploadTests`, opt-in with `SOCALYTICS_RUN_LARGE_UPLOAD_TEST=true`) | US1 AS11, SC-010 | `201`; recording version records composite digest, part size, part count, and total size; `ListParts` before completion shows exactly the declared sizes |
 | Club Admin performs the same workflow on any Team | US1 AS3 | Same as the 3-part case |
 | Coach of another Team, Viewer, unauthenticated, archived Season, missing Match | US1 AS4–AS6, FR-005, FR-006, SC-003 | `403`, `403`, `401`, `409 season-archived`, `404`; zero new or changed recording rows and no multipart upload created; denial audit events |
 | Invalid declarations: non-final part < 5 MiB, part count inconsistent with total, digest count mismatch, above configured maximum size or part count, empty recording | Edge "Invalid part declaration", FR-007 | `400 upload-declaration-invalid`; no session row and no storage call |
@@ -79,8 +93,9 @@ the table below against real PostgreSQL and RustFS containers.
 | Session lifetime passes; worker sweep runs; grant and completion requested | FR-034, edge "Abandoned or partial upload" | Grants and completion return `409 upload-session-expired` immediately after expiry; the sweep marks the session `expired`, aborts the multipart upload (`ListParts` → `NoSuchUpload`), deletes any assembled object, and sets `storage_released_at`; no recording version |
 | Completion racing the expiry instant | R7 | Either the recording version commits and the object is kept, or the session expires and no recording version exists; never both |
 | Completion retried with the same key; then with a different key | US1 AS9, edge "Duplicate completion" | Original identities returned; second key `409 upload-session-completed` |
+| Start replayed with the same key while pending, after completion, and after expiry | FR-009, FR-025, FR-034 | Pending: original session with fresh grants; completed or expired: original session in its current state without grants; no second multipart upload |
 | Finalize three recordings in a chosen order; read the set back | US2 AS1, SC-002, SC-005 | `201`; identical members, order, and digests on every read; exactly one row in `recording_finalized_events`, valid against the event schema, with `sha-256-parts` recording digests |
-| Empty set, cross-Match member, mismatched mapping pair, duplicate recording | US2 AS2–AS4, FR-020 | `400` with field violations; no set, member, event, or retry row |
+| Empty set, more members than the configured maximum (default 100), cross-Match member, mismatched mapping pair, duplicate recording | US2 AS2–AS4, FR-019, FR-020 | `400` with field violations; no set, member, event, or retry row |
 | 10 concurrent finalizations with one key | SC-006, FR-024 | Exactly 1 set version and 1 event record; all callers receive the same set id |
 | Injected failure during finalization (test-only database trigger on the event table) | US2 AS6, SC-007 | Request fails; 0 set, member, retry-outcome, or event rows remain |
 | `IRecordingSetLookup.GetAsync` for a finalized set | US2 AS8, FR-028, SC-009 | Match, Team, ordered member identities, `sha-256-parts` recording digests, mapping digests, and spans; 0 object-storage calls (storage adapter substitute records none) |
@@ -88,15 +103,18 @@ the table below against real PostgreSQL and RustFS containers.
 | Direct `UPDATE`/`DELETE` on any immutable table as the runtime role and as the migration role | US3 AS4, FR-015, FR-021 | Permission denied (runtime role) and trigger error (migration role); rows unchanged |
 | Viewer lists lineage; member of another Team lists lineage | US4 AS1–AS2, FR-027 | `200` with metadata only (no URLs, keys, upload ids, or grants); `403` |
 | Key reuse with different content; same key on another Match or operation | FR-025 | `409 idempotency-key-reused`; independent success |
-| Revoked Coach replays a previously successful request | FR-004, edge "Replay after revocation" | `403`; stored outcome not disclosed |
-| Object storage stopped during start, grants, and completion | Edge "Object storage unavailable" | `503 object-storage-unavailable`; no state change |
+| Revoked Coach replays a previously successful request; Coach revoked before finalization or mapping revision | FR-004, edge "Replay after revocation" | `403`; stored outcome not disclosed; no rows created |
+| Lineage reads for a Match in an archived Season | FR-006 | `200` for Club Admin, Coach, and Viewer; mutations still `409 season-archived` |
+| Successful start, grant issuance, completion, revision, finalization, and expiry | FR-030 | Exactly one `security_audit_event` row each with its event type, actor, resource, Team, `details.matchId`, outcome, and correlation id; only allow-listed detail keys |
+| Object storage unreachable during start, grants, and completion (a test host pointed at an unreachable endpoint over the same database) | Edge "Object storage unavailable" | `503 object-storage-unavailable`; no state change; the same requests then succeed through a host that reaches RustFS |
 | Secret scan of database rows, audit events, and captured logs | FR-029, SC-008 | No `X-Amz-Signature`, `X-Amz-Credential`, or storage secret key found |
 
 Structural evidence:
 
 - Architecture tests: Domain and Application reference no `Amazon.*` or
-  `Npgsql` types; Recordings implementation types are internal; only
-  `AddApplication()` and `AddInfrastructure(...)` are public composition
+  `Npgsql` types; Recordings Infrastructure implementation types are internal
+  (Application handlers are public sealed per the Club convention); only
+  `AddApplication()` and `AddInfrastructure()` are public composition
   methods; the AppHost references no S3 SDK.
 - Persistence structural test: `recording_upload_sessions` has the version
   trigger and is classified as a versioned root; the immutable Recordings
@@ -104,8 +122,9 @@ Structural evidence:
   no `club_id` column exists.
 - Host tests: `/openapi/v1.json` contains every `operationId` of
   [contracts/openapi.yaml](contracts/openapi.yaml) with its documented
-  response codes, and no recording operation accepts a binary or multipart
-  request body.
+  response codes, every unsafe recording operation requires the shared
+  `sessionCookie` and `antiforgeryHeader` security schemes, and no recording
+  operation accepts a binary or multipart request body.
 
 ## 2. Manual end-to-end run through the AppHost
 

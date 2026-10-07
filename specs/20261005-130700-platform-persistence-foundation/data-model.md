@@ -233,8 +233,9 @@ features add entries.
 | `Immutable` | No `version` column. |
 | `Unversioned(reason)` | No `version` column; reason documented (for example outbox or audit rows added later). |
 
-With the platform catalog alone, the manifest is empty because no tables
-exist.
+After this feature, the manifest is empty because the foundation migrations
+create no tables. Later features add their tables to it; the structural
+tests never assert an empty manifest or a table count.
 
 ## Invariants
 

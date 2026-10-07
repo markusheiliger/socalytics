@@ -13,6 +13,7 @@
 ### Session 2026-10-07
 
 - Q: Which extra tooling does the Analyst Manager's automated verification need on the Linux runner? → A: A software key-store token (SoftHSM2) so the Manager's Linux key-provider tests run against a real PKCS#11 token; its desktop UI tests run headless and need nothing extra. Windows and macOS key-store tests are not run by this environment.
+- Q: Must a change to the Analyst Manager's shared reference examples under the contracts folder also run the Manager's tests? → A: Yes; changes under `contracts/analyst-manager/` trigger the Manager check as well, while those files stay covered through the platform checks.
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -28,7 +29,7 @@ A contributor (human or automated implementation agent) changes a machine-readab
 
 1. **Given** the platform solution exists, **When** a change touches only files in the contracts folder, **Then** the platform build and test checks run and none of the changed contract files is reported as uncovered.
 2. **Given** a contract change that breaks a platform contract test, **When** verification runs, **Then** it fails and names the failing check.
-3. **Given** the platform solution does not exist, **When** a change touches the contracts folder, **Then** the contract files are reported as uncovered instead of silently passing.
+3. **Given** the platform solution does not exist, **When** a change touches non-Markdown files in the contracts folder, **Then** those files are reported as uncovered instead of silently passing (Markdown files stay covered by the existing Markdown check).
 
 ---
 
@@ -76,7 +77,7 @@ The setup step installs everything the Analyst Manager build and tests need on t
 - **FR-001**: The verification MUST treat changes under the repository-root contracts folder as covered only while the platform solution exists, and MUST then run the platform restore, build, and test checks when such a change is present or in finalize mode.
 - **FR-002**: The verification MUST NOT run the platform checks twice when a change touches both platform and contract files.
 - **FR-003**: The verification MUST treat changes under the Analyst Manager area as covered only while the Manager solution exists.
-- **FR-004**: When the Manager solution exists, the verification MUST restore, build, and test it whenever a Manager file changed or in finalize mode, and MUST fail when any of these steps fails, naming the Manager check.
+- **FR-004**: When the Manager solution exists, the verification MUST restore, build, and test it whenever a Manager file or a Manager golden-fixture contract file under the contracts folder's Analyst Manager area (`contracts/analyst-manager/`) changed, or in finalize mode, and MUST fail when any of these steps fails, naming the Manager check. Such contract files remain covered only through the platform checks (FR-001).
 - **FR-005**: While the Manager solution does not exist, the verification MUST skip the Manager check without failing.
 - **FR-006**: The setup MUST provide the development kit version pinned for the platform to the Manager build, MUST install a software PKCS#11 token (SoftHSM2) that the Manager's key-provider tests use, and MUST NOT install other tools unless the Manager build requires them.
 - **FR-007**: The feature MUST change only the environment setup and environment verify extension points (the only paths an environment feature may change); it MUST NOT add product code, tests, contracts, documentation outside those extension points, or the Manager solution.

@@ -8,7 +8,23 @@ values (`Guid.CreateVersion7()`), stored as `uuid` and serialized as opaque
 strings. References to Club, Recordings, and Registry identities use the
 storage type chosen by their owning feature (planned as `uuid`). Timestamps are
 `timestamptz` in UTC. Digests are stored as text in the contract form
-`sha-256:<64 lowercase hex>`. No table or column is named `club_id`.
+`sha-256:<64 lowercase hex>` and are represented in the Domain by the
+Recordings-owned `SocAlytics.Platform.Domain.Recordings.Sha256Digest`; this
+feature adds no second digest type. No table or column is named `club_id`.
+
+## Persisted names
+
+- Run, Workflow Node, Logical Job, and Execution Attempt `state` columns store
+  the exact PascalCase member names of the Domain state enums (for example
+  `PartiallyCompleted`, `Claimed`), which is what their `CHECK` constraints
+  list. They have no kebab-case mapping.
+- Only `tier` (`low-level`, `high-level`), `execution_scope` (`segment`,
+  `match`), and dependency-edge `kind` (`required`, `optional`, `conditional`)
+  store lower-case or kebab-case forms, mapped explicitly by the Domain
+  `AnalysisPersistedNames` class.
+- Operational vocabularies that never become Domain enums (outbox `state`,
+  receipt `outcome`, failure and rejection categories) are stored as the
+  lower-case values listed for each table below.
 
 ## Aggregates and versioning
 
@@ -204,11 +220,14 @@ immutable. Claim resolution under the Logical Job row lock:
 | None | Otherwise | `409 claim-obsolete` (or `404` for an unknown job); nothing stored |
 | Present, same job and occurrence | Attempt still current (`current_attempt_id` matches, `Active`, lease not expired) | Same attempt, current lease expiry, same fencing token; `200`, `replayed = true`; nothing created, no budget consumed, lease not renewed |
 | Present, same job and occurrence | Attempt no longer current | `409 claim-obsolete` |
-| Present | Different job or occurrence | `409 idempotency-key-reuse` |
+| Present | Different job or occurrence | `409 idempotency-key-reused` |
 
 Another Manager presenting the same key is in a different scope and makes an
 ordinary claim, which is rejected as `claim-obsolete` because the job is no
-longer `Ready`.
+longer `Ready`. A claim without an `Idempotency-Key` header is rejected with
+`400 idempotency-key-missing` before any lookup; `idempotency-key-missing` and
+`idempotency-key-reused` are the shared codes introduced by Recording Lineage
+and Upload (constants in the Api class `SharedProblemCodes`).
 
 ### Notification receipt — `analysis_notification_receipts`
 

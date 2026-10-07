@@ -92,13 +92,14 @@ paths:
         retry with the same key, Logical Job, and readiness occurrence while that attempt is still
         current (Active, lease not expired) returns 200 with the same attempt, lease expiry, and
         fencing token and replayed=true, creating nothing and consuming no budget. The same key
-        for a different Logical Job or readiness occurrence returns 409 idempotency-key-reuse; the
+        for a different Logical Job or readiness occurrence returns 409 idempotency-key-reused; the
         same key whose attempt is no longer current returns 409 claim-obsolete. Keys are scoped per
         Manager, so another Manager presenting the same key makes an independent claim, which is
-        rejected with 409 claim-obsolete because the job is no longer Ready. The Manager
+        rejected with 409 claim-obsolete because the job is no longer Ready. A claim without an
+        Idempotency-Key header returns 400 idempotency-key-missing. The Manager
         acknowledges the ready-work delivery after 200, 201, 404, or 409 claim-obsolete
         (deterministic outcomes) and leaves it unacknowledged after 401, 403, 409
-        idempotency-key-reuse (a client defect), or 5xx.
+        idempotency-key-reused (a client defect), or 5xx.
       security:
         - dpop: []
       parameters:
@@ -138,7 +139,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/ClaimGranted'
         '400':
-          $ref: '#/components/responses/ValidationFailed'
+          description: >-
+            One of: idempotency-key-missing (no Idempotency-Key header; shared code of Recording
+            Lineage and Upload) or validation-failed (malformed Idempotency-Key or request body,
+            with field errors). No attempt was created.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
@@ -153,7 +161,7 @@ paths:
           description: >-
             One of: claim-obsolete (the Logical Job is already claimed, completed, blocked, or
             failed, the readiness occurrence is superseded, or a replayed key's attempt is no longer
-            current; deterministic, acknowledge the delivery as obsolete) or idempotency-key-reuse
+            current; deterministic, acknowledge the delivery as obsolete) or idempotency-key-reused
             (the key already belongs to a claim of this Manager for a different Logical Job or
             readiness occurrence). No attempt was created and no budget consumed.
           content:
@@ -241,7 +249,7 @@ paths:
           description: >-
             One of: attempt-obsolete (stale, superseded, fabricated, wrong-attempt or wrong-Manager
             fencing context, or another attempt already accepted; nothing changes),
-            idempotency-key-reuse (same key, different content; nothing changes), or
+            idempotency-key-reused (same key, different content; nothing changes), or
             completion-rejected (current attempt, but scope, capability, schema, digest, or
             upstream lineage does not match the pinned snapshot; the attempt is closed as Rejected
             and the Logical Job is retried while budget remains).
@@ -362,7 +370,9 @@ paths:
         Club Admins only; requires the X-CSRF-Token antiforgery header defined by Club and
         Identity (403 antiforgery-failed otherwise). Runs the same reconciliation as startup and
         transport restoration. Completed, blocked, exhausted, claimed, or otherwise ineligible
-        work is never republished. Safe to repeat. Recorded through IAuditTrail.
+        work is never republished. Safe to repeat. Recorded through IAuditTrail as event
+        analysis.publication-reconciled (resource type club; details readyJobsRepublished and
+        notificationsRepublished only).
       security:
         - sessionCookie: []
           antiforgeryHeader: []
@@ -401,7 +411,7 @@ components:
         the registered device key, validated by the AnalystManagerDPoP authentication scheme of
         Analyst Manager Registration (scope analyst-manager). The authorization policy
         AnalystManager requires that scheme and scope and exposes the Manager identity
-        (client_id) through ICurrentAnalystManager.
+        (claim client_id, AnalystManagerClaimTypes.ManagerId) through ICurrentAnalystManager.
   parameters:
     RunId:
       name: runId
@@ -506,8 +516,9 @@ components:
           type: string
           description: >-
             Shared codes (validation-failed, unauthenticated, antiforgery-failed, forbidden,
-            not-found, dependency-unavailable) plus the codes added by this feature:
-            claim-obsolete, attempt-obsolete, idempotency-key-reuse, completion-rejected.
+            not-found, dependency-unavailable, and the shared idempotency codes
+            idempotency-key-missing and idempotency-key-reused of Recording Lineage and Upload) plus
+            the codes added by this feature: claim-obsolete, attempt-obsolete, completion-rejected.
         correlationId:
           type: string
         errors:

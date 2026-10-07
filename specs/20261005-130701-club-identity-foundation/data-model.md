@@ -127,6 +127,9 @@ Rules:
   bootstrap never reads `ClubBootstrap:FirstClubAdmin:InitialPassword`. The
   operator removes that secret from the deployment configuration after the
   first sign-in and password change.
+- Every active member with an unrestricted session may read the club,
+  including its display name, without any club or team role; only Club Admins
+  may change it (FR-004).
 - Settings edits (`display_name`) require `If-Match` (FR-042).
 
 ### season
@@ -157,6 +160,10 @@ active --archive--> archived    (season, teams, and matches become read-only)
 ```
 
 Any other transition is rejected with `409 invalid-state-transition`.
+
+Every active member with an unrestricted session may list and read every
+season, without any club or team role; seasons carry no team data. Only Club
+Admins may create or change seasons (FR-004).
 
 ### team
 
@@ -366,6 +373,17 @@ bootstrap step, in the same unit of work and under the same
 therefore serialize, and at most one applies a given recovery identifier. The
 others find the identifier used.
 
+Transaction boundaries:
+
+- When the bootstrap step leaves its unit of work open (it created the club
+  and has not committed yet, or found the club established, or found no
+  configuration), the recovery step runs in that unit of work, and one commit
+  persists the bootstrap rows, the recovery changes, and their audit events.
+- When the bootstrap step rolled back (a bootstrap conflict, whose refusal is
+  recorded independently, or a lost race on a unique constraint), the advisory
+  lock was released with it. The recovery step then begins a new unit of
+  work, takes the `club-bootstrap` lock again, runs, and commits.
+
 The evaluation runs in this order, and the first failing check refuses the
 directive:
 
@@ -398,9 +416,10 @@ names only the reason and the configuration key, and leaves readiness
 unaffected. The `club-bootstrap` check reports only bootstrap state.
 
 No API operation can trigger recovery. If the primary key on `recovery_id`
-ever fires despite the lock, that unique violation is handled as
-`recovery-id-used`, and the whole unit of work rolls back before the refusal
-is recorded.
+ever fires despite the lock, the whole unit of work rolls back, and the
+bootstrap-then-recovery sequence runs once more in a new unit of work under
+the lock. That run finds the identifier used and records the
+`recovery-id-used` refusal.
 
 ### security_audit_event
 
@@ -413,8 +432,8 @@ to FR-048).
 | `occurred_at` | `timestamptz` | Not null; from the application `TimeProvider` |
 | `event_type` | `text` | Not null; see the catalog below |
 | `action` | `text` | Not null (for example `create`, `assign`, `revoke`, `sign-in`) |
-| `outcome` | `text` | Check in (`succeeded`, `unchanged`, `denied`, `failed`, `refused`) |
-| `actor_kind` | `text` | Check in (`member`, `system`, `anonymous`) |
+| `outcome` | `text` | Not null; named check `ck_security_audit_event_outcome` in (`succeeded`, `unchanged`, `denied`, `failed`, `refused`) |
+| `actor_kind` | `text` | Not null; named check `ck_security_audit_event_actor_kind` in (`member`, `system`, `anonymous`); later features extend it by dropping and re-adding this named constraint |
 | `actor_account_id` | `uuid` | Null when the actor is unknown or the system |
 | `session_id` | `uuid` | Null when no session exists |
 | `resource_type` | `text` | Not null (`club`, `season`, `team`, `match`, `member`, `session`, `credential`) |
@@ -468,7 +487,7 @@ security stamp, or identity token (FR-046).
 | `match.created`, `match.updated` | `succeeded` | Same unit of work |
 | `authorization.denied` | `denied` | Independent (the command rolls back) |
 | `break-glass-recovery.applied` | `succeeded` | Same unit of work as the recovery (`resource_type` `member`, `actor_kind` `system`, `details.recoveryId`) |
-| `break-glass-recovery.refused` | `refused` | Same unit of work, which contains no other change (`reason_code` one of `directive-incomplete`, `recovery-id-used`, `unknown-account`, `account-inactive`, `password-policy`; `details.recoveryId` when present; the account is named only when it exists) |
+| `break-glass-recovery.refused` | `refused` | Same unit of work as the recovery evaluation, which contains no account, session, credential, or ledger change (on a fresh database it may also contain the bootstrap rows) (`reason_code` one of `directive-incomplete`, `recovery-id-used`, `unknown-account`, `account-inactive`, `password-policy`; `details.recoveryId` when present; the account is named only when it exists) |
 
 ## Domain Types (Domain layer)
 
@@ -495,11 +514,11 @@ Domain types are pure and have no framework dependencies:
 | `ITeamScopeResolver` | `SocAlytics.Platform.Application.IdentityAccess` | `ResolveAsync(TeamOwnedResource, CancellationToken)` returns `TeamScope?` (`TeamId`, `SeasonId`, `SeasonState`) |
 | `ITeamScopeSource` | `SocAlytics.Platform.Application.IdentityAccess` | Per-kind resolution (`ResourceKind`, `ResolveAsync(Guid, CancellationToken)`); this feature registers `team` and `match` |
 | `TeamOwnedResource` | `SocAlytics.Platform.Application.IdentityAccess` | `(string Kind, Guid Id)` |
-| `IAccessAuthorizer` | `SocAlytics.Platform.Application.IdentityAccess` | `AuthorizeClubAsync(ClubPermission, CancellationToken)`, `AuthorizeTeamResourceAsync(TeamOwnedResource, TeamPermission, CancellationToken)`, `GetVisibleTeamsAsync(CancellationToken)` |
+| `IAccessAuthorizer` | `SocAlytics.Platform.Application.IdentityAccess` | `AuthorizeClubAsync(ClubPermission, CancellationToken)`, `AuthorizeClubAsync(ClubPermission, AuditResource, CancellationToken)` (names the denied resource in the audit event), `AuthorizeTeamResourceAsync(TeamOwnedResource, TeamPermission, CancellationToken)`, `GetVisibleTeamsAsync(CancellationToken)` |
 | `ClubPermission` | `SocAlytics.Platform.Application.IdentityAccess` | `Administer` (Club Admin), `Register` (Registrar or Club Admin) |
 | `TeamPermission` | `SocAlytics.Platform.Application.IdentityAccess` | `Read` (Viewer, Coach, Club Admin), `Write` (Coach, Club Admin) |
 | `AccessDecision` | `SocAlytics.Platform.Application.IdentityAccess` | `Granted(TeamScope?)`, `NotFound`, `Forbidden`; denials are already audited |
-| `OperationResult<T>`, `OperationFailure` | `SocAlytics.Platform.Application.Abstractions` | Handler outcome mapped by the API to problem details (`Validation`, `NotFound`, `Forbidden`, `Conflict(code)`, `VersionRequired`, `VersionMismatch`, `Unauthenticated`, `PasswordChangeRequired`) |
+| `OperationResult<T>`, `OperationFailure` | `SocAlytics.Platform.Application.Abstractions` | Handler outcome mapped by the API to problem details (`Validation`, `NotFound`, `Forbidden`, `Conflict(code)`, `VersionRequired`, `VersionMismatch`, `Unauthenticated`, `PasswordChangeRequired`); `Code` is an open kebab-case string on every kind, and `Validation(code, …)` yields a coded `400` |
 
 This feature is the canonical owner of the names above, of the cookie
 `__Host-socalytics-session`, of the header `X-CSRF-Token`, and of the problem
@@ -516,7 +535,8 @@ API-internal building blocks reused by later features' endpoints:
   unrestricted session) and `AuthorizationPolicyNames.SessionHolder` (any
   valid session, including one restricted by `password_change_required`; used
   only by `getSession`, `getCurrentMember`, `changeOwnPassword`, and
-  `signOut`);
+  `signOut`, so a restricted session reaches nothing else and every other
+  operation returns `403 password-change-required`, FR-051 and FR-053);
 - the endpoint filter `SessionAntiforgeryFilter`;
 - the route group helper `MapMemberApi` (the `/api/v1` group with
   `ActiveMember` and the anti-forgery filter);

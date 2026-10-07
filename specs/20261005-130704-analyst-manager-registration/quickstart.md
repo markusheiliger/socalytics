@@ -13,10 +13,12 @@ deployment support or production readiness.
 
 ## Prerequisites
 
-- Merged first: the environment feature
+- Merged first, in this order: the environment feature
   [20261007-115855-environment-verification-coverage](../20261007-115855-environment-verification-coverage/spec.md)
   (installs SoftHSM2 and verifies the Manager solution and `contracts/`),
-  Platform Persistence Foundation, and Club and Identity Foundation.
+  Platform Persistence Foundation, Club and Identity Foundation, and Recording
+  Lineage and Upload (creates the `contracts/` index and
+  `SocAlytics.Platform.Contracts.Tests`, which this feature extends).
 - .NET SDK from `src/platform/global.json`; the Manager's own `global.json`
   pins the same version.
 - Docker running (Testcontainers PostgreSQL for platform integration tests).
@@ -57,7 +59,7 @@ dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build 
 | Expiry | Windows driven by `FakeTimeProvider` lead to `expired` with audit; later actions get `409` | US1-6, FR-009 |
 | Tokens | Valid assertion plus DPoP issues a `DPoP` token; replayed `jti`, wrong audience, other key, wrong stamp, non-HTTPS refused; human endpoints reject DPoP, Manager endpoints reject cookies | FR-013–FR-015 |
 | Revocation and unregistration | Inactive signal for every outstanding token after revoke; `active → unregistering → unregistered` | US3-1, US3-4, SC-003 |
-| Golden fixtures | Every request vector in `contracts/analyst-manager/registration/v1/` (including the fingerprint and wrong-fingerprint submission vectors) yields its manifest outcome and response shape; the manifest and index entry validate in Contracts.Tests | FR-039 |
+| Golden fixtures | Every request vector in `contracts/analyst-manager/registration/v1/` (including the fingerprint and wrong-fingerprint submission vectors) yields its manifest outcome and response shape; the manifest `fixtures.json` validates against `registration.schema.json`, and the schema passes the existing index and meta-schema checks in Contracts.Tests | FR-039 |
 | Audit and secrets | Exactly one event per transition or decision; no generated secret in audit rows or logs | SC-007, SC-008 |
 
 ## 2. Analyst Manager build and tests (Linux runner)
@@ -79,7 +81,7 @@ autostart and socket-ACL, and macOS bridge tests are reported as skipped.
 | Register | Register flow shows verification address, code, and device fingerprint; the local fingerprint equals the platform's (a mismatch aborts); `claimedKeyProtection` sent; follows pairing to `active` against the fake platform | US1-1, US1-3, FR-040 |
 | Signed state | Intact state restores the same identity after token proof and status check; edited payload, swapped signature, copy signed by another key, wrong permissions, missing key, stamp mismatch → `restore-failed` with a diagnostic within 30 s and no token request | US2-1–US2-5, SC-004, SC-005 |
 | Offline and revocation | Unreachable platform keeps state and retries; inactive signal clears state and key within one status interval | US2-6, US2-7, US3-2, US3-3 |
-| Unregister | Drain, begin and complete calls, state removed; unreachable platform keeps `unregistering` and retries | US3-4, FR-022 |
+| Unregister | Drain completes before any platform call, then begin and complete calls, state removed; a drain cancelled by the `CancelRequest` timeout policy makes no platform call, keeps the registration Active, and restores the previous Running or Paused intent; unreachable platform after the drain keeps `unregistering` and retries | US3-4, FR-022, FR-027 |
 | Preflight | Simulated runtime: pass enters restored intent; each failing check → `runtime-unavailable` with remediation and zero capabilities; failed accelerator not advertised; no integration configured stays unavailable | US4-1–US4-6, SC-010 |
 | Operating controls | Pause blocks admission at once; resume needs passed preflight; safe exit drains and keeps intent; drain timeout policy within timeout plus cleanup bound; session end uses its bound | US5-1–US5-6, SC-009 |
 | Timed pause | Admission stops at once; status shows end and remaining time; pause survives restart; auto-resume ≤ 5 s after end when Active and preflight passed; otherwise intent `running` and stays unavailable; early resume | US5-7, US5-8, FR-036, SC-012 |
@@ -91,7 +93,10 @@ autostart and socket-ACL, and macOS bridge tests are reported as skipped.
 
 ## 3. Manual verification of OS-specific parts
 
-Record the outcome of each step in the pull request before merge.
+Record the outcome of each step in the pull request before merge. The pull
+request is held for review until these results and section 4 are recorded
+(operational: automatic merging is disabled for this feature or a person
+reviews it; plan risk R-14).
 
 ### Windows
 
@@ -127,7 +132,9 @@ Record the outcome of each step in the pull request before merge.
 1. GNOME with the AppIndicator extension or KDE: the tray icon appears; vanilla
    GNOME without it: the status window opens with the same controls.
 2. With tpm2-pkcs11 provisioned (`tpm2_ptool init`, `tpm2_ptool addtoken
-   --label=socalytics-device`, user in group `tss`): registration reports
+   --label=socalytics-device --userpin=<random value>`, the same value written
+   to `pkcs11.pin` with mode `0600` in the Manager state directory, user in
+   group `tss`): registration reports
    claimed `pkcs11-token`.
 
 ## 4. Composed end-to-end run (before merge)

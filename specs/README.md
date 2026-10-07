@@ -19,12 +19,15 @@ features it depends on are merged.
 | [Platform Persistence Foundation](20261005-130700-platform-persistence-foundation/spec.md) | Shared durable storage, one ordered platform-wide migration sequence, transactions and optimistic concurrency, and database-aware readiness | None |
 | [Club and Identity Foundation](20261005-130701-club-identity-foundation/spec.md) | Club, season, team, and match hierarchy with authenticated sessions and role-based access | Platform Persistence Foundation |
 | [Recording Lineage and Upload](20261005-130702-recording-lineage-upload/spec.md) | Direct-to-storage recording upload, immutable lineage, and authorized finalization | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation |
-| [Durable Analysis Workflow](20261005-130703-durable-analysis-workflow/spec.md) | Durable analysis runs, readiness evaluation, fenced attempts, reliable work publication, and versioned job contracts | Environment Verification Coverage, Platform Persistence Foundation, Recording Lineage and Upload, Analyst Manager Registration |
-| [Analyst Manager Registration](20261005-130704-analyst-manager-registration/spec.md) | Device-bound Analyst Manager registration, safe restore, revocation, runtime preflight, and local operating controls | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation |
+| [Analyst Manager Registration](20261005-130704-analyst-manager-registration/spec.md) | Device-bound Analyst Manager registration, safe restore, revocation, runtime preflight, and local operating controls | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation, Recording Lineage and Upload |
+| [Durable Analysis Workflow](20261005-130703-durable-analysis-workflow/spec.md) | Durable analysis runs, readiness evaluation, fenced attempts, reliable work publication, and versioned job contracts | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation, Recording Lineage and Upload, Analyst Manager Registration |
 
-Analyst Manager Registration can be developed in parallel with Recording
-Lineage and Upload; Durable Analysis Workflow starts after both are merged,
-because its Manager operations use the Analyst Manager authentication.
+Environment Verification Coverage and Platform Persistence Foundation can be
+developed in parallel. Analyst Manager Registration follows Recording Lineage
+and Upload, so each takes the next free migration number on an up-to-date
+`main` and extends the `contracts/` folder that Recording creates. Durable
+Analysis Workflow starts after both are merged, because its Manager operations
+use the Analyst Manager authentication.
 
 ### Cross-Feature Interfaces
 
@@ -33,11 +36,11 @@ names and do not redefine them.
 
 | Interface | Provided by | Consumed by |
 | --- | --- | --- |
-| `IUnitOfWork` / `IUnitOfWorkScope`, `VersionedWriteResult`, version trigger helpers, `PersistedTableClassifications`, the Migrator, `SocAlytics.Platform.Integration.Tests` | Platform Persistence Foundation | all platform features |
-| `IRequestContext`, `IAuditTrail`, `OperationResult<T>`, `ITeamScopeResolver`, `IAccessAuthorizer`, session cookie, `X-CSRF-Token`, `urn:socalytics:problem:<code>` errors, `member_account` / `team` / `match` tables | Club and Identity Foundation | Recording Lineage and Upload, Durable Analysis Workflow, Analyst Manager Registration |
-| Repository-root `contracts/` with its index and `$id` convention, `SocAlytics.Platform.Contracts.Tests`, `IObjectStorage`, `IRecordingSetLookup`, `recording_finalized_events` | Recording Lineage and Upload | Durable Analysis Workflow (contracts also Analyst Manager Registration) |
+| `IUnitOfWork` / `IUnitOfWorkScope`, internal `IDbSession`, `VersionedWriteResult`, version trigger helpers (`attach_version_trigger`, `attach_aggregate_child_triggers`), `PersistedTableClassifications`, the Migrator, `SocAlytics.Platform.Integration.Tests` with `PostgresContainerFixture`, `IsolatedDatabase`, `CapturingLoggerProvider`, `VersionedWrites`, `TestMigrationCatalogs`, and `MigratorHarness`; the AppHost `<UserSecretsId>` | Platform Persistence Foundation | all platform features |
+| `IRequestContext`, `IAuditTrail` (`PostgresAuditTrail` details allow-list, named check `ck_security_audit_event_actor_kind`), `OperationResult<T>` / `OperationFailure`, `ITeamScopeResolver`, `ITeamScopeSource`, `IAccessAuthorizer`, `MapMemberApi`, `SessionAntiforgeryFilter`, `ProblemResults`, test helpers `PlatformApiFactory`, `ApiSession`, `TestMembers`, `PlatformServices`, session cookie, `X-CSRF-Token`, `urn:socalytics:problem:<code>` errors, `member_account` / `team` / `match` tables | Club and Identity Foundation | Recording Lineage and Upload, Durable Analysis Workflow, Analyst Manager Registration |
+| Repository-root `contracts/` with its index, `$id` convention, `ContractCatalog`, and `SocAlytics.Platform.Contracts.Tests`; `IObjectStorage`; `IRecordingSetLookup` / `RecordingSetLineage`; `recording_finalized_events`; `socalytics.reject_immutable_change()`; `Sha256Digest`; `RustFsContainerFixture`; `ContractCatalog` (`Schemas`, `IndexRows`, `Releases`, `LoadRegistry()`), `ContractIndexTests`, `SchemaMetaValidationTests` (Recording creates `contracts/`; later features extend it); `FinalizeRecordingSetHandler`; test helpers `ClubHierarchyBuilder` and `RecordingFinalizationHelper`; shared idempotency problem codes `idempotency-key-missing` (400) and `idempotency-key-reused` (409) in `SharedProblemCodes` | Recording Lineage and Upload | Analyst Manager Registration and Durable Analysis Workflow (contracts); Durable Analysis Workflow (lineage, event records) |
 | `IOutbox`, `outbox_messages`, NATS JetStream publication, Analyst job and completion contracts | Durable Analysis Workflow | later Analyst execution features |
-| `AnalystManagerDPoP` authentication scheme, `AnalystManager` policy, registration golden fixtures under `contracts/` | Analyst Manager Registration | Durable Analysis Workflow (Manager operations), the Analyst Manager solution |
+| `AnalystManagerDPoP` scheme (`AnalystManagerDPoPDefaults`), `AuthorizationPolicyNames.AnalystManager`, `AnalystManagerClaimTypes` (`client_id`, `socalytics:registration_id`, `scope` = `analyst-manager`), registration golden fixtures under `contracts/analyst-manager/`, test helper `Registry/Support/TestAnalystManager.cs` and the registration operation ids, central `Microsoft.Extensions.TimeProvider.Testing` 10.10.0 pin | Analyst Manager Registration | Durable Analysis Workflow (Manager operations); the fixtures also the Analyst Manager solution |
 
 This table is a human-readable overview. The order that GitHub automation uses
 lives in the native "blocked by" dependencies of each feature's spec twin issue

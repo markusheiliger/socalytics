@@ -35,9 +35,12 @@ are stored with request digests and resource identities, never grants.
 database alone. S3 access uses `AWSSDK.S3` in Infrastructure only; locally the
 AppHost runs `rustfs/rustfs:1.0.1` through a plain container resource and
 integration tests use the same image, including a store conformance probe.
-This feature also creates the repository-root `contracts/` folder, its index,
-the recordings-finalized event schema, and the contract test project
-`SocAlytics.Platform.Contracts.Tests`. It stores the immutable event record
+This feature also owns the bootstrap of the repository-root `contracts/`
+folder, its index, the recordings-finalized event schema, and the contract
+test project `SocAlytics.Platform.Contracts.Tests` with its single discovery
+class `ContractCatalog` (each created if missing, otherwise extended, never
+overwritten); Analyst Manager Registration and Durable Analysis only extend
+them. It stores the immutable event record
 only; Durable Analysis later adds the `IOutbox` call to the finalize handler
 and a backfill ([research.md](research.md) R3–R7, R11, R19).
 
@@ -55,7 +58,7 @@ and a backfill ([research.md](research.md) R3–R7, R11, R19).
 
 **Project Type**: Web service — the platform control-plane API (layered monolith; Recordings is a functional-area folder in each layer) with one hosted background worker in the same host.
 
-**Performance Goals**: SC-002 — each platform operation (start, grants, complete, finalize) acknowledged within 2 s at p95 in acceptance runs with up to 100 parts; completion makes `⌈partCount / 1000⌉` `ListParts` calls, one `CompleteMultipartUpload`, and one `HeadObject`; finalization is one transaction for ≤ 100 members. SC-010 — a recording above 5 GiB uploads and completes in acceptance testing.
+**Performance Goals**: SC-002 — each platform operation (start, grants, complete, finalize) acknowledged within 2 s at p95 in acceptance runs with up to 100 parts; completion makes `⌈partCount / 1000⌉` `ListParts` calls, one `CompleteMultipartUpload`, and one `HeadObject`; finalization is one transaction for at most the configured maximum of members (`Recordings:Sets:MaxMembers`, default 100, ceiling 1000); the SC-002 test asserts the 95th percentile of 20 runs per operation. SC-010 — a recording above 5 GiB uploads and completes in acceptance testing (opt-in test, `SOCALYTICS_RUN_LARGE_UPLOAD_TEST=true`).
 
 **Constraints**: No media bytes through the API (FR-010; recording endpoints cap JSON request bodies at 1 MiB, enough for a 10 000-part declaration); parts ≥ 5 MiB except the last, ≤ 5 GiB each, ≤ 10 000 per upload, objects ≤ 5 TiB; session lifetime, grant lifetime, sweep interval, size and part bounds, grants per request, and content types are required configuration with no production defaults; fail closed on missing or different integrity evidence (FR-011); no grants, credentials, or secrets in durable records, logs, or telemetry (FR-029); storage I/O never inside a database transaction.
 
@@ -83,7 +86,12 @@ Constitution version 1.1.0. Pre-design evaluation:
 Feature dependencies (merge order): the environment feature
 `specs/20261007-115855-environment-verification-coverage`,
 `specs/20261005-130700-platform-persistence-foundation`, and
-`specs/20261005-130701-club-identity-foundation` must be merged first.
+`specs/20261005-130701-club-identity-foundation` must be merged first. This
+feature (#35) merges before Analyst Manager Registration (#37), which now
+depends on it, and before Durable Analysis (#36); each takes the next free
+migration number on an up-to-date `main`. Holding #37 until #35 has merged is
+operational (the user sets `SPECKIT_AUTO_MERGE=false` or reviews); no task
+changes the automation.
 
 ## Project Structure
 
@@ -111,16 +119,16 @@ specs/20261005-130702-recording-lineage-upload/
 ### Source Code (repository root)
 
 ```text
-contracts/                                                # new repository-root canonical contracts folder
-├── README.md                                             # index: artifact, owner, version, example, validation command
+contracts/                                                # repository-root canonical contracts folder (created if missing, otherwise extended)
+├── README.md                                             # index: artifact, owner, version, example, validation command (rows added, never replaced)
 └── recordings/
     └── recordings-finalized/
         └── v1/
             └── recordings-finalized.schema.json          # copy of the mirrored schema
 
 src/platform/
-├── SocAlytics.Platform.slnx                              # + Tests/SocAlytics.Platform.Contracts.Tests
-├── Directory.Packages.props                              # + AWSSDK.S3 4.0.103.4, Testcontainers 4.15.0, JsonSchema.Net 8.0.5
+├── SocAlytics.Platform.slnx                              # + Tests/SocAlytics.Platform.Contracts.Tests (only if not listed)
+├── Directory.Packages.props                              # + AWSSDK.S3 4.0.103.4, Testcontainers 4.15.0, JsonSchema.Net 8.0.5 (each only if absent)
 ├── README.md                                             # current status (task)
 ├── SocAlytics.Platform.Domain/
 │   └── Recordings/
@@ -149,6 +157,7 @@ src/platform/
 │       ├── IRecordingSetLookup.cs                        # public; consumed by Durable Analysis
 │       ├── RecordingSetLineage.cs                        # lookup result records
 │       ├── RecordingUploadOptions.cs                     # lifetimes, sweep interval, size/part bounds, grants per request, content types, key prefix
+│       ├── RecordingSetOptions.cs                        # Recordings:Sets:MaxMembers (default 100, 1 … 1000)
 │       ├── RecordingAuditActions.cs
 │       ├── CanonicalJson.cs                              # deterministic digests for mappings and retry requests
 │       ├── IRecordingStore.cs                            # write-side persistence port
@@ -179,22 +188,33 @@ src/platform/
 │   │   ├── RecordingSetLookup.cs                         # IRecordingSetLookup implementation
 │   │   └── UploadSessionExpiryWorker.cs                  # BackgroundService invoking ExpireUploadSessionsHandler
 │   └── Persistence/
-│       ├── Structure/
-│       │   └── PersistedTableClassifications.cs          # + Recordings tables (versioned root / immutable)
 │       └── Migrations/
 │           └── NNNN_recordings_create_upload_and_lineage_tables.sql   # NNNN = next free number at implementation
 ├── SocAlytics.Platform.Api/
-│   └── Recordings/
-│       ├── RecordingEndpoints.cs                         # MapRecordingEndpoints(): 10 operations under /api/v1/matches/{matchId}
-│       ├── RecordingContracts.cs                         # request/response DTOs matching contracts/openapi.yaml
-│       └── RecordingProblemCodes.cs                      # OperationFailure codes → problem details
+│   ├── Recordings/
+│   │   ├── RecordingEndpoints.cs                         # MapRecordingEndpoints(): 10 operations under /api/v1/matches/{matchId}
+│   │   ├── RecordingContracts.cs                         # request/response DTOs matching contracts/openapi.yaml
+│   │   └── RecordingProblemCodes.cs                      # recording-specific OperationFailure codes → problem details
+│   └── Http/
+│       └── SharedProblemCodes.cs                         # shared idempotency-key-missing / idempotency-key-reused (owned here, reused by Durable Analysis)
 ├── SocAlytics.Platform.AppHost/
 │   └── Program.cs                                        # + AddContainer("rustfs", "rustfs/rustfs", "1.0.1"), s3 endpoint, health check,
 │                                                         #   generated persisted credentials, API environment + WaitFor (no new package)
 └── Tests/
     ├── SocAlytics.Platform.Integration.Tests/
+    │   ├── Structure/
+    │   │   └── PersistedTableClassifications.cs          # + Recordings immutable tables (canonical manifest from the persistence foundation)
     │   └── Recordings/
-    │       ├── RustFsContainerFixture.cs                 # container, bucket creation, S3 client for assertions
+    │       ├── Support/
+    │       │   ├── ClubHierarchyBuilder.cs               # Season, Team, Match through the Club API (Club provides no such helper)
+    │       │   └── RecordingFinalizationHelper.cs        # upload N recordings, complete, finalize; returns the set id
+    │       ├── RecordingFinalizationHelperTests.cs
+    │       ├── RustFsContainerFixture.cs                 # container, bucket creation, S3 client for assertions (no stop/restart helpers)
+    │       ├── RecordingOptionsValidationTests.cs        # startup validation of upload, set, and storage options
+    │       ├── RecordingRetryOutcomeStoreTests.cs
+    │       ├── RecordingTestData.cs                      # deterministic parts, digests, declarations, grant PUT helper
+    │       ├── RecordingAuditAssertions.cs               # exactly-one success audit event per operation (FR-030)
+    │       ├── UploadSessionRulesTests.cs                # pure: session transitions, expiry boundary, key layout
     │       ├── ObjectStoreConformanceTests.cs            # reduced storage spike; runnable against an external store
     │       ├── TimelineMappingCanonicalFormTests.cs      # pure, no containers
     │       ├── CompositeDigestTests.cs                   # pure: spike vector, single part, S3 form normalization
@@ -203,24 +223,29 @@ src/platform/
     │       ├── PartGrantEnforcementTests.cs              # bytes, length, part number, header tampering
     │       ├── CompletionVerificationTests.cs            # missing/mismatched parts, evidence faults, recovery
     │       ├── UploadSessionExpiryTests.cs
-    │       ├── LargeRecordingUploadTests.cs              # > 5 GiB, SC-010
+    │       ├── LargeRecordingUploadTests.cs              # > 5 GiB, SC-010; opt-in via SOCALYTICS_RUN_LARGE_UPLOAD_TEST=true
+    │       ├── RecordingSetRulesTests.cs                 # pure: membership rules and configured maximum
     │       ├── FinalizationTests.cs
     │       ├── RetryKeyTests.cs
     │       ├── ImmutabilityTests.cs
     │       ├── RecordingAuthorizationTests.cs
     │       ├── RecordingSetLookupTests.cs
-    │       ├── ObjectStorageUnavailableTests.cs
+    │       ├── TimelineMappingRevisionTests.cs
+    │       ├── MatchRecordingLineageTests.cs
+    │       ├── ObjectStorageUnavailableTests.cs          # unreachable-endpoint host over the same database
     │       └── SecretHygieneTests.cs
     ├── SocAlytics.Platform.Architecture.Tests/
-    │   └── RecordingsArchitectureTests.cs                # no Amazon.* outside Infrastructure; internal implementations
-    ├── SocAlytics.Platform.Contracts.Tests/              # new; repository contract command
+    │   └── RecordingsArchitectureTests.cs                # no Amazon.* outside Infrastructure; Infrastructure Recordings/ObjectStorage types internal
+    ├── SocAlytics.Platform.Contracts.Tests/              # repository contract command (created if missing, otherwise extended)
     │   ├── SocAlytics.Platform.Contracts.Tests.csproj    # xUnit v3, Shouldly, JsonSchema.Net; links ../../../../contracts/**/* into output
-    │   ├── ContractCatalog.cs                            # discovers *.schema.json under contracts/
-    │   ├── SchemaMetaValidationTests.cs                  # 2020-12 meta-schema; $id ↔ path; x-socalytics-version
-    │   ├── SchemaExampleTests.cs                         # every `examples` entry validates (format assertion on)
-    │   └── ContractIndexTests.cs                         # every schema listed in contracts/README.md
+    │   ├── ContractCatalog.cs                            # the only discovery code: Schemas (excl. **/releases/**), Releases, IndexRows, LoadRegistry()
+    │   ├── ContractPathRule.cs                           # admitted path forms: <area>/<name>/v<major>/<name> and common/v<major>/common
+    │   ├── ContractIndexTests.cs                         # one index row per schema and vice versa; $id ↔ path; path rule
+    │   ├── SchemaMetaValidationTests.cs                  # 2020-12 meta-schema; x-socalytics-version; offline $ref via registry; examples
+    │   └── Recordings/
+    │       └── RecordingsFinalizedSchemaTests.cs         # feature fixture: plain sha-256 recording digest rejected
     └── SocAlytics.Platform.Host.Tests/
-        └── RecordingsOpenApiTests.cs                     # operationIds, response codes, no binary request bodies
+        └── RecordingsOpenApiTests.cs                     # operationIds, response codes, security schemes, no binary request bodies
 ```
 
 **Structure Decision**: The feature extends the existing layered monolith in
@@ -230,10 +255,16 @@ src/platform/
 `SocAlytics.Platform.Infrastructure.ObjectStorage`; SQL lives in the shared
 `Persistence/Migrations` folder. Registration (including the expiry worker and
 the development bucket initializer) happens inside the existing public
-`AddApplication()` and `AddInfrastructure(...)` methods, keeping all
-implementation types internal. The repository-root `contracts/` folder, its
-index, and `SocAlytics.Platform.Contracts.Tests` are created here as the first
-canonical contract baseline; Durable Analysis extends them (R19).
+`AddApplication()` and parameterless `AddInfrastructure()` methods (options
+bound with `BindConfiguration`, no new parameters). Application handlers follow
+the Club and Identity convention (public sealed `<Name>Handler` classes
+registered as scoped in `AddApplication()`, so the Api endpoints and the
+Infrastructure expiry worker can call them); Infrastructure implementation
+types stay internal. The repository-root `contracts/` folder, its
+index, and `SocAlytics.Platform.Contracts.Tests` are bootstrapped here (created
+if missing, otherwise extended) as the first canonical contract baseline;
+Analyst Manager Registration and Durable Analysis extend them through
+`ContractCatalog` (R19).
 
 ## Design Overview
 
@@ -307,8 +338,12 @@ sequenceDiagram
   in the database (R12).
 - **Upload session**: the only mutable aggregate, versioned, transitioned only
   under state guards (R13).
-- **Retry keys**: identities only; start-upload replays issue fresh grants
+- **Retry keys**: identities only; start-upload replays return the session in
+  its current state, with fresh grants only while it is pending and unexpired
   (R10).
+- **Set size**: the configured maximum `Recordings:Sets:MaxMembers`
+  (default 100, validated to 1 … 1000) bounds finalization; larger lists are
+  rejected as a whole (`recording-set-too-large`).
 - **Finalized event record**: one immutable row per set; no outbox call here;
   Durable Analysis adds the `IOutbox` call and backfill (R11).
 - **Local storage and evidence**: RustFS via `AddContainer` with stable Aspire
@@ -316,7 +351,9 @@ sequenceDiagram
   fixture; conformance probe and above-5-GiB acceptance test (R2, R15, R16).
 - **Contracts baseline**: repository-root `contracts/` with index, the event
   schema (`$id` under `https://socalytics.invalid/contracts/…`,
-  `x-socalytics-version`), and the contract command (R19).
+  `x-socalytics-version`), and the contract command with `ContractCatalog`,
+  `ContractIndexTests`, and `SchemaMetaValidationTests`; `$ref`s resolve
+  offline across the whole catalog (R19).
 
 ### Interfaces consumed
 
@@ -356,9 +393,35 @@ sequenceDiagram
   backfills `outbox_messages` entries for records finalized earlier, and
   tracks publication state keyed by `event_id` without updating the row.
 - **Contracts baseline**: the repository-root `contracts/` folder, its index
-  `contracts/README.md`, and `src/platform/Tests/SocAlytics.Platform.Contracts.Tests`
-  (contract command), which Durable Analysis extends with `contracts/common/v1`
-  and its own schemas.
+  `contracts/README.md` (columns Artifact | Owner | Version | Example |
+  Validation command), and `src/platform/Tests/SocAlytics.Platform.Contracts.Tests`
+  (contract command) with the public static `ContractCatalog` (namespace
+  `SocAlytics.Platform.Contracts.Tests`: `Schemas`, `IndexRows`,
+  `LoadRegistry()` returning one offline `SchemaRegistry` keyed by `$id`;
+  `**/releases/**` excluded from `Schemas` and exposed separately as
+  `Releases`), `ContractIndexTests` (admits both
+  `contracts/<area>/<name>/v<major>/<name>.schema.json` and the
+  shared-definitions form `contracts/common/v<major>/common.schema.json`), and
+  `SchemaMetaValidationTests`. Analyst Manager Registration and Durable
+  Analysis only add schemas, index rows, and fixture tests that use
+  `ContractCatalog`; they never re-create the project, index, or catalog.
+- **`Sha256Digest`** (public, namespace `SocAlytics.Platform.Domain.Recordings`):
+  the `sha-256:<64 lowercase hex>` value object, consumed by Durable Analysis.
+- **`RustFsContainerFixture`** (public xUnit v3 assembly fixture, namespace
+  `SocAlytics.Platform.Integration.Tests.Recordings`): the RustFS test
+  container with `ServiceUrl`, `Region`, `AccessKey`, `SecretKey`, `Bucket`,
+  `CreateS3Client()`, and `CreateObjectStorage()`, consumed by Durable
+  Analysis tests.
+- **`ClubHierarchyBuilder`** (test helper
+  `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Recordings/Support/ClubHierarchyBuilder.cs`):
+  creates a Season, Team, and Match through the Club API and returns their
+  ids; Club and Identity provides no such helper.
+- **`RecordingFinalizationHelper`** (test helper
+  `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Recordings/Support/RecordingFinalizationHelper.cs`):
+  `FinalizeAsync(session, matchId, recordingCount, cancellationToken)` uploads
+  small multipart recordings against `RustFsContainerFixture`, completes them
+  with a mapping, finalizes a set, and returns its `RecordingSetVersionId`
+  (with the recording-version and mapping ids), for Durable Analysis tests.
 - **`IObjectStorage`** (namespace
   `SocAlytics.Platform.Application.Abstractions.ObjectStorage`): initiate a
   composite-SHA-256 multipart upload, presign part uploads, list parts,
@@ -375,7 +438,7 @@ sequenceDiagram
 | IV. Evidence Over Claims | PASS | [quickstart.md](quickstart.md) maps every user story, edge case, and success criterion (including SC-010 and session expiry) to an automated scenario against real PostgreSQL and RustFS; the conformance probe makes the store contract executable; the contract command validates the schema, its `$id`, version, index entry, and examples. |
 | V. Focused, Minimal Changes | PASS | Three packages, seven tables, one migration, one hosted worker (FR-034), no new production project, one test project and one contract artifact required by the contract baseline; deferred work (publication, CORS, public endpoint, playback, lifecycle policy values) stays deferred. |
 | Technology and Tooling Constraints | PASS | No change to the supported commands; the contract command is an ordinary `dotnet test`; the AppHost gains one container resource built from stable Aspire 13.4.6 APIs; nothing assumes Aspire in production. |
-| Environment-feature rule | PASS (depends on environment feature) | Re-confirmed: the design needs only the .NET SDK, Docker (about 12 GB free disk for the above-5-GiB test), NuGet restore, and the Markdown linters, all provided by `environment-setup` and the runner. Verification of the new repository-root `contracts/` folder requires `specs/20261007-115855-environment-verification-coverage`, which must be merged before this feature starts; with it, the environment provides everything the tasks need. |
+| Environment-feature rule | PASS (depends on environment feature) | Re-confirmed: the design needs only the .NET SDK, Docker (about 12 GB free disk only for the opt-in above-5-GiB test, which reports as skipped unless `SOCALYTICS_RUN_LARGE_UPLOAD_TEST=true`), NuGet restore, and the Markdown linters, all provided by `environment-setup` and the runner. Verification of the new repository-root `contracts/` folder requires `specs/20261007-115855-environment-verification-coverage`, which must be merged before this feature starts; with it, the environment provides everything the tasks need. |
 | Development Workflow and Quality Gates | PASS | Plan artifacts pass `node .github/scripts/check-markdown.mjs`; README (including the `environment-verify` coverage of `contracts/` that the environment feature cannot document), contract index, platform README, and `AGENTS.md` changes are planned under [Documentation Updates](#documentation-updates). |
 
 ## Documentation Updates
@@ -386,8 +449,9 @@ changes. The environment feature
 two action folders, so the README description of its behavior is updated here.
 
 1. **`README.md`, section "Requesting Implementation on GitHub", list "In this
-   repository:" under the composite actions** — replace the
-   `environment-verify` bullet with:
+   repository:" under the composite actions** — merge into the
+   `environment-verify` bullet the following content, keeping any coverage
+   wording already present for other paths:
 
    ```markdown
      - `environment-verify` runs the platform restore, build, and tests when
@@ -430,46 +494,47 @@ two action folders, so the README description of its behavior is updated here.
    paragraph add multipart recording upload, lineage, and finalization with the
    local RustFS container, and remove "S3-compatible storage," from the
    deferred list (coordinated with the persistence and Club and Identity edits
-   of the same paragraph); note that the above-5-GiB acceptance test needs about
-   12 GB of free Docker disk.
-5. **`contracts/README.md`** (new) — the index table with columns Artifact,
-   Owner, Version, Example, Validation command, and one row:
+   of the same paragraph); note that the opt-in above-5-GiB acceptance test
+   (`SOCALYTICS_RUN_LARGE_UPLOAD_TEST=true`) needs about 12 GB of free Docker
+   disk.
+5. **`contracts/README.md`** (created if missing, otherwise extended without
+   removing content) — the index table with columns Artifact, Owner, Version,
+   Example, Validation command, and this feature's row:
    `recordings/recordings-finalized/v1/recordings-finalized.schema.json`,
    Recordings (control plane), `1.0.0`, embedded `examples`,
    `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`; plus
-   the path, `$id`, and `x-socalytics-version` convention from
-   [research.md](research.md) R19 and the two digest forms from R4.
+   the path, `$id`, `x-socalytics-version`, one-row-per-schema, and
+   `releases/` conventions from [research.md](research.md) R19 and the two
+   digest forms from R4.
 6. **`src/platform/README.md`** — current status gains recording upload and
    lineage, the RustFS AppHost resource, the expiry worker, the
    Contracts.Tests project, and the contract command; remove "S3-compatible
    storage" from the deferred list.
-7. **`AGENTS.md`, sections "Current State" and "Repository Setup"** — list the
+7. **`AGENTS.md`, sections "Current State" and "Repository Setup"** (merge into
+   existing wording) — list the
    Contracts.Tests project and the repository-root `contracts/` folder in the
    current state, remove S3 from the absent infrastructure, and add the
    contract command to the supported platform commands.
 
 ## Required Architecture Updates
 
-The coordinator applies these to `docs/architecture/`; this plan does not edit
-them.
+The coordinator has already applied the design-level text of these items to
+`docs/architecture/` (items 3, 4, and 6 verbatim; items 1, 2, 5, 9, 10, and 11
+in future tense). The implementation applies only the evidence-at-merge
+changes: present tense and status for this feature's own sentences (items 1,
+2, 5, 9, 10, 11) and items 7 and 8. Sentences about other features, including
+every Durable Analysis sentence, stay exactly as written.
 
 1. **`docs/architecture/match-data-pipeline.md`, section "Planned
-   Recording-Lineage Foundation", first paragraph** — replace the sentence
-   beginning "The planned Recordings functional area will persist" with:
+   Recording-Lineage Foundation", first paragraph** — at merge, change "The
+   planned Recordings functional area will persist" to "The Recordings
+   functional area persists". Keep the following Durable Analysis sentences
+   ("The Durable Analysis workflow will introduce …") and the Match/Team and
+   typed-lineage-query sentence unchanged.
 
-   > The Recordings functional area persists, in the platform's application
-   > schema, upload sessions as its only mutable aggregate, and immutable
-   > recording versions, immutable timeline mappings, finalized recording-set
-   > versions, ordered memberships, scoped idempotency outcomes, and exactly
-   > one immutable recordings-finalized event record per recording-set
-   > version, committed in the same transaction as the set. The Durable
-   > Analysis workflow introduces the platform outbox and NATS publisher, adds
-   > the outbox call to the finalization handler, and backfills records
-   > finalized before it; it publishes them to `matches.recordings-finalized`,
-   > tracks publication state separately, and never rewrites the record.
-
-2. **`docs/architecture/match-data-pipeline.md`, section "Upload"** — add after
-   the paragraph that ends "rather than overwriting accepted evidence.":
+2. **`docs/architecture/match-data-pipeline.md`, section "Upload"** — the
+   paragraph below is present in future tense ("will be one multipart
+   upload"); at merge change "will be" to "is". Design text:
 
    > Every recording upload is one multipart upload of one platform-chosen
    > object. The client declares the total size, a fixed part size, and the
@@ -557,54 +622,41 @@ them.
    test projects grouped under `src/platform/Tests`".
 
 9. **`docs/architecture/contracts-and-compatibility.md`, section "Contract
-   Authority", first paragraph** — replace the paragraph beginning "No
-   machine-readable contracts exist yet." with:
-
-   > Canonical machine-readable contracts live under the repository-root
-   > `contracts/` directory. Recording Lineage and Upload introduces the
-   > directory, its index `contracts/README.md`, which identifies every
-   > published artifact, owner, version, example, and validation command, and
-   > the first artifact, the recordings-finalized event schema. Each schema
-   > lives at `contracts/<area>/<name>/v<major>/<name>.schema.json`, declares
-   > the `$id`
-   > `https://socalytics.invalid/contracts/<area>/<name>/v<major>/<name>.schema.json`
-   > on a reserved domain that is never dereferenced, and records its exact
-   > semantic version in `x-socalytics-version`. Until a behavior has a
-   > canonical artifact, the architecture topics linked below remain
-   > authoritative for it.
+   Authority", first paragraph** — at merge, remove "No machine-readable
+   contracts exist yet.", change "will live under" to "live under", and change
+   "The Recording Lineage and Upload feature will introduce" to "The Recording
+   Lineage and Upload feature introduces". Keep the sentence "The Durable
+   Analysis Workflow feature will then add …" and the path, `$id`, version,
+   and authority sentences unchanged.
 
 10. **`docs/architecture/contracts-and-compatibility.md`, section "Scope And
-    Dependencies", first paragraph** — replace the sentence beginning "The
-    first future contract baseline will cover the documented Analyst
-    workflow:" with:
-
-    > Recording Lineage and Upload establishes the contract baseline with the
-    > recordings-finalized event schema. The documented Analyst workflow
-    > contracts (shared resources and errors under `contracts/common/v1`,
-    > logical segments, Analyst jobs and result manifests, capability
-    > declarations, accepted upstream facts, and fenced attempt completion)
-    > follow with Durable Analysis and extend the same directory, index, and
-    > contract command.
-
-    Keep the following sentence ("It excludes service implementation, …")
-    unchanged.
+    Dependencies", first paragraph** — at merge, change "The Recording Lineage
+    and Upload feature will establish" to "The Recording Lineage and Upload
+    feature establishes". Keep the sentence about the Analyst workflow
+    contracts that "will follow" with Durable Analysis and the sentence "It
+    excludes service implementation, …" unchanged.
 
 11. **`docs/architecture/contracts-and-compatibility.md`, section "Validation
-    Authority", first paragraph** — replace the sentence beginning "Once
-    contracts exist, one repository contract command will be the
-    deterministic authority" with:
+    Authority", first paragraph** — at merge, change "which the Recording
+    Lineage and Upload feature will introduce, will be the deterministic
+    authority" to "which the Recording Lineage and Upload feature introduces,
+    is the deterministic authority". Keep the remaining sentences ("Features
+    that add further contract kinds will extend …", the Durable Analysis
+    released-copy compatibility sentence, independent .NET and Python fixture
+    validation, Kiota generation) unchanged as future validation.
 
-    > The repository contract command,
-    > `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`,
-    > introduced by Recording Lineage and Upload, is the deterministic
-    > authority for JSON Schema syntax and 2020-12 dialect, `$id` and version
-    > metadata, offline references, index coverage, and example outcomes.
-    > Features that add further contract kinds extend the same command with
-    > unique-identifier checks, OpenAPI linting and bundling, and same-major
-    > compatibility checks.
+12. **`docs/architecture/contracts-and-compatibility.md`, section "Contract
+    Authority", first paragraph** — evidence-at-merge: after the sentence
+    that ends "records its exact semantic version in `x-socalytics-version`.",
+    add:
 
-    Keep the remaining sentences of that paragraph (independent .NET and
-    Python fixture validation, Kiota generation) as future validation.
+    > Shared definitions are the one exception to that path form: each major
+    > version lives in a single schema at
+    > `contracts/common/v<major>/common.schema.json`.
+
+    This file-name convention is established by this feature's contract tests
+    (the architecture so far names only the `contracts/common/v<major>/`
+    folder).
 
 ## Risk Register
 
@@ -619,8 +671,9 @@ them.
 | REC-R07 | CI pulls `rustfs/rustfs` from Docker Hub at test time | **Accepted** | Pinned tag `1.0.1` (spike image digest recorded in the storage report); same exposure as the PostgreSQL image; no registry mirror exists yet | Pull failures or rate limiting in CI, or a repository decision to pin by digest or mirror images |
 | REC-R08 | Interfaces drift from the parallel foundation plans | **Mitigated** | This plan uses the canonical names from the persistence and Club and Identity plans (`IUnitOfWork`/`IUnitOfWorkScope`, `IAccessAuthorizer`, `TeamPermission`, `IAuditTrail`, `IRequestContext`, `OperationResult<T>`, cookie `__Host-socalytics-session`, `X-CSRF-Token`, `urn:socalytics:problem:<code>`, tables `match` and `member_account`) | Any rename in a merged foundation plan or implementation |
 | REC-R09 | Event publication ownership unclear between this feature and Durable Analysis | **Mitigated** | Decided: this feature stores the immutable record only; Durable Analysis adds the `IOutbox` call and a backfill for records created before it merges (R11, Required Architecture Update 1) | Durable Analysis plan or implementation diverging from the decision |
-| REC-R10 | The above-5-GiB acceptance test lengthens CI and needs about 12 GB of Docker disk | **Accepted** | Parts are generated and streamed, never held in memory; standard hosted runners provide the disk; required by SC-010 | CI duration or disk failures attributable to `LargeRecordingUploadTests` |
+| REC-R10 | The above-5-GiB acceptance test lengthens CI and needs about 12 GB of Docker disk | **Mitigated** | The test is opt-in (`SOCALYTICS_RUN_LARGE_UPLOAD_TEST=true`) and reports as skipped in the per-task full suite, so environment-verify needs no extra disk or time; parts are generated and streamed, never held in memory. Owner: this feature — the task that adds the test and the final validation task run it explicitly to record SC-010 evidence | The opt-in run fails for disk or time, or a CI job is added that should run it regularly |
 | REC-R11 | Presigned `UploadPart` with a signed checksum header is inferred, not explicitly documented, for AWS S3 | **Mitigated** | Follows from SigV4 signed-header semantics and the AWS presigned-checksum note; proven on RustFS; covered by the conformance probe for any store (R16) | Conformance probe failure on AWS S3 or another candidate store |
+| REC-R12 | Two features write the shared contracts bootstrap (`contracts/README.md`, `SocAlytics.Platform.Contracts.Tests`, `JsonSchema.Net` pin) and collide or drop each other's rows | **Mitigated** | This feature owns the bootstrap and creates each item only if missing, otherwise extends it; one `ContractCatalog` is the only discovery code; Analyst Manager Registration (#37) and Durable Analysis only extend; #37 merges after this feature (operational merge hold, no automation change) | #37 or #36 merging before this feature, or a second discovery class appearing |
 
 ## Complexity Tracking
 

@@ -37,12 +37,29 @@
   (failure attribution lost); building the Manager from a solution filter in
   the platform solution (crosses source-area ownership).
 
+## R3a: What triggers the Manager check
+
+- **Decision**: The Manager check runs in `mode=task` when a changed path
+  matches `^(src/analysts/manager|contracts/analyst-manager)/`
+  (`MANAGER_TRIGGER`), while its coverage scope stays `^src/analysts/manager/`
+  (`MANAGER_SCOPE`).
+- **Rationale**: The Manager tests read the shared golden fixtures under
+  `contracts/analyst-manager/`, so a fixture-only change must run them. The
+  fixtures are contract files, which the platform contract tests validate, so
+  they stay covered only through the platform scope (R1, R2).
+- **Alternatives considered**: Adding `contracts/analyst-manager/` to the
+  Manager coverage scope (a fixture change would count as covered even while
+  the platform solution, which validates the schemas, is missing).
+
 ## R4: SDK provisioning for the Manager
 
 - **Decision**: No new install. The Manager's `global.json` pins the same SDK
-  as `src/platform/global.json`; the verify block fails fast with a clear
-  message when the two pins differ.
-- **Rationale**: Keeps setup unchanged (FR-006) while preventing silent drift.
+  as `src/platform/global.json`; the verify block compares the complete `sdk`
+  objects (`version`, `rollForward`, `allowPrerelease`) and fails fast with a
+  message naming both values when they differ.
+- **Rationale**: Keeps setup unchanged (FR-006) while preventing silent drift;
+  the Manager research requires an identical `global.json`, and a different
+  roll-forward policy could select another SDK than the one installed.
 - **Alternatives considered**: A second `actions/setup-dotnet` step reading the
   Manager's `global.json` (more setup time, and a missing file would break
   setup before the Manager exists).

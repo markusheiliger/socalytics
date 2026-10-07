@@ -33,7 +33,12 @@ info:
       restricted (`passwordChangeRequired: true`). Only `getSession`,
       `getCurrentMember`, `changeOwnPassword`, and `signOut` are allowed;
       every other operation returns `403` with problem code
-      `password-change-required` until the password is changed.
+      `password-change-required` (distinct from `forbidden` and
+      `antiforgery-failed`) until the password is changed (FR-051, FR-053).
+    - Club and season reads: every active member with an unrestricted session
+      may read the club and every season without a club or team role; only
+      Club Admins change them (FR-004). Team and match data stays limited to
+      the caller's teams.
     - Collections: `items` plus an opaque `continuationToken`.
 servers:
   - url: /
@@ -120,7 +125,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/SessionForbidden'
   /api/v1/me:
     get:
       tags: [Self]
@@ -163,7 +168,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthenticated'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/SessionForbidden'
         '415':
           $ref: '#/components/responses/UnsupportedMediaType'
   /api/v1/credentials/redeem:
@@ -200,6 +205,9 @@ paths:
       tags: [Club]
       operationId: getClub
       summary: Read the club and its settings.
+      description: >
+        Every active member with an unrestricted session may read the club,
+        without any club or team role (FR-004).
       responses:
         '200':
           description: The club.
@@ -212,6 +220,8 @@ paths:
                 $ref: '#/components/schemas/Club'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/PasswordChangeRequired'
     put:
       tags: [Club]
       operationId: updateClubSettings
@@ -253,10 +263,11 @@ paths:
     get:
       tags: [Seasons]
       operationId: listSeasons
-      summary: List seasons visible to the caller.
+      summary: List every season.
       description: >
-        Club Admins see every season. Other members see only seasons that
-        contain at least one team on which they hold a role.
+        Every active member with an unrestricted session sees every season,
+        without any club or team role (FR-004). Seasons carry no team data;
+        teams stay limited to the caller's teams.
       parameters:
         - $ref: '#/components/parameters/ContinuationToken'
         - $ref: '#/components/parameters/PageSize'
@@ -271,6 +282,8 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/PasswordChangeRequired'
     post:
       tags: [Seasons]
       operationId: createSeason
@@ -311,6 +324,9 @@ paths:
       tags: [Seasons]
       operationId: getSeason
       summary: Read a season.
+      description: >
+        Every active member with an unrestricted session may read any season,
+        without any club or team role (FR-004).
       responses:
         '200':
           description: The season.
@@ -323,6 +339,8 @@ paths:
                 $ref: '#/components/schemas/Season'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/PasswordChangeRequired'
         '404':
           $ref: '#/components/responses/NotFound'
   /api/v1/seasons/{seasonId}/activate:
@@ -402,6 +420,8 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/PasswordChangeRequired'
         '404':
           $ref: '#/components/responses/NotFound'
     post:
@@ -466,6 +486,8 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/PasswordChangeRequired'
   /api/v1/teams/{teamId}:
     parameters:
       - $ref: '#/components/parameters/TeamId'
@@ -485,6 +507,8 @@ paths:
                 $ref: '#/components/schemas/Team'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/PasswordChangeRequired'
         '404':
           $ref: '#/components/responses/NotFound'
     put:
@@ -549,6 +573,8 @@ paths:
           $ref: '#/components/responses/ValidationFailed'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/PasswordChangeRequired'
         '404':
           $ref: '#/components/responses/NotFound'
     post:
@@ -607,6 +633,8 @@ paths:
                 $ref: '#/components/schemas/Match'
         '401':
           $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/PasswordChangeRequired'
         '404':
           $ref: '#/components/responses/NotFound'
     put:
@@ -1076,7 +1104,19 @@ components:
           schema:
             $ref: '#/components/schemas/Problem'
     Forbidden:
-      description: Missing or invalid anti-forgery proof (`antiforgery-failed`), the caller lacks the required role (`forbidden`), or the session is restricted until the password is changed (`password-change-required`).
+      description: Missing or invalid anti-forgery proof (`antiforgery-failed`), the caller lacks the required role (`forbidden`), or the session is restricted until the password is changed (`password-change-required`, FR-053). Used only by operations that a restricted session cannot reach.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    SessionForbidden:
+      description: Missing or invalid anti-forgery proof (`antiforgery-failed`). These self-service operations are allowed on a session restricted by a required password change, so they never return `password-change-required` (FR-053).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    PasswordChangeRequired:
+      description: The session is restricted until the password is changed (`password-change-required`, FR-053); only `getSession`, `getCurrentMember`, `changeOwnPassword`, and `signOut` are allowed.
       content:
         application/problem+json:
           schema:

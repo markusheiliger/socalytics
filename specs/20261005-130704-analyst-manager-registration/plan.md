@@ -63,10 +63,13 @@ Swift 5.9+ (Xcode command-line tools) for the macOS bridge library only.
   `SessionAntiforgeryFilter` (`X-CSRF-Token`), `ProblemResults`,
   `OperationResult<T>`/`OperationFailure`, `IRequestContext`,
   `IAccessAuthorizer`/`ClubPermission`, `IAuditTrail`/`AuditEvent`, and the
-  `member_account` and `club` tables; from Recording Lineage and Upload (when
-  merged) the `contracts/` index and `SocAlytics.Platform.Contracts.Tests`. New
+  `member_account` and `club` tables; from Recording Lineage and Upload (merged
+  before this feature) the `contracts/` index, `SocAlytics.Platform.Contracts.Tests`
+  with `ContractCatalog` (`Schemas`, `IndexRows`, `LoadRegistry()`),
+  `ContractIndexTests`, `SchemaMetaValidationTests`, and `JsonSchema.Net` 8.0.5,
+  which this feature only extends. New
   package `Microsoft.IdentityModel.JsonWebTokens` 8.23.0 (Infrastructure) for
-  JWS validation and RFC 7638 thumbprints. No OpenIddict or Duende (research R1).
+  JWS validation and RFC 7638 thumbprints, added only if absent. No OpenIddict or Duende (research R1).
 - Manager Core: `Microsoft.Extensions.Hosting` 10.0.12, `Microsoft.Extensions.Http`
   10.0.12, `Microsoft.IdentityModel.JsonWebTokens` 8.23.0, `Pkcs11Interop` 5.3.0;
   in-box Windows CNG, `Microsoft.Win32.Registry`, and `UnixDomainSocketEndPoint`.
@@ -89,7 +92,8 @@ Swift 5.9+ (Xcode command-line tools) for the macOS bridge library only.
 
 - Platform: xUnit v3, Shouldly, `WebApplicationFactory`
   (`Microsoft.AspNetCore.Mvc.Testing` 10.0.12), Testcontainers PostgreSQL,
-  `FakeTimeProvider` (`Microsoft.Extensions.TimeProvider.Testing` 10.10.0) in
+  `FakeTimeProvider` (`Microsoft.Extensions.TimeProvider.Testing` 10.10.0,
+  pinned here only if absent and reused by Durable Analysis Workflow) in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry`; fixture
   manifest and index checks in `SocAlytics.Platform.Contracts.Tests`; layer,
   visibility, and anonymous-allow-list rules in
@@ -141,7 +145,7 @@ projects, 1 test project, and 1 Swift package; one shared fixture set.
 | I. Architecture is the design authority | PASS | Follows [Analyst Manager](../../docs/architecture/analyst-manager.md#registration-and-stamp-binding) (Generic Host plus Avalonia tray, two authorized actions, browser pairing, challenge activation, `private_key_jwt` + DPoP, revocation precedence, lifecycle and operating states, restore on autostart), [Analyst Runtime and Recovery](../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status), [Platform Implementation](../../docs/architecture/platform-implementation.md#analyst-technology), [Security and Data Governance](../../docs/architecture/security-and-data-governance.md#audit-events), and [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md#contract-authority) (repository-root `contracts/`). Refinements and the replacement of "operating-system-protected local storage" by a signed owner-only file are listed under [Required Architecture Updates](#required-architecture-updates). Unresolved policy values stay explicit non-production defaults. |
 | II. Respect source-area ownership | PASS | Registration records, authorization, credentials, and audit are in `src/platform` Registry folders of existing layer projects (no new platform project). The Manager, its Swift bridge, and its tests are under the planned `src/analysts/manager` path (the analysts area allows several languages). Fixtures live in repository-root `contracts/`, the location the architecture defines for canonical contracts, not under `src/`. |
 | III. API-first control plane | PASS | Every human action is an authorized REST operation; the Manager is an API consumer with no database access; no video bytes; OpenAPI 3.1 and JSON Schema 2020-12 contracts are authoritative; the local-control schema lives with the Manager that validates it. |
-| IV. Evidence over claims | PASS | Focused platform tests plus host, architecture, and contract tests; Manager tests run on Linux with a real PKCS#11 module (SoftHSM2), headless Avalonia, and real sockets; golden fixtures verified by both sides. Windows CNG and macOS parts are verified manually per [quickstart.md](quickstart.md) and recorded before merge; nothing is claimed as deployment support or production readiness. |
+| IV. Evidence over claims | PASS | Focused platform tests plus host, architecture, and contract tests; Manager tests run on Linux with a real PKCS#11 module (SoftHSM2), headless Avalonia, and real sockets; golden fixtures verified by both sides. Windows CNG and macOS parts are verified manually per [quickstart.md](quickstart.md) and recorded on the pull request before merge; the pull request is held for review until that evidence is attached, which is operational (the user sets `SPECKIT_AUTO_MERGE=false` for this feature or reviews it; no task changes automation; risk R-14). Nothing is claimed as deployment support or production readiness. |
 | V. Focused, minimal changes | PASS | One grant, one client type, opaque tokens, in-box rate limiting and sockets, no authorization-server framework; the Manager adds only the spec-required UI framework, one PKCS#11 binding, and a minimal Swift bridge for macOS APIs .NET lacks; no runtime adapter, installer, or autostart library. The Core/UI project split is justified by the UI-free worker requirement. Each package is listed with its purpose. |
 | Technology: deferred technologies | PASS | PostgreSQL/Dapper/DbUp come from persistence; human authentication from Club and Identity; machine authentication and Avalonia are adopted by this spec (Avalonia is already the architecture's provisional choice). NATS and S3 are not used. |
 | Technology: environment features | PASS, dependent | `.github/actions/environment-verify` builds and tests only `src/platform/SocAlytics.Platform.slnx`, and the runner lacks SoftHSM2. This feature depends on the combined environment feature [`20261007-115855-environment-verification-coverage`](../20261007-115855-environment-verification-coverage/spec.md) (scope below), which must be reviewed and merged first; the spec's Assumptions → Dependencies names it. |
@@ -164,17 +168,21 @@ projects, 1 test project, and 1 Swift package; one shared fixture set.
   `/usr/lib/softhsm/libsofthsm2.so`). No X server, fontconfig, or Xvfb is needed
   for Avalonia headless tests (spike M4); the SDK already comes from the
   platform pin.
-- **Verify**: restore, build, and test the Manager solution when
-  `src/analysts/manager/**` or `contracts/analyst-manager/**` changed and in
-  finalize mode; cover those paths only when the solution exists; skip while it
-  does not exist.
+- **Verify**: restore, build, and test the Manager solution when a changed
+  path matches the environment feature's `MANAGER_TRIGGER`
+  (`^(src/analysts/manager|contracts/analyst-manager)/`) and in finalize mode,
+  skipping the check while the solution does not exist. Only `MANAGER_SCOPE`
+  (`^src/analysts/manager/`) joins `COVERED`; all of `contracts/` belongs to
+  the platform scope, so a fixture change under `contracts/analyst-manager/`
+  runs the platform check first and then the Manager check (analysis findings
+  I1 and X09).
 - **Test strategy**: the Linux runner runs the PKCS#11 provider against a
   per-user SoftHSM2 token (`SOFTHSM2_CONF`), headless tray and status-window
   tests, socket and single-instance tests with `SO_PEERCRED`, XDG autostart, the
   signed-state store, and the golden fixtures. Windows CNG, Windows autostart
   and socket ACLs, and the macOS bridge are `SkipUnless` their OS and verified
   manually per quickstart, together with the composed end-to-end run, before
-  merge.
+  merge; the pull request is held for review until then (operational, R-14).
 
 ### Post-design re-evaluation
 
@@ -213,8 +221,8 @@ Shared golden fixtures (FR-039):
 contracts/
 ├── README.md                                        # + index row (index created by Recording Lineage and Upload)
 └── analyst-manager/registration/v1/
+    ├── registration.schema.json                     # $id https://socalytics.invalid/contracts/analyst-manager/registration/v1/registration.schema.json (manifest schema)
     ├── fixtures.json                                # Manifest: fixed clock, stamp, base URI, vectors, expected outcomes
-    ├── fixtures.schema.json                         # $id https://socalytics.invalid/contracts/analyst-manager/registration/v1/fixtures.schema.json
     ├── test-key.jwk.json                            # RFC 7515 Appendix A.3 P-256 example key (public test vector)
     ├── fingerprint.json                             # Test-key thumbprint and device fingerprint
     ├── submission.request.json, submission.wrong-fingerprint.request.json
@@ -258,11 +266,17 @@ src/platform/
 │   │                                                # RegistrySecretGenerator
 │   └── Persistence/
 │       ├── Migrations/NNNN_registry_analyst_manager_registration.sql
-│       └── Structure/PersistedTableClassifications.cs  # + 1 versioned root, 2 unversioned tables
+│       └── PostgresAuditTrail.cs                    # + Registry event types, details keys, actor kind
 ├── SocAlytics.Platform.Api/
-│   ├── Program.cs                                   # Registry endpoints, AnalystManagerDPoP scheme,
-│   │                                                # AnalystManager policy, rate limiter, worker
+│   ├── Program.cs                                   # Calls AddRegistryApi and MapRegistryEndpoints once
+│   ├── Security/AuthorizationPolicyNames.cs         # + AnalystManager = "AnalystManager"
+│   ├── appsettings.Development.json                 # Stamp:Id local-dev-stamp, Stamp:PublicBaseUri
 │   └── Registry/
+│       ├── RegistryApiRegistration.cs               # AddRegistryApi (options, AnalystManagerDPoP scheme,
+│       │                                            # AnalystManager policy, rate limiter, worker) and
+│       │                                            # MapRegistryEndpoints
+│       ├── AnalystManagerClaimTypes.cs              # client_id, socalytics:registration_id, scope
+│       ├── AnalystManagerDPoPDefaults.cs            # AuthenticationScheme, ScopeValue analyst-manager
 │       ├── AnalystManagerPairingEndpoints.cs        # Stamp discovery, pairings, status, activation
 │       ├── AnalystManagerTokenEndpoint.cs
 │       ├── AnalystManagerSelfEndpoints.cs
@@ -271,21 +285,35 @@ src/platform/
 │       ├── RequireHttpsEndpointFilter.cs
 │       ├── RegistryRateLimiting.cs
 │       └── RegistrationExpiryWorker.cs
-├── SocAlytics.Platform.AppHost/Program.cs           # Stamp__Id, Stamp__PublicBaseUri, Registry__AllowSoftwareKeys=true (development)
+├── SocAlytics.Platform.AppHost/Program.cs           # Stamp__Id, Stamp__PublicBaseUri (HTTPS endpoint, or HTTP when SocAlytics:ApiHttpsEndpoint=false), Registry__AllowSoftwareKeys=true (development)
 └── Tests/
-    ├── SocAlytics.Platform.Architecture.Tests/PlatformArchitectureTests.cs  # Registry visibility; anonymous allow list entries
-    ├── SocAlytics.Platform.Contracts.Tests/AnalystManagerRegistrationFixtureTests.cs  # Manifest schema, index row
-    └── SocAlytics.Platform.Integration.Tests/Registry/
-        ├── Support/TestAnalystManager.cs            # In-memory ECDSA proofs, DPoP, assertions
-        ├── Unit/RegistrationStateMachineTests.cs
-        ├── PairingTests.cs
-        ├── DecisionTests.cs
-        ├── ActivationTests.cs
-        ├── TokenAndDPoPTests.cs
-        ├── RevocationAndUnregistrationTests.cs
-        ├── ExpiryTests.cs
-        ├── GoldenFixtureTests.cs                    # Runs every fixture vector through the API
-        └── AuditAndSecretTests.cs
+    ├── SocAlytics.Platform.Architecture.Tests/      # Registry visibility; anonymous allow list entries;
+    │                                                # AnalystManager endpoints exempt from anti-forgery
+    ├── SocAlytics.Platform.Contracts.Tests/AnalystManagerRegistrationFixtureTests.cs  # Manifest against registration.schema.json via ContractCatalog
+    ├── SocAlytics.Platform.Host.Tests/              # + the 14 operationIds in /openapi/v1.json
+    └── SocAlytics.Platform.Integration.Tests/
+        ├── Structure/PersistedTableClassifications.cs  # + 2 unversioned tables (registration is versioned)
+        └── Registry/
+            ├── Support/                             # TestAnalystManager (in-memory ECDSA proofs, DPoP,
+            │                                        # assertions), RegistryTestHost
+            ├── Unit/                                # RegistrationStateMachineTests, DeviceIdentityTests,
+            │                                        # RegistrySecretGeneratorTests
+            ├── RegistrySchemaTests.cs
+            ├── RegistrationStoreTests.cs
+            ├── RegistryAuditEventTests.cs
+            ├── ProofValidationTests.cs
+            ├── PairingTests.cs
+            ├── SubmissionTests.cs
+            ├── DecisionTests.cs
+            ├── ActivationTests.cs
+            ├── ExpiryTests.cs
+            ├── RateLimitingTests.cs
+            ├── TokenTests.cs
+            ├── ManagerAuthenticationTests.cs
+            ├── RevocationTests.cs
+            ├── UnregistrationTests.cs
+            ├── GoldenFixtureTests.cs                # Runs every fixture vector through the API
+            └── AuditAndSecretTests.cs
 ```
 
 Analyst Manager part (all new except `src/analysts/README.md`):
@@ -312,7 +340,8 @@ src/analysts/
     │   │                                            # CanonicalJson, OwnerOnlyFiles
     │   ├── Platform/                                # PlatformClient, ProofFactory, token cache, signals
     │   ├── Registration/                            # RegistrationCoordinator, PairingSession,
-    │   │                                            # RegistrationStatusMonitor
+    │   │                                            # RegistrationRestorer, RegistrationStatusMonitor,
+    │   │                                            # ProtectedStoreFailureHandler
     │   ├── Operating/                               # OperatingStateMachine, OperatingIntent,
     │   │                                            # TimedPauseScheduler, AdmissionGate,
     │   │                                            # DrainCoordinator, IManagerWorkTracker
@@ -333,7 +362,7 @@ src/analysts/
     │   └── Assets/                                  # Tray icons
     └── Tests/SocAlytics.Analysts.Manager.Tests/
         ├── TestAppBuilder.cs                        # [assembly: AvaloniaTestApplication], UseHeadless
-        ├── Support/                                 # SoftHsmToken, FakePlatform, FixtureSigner,
+        ├── Support/                                 # SoftHsmToken, FakePlatform, InMemoryDeviceKeyProvider,
         │                                            # SimulatedRuntimeAdapter, SimulatedWork, ManagerTestHost
         ├── DeviceKeys/                              # PKCS#11 (SoftHSM2); CNG and macOS (SkipUnless)
         ├── LocalState/
@@ -371,8 +400,15 @@ repository-root `contracts/`, which both test suites read.
   use `MapMemberApi` (`SocAlyticsSession`, `ActiveMember`) and
   `SessionAntiforgeryFilter` (`X-CSRF-Token`). Anonymous Manager endpoints are
   added to the Club and Identity anonymous allow list; `self` endpoints require
-  the policy `AnalystManager` (scheme `AnalystManagerDPoP`, scope
-  `analyst-manager`), which Durable Analysis Workflow reuses. Neither family
+  the policy `AuthorizationPolicyNames.AnalystManager` = `"AnalystManager"`
+  (scheme `AnalystManagerDPoPDefaults.AuthenticationScheme` =
+  `"AnalystManagerDPoP"`, scope `analyst-manager`), which Durable Analysis
+  Workflow reuses. The authenticated principal carries exactly the claims of
+  `AnalystManagerClaimTypes` (`public static` in `SocAlytics.Platform.Api`,
+  folder `Registry/`): `ManagerId = "client_id"` (the Manager id),
+  `RegistrationId = "socalytics:registration_id"`, and `Scope = "scope"` with
+  value `analyst-manager`; consumers use these constants, never literals.
+  Neither family
   accepts the other's scheme (FR-013). Handlers return `OperationResult<T>`;
   `ProblemResults` maps failures to `urn:socalytics:problem:<code>`.
 - **Audit**: `IAuditTrail.RecordAsync` inside the transition's
@@ -412,6 +448,14 @@ repository-root `contracts/`, which both test suites read.
   true. Hardware attestation is deferred (research R26, R-13).
 - **Inactive signal**: the Manager clears stamp state and deletes the device key
   only after a proof-authenticated inactive response (research R17).
+- **Local unregister**: drain first; only a successful drain leads to
+  `self/unregistration` and `self/unregistration/completion`. A drain cancelled
+  by the `CancelRequest` timeout policy makes no platform call, keeps the
+  registration Active, clears `pendingUnregister`, and restores the previous
+  intent (spec clarification 2026-10-07, research R18).
+- **Protected store lost at runtime**: a key or signed-state failure while
+  Active closes admission and moves the Manager to `restore-failed` with the
+  diagnostic code; nothing falls back to unprotected storage.
 
 ## Documentation Updates
 
@@ -430,13 +474,20 @@ combines the sentences.
    >   Markdown linters, and SoftHSM2 for the Analyst Manager PKCS#11 tests;
    >   Docker for Testcontainers is already on the runner;
    > - `environment-verify` runs the platform restore, build, and tests when
-   >   `src/platform/**` changed, the Analyst Manager restore, build, and tests
+   >   `src/platform/**` or `contracts/**` changed, the Analyst Manager
+   >   restore, build, and tests
    >   (`src/analysts/manager/SocAlytics.Analysts.Manager.slnx`) when
-   >   `src/analysts/manager/**` or `contracts/analyst-manager/**` changed,
-   >   every check in finalize mode, and the Markdown check when Markdown
-   >   changed. It lists the paths it covers in `COVERED`; changed files outside
-   >   them are reported as not covered, including platform or Manager files
-   >   when their solution is missing.
+   >   `src/analysts/manager/**` or the shared fixtures under
+   >   `contracts/analyst-manager/**` changed, every check in finalize mode,
+   >   and the Markdown check when Markdown changed. It lists the paths it
+   >   covers in `COVERED` (`contracts/` counts as platform-covered);
+   >   changed files outside them are reported as not covered, including
+   >   platform or Manager files when their solution is missing.
+
+   The implementing task states the trigger paths exactly as
+   `.github/actions/environment-verify/action.yml` defines them when it runs
+   (its platform scope, `MANAGER_SCOPE`, and `MANAGER_TRIGGER`) and corrects this
+   text if they differ.
 
 2. **`README.md`, section "Development"**: add a subsection after "Platform
    Host":
@@ -473,8 +524,8 @@ combines the sentences.
    `src/analysts/manager/` and the planned Analyst SDK and capability boundary;
    the paragraph after the list says the clients and agents areas remain
    non-executable while the platform and the Analyst Manager contain
-   application projects and tests; add `contracts/` (if Recording has not)
-   with the golden-fixture set; in the "Platform Host" evidence paragraphs, add
+   application projects and tests; add the golden-fixture set to the
+   `contracts/` item (adding the item only if Recording did not list it); in the "Platform Host" evidence paragraphs, add
    Analyst Manager registration (pairing, approval, activation, DPoP machine
    tokens, revocation).
 
@@ -497,22 +548,29 @@ combines the sentences.
 6. **`src/analysts/manager/README.md`** (new): purpose, run and test commands,
    tray and CLI controls with exit codes from
    [contracts/local-control.md](contracts/local-control.md), key providers per
-   OS and how to provision a tpm2-pkcs11 token, autostart per OS, building the
+   OS and how to provision a tpm2-pkcs11 token (including the random user PIN
+   passed to `tpm2_ptool addtoken --userpin` and stored by the operator in the
+   owner-only `pkcs11.pin`), autostart per OS, building the
    macOS bridge, non-production configuration defaults, and the readiness
    disclaimer.
 
 7. **`src/platform/README.md`**: Registry endpoints, `Stamp:Id` and
    `Stamp:PublicBaseUri`, the Registry option defaults including
    `Registry:AllowSoftwareKeys` (false; true only for development and test) and
-   `Registry:Pairing:MaxFingerprintMismatches`, and the fixture tests.
+   `Registry:Pairing:MaxFingerprintMismatches`, the `AnalystManagerDPoP`
+   scheme, the `AnalystManager` policy, the `AnalystManagerClaimTypes`
+   constants, and the fixture tests.
 
-8. **`contracts/README.md`**: index row `analyst-manager/registration/v1/fixtures.json`,
-   owner "Registry (control plane) and Analyst Manager", version `1.0.0`,
-   example "the fixture files themselves", validation commands
+8. **`contracts/README.md`** (index created by Recording Lineage and Upload,
+   which merges first; this feature only adds a row): index row
+   `analyst-manager/registration/v1/registration.schema.json`, owner "Registry
+   (control plane) and Analyst Manager", version `1.0.0`, example "the manifest
+   `fixtures.json` and the fixture files it lists, plus the schema's embedded
+   `examples`", validation commands
    `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests` and the
-   Manager test command. If the index does not yet exist, create it with the
-   Recording Lineage and Upload columns (Artifact, Owner, Version, Example,
-   Validation command).
+   Manager test command. The existing `ContractIndexTests` (one row per schema,
+   `$id` equals path, path rule) and `SchemaMetaValidationTests` cover the new
+   schema unchanged.
 
 ## Required Architecture Updates
 
@@ -632,12 +690,13 @@ They replace the earlier headless and CNG/DPAPI proposals.
 | R-05 | No production container-runtime adapter, so every real Manager stays Runtime unavailable | Accepted | Spec scope: preflight is validated with a simulated runtime; FR-032 requires Runtime unavailable without an integration | The Docker Desktop adapter feature is planned |
 | R-06 | Rate limits are per API instance and forwarded headers are not configured (client address and HTTPS detection behind a proxy) | Deferred | Owner: production operations profile (`docs/architecture/production-operations.md`) and deployment work | A production deployment profile is drafted |
 | R-07 | Drift between the platform and Manager implementations of the registration exchanges | Mitigated | Golden fixtures under `contracts/analyst-manager/registration/v1/` verified by both test suites (FR-039, R23) plus the composed manual end-to-end run before merge | Any change to [openapi.yaml](contracts/openapi.yaml) or [proof-profiles.md](contracts/proof-profiles.md) |
-| R-08 | Club and Identity name drift (cookie, header, problem types, shared types, tables) | Mitigated | All names reconciled with the finished Club and Identity plan; open coordination items (optional `AuditResource` on `AuthorizeClubAsync`, coded `400` `OperationFailure`, audit `actor_kind` value) listed under [Dependencies and Coordination](#dependencies-and-coordination) | Club and Identity plan or contract changes |
+| R-08 | Club and Identity name drift (cookie, header, problem types, shared types, tables) | Mitigated | All names reconciled with the finished Club and Identity plan and tasks (`PlatformApiFactory`, the `PostgresAuditTrail` allow-list, `ck_security_audit_event_actor_kind`, `SocAlytics:ApiHttpsEndpoint`, `OperationFailure.Validation`/`Conflict`, the `AuthorizeClubAsync(ClubPermission, AuditResource, CancellationToken)` overload); this feature adds no Club and Identity types (see [Dependencies and Coordination](#dependencies-and-coordination)) | Club and Identity plan or contract changes |
 | R-09 | xUnit v3 4.x breaks `Avalonia.Headless.XUnit` | Mitigated | Central pin `[3.2.2,4.0)` (spike M4 reproduced the failure; Avalonia #22072) | Avalonia #22072 is resolved |
 | R-10 | Software-backed keys (Windows software KSP, macOS Keychain without Secure Enclave) roam with roaming profiles or can be copied with the user profile | Mitigated | Refused by default: `Registry:AllowSoftwareKeys` is `false` outside development and test, discovery tells the Manager, and the Manager does not fall back to a software key (FR-041, research R26; spike M2 roaming evidence) | A production profile asks to allow software keys, or attestation lands (R-13) |
-| R-11 | The `contracts/` index or `SocAlytics.Platform.Contracts.Tests` may not exist yet when this feature is implemented (Recording is not a declared dependency) | Mitigated | Fallback in [Documentation Updates](#documentation-updates) item 8 and research R23: create the index with the same columns; fixture behavior is also asserted in Integration.Tests | Merge order of Recording Lineage and Upload is fixed |
+| R-11 | The `contracts/` index or `SocAlytics.Platform.Contracts.Tests` might not exist when this feature is implemented | Resolved | Recording Lineage and Upload is now a declared predecessor (spec clarification 2026-10-07; merge order environment and persistence → Club and Identity → Recording → this feature → Durable Analysis); it owns the index, the project, `ContractCatalog`, and the generic schema checks, and this feature only adds a schema, an index row, and fixture tests (T002) | The merge order changes |
 | R-12 | Device-code phishing (RFC 8628 §5.4): a Registrar is tricked into submitting a pairing code for an attacker's Manager | Mitigated | Device fingerprint entered with the code and verified server-side with an indistinguishable refusal and a mismatch limit; pairing origin, time, and approval notice in decision views; separate Club Admin approval (FR-040, research R25). Residual: a Registrar who types both values from an attacker's message; owner of residual-risk acceptance: Security and Data Governance (THR-003) | Phishing reports, or QR pairing is introduced |
 | R-13 | `claimedKeyProtection` is self-reported; a modified Manager can claim hardware protection for a software key | Deferred | Never used for authorization and labeled claimed (FR-041). Hardware attestation (Windows Platform Crypto Provider key attestation, `TPM2_Certify` for tpm2-pkcs11; none generally available for macOS Secure Enclave keys) is deferred; owner: credential and key authority under `GOV-CRED-002` | `GOV-CRED-002` requires hardware-bound Manager keys for production |
+| R-14 | Automation could merge the pull request before the manual Windows, macOS, and composed end-to-end evidence (quickstart sections 3 and 4) is recorded, and the Swift bridge is never compiled on the Linux runner | Mitigated (operational) | Spec clarification 2026-10-07: the pull request is always held for review and merges only after that evidence is recorded on it. The hold is operational: the user sets `SPECKIT_AUTO_MERGE=false` for this feature or reviews the pull request before merge; no task changes automation | A Windows or macOS CI job is added, or the merge policy changes |
 
 ## Dependencies and Coordination
 
@@ -654,23 +713,38 @@ They replace the earlier headless and CNG/DPAPI proposals.
   `submitted_by`, `decided_by`, and `revoked_by`; the `club` table for the club
   name in Manager status; the AppHost HTTPS endpoint; and the anonymous allow
   list in the architecture tests.
-- **Coordination items for Club and Identity** (resolve at `/speckit-tasks` or
-  `/speckit-analyze` without changing behavior designed here):
-  - `IAccessAuthorizer.AuthorizeClubAsync` should accept an optional
-    `AuditResource` so the `authorization.denied` event names the registration
-    (FR-033). Fallback: Registry records the registration id in the request
-    correlation only.
-  - `OperationFailure` needs a `400` failure that carries a problem code (for
-    `analyst-manager-pairing-code-invalid`,
-    `analyst-manager-polling-handle-invalid`, and
-    `analyst-manager-activation-proof-invalid`); proposal: `Validation` with an
-    optional top-level code.
-  - The `security_audit_event` `actor_kind` check gains `analyst-manager`, and
-    `resource_type` gains `analyst-manager-registration` if constrained; the
+- **Club and Identity types used as provided** (this feature adds or changes
+  none of them):
+  - `IAccessAuthorizer.AuthorizeClubAsync(ClubPermission, AuditResource, CancellationToken)`
+    (Club and Identity T008) names the registration in `authorization.denied`
+    (FR-033).
+  - `OperationFailure.Validation(code, …)` and `OperationFailure.Conflict(code)`
+    (Club and Identity T002) carry the coded `400` and `409` failures
+    (`analyst-manager-pairing-code-invalid`,
+    `analyst-manager-polling-handle-invalid`,
+    `analyst-manager-activation-proof-invalid`, and the `409` codes); the
+    `PostgresAuditTrail` details allow-list is extended for the Registry keys.
+  - The `security_audit_event` constraint `ck_security_audit_event_actor_kind`
+    is dropped and re-added under the same name with `analyst-manager` added;
+    Club and Identity has no `resource_type` check, so none is altered; the
     Registry migration applies this.
-- **Recording Lineage and Upload** (not a declared dependency): provides the
-  `contracts/` index and `SocAlytics.Platform.Contracts.Tests`; see R-11.
-- **Durable Analysis Workflow**: consumes the `AnalystManagerDPoP` scheme and
-  the `AnalystManager` policy defined here.
+- **Recording Lineage and Upload** (declared predecessor; merges before this
+  feature): provides the `contracts/` index, `SocAlytics.Platform.Contracts.Tests`
+  with `ContractCatalog` and the generic contract checks, and `JsonSchema.Net`
+  8.0.5 in the platform package versions. This feature takes the next free
+  migration number on an up-to-date `main` after Recording's migration, and
+  its additive edits to shared files (`Directory.Packages.props`,
+  `Api/Program.cs`, `AddInfrastructure()`, `PersistedTableClassifications.cs`,
+  `appsettings.Development.json`, `README.md`, `AGENTS.md`) extend Recording's
+  content without replacing it.
+- **Durable Analysis Workflow** (merges after this feature): consumes the
+  `AnalystManagerDPoP` scheme, the `AnalystManager` policy, the
+  `AnalystManagerClaimTypes` constants, and the
+  `Microsoft.Extensions.TimeProvider.Testing` 10.10.0 pin defined here.
 - **AppHost**: this feature adds only the stamp configuration (`Stamp__Id`,
-  `Stamp__PublicBaseUri` from the API HTTPS endpoint).
+  `Registry__AllowSoftwareKeys=true`, and `Stamp__PublicBaseUri` from the API
+  HTTPS endpoint when the Club and Identity flag `SocAlytics:ApiHttpsEndpoint`
+  is true (default), otherwise from the API HTTP endpoint; the host smoke test
+  runs with the flag false and asserts that the API still receives a
+  `Stamp__PublicBaseUri`). `StampOptions` accepts an `http` origin only in the
+  `Development` environment; Manager-facing endpoints still require HTTPS.

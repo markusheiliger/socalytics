@@ -7,7 +7,7 @@ verified by the catalog validation, the Migrator, and the structural tests in
 ## Files
 
 - Location: `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/`, included as `EmbeddedResource`.
-- Name: `NNNN_<area>_<description>.sql`. `NNNN` is four digits, assigned at implementation time as the next free number in merge order. `<area>` is one lowercase token (`foundation`, `club`, `identityaccess`, `recordings`, `registry`, `analysis`, `agentorchestration`). `<description>` is lowercase words joined by `_`.
+- Name: `NNNN_<area>_<description>.sql`. `NNNN` is four digits, assigned at implementation time as the next free number on an up-to-date `main`. Features merge sequentially; a feature whose number was taken before it merged renumbers its migration before merge. `<area>` is one lowercase token (`foundation`, `club`, `identityaccess`, `recordings`, `registry`, `analysis`, `messaging`, `agentorchestration`); the list is informational, and any token matching `[a-z][a-z0-9]*` is accepted. `<description>` is lowercase words joined by `_`.
 - The identity is the file name without `.sql`. It never changes.
 - The checksum is `sha-256:` plus the lowercase hex SHA-256 of the BOM-stripped, LF-normalized UTF-8 content. Line-ending changes alone do not change it, but any other edit does.
 - Migrations are forward-only. Never edit or delete an applied migration; deliver corrections as a new migration.
@@ -46,6 +46,10 @@ as `ChildOf(…)`, `Immutable`, or `Unversioned(reason)`.
 | `socalytics.touch_aggregate_root()` | trigger function, arguments `(root_table, root_key, child_key)` | `AFTER INSERT OR DELETE` and `AFTER UPDATE WHEN changed`: advances the root's version by one per changed child row. |
 | `socalytics.attach_version_trigger(target regclass)` | procedure (`EXECUTE` revoked from `PUBLIC`) | Creates trigger `<table>_version_advance`. |
 | `socalytics.attach_aggregate_child_triggers(child regclass, root regclass, child_key name, root_key name DEFAULT 'id')` | procedure (`EXECUTE` revoked from `PUBLIC`) | Creates triggers `<child>_root_touch` and `<child>_root_touch_update`. |
+
+Both procedures name triggers and pass the root to `touch_aggregate_root()`
+with the bare table name (`pg_class.relname`), so `<table>` above is never
+schema-qualified.
 
 ## Data Migrations and Version Opt-Out
 
