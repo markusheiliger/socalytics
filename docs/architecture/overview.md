@@ -82,7 +82,8 @@ telemetry, capacity, incidents, upgrades, and production-readiness evidence.
 ## Planned Implementation Profile
 
 The logical architecture is planned provisionally as a .NET 10 and ASP.NET
-Core modular monolith composed locally with Aspire, with React and
+Core monolith structured in application layers and composed locally with
+Aspire, with React and
 TypeScript clients, one PostgreSQL database per stamp, Dapper-based logical
 CQRS, NATS JetStream, RustFS/S3, a .NET and Avalonia Analyst Manager, and Python
 Analyst Containers. Hermes is planned as a separate Python OCI service. Source

@@ -156,7 +156,7 @@ exercise, or evidence reference remains blocking and cannot be waived by
 | Resource | Operational authority | Recovery rule |
 | --- | --- | --- |
 | PostgreSQL | Domain records, identity, Job Registry, Agent Orchestration, attempts, accepted state, outbox, indexes | Restore as the workflow authority and validate ordered migrations and recovery position |
-| NATS JetStream | Durable lifecycle and ready-work transport | Restore or reconstruct from PostgreSQL and module outboxes; broker contents never override the Job Registry or Agent Orchestration |
+| NATS JetStream | Durable lifecycle and ready-work transport | Restore or reconstruct from PostgreSQL and the platform outbox; broker contents never override the Job Registry or Agent Orchestration |
 | S3-compatible storage | Source recordings, segments, immutable results and manifests | Restore inventory and bytes, verify immutable digests, and retain API/object authorization boundaries |
 | OCI/artifact registry | Immutable application, Analyst, model and package artifacts | Recover by digest with provenance and current authorization or revocation state |
 | Telemetry and audit stores | Operational signals and append-protected security/lifecycle evidence | Restore only when policy requires; preserve minimization, integrity and exceptional-access controls |

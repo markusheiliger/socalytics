@@ -1,19 +1,11 @@
-using SocAlytics.Platform.AgentOrchestration;
-using SocAlytics.Platform.Analysis;
-using SocAlytics.Platform.Club;
-using SocAlytics.Platform.IdentityAccess;
-using SocAlytics.Platform.Recordings;
-using SocAlytics.Platform.Registry;
+using SocAlytics.Platform.Application;
+using SocAlytics.Platform.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
-builder.Services.AddAgentOrchestrationModule();
-builder.Services.AddAnalysisModule();
-builder.Services.AddClubModule();
-builder.Services.AddIdentityAccessModule();
-builder.Services.AddRecordingsModule();
-builder.Services.AddRegistryModule();
+builder.Services.AddApplication();
+builder.Services.AddInfrastructure();
 builder.Services.AddOpenApi("v1", options =>
 {
 	options.AddDocumentTransformer((document, _, _) =>

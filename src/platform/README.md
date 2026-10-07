@@ -7,8 +7,10 @@ executable .NET 10 host scaffold.
 
 ## Ownership
 
-The boundary includes the API/BFF and the ASP.NET Core modular monolith that
-owns platform application behavior and coordinates platform services.
+The boundary includes the API/BFF and the ASP.NET Core application, a
+well-structured monolith organized in Domain, Application, Infrastructure, and
+API layers, that owns platform application behavior and coordinates platform
+services.
 
 ## Exclusions
 
@@ -19,11 +21,13 @@ software, and Analyst capabilities do not belong here.
 
 The executable scope is a dependency-free ASP.NET Core API composed by an
 Aspire AppHost. The API exposes liveness at `/alive`, readiness at `/health`,
-and the `v1` OpenAPI document at `/openapi/v1.json`. It registers the Club,
-Identity Access, Recordings, Registry, Analysis, and Agent Orchestration
-capabilities through six public composition boundaries. Focused host tests cover
-startup, endpoints, OpenAPI, and composition; architecture tests enforce project
-dependencies and implementation-type visibility.
+and the `v1` OpenAPI document at `/openapi/v1.json`. The solution is split into
+the layer projects Domain, Application, Infrastructure, and Api; the API wires
+the Application and Infrastructure layers through their public composition
+methods, and functional areas become folders and namespaces inside the layers.
+Focused host tests cover startup, endpoints, OpenAPI, and composition;
+architecture tests enforce the layer dependency direction and
+implementation-type visibility.
 
 Domain behavior, PostgreSQL persistence with Dapper and DbUp, NATS messaging,
 S3-compatible storage, identity and authentication, client applications,

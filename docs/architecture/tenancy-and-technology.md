@@ -53,12 +53,12 @@ Requirements:
 ### Planned Stamp Persistence
 
 The control-plane foundation will implement the stamp's database side as
-one PostgreSQL database with module-owned schemas: `club` for the singleton
-Club root and `Club > Season > Team > Match` hierarchy, `identity_access` for
-membership and Club/Team grants, `recordings` for immutable recording lineage,
-`registry` for immutable capability and model metadata, and `analysis` for
-durable run and result lineage. Shared migration history is isolated in
-`socalytics_migrations`; it owns no domain records.
+one PostgreSQL database with one application schema, `socalytics`, holding the
+singleton Club root and the `Club > Season > Team > Match` hierarchy,
+membership and Club/Team grants, immutable recording lineage, immutable
+capability and model metadata, and durable run and result lineage. Shared
+migration history is kept apart in `socalytics_migrations`; it owns no domain
+records.
 
 Architecture and PostgreSQL tests must verify that the Club row is a singleton,
 hierarchy parents are required, protected resources resolve to Team scope,
@@ -116,13 +116,14 @@ defined in the
 
 - .NET 10 LTS and C#
 - .NET Aspire for development composition and service defaults
-- ASP.NET Core modular monolith and backend-for-frontend
-- Agent Orchestration module with module-owned PostgreSQL state, migrations,
-  projections, and transactional outbox
+- ASP.NET Core monolith structured in Domain, Application, Infrastructure, and
+  API layers, including the backend-for-frontend
+- Agent Orchestration functional area with PostgreSQL state, migrations,
+  projections, and transactional outbox in the shared platform database
 - REST and JSON with OpenAPI; Kiota-generated clients
 - PostgreSQL
 - Npgsql, Dapper, logical CQRS, and plain typed handlers
-- DbUp and module-owned versioned PostgreSQL SQL migrations
+- DbUp and one ordered sequence of versioned PostgreSQL SQL migrations
 - ASP.NET Core Identity with Dapper stores, always-available local accounts,
     and optional external OpenID Connect providers
 
@@ -189,8 +190,8 @@ enforcement boundary for platform access. See the
 - xUnit v3, Shouldly, NSubstitute, Vitest, Testing Library, pytest,
   Playwright, and Testcontainers
 
-The planned .NET foundation, project and schema ownership, and validation
-criteria are recorded in the
+The planned .NET foundation, layered project structure, data organization, and
+validation criteria are recorded in the
 [Platform Implementation Profile](platform-implementation.md).
 
 ---

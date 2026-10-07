@@ -4,12 +4,8 @@ using Aspire.Hosting;
 using Aspire.Hosting.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
-using SocAlytics.Platform.AgentOrchestration;
-using SocAlytics.Platform.Analysis;
-using SocAlytics.Platform.Club;
-using SocAlytics.Platform.IdentityAccess;
-using SocAlytics.Platform.Recordings;
-using SocAlytics.Platform.Registry;
+using SocAlytics.Platform.Application;
+using SocAlytics.Platform.Infrastructure;
 using Xunit;
 
 namespace SocAlytics.Platform.Host.Tests;
@@ -42,18 +38,14 @@ public sealed class PlatformHostTests
     }
 
     [Fact]
-    public void AllCapabilityCompositionBoundariesContributeRegistrations()
+    public void ApplicationAndInfrastructureLayersContributeRegistrations()
     {
         IServiceCollection services = new ServiceCollection();
 
-        ShouldAddOneRegistration(services, static collection => collection.AddAgentOrchestrationModule());
-        ShouldAddOneRegistration(services, static collection => collection.AddAnalysisModule());
-        ShouldAddOneRegistration(services, static collection => collection.AddClubModule());
-        ShouldAddOneRegistration(services, static collection => collection.AddIdentityAccessModule());
-        ShouldAddOneRegistration(services, static collection => collection.AddRecordingsModule());
-        ShouldAddOneRegistration(services, static collection => collection.AddRegistryModule());
+        ShouldAddOneRegistration(services, static collection => collection.AddApplication());
+        ShouldAddOneRegistration(services, static collection => collection.AddInfrastructure());
 
-        services.Count.ShouldBe(6);
+        services.Count.ShouldBe(2);
     }
 
     private static async Task ShouldReturnSuccessAsync(HttpClient client, string path, CancellationToken cancellationToken)

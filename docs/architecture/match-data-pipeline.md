@@ -38,13 +38,14 @@ sequenceDiagram
 
 ### Planned Recording-Lineage Foundation
 
-The planned Recordings module owns the `recordings` PostgreSQL schema. It will
-persist immutable
+The planned Recordings functional area will persist, in the platform's
+application schema, immutable
 recording versions, immutable timeline mappings, finalized recording-set
-versions, ordered memberships, scoped idempotency outcomes, and the
-module-owned outbox. Match and Team existence and authorization are resolved
-through typed Club and Identity and Access boundaries; downstream validation
-uses a typed Recordings lineage query rather than direct schema access.
+versions, ordered memberships, scoped idempotency outcomes, and its outgoing
+events through the platform outbox. Match and Team existence and authorization
+are resolved through the Club and Identity and Access application handlers;
+downstream validation uses a typed Recordings lineage query rather than reading
+Recordings tables directly.
 
 Its implementation tests must cover immutable metadata and mapping revisions,
 mapping/recording mismatch, missing Match and unauthorized Team access, empty

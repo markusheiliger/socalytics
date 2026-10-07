@@ -15,7 +15,7 @@ features it depends on are merged.
 
 | Feature | Purpose | Depends on |
 | --- | --- | --- |
-| [Platform Persistence Foundation](20261005-130700-platform-persistence-foundation/spec.md) | Shared durable storage, ordered module migrations, data isolation, and database-aware readiness | None |
+| [Platform Persistence Foundation](20261005-130700-platform-persistence-foundation/spec.md) | Shared durable storage, one ordered platform-wide migration sequence, transactions and optimistic concurrency, and database-aware readiness | None |
 | [Club and Identity Foundation](20261005-130701-club-identity-foundation/spec.md) | Club, season, team, and match hierarchy with authenticated sessions and role-based access | Platform Persistence Foundation |
 | [Recording Lineage and Upload](20261005-130702-recording-lineage-upload/spec.md) | Direct-to-storage recording upload, immutable lineage, and authorized finalization | Platform Persistence Foundation, Club and Identity Foundation |
 | [Durable Analysis Workflow](20261005-130703-durable-analysis-workflow/spec.md) | Durable analysis runs, readiness evaluation, fenced attempts, reliable work publication, and versioned job contracts | Platform Persistence Foundation, Recording Lineage and Upload |

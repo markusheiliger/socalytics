@@ -7,8 +7,8 @@ in this profile are adopted architecture; production readiness and operational
 values remain **Provisional / Blocking production** as governed by
 [Production Deployment and Operations](production-operations.md). Only the
 platform host scaffold is executable: it provides the .NET 10 solution, local
-Aspire composition, operational API surface, capability composition boundaries,
-and host and architecture tests described below. It provides no domain behavior,
+Aspire composition, operational API surface, the layered project structure, and
+host and architecture tests described below. It provides no domain behavior,
 external infrastructure integration, security implementation, client runtime,
 deployment configuration, or production-readiness evidence.
 
@@ -30,20 +30,30 @@ two test projects grouped under `src/platform/Tests`:
 - `SocAlytics.Platform.Api`
 - `SocAlytics.Platform.AppHost`
 - `SocAlytics.Platform.ServiceDefaults`
-- `SocAlytics.Platform.Club`
-- `SocAlytics.Platform.IdentityAccess`
-- `SocAlytics.Platform.Recordings`
-- `SocAlytics.Platform.Registry`
-- `SocAlytics.Platform.Analysis`
-- `SocAlytics.Platform.AgentOrchestration`
+- `SocAlytics.Platform.Domain`
+- `SocAlytics.Platform.Application`
+- `SocAlytics.Platform.Infrastructure`
 - `Tests/SocAlytics.Platform.Host.Tests`
 - `Tests/SocAlytics.Platform.Architecture.Tests`
 
-`src/platform/SocAlytics.Platform.slnx` is the .NET 10 solution. The six
-capability projects expose one public dependency-injection composition boundary
-each and otherwise keep their initial marker types internal. They do not
-reference one another. The naming and peer-layout refinement does not change
-the capabilities' ownership or runtime boundaries and does not require an ADR.
+`src/platform/SocAlytics.Platform.slnx` is the .NET 10 solution. The platform is
+one application structured in layers, one project per layer:
+
+| Layer | Project | Responsibility | May depend on |
+| --- | --- | --- | --- |
+| Domain | `SocAlytics.Platform.Domain` | entities, value objects, domain rules; no framework or infrastructure dependencies | nothing |
+| Application | `SocAlytics.Platform.Application` | command and query handlers, authorization, validation, transaction boundaries, interfaces for infrastructure | Domain |
+| Infrastructure | `SocAlytics.Platform.Infrastructure` | PostgreSQL access, SQL and migrations, messaging, object storage, external services | Application, Domain |
+| Presentation | `SocAlytics.Platform.Api` | HTTP endpoints, OpenAPI, backend-for-frontend, composition root | Application, Infrastructure |
+
+`SocAlytics.Platform.AppHost` composes the local development environment and
+references only the API; `SocAlytics.Platform.ServiceDefaults` provides shared
+hosting defaults. The functional areas of the platform (Club, Identity Access,
+Recordings, Registry, Analysis, and Agent Orchestration) are folders and
+namespaces inside the layers, for example
+`SocAlytics.Platform.Application.Recordings`; they are not separate projects.
+Application and Infrastructure each expose one public dependency-injection
+composition method and keep their implementation types internal.
 
 Executable components use or will use the native workspace and dependency tools
 of each ecosystem:
@@ -77,50 +87,52 @@ does not make Aspire a production dependency or select a cloud provider.
 ## Control Plane
 
 The current control-plane evidence is a dependency-free ASP.NET Core host that
-registers all six capability projects through their public composition
-boundaries. It exposes only `/alive`, `/health`, and the built-in `v1` OpenAPI
-document at `/openapi/v1.json`; it has no domain paths. The Aspire AppHost
-composes only the API resource and uses `/health` for readiness. Architecture
-tests enforce capability isolation and the intended public surface. This is
-development-host evidence, not an implemented domain API, infrastructure
-topology, deployment mechanism, security posture, or production ingress
-contract.
+registers the Application and Infrastructure layers through their public
+composition methods. It exposes only `/alive`, `/health`, and the built-in `v1`
+OpenAPI document at `/openapi/v1.json`; it has no domain paths. The Aspire
+AppHost composes only the API resource and uses `/health` for readiness.
+Architecture tests enforce the layer dependency direction and the intended
+public surface. This is development-host evidence, not an implemented domain
+API, infrastructure topology, deployment mechanism, security posture, or
+production ingress contract.
 
-The target control plane starts as one ASP.NET Core modular-monolith deployment.
-Its modules include identity and authorization; club, season, team, and match
-management; recordings and uploads; segments; analysis scheduling and durable
-job state; capability and model registration; result ingestion and indexing;
-Analyst Manager registration; and MCP-facing application tools.
-The Agent Orchestration module owns conversations, logical invocations,
-delegated consultations, attempts, accepted advice, lineage projections,
-lifecycle tombstones, and its outgoing events.
+The target control plane is one ASP.NET Core application deployed as a single
+unit and structured in the layers described under
+[Source And Runtime Baseline](#source-and-runtime-baseline). It is a
+well-structured monolith, not a modular monolith: its functional areas share one
+domain model, one application layer, and one database, and they are separated
+by folders and namespaces rather than by isolated modules. The functional areas
+include identity and authorization; club, season, team, and match management;
+recordings and uploads; segments; analysis scheduling and durable job state;
+capability and model registration; result ingestion and indexing; Analyst
+Manager registration; MCP-facing application tools; and Agent Orchestration,
+which covers conversations, logical invocations, delegated consultations,
+attempts, accepted advice, lineage projections, lifecycle tombstones, and their
+outgoing events.
 
-Module boundaries will be enforced in code and tests. A module owns its application
-handlers, database objects, SQL, and migrations. Cross-module state changes use
-the owning module's command boundary rather than direct table writes. A module
-becomes a separate deployment only when measured scaling, fault-isolation, or
-operational evidence justifies extraction.
+Layer boundaries are enforced in code and tests: the Domain layer depends on
+nothing, Application only on Domain, Infrastructure on Application and Domain,
+and the API composes them. State changes go through Application command
+handlers rather than direct table writes from the API or Infrastructure code.
+Splitting the application into separate deployments would require a future
+architecture change backed by measured scaling, fault-isolation, or operational
+evidence.
 
-### Planned Control-Plane Ownership
+### Planned Data Organization
 
-The planned PostgreSQL ownership map is:
+Each stamp uses one PostgreSQL database with one application schema,
+`socalytics`, for all functional areas. Table names are prefixed or grouped by
+functional area where that improves readability, but areas do not have separate
+schemas, roles, or access separation. Migration history is kept apart from
+domain data in `socalytics_migrations.history`, which records the migration
+sequence and checksum but contains no domain state.
 
-- `SocAlytics.Platform.Club` owns schema `club`;
-- `SocAlytics.Platform.IdentityAccess` owns schema `identity_access`;
-- `SocAlytics.Platform.Recordings` owns schema `recordings`;
-- `SocAlytics.Platform.Registry` owns schema `registry`;
-- `SocAlytics.Platform.Analysis` owns schema `analysis`;
-- `SocAlytics.Platform.AgentOrchestration` owns schema `agent_orchestration`; and
-- shared migration infrastructure owns `socalytics_migrations.history`, which
-  records module sequence and checksum but contains no domain state.
-
-Module schema definitions and SQL remain internal to their owning assemblies.
-The API host references public registration and application contracts rather
-than module persistence types. The Registry module includes the queryable
-Analyst manifest cache keyed by immutable image digest. The Analysis module
-owns durable runs, DAG state, logical jobs, attempts, and accepted-result
-references. The segments boundary owns on-demand materialization within the
-control-plane deployment unless measured scaling later justifies extraction.
+Table definitions and SQL live in the Infrastructure layer. The API references
+Application contracts rather than persistence types. Registry data includes the
+queryable Analyst manifest cache keyed by immutable image digest. Analysis data
+covers durable runs, DAG state, logical jobs, attempts, and accepted-result
+references. Segment materialization runs on demand within the control-plane
+deployment unless measured scaling later justifies extraction.
 
 ### Persistence And CQRS
 
@@ -130,17 +142,23 @@ migrations, outbox, or infrastructure integration.
 
 Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Dapper
 provide database access; Entity Framework Core is not part of the baseline.
-DbUp applies ordered, versioned PostgreSQL SQL scripts grouped by owning module.
+DbUp applies one ordered sequence of versioned PostgreSQL SQL scripts for the
+whole platform; the scripts live in the Infrastructure layer.
 
 CQRS is logical rather than physical:
 
-- commands use plain typed C# handlers resolved through .NET dependency
-  injection and own authorization, validation, transactions, and state changes
+- commands use plain typed C# handlers in the Application layer, resolved
+  through .NET dependency injection, and own authorization, validation,
+  transactions, and state changes
 - queries use separate typed handlers and purpose-built SQL projections
+  implemented in the Infrastructure layer
 - command and query paths share the stamp database
 - event sourcing and separate read and write databases are not implied
 
-Optimistic concurrency protects contested writes. Database changes and outgoing
+Optimistic concurrency protects contested writes: changeable records carry a
+version, a write applies only when it names the current version and then
+advances it, and a stale version is reported as a conflict instead of
+overwriting another change. Database changes and outgoing
 events commit atomically through a PostgreSQL transactional outbox. A background
 publisher delivers outbox records to NATS JetStream with retries; consumers and
 completion handlers remain idempotent.
@@ -194,12 +212,13 @@ The complete workflow is defined in the
 
 ### Agent Runtime
 
-Agent Orchestration will use the same module-owned Dapper, PostgreSQL, DbUp,
-logical CQRS, optimistic-concurrency, and transactional-outbox baseline. Its
-state remains in the stamp database; this profile introduces neither a second
-agent database nor a special extraction rule. NATS JetStream carries only
-minimal, at-least-once work notifications. Consumers claim durable work through
-the owning module and remain idempotent under duplicate delivery.
+Agent Orchestration will use the same Dapper, PostgreSQL, DbUp, logical CQRS,
+optimistic-concurrency, and transactional-outbox baseline as the rest of the
+platform. Its state remains in the stamp database; this profile introduces
+neither a second agent database nor a special extraction rule. NATS JetStream
+carries only minimal, at-least-once work notifications. Consumers claim durable
+work through the Agent Orchestration application handlers and remain idempotent
+under duplicate delivery.
 
 The planned control-plane surface includes canonical asynchronous submission,
 private conditional status/result/lineage reads, workload claim, lease,
@@ -290,10 +309,10 @@ The initial platform-host change provides this executable evidence:
 
 - `src/platform/SocAlytics.Platform.slnx` restores, builds, and tests on .NET 10;
 - Aspire starts the API as its sole resource and reports `/health` readiness;
-- host tests exercise `/alive`, `/health`, and `/openapi/v1.json` and verify all
-  six capability registrations; and
-- architecture tests enforce capability project-reference isolation, API use of
-  public composition boundaries, and internal implementation visibility.
+- host tests exercise `/alive`, `/health`, and `/openapi/v1.json` and verify the
+  Application and Infrastructure registrations; and
+- architecture tests enforce the layer dependency direction, API use of the
+  public composition methods, and internal implementation visibility.
 
 The following remain validation targets rather than claims of current evidence:
 
@@ -316,20 +335,20 @@ The architecture must be revisited when implementation evidence contradicts a
 choice or reveals a material operational tradeoff:
 
 - **Realistic alternatives seriously evaluated — partially met.** The change
-  design compares modular-monolith, persistence, migration, CQRS, concurrency,
+  design compares monolith structure, persistence, migration, CQRS, concurrency,
   outbox, lineage, workflow-record, and transport-adapter alternatives. It does
   not complete the existing comparative evidence for production orchestration,
   identity, client sharing, Analyst Manager UI/runtime, or Analyst
   image/runtime choices.
 - **Consequences and operational tradeoffs understood — partially met.**
-  Capability project isolation, host composition, and dependency-free startup
+  Layer dependency rules, host composition, and dependency-free startup
   are exercised. Transaction boundaries, duplicate delivery, restart recovery,
-  local infrastructure failure, production database-role isolation,
+  local infrastructure failure, production database access control,
   backup/restore, lifecycle controls, service objectives, capacity, and complete
   workflow failure behavior remain unevidenced.
 - **Prototype, measurement, or implementation evidence supports the choice —
   partially met.** The .NET 10 host, Aspire-only local composition, operational
-  API surface, capability registration boundaries, and structural tests are
+  API surface, layer composition methods, and structural tests are
   implemented. Persistence, publication, secure BFF identity, both client
   shells, cross-runtime schema agreement, reproducible Analyst images, and the
   Avalonia/OCI platform matrix remain unsupported by implementation evidence.
@@ -340,8 +359,8 @@ choice or reveals a material operational tradeoff:
   from becoming production-ready or implementation-proven.
 
 The host scaffold has demonstrated that Aspire starts the local API with health
-and telemetry defaults and that architecture tests enforce the initial
-capability dependency and visibility boundaries. Before treating the remaining
+and telemetry defaults and that architecture tests enforce the layer
+dependency and visibility boundaries. Before treating the remaining
 choices as implementation-proven, evidence must demonstrate:
 
 - PostgreSQL integration tests cover Dapper mappings, migrations, optimistic

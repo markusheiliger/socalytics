@@ -32,5 +32,6 @@
 ## Notes
 
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`
-- Validation iteration 1 passed all items. Technology choices (database engine, data-access and migration libraries, local composition and disposable-instance tooling) are intentionally left to `/speckit-plan`, which reads the cited architecture documents; the spec names only adopted business capabilities and stakeholder-visible surfaces.
-- No residual issues. Candidate topics for `/speckit-clarify`: tolerance of unknown applied migrations, whether cross-module denial must be enforced by the database itself or may rely on code and tests, and the local start-time target in SC-001.
+- Validation iteration 1 (2026-10-05) passed all items.
+- Updated 2026-10-07 for the layered-monolith architecture: one application data area and one platform-wide migration sequence replace per-module data areas, migration streams, and access separation; the module-isolation user story and its requirements were removed and the remaining requirements renumbered. Re-validation passed all items. Technology choices stay with `/speckit-plan`, which reads the cited architecture documents.
+- Candidate topics for `/speckit-clarify`: tolerance of unknown applied migrations, behavior of a second concurrent migration run (wait or fail), and the local start-time target in SC-001.

@@ -34,3 +34,4 @@
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`
 - Iteration 1 found FR-011/FR-012 (Logical Job fan-out and segment identity), FR-034 (retention), and FR-044 (signal correlation and minimization) without explicit acceptance scenarios; User Story 1 scenario 7 and User Story 4 scenarios 7–8 were added and FR-034 was tightened. Iteration 2 passed all items.
 - This is a platform-internal workflow feature; domain terms from the architecture (Analysis Run, Workflow Node, Logical Job, Execution Attempt, fencing token) are retained intentionally for stakeholder precision. No product, framework, or storage technology is named outside the Architecture References line.
+- Updated 2026-10-07 for the layered-monolith architecture: the persistence dependency refers to data organization instead of schema ownership. Re-validation passed all items.

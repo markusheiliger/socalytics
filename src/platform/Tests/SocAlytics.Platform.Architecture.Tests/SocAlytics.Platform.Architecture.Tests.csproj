@@ -16,21 +16,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\SocAlytics.Platform.AgentOrchestration\SocAlytics.Platform.AgentOrchestration.csproj" />
-    <ProjectReference Include="..\..\SocAlytics.Platform.Analysis\SocAlytics.Platform.Analysis.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" />
-    <ProjectReference Include="..\..\SocAlytics.Platform.Club\SocAlytics.Platform.Club.csproj" />
-    <ProjectReference Include="..\..\SocAlytics.Platform.IdentityAccess\SocAlytics.Platform.IdentityAccess.csproj" />
-    <ProjectReference Include="..\..\SocAlytics.Platform.Recordings\SocAlytics.Platform.Recordings.csproj" />
-    <ProjectReference Include="..\..\SocAlytics.Platform.Registry\SocAlytics.Platform.Registry.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Application\SocAlytics.Platform.Application.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Domain\SocAlytics.Platform.Domain.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\SocAlytics.Platform.AgentOrchestration\SocAlytics.Platform.AgentOrchestration.csproj" Link="InspectedProjects\SocAlytics.Platform.AgentOrchestration.csproj" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\SocAlytics.Platform.Analysis\SocAlytics.Platform.Analysis.csproj" Link="InspectedProjects\SocAlytics.Platform.Analysis.csproj" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\SocAlytics.Platform.Club\SocAlytics.Platform.Club.csproj" Link="InspectedProjects\SocAlytics.Platform.Club.csproj" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\SocAlytics.Platform.IdentityAccess\SocAlytics.Platform.IdentityAccess.csproj" Link="InspectedProjects\SocAlytics.Platform.IdentityAccess.csproj" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\SocAlytics.Platform.Recordings\SocAlytics.Platform.Recordings.csproj" Link="InspectedProjects\SocAlytics.Platform.Recordings.csproj" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="..\..\SocAlytics.Platform.Registry\SocAlytics.Platform.Registry.csproj" Link="InspectedProjects\SocAlytics.Platform.Registry.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" Link="InspectedProjects\SocAlytics.Platform.Api.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\SocAlytics.Platform.Application\SocAlytics.Platform.Application.csproj" Link="InspectedProjects\SocAlytics.Platform.Application.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\SocAlytics.Platform.Domain\SocAlytics.Platform.Domain.csproj" Link="InspectedProjects\SocAlytics.Platform.Domain.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" Link="InspectedProjects\SocAlytics.Platform.Infrastructure.csproj" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

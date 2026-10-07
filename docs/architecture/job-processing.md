@@ -94,12 +94,13 @@ readiness.
 
 ### Planned Durable Foundation
 
-The planned Analysis module owns the `analysis` PostgreSQL schema and will
-persist Analysis Runs, Workflow Nodes and run-local dependency edges, Logical
-Jobs, Execution Attempts, immutable accepted-result references, idempotency,
-notification deduplication, and the module outbox. Registry-owned workflow,
+The planned Analysis functional area will persist, in the platform's
+application schema, Analysis Runs, Workflow Nodes and run-local dependency
+edges, Logical Jobs, Execution Attempts, immutable accepted-result references,
+idempotency, notification deduplication, and its outgoing events through the
+platform outbox. Registry-owned workflow,
 capability, Analyst-profile, model, schema, runtime, policy, resource, retry,
-and timeout versions are validated through typed owning-module boundaries;
+and timeout versions are validated through typed Registry application queries;
 Analysis stores the resolved capability declaration, Analyst-profile, OCI
 image, model, policy, schema, resource, retry, lease, stale-timeout, and
 execution-timeout identities and values in immutable run and node snapshots.

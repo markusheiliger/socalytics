@@ -44,8 +44,10 @@ dotnet run --project src/platform/SocAlytics.Platform.AppHost
 
 The current executable evidence covers the ASP.NET Core API and Aspire AppHost,
 liveness at `/alive`, readiness at `/health`, the `v1` OpenAPI document at
-`/openapi/v1.json`, six capability composition boundaries, and focused host and
-architecture tests.
+`/openapi/v1.json`, the layered project structure (Domain, Application,
+Infrastructure, and Api with public Application and Infrastructure composition
+methods), and focused host and architecture tests that enforce the layer
+dependencies.
 
 Domain behavior, PostgreSQL persistence with Dapper and DbUp, NATS messaging,
 S3-compatible storage, identity and authentication, client applications,

@@ -1,12 +1,9 @@
 <Solution>
-  <Project Path="SocAlytics.Platform.AgentOrchestration/SocAlytics.Platform.AgentOrchestration.csproj" />
-  <Project Path="SocAlytics.Platform.Analysis/SocAlytics.Platform.Analysis.csproj" />
   <Project Path="SocAlytics.Platform.Api/SocAlytics.Platform.Api.csproj" />
   <Project Path="SocAlytics.Platform.AppHost/SocAlytics.Platform.AppHost.csproj" />
-  <Project Path="SocAlytics.Platform.Club/SocAlytics.Platform.Club.csproj" />
-  <Project Path="SocAlytics.Platform.IdentityAccess/SocAlytics.Platform.IdentityAccess.csproj" />
-  <Project Path="SocAlytics.Platform.Recordings/SocAlytics.Platform.Recordings.csproj" />
-  <Project Path="SocAlytics.Platform.Registry/SocAlytics.Platform.Registry.csproj" />
+  <Project Path="SocAlytics.Platform.Application/SocAlytics.Platform.Application.csproj" />
+  <Project Path="SocAlytics.Platform.Domain/SocAlytics.Platform.Domain.csproj" />
+  <Project Path="SocAlytics.Platform.Infrastructure/SocAlytics.Platform.Infrastructure.csproj" />
   <Project Path="SocAlytics.Platform.ServiceDefaults/SocAlytics.Platform.ServiceDefaults.csproj" />
   <Folder Name="/Tests/">
     <Project Path="Tests/SocAlytics.Platform.Architecture.Tests/SocAlytics.Platform.Architecture.Tests.csproj" />

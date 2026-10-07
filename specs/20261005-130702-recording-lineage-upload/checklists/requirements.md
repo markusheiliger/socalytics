@@ -35,3 +35,4 @@
 - Validated in 2 iterations; iteration 1 reworded one ambiguous finalization-denial scenario. All items pass.
 - Storage is referred to only as "object storage" and "direct-to-storage upload"; no storage product, protocol library, or persistence technology is named. Architecture documents are cited only in the Assumptions "Architecture References" line, as permitted by the constitution.
 - Deliberately deferred (not clarification gaps): grant lifetime, maximum upload size, accepted media formats, timeline-mapping representation and digest canonical form, event transport publication, and POL-003 lifecycle values.
+- Updated 2026-10-07 for the layered-monolith architecture: FR-028, FR-032, SC-009, User Story 1 scenario 8, and the persistence dependency no longer assume capability-owned, isolated recording records; the lineage lookup stays the operation other platform capabilities use. Re-validation passed all items.

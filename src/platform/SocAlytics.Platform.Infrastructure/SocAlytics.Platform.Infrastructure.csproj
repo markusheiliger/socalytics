@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<ItemGroup>
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\SocAlytics.Platform.Application\SocAlytics.Platform.Application.csproj" />
+		<ProjectReference Include="..\SocAlytics.Platform.Domain\SocAlytics.Platform.Domain.csproj" />
+	</ItemGroup>
+</Project>

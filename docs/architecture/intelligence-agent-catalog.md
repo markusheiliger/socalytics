@@ -54,7 +54,7 @@ versions alongside the agent ID, actor, team, match, conversation, consulted age
 MCP calls, evidence references, attempts and failures, and generated responses.
 CA advice additionally records the dimension-set and profile IDs, versions, and
 digests; base and applied vectors; context-policy version; and applied
-modifiers. The Agent Orchestration module, persistence, minimal transport,
+modifiers. The Agent Orchestration functional area, persistence, minimal transport,
 authorization, recovery, and replay contract are owned by
 [Intelligence and Agents](intelligence-and-agents.md#agent-orchestration-authority).
 Historical lineage retains the exact rendered profile and modifier snapshot for

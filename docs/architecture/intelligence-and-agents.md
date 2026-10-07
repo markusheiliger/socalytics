@@ -157,17 +157,17 @@ is introduced.
 
 ### Agent Orchestration Authority
 
-The control plane's Agent Orchestration module is the authoritative owner for
-agent conversations, logical invocations, delegated consultations, execution
-attempts, accepted advice, lineage, and lifecycle tombstones. It owns its
-commands, queries, PostgreSQL objects, migrations, projections, and outgoing
-events in the stamp database. Other modules use its application boundary and
-must not write its tables directly.
+The control plane's Agent Orchestration functional area is the authoritative
+owner for agent conversations, logical invocations, delegated consultations,
+execution attempts, accepted advice, lineage, and lifecycle tombstones. Its
+commands, queries, PostgreSQL tables, migrations, projections, and outgoing
+events live in the platform's layers and stamp database. Other functional areas
+use its Application-layer handlers and must not write its tables directly.
 
 The planned control-plane API exposes versioned submission, private query,
 claim, lease, checkpoint, consultation, completion, and lifecycle operations.
-The module will use PostgreSQL, optimistic concurrency, idempotency, fencing, a
-transactional outbox, bounded recovery, and tombstone reapplication.
+Agent Orchestration will use PostgreSQL, optimistic concurrency, idempotency,
+fencing, a transactional outbox, bounded recovery, and tombstone reapplication.
 
 Hermes is a separate Python OCI service using Microsoft Agent Framework for
 agent execution and CA-to-SA orchestration. Framework-specific types remain
@@ -223,7 +223,7 @@ does not erase earlier attempt outcomes.
 
 Every state-changing command checks current authorization, expected record
 version, allowed prior state, and, for active execution, the current attempt
-and fencing token. The Agent Orchestration module applies these transitions:
+and fencing token. Agent Orchestration applies these transitions:
 
 - **Submit direct invocation:** requires a supported `User -> CA` or
     `User -> SA` route, an authorized initiating user, and a new or equivalent
@@ -273,7 +273,7 @@ Clients retrieve status, result, and lineage through conditional REST polling.
 An unchanged representation produces the protocol's unchanged response and
 never creates another invocation or attempt.
 
-The module publishes minimal stamp-local work notifications from its
+Agent Orchestration publishes minimal stamp-local work notifications from the
 transactional outbox to NATS JetStream with at-least-once delivery. A message
 contains only resource identifiers, route and schema version, and correlation
 data. Prompt text, conversation content, evidence, and generated advice remain
@@ -291,7 +291,7 @@ checkpoint, consultation, and completion replay idempotent. Only the current
 attempt and fencing token can mutate active state; an expired, duplicate, or
 late operation receives an explicit stale disposition.
 
-If Hermes stops or a lease expires, the module retains partial lineage, expires
+If Hermes stops or a lease expires, Agent Orchestration retains partial lineage, expires
 and fences the attempt, and creates a new attempt for the same logical
 invocation within versioned retry limits. Parent waiting edges and accepted
 child outcomes survive the restart. A child that exhausts its retry budget is
@@ -308,13 +308,13 @@ invalid or incompatible profile fails the invocation rather than causing an
 implicit fallback. Advice lineage retains those versions, the invoking actor
 and context, consulted agents, MCP calls, evidence references, and any applied
 philosophy modifiers. The catalog defines the required lineage fields; the
-Agent Orchestration module owns their durable representation.
+Agent Orchestration functional area owns their durable representation.
 
 ### Authorization, Lineage, And Lifecycle
 
 Stored initiating-actor, stamp, team, match, conversation, route, and
 tool-policy context provides attribution, not a perpetual grant. The Agent
-Orchestration module re-evaluates current authorization at submission, claim,
+Orchestration functional area re-evaluates current authorization at submission, claim,
 delegation, status, result and lineage query, checkpoint, and completion. MCP
 and the API re-evaluate current team, match, resource, route, and permitted-tool
 scope for every evidence request. Scope loss fails closed: subsequent evidence
@@ -343,7 +343,7 @@ an MCP call, or gaining historical evidence access. A deleted or unavailable
 evidence item remains a historical reference with its current availability or
 deletion status.
 
-Agent state follows `DAT-008` and `POL-008`: module-owned PostgreSQL objects are
+Agent state follows `DAT-008` and `POL-008`: Agent Orchestration PostgreSQL tables are
 the Primary copy, JetStream is a bounded Transport copy, projections are Index
 copies, and active Hermes context is a Cache. Telemetry, replicas, backups, and
 separately governed minimized audit evidence retain their data-governance

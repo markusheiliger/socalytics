@@ -49,7 +49,7 @@ Once all of a Match's recordings are uploaded, the Coach (or a Club Admin) final
 5. **Given** a Coach of Team A attempting to finalize for a Match owned by Team B, or a member holding only the Viewer role for the Match's Team, **When** either submits a finalization request, **Then** the request is forbidden and nothing is created.
 6. **Given** a failure occurs after finalization processing begins but before it completes, **When** the outcome is inspected, **Then** no recording-set version, membership, successful retry outcome, or event record from that request exists.
 7. **Given** a committed finalization, **When** the same request is retried with the same retry key, **Then** the original recording-set version is returned and the number of event records for it remains exactly one.
-8. **Given** a finalized recording-set version, **When** an authorized downstream platform capability looks it up, **Then** it receives the Match, Team, ordered recording-version and timeline-mapping identities, and their digests, without direct access to this feature's stored records or to object storage.
+8. **Given** a finalized recording-set version, **When** an authorized downstream platform capability looks it up, **Then** it receives the Match, Team, ordered recording-version and timeline-mapping identities, and their digests through one lookup operation, without needing object storage access.
 
 ---
 
@@ -151,14 +151,14 @@ Members with access to a Team (its Coaches and Viewers, and Club Admins) can see
 #### Lineage reads
 
 - **FR-027**: Club Admins and members holding the Coach or Viewer role for the Match's Team MUST be able to list that Match's recording versions, timeline mappings, and finalized recording-set versions with ordered memberships and digests; this read MUST disclose metadata only and MUST NOT issue media access or upload grants.
-- **FR-028**: The system MUST provide other platform capabilities (notably `specs/20261005-130703-durable-analysis-workflow`) a read-only lookup of a recording-set version that returns its Match, Team, ordered recording-version and timeline-mapping identities, and digests, without granting them direct access to this feature's stored records or to object storage.
+- **FR-028**: The system MUST provide other platform capabilities (notably `specs/20261005-130703-durable-analysis-workflow`) a read-only lookup of a recording-set version that returns its Match, Team, ordered recording-version and timeline-mapping identities, and digests, so that they obtain frozen lineage through this operation rather than through object storage.
 
 #### Security, governance, and API visibility
 
 - **FR-029**: Upload grants, storage credentials, session secrets, and media bytes MUST NOT appear in durable records, retry outcomes, event records, audit records, logs, or telemetry.
 - **FR-030**: The system MUST record minimized audit evidence (actor, Match, Team, action, outcome, correlation, time) for upload start, grant issuance, upload completion, timeline-mapping revision, finalization, and authorization denials, using the audit capability established by `specs/20261005-130701-club-identity-foundation`, and containing no secret values.
 - **FR-031**: Every operation in this feature MUST be described in the platform's published, versioned, machine-readable API description, including its success, validation, unauthenticated, forbidden, not-found, conflict, and storage-unavailable outcomes; no segment, analysis-scheduling, storage-administration, or client-interface operation is introduced.
-- **FR-032**: Recording state for this feature MUST be persisted on the durable storage foundation of `specs/20261005-130700-platform-persistence-foundation` and MUST be owned exclusively by the recordings capability; other capabilities MUST access it only through the operations and lookup defined here.
+- **FR-032**: Recording state for this feature MUST be persisted on the durable storage foundation of `specs/20261005-130700-platform-persistence-foundation`, and changes to it MUST go through the operations defined here so that immutability, finalization, and audit rules always apply.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -184,12 +184,12 @@ Members with access to a Team (its Coaches and Viewers, and Club Admins) can see
 - **SC-006**: When 10 identical finalization requests with the same retry key are submitted concurrently, exactly 1 recording-set version and exactly 1 recordings-finalized event record result.
 - **SC-007**: In 100% of injected failures during finalization, 0 partial results remain (no set version, membership, success outcome, or event record from the failed request).
 - **SC-008**: 0 upload grants, storage credentials, or session secrets are found in durable records, retry outcomes, event records, audit records, logs, or telemetry captured during acceptance testing.
-- **SC-009**: A downstream analysis capability can obtain the complete frozen lineage of any finalized recording-set version through the provided lookup in a single request, with 0 direct reads of this feature's stored records or of object storage.
+- **SC-009**: A downstream analysis capability can obtain the complete frozen lineage of any finalized recording-set version through the provided lookup in a single request, with 0 object-storage reads.
 
 ## Assumptions
 
 - Actors are the architecture's roles: Club Admin (club-wide authority, inherits access to every Team) and Coach and Viewer (per-Team roles). Authenticated sessions, current club membership, Club Admin authority, the Club > Season > Team > Match hierarchy, Match-to-Team scoping, and the audit capability come from `specs/20261005-130701-club-identity-foundation`; Match creation is part of that feature, not this one.
-- Durable storage, transactional all-or-nothing writes, module-owned data isolation, and disposable test infrastructure come from `specs/20261005-130700-platform-persistence-foundation`; this feature adds only recordings-owned records.
+- Durable storage, transactional all-or-nothing writes, optimistic concurrency, and disposable test infrastructure come from `specs/20261005-130700-platform-persistence-foundation`; this feature adds only recording records to the shared application data area.
 - Each upload transfers one whole object per session; resumable or multi-part upload experiences are out of scope for this slice.
 - The client computes and declares the content digest and size at upload start; the platform verifies them against storage-provided integrity evidence and never trusts the declaration alone.
 - The exact timeline-mapping representation (beyond mapping media time to match time with an identity and digest) and the canonical form used to compute digests and compare retry-request content are decided during planning, consistent with the platform's digest and identifier conventions.
