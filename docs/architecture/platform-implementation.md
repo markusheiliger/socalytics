@@ -21,7 +21,8 @@ SocAlytics uses one `src` root with these first-level ownership areas:
 - `src/clients` owns the future Web UI and Electron Coach Client source
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
-- `src/analysts` owns the future Analyst Manager, Analyst SDK, and Analyst
+- `src/analysts` owns the future Analyst Manager, whose first headless slice is
+  planned under `src/analysts/manager`, and the future Analyst SDK and Analyst
   capability implementations across their required runtimes
 
 The executable platform projects are peers under `src/platform`, except for the
@@ -90,7 +91,12 @@ Migrator as a one-shot service that every API service depends on with
 `condition: service_completed_successfully`, so it runs once per deployment
 regardless of the API replica count. Locally, the Aspire AppHost will mirror
 that order: PostgreSQL, then the Migrator, then the API, which waits for the
-Migrator to complete.
+Migrator to complete and for the S3-compatible RustFS container to report
+healthy. The local PostgreSQL container will provision both database roles from
+a committed initialization script with generated development-only passwords
+and keep its data in a named development volume; these local values are not
+production values, and production credentials, role-to-identity mapping, and
+the scheduling of the Migrator remain unresolved.
 
 Azure Container Apps is the Provisional target cloud profile, and Compose
 remains supported as the self-hostable profile. Both run the same cloud-neutral
@@ -142,8 +148,21 @@ Each stamp uses one PostgreSQL database with one application schema,
 `socalytics`, for all functional areas. Table names are prefixed or grouped by
 functional area where that improves readability, but areas do not have separate
 schemas, roles, or access separation. Migration history is kept apart from
-domain data in `socalytics_migrations.history`, which records the migration
-sequence and checksum but contains no domain state.
+domain data in `socalytics_migrations.history`, which records each applied
+migration's sequence, identity, SHA-256 checksum, and application time but
+contains no domain state. Two database roles separate access:
+`socalytics_migrator` owns both schemas and is the only role that creates or
+alters data structures, and `socalytics_app` may read and write tables in
+`socalytics` and read the migration history. The environment provisions both
+roles and their login identities before the Migrator first runs; migrations
+grant privileges but never create roles or credentials. The one exception to
+uniform runtime access is the security audit table: the runtime role may only
+insert and read audit events, and a trigger rejects updates, deletes, and
+truncation, so audit evidence is append-protected and kept apart from
+application logs. This table will hold development audit evidence; the
+production audit store, integrity verification, and retention remain governed
+by POL-009 in
+[Security and Data Governance](security-and-data-governance.md#audit-events).
 
 Table definitions and SQL live in the Infrastructure layer. The API references
 Application contracts rather than persistence types. Registry data includes the
@@ -176,6 +195,16 @@ Migrations run only in the one-off Migrator, never inside the API:
   the wait expires it fails without applying anything. PostgreSQL realizes this
   with a session-level advisory lock held for the whole run, so repeated runs,
   pipeline retries, and per-instance runs stay safe;
+- before applying anything, the Migrator verifies that every applied migration
+  it knows still has a matching checksum (computed over the script text with
+  line endings normalized) and that no pending migration is numbered at or
+  below the highest applied one; it applies each pending migration together
+  with its history record in one transaction and exits with `0` on success or
+  a distinct non-zero code per failure category (configuration, database
+  unavailable, invalid migration set, checksum mismatch, sequence conflict,
+  migration failure, lock-wait timeout, cancellation); diagnostics name the
+  failing migration but never contain credentials, connection secrets, or
+  migration content;
 - history records for migrations the Migrator does not know are left untouched
   and reported, so a backward-compatible older release can still start.
 
@@ -219,28 +248,53 @@ for how versions appear as HTTP ETags.
 PostgreSQL realizes the guarantee with triggers that the Infrastructure layer's
 migrations create, so no handler can forget an increment:
 
-- one shared `BEFORE UPDATE` trigger function, attached to every table with a
-  `version` column, sets `version = OLD.version + 1` and fires only when the row
-  actually changes (`WHEN (OLD.* IS DISTINCT FROM NEW.*)`); it does not check
-  versions, which stays the handler's visible responsibility;
-- `AFTER INSERT`, `UPDATE`, and `DELETE` triggers on an aggregate's child tables
-  touch the aggregate root, which advances its `version` through the same
-  increment trigger;
-- a migration may suppress the increment for its own transaction with a
-  transaction-local setting that only migration scripts use; by default,
+- one shared `BEFORE UPDATE` trigger function, `socalytics.advance_version()`,
+  attached to every table with a `version bigint not null default 1` column,
+  sets `version = OLD.version + 1` and fires only when the row actually changes
+  (`WHEN (OLD.* IS DISTINCT FROM NEW.*)`); it does not check versions, which
+  stays the handler's visible responsibility;
+- `AFTER INSERT`, `UPDATE`, and `DELETE` triggers on an aggregate's child
+  tables, using the shared function `socalytics.touch_aggregate_root()`, touch
+  the aggregate root, which advances its `version` through the same increment
+  trigger;
+- a migration may suppress the increment for its own transaction with the
+  transaction-local setting `socalytics.suppress_version = 'on'`; the trigger
+  functions honor it only when the current role is a member of
+  `socalytics_migrator`, so runtime access cannot suppress it; by default,
   migrations and backfills advance versions like any other change.
 
 If the platform moved to another database, the guarantee would stay and only
 this mechanism would change.
 
-Database changes and outgoing
-events commit atomically through a PostgreSQL transactional outbox. A background
-publisher delivers outbox records to NATS JetStream with retries; consumers and
-completion handlers remain idempotent.
+Database changes and outgoing events will commit atomically through a
+PostgreSQL transactional outbox (`socalytics.outbox_messages`). The API process
+will host the background workers: an outbox publisher that delivers pending
+records to NATS JetStream at least once with bounded retries and records each
+outcome, a retention worker that removes only records whose publication
+outcome is known, the Job Monitor that detects expired attempt leases from
+durable state, the consumer of `matches.recordings-finalized`, and publication
+reconciliation at startup and after transport reconnection. Workers claim rows
+with `FOR UPDATE SKIP LOCKED`, so several API replicas can run them safely
+without leader election, and they add no deployable. Consumers and completion
+handlers remain idempotent.
 
 Encryption, retention, deletion, copy propagation, residency, and audit
 requirements for the database, outbox, generated indexes, telemetry, replicas,
 and backups are governed by
+[Security and Data Governance](security-and-data-governance.md).
+
+### Object Storage
+
+The Recordings area will adopt S3-compatible object storage through the S3
+protocol only. Infrastructure will use `AWSSDK.S3` with path-style addressing
+against a configured endpoint; Application and Domain depend only on a storage
+abstraction. The API will issue presigned single-object upload grants and read
+storage-reported integrity evidence; it never receives media bytes. Locally the
+Aspire AppHost will run a pinned RustFS container and create the development
+bucket, and integration tests will use the same image through Testcontainers.
+Bucket provisioning, production storage selection, encryption, credentials,
+browser CORS, grant lifetime, and lifecycle policy remain governed by
+[Production Deployment and Operations](production-operations.md) and
 [Security and Data Governance](security-and-data-governance.md).
 
 ## API And Identity
@@ -271,6 +325,24 @@ does not store identity-provider bearer tokens. State-changing browser requests
 use CSRF protection. Club membership and team authorization remain platform
 data enforced by the API.
 
+The BFF session will be server-validated. The cookie carries only an opaque
+random session token, and the database stores its hash together with idle and
+absolute expiry, the account's security stamp at issue, and the hash of a
+per-session anti-forgery token that clients send in a request header on every
+state-changing request. Every request revalidates the session, the account's
+active membership, and its security stamp, and reads current roles, so
+sign-out, session termination, password changes, deactivation, and role
+revocation take effect on the affected member's next request. No session or
+anti-forgery secret is stored in recoverable form, and the API needs no shared
+key ring across instances. Single-use, time-limited set-password and reset
+credentials are issued by a Club Admin through an ASP.NET Core Identity token
+provider and stored only as hashes. The club and its first Club Admin are
+established from protected deployment configuration by the API, not the
+Migrator. The API serializes this one-time bootstrap with a database
+transaction lock and uniqueness constraints, so concurrently starting API
+instances create exactly one club and administrator, and an instance reports
+not ready while no club is established or the configuration conflicts with it.
+
 Analyst Manager registration uses browser device-code pairing initiated by a
 club `Registrar` and explicitly approved by a `Club Admin`. Club Admin inherits
 the Registrar capability and may self-approve through a separate audited
@@ -284,6 +356,14 @@ survives restart, while tokens and scoped NATS credentials expire and rotate.
 Administrative revocation blocks API access and credential renewal immediately.
 The complete workflow is defined in the
 [Analyst Manager architecture](analyst-manager.md#registration-and-stamp-binding).
+
+The Analyst Manager token endpoint will be a minimal endpoint in the API's
+Registry functional area that supports only this grant; the platform does not
+run a general-purpose authorization server for machine clients.
+
+Until a dedicated stamp-operator role is defined, operational workflow
+inspection and reconciliation operations under `/api/v1/operations` will be
+restricted to Club Admins and audited when they change state.
 
 ### Agent Runtime
 
@@ -341,6 +421,10 @@ OS-protected per-installation encryption keys.
 The Analyst Manager uses a .NET 10 Generic Host for lifecycle, registration,
 queue, hardware, and OCI-runtime responsibilities. Avalonia supplies its
 cross-platform tray and status UI. The worker remains testable without the UI.
+Its source will be a separate .NET solution under `src/analysts/manager` with
+its own tests. The first slice will be headless: it registers, restores its
+registration, observes revocation, runs runtime preflight, and accepts local
+controls without the Avalonia UI.
 
 Analyst Containers use Python because PyTorch, ONNX Runtime, OpenCV, NumPy,
 SciPy, scikit-learn, SAHI, and accelerator-vendor tooling provide the paved

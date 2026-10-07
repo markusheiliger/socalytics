@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/attempt-completion/v1/attempt-completion.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Execution attempt completion v1",
+  "description": "Fenced, idempotent completion of one Execution Attempt, submitted by the claiming Analyst Manager to POST /api/v1/analysis/attempts/{attemptId}/completion. Structural validity does not imply acceptance: the platform additionally requires the current attempt, its fencing token and Manager, the pinned Logical Job snapshot, the recorded input snapshot, and a supported contract version. Replays are compared on the RFC 8785 canonical form, so property order is irrelevant. The payload contains no floating-point numbers, credentials, URLs, broker connection details, media, or unrestricted logs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "idempotencyKey",
+    "teamId",
+    "matchId",
+    "runId",
+    "nodeId",
+    "logicalJobId",
+    "attemptId",
+    "attemptNumber",
+    "fencingToken",
+    "outcome",
+    "capability",
+    "schemaVersion",
+    "executedRuntime",
+    "executedImageDigest",
+    "executedModelDigest",
+    "acceptedUpstreamResultIds",
+    "completedAt",
+    "correlation"
+  ],
+  "properties": {
+    "contractVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1" },
+    "idempotencyKey": { "$ref": "../../../common/v1/common.schema.json#/$defs/idempotencyKey" },
+    "teamId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "matchId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "runId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "nodeId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "logicalJobId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "attemptId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "attemptNumber": { "$ref": "../../../common/v1/common.schema.json#/$defs/attemptNumber" },
+    "fencingToken": { "$ref": "../../../common/v1/common.schema.json#/$defs/fencingToken" },
+    "outcome": { "enum": ["succeeded", "failed"] },
+    "result": {
+      "description": "Required exactly when outcome is succeeded.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["manifestReference", "manifestChecksum"],
+      "properties": {
+        "manifestReference": { "$ref": "../../../common/v1/common.schema.json#/$defs/objectKey" },
+        "manifestChecksum": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" }
+      }
+    },
+    "failure": {
+      "description": "Required exactly when outcome is failed. Only a sanitized category is reported; logs stay with the Manager.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category"],
+      "properties": {
+        "category": {
+          "enum": [
+            "analyst-error",
+            "input-unavailable",
+            "execution-timeout",
+            "resource-exhausted",
+            "runtime-unavailable",
+            "image-unavailable",
+            "result-write-failed",
+            "cancelled-by-manager"
+          ]
+        }
+      }
+    },
+    "capability": { "$ref": "../../../common/v1/common.schema.json#/$defs/capabilityRef" },
+    "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+    "executedRuntime": {
+      "description": "Description of the runtime that actually executed the attempt (reporting only; never a selection input).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runtimeProfile", "runtimeVersion", "operatingSystem", "architecture", "accelerators"],
+      "properties": {
+        "runtimeProfile": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" },
+        "runtimeVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" },
+        "operatingSystem": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" },
+        "architecture": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" },
+        "accelerators": {
+          "type": "array",
+          "maxItems": 16,
+          "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" }
+        }
+      }
+    },
+    "executedImageDigest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+    "executedModelDigest": {
+      "oneOf": [
+        { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+        { "type": "null" }
+      ]
+    },
+    "acceptedUpstreamResultIds": {
+      "description": "Accepted upstream results the attempt consumed; must equal the accepted results recorded in the Logical Job's input snapshot.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" }
+    },
+    "completedAt": { "$ref": "../../../common/v1/common.schema.json#/$defs/timestamp" },
+    "correlation": { "$ref": "../../../common/v1/common.schema.json#/$defs/correlation" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "outcome": { "const": "succeeded" } } },
+      "then": { "required": ["result"], "not": { "required": ["failure"] } },
+      "else": { "required": ["failure"], "not": { "required": ["result"] } }
+    }
+  ]
+}

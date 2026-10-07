@@ -8,11 +8,20 @@ the domain responsibilities in the owning architecture topics.
 
 ## Contract Authority
 
-No machine-readable contracts exist yet. Until implementation introduces them,
-the architecture topics linked below are authoritative for behavior and
-semantics. Future canonical machine-readable contracts will live under a
-repository-root `contracts/` directory, whose index will identify every
-published artifact, owner, version, example, and validation command.
+No machine-readable contracts exist yet. Canonical machine-readable contracts
+will live under the repository-root `contracts/` directory. The Recording
+Lineage and Upload feature will introduce the directory, its index
+`contracts/README.md`, which identifies every published artifact, owner,
+version, example, and validation command, and the first artifact, the
+recordings-finalized event schema. The Durable Analysis Workflow feature will
+then add the shared definitions in `contracts/common/v1/` and the Analyst job,
+attempt completion, and run-state-changed schemas under `contracts/analysis/`.
+Each schema lives at `contracts/<area>/<name>/v<major>/<name>.schema.json`,
+declares the `$id`
+`https://socalytics.invalid/contracts/<area>/<name>/v<major>/<name>.schema.json`
+on a reserved domain that is never dereferenced, and records its exact semantic
+version in `x-socalytics-version`. Until a behavior has a canonical artifact,
+the architecture topics linked below remain authoritative for it.
 
 OpenAPI 3.1 documents are authoritative for the REST transport surface.
 JSON Schema draft 2020-12 documents are authoritative for reusable cross-language
@@ -51,10 +60,14 @@ decide the Open / Blocking client code-sharing question in
 
 ## Scope And Dependencies
 
-The first future contract baseline will cover the documented Analyst workflow: shared
-resources and errors, logical segments, Analyst jobs and result manifests,
-capability declarations, accepted upstream facts, and fenced attempt
-completion. It excludes service implementation, unrelated administration and
+The Recording Lineage and Upload feature will establish the contract baseline
+with the recordings-finalized event schema. The documented Analyst workflow
+contracts (shared resources and errors under `contracts/common/v1`, logical
+segments, Analyst jobs and result manifests, capability declarations, accepted
+upstream facts, and fenced attempt completion) will follow, starting with the
+shared definitions and the Analyst job and attempt-completion schemas of
+Durable Analysis, and will extend the same directory, index, and contract
+command. It excludes service implementation, unrelated administration and
 identity APIs, deployment contracts, production SDK adapters, and AsyncAPI.
 
 The accepted logical-segment architecture is an input. Future
@@ -84,6 +97,12 @@ the prior major remains addressable for its supported compatibility window.
 
 - Authoring references are repository-relative and must resolve offline.
 - Schema `$id` values and OpenAPI `operationId` values are globally unique.
+- Shared definitions live in `contracts/common/v1/common.schema.json` and are
+  referenced through relative `$ref` values. Every released exact version of a
+  schema is kept as an immutable copy at `releases/<version>.schema.json` in
+  its major-version directory and is the baseline for same-major compatibility
+  checks; the exact version is recorded in `x-socalytics-version` and in each
+  payload's `contractVersion`.
 - JSON properties use lower camel case.
 - Required and nullable are independent; null is accepted only when explicit.
 - Timestamps use RFC 3339 UTC date-time values.
@@ -119,10 +138,17 @@ the prior major remains addressable for its supported compatibility window.
 
 ## Validation Authority
 
-Once contracts exist, one repository contract command will be the deterministic
-authority for syntax, dialect and version metadata, offline references, unique
-identifiers, OpenAPI linting and bundling, example outcomes, and same-major
-compatibility. The same fixture corpus will also be validated independently at
+The repository contract command,
+`dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`, which the
+Recording Lineage and Upload feature will introduce, will be the deterministic
+authority for JSON Schema syntax and the 2020-12 dialect, `$id` and version
+metadata, offline references, index coverage, and example outcomes. Features
+that add further contract kinds will extend the same command with
+unique-identifier checks, OpenAPI linting and bundling, and same-major
+compatibility checks. Durable Analysis will extend it to check every schema
+against its immutable released copies in the same major version and fail on
+removed or renamed properties, newly required inputs, narrowed values, or newly
+closed objects. The same fixture corpus will also be validated independently at
 .NET and Python boundaries. Kiota generation and compilation for TypeScript,
 C#, and Python will provide transport-consumer evidence without making
 generated code authoritative.

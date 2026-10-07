@@ -8,6 +8,12 @@
 
 **Input**: User description: "Analyst Manager Registration: establish the first testable Analyst Manager slice. A host joins exactly one deployment stamp through a device-bound registration that a Registrar initiates and a Club Admin approves, keeps that identity in protected local storage, restores it safely after restart, exposes local operating controls (pause, resume, drain, safe exit, unregister) without a production desktop UI, verifies the container runtime before it could ever accept work, and loses all authority immediately when revoked. Work acquisition and Analyst execution are not part of this feature."
 
+## Clarifications
+
+### Session 2026-10-07
+
+- Q: Which verification environment must exist before this feature starts? → A: The combined environment feature `specs/20261007-115855-environment-verification-coverage`, which extends the automated verification to the repository-root contracts folder and the Analyst Manager solution, is reviewed and merged first.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Register an Analyst Manager with the club's stamp (Priority: P1)
@@ -211,5 +217,5 @@ The host operator controls an Active Manager locally, without any desktop window
 - **Evidence**: Passing validation of this feature is development evidence only and does not establish deployment support or production readiness.
 - **Out of scope**: production desktop or tray interface and its accessibility work; Analyst containers and their launch, isolation, and cleanup; model execution; production container-runtime integrations; installers, signing, autostart packaging, and updates; QR-code rendering; work discovery, queue-depth display, dequeue, attempt claiming, heartbeats, and completion; broker and object-storage credentials; and all unresolved production policy values (credential lifetimes, rate limits, drain timeout, audit authority and retention, keystore mechanisms, installer trust).
 - **Deferred to keep this slice focused**: routine device-key rotation with old- and new-key proof; per-operating-system protected-storage evidence spikes; the host-local maximum-concurrency setting; host utilization reporting; advertisement of capabilities to the work queue; and stopping or cleaning up containers on revocation (no containers exist in this slice).
-- **Dependencies**: `specs/20261005-130700-platform-persistence-foundation` provides durable platform storage for registration requests, registrations, and audit events. `specs/20261005-130701-club-identity-foundation` provides authenticated human sessions and Registrar and Club Admin authorization. `specs/20261005-130703-durable-analysis-workflow` is a sibling foundation; this feature consumes none of its work, attempt, or completion behavior.
+- **Dependencies**: `specs/20261007-115855-environment-verification-coverage` extends automated verification to the Analyst Manager solution and is reviewed and merged before this feature starts. `specs/20261005-130700-platform-persistence-foundation` provides durable platform storage for registration requests, registrations, and audit events. `specs/20261005-130701-club-identity-foundation` provides authenticated human sessions and Registrar and Club Admin authorization. `specs/20261005-130703-durable-analysis-workflow` is a sibling foundation; this feature consumes none of its work, attempt, or completion behavior.
 - **Architecture References**: `docs/architecture/analyst-manager.md`, `docs/architecture/analyst-runtime-and-recovery.md`, `docs/architecture/security-and-data-governance.md`, `docs/architecture/tenancy-and-technology.md`, `docs/architecture/terminology-and-principles.md`, `docs/architecture/analysts-models-and-hardware.md`.

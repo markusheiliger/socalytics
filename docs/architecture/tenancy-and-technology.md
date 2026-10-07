@@ -134,11 +134,14 @@ defined in the
   applied only by the one-off `SocAlytics.Platform.Migrator` host
 - ASP.NET Core Identity with Dapper stores, always-available local accounts,
     and optional external OpenID Connect providers
+- JSON Schema 2020-12 validation of contract payloads with JsonSchema.Net
+    (MIT 8.x line)
 
 ### Event Backbone
 
 - NATS
 - JetStream
+- NATS.Net v2 client (`NATS.Client.JetStream`)
 - PostgreSQL transactional outbox and idempotent consumers
 
 ### Data Plane

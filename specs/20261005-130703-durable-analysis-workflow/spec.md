@@ -8,6 +8,13 @@
 
 **Input**: User description: "Durable Analysis Workflow: durable, restart-safe Analysis Runs and workflow graphs that are the single source of truth, readiness evaluation with required, optional, and conditional dependencies, cycle rejection, at-least-once publication of ready work with observable publication state and lag, attempt-fenced and idempotent completion handling, immutable accepted-result references, and versioned hardware-neutral Analyst job and completion contracts. Consumes finalized recording-set lineage from 20261005-130702-recording-lineage-upload and the durable storage foundation from 20261005-130700-platform-persistence-foundation; Analyst execution is not part of this feature."
 
+## Clarifications
+
+### Session 2026-10-07
+
+- Q: Which verification environment must exist before this feature starts? → A: The combined environment feature `specs/20261007-115855-environment-verification-coverage`, which extends the automated verification to the repository-root contracts folder and the Analyst Manager solution, is reviewed and merged first.
+- Q: Who publishes the finalized-recording-set notification to the message transport? → A: This feature: it introduces the platform outbox and publishes the immutable notification record that Recording Lineage and Upload stores, without modifying that record, including records that existed before this feature.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Finalized recording set produces one durable Analysis Run (Priority: P1)
@@ -233,7 +240,8 @@ Analyst capability owners and Analyst Manager implementers rely on versioned mac
 ## Assumptions
 
 - **Trigger and actors**: The primary trigger is a Coach finalizing a recording set (specified by `specs/20261005-130702-recording-lineage-upload`); every validated finalized recording-set version triggers one run of the stamp's default full-match workflow. A user-facing explicit analysis-request operation for Coaches or Club Admins, and upload-policy configuration that suppresses automatic runs, are deferred.
-- **Dependency on recording lineage and upload**: This feature consumes the finalized recording-set lineage boundary and the canonical finalized-recording-set notification from `specs/20261005-130702-recording-lineage-upload`, never Recordings-owned data. Publishing that notification is owned by that feature; until it is available end to end, this feature is exercised with canonical injected notifications validated against its boundary.
+- **Dependency on recording lineage and upload**: This feature consumes the finalized recording-set lineage boundary and the canonical finalized-recording-set notification from `specs/20261005-130702-recording-lineage-upload`, never Recordings-owned data. The Recordings feature durably records the notification; this feature introduces the platform outbox and publishes that record through it without modifying it, including records stored before this feature. Tests may also inject canonical notifications directly into the message transport.
+- **Dependency on the environment feature**: `specs/20261007-115855-environment-verification-coverage` extends automated verification to the repository-root contracts folder, where this feature adds its job, completion, and event contracts; it is reviewed and merged before this feature starts.
 - **Dependency on the persistence foundation**: Durable storage, data organization, migrations, explicit transactions, and optimistic concurrency come from `specs/20261005-130700-platform-persistence-foundation` and are not duplicated here.
 - **Relationship to Analyst Manager registration**: Analyst Manager registration and authentication (`specs/20261005-130704-analyst-manager-registration`) are a sibling foundation. Claim, heartbeat, and completion are specified here as platform behaviors that record and check the Manager identity; exposing them as authenticated Manager-facing operations, and fencing attempts on Manager revocation, follow from that feature and later slices.
 - **Workflow definitions and segments as inputs**: Workflow definitions, capability declarations, and Analyst profiles are resolved through the owning Registry boundary; importing Analyst manifests into that registry is out of scope, and representative workflow definitions may be supplied as fixtures. Analysis-segment identities are supplied through the owning segment boundary; segment encoding and materialization are out of scope.

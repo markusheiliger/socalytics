@@ -91,6 +91,14 @@ testable without the UI. This keeps runtime coordination, credentials, queue
 consumption, hardware inspection, and OCI adapters in C# without embedding a
 browser runtime alongside Analyst workloads.
 
+The worker will expose its local operating controls (status, register, pause,
+resume, safe exit, and unregister) to a command-line client through an
+owner-only local IPC endpoint: a Unix domain socket in the Manager state
+directory on every operating system. The endpoint accepts connections only from
+the Manager's process account and never listens on the network. The headless
+worker and its command-line client will be the first control surface; the tray
+UI, when introduced, uses the same controls.
+
 Promotion requires an Avalonia spike on Windows, macOS, and Linux covering tray
 and autostart support, signed installation and updates, runtime footprint while
 Analysts execute, operating-system-protected local storage, accessibility, and
@@ -118,6 +126,14 @@ Before pairing, the AM generates an asymmetric device key in a supported
 operating-system-protected keystore. Activation is refused when no supported
 protected store is available; an exportable key-file fallback is not supported.
 Hardware-backed storage may be used but is not required.
+
+The first candidate store will be a non-exportable ECDSA P-256 key in the
+Windows CNG software key storage provider, scoped to the Manager's process
+account, with the local registration state protected by Windows DPAPI for the
+same account. Until another operating system has an approved store, the Manager
+refuses registration there. Production approval of any store remains governed
+by `GOV-CRED-002` in
+[Security and Data Governance](security-and-data-governance.md#credential-class-entries).
 
 The untrusted AM requests a short-lived, single-use pairing code bound to its
 public key, target stamp, nonce, expiry, and reported device metadata. It shows
@@ -164,6 +180,14 @@ issuance validates the registered key, assertion audience, expiry, and unique
 identifier. Each API call validates the DPoP proof, request binding, replay
 identifier, token audience and scopes, stamp binding, and authoritative active
 registration state. AM tokens cannot authorize human or administrative APIs.
+
+The DPoP proof key is the registered device key, so every token request and
+API call proves possession of the non-exportable key. Access tokens are opaque
+references stored only as hashes and validated against the authoritative
+registration on every call, so revocation takes effect without a platform
+token-signing key. The AM treats its registration as inactive only after a
+refusal that follows its own valid key proof; transport failures never clear
+its protected registration.
 
 The registration identity remains valid across restart and routine credential
 rotation until local unregister or administrator revocation. The private key

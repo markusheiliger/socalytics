@@ -1,0 +1,808 @@
+openapi: 3.1.0
+info:
+  title: SocAlytics Platform API - Recordings
+  version: 1.0.0
+  summary: Recording upload, immutable recording lineage, and recording-set finalization.
+  description: >-
+    Fragment of the platform `/api/v1` surface owned by the Recordings functional area
+    (feature 20261005-130702-recording-lineage-upload). The platform never receives media
+    bytes: uploads go directly to S3-compatible object storage through short-lived,
+    single-object upload grants. Authentication, the session cookie, anti-forgery, and the
+    shared problem-details catalog are owned by the Club and Identity contract; this fragment
+    references them and adds only recording operations and problem codes. Problem `type` URIs
+    are `urn:socalytics:problem:<code>`, using the codes listed on each response.
+  license:
+    name: Proprietary
+    identifier: LicenseRef-SocAlytics
+servers:
+  - url: /
+tags:
+  - name: Recording uploads
+  - name: Recording lineage
+security:
+  - sessionCookie: []
+paths:
+  /api/v1/matches/{matchId}/upload-sessions:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+    post:
+      operationId: startRecordingUpload
+      tags: [Recording uploads]
+      summary: Start an upload session and receive a single-object upload grant.
+      description: >-
+        Requires Club Admin or the Coach role on the Match's Team. Creates a pending upload
+        session and returns a time-limited grant to write exactly one platform-chosen object.
+        Replaying the same Idempotency-Key with the same content returns the original session
+        with a freshly issued grant (grants are never stored).
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/AntiforgeryToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartUploadRequest'
+      responses:
+        '201':
+          description: Upload session created (or replayed) with a fresh grant.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/StrongETag'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSessionWithGrant'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/StartUploadConflict'
+        '503':
+          $ref: '#/components/responses/ObjectStorageUnavailable'
+  /api/v1/matches/{matchId}/upload-sessions/{uploadSessionId}:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+      - $ref: '#/components/parameters/UploadSessionId'
+    get:
+      operationId: getRecordingUploadSession
+      tags: [Recording uploads]
+      summary: Read an upload session's state.
+      description: Requires Club Admin or the Coach role on the Match's Team. Never returns a grant.
+      responses:
+        '200':
+          description: The upload session.
+          headers:
+            ETag:
+              $ref: '#/components/headers/StrongETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/matches/{matchId}/upload-sessions/{uploadSessionId}/grants:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+      - $ref: '#/components/parameters/UploadSessionId'
+    post:
+      operationId: issueRecordingUploadGrant
+      tags: [Recording uploads]
+      summary: Issue a fresh upload grant for a pending session.
+      description: >-
+        Requires current Club Admin or Coach authority. The grant targets the same single
+        storage location as every earlier grant of the session and conveys no other authority.
+        Unknown or differently scoped sessions yield 404; completed sessions yield 409.
+      parameters:
+        - $ref: '#/components/parameters/AntiforgeryToken'
+      responses:
+        '200':
+          description: A fresh time-limited upload grant.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadGrant'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/GrantConflict'
+        '503':
+          $ref: '#/components/responses/ObjectStorageUnavailable'
+  /api/v1/matches/{matchId}/upload-sessions/{uploadSessionId}/completion:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+      - $ref: '#/components/parameters/UploadSessionId'
+    post:
+      operationId: completeRecordingUpload
+      tags: [Recording uploads]
+      summary: Verify the stored object and accept it as an immutable recording version.
+      description: >-
+        Verifies, using storage-provided integrity evidence, that the object at the session's
+        location exists and that its size and SHA-256 equal the declaration; then atomically
+        creates one recording version, its first timeline mapping, and marks the session
+        completed. Any rejection leaves the session pending and creates nothing.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/AntiforgeryToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteUploadRequest'
+      responses:
+        '201':
+          description: Upload accepted (or replayed).
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletedUpload'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/CompletionConflict'
+        '503':
+          $ref: '#/components/responses/ObjectStorageUnavailable'
+  /api/v1/matches/{matchId}/recording-versions/{recordingVersionId}:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+      - $ref: '#/components/parameters/RecordingVersionId'
+    get:
+      operationId: getRecordingVersion
+      tags: [Recording lineage]
+      summary: Read one immutable recording version.
+      description: Requires Club Admin or a Coach or Viewer role on the Match's Team.
+      responses:
+        '200':
+          description: The recording version.
+          headers:
+            ETag:
+              $ref: '#/components/headers/StrongETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordingVersion'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/matches/{matchId}/recording-versions/{recordingVersionId}/timeline-mappings:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+      - $ref: '#/components/parameters/RecordingVersionId'
+    post:
+      operationId: reviseRecordingTimelineMapping
+      tags: [Recording lineage]
+      summary: Bind a revised timeline mapping to an accepted recording version.
+      description: >-
+        Creates a new immutable timeline mapping with a new identity and digest. Content
+        identical to an existing mapping of the same recording version returns that mapping
+        with 200 instead of creating a duplicate. Prior mappings are never changed.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/AntiforgeryToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TimelineMappingContent'
+      responses:
+        '200':
+          description: Identical content; the existing mapping is returned.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineMapping'
+        '201':
+          description: A new timeline mapping was created (or replayed).
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineMapping'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/MutationConflict'
+  /api/v1/matches/{matchId}/timeline-mappings/{timelineMappingId}:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+      - $ref: '#/components/parameters/TimelineMappingId'
+    get:
+      operationId: getRecordingTimelineMapping
+      tags: [Recording lineage]
+      summary: Read one immutable timeline mapping.
+      description: Requires Club Admin or a Coach or Viewer role on the Match's Team.
+      responses:
+        '200':
+          description: The timeline mapping.
+          headers:
+            ETag:
+              $ref: '#/components/headers/StrongETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineMapping'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/matches/{matchId}/recording-set-versions:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+    post:
+      operationId: finalizeRecordingSet
+      tags: [Recording lineage]
+      summary: Finalize an ordered recording set as a new immutable recording-set version.
+      description: >-
+        Atomically creates the recording-set version, its ordered memberships, and exactly one
+        recordings-finalized event record. The whole request is rejected, creating nothing, if
+        the list is empty, any member is unknown or belongs to another Match, a mapping is not
+        bound to its paired recording version, or a recording version repeats. Distinct
+        Idempotency-Keys create distinct set versions.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/AntiforgeryToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinalizeRecordingSetRequest'
+      responses:
+        '201':
+          description: Recording-set version finalized (or replayed).
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordingSetVersion'
+        '400':
+          $ref: '#/components/responses/ValidationProblem'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/MutationConflict'
+  /api/v1/matches/{matchId}/recording-set-versions/{recordingSetVersionId}:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+      - $ref: '#/components/parameters/RecordingSetVersionId'
+    get:
+      operationId: getRecordingSetVersion
+      tags: [Recording lineage]
+      summary: Read one finalized recording-set version with its ordered members.
+      description: Requires Club Admin or a Coach or Viewer role on the Match's Team.
+      responses:
+        '200':
+          description: The finalized recording-set version.
+          headers:
+            ETag:
+              $ref: '#/components/headers/StrongETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordingSetVersion'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/matches/{matchId}/recording-lineage:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+    get:
+      operationId: getMatchRecordingLineage
+      tags: [Recording lineage]
+      summary: List a Match's recording versions, timeline mappings, and finalized set versions.
+      description: >-
+        Requires Club Admin or a Coach or Viewer role on the Match's Team. Discloses metadata
+        only; never issues media access or upload grants. The weak ETag serves caching only.
+      parameters:
+        - name: If-None-Match
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The Match's recording lineage.
+          headers:
+            ETag:
+              $ref: '#/components/headers/WeakETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecordingLineage'
+        '304':
+          description: The lineage has not changed since the supplied ETag.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-SocAlytics.Session
+      description: >-
+        Server-validated human session established by Club and Identity (Secure, HttpOnly,
+        SameSite=Strict). The cookie name is owned by the Club and Identity contract.
+  parameters:
+    MatchId:
+      name: matchId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    UploadSessionId:
+      name: uploadSessionId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    RecordingVersionId:
+      name: recordingVersionId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    TimelineMappingId:
+      name: timelineMappingId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    RecordingSetVersionId:
+      name: recordingSetVersionId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Opaque caller-chosen retry key scoped to this operation and Match. Same key and same
+        content replays the original outcome; same key with different content is a 409.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+        pattern: '^[\x21-\x7E]+$'
+    AntiforgeryToken:
+      name: RequestVerificationToken
+      in: header
+      required: true
+      description: >-
+        Anti-forgery proof issued for the current session. Header name and issuance are owned
+        by the Club and Identity contract.
+      schema:
+        type: string
+        minLength: 1
+  headers:
+    Location:
+      description: URI of the created or returned resource.
+      schema:
+        type: string
+        format: uri-reference
+    StrongETag:
+      description: Strong validator; the version for upload sessions, the identity for immutable resources.
+      schema:
+        type: string
+    WeakETag:
+      description: Weak validator derived from the identities of everything the view contains.
+      schema:
+        type: string
+    NoStore:
+      description: Always `no-store`; responses carrying grants must not be cached.
+      schema:
+        type: string
+        const: no-store
+  responses:
+    ValidationProblem:
+      description: >-
+        The request is invalid. Codes: `validation-failed`, `idempotency-key-missing`,
+        `timeline-mapping-invalid`, `recording-set-empty`, `recording-set-member-invalid`,
+        `recording-set-duplicate-recording`, `content-type-not-allowed`, `upload-size-out-of-range`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthenticated:
+      description: No valid session. Code `unauthenticated`. No redirect is issued.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: >-
+        The caller lacks current authority for the Match's Team, or the scope cannot be
+        resolved. Code `forbidden`. No lineage or stored outcome is disclosed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: >-
+        The Match does not exist, or the addressed session, recording version, mapping, or set
+        version does not exist within that Match. Code `not-found`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    StartUploadConflict:
+      description: 'Codes: `season-archived`, `idempotency-key-reused`.'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    GrantConflict:
+      description: 'Codes: `season-archived`, `upload-session-completed`.'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    CompletionConflict:
+      description: >-
+        Codes: `season-archived`, `idempotency-key-reused`, `upload-session-completed`,
+        `upload-object-missing`, `upload-object-mismatch`, `integrity-evidence-unavailable`.
+        Verification failures leave the session pending.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    MutationConflict:
+      description: 'Codes: `season-archived`, `idempotency-key-reused`.'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    ObjectStorageUnavailable:
+      description: Object storage could not be reached. Code `object-storage-unavailable`. No state changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Identifier:
+      type: string
+      minLength: 1
+      description: Opaque domain identifier.
+    Sha256Digest:
+      type: string
+      pattern: '^sha-256:[0-9a-f]{64}$'
+    Timestamp:
+      type: string
+      format: date-time
+    Problem:
+      type: object
+      description: RFC 9457 problem details with the shared SocAlytics extension members.
+      required: [type, title, status, code, correlationId]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+        correlationId:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, message]
+            properties:
+              field:
+                type: string
+              message:
+                type: string
+    RecordingDescriptor:
+      type: object
+      additionalProperties: false
+      required: [displayName, contentType]
+      properties:
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 200
+        description:
+          type: string
+          maxLength: 2000
+        contentType:
+          type: string
+          description: Media type; must be one of the stamp's configured allowed content types.
+    StartUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [recording, sizeBytes, contentDigest]
+      properties:
+        recording:
+          $ref: '#/components/schemas/RecordingDescriptor'
+        sizeBytes:
+          type: integer
+          minimum: 1
+          maximum: 5368709120
+          description: Expected object size; also bounded by the stamp's configured maximum.
+        contentDigest:
+          $ref: '#/components/schemas/Sha256Digest'
+    UploadSession:
+      type: object
+      required: [id, matchId, teamId, state, recording, sizeBytes, contentDigest, createdAt, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        matchId:
+          $ref: '#/components/schemas/Identifier'
+        teamId:
+          $ref: '#/components/schemas/Identifier'
+        state:
+          type: string
+          enum: [pending, completed]
+        recording:
+          $ref: '#/components/schemas/RecordingDescriptor'
+        sizeBytes:
+          type: integer
+        contentDigest:
+          $ref: '#/components/schemas/Sha256Digest'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        completedAt:
+          $ref: '#/components/schemas/Timestamp'
+        recordingVersionId:
+          $ref: '#/components/schemas/Identifier'
+        version:
+          type: integer
+          minimum: 1
+    UploadGrant:
+      type: object
+      description: Transient authority to PUT exactly one object. Never stored or logged by the platform.
+      required: [method, url, requiredHeaders, expiresAt]
+      properties:
+        method:
+          type: string
+          const: PUT
+        url:
+          type: string
+          format: uri
+        requiredHeaders:
+          type: object
+          description: Headers the client must send unchanged with the PUT.
+          required: [Content-Type, x-amz-checksum-sha256]
+          additionalProperties:
+            type: string
+          properties:
+            Content-Type:
+              type: string
+            x-amz-checksum-sha256:
+              type: string
+              description: Base64 SHA-256 of the declared content.
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'
+    UploadSessionWithGrant:
+      type: object
+      required: [session, grant]
+      properties:
+        session:
+          $ref: '#/components/schemas/UploadSession'
+        grant:
+          $ref: '#/components/schemas/UploadGrant'
+    TimelineSpan:
+      type: object
+      additionalProperties: false
+      description: >-
+        Maps media time [mediaStartSeconds, mediaEndSeconds) to match time starting at
+        matchStartSeconds at a 1:1 rate. Values have at most millisecond precision.
+      required: [mediaStartSeconds, mediaEndSeconds, matchStartSeconds]
+      properties:
+        mediaStartSeconds:
+          type: number
+          minimum: 0
+        mediaEndSeconds:
+          type: number
+          exclusiveMinimum: 0
+        matchStartSeconds:
+          type: number
+          minimum: 0
+    TimelineMappingContent:
+      type: object
+      additionalProperties: false
+      description: >-
+        Spans must be strictly increasing and non-overlapping in both media and match time,
+        and each must have positive length.
+      required: [spans]
+      properties:
+        spans:
+          type: array
+          minItems: 1
+          maxItems: 64
+          items:
+            $ref: '#/components/schemas/TimelineSpan'
+    CompleteUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [timelineMapping]
+      properties:
+        timelineMapping:
+          $ref: '#/components/schemas/TimelineMappingContent'
+    RecordingVersion:
+      type: object
+      required: [id, matchId, teamId, uploadSessionId, recording, sizeBytes, contentDigest, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        matchId:
+          $ref: '#/components/schemas/Identifier'
+        teamId:
+          $ref: '#/components/schemas/Identifier'
+        uploadSessionId:
+          $ref: '#/components/schemas/Identifier'
+        recording:
+          $ref: '#/components/schemas/RecordingDescriptor'
+        sizeBytes:
+          type: integer
+        contentDigest:
+          $ref: '#/components/schemas/Sha256Digest'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+    TimelineMapping:
+      type: object
+      required: [id, recordingVersionId, matchId, spans, digest, createdAt]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        recordingVersionId:
+          $ref: '#/components/schemas/Identifier'
+        matchId:
+          $ref: '#/components/schemas/Identifier'
+        spans:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineSpan'
+        digest:
+          $ref: '#/components/schemas/Sha256Digest'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+    CompletedUpload:
+      type: object
+      required: [recordingVersion, timelineMapping]
+      properties:
+        recordingVersion:
+          $ref: '#/components/schemas/RecordingVersion'
+        timelineMapping:
+          $ref: '#/components/schemas/TimelineMapping'
+    RecordingSetMemberInput:
+      type: object
+      additionalProperties: false
+      required: [recordingVersionId, timelineMappingId]
+      properties:
+        recordingVersionId:
+          $ref: '#/components/schemas/Identifier'
+        timelineMappingId:
+          $ref: '#/components/schemas/Identifier'
+    FinalizeRecordingSetRequest:
+      type: object
+      additionalProperties: false
+      required: [members]
+      properties:
+        members:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/RecordingSetMemberInput'
+    RecordingSetMember:
+      type: object
+      required: [position, recordingVersionId, recordingContentDigest, timelineMappingId, timelineMappingDigest]
+      properties:
+        position:
+          type: integer
+          minimum: 1
+        recordingVersionId:
+          $ref: '#/components/schemas/Identifier'
+        recordingContentDigest:
+          $ref: '#/components/schemas/Sha256Digest'
+        timelineMappingId:
+          $ref: '#/components/schemas/Identifier'
+        timelineMappingDigest:
+          $ref: '#/components/schemas/Sha256Digest'
+    RecordingSetVersion:
+      type: object
+      required: [id, matchId, teamId, finalizedAt, members]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        matchId:
+          $ref: '#/components/schemas/Identifier'
+        teamId:
+          $ref: '#/components/schemas/Identifier'
+        finalizedAt:
+          $ref: '#/components/schemas/Timestamp'
+        members:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/RecordingSetMember'
+    RecordingLineage:
+      type: object
+      required: [matchId, teamId, recordingVersions, timelineMappings, recordingSetVersions]
+      properties:
+        matchId:
+          $ref: '#/components/schemas/Identifier'
+        teamId:
+          $ref: '#/components/schemas/Identifier'
+        recordingVersions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecordingVersion'
+        timelineMappings:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineMapping'
+        recordingSetVersions:
+          type: array
+          items:
+            $ref: '#/components/schemas/RecordingSetVersion'

@@ -1,0 +1,811 @@
+openapi: 3.1.0
+info:
+  title: SocAlytics Platform API - Durable Analysis Workflow
+  version: 1.0.0
+  summary: Analysis run status, Analyst Manager attempt operations, and workflow operations inspection.
+  description: >-
+    OpenAPI 3.1 fragment for feature 20261005-130703-durable-analysis-workflow. It is merged
+    into the platform's single built-in document at /openapi/v1.json; route prefix /api/v1.
+    Errors use the shared RFC 9457 problem details defined by Club and Identity
+    (application/problem+json, type urn:socalytics:problem:<code>, members code,
+    correlationId, and errors). There is no operation that creates an Analysis Run: runs are
+    created only from the canonical matches.recordings-finalized event owned by Recording
+    Lineage and Upload (contracts/recordings/recordings-finalized/v1/recordings-finalized.schema.json). Workflow
+    transitions are guarded by durable state and fencing; no operation in this fragment
+    accepts or requires If-Match. Fencing tokens appear only in claim responses and in
+    Manager request bodies and are never echoed in errors.
+servers:
+  - url: /
+security: []
+tags:
+  - name: Analysis runs
+  - name: Analyst Manager attempts
+  - name: Workflow operations
+paths:
+  /api/v1/analysis/runs/{runId}:
+    get:
+      tags: [Analysis runs]
+      operationId: getAnalysisRun
+      summary: Get the status of one Analysis Run
+      description: >-
+        Club Admins and members holding Coach or Viewer on the run's team. A run of another team
+        returns 404 so its existence is not disclosed. The representation is a projection over the
+        run, its nodes, and its Logical Jobs and therefore carries a weak, cache-only ETag.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: '#/components/parameters/RunId'
+        - $ref: '#/components/parameters/IfNoneMatch'
+      responses:
+        '200':
+          description: Run status.
+          headers:
+            ETag:
+              $ref: '#/components/headers/WeakETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisRunStatus'
+        '304':
+          description: Not modified.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/matches/{matchId}/analysis-runs:
+    get:
+      tags: [Analysis runs]
+      operationId: listMatchAnalysisRuns
+      summary: List the Analysis Runs of one match
+      description: Newest first. Same authorization and non-disclosure rules as getAnalysisRun.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            $ref: './schemas/common/v1/common.schema.json#/$defs/identifier'
+        - $ref: '#/components/parameters/ContinuationToken'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of run summaries.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisRunSummaryPage'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/analysis/logical-jobs/{logicalJobId}/claims:
+    post:
+      tags: [Analyst Manager attempts]
+      operationId: claimLogicalJob
+      summary: Claim a ready Logical Job and create a new Execution Attempt
+      description: >-
+        Succeeds only while the Logical Job is Ready, the named readiness occurrence is current,
+        and attempt budget remains. Creates exactly one Execution Attempt with the next consecutive
+        attempt number, a new lease, and a new fencing token, and consumes one unit of budget.
+        The Manager acknowledges the ready-work delivery after 201, 404, or 409 (deterministic
+        outcomes) and leaves it unacknowledged after 401, 403, or 5xx.
+      security:
+        - dpop: []
+      parameters:
+        - name: logicalJobId
+          in: path
+          required: true
+          schema:
+            $ref: './schemas/common/v1/common.schema.json#/$defs/identifier'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimRequest'
+      responses:
+        '201':
+          description: Claim granted; a new Execution Attempt exists.
+          headers:
+            Location:
+              description: /api/v1/analysis/attempts/{attemptId}
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimGranted'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          description: Unknown Logical Job (code not-found). Deterministic; acknowledge the delivery as obsolete.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '409':
+          description: >-
+            Claim obsolete (code claim-obsolete): the Logical Job is already claimed,
+            completed, blocked, failed, or the readiness occurrence is superseded. No attempt was
+            created and no budget consumed. Deterministic; acknowledge the delivery as obsolete.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+  /api/v1/analysis/attempts/{attemptId}/heartbeats:
+    post:
+      tags: [Analyst Manager attempts]
+      operationId: renewAttemptLease
+      summary: Renew the lease of the current Execution Attempt
+      description: >-
+        Renews the lease only when the attempt is Active, its lease has not expired, and the
+        Logical Job, fencing token, and authenticated Manager all match. Any other heartbeat is
+        rejected as obsolete without changing state.
+      security:
+        - dpop: []
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatRequest'
+      responses:
+        '200':
+          description: Lease renewed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaseRenewed'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/AttemptObsolete'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+  /api/v1/analysis/attempts/{attemptId}/completion:
+    post:
+      tags: [Analyst Manager attempts]
+      operationId: completeAttempt
+      summary: Submit the fenced, idempotent completion of an Execution Attempt
+      description: >-
+        The body is validated against the attempt-completion v1 JSON Schema before any acceptance
+        logic runs; attemptId in the body must equal the path. Acceptance closes the attempt,
+        records one immutable accepted-result reference, and re-evaluates readiness in one durable
+        step. A failed outcome closes the attempt and retries the Logical Job while budget remains.
+        A replay with the same idempotency key and semantically identical content (RFC 8785
+        canonical comparison) returns the original outcome with replayed=true.
+      security:
+        - dpop: []
+      parameters:
+        - $ref: '#/components/parameters/AttemptId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: './schemas/analysis/attempt-completion/v1/attempt-completion.schema.json'
+      responses:
+        '200':
+          description: Completion recorded (or replayed).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletionOutcome'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: >-
+            One of: attempt-obsolete (stale, superseded, fabricated, wrong-attempt or wrong-Manager
+            fencing context, or another attempt already accepted; nothing changes),
+            idempotency-key-reuse (same key, different content; nothing changes), or
+            completion-rejected (current attempt, but scope, capability, schema, digest, or
+            upstream lineage does not match the pinned snapshot; the attempt is closed as Rejected
+            and the Logical Job is retried while budget remains).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+  /api/v1/operations/outbox-messages:
+    get:
+      tags: [Workflow operations]
+      operationId: listOutboxMessages
+      summary: List outgoing messages and their publication state
+      description: Club Admins only. Never returns payload bodies or transport contents.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            enum: [pending, published, failed, discarded]
+        - name: messageType
+          in: query
+          required: false
+          schema:
+            enum: [matches.recordings-finalized, analysis.ready-work, analysis.run-state-changed]
+        - $ref: '#/components/parameters/ContinuationToken'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of outbox message publication records, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboxMessagePage'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/operations/outbox-messages/{messageId}:
+    get:
+      tags: [Workflow operations]
+      operationId: getOutboxMessage
+      summary: Get the publication state of one outgoing message
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: messageId
+          in: path
+          required: true
+          schema:
+            $ref: './schemas/common/v1/common.schema.json#/$defs/identifier'
+      responses:
+        '200':
+          description: Publication record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboxMessage'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/operations/analysis/summary:
+    get:
+      tags: [Workflow operations]
+      operationId: getAnalysisOperationalSummary
+      summary: Aggregate workflow and publication health derived from durable state
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Aggregate counts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalysisOperationalSummary'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/operations/analysis/notification-receipts:
+    get:
+      tags: [Workflow operations]
+      operationId: listNotificationReceipts
+      summary: List processed inbound notifications and their sanitized outcomes
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: outcome
+          in: query
+          required: false
+          schema:
+            enum: [run-created, run-exists, rejected]
+        - $ref: '#/components/parameters/ContinuationToken'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: One page of receipts, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationReceiptPage'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/operations/analysis/reconciliations:
+    post:
+      tags: [Workflow operations]
+      operationId: reconcileAnalysisPublication
+      summary: Republish every currently eligible ready Logical Job and pending notification
+      description: >-
+        Club Admins only; requires the X-CSRF-Token antiforgery header defined by Club and
+        Identity (403 antiforgery-failed otherwise). Runs the same reconciliation as startup and
+        transport restoration. Completed, blocked, exhausted, claimed, or otherwise ineligible
+        work is never republished. Safe to repeat. Recorded through IAuditTrail.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '200':
+          description: Reconciliation completed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/DependencyUnavailable'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-socalytics-session
+      description: >-
+        Backend-for-frontend session cookie owned by Club and Identity (Secure, HttpOnly,
+        SameSite=Strict).
+    antiforgeryHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Anti-forgery token owned by Club and Identity; required for state-changing session requests.
+    dpop:
+      type: http
+      scheme: DPoP
+      description: >-
+        Opaque Analyst Manager access token sent as Authorization DPoP with a DPoP proof signed by
+        the registered device key, validated by the AnalystManagerDPoP authentication scheme of
+        Analyst Manager Registration (scope analyst-manager). The authorization policy
+        AnalystManager requires that scheme and scope and exposes the Manager identity
+        (client_id) through ICurrentAnalystManager.
+  parameters:
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema:
+        $ref: './schemas/common/v1/common.schema.json#/$defs/identifier'
+    AttemptId:
+      name: attemptId
+      in: path
+      required: true
+      schema:
+        $ref: './schemas/common/v1/common.schema.json#/$defs/identifier'
+    IfNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      schema:
+        type: string
+    ContinuationToken:
+      name: continuationToken
+      in: query
+      required: false
+      description: Opaque continuation token from a previous page.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+  headers:
+    WeakETag:
+      description: Weak ETag derived from the versions of the run and its Logical Jobs; for If-None-Match only.
+      schema:
+        type: string
+        pattern: '^W/".+"$'
+  responses:
+    ValidationFailed:
+      description: Request or payload validation failed (code validation-failed) with field errors.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthenticated:
+      description: Not authenticated; no redirect.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Authenticated but not authorized for this operation.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: Not found, or not visible to the caller's scope.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    AttemptObsolete:
+      description: >-
+        The attempt is not the current Active attempt for this Manager and fencing token, or its
+        lease has expired (code attempt-obsolete). Nothing changes.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    DependencyUnavailable:
+      description: The database is unavailable (code dependency-unavailable). Safe to retry.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Problem:
+      description: Shared problem envelope owned by Club and Identity; this feature adds codes only.
+      type: object
+      required: [type, title, status, code, correlationId]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: urn:socalytics:problem:<code>
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+          description: >-
+            Shared codes (validation-failed, unauthenticated, antiforgery-failed, forbidden,
+            not-found, dependency-unavailable) plus the codes added by this feature:
+            claim-obsolete, attempt-obsolete, idempotency-key-reuse, completion-rejected.
+        correlationId:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, code]
+            properties:
+              field:
+                type: string
+                description: JSON Pointer into the request body.
+              code:
+                type: string
+              message:
+                type: string
+    RunState:
+      enum: [Requested, Running, PartiallyCompleted, Completed, Failed, Cancelled]
+    NodeState:
+      enum: [Waiting, Active, Completed, Failed, Blocked]
+    AnalysisRunSummary:
+      type: object
+      additionalProperties: false
+      required: [runId, teamId, matchId, recordingSetVersionId, workflowId, workflowVersion, state, createdAt, version]
+      properties:
+        runId:
+          type: string
+        teamId:
+          type: string
+        matchId:
+          type: string
+        recordingSetVersionId:
+          type: string
+        workflowId:
+          type: string
+        workflowVersion:
+          type: string
+        state:
+          $ref: '#/components/schemas/RunState'
+        failureReason:
+          type: [string, 'null']
+        createdAt:
+          type: string
+          format: date-time
+        runningAt:
+          type: [string, 'null']
+          format: date-time
+        terminatedAt:
+          type: [string, 'null']
+          format: date-time
+        version:
+          type: integer
+          description: Current run version, for equality comparison only.
+    AnalysisRunStatus:
+      allOf:
+        - $ref: '#/components/schemas/AnalysisRunSummary'
+        - type: object
+          required: [requestedCapabilities, nodes]
+          properties:
+            requestedCapabilities:
+              type: array
+              items:
+                type: string
+            nodes:
+              type: array
+              items:
+                $ref: '#/components/schemas/NodeStatus'
+    NodeStatus:
+      type: object
+      additionalProperties: false
+      required: [nodeId, nodeKey, capabilityId, capabilityVersion, tier, executionScope, state, jobs]
+      properties:
+        nodeId:
+          type: string
+        nodeKey:
+          type: string
+        capabilityId:
+          type: string
+        capabilityVersion:
+          type: string
+        tier:
+          enum: [low-level, high-level]
+        executionScope:
+          enum: [segment, match]
+        state:
+          $ref: '#/components/schemas/NodeState'
+        blockedByNodeKey:
+          type: [string, 'null']
+        jobs:
+          type: object
+          additionalProperties: false
+          required: [waiting, ready, claimed, completed, failed, blocked]
+          properties:
+            waiting:
+              type: integer
+            ready:
+              type: integer
+            claimed:
+              type: integer
+            completed:
+              type: integer
+            failed:
+              type: integer
+            blocked:
+              type: integer
+    AnalysisRunSummaryPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AnalysisRunSummary'
+        continuationToken:
+          type: [string, 'null']
+    ClaimRequest:
+      type: object
+      additionalProperties: false
+      required: [readinessOccurrenceId, messageId]
+      properties:
+        readinessOccurrenceId:
+          $ref: './schemas/common/v1/common.schema.json#/$defs/identifier'
+        messageId:
+          $ref: './schemas/common/v1/common.schema.json#/$defs/identifier'
+    ClaimGranted:
+      type: object
+      additionalProperties: false
+      required: [attemptId, logicalJobId, attemptNumber, fencingToken, leaseExpiresAt, leaseSeconds, staleTimeoutSeconds, executionTimeoutSeconds]
+      properties:
+        attemptId:
+          type: string
+        logicalJobId:
+          type: string
+        attemptNumber:
+          $ref: './schemas/common/v1/common.schema.json#/$defs/attemptNumber'
+        fencingToken:
+          $ref: './schemas/common/v1/common.schema.json#/$defs/fencingToken'
+        leaseExpiresAt:
+          type: string
+          format: date-time
+        leaseSeconds:
+          type: integer
+        staleTimeoutSeconds:
+          type: integer
+        executionTimeoutSeconds:
+          type: integer
+    HeartbeatRequest:
+      type: object
+      additionalProperties: false
+      required: [logicalJobId, fencingToken, observedAt, executionState]
+      properties:
+        logicalJobId:
+          $ref: './schemas/common/v1/common.schema.json#/$defs/identifier'
+        fencingToken:
+          $ref: './schemas/common/v1/common.schema.json#/$defs/fencingToken'
+        observedAt:
+          $ref: './schemas/common/v1/common.schema.json#/$defs/timestamp'
+        executionState:
+          enum: [preparing, running, finalizing]
+        progressPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+    LeaseRenewed:
+      type: object
+      additionalProperties: false
+      required: [attemptId, leaseExpiresAt]
+      properties:
+        attemptId:
+          type: string
+        leaseExpiresAt:
+          type: string
+          format: date-time
+    CompletionOutcome:
+      type: object
+      additionalProperties: false
+      required: [attemptId, logicalJobId, outcome, replayed, logicalJobState]
+      properties:
+        attemptId:
+          type: string
+        logicalJobId:
+          type: string
+        outcome:
+          enum: [accepted, failure-recorded]
+        acceptedResultId:
+          type: [string, 'null']
+        replayed:
+          type: boolean
+        logicalJobState:
+          enum: [Ready, Completed, Failed, Blocked, Claimed]
+    OutboxMessage:
+      type: object
+      additionalProperties: false
+      required: [messageId, messageType, contractVersion, subject, state, attemptCount, publicationRound, createdAt, ageSeconds]
+      properties:
+        messageId:
+          type: string
+        messageType:
+          enum: [matches.recordings-finalized, analysis.ready-work, analysis.run-state-changed]
+        contractVersion:
+          type: string
+        subject:
+          type: string
+        state:
+          enum: [pending, published, failed, discarded]
+        attemptCount:
+          type: integer
+        publicationRound:
+          type: integer
+        lastAttemptAt:
+          type: [string, 'null']
+          format: date-time
+        nextAttemptAt:
+          type: [string, 'null']
+          format: date-time
+        failureCategory:
+          type: [string, 'null']
+          enum: [transport-unavailable, publish-timeout, publish-rejected, null]
+        createdAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type: [string, 'null']
+          format: date-time
+        ageSeconds:
+          type: integer
+          minimum: 0
+        publicationLagSeconds:
+          type: [integer, 'null']
+          minimum: 0
+          description: publishedAt minus createdAt; null until published.
+        runId:
+          type: [string, 'null']
+        logicalJobId:
+          type: [string, 'null']
+        capabilityId:
+          type: [string, 'null']
+    OutboxMessagePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutboxMessage'
+        continuationToken:
+          type: [string, 'null']
+    AnalysisOperationalSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - runsByState
+        - runsWithBlockedNodes
+        - staleAttempts
+        - rejectedNotifications
+        - outboxPending
+        - outboxFailed
+        - oldestPendingAgeSeconds
+        - observedAt
+      properties:
+        runsByState:
+          type: object
+          additionalProperties:
+            type: integer
+        runsWithBlockedNodes:
+          type: integer
+        staleAttempts:
+          type: integer
+        rejectedNotifications:
+          type: integer
+        outboxPending:
+          type: integer
+        outboxFailed:
+          type: integer
+        oldestPendingAgeSeconds:
+          type: [integer, 'null']
+        observedAt:
+          type: string
+          format: date-time
+    NotificationReceipt:
+      type: object
+      additionalProperties: false
+      required: [messageId, messageType, outcome, receivedAt]
+      properties:
+        messageId:
+          type: string
+        messageType:
+          enum: [recordings-finalized]
+        recordingSetVersionId:
+          type: [string, 'null']
+        outcome:
+          enum: [run-created, run-exists, rejected]
+        rejectionCategory:
+          type: [string, 'null']
+          enum: [schema-invalid, lineage-not-found, lineage-mismatch, scope-mismatch, null]
+        runId:
+          type: [string, 'null']
+        receivedAt:
+          type: string
+          format: date-time
+    NotificationReceiptPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationReceipt'
+        continuationToken:
+          type: [string, 'null']
+    ReconciliationResult:
+      type: object
+      additionalProperties: false
+      required: [readyJobsRepublished, notificationsRepublished, startedAt, completedAt]
+      properties:
+        readyJobsRepublished:
+          type: integer
+        notificationsRepublished:
+          type: integer
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time

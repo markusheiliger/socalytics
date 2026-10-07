@@ -36,16 +36,28 @@ sequenceDiagram
   creates a new recording-set version and a new run rather than overwriting
   accepted evidence.
 
+  An upload grant will be a presigned single-object `PUT` for one
+  platform-chosen key whose declared SHA-256 is bound as a signed
+  `x-amz-checksum-sha256` header. Completion will accept the object only when
+  object storage reports the declared size and a full-object SHA-256 checksum
+  equal to the declaration; when storage cannot report that evidence,
+  completion fails closed. The API never reads or relays the media.
+
 ### Planned Recording-Lineage Foundation
 
 The planned Recordings functional area will persist, in the platform's
-application schema, immutable
-recording versions, immutable timeline mappings, finalized recording-set
-versions, ordered memberships, scoped idempotency outcomes, and its outgoing
-events through the platform outbox. Match and Team existence and authorization
-are resolved through the Club and Identity and Access application handlers;
-downstream validation uses a typed Recordings lineage query rather than reading
-Recordings tables directly.
+application schema, upload sessions as its only mutable aggregate, and
+immutable recording versions, immutable timeline mappings, finalized
+recording-set versions, ordered memberships, scoped idempotency outcomes, and
+exactly one immutable recordings-finalized event record per recording-set
+version, committed in the same transaction as the set. The Durable Analysis
+workflow will introduce the platform outbox and NATS publisher, add the outbox
+call to the finalization handler, and backfill records finalized before it; it
+will publish them to `matches.recordings-finalized`, track publication state
+separately, and never rewrite the record. Match and Team existence and
+authorization are resolved through the Club and Identity and Access application
+handlers; downstream validation uses a typed Recordings lineage query rather
+than reading Recordings tables directly.
 
 Its implementation tests must cover immutable metadata and mapping revisions,
 mapping/recording mismatch, missing Match and unauthorized Team access, empty
@@ -85,7 +97,11 @@ The accepted logical-segment design uses immutable values, not mutable labels:
 - A **recording version** identifies one immutable source-video version owned
   by one match.
 - A **timeline mapping** immutably maps that recording version's media time to
-  match time. Its digest changes whenever the mapping changes.
+  match time as an ordered list of spans, each mapping a half-open media
+  interval to match time at a 1:1 rate, strictly increasing and
+  non-overlapping in both media and match time. Its digest is `sha-256` over a
+  canonical JSON form with integer milliseconds and changes whenever the
+  mapping changes.
 - A **segmentation policy** has a fixed positive duration and an immutable
   digest over the policy version and all inputs that affect logical windows.
 - A **materialized-segment identity** is the complete tuple

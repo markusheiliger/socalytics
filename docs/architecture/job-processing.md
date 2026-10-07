@@ -120,9 +120,10 @@ of recording-version ID, timeline-mapping digest, segmentation-policy digest,
 and segment number. The Scheduler accepts it only after membership and
 match/team scope validation. Recording-set-only revisions may reuse the same
 materialized media while retaining distinct analysis-run lineage.
-Machine-readable job and completion schemas will be introduced with the first
-Scheduler and Analyst implementation slice and must preserve these identities
-and fencing boundaries.
+Machine-readable job and completion schemas will be introduced by the Durable
+Analysis Workflow slice, ahead of Analyst execution, under
+`contracts/analysis/`; they must preserve these identities and fencing
+boundaries and evolve additively within their major version.
 
 ## Readiness And Dependencies
 
@@ -154,6 +155,12 @@ required only when its declared predicate applies; otherwise it behaves as an
 optional input. For `person-tracking`, accepted media context is consumed when
 available, but missing or failed media context does not block tracking from
 accepted person detections.
+
+Conditional predicates come from a closed, versioned vocabulary and are
+evaluated only from durable run state and accepted results; a predicate that
+cannot yet be determined is treated as applicable. Readiness changes for one
+run are serialized so that concurrent completions cannot hide each other's
+accepted results.
 
 Match-scoped foundational jobs wait for the required segment results declared
 by their capability. When a capability permits partial coverage, its job

@@ -8,6 +8,13 @@
 
 **Input**: User description: "Recording Lineage and Upload: let an authorized Coach or Club Admin upload a Match's source recordings directly to object storage without the platform relaying media bytes, accept each completed upload as immutable recording lineage with its timeline mapping, and finalize an ordered Match recording set whose frozen lineage and finalized-event evidence are committed atomically for later analysis."
 
+## Clarifications
+
+### Session 2026-10-07
+
+- Q: Which verification environment must exist before this feature starts? → A: The combined environment feature `specs/20261007-115855-environment-verification-coverage`, which extends the automated verification to the repository-root contracts folder and the Analyst Manager solution, is reviewed and merged first.
+- Q: Where does the recordings-finalized event contract live, and who publishes the event? → A: As the first machine-readable contract in the repository-root contracts folder, which this feature creates together with its index and contract validation; this feature only stores the immutable event record, and Durable Analysis Workflow introduces publication of that record.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Upload a Source Recording for a Match (Priority: P1)
@@ -189,6 +196,8 @@ Members with access to a Team (its Coaches and Viewers, and Club Admins) can see
 ## Assumptions
 
 - Actors are the architecture's roles: Club Admin (club-wide authority, inherits access to every Team) and Coach and Viewer (per-Team roles). Authenticated sessions, current club membership, Club Admin authority, the Club > Season > Team > Match hierarchy, Match-to-Team scoping, and the audit capability come from `specs/20261005-130701-club-identity-foundation`; Match creation is part of that feature, not this one.
+- **Dependency on the environment feature**: `specs/20261007-115855-environment-verification-coverage` extends automated verification to the repository-root contracts folder and is reviewed and merged before this feature starts.
+- **Contract publication**: the recordings-finalized event contract is published as the first machine-readable contract in the repository-root contracts folder, which this feature creates with its index and validation. Publishing the stored event record to the message transport is introduced by `specs/20261005-130703-durable-analysis-workflow`; this feature only records it.
 - Durable storage, transactional all-or-nothing writes, optimistic concurrency, and disposable test infrastructure come from `specs/20261005-130700-platform-persistence-foundation`; this feature adds only recording records to the shared application data area.
 - Each upload transfers one whole object per session; resumable or multi-part upload experiences are out of scope for this slice.
 - The client computes and declares the content digest and size at upload start; the platform verifies them against storage-provided integrity evidence and never trusts the declaration alone.

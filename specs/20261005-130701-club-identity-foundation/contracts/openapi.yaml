@@ -1,0 +1,1538 @@
+openapi: 3.1.0
+info:
+  title: SocAlytics Platform API - Club and Identity Foundation
+  version: 1.0.0
+  summary: Design contract for the club hierarchy, local accounts, human sessions, membership, roles, and team-scoped authorization.
+  description: |
+    Design contract for feature `20261005-130701-club-identity-foundation`.
+    The runtime publication is the built-in document at `/openapi/v1.json`;
+    a contract test asserts that it contains every operationId, path, method,
+    and documented status code of this file.
+
+    Conventions:
+    - Session: cookie `__Host-socalytics-session` (Secure, HttpOnly,
+      SameSite=Strict). Unauthenticated requests receive `401` problem
+      details and are never redirected.
+    - Anti-forgery: every state-changing request made with a session carries
+      `X-CSRF-Token` with the token returned by `signIn` or `getSession`.
+      A missing or invalid token yields `403` with problem code
+      `antiforgery-failed` before any change.
+    - Optimistic concurrency: single aggregates return a strong
+      `ETag: "<version>"`. Edits (`updateClubSettings`, `updateTeam`,
+      `updateMatch`) require `If-Match`; a missing one (or `*`) yields `428`
+      `version-required`, a stale one `412` `version-mismatch`. Lifecycle
+      actions never require `If-Match` and are decided against the current
+      state; a disallowed transition yields `409`.
+    - Errors: RFC 9457 `application/problem+json` with
+      `type = urn:socalytics:problem:<code>` plus `code`, `correlationId`,
+      and optional `errors`.
+    - Visibility: a team-owned resource the caller cannot read is reported as
+      `404` so its existence is not disclosed.
+    - Collections: `items` plus an opaque `continuationToken`.
+servers:
+  - url: /
+tags:
+  - name: Session
+  - name: Self
+  - name: Credentials
+  - name: Club
+  - name: Seasons
+  - name: Teams
+  - name: Matches
+  - name: Members
+security:
+  - sessionCookie: []
+paths:
+  /api/v1/session:
+    post:
+      tags: [Session]
+      operationId: signIn
+      summary: Sign in with a local account and establish a session.
+      description: >
+        Ends any session presented in the request cookie, then issues a new
+        session cookie. Unknown account, wrong password, locked account,
+        inactive membership, and missing password all yield the identical
+        `401` `sign-in-failed` response.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SignInRequest'
+      responses:
+        '200':
+          description: Session established.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/SetSessionCookie'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionInfo'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/SignInFailed'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+    get:
+      tags: [Session]
+      operationId: getSession
+      summary: Read the current session and its anti-forgery token.
+      responses:
+        '200':
+          description: Current session.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionInfo'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    delete:
+      tags: [Session]
+      operationId: signOut
+      summary: Sign out and end the current session.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '204':
+          description: Session ended; the cookie is cleared.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/ClearSessionCookie'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/me:
+    get:
+      tags: [Self]
+      operationId: getCurrentMember
+      summary: Read the caller's identity, membership status, club roles, and team roles.
+      responses:
+        '200':
+          description: Current member.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentMember'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+  /api/v1/me/password:
+    post:
+      tags: [Self]
+      operationId: changeOwnPassword
+      summary: Change the caller's password after proving the current one.
+      description: >
+        Rotates the security stamp and ends every other session of the
+        caller; the current session stays valid. A wrong current password
+        yields `400` with field violation `currentPassword`/`invalid`.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangePasswordRequest'
+      responses:
+        '204':
+          description: Password changed.
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+  /api/v1/credentials/redeem:
+    post:
+      tags: [Credentials]
+      operationId: redeemCredential
+      summary: Set a password with a single-use set-password or reset credential.
+      description: >
+        The new password is checked against the password policy before the
+        credential is examined. Every credential failure (unknown, expired,
+        used, revoked, or bound to another account) yields the identical
+        `400` `credential-invalid` response. Success ends all sessions of the
+        account.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemCredentialRequest'
+      responses:
+        '204':
+          description: Password set; the credential is consumed.
+        '400':
+          description: Validation failed (`validation-failed`) or credential rejected (`credential-invalid`).
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+  /api/v1/club:
+    get:
+      tags: [Club]
+      operationId: getClub
+      summary: Read the club and its settings.
+      responses:
+        '200':
+          description: The club.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Club'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    put:
+      tags: [Club]
+      operationId: updateClubSettings
+      summary: Edit club settings (Club Admin; requires If-Match).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClubSettingsUpdate'
+      responses:
+        '200':
+          description: Settings updated.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Club'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '412':
+          $ref: '#/components/responses/VersionMismatch'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '428':
+          $ref: '#/components/responses/VersionRequired'
+  /api/v1/seasons:
+    get:
+      tags: [Seasons]
+      operationId: listSeasons
+      summary: List seasons visible to the caller.
+      description: >
+        Club Admins see every season. Other members see only seasons that
+        contain at least one team on which they hold a role.
+      parameters:
+        - $ref: '#/components/parameters/ContinuationToken'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of seasons.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SeasonPage'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+    post:
+      tags: [Seasons]
+      operationId: createSeason
+      summary: Create a season in the draft state (Club Admin).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SeasonCreate'
+      responses:
+        '201':
+          description: Season created.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Season'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+  /api/v1/seasons/{seasonId}:
+    parameters:
+      - $ref: '#/components/parameters/SeasonId'
+    get:
+      tags: [Seasons]
+      operationId: getSeason
+      summary: Read a season.
+      responses:
+        '200':
+          description: The season.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Season'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/seasons/{seasonId}/activate:
+    parameters:
+      - $ref: '#/components/parameters/SeasonId'
+    post:
+      tags: [Seasons]
+      operationId: activateSeason
+      summary: Activate a draft season (Club Admin; lifecycle action, no If-Match).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '200':
+          description: Season activated.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Season'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/seasons/{seasonId}/archive:
+    parameters:
+      - $ref: '#/components/parameters/SeasonId'
+    post:
+      tags: [Seasons]
+      operationId: archiveSeason
+      summary: Archive the active season (Club Admin; lifecycle action, no If-Match).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '200':
+          description: Season archived; it and its teams and matches are read-only.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Season'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/seasons/{seasonId}/teams:
+    parameters:
+      - $ref: '#/components/parameters/SeasonId'
+    get:
+      tags: [Teams]
+      operationId: listSeasonTeams
+      summary: List the season's teams visible to the caller.
+      parameters:
+        - $ref: '#/components/parameters/ContinuationToken'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of teams; non-admins receive only teams on which they hold a role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamPage'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Teams]
+      operationId: createTeam
+      summary: Create a team in a non-archived season (Club Admin).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamCreate'
+      responses:
+        '201':
+          description: Team created.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+  /api/v1/teams:
+    get:
+      tags: [Teams]
+      operationId: listTeams
+      summary: List teams visible to the caller.
+      parameters:
+        - name: seasonId
+          in: query
+          required: false
+          description: Restrict the list to one season.
+          schema:
+            $ref: '#/components/schemas/Identifier'
+        - $ref: '#/components/parameters/ContinuationToken'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of teams; non-admins receive only teams on which they hold a role.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamPage'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+  /api/v1/teams/{teamId}:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [Teams]
+      operationId: getTeam
+      summary: Read a team (team role or Club Admin).
+      responses:
+        '200':
+          description: The team.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Teams]
+      operationId: updateTeam
+      summary: Edit team details (Club Admin; requires If-Match; season must not be archived).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamUpdate'
+      responses:
+        '200':
+          description: Team updated.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Team'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/VersionMismatch'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '428':
+          $ref: '#/components/responses/VersionRequired'
+  /api/v1/teams/{teamId}/matches:
+    parameters:
+      - $ref: '#/components/parameters/TeamId'
+    get:
+      tags: [Matches]
+      operationId: listTeamMatches
+      summary: List a team's matches (team role or Club Admin).
+      parameters:
+        - $ref: '#/components/parameters/ContinuationToken'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of matches ordered by kickoff time.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchPage'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    post:
+      tags: [Matches]
+      operationId: createMatch
+      summary: Create a match with its immutable opponent snapshot (Coach of the team or Club Admin).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchCreate'
+      responses:
+        '201':
+          description: Match created.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Match'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+  /api/v1/matches/{matchId}:
+    parameters:
+      - $ref: '#/components/parameters/MatchId'
+    get:
+      tags: [Matches]
+      operationId: getMatch
+      summary: Read a match (team role on the owning team or Club Admin).
+      responses:
+        '200':
+          description: The match.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Match'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Matches]
+      operationId: updateMatch
+      summary: Edit match details (Coach of the team or Club Admin; requires If-Match).
+      description: >
+        Only `kickoffAt`, `homeAway`, and `competition` can change. A body
+        that names `opponent` or `teamId` is rejected with `400`
+        `validation-failed` and field code `immutable`.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchUpdate'
+      responses:
+        '200':
+          description: Match updated.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Match'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/VersionMismatch'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '428':
+          $ref: '#/components/responses/VersionRequired'
+  /api/v1/members:
+    get:
+      tags: [Members]
+      operationId: listMembers
+      summary: List member accounts (Club Admin).
+      parameters:
+        - $ref: '#/components/parameters/ContinuationToken'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: A page of members ordered by account name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberPage'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Members]
+      operationId: createMember
+      summary: Create a member account and issue its set-password credential (Club Admin).
+      description: >
+        The new member is active with no roles and no password. The raw
+        set-password credential appears only in this response.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemberCreate'
+      responses:
+        '201':
+          description: Member created.
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberCreated'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+  /api/v1/members/{memberId}:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    get:
+      tags: [Members]
+      operationId: getMember
+      summary: Read a member account (Club Admin).
+      responses:
+        '200':
+          description: The member.
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Member'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/members/{memberId}/deactivate:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    post:
+      tags: [Members]
+      operationId: deactivateMember
+      summary: Deactivate a membership (Club Admin; lifecycle action, no If-Match).
+      description: >
+        Revokes all club and team roles, rotates the security stamp, and ends
+        every session of the member. Rejected with `409` `last-club-admin`
+        when it would leave no active Club Admin.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '200':
+          $ref: '#/components/responses/MemberResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/members/{memberId}/reactivate:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    post:
+      tags: [Members]
+      operationId: reactivateMember
+      summary: Reactivate a membership with no roles (Club Admin; lifecycle action, no If-Match).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '200':
+          $ref: '#/components/responses/MemberResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/members/{memberId}/unlock:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    post:
+      tags: [Members]
+      operationId: unlockMember
+      summary: Clear an account lockout (Club Admin; lifecycle action, no If-Match).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '200':
+          $ref: '#/components/responses/MemberResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/members/{memberId}/club-roles/{clubRole}:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+      - $ref: '#/components/parameters/ClubRole'
+    put:
+      tags: [Members]
+      operationId: assignClubRole
+      summary: Assign a club role (Club Admin; idempotent lifecycle action, no If-Match).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '200':
+          $ref: '#/components/responses/MemberResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+    delete:
+      tags: [Members]
+      operationId: revokeClubRole
+      summary: Revoke a club role (Club Admin; idempotent lifecycle action, no If-Match).
+      description: Revoking `club-admin` from the last active Club Admin is rejected with `409` `last-club-admin`.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '200':
+          $ref: '#/components/responses/MemberResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/members/{memberId}/team-roles/{teamId}:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+      - $ref: '#/components/parameters/TeamId'
+    put:
+      tags: [Members]
+      operationId: assignTeamRole
+      summary: Assign or replace the member's role on a team (Club Admin; lifecycle action, no If-Match).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TeamRoleAssignmentRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/MemberResult'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+    delete:
+      tags: [Members]
+      operationId: revokeTeamRole
+      summary: Revoke the member's role on a team (Club Admin; idempotent lifecycle action, no If-Match).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '200':
+          $ref: '#/components/responses/MemberResult'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/members/{memberId}/credentials:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    post:
+      tags: [Members]
+      operationId: issueCredential
+      summary: Issue a single-use set-password or reset credential (Club Admin; lifecycle action, no If-Match).
+      description: >
+        Revokes every earlier unused credential of the member. `set-password`
+        is allowed only while the account has no password and
+        `password-reset` only while it has one; otherwise `409`
+        `credential-not-applicable`. The raw credential appears only in this
+        response.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredentialIssueRequest'
+      responses:
+        '201':
+          description: Credential issued.
+          headers:
+            Cache-Control:
+              $ref: '#/components/headers/NoStore'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuedCredential'
+        '400':
+          $ref: '#/components/responses/ValidationFailed'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+  /api/v1/members/{memberId}/sessions:
+    parameters:
+      - $ref: '#/components/parameters/MemberId'
+    delete:
+      tags: [Members]
+      operationId: endMemberSessions
+      summary: End every active session of a member (Club Admin; lifecycle action, no If-Match).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '204':
+          description: All sessions of the member ended; the member's next request on any of them is unauthenticated.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-socalytics-session
+      description: Opaque server-validated session token (Secure, HttpOnly, SameSite=Strict). Never readable by client scripts.
+    antiforgeryHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Anti-forgery token bound to the current session, returned by signIn and getSession.
+  parameters:
+    SeasonId:
+      name: seasonId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    TeamId:
+      name: teamId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    MatchId:
+      name: matchId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    MemberId:
+      name: memberId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Identifier'
+    ClubRole:
+      name: clubRole
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/ClubRole'
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: Strong ETag of the last-seen representation, for example `"7"`. Missing or `*` yields 428; stale yields 412.
+      schema:
+        type: string
+        minLength: 1
+    ContinuationToken:
+      name: continuationToken
+      in: query
+      required: false
+      description: Opaque token from the previous page.
+      schema:
+        type: string
+        minLength: 1
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+  headers:
+    ETag:
+      description: Strong entity tag carrying the aggregate version, for example `"7"`.
+      schema:
+        type: string
+    Location:
+      description: URL of the created resource.
+      schema:
+        type: string
+    NoStore:
+      description: Always `no-store`; the response carries a credential or anti-forgery token.
+      schema:
+        type: string
+        const: no-store
+    SetSessionCookie:
+      description: '`__Host-socalytics-session=<opaque>; Path=/; Secure; HttpOnly; SameSite=Strict`'
+      schema:
+        type: string
+    ClearSessionCookie:
+      description: Expires the `__Host-socalytics-session` cookie.
+      schema:
+        type: string
+  responses:
+    MemberResult:
+      description: The member after the lifecycle action.
+      headers:
+        ETag:
+          $ref: '#/components/headers/ETag'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Member'
+    ValidationFailed:
+      description: Request validation failed (`validation-failed`), including field code `immutable` for opponent or owning-parent changes.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    SignInFailed:
+      description: Generic sign-in failure (`sign-in-failed`); identical for every failure cause.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Unauthenticated:
+      description: No valid session (`unauthenticated`); never a redirect.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Forbidden:
+      description: Missing or invalid anti-forgery proof (`antiforgery-failed`), or the caller lacks the required role (`forbidden`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    NotFound:
+      description: The resource or parent does not exist or is not visible to the caller (`not-found`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    Conflict:
+      description: >
+        The current state does not allow the change. Codes:
+        `invalid-state-transition`, `season-already-active`,
+        `season-archived`, `membership-inactive`, `last-club-admin`,
+        `account-name-taken`, `credential-not-applicable`.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    VersionMismatch:
+      description: The If-Match version is outdated (`version-mismatch`); nothing changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    VersionRequired:
+      description: The edit named no version (`version-required`); nothing changed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    UnsupportedMediaType:
+      description: The request body is not `application/json` (`unsupported-media-type`).
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+  schemas:
+    Identifier:
+      type: string
+      minLength: 1
+      description: Opaque domain identifier.
+    Version:
+      type: integer
+      format: int64
+      minimum: 1
+      description: Aggregate version; compare only for equality.
+    Timestamp:
+      type: string
+      format: date-time
+      description: RFC 3339 UTC timestamp.
+    DisplayName:
+      type: string
+      minLength: 1
+      maxLength: 100
+    AccountName:
+      type: string
+      minLength: 3
+      maxLength: 64
+      pattern: '^[A-Za-z0-9._@-]+$'
+    Password:
+      type: string
+      minLength: 1
+      writeOnly: true
+      description: Validated against the configured password policy.
+    ClubRole:
+      type: string
+      enum: [club-admin, registrar]
+    TeamRole:
+      type: string
+      enum: [coach, viewer]
+    MembershipStatus:
+      type: string
+      enum: [active, deactivated]
+    SeasonState:
+      type: string
+      enum: [draft, active, archived]
+    HomeAway:
+      type: string
+      enum: [home, away, neutral]
+    CredentialPurpose:
+      type: string
+      enum: [set-password, password-reset]
+    Problem:
+      type: object
+      required: [type, title, status, code, correlationId]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: '`urn:socalytics:problem:<code>`'
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        code:
+          type: string
+          enum:
+            - validation-failed
+            - unsupported-media-type
+            - sign-in-failed
+            - credential-invalid
+            - unauthenticated
+            - antiforgery-failed
+            - forbidden
+            - not-found
+            - invalid-state-transition
+            - season-already-active
+            - season-archived
+            - membership-inactive
+            - last-club-admin
+            - account-name-taken
+            - credential-not-applicable
+            - version-mismatch
+            - version-required
+            - dependency-unavailable
+        correlationId:
+          type: string
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldViolation'
+    FieldViolation:
+      type: object
+      required: [field, code]
+      properties:
+        field:
+          type: string
+        code:
+          type: string
+          description: For example `required`, `too-long`, `invalid`, `password-policy`, `immutable`.
+        message:
+          type: string
+    SignInRequest:
+      type: object
+      additionalProperties: false
+      required: [accountName, password]
+      properties:
+        accountName:
+          type: string
+          minLength: 1
+        password:
+          $ref: '#/components/schemas/Password'
+    SessionInfo:
+      type: object
+      required: [sessionId, idleExpiresAt, absoluteExpiresAt, antiforgeryToken, member]
+      properties:
+        sessionId:
+          $ref: '#/components/schemas/Identifier'
+        idleExpiresAt:
+          $ref: '#/components/schemas/Timestamp'
+        absoluteExpiresAt:
+          $ref: '#/components/schemas/Timestamp'
+        antiforgeryToken:
+          type: string
+          description: Send as `X-CSRF-Token` on every state-changing request of this session.
+        member:
+          $ref: '#/components/schemas/CurrentMember'
+    CurrentMember:
+      type: object
+      required: [id, accountName, membershipStatus, clubRoles, teamRoles]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        accountName:
+          $ref: '#/components/schemas/AccountName'
+        membershipStatus:
+          $ref: '#/components/schemas/MembershipStatus'
+        clubRoles:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClubRole'
+        teamRoles:
+          type: array
+          items:
+            $ref: '#/components/schemas/CurrentTeamRole'
+    CurrentTeamRole:
+      type: object
+      required: [teamId, teamName, seasonId, role]
+      properties:
+        teamId:
+          $ref: '#/components/schemas/Identifier'
+        teamName:
+          $ref: '#/components/schemas/DisplayName'
+        seasonId:
+          $ref: '#/components/schemas/Identifier'
+        role:
+          $ref: '#/components/schemas/TeamRole'
+    ChangePasswordRequest:
+      type: object
+      additionalProperties: false
+      required: [currentPassword, newPassword]
+      properties:
+        currentPassword:
+          $ref: '#/components/schemas/Password'
+        newPassword:
+          $ref: '#/components/schemas/Password'
+    RedeemCredentialRequest:
+      type: object
+      additionalProperties: false
+      required: [accountName, credential, newPassword]
+      properties:
+        accountName:
+          type: string
+          minLength: 1
+        credential:
+          type: string
+          minLength: 1
+          writeOnly: true
+        newPassword:
+          $ref: '#/components/schemas/Password'
+    Club:
+      type: object
+      required: [id, displayName, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        displayName:
+          $ref: '#/components/schemas/DisplayName'
+        version:
+          $ref: '#/components/schemas/Version'
+    ClubSettingsUpdate:
+      type: object
+      additionalProperties: false
+      required: [displayName]
+      properties:
+        displayName:
+          $ref: '#/components/schemas/DisplayName'
+    Season:
+      type: object
+      required: [id, name, state, createdAt, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        name:
+          $ref: '#/components/schemas/DisplayName'
+        state:
+          $ref: '#/components/schemas/SeasonState'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        activatedAt:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        archivedAt:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        version:
+          $ref: '#/components/schemas/Version'
+    SeasonCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/DisplayName'
+    SeasonPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Season'
+        continuationToken:
+          type: [string, 'null']
+    Team:
+      type: object
+      required: [id, seasonId, seasonState, name, createdAt, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        seasonId:
+          $ref: '#/components/schemas/Identifier'
+        seasonState:
+          $ref: '#/components/schemas/SeasonState'
+        name:
+          $ref: '#/components/schemas/DisplayName'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        version:
+          $ref: '#/components/schemas/Version'
+    TeamCreate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/DisplayName'
+    TeamUpdate:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/DisplayName'
+    TeamPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Team'
+        continuationToken:
+          type: [string, 'null']
+    MatchOpponent:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: '#/components/schemas/DisplayName'
+    Match:
+      type: object
+      required: [id, teamId, opponent, kickoffAt, homeAway, createdAt, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        teamId:
+          $ref: '#/components/schemas/Identifier'
+        opponent:
+          $ref: '#/components/schemas/MatchOpponent'
+        kickoffAt:
+          $ref: '#/components/schemas/Timestamp'
+        homeAway:
+          $ref: '#/components/schemas/HomeAway'
+        competition:
+          oneOf:
+            - $ref: '#/components/schemas/DisplayName'
+            - type: 'null'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        version:
+          $ref: '#/components/schemas/Version'
+    MatchCreate:
+      type: object
+      additionalProperties: false
+      required: [opponent, kickoffAt, homeAway]
+      properties:
+        opponent:
+          $ref: '#/components/schemas/MatchOpponent'
+        kickoffAt:
+          $ref: '#/components/schemas/Timestamp'
+        homeAway:
+          $ref: '#/components/schemas/HomeAway'
+        competition:
+          oneOf:
+            - $ref: '#/components/schemas/DisplayName'
+            - type: 'null'
+    MatchUpdate:
+      type: object
+      additionalProperties: false
+      description: Editable match details only; `opponent` and `teamId` are immutable.
+      required: [kickoffAt, homeAway]
+      properties:
+        kickoffAt:
+          $ref: '#/components/schemas/Timestamp'
+        homeAway:
+          $ref: '#/components/schemas/HomeAway'
+        competition:
+          oneOf:
+            - $ref: '#/components/schemas/DisplayName'
+            - type: 'null'
+    MatchPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Match'
+        continuationToken:
+          type: [string, 'null']
+    Member:
+      type: object
+      required: [id, accountName, membershipStatus, passwordSet, lockedOut, twoFactorEnabled, clubRoles, teamRoles, createdAt, version]
+      properties:
+        id:
+          $ref: '#/components/schemas/Identifier'
+        accountName:
+          $ref: '#/components/schemas/AccountName'
+        membershipStatus:
+          $ref: '#/components/schemas/MembershipStatus'
+        passwordSet:
+          type: boolean
+        lockedOut:
+          type: boolean
+        lockoutEndsAt:
+          oneOf:
+            - $ref: '#/components/schemas/Timestamp'
+            - type: 'null'
+        twoFactorEnabled:
+          type: boolean
+          description: Always false in this feature; second-factor readiness only.
+        clubRoles:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClubRole'
+        teamRoles:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemberTeamRole'
+        createdAt:
+          $ref: '#/components/schemas/Timestamp'
+        version:
+          $ref: '#/components/schemas/Version'
+    MemberTeamRole:
+      type: object
+      required: [teamId, role]
+      properties:
+        teamId:
+          $ref: '#/components/schemas/Identifier'
+        role:
+          $ref: '#/components/schemas/TeamRole'
+    MemberCreate:
+      type: object
+      additionalProperties: false
+      required: [accountName]
+      properties:
+        accountName:
+          $ref: '#/components/schemas/AccountName'
+    MemberCreated:
+      type: object
+      required: [member, setPasswordCredential]
+      properties:
+        member:
+          $ref: '#/components/schemas/Member'
+        setPasswordCredential:
+          $ref: '#/components/schemas/IssuedCredential'
+    MemberPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Member'
+        continuationToken:
+          type: [string, 'null']
+    TeamRoleAssignmentRequest:
+      type: object
+      additionalProperties: false
+      required: [role]
+      properties:
+        role:
+          $ref: '#/components/schemas/TeamRole'
+    CredentialIssueRequest:
+      type: object
+      additionalProperties: false
+      required: [purpose]
+      properties:
+        purpose:
+          $ref: '#/components/schemas/CredentialPurpose'
+    IssuedCredential:
+      type: object
+      required: [memberId, purpose, credential, expiresAt]
+      properties:
+        memberId:
+          $ref: '#/components/schemas/Identifier'
+        purpose:
+          $ref: '#/components/schemas/CredentialPurpose'
+        credential:
+          type: string
+          description: Single-use secret; hand over outside the platform. Shown only once.
+        expiresAt:
+          $ref: '#/components/schemas/Timestamp'

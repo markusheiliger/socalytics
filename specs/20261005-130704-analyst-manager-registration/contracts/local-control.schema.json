@@ -1,0 +1,211 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.socalytics.dev/analyst-manager/local-control/v1",
+  "title": "Analyst Manager local-control protocol v1",
+  "description": "One UTF-8 JSON request line and one JSON response line per connection over the Manager's owner-only Unix domain socket. Responses never contain credentials, proofs, polling handles, challenges, private key material, or broker credentials; the pairing code appears only in the register result.",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "command"],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "command": { "enum": ["status", "register", "pause", "resume", "exit", "unregister"] },
+        "arguments": { "type": "object" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "command": { "const": "register" } } },
+          "then": { "required": ["arguments"], "properties": { "arguments": { "$ref": "#/$defs/registerArguments" } } }
+        },
+        {
+          "if": { "properties": { "command": { "const": "unregister" } } },
+          "then": { "properties": { "arguments": { "$ref": "#/$defs/unregisterArguments" } } }
+        },
+        {
+          "if": { "properties": { "command": { "enum": ["status", "pause", "resume", "exit"] } } },
+          "then": { "properties": { "arguments": { "type": "object", "maxProperties": 0 } } }
+        }
+      ]
+    },
+    "registerArguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platformEndpoint"],
+      "properties": {
+        "platformEndpoint": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "stampId": { "type": "string", "minLength": 1, "description": "Optional expected stamp identifier; registration is refused when discovery returns a different one." },
+        "hostLabel": { "type": "string", "minLength": 1, "maxLength": 64 }
+      }
+    },
+    "unregisterArguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "discardLocal": { "type": "boolean", "default": false, "description": "Allowed only in registration state restore-failed: deletes unusable local remnants without contacting the platform." }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "ok"],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "ok": { "type": "boolean" },
+        "result": {
+          "oneOf": [
+            { "$ref": "#/$defs/statusReport" },
+            { "$ref": "#/$defs/registerStarted" },
+            { "$ref": "#/$defs/operationAccepted" }
+          ]
+        },
+        "error": { "$ref": "#/$defs/error" }
+      },
+      "if": { "properties": { "ok": { "const": true } } },
+      "then": { "required": ["result"], "not": { "required": ["error"] } },
+      "else": { "required": ["error"], "not": { "required": ["result"] } }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "enum": [
+            "invalid-request",
+            "unsupported-protocol-version",
+            "invalid-registration-state",
+            "invalid-operating-state",
+            "no-supported-key-store",
+            "insecure-endpoint",
+            "stamp-mismatch",
+            "platform-unreachable",
+            "pairing-refused",
+            "operation-in-progress"
+          ]
+        },
+        "message": { "type": "string", "maxLength": 500 },
+        "remediation": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "registerStarted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "verificationUri", "pairingCode", "expiresAt", "stampId"],
+      "properties": {
+        "kind": { "const": "register-started" },
+        "verificationUri": { "type": "string", "format": "uri" },
+        "pairingCode": { "type": "string", "description": "Displayed to the host operator by the register command only; never logged or included in status." },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "stampId": { "type": "string" }
+      }
+    },
+    "operationAccepted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "command", "operatingState"],
+      "properties": {
+        "kind": { "const": "operation-accepted" },
+        "command": { "enum": ["pause", "resume", "exit", "unregister"] },
+        "registrationState": { "$ref": "#/$defs/registrationState" },
+        "operatingState": { "$ref": "#/$defs/operatingStateOrNone" },
+        "message": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "registrationState": {
+      "enum": ["unregistered", "pairing", "restoring", "active", "unregistering", "revoked", "restore-failed"]
+    },
+    "operatingStateOrNone": {
+      "enum": ["running", "paused", "runtime-unavailable", "draining", null]
+    },
+    "statusReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "registrationState", "connectivity", "uptimeSeconds", "diagnostics"],
+      "properties": {
+        "kind": { "const": "status" },
+        "registrationState": { "$ref": "#/$defs/registrationState" },
+        "pairingPhase": { "enum": ["awaiting-submission", "pending-approval", "activating", null] },
+        "managerId": { "type": ["string", "null"] },
+        "stampId": { "type": ["string", "null"] },
+        "platformEndpoint": { "type": ["string", "null"], "format": "uri" },
+        "clubName": { "type": ["string", "null"] },
+        "connectivity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state"],
+          "properties": {
+            "state": { "enum": ["connected", "disconnected", "unknown"] },
+            "lastContactAt": { "type": ["string", "null"], "format": "date-time" },
+            "nextRetryAt": { "type": ["string", "null"], "format": "date-time" }
+          }
+        },
+        "operatingState": { "$ref": "#/$defs/operatingStateOrNone" },
+        "operatingIntent": { "enum": ["running", "paused", null] },
+        "pendingUnregister": { "type": "boolean" },
+        "drain": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["purpose", "deadline", "activeWork"],
+          "properties": {
+            "purpose": { "enum": ["safe-exit", "unregister"] },
+            "deadline": { "type": "string", "format": "date-time" },
+            "activeWork": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "uptimeSeconds": { "type": "number", "minimum": 0 },
+        "preflight": { "oneOf": [{ "$ref": "#/$defs/preflightResult" }, { "type": "null" }] },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["code", "message", "observedAt"],
+            "properties": {
+              "code": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+              "message": { "type": "string", "maxLength": 500 },
+              "remediation": { "type": "string", "maxLength": 500 },
+              "observedAt": { "type": "string", "format": "date-time" }
+            }
+          }
+        }
+      }
+    },
+    "preflightResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ranAt", "passed", "checks", "validatedCapabilities"],
+      "properties": {
+        "ranAt": { "type": "string", "format": "date-time" },
+        "passed": { "type": "boolean" },
+        "profile": { "type": ["string", "null"] },
+        "runtimeProduct": { "type": ["string", "null"] },
+        "runtimeVersion": { "type": ["string", "null"] },
+        "backend": { "type": ["string", "null"] },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "passed"],
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-z0-9-]+(:[A-Za-z0-9_.-]+)?$" },
+              "passed": { "type": "boolean" },
+              "detail": { "type": "string", "maxLength": 500 },
+              "remediation": { "type": "string", "maxLength": 500 }
+            }
+          }
+        },
+        "validatedCapabilities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Empty unless passed is true; never inferred from the runtime product name."
+        }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" }
+  ]
+}

@@ -1,0 +1,716 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+info:
+  title: SocAlytics Platform API - Analyst Manager Registration
+  version: 1.0.0
+  summary: Registry operations for Analyst Manager pairing, approval, activation, machine tokens, and revocation.
+  description: |
+    Feature fragment of the platform `v1` API (published at `/openapi/v1.json`).
+    Specification: `specs/20261005-130704-analyst-manager-registration/spec.md`.
+
+    Authentication families never mix:
+    - Human operations use the Club and Identity session cookie
+      `__Host-socalytics-session` (scheme `SocAlyticsSession`, policy
+      `ActiveMember`) and, on state-changing requests, the anti-forgery header
+      `X-CSRF-Token`; a missing or invalid token yields `403`
+      `antiforgery-failed` before any change. DPoP credentials are refused on
+      these operations.
+    - Manager operations under `/api/v1/analyst-managers/self` use
+      `Authorization: DPoP` with an opaque access token and a DPoP proof signed
+      by the registered device key. Cookie sessions are refused there.
+    - Discovery, pairing, status, activation, and token operations are
+      anonymous at the HTTP layer, rate-limited, and require HTTPS.
+
+    Every operation except the token endpoint reports errors as RFC 9457
+    problem details with `type = urn:socalytics:problem:<code>` plus `code`,
+    `correlationId`, and optional `errors` (the Club and Identity shape). The
+    token endpoint uses RFC 6749 section 5.2 and RFC 9449 error responses.
+    Secrets (pairing codes, polling handles, challenges, proofs, assertions,
+    tokens) are never echoed in errors. Problem codes named in backticks below
+    are the `code` values; codes prefixed `analyst-manager-` are owned by this
+    feature, the others are shared. Non-HTTPS requests to Manager-facing
+    operations receive `403` with `analyst-manager-https-required`.
+servers:
+  - url: https://{stamp}
+    variables:
+      stamp:
+        default: localhost
+        description: Public HTTPS origin of one deployment stamp (`Stamp:PublicBaseUri`).
+tags:
+  - name: Analyst Manager pairing
+  - name: Analyst Manager machine access
+  - name: Analyst Manager registrations
+paths:
+  /api/v1/analyst-managers/stamp:
+    get:
+      operationId: getAnalystManagerStampDiscovery
+      tags: [Analyst Manager pairing]
+      summary: Discover the stamp identifier and Analyst Manager endpoints.
+      security: []
+      responses:
+        '200':
+          description: Stamp discovery document.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/StampDiscovery' }
+        '403': { $ref: '#/components/responses/HttpsRequired' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/analyst-managers/pairings:
+    post:
+      operationId: createAnalystManagerPairing
+      tags: [Analyst Manager pairing]
+      summary: Request a single-use pairing code and polling handle bound to a device key and stamp.
+      description: Creates a registration in state `Pairing` and audits `analyst-manager.pairing-issued` (FR-003, FR-004).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PairingRequest' }
+      responses:
+        '201':
+          description: Pairing issued. The response is the only place the pairing code and polling handle appear.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PairingIssued' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '403': { $ref: '#/components/responses/HttpsRequired' }
+        '409':
+          description: The device key is already bound to a non-terminal registration (`analyst-manager-key-in-use`), or the stamp identifier does not match (`analyst-manager-stamp-mismatch`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/analyst-managers/pairings/status:
+    post:
+      operationId: getAnalystManagerPairingStatus
+      tags: [Analyst Manager pairing]
+      summary: Poll the outcome of a pairing with its polling handle.
+      description: |
+        Uses POST so the polling handle never appears in a URL. In state
+        `approved` every call issues a fresh single-use activation challenge
+        that replaces the previous one (FR-010).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PollingHandleRequest' }
+      responses:
+        '200':
+          description: Current pairing status.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PairingStatus' }
+        '400': { $ref: '#/components/responses/PollingHandleInvalid' }
+        '403': { $ref: '#/components/responses/HttpsRequired' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/analyst-managers/pairings/activation:
+    post:
+      operationId: activateAnalystManagerRegistration
+      tags: [Analyst Manager pairing]
+      summary: Activate an approved registration by proving possession of the paired device key.
+      description: |
+        The proof is a compact JWS as profiled in `proof-profiles.md`. Any
+        attempt consumes the current challenge. Success moves the registration
+        to `Active`, assigns the stable Manager identity, and consumes the
+        polling handle (FR-010, FR-011).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ActivationRequest' }
+      responses:
+        '200':
+          description: Registration is Active.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ActivationResult' }
+        '400':
+          description: |
+            `analyst-manager-polling-handle-invalid` (same body as for unknown
+            handles) or `analyst-manager-activation-proof-invalid` (stale,
+            replayed, wrong key, wrong challenge, or wrong audience).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '403': { $ref: '#/components/responses/HttpsRequired' }
+        '409':
+          description: The registration is not Approved or its activation window has elapsed (`analyst-manager-registration-expired`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/analyst-managers/token:
+    post:
+      operationId: issueAnalystManagerAccessToken
+      tags: [Analyst Manager machine access]
+      summary: OAuth 2.0 client credentials with private_key_jwt and DPoP.
+      description: |
+        Issues a short-lived opaque DPoP-bound access token for an Active or
+        Unregistering registration (FR-013). The DPoP proof key must be the
+        registered device key. Outcomes for identifiable registrations are
+        audited as `analyst-manager.credential-issued` or `analyst-manager.credential-refused`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/DPoPProof'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema: { $ref: '#/components/schemas/TokenRequest' }
+      responses:
+        '200':
+          description: Access token issued.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '400':
+          description: RFC 6749 or RFC 9449 error.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: no-store }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OAuthError' }
+        '403': { $ref: '#/components/responses/HttpsRequired' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/v1/analyst-managers/self/registration:
+    get:
+      operationId: getOwnAnalystManagerRegistration
+      tags: [Analyst Manager machine access]
+      summary: Registration-status check for the calling Manager.
+      security:
+        - dpop: []
+      parameters:
+        - $ref: '#/components/parameters/DPoPProof'
+      responses:
+        '200':
+          description: The calling registration is Active or Unregistering.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnRegistration' }
+        '401': { $ref: '#/components/responses/ManagerUnauthorized' }
+        '403': { $ref: '#/components/responses/HttpsRequired' }
+  /api/v1/analyst-managers/self/unregistration:
+    post:
+      operationId: beginAnalystManagerUnregistration
+      tags: [Analyst Manager machine access]
+      summary: Start local unregister (Active to Unregistering); idempotent.
+      security:
+        - dpop: []
+      parameters:
+        - $ref: '#/components/parameters/DPoPProof'
+      responses:
+        '200':
+          description: Registration is Unregistering.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OwnRegistration' }
+        '401': { $ref: '#/components/responses/ManagerUnauthorized' }
+        '403': { $ref: '#/components/responses/HttpsRequired' }
+  /api/v1/analyst-managers/self/unregistration/completion:
+    post:
+      operationId: completeAnalystManagerUnregistration
+      tags: [Analyst Manager machine access]
+      summary: Complete local unregister (Unregistering to Unregistered).
+      description: Deletes outstanding access tokens in the same unit of work. A repeat call after completion receives the inactive `401`, which the Manager treats as confirmation.
+      security:
+        - dpop: []
+      parameters:
+        - $ref: '#/components/parameters/DPoPProof'
+      responses:
+        '200':
+          description: Registration is Unregistered.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UnregistrationResult' }
+        '401': { $ref: '#/components/responses/ManagerUnauthorized' }
+        '403': { $ref: '#/components/responses/HttpsRequired' }
+        '409':
+          description: Registration is not Unregistering (`invalid-state-transition`).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+  /api/v1/analyst-manager-registrations:
+    post:
+      operationId: submitAnalystManagerPairingCode
+      tags: [Analyst Manager registrations]
+      summary: Registrar submits a pairing code, creating a key-bound pending registration request.
+      description: |
+        Requires `ClubPermission.Register` (Registrar or Club Admin), checked
+        before the code is looked up. Every invalid, expired, consumed,
+        unknown, or concurrently consumed code receives the identical `400`
+        (FR-006, FR-007, SC-006).
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PairingCodeSubmission' }
+      responses:
+        '201':
+          description: Pending registration request created.
+          headers:
+            Location:
+              schema: { type: string, format: uri-reference }
+            ETag:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+        '400':
+          description: '`analyst-manager-pairing-code-invalid` (identical for every refusal reason) or request validation.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    get:
+      operationId: listAnalystManagerRegistrations
+      tags: [Analyst Manager registrations]
+      summary: Club Admin lists registrations, optionally filtered by state.
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema: { $ref: '#/components/schemas/RegistrationState' }
+        - name: continuationToken
+          in: query
+          required: false
+          schema: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Page of registrations, newest first.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistrationPage' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/v1/analyst-manager-registrations/{registrationId}:
+    parameters:
+      - $ref: '#/components/parameters/RegistrationId'
+    get:
+      operationId: getAnalystManagerRegistration
+      tags: [Analyst Manager registrations]
+      summary: Club Admin reads one registration.
+      security:
+        - sessionCookie: []
+      responses:
+        '200':
+          description: Registration with strong ETag of its version.
+          headers:
+            ETag:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/v1/analyst-manager-registrations/{registrationId}/approval:
+    parameters:
+      - $ref: '#/components/parameters/RegistrationId'
+    post:
+      operationId: approveAnalystManagerRegistration
+      tags: [Analyst Manager registrations]
+      summary: Club Admin approves a pending request. Grants no operational access (FR-010).
+      description: Lifecycle transition guarded by current state; no `If-Match`. Callers without `ClubPermission.Administer` receive `403` and an `authorization.denied` audit event.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      responses:
+        '200':
+          description: Registration is Approved.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/StateConflict' }
+  /api/v1/analyst-manager-registrations/{registrationId}/rejection:
+    parameters:
+      - $ref: '#/components/parameters/RegistrationId'
+    post:
+      operationId: rejectAnalystManagerRegistration
+      tags: [Analyst Manager registrations]
+      summary: Club Admin rejects a pending request with a reason.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: Registration is Rejected.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/StateConflict' }
+  /api/v1/analyst-manager-registrations/{registrationId}/revocation:
+    parameters:
+      - $ref: '#/components/parameters/RegistrationId'
+    post:
+      operationId: revokeAnalystManagerRegistration
+      tags: [Analyst Manager registrations]
+      summary: Club Admin revokes an Active or Unregistering registration immediately (FR-020).
+      description: Deletes outstanding access tokens in the same unit of work; every later token request or Manager call from this registration is refused. Callers without `ClubPermission.Administer` receive `403` and an `authorization.denied` audit event.
+      security:
+        - sessionCookie: []
+          antiforgeryHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReasonRequest' }
+      responses:
+        '200':
+          description: Registration is Revoked.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Registration' }
+        '400': { $ref: '#/components/responses/ValidationProblem' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/StateConflict' }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-socalytics-session
+      description: Club and Identity opaque server-validated session token (Secure, HttpOnly, SameSite=Strict).
+    antiforgeryHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: Club and Identity anti-forgery token bound to the current session, required on every state-changing session request.
+    dpop:
+      type: http
+      scheme: DPoP
+      description: 'Opaque Analyst Manager access token sent as `Authorization: DPoP` together with a `DPoP` proof header signed by the registered device key (RFC 9449).'
+  parameters:
+    RegistrationId:
+      name: registrationId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    DPoPProof:
+      name: DPoP
+      in: header
+      required: true
+      description: DPoP proof JWT (`typ` `dpop+jwt`, ES256, `jwk` of the registered device key; resource calls include `ath`). See `proof-profiles.md`.
+      schema: { type: string, minLength: 1 }
+  responses:
+    ValidationProblem:
+      description: Request validation failed (`validation-failed`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    PollingHandleInvalid:
+      description: Identical result for invalid, expired, consumed, and unknown polling handles (`analyst-manager-polling-handle-invalid`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    HttpsRequired:
+      description: The request did not arrive over HTTPS (`analyst-manager-https-required`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    TooManyRequests:
+      description: Rate limit exceeded (`analyst-manager-rate-limited`); reveals nothing about request existence.
+      headers:
+        Retry-After:
+          schema: { type: integer, minimum: 0 }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Unauthenticated:
+      description: No valid session (`unauthenticated`); never a redirect.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    Forbidden:
+      description: Missing or invalid anti-forgery proof (`antiforgery-failed`), or the caller lacks the required club permission at the time of the operation (`forbidden`); `IAccessAuthorizer` audits the denial as `authorization.denied`.
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    NotFound:
+      description: Registration not found (`not-found`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    StateConflict:
+      description: The current state does not allow the transition (`invalid-state-transition`) or its window elapsed and the registration is now Expired (`analyst-manager-registration-expired`).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+    ManagerUnauthorized:
+      description: |
+        Missing or invalid DPoP token or proof (`WWW-Authenticate: DPoP
+        error="invalid_token"` or `error="invalid_dpop_proof"`). When a valid
+        proof identifies a Revoked or Unregistered registration, the problem
+        type is `analyst-manager-registration-inactive` with
+        `registrationState`, which the Manager treats as the authoritative
+        inactive signal (FR-021).
+      headers:
+        WWW-Authenticate:
+          schema: { type: string }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Problem' }
+  schemas:
+    Problem:
+      type: object
+      description: RFC 9457 problem details in the shared Club and Identity shape, plus `registrationState` for the inactive Manager signal.
+      required: [type, title, status, code, correlationId]
+      properties:
+        type:
+          type: string
+          format: uri
+          description: '`urn:socalytics:problem:<code>`'
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code:
+          type: string
+          description: Shared codes used here plus the codes owned by this feature.
+          enum:
+            - validation-failed
+            - unauthenticated
+            - antiforgery-failed
+            - forbidden
+            - not-found
+            - invalid-state-transition
+            - dependency-unavailable
+            - analyst-manager-https-required
+            - analyst-manager-rate-limited
+            - analyst-manager-stamp-mismatch
+            - analyst-manager-key-in-use
+            - analyst-manager-pairing-code-invalid
+            - analyst-manager-polling-handle-invalid
+            - analyst-manager-activation-proof-invalid
+            - analyst-manager-registration-expired
+            - analyst-manager-registration-inactive
+        correlationId: { type: string }
+        registrationState:
+          type: string
+          enum: [revoked, unregistered]
+        errors:
+          type: array
+          items: { $ref: '#/components/schemas/FieldViolation' }
+    FieldViolation:
+      type: object
+      required: [field, code]
+      properties:
+        field: { type: string }
+        code: { type: string }
+    RegistrationState:
+      type: string
+      enum: [pairing, pending_approval, approved, active, unregistering, unregistered, rejected, expired, revoked]
+    PublicJwk:
+      type: object
+      description: EC P-256 public key. Private members are rejected.
+      required: [kty, crv, x, y]
+      additionalProperties: false
+      properties:
+        kty: { const: EC }
+        crv: { const: P-256 }
+        x: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+        y: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+    DeviceMetadata:
+      type: object
+      additionalProperties: false
+      required: [os, osVersion, architecture, managerVersion]
+      properties:
+        os: { type: string, enum: [windows, linux, macos] }
+        osVersion: { type: string, minLength: 1, maxLength: 64 }
+        architecture: { type: string, enum: [x64, arm64] }
+        managerVersion: { type: string, minLength: 1, maxLength: 32 }
+        hostLabel: { type: string, minLength: 1, maxLength: 64 }
+    StampDiscovery:
+      type: object
+      required: [stampId, pairingEndpoint, activationEndpoint, tokenEndpoint]
+      properties:
+        stampId: { type: string, minLength: 1 }
+        pairingEndpoint: { type: string, format: uri }
+        activationEndpoint: { type: string, format: uri }
+        tokenEndpoint: { type: string, format: uri }
+    PairingRequest:
+      type: object
+      additionalProperties: false
+      required: [stampId, publicKey, nonce, deviceMetadata]
+      properties:
+        stampId: { type: string, minLength: 1 }
+        publicKey: { $ref: '#/components/schemas/PublicJwk' }
+        nonce: { type: string, minLength: 16, maxLength: 128 }
+        deviceMetadata: { $ref: '#/components/schemas/DeviceMetadata' }
+    PairingIssued:
+      type: object
+      required: [pairingCode, pollingHandle, verificationUri, expiresAt, pollingIntervalSeconds, stampId]
+      properties:
+        pairingCode:
+          type: string
+          description: Shown to humans only; twelve characters from the alphabet BCDFGHJKLMNPQRSTVWXZ in groups of four.
+          pattern: '^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$'
+        pollingHandle: { type: string, minLength: 43 }
+        verificationUri: { type: string, format: uri }
+        expiresAt: { type: string, format: date-time }
+        pollingIntervalSeconds: { type: number, minimum: 0 }
+        stampId: { type: string }
+    PollingHandleRequest:
+      type: object
+      additionalProperties: false
+      required: [pollingHandle]
+      properties:
+        pollingHandle: { type: string, minLength: 1 }
+    PairingStatus:
+      type: object
+      required: [status, pollingIntervalSeconds]
+      properties:
+        status:
+          type: string
+          enum: [awaiting_submission, pending_approval, approved, rejected]
+        pollingIntervalSeconds: { type: number, minimum: 0 }
+        expiresAt:
+          type: string
+          format: date-time
+          description: End of the window that applies to the current status.
+        challenge:
+          type: string
+          description: Present only when `status` is `approved`; single-use and request-bound.
+        challengeExpiresAt: { type: string, format: date-time }
+    ActivationRequest:
+      type: object
+      additionalProperties: false
+      required: [pollingHandle, proof]
+      properties:
+        pollingHandle: { type: string, minLength: 1 }
+        proof:
+          type: string
+          description: Compact JWS activation proof (see `proof-profiles.md`).
+    ActivationResult:
+      type: object
+      required: [managerId, stampId, tokenEndpoint, keyThumbprint]
+      properties:
+        managerId: { type: string, minLength: 1 }
+        stampId: { type: string }
+        tokenEndpoint: { type: string, format: uri }
+        keyThumbprint: { type: string }
+    TokenRequest:
+      type: object
+      required: [grant_type, client_id, client_assertion_type, client_assertion]
+      properties:
+        grant_type: { const: client_credentials }
+        client_id: { type: string, description: Manager identity. }
+        client_assertion_type: { const: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer' }
+        client_assertion: { type: string }
+        scope: { const: analyst-manager }
+    TokenResponse:
+      type: object
+      required: [access_token, token_type, expires_in, scope]
+      properties:
+        access_token: { type: string }
+        token_type: { const: DPoP }
+        expires_in: { type: integer, minimum: 1 }
+        scope: { const: analyst-manager }
+    OAuthError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum: [invalid_request, invalid_client, invalid_grant, unsupported_grant_type, invalid_scope, invalid_dpop_proof]
+        error_description: { type: string }
+        registration_state:
+          type: string
+          enum: [revoked, unregistered]
+          description: Present only with `invalid_client` after a valid assertion and DPoP proof identified an inactive registration.
+    OwnRegistration:
+      type: object
+      required: [managerId, stampId, state, clubName, keyThumbprint, activatedAt]
+      properties:
+        managerId: { type: string }
+        stampId: { type: string }
+        state:
+          type: string
+          enum: [active, unregistering]
+        clubName: { type: string }
+        keyThumbprint: { type: string }
+        activatedAt: { type: string, format: date-time }
+        statusCheckIntervalSeconds: { type: number, minimum: 0 }
+    UnregistrationResult:
+      type: object
+      required: [managerId, state]
+      properties:
+        managerId: { type: string }
+        state: { const: unregistered }
+    PairingCodeSubmission:
+      type: object
+      additionalProperties: false
+      required: [pairingCode]
+      properties:
+        pairingCode: { type: string, minLength: 1, maxLength: 32 }
+    ReasonRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    Registration:
+      type: object
+      required: [registrationId, stampId, state, keyThumbprint, deviceMetadata, pairingExpiresAt, createdAt, version]
+      properties:
+        registrationId: { type: string }
+        managerId: { type: [string, 'null'] }
+        stampId: { type: string }
+        state: { $ref: '#/components/schemas/RegistrationState' }
+        keyThumbprint: { type: string }
+        deviceMetadata: { $ref: '#/components/schemas/DeviceMetadata' }
+        submittedBy: { type: [string, 'null'] }
+        submittedAt: { type: [string, 'null'], format: date-time }
+        decidedBy: { type: [string, 'null'] }
+        decidedAt: { type: [string, 'null'], format: date-time }
+        decisionReason: { type: [string, 'null'] }
+        activatedAt: { type: [string, 'null'], format: date-time }
+        endedAt: { type: [string, 'null'], format: date-time }
+        endReason: { type: [string, 'null'] }
+        revokedBy: { type: [string, 'null'] }
+        pairingExpiresAt: { type: string, format: date-time }
+        approvalExpiresAt: { type: [string, 'null'], format: date-time }
+        activationExpiresAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        version: { type: integer, minimum: 1 }
+    RegistrationPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Registration' }
+        continuationToken: { type: [string, 'null'] }

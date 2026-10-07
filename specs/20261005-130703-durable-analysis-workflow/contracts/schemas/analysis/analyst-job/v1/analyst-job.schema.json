@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/analyst-job/v1/analyst-job.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analyst job (ready-work message) v1",
+  "description": "Hardware-neutral snapshot of one ready Logical Job, published at least once to the stamp-local analysis job subjects. Possession of this message confers no authority: an Analyst Manager must claim the Logical Job through the platform API and acknowledges the delivery only after the platform returns a successful claim (201) or a deterministically obsolete outcome (404 or 409). The payload never selects a Manager, host, container runtime product, accelerator model, or preprocessing strategy, and never carries a stamp or club discriminator, credentials, URLs, broker connection details, or media.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "messageId",
+    "readinessOccurrenceId",
+    "readinessSequence",
+    "runId",
+    "nodeId",
+    "nodeKey",
+    "logicalJobId",
+    "teamId",
+    "matchId",
+    "recordingSetVersionId",
+    "capability",
+    "tier",
+    "schemaVersion",
+    "executionScope",
+    "inputs",
+    "pinned",
+    "resources",
+    "attemptBudget",
+    "timeouts",
+    "createdAt",
+    "correlation"
+  ],
+  "properties": {
+    "contractVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1" },
+    "messageId": {
+      "description": "Stable message identity; identical for every republication of this readiness occurrence.",
+      "$ref": "../../../common/v1/common.schema.json#/$defs/identifier"
+    },
+    "readinessOccurrenceId": {
+      "description": "Identity of the readiness occurrence that this message announces. A claim must name it.",
+      "$ref": "../../../common/v1/common.schema.json#/$defs/identifier"
+    },
+    "readinessSequence": {
+      "description": "1 for the first readiness of the Logical Job, incremented for each retry readiness.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "runId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "nodeId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "nodeKey": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+    "logicalJobId": {
+      "description": "Stable Logical Job identity across retries.",
+      "$ref": "../../../common/v1/common.schema.json#/$defs/identifier"
+    },
+    "teamId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "matchId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "recordingSetVersionId": {
+      "description": "Finalized recording-set version that is the source lineage of the run.",
+      "$ref": "../../../common/v1/common.schema.json#/$defs/identifier"
+    },
+    "capability": { "$ref": "../../../common/v1/common.schema.json#/$defs/capabilityRef" },
+    "tier": { "enum": ["low-level", "high-level"] },
+    "schemaVersion": {
+      "description": "Result schema version the Analyst must produce.",
+      "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion"
+    },
+    "executionScope": { "enum": ["segment", "match"] },
+    "segment": {
+      "description": "Present exactly for segment-scoped jobs. Match-scoped jobs carry no synthetic segment.",
+      "$ref": "../../../common/v1/common.schema.json#/$defs/analysisSegmentReference"
+    },
+    "inputs": {
+      "description": "Input snapshot recorded when the Logical Job first became ready. Every declared dependency appears exactly once.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/inputEntry" }
+    },
+    "pinned": {
+      "description": "Run-pinned execution identities, identical for every Logical Job of the capability and for every retry.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["analystProfileId", "analystProfileDigest", "imageDigest", "modelDigest", "policies"],
+      "properties": {
+        "analystProfileId": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "analystProfileDigest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+        "imageDigest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+        "modelDigest": {
+          "description": "Null for capabilities without a model artifact.",
+          "oneOf": [
+            { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+            { "type": "null" }
+          ]
+        },
+        "policies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["policyId", "version"],
+            "properties": {
+              "policyId": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+              "version": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" }
+            }
+          }
+        }
+      }
+    },
+    "resources": {
+      "description": "Hardware-neutral minimum resource requirements copied from the resolved Analyst profile.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpuMillicores", "memoryMebibytes", "scratchDiskMebibytes"],
+      "properties": {
+        "cpuMillicores": { "type": "integer", "minimum": 1 },
+        "memoryMebibytes": { "type": "integer", "minimum": 1 },
+        "scratchDiskMebibytes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "attemptBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxAttempts"],
+      "properties": {
+        "maxAttempts": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leaseSeconds", "staleTimeoutSeconds", "executionTimeoutSeconds"],
+      "properties": {
+        "leaseSeconds": { "$ref": "../../../common/v1/common.schema.json#/$defs/positiveSeconds" },
+        "staleTimeoutSeconds": { "$ref": "../../../common/v1/common.schema.json#/$defs/positiveSeconds" },
+        "executionTimeoutSeconds": { "$ref": "../../../common/v1/common.schema.json#/$defs/positiveSeconds" }
+      }
+    },
+    "createdAt": { "$ref": "../../../common/v1/common.schema.json#/$defs/timestamp" },
+    "correlation": { "$ref": "../../../common/v1/common.schema.json#/$defs/correlation" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "executionScope": { "const": "segment" } } },
+      "then": { "required": ["segment"] },
+      "else": { "not": { "required": ["segment"] } }
+    }
+  ],
+  "$defs": {
+    "inputEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["upstreamNodeKey", "capability", "edgeKind", "status", "acceptedResults"],
+      "properties": {
+        "upstreamNodeKey": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "capability": { "$ref": "../../../common/v1/common.schema.json#/$defs/capabilityRef" },
+        "edgeKind": { "enum": ["required", "optional", "conditional"] },
+        "status": {
+          "description": "accepted: consumed; absent: optional input without an accepted result when the job became ready; failed: optional upstream failed; not-applicable: conditional predicate did not apply.",
+          "enum": ["accepted", "absent", "failed", "not-applicable"]
+        },
+        "acceptedResults": {
+          "description": "Accepted upstream results consumed; empty unless status is accepted. A match-scoped job depending on a segment-scoped capability lists every required segment result.",
+          "type": "array",
+          "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/acceptedResultLineage" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "accepted" } } },
+          "then": { "properties": { "acceptedResults": { "minItems": 1 } } },
+          "else": { "properties": { "acceptedResults": { "maxItems": 0 } } }
+        },
+        {
+          "if": { "properties": { "edgeKind": { "const": "required" } } },
+          "then": { "properties": { "status": { "const": "accepted" } } }
+        }
+      ]
+    }
+  }
+}
