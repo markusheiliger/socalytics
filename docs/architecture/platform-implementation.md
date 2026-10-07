@@ -201,9 +201,13 @@ independently of the database product, that:
 - a write that changes nothing does not advance it;
 - consumers compare versions only for equality and never derive meaning from
   the size of a step;
-- a handler names the version it read in its change
+- an edit handler names the version it read in its change
   (`WHERE id = @Id AND version = @ExpectedVersion`), and zero affected rows is
-  reported as a concurrency conflict instead of overwriting another change.
+  reported as a concurrency conflict instead of overwriting another change;
+- a lifecycle state-transition handler (approve, revoke, complete, finalize,
+  and similar) names the state it requires instead
+  (`WHERE id = @Id AND state = @ExpectedState`), so a transition is never
+  refused merely because an unrelated edit advanced the version.
 
 Immutable records (recording versions, timeline mappings, finalized recording
 sets, accepted results, lineage) have no `version`; their identity or digest

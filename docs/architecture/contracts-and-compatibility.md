@@ -98,9 +98,16 @@ the prior major remains addressable for its supported compatibility window.
   integers whose ordering is interpreted only by the owning workflow.
 - SHA-256 digests use `sha-256:<64 lowercase hexadecimal characters>`.
 - Optimistic concurrency uses HTTP validators. A representation of one mutable
-  aggregate returns its `version` as a strong ETag, and every change to it
-  requires `If-Match` with that ETag: a missing `If-Match` is rejected with
+  aggregate returns its `version` as a strong ETag, and every edit of it (a
+  change that replaces or modifies fields the client read) requires `If-Match`
+  with that ETag: a missing `If-Match` is rejected with
   `428 Precondition Required`, a stale one with `412 Precondition Failed`.
+  Lifecycle state-transition commands (for example approve, reject, revoke,
+  complete, finalize, deactivate, or reactivate) do not require `If-Match`;
+  they are guarded by the aggregate's current state and by retry keys, and a
+  transition that the current state does not allow is rejected with
+  `409 Conflict`. Transitions still advance the `version`, so a later edit
+  based on an older ETag fails.
   Immutable resources use their identity or digest as a strong ETag. Views and
   projections that combine several aggregates return a weak ETag derived from
   the versions or digests of everything they contain; it serves caching

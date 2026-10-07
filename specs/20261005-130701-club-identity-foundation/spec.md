@@ -8,6 +8,14 @@
 
 **Input**: User description: "Club and Identity Foundation: establish the single-club organizational hierarchy (Club > Season > Team > Match), platform-managed local accounts with secure human sessions, club membership with Club Admin and Registrar roles, per-team Coach and Viewer roles, and team-scoped authorization with security audit evidence, building on the shared durable storage foundation in `specs/20261005-130700-platform-persistence-foundation`."
 
+## Clarifications
+
+### Session 2026-10-07
+
+- Q: Which club-identity changes must be based on the version the requester last saw, and which are lifecycle actions protected by their state rules instead? → A: Edits that send back changed fields (club settings, team details, match details) require the last-seen version; lifecycle actions (season activate and archive, membership deactivate and reactivate, role assign and revoke, account unlock, credential issuance, ending sessions) require no version and are checked against the current state and rules.
+- Q: What should happen when someone sends an edit of club settings, team details or match details without saying which version they last saw? → A: Refuse it without change, with an outcome distinct from the outdated-version conflict.
+- Q: When several platform instances start at the same time against a fresh database with the same first-Club-Admin configuration, what must the result be? → A: Exactly one club and one first Club Admin with one bootstrap audit event; every other instance changes nothing and starts normally.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - First Club Admin signs in to the club (Priority: P1)
@@ -22,11 +30,12 @@ When a club's deployment is first set up, the operator supplies the identity of 
 
 1. **Given** a new club deployment whose protected configuration names a first Club Admin, **When** the deployment starts, **Then** exactly one club exists, exactly one active member holds the Club Admin role, and a bootstrap audit event is recorded without any secret value.
 2. **Given** the first Club Admin already exists, **When** the deployment restarts with the same bootstrap configuration, **Then** no additional account, member, or club is created and the existing administrator is unchanged.
-3. **Given** a member with valid local credentials, **When** they sign in, **Then** a session is established, their identity and current roles are available to them, and no password, recovery credential, or identity token is returned to the client.
-4. **Given** a signed-in member, **When** they sign out and the former session is presented again, **Then** the request is refused as unauthenticated.
-5. **Given** no valid session, **When** any protected operation is requested, **Then** the request is refused as unauthenticated without disclosing protected data.
-6. **Given** a signed-in member, **When** a state-changing request arrives without the anti-forgery proof issued for that session, **Then** the request is rejected before any change takes effect.
-7. **Given** an unknown account name or a wrong password, **When** sign-in is attempted, **Then** both cases receive the same generic failure response.
+3. **Given** a fresh deployment whose protected configuration names a first Club Admin, **When** several platform instances start at the same time, **Then** exactly one club, one first Club Admin, and one bootstrap audit event exist, and every instance starts normally.
+4. **Given** a member with valid local credentials, **When** they sign in, **Then** a session is established, their identity and current roles are available to them, and no password, recovery credential, or identity token is returned to the client.
+5. **Given** a signed-in member, **When** they sign out and the former session is presented again, **Then** the request is refused as unauthenticated.
+6. **Given** no valid session, **When** any protected operation is requested, **Then** the request is refused as unauthenticated without disclosing protected data.
+7. **Given** a signed-in member, **When** a state-changing request arrives without the anti-forgery proof issued for that session, **Then** the request is rejected before any change takes effect.
+8. **Given** an unknown account name or a wrong password, **When** sign-in is attempted, **Then** both cases receive the same generic failure response.
 
 ---
 
@@ -46,7 +55,7 @@ A Club Admin adds people to the club by creating local accounts. Each new member
 4. **Given** a member who has live sessions, **When** a Club Admin deactivates that membership, **Then** the member's next request on any existing session is refused, all of the member's roles are revoked, and new sign-in is refused.
 5. **Given** exactly one active Club Admin, **When** anyone tries to remove that person's Club Admin role or deactivate their membership, including the person themselves, **Then** the request is rejected and no change is made.
 6. **Given** a signed-in member who is not a Club Admin, including a Registrar, **When** they try to create a member, change a role, deactivate a membership, unlock an account, or end another member's sessions, **Then** the request is refused, nothing changes, and a denial audit event is recorded.
-7. **Given** two Club Admins editing the same membership at the same time, **When** the second saves a change based on an outdated version, **Then** that change is rejected as a conflict and the first change is preserved.
+7. **Given** two Club Admins acting on the same membership at the same time, **When** one deactivates it and the other assigns it a role, **Then** each action is decided against the membership's current state without requiring a previously seen version: if the deactivation commits first, the role assignment is rejected because the membership is inactive, and in every order the membership ends deactivated with no roles.
 
 ---
 
@@ -103,6 +112,7 @@ A team's Coach records matches for that team, including match details and the op
 3. **Given** a Viewer of the match's team, **When** they read the match, **Then** it is returned, and **When** they try to change it, **Then** the request is refused.
 4. **Given** a Coach of a different team, **When** they request or change the match, **Then** the request is refused and no data is disclosed.
 5. **Given** a match whose season is archived, **When** a Coach tries to change it, **Then** the request is rejected and the match is unchanged.
+6. **Given** two members authorized to edit the same match, **When** the second saves changed match details based on an outdated version, **Then** that change is rejected as a conflict and the first change is preserved.
 
 ---
 
@@ -131,8 +141,10 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - A member with roles on Team A crafts a request that names a Team B match by its identifier. The request is refused, Team B data is not disclosed, and the attempt is audited.
 - A non-admin asks for a season-wide view that would include teams they hold no role on. Only their own teams' data is returned.
 - A request names a team, season, or match that does not exist. The request is rejected without creating or changing anything.
+- An edit of club settings, team details, or match details names no version. It is refused without change, and the outcome tells the client that a version is required rather than reporting a conflict.
 - Someone tries to create a second club in the same deployment, or the bootstrap configuration names a different first administrator after one already exists. Both are refused without change.
 - The deployment starts with no bootstrap configuration and no existing Club Admin. No administrator is created, no default credential exists, and no unauthenticated setup operation is offered.
+- Several platform instances start at the same time on a fresh deployment with the same bootstrap configuration. Exactly one club and one first Club Admin are created, one bootstrap audit event is recorded, and no instance fails to start because another instance bootstrapped first.
 - A Club Admin tries to activate a second season while one is active, or to change anything in an archived season. Both are rejected.
 - A one-time set-password or reset credential is presented twice, after it expired, or for a different account. It is rejected each time.
 - A member is reactivated after deactivation. They start with no club or team roles.
@@ -146,7 +158,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 #### Club root and bootstrap
 
 - **FR-001**: The system MUST represent exactly one club per deployment. That club is the implicit root of all club data, and the system MUST reject any attempt to create a second club.
-- **FR-002**: The system MUST establish the club and its first Club Admin only from protected deployment-supplied configuration. Running the bootstrap again with the same configuration MUST change nothing.
+- **FR-002**: The system MUST establish the club and its first Club Admin only from protected deployment-supplied configuration. Running the bootstrap again with the same configuration MUST change nothing, and bootstraps performed at the same time by several starting platform instances MUST together create exactly one club, one first Club Admin, and one bootstrap audit event without preventing any instance from starting.
 - **FR-003**: The system MUST refuse bootstrap configuration that conflicts with an already established first administrator, MUST NOT ship or accept any default credential, and MUST NOT expose any unauthenticated operation that creates an administrator.
 - **FR-004**: Club Admins MUST be able to view and update club settings, such as the club's display name.
 
@@ -201,8 +213,9 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 
 #### Concurrency, interface, and audit
 
-- **FR-042**: Every change to a club, season, team, match, membership, or role assignment MUST be based on the version the requester last saw. Changes based on an outdated version MUST be rejected as conflicts without any partial change.
-- **FR-043**: Every capability in this feature MUST be available through the platform API and described in its published, versioned API description, including authentication, anti-forgery, and denial outcomes.
+- **FR-042**: Every edit of club settings, team details, or match details MUST be based on the version the requester last saw. Edits based on an outdated version MUST be rejected as conflicts without any partial change. An edit that names no version MUST be refused without any change, with an outcome distinguishable from the outdated-version conflict.
+- **FR-049**: Lifecycle actions (season activation and archiving, membership deactivation and reactivation, club and team role assignment and revocation, account unlock, set-password and reset credential issuance, and ending sessions) MUST NOT require a previously seen version. Each MUST be decided against the current state and rules at the time it commits, and an action that the current state does not allow (for example assigning a role to a deactivated membership or archiving a draft season) MUST be rejected as a conflict without any partial change.
+- **FR-043**: Every capability in this feature MUST be available through the platform API and described in its published, versioned API description, including authentication, anti-forgery, denial, conflict, and version-required outcomes.
 - **FR-044**: The system MUST record security audit events for at least these actions: bootstrap, sign-in success and failure, sign-out, lockout and unlock, password change, set-password and reset credential issuance and use, session termination, membership creation, deactivation, and reactivation, club and team role changes, authorization denials, and season, team, and match administration.
 - **FR-045**: Each audit event MUST record an event identifier, event type, time, actor when known, affected resource, team scope when applicable, action, outcome, and correlation identifier.
 - **FR-046**: Audit events and diagnostic output MUST NOT contain passwords, one-time credentials, session credentials, anti-forgery proofs, or identity tokens.
@@ -211,13 +224,13 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 
 ### Key Entities
 
-- **Club**: The single organizational root of a deployment. It has a display name and settings. It owns every season directly and every team and match indirectly.
+- **Club**: The single organizational root of a deployment. It has a display name, settings, and a version. It owns every season directly and every team and match indirectly.
 - **Season**: A club-owned period in the draft, active, or archived state. It has a name and a version. It owns teams, and at most one season is active at a time.
 - **Team**: A squad that belongs to exactly one season. It has a name and a version, owns matches, and is the authorization boundary for every member who is not a Club Admin.
 - **Match**: A container for match metadata that belongs to exactly one team. It holds an immutable opponent snapshot and a version, and recordings and analysis attach to it in later features.
-- **Member account**: A local identity for a person in the club. It has a unique account name, password-verification data, lockout state, readiness for a second sign-in factor, and an active or deactivated membership status.
-- **Club role assignment**: An assignment of the Club Admin or Registrar role to a member. Club Admin includes Registrar. Each assignment can be revoked and carries a version.
-- **Team role assignment**: An assignment of the Coach or Viewer role to one member on one team. A member has at most one per team, and each assignment can be revoked and carries a version.
+- **Member account**: A local identity for a person in the club. It has a unique account name, password-verification data, lockout state, readiness for a second sign-in factor, an active or deactivated membership status, and a version that every change to the account, its membership status, or its role assignments advances.
+- **Club role assignment**: An assignment of the Club Admin or Registrar role to a member. Club Admin includes Registrar. Each assignment can be revoked; it carries no version of its own, and assigning or revoking it advances the member account's version.
+- **Team role assignment**: An assignment of the Coach or Viewer role to one member on one team. A member has at most one per team, and each assignment can be revoked; it carries no version of its own, and assigning or revoking it advances the member account's version.
 - **Session**: A server-validated period during which a signed-in member is authenticated. It has idle and maximum-lifetime expiry, and sign-out, password changes, or administrative action can end it.
 - **One-time credential**: A single-use, time-limited set-password or reset credential bound to one account and issued by a Club Admin.
 - **Security audit event**: A minimized, append-protected record of a security-relevant action and its outcome.
@@ -233,7 +246,7 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
 - **SC-005**: Sign-in responses for an unknown account, a wrong password, a locked account, and an inactive membership cannot be told apart by their content in 100% of tested cases.
 - **SC-006**: 100% of the state-changing requests sent without valid anti-forgery proof are rejected with no resulting change.
 - **SC-007**: Every security event type listed in this specification produces an audit event in tests, and zero audit events or diagnostic outputs contain a password, one-time credential, session credential, anti-forgery proof, or identity token.
-- **SC-008**: In concurrent-edit tests, 100% of outdated changes are detected and rejected, and no test run leaves the club without an active Club Admin.
+- **SC-008**: In concurrent-edit tests, 100% of edits based on an outdated version are detected and rejected, and 100% of edits that name no version are refused with the version-required outcome; in concurrent lifecycle-action tests, 100% of outcomes match the current state rules with 0 actions refused merely because of an outdated version; and no test run leaves the club without an active Club Admin.
 - **SC-009**: 95% of sign-in, sign-out, and single-resource read or update requests complete in under 1 second under local development conditions.
 
 ## Assumptions
@@ -263,4 +276,5 @@ Repeated failed sign-in attempts lock an account for a period, without revealing
   - `docs/architecture/security-and-data-governance.md`
   - `docs/architecture/tenancy-and-technology.md`
   - `docs/architecture/platform-implementation.md`
+  - `docs/architecture/contracts-and-compatibility.md`
   - `docs/architecture/client-applications.md`
