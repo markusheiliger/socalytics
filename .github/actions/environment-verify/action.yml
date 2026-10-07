@@ -80,6 +80,7 @@ runs:
           echo "\$ $*" | tee -a "$LOG_FILE"
           "$@" 2>&1 | tee -a "$LOG_FILE"
         }
+        sdk_pin() { node -e 'const s=require(process.argv[1]).sdk||{};console.log(JSON.stringify(Object.fromEntries(Object.entries(s).sort())))' "$PWD/$1" 2>/dev/null; }
 
         checks=()
         status=0
@@ -94,11 +95,18 @@ runs:
         # because the Manager tests read the shared golden fixtures there.
         if [ "$status" -eq 0 ] && applies "$MANAGER_TRIGGER" && [ -f "$MANAGER_SOLUTION" ]; then
           checks+=("Analyst Manager build and tests")
-          pushd src/analysts/manager > /dev/null
-          { step dotnet restore SocAlytics.Analysts.Manager.slnx &&
-            step dotnet build SocAlytics.Analysts.Manager.slnx --no-restore &&
-            step dotnet test SocAlytics.Analysts.Manager.slnx --no-build; } || status=1
-          popd > /dev/null
+          platform_pin="$(sdk_pin src/platform/global.json)"
+          manager_pin="$(sdk_pin src/analysts/manager/global.json)"
+          if [ -z "$manager_pin" ] || [ "$manager_pin" != "$platform_pin" ]; then
+            echo "Analyst Manager SDK pin ${manager_pin:-<missing>} in src/analysts/manager/global.json differs from the platform pin ${platform_pin:-<missing>} in src/platform/global.json" | tee -a "$LOG_FILE"
+            status=1
+          else
+            pushd src/analysts/manager > /dev/null
+            { step dotnet restore SocAlytics.Analysts.Manager.slnx &&
+              step dotnet build SocAlytics.Analysts.Manager.slnx --no-restore &&
+              step dotnet test SocAlytics.Analysts.Manager.slnx --no-build; } || status=1
+            popd > /dev/null
+          fi
         fi
         if [ "$status" -eq 0 ] && applies '\.md$'; then
           checks+=("Markdown check")
