@@ -49,6 +49,9 @@ runs:
         set +e -uo pipefail
         PLATFORM_SOLUTION=src/platform/SocAlytics.Platform.slnx
         PLATFORM_SCOPE='^(src/platform|contracts)/'
+        MANAGER_SOLUTION=src/analysts/manager/SocAlytics.Analysts.Manager.slnx
+        MANAGER_SCOPE='^src/analysts/manager/'
+        MANAGER_TRIGGER='^(src/analysts/manager|contracts/analyst-manager)/'
         # Paths that need no check (repository metadata, Spec Kit artifacts, and the environment actions, which the
         # merge self-tests). A check adds its scope only when it can run, so changes in the scope of a check whose
         # project is missing (for example a deleted solution) are reported as not covered. The platform scope also
@@ -63,6 +66,7 @@ runs:
           '^\.github/actions/environment-(setup|verify)/'
         )
         [ -f "$WORKSPACE/$PLATFORM_SOLUTION" ] && COVERED+=("$PLATFORM_SCOPE")
+        [ -f "$WORKSPACE/$MANAGER_SOLUTION" ] && COVERED+=("$MANAGER_SCOPE")
         mkdir -p "$(dirname "$LOG_FILE")"
         : > "$LOG_FILE"
         changed=""
@@ -85,6 +89,16 @@ runs:
           { step dotnet restore "$PLATFORM_SOLUTION" &&
             step dotnet build "$PLATFORM_SOLUTION" --no-restore &&
             step dotnet test "$PLATFORM_SOLUTION" --no-build; } || status=1
+        fi
+        # Active only once the Analyst Manager solution exists; it also runs for changes under contracts/analyst-manager/
+        # because the Manager tests read the shared golden fixtures there.
+        if [ "$status" -eq 0 ] && applies "$MANAGER_TRIGGER" && [ -f "$MANAGER_SOLUTION" ]; then
+          checks+=("Analyst Manager build and tests")
+          pushd src/analysts/manager > /dev/null
+          { step dotnet restore SocAlytics.Analysts.Manager.slnx &&
+            step dotnet build SocAlytics.Analysts.Manager.slnx --no-restore &&
+            step dotnet test SocAlytics.Analysts.Manager.slnx --no-build; } || status=1
+          popd > /dev/null
         fi
         if [ "$status" -eq 0 ] && applies '\.md$'; then
           checks+=("Markdown check")
