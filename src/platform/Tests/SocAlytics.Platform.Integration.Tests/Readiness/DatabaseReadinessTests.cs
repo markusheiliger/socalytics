@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using Shouldly;
 using SocAlytics.Platform.Infrastructure.Persistence.Migrations;
+using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using SocAlytics.Platform.Migrator;
 using Xunit;
@@ -24,10 +25,13 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
             builder.ConfigureAppConfiguration((_, configuration) =>
             {
                 configuration.Sources.Clear();
-                configuration.AddInMemoryCollection(
-                    connectionString is null
-                        ? new Dictionary<string, string?>()
-                        : new Dictionary<string, string?> { ["ConnectionStrings:socalytics"] = connectionString });
+                var settings = new Dictionary<string, string?>(TestIdentityAccessSettings.Values);
+                if (connectionString is not null)
+                {
+                    settings["ConnectionStrings:socalytics"] = connectionString;
+                }
+
+                configuration.AddInMemoryCollection(settings);
             });
             builder.ConfigureLogging(logging => logging.AddProvider(capture));
         });

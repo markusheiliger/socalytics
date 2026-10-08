@@ -30,6 +30,7 @@ var migrator = builder.AddProject<Projects.SocAlytics_Platform_Migrator>("migrat
 
 builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithHttpEndpoint()
+    .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
     .WithHttpHealthCheck("/health")
     .WithReference(appConnection)
     .WaitFor(postgres)
