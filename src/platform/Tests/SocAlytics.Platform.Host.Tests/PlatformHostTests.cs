@@ -33,7 +33,7 @@ public sealed class PlatformHostTests
         migrator!.Snapshot.ExitCode.ShouldBe(0);
         await app.ResourceNotifications.WaitForResourceHealthyAsync(ApiResourceName, timeout.Token);
 
-        using var client = app.CreateHttpClient(ApiResourceName);
+        using var client = app.CreateHttpClient(ApiResourceName, "http");
         await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);
         await ShouldReturnSuccessAsync(client, "/health", timeout.Token);
 
@@ -92,7 +92,7 @@ public sealed class PlatformHostTests
 
     private static async Task<IDistributedApplicationTestingBuilder> CreateAppHostAsync(CancellationToken cancellationToken) =>
         await DistributedApplicationTestingBuilder.CreateAsync<Projects.SocAlytics_Platform_AppHost>(
-            ["--SocAlytics:LocalDatabase:Persistent=false"], cancellationToken);
+            ["--SocAlytics:LocalDatabase:Persistent=false", "--SocAlytics:ApiHttpsEndpoint=false"], cancellationToken);
 
     [Fact]
     public void ApplicationAndInfrastructureLayersContributeRegistrations()

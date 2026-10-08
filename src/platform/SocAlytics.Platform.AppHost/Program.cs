@@ -28,12 +28,24 @@ var migrator = builder.AddProject<Projects.SocAlytics_Platform_Migrator>("migrat
     .WithReference(migratorConnection)
     .WaitFor(postgres);
 
-builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
+var firstAdminPassword = builder.AddParameter("first-club-admin-password", new GenerateParameterDefault { MinLength = 24, Special = false }, secret: true, persist: true);
+var firstAdminAccountName = builder.AddParameter("first-club-admin-account-name", "club-admin");
+var clubDisplayName = builder.AddParameter("club-display-name", "Development Club");
+
+var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithHttpEndpoint()
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
+    .WithEnvironment("ClubBootstrap__FirstClubAdmin__InitialPassword", firstAdminPassword)
+    .WithEnvironment("ClubBootstrap__FirstClubAdmin__AccountName", firstAdminAccountName)
+    .WithEnvironment("ClubBootstrap__ClubDisplayName", clubDisplayName)
     .WithHttpHealthCheck("/health")
     .WithReference(appConnection)
     .WaitFor(postgres)
     .WaitForCompletion(migrator);
+
+if (!string.Equals(builder.Configuration["SocAlytics:ApiHttpsEndpoint"], "false", StringComparison.OrdinalIgnoreCase))
+{
+    api.WithHttpsEndpoint();
+}
 
 builder.Build().Run();

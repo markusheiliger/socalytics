@@ -26,6 +26,9 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
             {
                 configuration.Sources.Clear();
                 var settings = new Dictionary<string, string?>(TestIdentityAccessSettings.Values);
+                settings["ClubBootstrap:ClubDisplayName"] = "Readiness Club";
+                settings["ClubBootstrap:FirstClubAdmin:AccountName"] = "readiness-admin";
+                settings["ClubBootstrap:FirstClubAdmin:InitialPassword"] = "Readiness-Initial-Pass-1234";
                 if (connectionString is not null)
                 {
                     settings["ConnectionStrings:socalytics"] = connectionString;
@@ -35,6 +38,23 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
             });
             builder.ConfigureLogging(logging => logging.AddProvider(capture));
         });
+
+    internal static async Task ShouldBecomeHealthyAsync(HttpClient client, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        HttpStatusCode status;
+        do
+        {
+            status = (await client.GetAsync("/health", ct)).StatusCode;
+            if (status != HttpStatusCode.OK)
+            {
+                await Task.Delay(200, ct);
+            }
+        }
+        while (status != HttpStatusCode.OK && DateTime.UtcNow < deadline);
+
+        status.ShouldBe(HttpStatusCode.OK);
+    }
 
     internal static async Task<string?> DescriptionAsync(WebApplicationFactory<Program> factory, CancellationToken ct)
     {
@@ -53,7 +73,7 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
         await using var factory = CreateFactory(db.AppConnectionString, new CapturingLoggerProvider());
         using var client = factory.CreateClient();
 
-        (await client.GetAsync("/health", ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ShouldBecomeHealthyAsync(client, ct);
     }
 
     [Fact]

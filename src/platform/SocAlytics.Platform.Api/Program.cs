@@ -1,3 +1,4 @@
+using SocAlytics.Platform.Api.Bootstrap;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application;
 using SocAlytics.Platform.Application.Abstractions;
@@ -15,6 +16,10 @@ builder.Services.AddOptions<IdentityAccessOptions>()
 	.Bind(builder.Configuration.GetSection(IdentityAccessOptions.SectionName))
 	.ValidateDataAnnotations()
 	.ValidateOnStart();
+builder.Services.Configure<ClubBootstrapOptions>(builder.Configuration.GetSection(ClubBootstrapOptions.SectionName));
+builder.Services.AddSingleton<ClubBootstrapState>();
+builder.Services.AddHostedService<ClubBootstrapHostedService>();
+builder.Services.AddHealthChecks().AddCheck<ClubBootstrapHealthCheck>(ClubBootstrapHealthCheck.Name);
 builder.Services.AddOpenApi("v1", options =>
 {
 	options.AddDocumentTransformer((document, _, _) =>

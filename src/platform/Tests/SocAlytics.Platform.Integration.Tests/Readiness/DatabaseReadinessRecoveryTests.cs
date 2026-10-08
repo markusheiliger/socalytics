@@ -96,6 +96,7 @@ public sealed class DatabaseReadinessRecoveryTests(PostgresContainerFixture post
         await using var factory = CreateFactory(db.AppConnectionString, capture);
         using var client = factory.CreateClient();
 
+        await ShouldBecomeHealthyAsync(client, ct);
         for (var i = 0; i < 3; i++)
         {
             (await client.GetAsync("/health", ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -151,7 +152,7 @@ public sealed class DatabaseReadinessRecoveryTests(PostgresContainerFixture post
         var capture = new CapturingLoggerProvider();
         await using var factory = CreateFactory(db.AppConnectionString, capture);
         using var client = factory.CreateClient();
-        (await client.GetAsync("/health", ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ShouldBecomeHealthyAsync(client, ct);
 
         await server.PauseAsync(ct);
         try
