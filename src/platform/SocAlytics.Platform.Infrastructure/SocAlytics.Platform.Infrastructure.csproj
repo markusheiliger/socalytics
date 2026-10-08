@@ -1,6 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
 	<ItemGroup>
+		<PackageReference Include="Dapper" />
+		<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
+		<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
+		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+		<PackageReference Include="Npgsql" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<EmbeddedResource Include="Persistence/Migrations/*.sql" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="SocAlytics.Platform.Migrator" />
+		<InternalsVisibleTo Include="SocAlytics.Platform.Integration.Tests" />
 	</ItemGroup>
 
 	<ItemGroup>

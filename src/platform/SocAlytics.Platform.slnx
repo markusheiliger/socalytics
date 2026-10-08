@@ -4,9 +4,11 @@
   <Project Path="SocAlytics.Platform.Application/SocAlytics.Platform.Application.csproj" />
   <Project Path="SocAlytics.Platform.Domain/SocAlytics.Platform.Domain.csproj" />
   <Project Path="SocAlytics.Platform.Infrastructure/SocAlytics.Platform.Infrastructure.csproj" />
+  <Project Path="SocAlytics.Platform.Migrator/SocAlytics.Platform.Migrator.csproj" />
   <Project Path="SocAlytics.Platform.ServiceDefaults/SocAlytics.Platform.ServiceDefaults.csproj" />
   <Folder Name="/Tests/">
     <Project Path="Tests/SocAlytics.Platform.Architecture.Tests/SocAlytics.Platform.Architecture.Tests.csproj" />
     <Project Path="Tests/SocAlytics.Platform.Host.Tests/SocAlytics.Platform.Host.Tests.csproj" />
+    <Project Path="Tests/SocAlytics.Platform.Integration.Tests/SocAlytics.Platform.Integration.Tests.csproj" />
   </Folder>
 </Solution>

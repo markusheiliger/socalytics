@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="dbup-postgresql" />
+		<PackageReference Include="Microsoft.Extensions.Hosting" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<InternalsVisibleTo Include="SocAlytics.Platform.Integration.Tests" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" />
+		<ProjectReference Include="..\SocAlytics.Platform.ServiceDefaults\SocAlytics.Platform.ServiceDefaults.csproj" />
+	</ItemGroup>
+</Project>

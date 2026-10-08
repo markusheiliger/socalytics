@@ -1,9 +1,15 @@
 <Project Sdk="Aspire.AppHost.Sdk/13.4.6">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <UserSecretsId>6f0c1d2e-8a4b-4c57-9e3d-5b7a21c4d9f8</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.PostgreSQL" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SocAlytics.Platform.Migrator\SocAlytics.Platform.Migrator.csproj" />
     <ProjectReference Include="..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" />
   </ItemGroup>
 </Project>
