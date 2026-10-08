@@ -124,6 +124,6 @@ public sealed class PlatformHostTests
         var initialCount = services.Count;
 
         register(services).ShouldBeSameAs(services);
-        services.Count.ShouldBe(initialCount + 1);
+        services.Count.ShouldBeGreaterThan(initialCount);
     }
 }

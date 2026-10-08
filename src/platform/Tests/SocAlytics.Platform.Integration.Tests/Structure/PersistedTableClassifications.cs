@@ -27,5 +27,6 @@ internal static class PersistedTableClassifications
             ["member_session"] = TableClassification.Unversioned("operational session state; must not advance the account version"),
             ["one_time_credential"] = TableClassification.Unversioned("single-use credential state; consumption is the guard"),
             ["recovery_directive_use"] = TableClassification.Immutable,
+            ["security_audit_event"] = TableClassification.Immutable,
         };
 }
