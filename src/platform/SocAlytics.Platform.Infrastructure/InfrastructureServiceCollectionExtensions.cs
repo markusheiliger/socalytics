@@ -21,6 +21,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddIdentityAccess();
         services.TryAddScoped<IMemberAccountStore, MemberAccountStore>();
         services.TryAddScoped<IAccountCredentialService, AccountCredentialService>();
+        services.TryAddScoped<ISessionStore, SessionStore>();
         services.TryAddScoped<IClubHierarchyStore, ClubHierarchyStore>();
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();

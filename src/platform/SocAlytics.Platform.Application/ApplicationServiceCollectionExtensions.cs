@@ -15,6 +15,9 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<ITeamScopeResolver, TeamScopeResolver>();
         services.TryAddScoped<IAccessAuthorizer, AccessAuthorizer>();
         services.TryAddScoped<BootstrapClubHandler>();
+        services.TryAddScoped<ValidateSessionHandler>();
+        services.TryAddScoped<GetSessionHandler>();
+        services.TryAddScoped<SignOutHandler>();
 
         return services;
     }
