@@ -27,16 +27,18 @@ SocAlytics uses one `src` root with these first-level ownership areas:
   required runtimes
 
 The executable platform projects are peers under `src/platform`, except for the
-two test projects grouped under `src/platform/Tests`:
+three test projects grouped under `src/platform/Tests`:
 
 - `SocAlytics.Platform.Api`
 - `SocAlytics.Platform.AppHost`
+- `SocAlytics.Platform.Migrator`
 - `SocAlytics.Platform.ServiceDefaults`
 - `SocAlytics.Platform.Domain`
 - `SocAlytics.Platform.Application`
 - `SocAlytics.Platform.Infrastructure`
 - `Tests/SocAlytics.Platform.Host.Tests`
 - `Tests/SocAlytics.Platform.Architecture.Tests`
+- `Tests/SocAlytics.Platform.Integration.Tests`
 
 `src/platform/SocAlytics.Platform.slnx` is the .NET 10 solution. The platform is
 one application structured in layers, one project per layer:
@@ -49,7 +51,7 @@ one application structured in layers, one project per layer:
 | Presentation | `SocAlytics.Platform.Api` | HTTP endpoints, OpenAPI, backend-for-frontend, composition root | Application, Infrastructure |
 
 `SocAlytics.Platform.AppHost` composes the local development environment and
-references only the API; `SocAlytics.Platform.ServiceDefaults` provides shared
+references the API and the Migrator; `SocAlytics.Platform.ServiceDefaults` provides shared
 hosting defaults. The functional areas of the platform (Club, Identity Access,
 Recordings, Registry, Analysis, and Agent Orchestration) are folders and
 namespaces inside the layers, for example
@@ -57,12 +59,12 @@ namespaces inside the layers, for example
 Application and Infrastructure each expose one public dependency-injection
 composition method and keep their implementation types internal.
 
-The persistence foundation will add a second, planned host next to the API:
+The persistence foundation adds a second host next to the API:
 `SocAlytics.Platform.Migrator`, a console application that depends on
 Infrastructure, applies pending migrations once, and exits with a success or
-failure outcome. It ships as its own OCI image and is the only component that
-ever receives database access able to create or alter data structures; the API
-image contains no migration execution path.
+failure outcome. It will ship as its own OCI image and will be the only
+component that ever receives database access able to create or alter data
+structures; the API image will contain no migration execution path.
 
 Executable components use or will use the native workspace and dependency tools
 of each ecosystem:
@@ -93,9 +95,9 @@ Migrator as a one-shot service that every API service depends on with
 regardless of the API replica count. Locally, the Aspire AppHost will mirror
 that order: PostgreSQL, then the Migrator, then the API, which waits for the
 Migrator to complete and for the S3-compatible RustFS container to report
-healthy. The local PostgreSQL container will provision both database roles from
+healthy. The local PostgreSQL container provisions both database roles from
 a committed initialization shell script that reads generated development-only
-passwords, which the AppHost persists in its user secrets, and keep its data in
+passwords, which the AppHost persists in its user secrets, and keeps its data in
 a named development volume; these local values are not production values, and
 production credentials, role-to-identity mapping, and the scheduling of the
 Migrator remain unresolved.
@@ -111,11 +113,13 @@ does not make Aspire a production dependency.
 
 ## Control Plane
 
-The current control-plane evidence is a dependency-free ASP.NET Core host that
+The current control-plane evidence is an ASP.NET Core host that
 registers the Application and Infrastructure layers through their public
 composition methods. It exposes only `/alive`, `/health`, and the built-in `v1`
 OpenAPI document at `/openapi/v1.json`; it has no domain paths. The Aspire
-AppHost composes only the API resource and uses `/health` for readiness.
+AppHost composes PostgreSQL, the one-off Migrator, and the API in that order;
+the API's `/health` readiness includes a `database` check that requires a
+reachable database with a current migration state.
 Architecture tests enforce the layer dependency direction and the intended
 public surface. This is development-host evidence, not an implemented domain
 API, infrastructure topology, deployment mechanism, security posture, or
@@ -177,9 +181,10 @@ deployment unless measured scaling later justifies extraction.
 
 ### Persistence And CQRS
 
-This persistence and messaging baseline remains unimplemented; the current host
-has no PostgreSQL, Npgsql, Dapper, DbUp, NATS JetStream, S3-compatible storage,
-migrations, outbox, or infrastructure integration.
+The persistence foundation implements PostgreSQL access with Npgsql and Dapper,
+DbUp migrations applied by the Migrator, explicit units of work, and
+trigger-managed versions; NATS JetStream, S3-compatible storage, the
+transactional outbox, and all domain tables remain unimplemented.
 
 Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Dapper
 provide database access; Entity Framework Core is not part of the baseline.
@@ -310,7 +315,7 @@ policy remain governed by
 
 ## API And Identity
 
-The current dependency-free API implements only the operational and OpenAPI
+The current API implements only the operational and OpenAPI
 surface described under [Control Plane](#control-plane). It implements no
 accounts, authentication, authorization, BFF session, generated client, or
 domain API behavior. Exposure and access policy for operational endpoints in a
@@ -493,32 +498,33 @@ wires health checks, structured logs, metrics, and traces for .NET services;
 other runtimes emit compatible telemetry with the same correlation context.
 Telemetry payload minimization and lifecycle follow
 [Security and Data Governance](security-and-data-governance.md).
+Testcontainers runs disposable PostgreSQL instances for
+`SocAlytics.Platform.Integration.Tests`.
 
 ## Planned Acceptance Evidence
 
 The initial platform-host change provides this executable evidence:
 
 - `src/platform/SocAlytics.Platform.slnx` restores, builds, and tests on .NET 10;
-- Aspire starts the API as its sole resource and reports `/health` readiness;
+- Aspire starts PostgreSQL, the one-off Migrator, and the API in that order and
+  reports `/health` readiness, including the `database` check;
 - host tests exercise `/alive`, `/health`, and `/openapi/v1.json` and verify the
   Application and Infrastructure registrations; and
 - architecture tests enforce the layer dependency direction, API use of the
-  public composition methods, and internal implementation visibility.
+public composition methods, and internal implementation visibility; and
+- PostgreSQL integration tests cover ordered checksum-aware migrations, repeat
+and concurrent Migrator runs with the bounded lock wait, rollback of failing
+migrations, unknown applied migrations, distinguishable Migrator exit
+outcomes, explicit units of work, optimistic concurrency, the version
+guarantee including child-root and migration behavior, trigger presence,
+absence of `club_id`, runtime-role access limits, and API readiness against
+current and non-current migration states.
 
 The following remain validation targets rather than claims of current evidence:
 
-- PostgreSQL integration tests cover ordered checksum-aware migrations, Dapper
-  mappings, explicit transactions, optimistic concurrency, the version
-  guarantee (increments on change, none on no-op writes, root increments from
-  child changes, migration behavior) and the presence of the version triggers
-  on every versioned and child table, idempotency,
-  authorization, immutable lineage, registry versions, analysis recovery, and
-  state-plus-outbox atomicity;
-- Migrator tests cover concurrent runs serializing on the lock, the bounded
-  wait, distinguishable exit outcomes, and unknown applied migrations; API
-  readiness tests cover a non-current migration state; access tests prove the
-  runtime role cannot create or alter data structures;
-- NATS recovery tests cover broker outage, retry, publisher restart,
+- PostgreSQL integration tests cover Dapper mappings of domain records,
+idempotency, authorization, immutable lineage, registry versions, analysis
+recovery, and state-plus-outbox atomicity;- NATS recovery tests cover broker outage, retry, publisher restart,
   expired-lease recovery, duplicate notification handling, and PostgreSQL
   revalidation;
 - canonical contract validation, registry transport mapping, runtime
@@ -539,15 +545,16 @@ choice or reveals a material operational tradeoff:
   identity, client sharing, Analyst Manager UI/runtime, or Analyst
   image/runtime choices.
 - **Consequences and operational tradeoffs understood — partially met.**
-  Layer dependency rules, host composition, and dependency-free startup
-  are exercised. Transaction boundaries, duplicate delivery, restart recovery,
-  local infrastructure failure, production database access control,
-  backup/restore, lifecycle controls, service objectives, capacity, and complete
+  Layer dependency rules, host composition with PostgreSQL and the Migrator,
+  local transaction boundaries, and local database unavailability are
+  exercised. Duplicate delivery, restart recovery, other local infrastructure
+  failure, production database access control, backup/restore, lifecycle controls, service objectives, capacity, and complete
   workflow failure behavior remain unevidenced.
 - **Prototype, measurement, or implementation evidence supports the choice —
-  partially met.** The .NET 10 host, Aspire-only local composition, operational
-  API surface, layer composition methods, and structural tests are
-  implemented. Persistence, publication, secure BFF identity, both client
+  partially met.** The .NET 10 host, Aspire local composition, operational
+  API surface, layer composition methods, structural tests, and the persistence
+  foundation (migrations, Migrator, units of work, version triggers) are
+  implemented. Domain persistence, publication, secure BFF identity, both client
   shells, cross-runtime schema agreement, reproducible Analyst images, and the
   Avalonia/OCI platform matrix remain unsupported by implementation evidence.
 - **Mature enough to govern subsequent implementation — not met for
