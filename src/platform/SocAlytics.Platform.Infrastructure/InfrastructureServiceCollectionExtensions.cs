@@ -17,6 +17,7 @@ public static class InfrastructureServiceCollectionExtensions
         PersistenceRegistration.AddPersistence(services);
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddScoped<IAuditTrail, PostgresAuditTrail>();
+        services.AddIdentityAccess();
         services.TryAddScoped<IMemberAccountStore, MemberAccountStore>();
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
