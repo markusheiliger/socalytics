@@ -20,5 +20,12 @@ internal sealed record UnversionedClassification(string Reason) : TableClassific
 internal static class PersistedTableClassifications
 {
     public static IReadOnlyDictionary<string, TableClassification> Platform { get; } =
-        new Dictionary<string, TableClassification>(StringComparer.Ordinal);
+        new Dictionary<string, TableClassification>(StringComparer.Ordinal)
+        {
+            ["club_role_assignment"] = TableClassification.ChildOf("member_account", "member_account_id"),
+            ["team_role_assignment"] = TableClassification.ChildOf("member_account", "member_account_id"),
+            ["member_session"] = TableClassification.Unversioned("operational session state; must not advance the account version"),
+            ["one_time_credential"] = TableClassification.Unversioned("single-use credential state; consumption is the guard"),
+            ["recovery_directive_use"] = TableClassification.Immutable,
+        };
 }
