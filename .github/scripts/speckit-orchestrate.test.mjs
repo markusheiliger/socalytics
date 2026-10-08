@@ -38,7 +38,7 @@ test('start prepares the linked branch, draft pull request, assignee, check run,
     assert.equal(pull.base.ref, 'main');
     assert.match(pull.body, new RegExp(`^Closes #${twin.number}$`, 'm'));
     assert.match(pull.body, /^\*\*Spec\*\*: \[`specs\/a`\]/m);
-    assert.match(pull.body, /## Tasks \(2\)\n\n### Phase 1: Setup\n\n- \[ \] T001 \[P\] Create project\n\n#### Implementation\n\n- \[ \] T002 \[US1\] Build it/);
+    assert.match(pull.body, /## Tasks \(2\)\n\nShort form; the full task texts are in \[`tasks\.md`\]\([^)]+\)\.\n\n### Phase 1: Setup\n\n- \[ \] T001 \[P\] Create project\n\n#### Implementation\n\n- \[ \] T002 \[US1\] Build it/);
     assert.deepEqual(pull.assignees, ['dev']);
     assert.deepEqual(github.repo.checkRuns.map((run) => [run.name, run.status, run.head_sha, run.output.title]), [[CHECK_RUN_NAME, 'queued', pull.head.sha, '0 of 2 tasks implemented']]);
     const comments = github.comments.filter((comment) => comment.number === pull.number);
@@ -65,6 +65,22 @@ test('start completes a partially prepared workspace and tolerates assignee and 
     assert.equal(github.repo.linked.length, 0);
     assert.equal(github.repo.pulls.length, 1);
     assert.match(lines.join('\n'), /Added the start commit[\s\S]*Warning: could not assign @dev/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('start reports why the pull request could not be created, and completes on the next run', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    github.failCreatePull = 'POST /pulls failed with HTTP 422: body is too long (maximum is 65536 characters)';
+    await assert.rejects(() => start(github, root, twin), /Could not create or find the pull request for speckit\/a: POST \/pulls failed with HTTP 422: body is too long/);
+    assert.equal(await github.aheadBy('main', 'speckit/a'), 1);
+
+    github.failCreatePull = null;
+    await start(github, root, twin);
+    assert.equal(github.repo.pulls.length, 1);
+    assert.equal(await github.aheadBy('main', 'speckit/a'), 1, 'the start commit is not added twice');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

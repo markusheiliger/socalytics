@@ -1,4 +1,4 @@
-import { renderSpecLine } from './speckit-prepare-core.mjs';
+import { artifactUrl, renderSpecLine } from './speckit-prepare-core.mjs';
 
 export const BRANCH_PREFIX = 'speckit/';
 export const CHECK_RUN_NAME = 'Spec Kit implementation';
@@ -341,11 +341,42 @@ export function validateConvergeChange({ folder, before, after, changedPaths }) 
   return { reasons, appended, limit };
 }
 
-// Adds appended convergence tasks to the task list of the pull request body and updates the count.
+// GitHub rejects pull request bodies above 65,536 characters; this leaves room for later appended tasks.
+export const MAX_PULL_BODY = 60000;
+const TASK_SUMMARY_CHARS = 160;
+
+// A short form of a task for lists: its leading tags (such as `[P] [US1]`) and its first sentence, cut on a word
+// boundary to at most 160 characters. tasks.md keeps the full text.
+export function summarizeTask(text) {
+  const value = String(text ?? '').replace(/\s+/g, ' ').trim();
+  const tags = value.match(/^(?:\[[^\]]+\]\s*)+/)?.[0] ?? '';
+  const rest = value.slice(tags.length);
+  const sentence = rest.match(/^(.+?[.!?])(?=\s|$)/)?.[1] ?? rest;
+  let summary = sentence;
+  if (summary.length > TASK_SUMMARY_CHARS) {
+    const cut = summary.slice(0, TASK_SUMMARY_CHARS);
+    const space = cut.lastIndexOf(' ');
+    summary = `${(space > TASK_SUMMARY_CHARS / 2 ? cut.slice(0, space) : cut).replace(/[\s,;:(]+$/, '')}`;
+    if ((summary.match(/`/g) ?? []).length % 2 === 1) summary += '`';
+    summary += ' …';
+  } else if (sentence.length < rest.length) {
+    summary += ' …';
+  }
+  return `${tags}${summary}`.trim();
+}
+
+const taskLine = (task, short) => `- [ ] ${task.id} ${short ? (task.text.match(/^(?:\[[^\]]+\]\s*)+/)?.[0] ?? '').trim() : summarizeTask(task.text)}`.trimEnd();
+
+// Adds appended convergence tasks to the task list of the pull request body and updates the count. Tasks are listed
+// in short form; when even that would exceed the body limit, only their IDs are listed, and otherwise a note.
 export function appendPullRequestTasks(body, tasks, heading) {
-  const lines = tasks.map((task) => `- [ ] ${task.id} ${task.text}`.trimEnd());
   const text = String(body ?? '').replace(/^## Tasks \((\d+)\)$/m, (match, count) => `## Tasks (${Number(count) + tasks.length})`);
-  return `${text.replace(/\s+$/, '')}\n\n### ${heading}\n\n${lines.join('\n')}\n`;
+  const render = (lines) => `${text.replace(/\s+$/, '')}\n\n### ${heading}\n\n${lines.join('\n')}\n`;
+  for (const short of [false, true]) {
+    const result = render(tasks.map((task) => taskLine(task, short)));
+    if (result.length <= MAX_PULL_BODY) return result;
+  }
+  return render([`_${tasks.length} task(s) were appended; see \`tasks.md\` on the implementation branch._`]);
 }
 
 // Reasons why the agent's change for `taskId` cannot be accepted. `before` and `after` are the contents of
@@ -384,22 +415,46 @@ export function renderPullRequestTitle(spec) {
 }
 
 export function renderPullRequestBody({ twinNumber, folder, tasks, context }) {
-  const lines = tasks.items.map((item) => (item.type === 'heading'
-    ? `\n${'#'.repeat(Math.min(item.level + 1, 6))} ${item.text}\n`
-    : `- [ ] ${item.id} ${item.text}`.trimEnd()));
-  return [
-    '> [!NOTE]',
-    '> Draft pull request prepared by the `Spec Kit orchestrate` workflow. It tracks the implementation status',
-    '> with the `Spec Kit implementation` check run and documents progress in comments.',
-    '',
-    `Closes #${twinNumber}`,
-    '',
-    renderSpecLine(context, folder),
-    '',
-    `## Tasks (${tasks.count})`,
-    ...(lines.length > 0 ? lines : ['', '_No tasks were found in `tasks.md`._']),
-    '',
-  ].join('\n').replace(/\n{3,}/g, '\n\n');
+  const render = (short, limit = Infinity) => {
+    let shown = 0;
+    const lines = [];
+    for (const item of tasks.items) {
+      if (item.type === 'heading') {
+        lines.push(`\n${'#'.repeat(Math.min(item.level + 1, 6))} ${item.text}\n`);
+      } else if (shown < limit) {
+        lines.push(taskLine(item, short));
+        shown += 1;
+      }
+    }
+    const hidden = tasks.count - Math.min(tasks.count, limit);
+    return [
+      '> [!NOTE]',
+      '> Draft pull request prepared by the `Spec Kit orchestrate` workflow. It tracks the implementation status',
+      '> with the `Spec Kit implementation` check run and documents progress in comments.',
+      '',
+      `Closes #${twinNumber}`,
+      '',
+      renderSpecLine(context, folder),
+      '',
+      `## Tasks (${tasks.count})`,
+      '',
+      `Short form; the full task texts are in [\`tasks.md\`](${artifactUrl({ ...context, branch: implementationBranch(folder) }, folder, 'tasks.md')}).`,
+      ...(lines.length > 0 ? lines : ['', '_No tasks were found in `tasks.md`._']),
+      ...(hidden > 0 ? ['', `_${hidden} more task(s) are not listed because the description would be too long._`] : []),
+      '',
+    ].join('\n').replace(/\n{3,}/g, '\n\n');
+  };
+  for (const short of [false, true]) {
+    const body = render(short);
+    if (body.length <= MAX_PULL_BODY) return body;
+  }
+  let limit = tasks.count;
+  let body = render(true, limit);
+  while (body.length > MAX_PULL_BODY && limit > 0) {
+    limit = Math.floor(limit * 0.9);
+    body = render(true, limit);
+  }
+  return body;
 }
 
 export function renderStartComment({ twinNumber, folder, taskCount }) {

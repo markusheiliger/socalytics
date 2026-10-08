@@ -34,6 +34,7 @@ import {
   renderResolvePrompt,
   renderTaskPrompt,
   stepLabel,
+  summarizeTask,
   syncPullRequestTicks,
   taskProgress,
   tickTask,
@@ -658,7 +659,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     comment = [
       `**Convergence round ${round} of at most ${MAX_CONVERGE_ROUNDS}** found gaps; ${appended.length} task(s) were appended and are implemented next:`,
       '',
-      ...appended.map((task) => `- ${task.id} ${neutralizeMarkers(task.text)}`),
+      ...appended.map((task) => `- ${task.id} ${neutralizeMarkers(summarizeTask(task.text))}`),
       ...agentDetails(resultDir, 'Convergence report'),
     ];
   } else {
@@ -860,7 +861,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     report.flush();
     return { exitCode: 0, moved: true };
   }
-  const taskLines = listTasks(tasksMarkdown).map((task) => `- ${task.id} ${task.text}`);
+  const taskLines = listTasks(tasksMarkdown).map((task) => `- ${task.id} ${summarizeTask(task.text)}`);
   const merged = await client.mergePullRequest(inputs.pull, {
     sha: result.head,
     merge_method: 'squash',

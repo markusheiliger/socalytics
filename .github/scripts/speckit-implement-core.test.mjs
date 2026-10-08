@@ -21,6 +21,7 @@ import {
   latestCheckRun,
   listTasks,
   markerTimes,
+  MAX_PULL_BODY,
   neutralizeMarkers,
   nextTask,
   nextTaskGroup,
@@ -36,6 +37,7 @@ import {
   RESUME_COMMENT_MARKER,
   START_COMMENT_MARKER,
   stepLabel,
+  summarizeTask,
   syncPullRequestTicks,
   taskProgress,
   tickPullRequestBody,
@@ -85,7 +87,7 @@ test('renders the pull request title, body, comment, and check run text', () => 
   const body = renderPullRequestBody({ twinNumber: 33, folder: 'f', context, tasks: extractTasks('## Phase 1\n- [x] T001 done already\n') });
   assert.match(body, /^Closes #33$/m);
   assert.match(body, /^\*\*Spec\*\*: \[`specs\/f`\]\(https:\/\/github\.com\/octo\/repo\/tree\/main\/specs\/f\)$/m);
-  assert.match(body, /## Tasks \(1\)\n\n### Phase 1\n\n- \[ \] T001 done already/);
+  assert.match(body, /## Tasks \(1\)\n\nShort form; the full task texts are in \[`tasks\.md`\]\(https:\/\/github\.com\/octo\/repo\/blob\/speckit\/f\/specs\/f\/tasks\.md\)\.\n\n### Phase 1\n\n- \[ \] T001 done already/);
   assert.doesNotMatch(body, /\n{3,}/);
   assert.match(renderPullRequestBody({ twinNumber: 1, folder: 'f', context, tasks: extractTasks('') }), /No tasks were found/);
 
@@ -93,6 +95,38 @@ test('renders the pull request title, body, comment, and check run text', () => 
   assert.ok(comment.startsWith(START_COMMENT_MARKER));
   assert.match(comment, /#33 \(`specs\/f`\): 4 task\(s\) queued/);
   assert.equal(checkRunOutput(4).title, '0 of 4 tasks implemented');
+});
+
+test('summarizes a task to its tags and first sentence', () => {
+  assert.equal(summarizeTask('[P] [US1] Add `src/A.cs` (FR-1). Then assert that `x.y` works.'), '[P] [US1] Add `src/A.cs` (FR-1). …');
+  assert.equal(summarizeTask('Short task'), 'Short task');
+  assert.equal(summarizeTask('[P] Ends with a period.'), '[P] Ends with a period.');
+  const long = summarizeTask(`[US2] Implement ${'word '.repeat(60)}end`);
+  assert.ok(long.length <= 170, long);
+  assert.match(long, /^\[US2\] Implement word word.* …$/);
+  const code = summarizeTask(`Add \`${'a/'.repeat(100)}File.cs\` now`);
+  assert.equal((code.match(/`/g) ?? []).length % 2, 0, 'an open code span is closed');
+  assert.equal(summarizeTask('multi\r\nline   text'), 'multi line text');
+});
+
+test('keeps the pull request body under GitHub\'s limit for large task lists', () => {
+  const big = (count, size) => `## Phase 1\n\n${Array.from({ length: count }, (_, index) => `- [ ] T${String(index + 1).padStart(3, '0')} [P] [US1] Task ${index}. ${'x'.repeat(size)}`).join('\n')}\n`;
+  const body = renderPullRequestBody({ twinNumber: 34, folder: 'f', context, tasks: extractTasks(big(40, 2700)) });
+  assert.ok(body.length < MAX_PULL_BODY, `${body.length}`);
+  assert.match(body, /- \[ \] T040 \[P\] \[US1\] Task 39\. …/);
+  assert.match(tickPullRequestBody(body, 'T040'), /- \[x\] T040 /);
+
+  const many = renderPullRequestBody({ twinNumber: 34, folder: 'f', context, tasks: extractTasks(big(2500, 10)) });
+  assert.ok(many.length <= MAX_PULL_BODY, `${many.length}`);
+  assert.match(many, /- \[ \] T001 \[P\] \[US1\]$/m, 'falls back to IDs and tags');
+  const huge = renderPullRequestBody({ twinNumber: 34, folder: 'f', context, tasks: extractTasks(big(4000, 10)) });
+  assert.ok(huge.length <= MAX_PULL_BODY, `${huge.length}`);
+  assert.match(huge, /_\d+ more task\(s\) are not listed because the description would be too long\._/);
+
+  const appended = appendPullRequestTasks('## Tasks (1)\n\n- [x] T001 a\n', [{ id: 'T002', text: `[P] First sentence. ${'y'.repeat(5000)}` }], 'Phase 2: Convergence');
+  assert.match(appended, /- \[ \] T002 \[P\] First sentence\. …\n$/);
+  const full = appendPullRequestTasks(`## Tasks (1)\n\n${'z'.repeat(MAX_PULL_BODY)}\n`, [{ id: 'T002', text: 'b' }], 'Phase 2: Convergence');
+  assert.match(full, /_1 task\(s\) were appended; see `tasks\.md` on the implementation branch\._\n$/);
 });
 
 test('decides the pull request lifecycle relative to the flag time', () => {

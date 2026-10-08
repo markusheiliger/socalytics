@@ -253,7 +253,8 @@ export class FakeGitHub {
   }
 
   async createPullRequest({ title, head, base, body, draft }) {
-    if (this.repo.pulls.some((pull) => pull.head.ref === head && pull.state === 'open')) return null;
+    if (this.failCreatePull) throw new Error(this.failCreatePull);
+    if (this.repo.pulls.some((pull) => pull.head.ref === head && pull.state === 'open')) throw new Error('A pull request already exists');
     const number = this.nextNumber++;
     const pull = { number, node_id: `PR_${number}`, title, body, draft, base: { ref: base }, head: { ref: head, sha: this.repo.branches[head], repo: { full_name: 'octo/repo' } }, state: 'open', merged_at: null, closed_at: null, created_at: this.tick(), assignees: [] };
     this.repo.pulls.push(pull);

@@ -407,14 +407,20 @@ export async function runStart({ client, rootDir, env, issueNumber, folder, requ
       await client.updateBranch(branch, commit);
       report.line('- Added the start commit.');
     }
-    pull = await client.createPullRequest({
-      title: renderPullRequestTitle(entry.spec),
-      head: branch,
-      base: defaultBranch,
-      body: renderPullRequestBody({ twinNumber: issueNumber, folder, tasks, context: contextFromEnv(env) }),
-      draft: true,
-    }) ?? await findOpenPull(client, branch);
-    if (!pull) throw new Error(`Could not create or find the pull request for ${branch}`);
+    let createError = null;
+    try {
+      pull = await client.createPullRequest({
+        title: renderPullRequestTitle(entry.spec),
+        head: branch,
+        base: defaultBranch,
+        body: renderPullRequestBody({ twinNumber: issueNumber, folder, tasks, context: contextFromEnv(env) }),
+        draft: true,
+      });
+    } catch (error) {
+      createError = error;
+    }
+    pull ??= await findOpenPull(client, branch);
+    if (!pull) throw new Error(`Could not create or find the pull request for ${branch}${createError ? `: ${createError.message}` : ''}`);
     report.line(`- Opened draft pull request #${pull.number}.`);
   }
 
