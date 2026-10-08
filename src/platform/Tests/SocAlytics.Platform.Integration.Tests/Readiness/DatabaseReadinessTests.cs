@@ -124,6 +124,6 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
         (await client.GetAsync("/alive", ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         using var openApi = JsonDocument.Parse(await client.GetStringAsync("/openapi/v1.json", ct));
-        openApi.RootElement.GetProperty("paths").EnumerateObject().ShouldBeEmpty();
+        openApi.RootElement.GetProperty("paths").TryGetProperty("/api/v1/session", out _).ShouldBeTrue();
     }
 }

@@ -43,7 +43,7 @@ public sealed class PlatformHostTests
         await using var openApiStream = await openApiResponse.Content.ReadAsStreamAsync(timeout.Token);
         using var openApiDocument = await JsonDocument.ParseAsync(openApiStream, cancellationToken: timeout.Token);
         openApiDocument.RootElement.GetProperty("info").GetProperty("version").GetString().ShouldBe("v1");
-        openApiDocument.RootElement.GetProperty("paths").EnumerateObject().Count().ShouldBe(0);
+        openApiDocument.RootElement.GetProperty("paths").TryGetProperty("/api/v1/session", out _).ShouldBeTrue();
     }
 
     [Fact]

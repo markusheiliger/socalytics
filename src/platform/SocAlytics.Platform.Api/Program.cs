@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authentication;
 using SocAlytics.Platform.Api.Bootstrap;
+using SocAlytics.Platform.Api.Endpoints.IdentityAccess;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application;
 using SocAlytics.Platform.Application.Abstractions;
@@ -29,10 +31,25 @@ builder.Services.AddOpenApi("v1", options =>
 	});
 });
 
+builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
+	.AddScheme<AuthenticationSchemeOptions, SessionAuthenticationHandler>(SessionAuthenticationHandler.SchemeName, null);
+builder.Services.AddAuthorizationBuilder()
+	.AddPolicy(AuthorizationPolicyNames.ActiveMember, policy => policy
+		.AddAuthenticationSchemes(SessionAuthenticationHandler.SchemeName)
+		.RequireAuthenticatedUser()
+		.RequireAssertion(context => !context.User.HasClaim(SessionClaimTypes.PasswordChangeRequired, "true")))
+	.AddPolicy(AuthorizationPolicyNames.SessionHolder, policy => policy
+		.AddAuthenticationSchemes(SessionAuthenticationHandler.SchemeName)
+		.RequireAuthenticatedUser());
+
 var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapDefaultEndpoints();
 app.MapOpenApi();
+app.MapSessionEndpoints();
 
 app.Run();
 
