@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocAlytics.Platform.Application.IdentityAccess;
 
 namespace SocAlytics.Platform.Application;
 
@@ -10,6 +11,8 @@ public static class ApplicationServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<ApplicationLayerMarker>();
+        services.TryAddScoped<ITeamScopeResolver, TeamScopeResolver>();
+        services.TryAddScoped<IAccessAuthorizer, AccessAuthorizer>();
 
         return services;
     }
