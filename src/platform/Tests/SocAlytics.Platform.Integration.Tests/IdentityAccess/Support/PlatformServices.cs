@@ -14,7 +14,8 @@ internal static class PlatformServices
     public static ServiceProvider Build(
         IsolatedDatabase database,
         CapturingLoggerProvider? logs = null,
-        MutableTimeProvider? time = null)
+        MutableTimeProvider? time = null,
+        CountingPasswordHasher? hasher = null)
     {
         var values = new Dictionary<string, string?>(TestIdentityAccessSettings.Values)
         {
@@ -38,6 +39,10 @@ internal static class PlatformServices
             .Bind(configuration.GetSection(IdentityAccessOptions.SectionName));
         services.AddApplication();
         services.AddInfrastructure();
+        if (hasher is not null)
+        {
+            services.AddSingleton<Microsoft.AspNetCore.Identity.IPasswordHasher<SocAlytics.Platform.Infrastructure.IdentityAccess.IdentityMemberAccount>>(hasher);
+        }
 
         return services.BuildServiceProvider(validateScopes: true);
     }

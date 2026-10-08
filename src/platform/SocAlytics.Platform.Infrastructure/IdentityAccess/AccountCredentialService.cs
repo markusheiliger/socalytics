@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 using Npgsql;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
@@ -7,8 +8,75 @@ using SocAlytics.Platform.Domain.IdentityAccess;
 
 namespace SocAlytics.Platform.Infrastructure.IdentityAccess;
 
-internal sealed class AccountCredentialService(UserManager<IdentityMemberAccount> users) : IAccountCredentialService
+internal sealed class AccountCredentialService(
+    UserManager<IdentityMemberAccount> users,
+    IPasswordHasher<IdentityMemberAccount> hasher,
+    IOptions<IdentityAccessOptions> accessOptions,
+    TimeProvider time) : IAccountCredentialService
 {
+    // Same PBKDF2 format and iteration count as stored hashes; generated once per process.
+    private static readonly Lazy<string> DummyHash =
+        new(() => new PasswordHasher<IdentityMemberAccount>().HashPassword(new IdentityMemberAccount(), "dummy-password-for-timing"));
+
+    public async Task<SignInVerification> VerifySignInAsync(string accountName, string password, CancellationToken cancellationToken)
+    {
+        var account = await users.FindByNameAsync(accountName ?? string.Empty);
+        var storedHash = account?.PasswordHash;
+
+        // Exactly one verification on every path, before any refusal decision.
+        var verified = hasher.VerifyHashedPassword(account ?? new IdentityMemberAccount(), storedHash ?? DummyHash.Value, password ?? string.Empty)
+            != PasswordVerificationResult.Failed;
+
+        if (account is null)
+        {
+            return new SignInVerification(SignInOutcome.UnknownAccount, null, null, false, false);
+        }
+
+        SignInVerification Refuse(SignInOutcome outcome, bool lockoutTriggered = false) =>
+            new(outcome, account.Id, account.SecurityStamp, account.PasswordChangeRequired, lockoutTriggered);
+
+        var now = time.GetUtcNow();
+        if (account.LockoutEnd is { } lockoutEnd && lockoutEnd > now)
+        {
+            return Refuse(SignInOutcome.LockedOut);
+        }
+
+        if (account.MembershipStatus != "active")
+        {
+            return Refuse(SignInOutcome.InactiveMembership);
+        }
+
+        if (storedHash is null)
+        {
+            return Refuse(SignInOutcome.NoPassword);
+        }
+
+        if (!verified)
+        {
+            var lockout = accessOptions.Value.Lockout;
+            var triggered = false;
+            account.AccessFailedCount++;
+            if (account.AccessFailedCount >= lockout.MaxFailedAccessAttempts)
+            {
+                account.LockoutEnd = now + lockout.LockoutDuration;
+                account.AccessFailedCount = 0;
+                triggered = true;
+            }
+
+            await users.UpdateAsync(account);
+            return Refuse(SignInOutcome.WrongPassword, triggered);
+        }
+
+        if (account.AccessFailedCount != 0 || account.LockoutEnd is not null)
+        {
+            account.AccessFailedCount = 0;
+            account.LockoutEnd = null;
+            await users.UpdateAsync(account);
+        }
+
+        return Refuse(SignInOutcome.Succeeded);
+    }
+
     public async Task<IReadOnlyList<FieldViolation>> ValidatePasswordAsync(string password, CancellationToken cancellationToken)
     {
         var probe = new IdentityMemberAccount();

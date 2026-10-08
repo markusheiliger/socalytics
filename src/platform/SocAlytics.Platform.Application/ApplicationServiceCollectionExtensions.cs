@@ -18,6 +18,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<ValidateSessionHandler>();
         services.TryAddScoped<GetSessionHandler>();
         services.TryAddScoped<SignOutHandler>();
+        services.TryAddScoped<SignInHandler>();
 
         return services;
     }
