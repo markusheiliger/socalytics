@@ -21,8 +21,20 @@ public sealed record SignInVerification(
     bool PasswordChangeRequired,
     bool LockoutTriggered);
 
+public enum PasswordChangeOutcome
+{
+    Succeeded,
+    WrongCurrentPassword,
+    PolicyViolation,
+}
+
+public sealed record PasswordChangeResult(PasswordChangeOutcome Outcome, string? SecurityStamp);
+
 public interface IAccountCredentialService
 {
+    /// <summary>Must run inside a unit of work; verifies the current password, applies the new one, clears the change requirement, and rotates the security stamp.</summary>
+    Task<PasswordChangeResult> ChangePasswordAsync(Guid accountId, string currentPassword, string newPassword, CancellationToken cancellationToken);
+
     /// <summary>Must run inside a unit of work; always performs exactly one password hash verification.</summary>
     Task<SignInVerification> VerifySignInAsync(string accountName, string password, CancellationToken cancellationToken);
 

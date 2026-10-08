@@ -55,6 +55,39 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
         return new MemberAccessSnapshot(status, account.PasswordChangeRequired, clubRoles, teamRoles);
     }
 
+    public async Task<MemberProfile?> GetProfileAsync(Guid accountId, CancellationToken cancellationToken)
+    {
+        var snapshot = await GetAccessSnapshotAsync(accountId, cancellationToken);
+        if (snapshot is null)
+        {
+            return null;
+        }
+
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var name = await connection.QuerySingleAsync<string>(new CommandDefinition(
+            "SELECT account_name FROM socalytics.member_account WHERE id = @accountId",
+            new { accountId },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        var rows = await connection.QueryAsync<ProfileTeamRow>(new CommandDefinition(
+            "SELECT t.id AS TeamId, t.name AS TeamName, t.season_id AS SeasonId, r.role AS Role " +
+            "FROM socalytics.team_role_assignment r JOIN socalytics.team t ON t.id = r.team_id " +
+            "WHERE r.member_account_id = @accountId ORDER BY t.name, t.id",
+            new { accountId },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        var teams = new List<MemberTeamRole>();
+        foreach (var row in rows)
+        {
+            if (TeamRoleRules.TryParse(row.Role, out var role))
+            {
+                teams.Add(new MemberTeamRole(row.TeamId, row.TeamName, row.SeasonId, role));
+            }
+        }
+
+        return new MemberProfile(accountId, name, snapshot.Status, snapshot.PasswordChangeRequired, snapshot.ClubRoles, teams);
+    }
+
     public async Task<IReadOnlyList<Guid>> ListAllTeamIdsAsync(CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);
@@ -89,6 +122,8 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
     }
 
     private sealed record AccountRow(string Status, bool PasswordChangeRequired);
+
+    private sealed record ProfileTeamRow(Guid TeamId, string TeamName, Guid SeasonId, string Role);
 
     private sealed record TeamRoleRow(Guid TeamId, string Role);
 }

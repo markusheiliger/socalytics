@@ -50,6 +50,7 @@ app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapOpenApi();
 app.MapSessionEndpoints();
+app.MapSelfEndpoints();
 
 app.Run();
 

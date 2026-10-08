@@ -77,6 +77,34 @@ internal sealed class AccountCredentialService(
         return Refuse(SignInOutcome.Succeeded);
     }
 
+    public async Task<PasswordChangeResult> ChangePasswordAsync(
+        Guid accountId,
+        string currentPassword,
+        string newPassword,
+        CancellationToken cancellationToken)
+    {
+        var account = await users.FindByIdAsync(accountId.ToString());
+        var verified = hasher.VerifyHashedPassword(
+                account ?? new IdentityMemberAccount(),
+                account?.PasswordHash ?? DummyHash.Value,
+                currentPassword ?? string.Empty) != PasswordVerificationResult.Failed;
+        if (account is null || account.PasswordHash is null || !verified)
+        {
+            return new PasswordChangeResult(PasswordChangeOutcome.WrongCurrentPassword, null);
+        }
+
+        if ((await ValidatePasswordAsync(newPassword, cancellationToken)).Count > 0)
+        {
+            return new PasswordChangeResult(PasswordChangeOutcome.PolicyViolation, null);
+        }
+
+        account.PasswordChangeRequired = false;
+        var result = await users.ChangePasswordAsync(account, currentPassword!, newPassword);
+        return result.Succeeded
+            ? new PasswordChangeResult(PasswordChangeOutcome.Succeeded, account.SecurityStamp)
+            : new PasswordChangeResult(PasswordChangeOutcome.PolicyViolation, null);
+    }
+
     public async Task<IReadOnlyList<FieldViolation>> ValidatePasswordAsync(string password, CancellationToken cancellationToken)
     {
         var probe = new IdentityMemberAccount();
