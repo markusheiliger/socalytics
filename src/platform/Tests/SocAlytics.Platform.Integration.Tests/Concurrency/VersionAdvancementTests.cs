@@ -138,8 +138,10 @@ public sealed class VersionAdvancementTests(PostgresContainerFixture postgres)
         await using var db = await CreateDatabaseAsync(ct);
         await using var app = await OpenAsync(db.AppConnectionString, ct);
 
+        // Only the test aggregate's tables: product migrations attach version triggers to their own tables.
         var triggers = (string)(await ExecAsync(app,
-            "SELECT string_agg(tgname, ',' ORDER BY tgname) FROM pg_trigger WHERE NOT tgisinternal", ct))!;
+            "SELECT string_agg(tgname, ',' ORDER BY tgname) FROM pg_trigger WHERE NOT tgisinternal"
+            + " AND tgrelid IN ('socalytics.test_widget'::regclass, 'socalytics.test_widget_part'::regclass)", ct))!;
         triggers.ShouldBe("test_widget_part_root_touch,test_widget_part_root_touch_update,test_widget_version_advance");
 
         var firstArgument = (string)(await ExecAsync(app,
