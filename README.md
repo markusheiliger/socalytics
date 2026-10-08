@@ -42,6 +42,22 @@ dotnet test src/platform/SocAlytics.Platform.slnx --no-build
 dotnet run --project src/platform/SocAlytics.Platform.AppHost
 ```
 
+Running the AppHost and running `dotnet test` (Host.Tests and
+Integration.Tests) require a running Docker-compatible container runtime. The
+AppHost starts PostgreSQL (`postgres:18`), then the one-off Migrator, then the
+API. To run the Migrator on its own, set `ConnectionStrings__socalytics-migrator`
+and run:
+
+```powershell
+dotnet run --project src/platform/SocAlytics.Platform.Migrator
+```
+
+To run only the persistence integration tests:
+
+```powershell
+dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build
+```
+
 The current executable evidence covers the ASP.NET Core API and Aspire AppHost,
 liveness at `/alive`, readiness at `/health`, the `v1` OpenAPI document at
 `/openapi/v1.json`, the layered project structure (Domain, Application,
@@ -49,10 +65,14 @@ Infrastructure, and Api with public Application and Infrastructure composition
 methods), and focused host and architecture tests that enforce the layer
 dependencies.
 
-Domain behavior, PostgreSQL persistence with Dapper and DbUp, NATS messaging,
-S3-compatible storage, identity and authentication, client applications,
-Docker support, and production deployment remain deferred. This executable
-host scaffold does not claim production readiness.
+The persistence foundation (schema, migrations, Migrator, units of work,
+optimistic concurrency, and database-aware readiness) is implemented as
+development evidence. Domain data and behavior, NATS messaging, S3-compatible
+storage, the transactional outbox, identity and authentication, client
+applications, deployment images and configuration, production credentials, and
+production readiness remain deferred. "Docker support" still means deployment
+images and Compose files (deferred), not the local container runtime
+prerequisite above.
 
 ### Spec Kit
 
