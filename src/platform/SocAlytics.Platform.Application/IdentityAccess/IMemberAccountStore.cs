@@ -13,4 +13,8 @@ public interface IMemberAccountStore
     Task<MemberAccessSnapshot?> GetAccessSnapshotAsync(Guid accountId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Guid>> ListAllTeamIdsAsync(CancellationToken cancellationToken);
+
+    Task AssignClubRoleAsync(Guid accountId, ClubRole role, Guid? assignedBy, CancellationToken cancellationToken);
+
+    Task<Guid?> FindAccountIdByNameAsync(AccountName name, CancellationToken cancellationToken);
 }

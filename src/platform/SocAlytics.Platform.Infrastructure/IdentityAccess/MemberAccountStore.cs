@@ -5,7 +5,7 @@ using SocAlytics.Platform.Infrastructure.Persistence;
 
 namespace SocAlytics.Platform.Infrastructure.IdentityAccess;
 
-internal sealed class MemberAccountStore(IDbSession session) : IMemberAccountStore
+internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) : IMemberAccountStore
 {
     public async Task<MemberAccessSnapshot?> GetAccessSnapshotAsync(Guid accountId, CancellationToken cancellationToken)
     {
@@ -64,6 +64,28 @@ internal sealed class MemberAccountStore(IDbSession session) : IMemberAccountSto
                 transaction: session.Transaction,
                 cancellationToken: cancellationToken));
         return ids.ToList();
+    }
+
+    public async Task AssignClubRoleAsync(Guid accountId, ClubRole role, Guid? assignedBy, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO socalytics.club_role_assignment (member_account_id, role, assigned_at, assigned_by_account_id) " +
+            "VALUES (@accountId, @role, @now, @assignedBy) ON CONFLICT (member_account_id, role) DO NOTHING",
+            new { accountId, role = role.ToWireValue(), now = time.GetUtcNow(), assignedBy },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<Guid?> FindAccountIdByNameAsync(AccountName name, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+            "SELECT id FROM socalytics.member_account WHERE normalized_account_name = @normalized",
+            new { normalized = name.Normalized },
+            session.Transaction,
+            cancellationToken: cancellationToken));
     }
 
     private sealed record AccountRow(string Status, bool PasswordChangeRequired);

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using SocAlytics.Platform.Application.Club;
 using SocAlytics.Platform.Application.IdentityAccess;
 
 namespace SocAlytics.Platform.Application;
@@ -13,6 +14,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddSingleton<ApplicationLayerMarker>();
         services.TryAddScoped<ITeamScopeResolver, TeamScopeResolver>();
         services.TryAddScoped<IAccessAuthorizer, AccessAuthorizer>();
+        services.TryAddScoped<BootstrapClubHandler>();
 
         return services;
     }
