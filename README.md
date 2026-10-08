@@ -184,7 +184,9 @@ their "blocked by" issues are closed.
       the twin's Development section, with an empty start commit;
   - a draft pull request `Implement: <spec title>` whose body contains
       `Closes #<twin>`, the spec link, and the tasks from `tasks.md` as
-      checkboxes, assigned to the person who set the flag;
+      checkboxes in short form (tags and first sentence, linked to the full
+      `tasks.md`, so the body stays under GitHub's 65,536-character limit),
+      assigned to the person who set the flag;
   - a `Spec Kit implementation` check run on the pull request, which tracks the
       implementation status, and a start comment.
 - It then drives the implementation until it reaches `main`:

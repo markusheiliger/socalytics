@@ -197,9 +197,10 @@ export class GitHubClient {
     return pulls.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   }
 
+  // Throws GitHubError with GitHub's message when the pull request cannot be created (for example, when one is
+  // already open for the branch, or the body is too long).
   async createPullRequest(fields) {
-    const { status, data } = await this.request('POST', this.repoPath('/pulls'), fields, { allow: [422] });
-    return status === 422 ? null : data;
+    return (await this.request('POST', this.repoPath('/pulls'), fields)).data;
   }
 
   async addAssignees(number, assignees) {
