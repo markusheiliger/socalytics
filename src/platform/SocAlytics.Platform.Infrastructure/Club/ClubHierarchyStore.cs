@@ -56,5 +56,21 @@ internal sealed class ClubHierarchyStore(IDbSession session) : IClubHierarchySto
         }
     }
 
+    public async Task<VersionedWriteResult> UpdateClubDisplayNameAsync(DisplayName name, long expectedVersion, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        return await VersionedWrites.ExecuteAsync(
+            session,
+            new CommandDefinition(
+                "UPDATE socalytics.club SET display_name = @Name WHERE id = (SELECT id FROM socalytics.club) AND version = @ExpectedVersion RETURNING version",
+                new { Name = name.Value, ExpectedVersion = expectedVersion },
+                transaction,
+                cancellationToken: cancellationToken),
+            new CommandDefinition(
+                "SELECT version FROM socalytics.club",
+                transaction: transaction,
+                cancellationToken: cancellationToken));
+    }
+
     private sealed record ClubRow(Guid Id, string DisplayName, Guid BootstrapAdminAccountId, DateTime CreatedAt, long Version);
 }

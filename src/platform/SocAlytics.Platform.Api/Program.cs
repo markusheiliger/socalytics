@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using SocAlytics.Platform.Api.Bootstrap;
+using SocAlytics.Platform.Api.Endpoints.Club;
 using SocAlytics.Platform.Api.Endpoints.IdentityAccess;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application;
@@ -51,6 +52,7 @@ app.MapDefaultEndpoints();
 app.MapOpenApi();
 app.MapSessionEndpoints();
 app.MapSelfEndpoints();
+app.MapClubEndpoints();
 
 app.Run();
 
