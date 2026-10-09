@@ -104,6 +104,8 @@ safe-outputs:
     title-prefix: "Amend: "
     draft: true
     allowed-files: ["specs/**"]
+    # The patch is computed against this branch, so it contains only the amendment, not the implementation.
+    base-branch: "speckit/${{ inputs.folder }}"
     allowed-base-branches: ["speckit/*"]
     allowed-branches: ["speckit-amend/*"]
     # Never overwrite an existing branch: a new diagnosis closes and deletes the previous amendment before it starts,
