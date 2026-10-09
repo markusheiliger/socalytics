@@ -293,12 +293,14 @@ their "blocked by" issues are closed.
   and timed-out runs. Failed attempts are commented on the pull request.
 - People are involved only when automation cannot continue. Then the check run
   fails, the pull request is marked ready for review, and one comment
-  @mentions the person who set the flag with the reason and the next step:
+  @mentions the person who set the flag with the reason and a **Next steps**
+  block with the pull request comment commands that apply (see
+  [When an implementation stops](#when-an-implementation-stops)):
 
   | Case | What the person does |
   | --- | --- |
-  | A step reached its attempt limit | push a fix to the implementation branch, or run `Spec Kit orchestrate` manually with the `twin` input |
-  | Convergence still finds gaps after 3 rounds | implement the gaps on the branch, or adjust the spec and tasks |
+  | A step reached its attempt limit | read the automatic diagnosis and choose one of its options, or push a fix to the implementation branch |
+  | Convergence still finds gaps after 3 rounds | implement the gaps on the branch, or adjust the spec and tasks (`/speckit diagnose` proposes how) |
   | Conflicts the agent could not resolve, or conflicts in protected paths | resolve them (GitHub's "Resolve conflicts" or locally) and push |
 
   A push by a person to the implementation branch triggers the orchestrator
@@ -332,6 +334,9 @@ makes this available from GitHub Copilot:
     `SPECKIT_IMPLEMENT_MODE=local` or `SPECKIT_IMPLEMENT_MODE=remote` to skip the
     question; inside GitHub Actions it always implements locally.
 - `/speckit-gha-request [folder]` requests implementation directly.
+- `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` walks you
+    through a stopped implementation locally; see
+    [When an implementation stops](#when-an-implementation-stops).
 
 Both run `node .github/scripts/speckit-orchestrate.mjs request [--folder <folder>]`,
 which checks the spec on `origin/main` with the same rules, finds its twin, and
@@ -352,6 +357,65 @@ $env:GITHUB_REPOSITORY = 'markusheiliger/socalytics'; $env:GH_TOKEN = gh auth to
 node .github/scripts/speckit-prepare.mjs sync --dry-run
 ```
 
+### When an Implementation Stops
+
+An implementation stops for a person when a step reaches its attempt limit,
+convergence keeps finding gaps, conflicts need a person, or a merge fails. Not
+every stop is a spec problem, so the next step starts with a diagnosis:
+
+1. The stop comment on the implementation pull request ends with **Next
+    steps**: the commands that apply now, each in a copyable code block. Unless
+    the repository variable `SPECKIT_AUTO_DIAGNOSE` is `false`, a diagnosis
+    starts automatically (at most twice for the same branch head), and the
+    `Spec Kit implementation` check run shows `Diagnosis in progress`.
+2. The `Spec Kit diagnose` agentic workflow
+    ([`speckit-diagnose.md`](.github/workflows/speckit-diagnose.md), GitHub
+    Agentic Workflows) collects the evidence (failure comments, logs of failed
+    runs, check runs, branch state, your notes), follows the method of the
+    `/speckit-gha-diagnose` skill, and posts a **Diagnosis** comment: the cause
+    and the evidence, its confidence, and numbered options with their commands.
+
+    | Category | Meaning | Typical way forward |
+    | --- | --- | --- |
+    | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | a stacked draft pull request `speckit-amend/<folder>` → `speckit/<folder>` with the amended artifacts; review or edit it, then `/speckit apply` |
+    | `retry` | a transient failure, or the agent took a poor approach | `/speckit resume <guidance>` |
+    | `outside` | environment or tooling, another feature's code or tests on `main`, permissions, quotas | fix it where it belongs, then `/speckit sync` or `/speckit resume` |
+    | `decision` | a trade-off only a person can make | answer its questions with `/speckit revise <answers>` |
+    | `unknown` | not enough evidence | what was ruled out and what to check next |
+
+    The diagnosis never weakens requirements, success criteria, or tests, and
+    nothing is applied without a person's command. The agent runs read-only
+    behind gh-aw's network firewall; an amendment may only change
+    `specs/<folder>/` and never check a task, which both the workflow and
+    `/speckit apply` verify.
+3. You answer with a pull request comment command. The command must be the
+    first word of the comment; only people with write access can use them; a
+    👀 reaction confirms receipt, and a comment reports the result.
+
+    | Command | Effect |
+    | --- | --- |
+    | `/speckit diagnose [notes]` | start a diagnosis (also while the implementation runs; it then waits) |
+    | `/speckit revise <notes or answers>` | diagnose again with your notes or answers |
+    | `/speckit apply` | merge the amendment into the implementation branch and continue with a fresh attempt count |
+    | `/speckit discard` | close the amendment |
+    | `/speckit resume [guidance]` | restart the stopped step with a fresh attempt count; the guidance goes into the agent's prompt |
+    | `/speckit sync` | merge `main` into the implementation branch (for a fix that landed there) and continue |
+    | `/speckit help` | list the commands |
+
+    The commands work on the implementation pull request and on its amendment
+    pull request. Merging the amendment pull request yourself, or pushing a fix
+    to the implementation branch, continues the implementation as well.
+
+These pull request comment commands are not skills. To walk through a stop
+locally, run the skill `/speckit-gha-diagnose [pull request, twin, or folder]`
+in GitHub Copilot: it uses the same method, asks you the decisions, and pushes
+the result. The diagnose workflow is compiled with GitHub Agentic Workflows;
+after editing `speckit-diagnose.md`, install the extension
+(`gh extension install github/gh-aw`) and run `gh aw compile speckit-diagnose`.
+Do not edit the generated `speckit-diagnose.lock.yml`. Its Copilot engine uses
+the workflow token with the `copilot-requests` permission, so no secret is
+needed.
+
 ### Spec Kit Configuration
 
 Everything that adapts the Spec Kit automation to this repository, in one
@@ -362,6 +426,7 @@ place. The workflows and scripts need no changes for any of it.
 | `SPECKIT_AUTO_MERGE` | repository variable | `true` | `false` holds every implementation for review instead of merging it automatically |
 | `SPECKIT_TASK_AI_CREDITS` | repository variable | `1000` | Copilot CLI credit cap per agent run (tasks, convergence, conflict resolution) |
 | `SPECKIT_MAX_PARALLEL_TASKS` | repository variable | `3` | how many `[P]` tasks of one spec run at the same time; `1` runs one task at a time |
+| `SPECKIT_AUTO_DIAGNOSE` | repository variable | `true` | `false` stops starting a diagnosis automatically when an implementation stops; `/speckit diagnose` still works |
 | `.github/actions/environment-setup` | composite action, optional | not run | installs the SDKs and tools for building, testing, and verifying |
 | `.github/actions/environment-verify` | composite action, optional | no verification | runs the checks for changed paths and reports files no check covers |
 | `SPECKIT_IMPLEMENT_MODE` | local environment variable | ask | `local` or `remote` answers the `/speckit-implement` routing question |

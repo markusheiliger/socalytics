@@ -308,6 +308,27 @@ export class GitHubClient {
     return status === 404 ? null : data;
   }
 
+  async listRunJobs(runId) {
+    const { data } = await this.request('GET', this.repoPath(`/actions/runs/${encodeURIComponent(runId)}/jobs?per_page=100`));
+    return data.jobs ?? [];
+  }
+
+  // The plain-text log of a job, or null when it expired or is not available.
+  async getJobLogs(jobId) {
+    const response = await this.raw('GET', `${this.apiUrl}${this.repoPath(`/actions/jobs/${encodeURIComponent(jobId)}/logs`)}`);
+    return response.ok ? response.text() : null;
+  }
+
+  async addCommentReaction(commentId, content) {
+    await this.request('POST', this.repoPath(`/issues/comments/${encodeURIComponent(commentId)}/reactions`), { content });
+  }
+
+  // Merges `head` into the branch `base`: 'merged', 'up-to-date' (nothing to merge), or 'conflict'.
+  async mergeBranch(base, head, commitMessage) {
+    const { status } = await this.request('POST', this.repoPath('/merges'), { base, head, commit_message: commitMessage }, { allow: [204, 409] });
+    return status === 204 ? 'up-to-date' : status === 409 ? 'conflict' : 'merged';
+  }
+
   async getIssue(number) {
     const issue = (await this.request('GET', this.repoPath(`/issues/${number}`))).data;
     return { ...issue, labels: issue.labels.map((label) => ({ name: typeof label === 'string' ? label : label.name })) };

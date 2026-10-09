@@ -6,7 +6,7 @@ import test from 'node:test';
 import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
-import { CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_RUN_NAME, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, START_COMMENT_MARKER } from './speckit-implement-core.mjs';
+import { CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_RUN_NAME, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, START_COMMENT_MARKER, parseGuidance, renderResumeComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -409,24 +409,63 @@ test('orchestrate waits, retries, stops at the attempt limit, and resumes on req
     }
     github.completeRun(github.repo.runs.at(-1).id);
     const limited = await orchestrate(github, root);
-    assert.equal(github.repo.runs.length, 3);
-    const limit = github.repo.checkRuns.at(-1);
+    assert.deepEqual(github.repo.runs.map((run) => run.workflow), ['speckit-implement.yml', 'speckit-implement.yml', 'speckit-implement.yml', 'speckit-diagnose.lock.yml']);
+    const [limit, diagnosing] = github.repo.checkRuns.slice(-2);
     assert.deepEqual([limit.external_id, limit.status, limit.conclusion, limit.head_sha], [CHECK_LIMIT, 'completed', 'failure', github.repo.branches['speckit/a']]);
-    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts[\s\S]*`twin` set to \d+/);
-    assert.match(limited.text, /reached the attempt limit/);
+    assert.deepEqual([diagnosing.external_id, diagnosing.status], ['speckit:diagnosing', 'in_progress']);
+    assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: String(twin.number), pull: String(pull.number), folder: 'a', notes: '', previous: '', check_run: String(diagnosing.id) });
+    const stop = github.comments.at(-1).body;
+    assert.match(stop, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts/);
+    assert.match(stop, /A diagnosis starts automatically[\s\S]*\/speckit resume \[guidance\]/);
+    assert.doesNotMatch(stop, /\/speckit sync/, 'sync is only suggested when the default branch is ahead');
+    assert.match(limited.text, /reached the attempt limit[\s\S]*Started a diagnosis of #\d+/);
 
-    await orchestrate(github, root);
-    assert.equal(github.repo.runs.length, 3, 'a stopped implementation waits for a person');
+    const waiting = await orchestrate(github, root);
+    assert.equal(github.repo.runs.length, 4, 'a stopped implementation waits for the diagnosis');
+    assert.match(waiting.text, /a diagnosis is running/);
 
-    await orchestrate(github, root, { SPECKIT_RESUME_TWIN: String(twin.number) });
+    Object.assign(diagnosing, { status: 'completed', conclusion: 'neutral', external_id: 'speckit:diagnosed' });
+    const decided = await orchestrate(github, root);
+    assert.equal(github.repo.runs.length, 4, 'a reported diagnosis waits for a person');
+    assert.match(decided.text, /waits for a person's decision/);
+
+    await orchestrate(github, root, { SPECKIT_RESUME_TWIN: String(twin.number), SPECKIT_RESUME_GUIDANCE: 'Use the existing helper.\nKeep the test.' });
     assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 1`);
-    assert.match(github.comments.at(-1).body, new RegExp(RESUME_COMMENT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    const resumed = github.comments.at(-1).body;
+    assert.match(resumed, new RegExp(RESUME_COMMENT_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.equal(parseGuidance(resumed), 'Use the existing helper.\nKeep the test.');
+    assert.match(resumed, /> Use the existing helper\.\n> Keep the test\./);
 
     await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: github.repo.branches['speckit/a'], status: 'in_progress', external_id: 'speckit:attempt' });
     github.completeRun(github.repo.runs.at(-1).id);
     await orchestrate(github, root);
     assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 2`, 'the attempt count starts over after a resume');
     assert.equal(pull.number, github.repo.pulls[0].number);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('orchestrate resumes after a resume comment from a command, even without a resume run', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      github.completeRun(github.repo.runs.at(-1).id);
+      await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    }
+    assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_LIMIT);
+    assert.doesNotMatch(github.comments.at(-1).body, /A diagnosis starts automatically/, 'auto-diagnosis is off');
+    assert.match(github.comments.at(-1).body, /\/speckit diagnose \[notes\]/);
+    const runs = github.repo.runs.length;
+
+    await github.createComment(github.repo.pulls[0].number, renderResumeComment('Implementation resumed by @dev.', 'Try the helper'));
+    const comments = github.comments.length;
+    await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    assert.equal(github.repo.runs.length, runs + 1);
+    assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 1`, 'the resume comment starts a new attempt window');
+    assert.equal(github.comments.length, comments, 'a command already announced the resume');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -592,7 +631,7 @@ test('orchestrate limits merges, abandons stale merges, and starts a new window 
     }
     const limited = await orchestrate(github, root);
     assert.deepEqual(limited.merges, []);
-    assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_LIMIT);
+    assert.deepEqual(github.repo.checkRuns.slice(-2).map((run) => run.external_id), [CHECK_LIMIT, 'speckit:diagnosing']);
     assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: merge did not succeed in 3 attempts/);
 
     github.repo.pullCommits[pull.number] = [{ author: { login: 'dev' }, committer: { login: 'web-flow' }, commit: { committer: { date: new Date(github.clock + 1000).toISOString() } } }];

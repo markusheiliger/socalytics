@@ -1,7 +1,7 @@
 ---
 name: speckit-gha-request
-description: Request implementation of the active spec by the speckit-orchestrate GitHub
-  Actions workflow.
+description: Request implementation of the active spec by the speckit-orchestrate
+  GitHub Actions workflow.
 compatibility: Requires spec-kit project structure with .specify/ directory
 metadata:
   author: socalytics

@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   CHECK_ATTEMPT,
   CHECK_CONFLICT,
+  CHECK_DIAGNOSED,
+  CHECK_DIAGNOSING,
   CHECK_DONE,
   CHECK_LIMIT,
   CHECK_MERGE,
@@ -25,9 +27,12 @@ import {
   neutralizeMarkers,
   nextTask,
   nextTaskGroup,
+  parseGuidance,
   parseMaxParallel,
   parseStepRunName,
   renderConvergePrompt,
+  renderGuidanceMarker,
+  renderNextSteps,
   renderPullRequestBody,
   renderPullRequestTitle,
   renderResolvePrompt,
@@ -38,10 +43,12 @@ import {
   START_COMMENT_MARKER,
   stepLabel,
   summarizeTask,
+  syncPullRequestTaskList,
   syncPullRequestTicks,
   taskProgress,
   tickPullRequestBody,
   tickTask,
+  validateAmendment,
   validateConvergeChange,
   validateTaskChange,
 } from './speckit-implement-core.mjs';
@@ -193,9 +200,76 @@ test('decides how to continue the tasks of an implementation', () => {
   assert.deepEqual(decide({ runs: { converge: [run(null, 'queued')] } }), { action: 'wait' });
   assert.deepEqual(decide({ checks: [{ id: 1, external_id: CHECK_DONE, conclusion: 'success' }] }), { action: 'done' });
   const limited = { id: 1, external_id: CHECK_LIMIT, conclusion: 'failure' };
-  assert.deepEqual(decide({ checks: [limited] }), { action: 'failed' });
+  assert.deepEqual(decide({ checks: [limited] }), { action: 'failed', diagnosis: { state: 'none', check: limited, count: 0 } });
   assert.deepEqual(decide({ checks: [limited], resume: true }), { action: 'resume', step: 'task', task: 'T002', attempt: 1, stale: [] });
+  assert.deepEqual(decide({ resume: true }), { action: 'resume', step: 'task', task: 'T002', attempt: 1, stale: [] }, 'a resume always starts a new attempt window');
   assert.deepEqual(decide({ checks: [{ id: 1, external_id: CHECK_ATTEMPT, conclusion: 'failure' }] }), { action: 'dispatch', step: 'task', task: 'T002', attempt: 1, stale: [] });
+});
+
+test('waits while a diagnosis runs, then for a decision, and gives up on a stale diagnosis', () => {
+  const now = Date.parse('2026-10-06T12:00:00Z');
+  const decide = (fields) => decideContinuation({ tasksMarkdown: TASKS, windowStart: '2026-10-06T10:00:00Z', now, ...fields });
+  const limited = { id: 1, external_id: CHECK_LIMIT, status: 'completed', conclusion: 'failure', started_at: '2026-10-06T11:00:00Z' };
+  const running = { id: 2, external_id: CHECK_DIAGNOSING, status: 'in_progress', started_at: '2026-10-06T11:30:00Z' };
+  assert.deepEqual(decide({ checks: [limited, running] }), { action: 'diagnosing' });
+  const stale = { ...running, started_at: '2026-10-06T10:30:00Z' };
+  assert.deepEqual(decide({ checks: [limited, stale] }), { action: 'failed', diagnosis: { state: 'stale', check: stale, count: 1 } });
+  const reported = { ...running, status: 'completed', conclusion: 'neutral', external_id: CHECK_DIAGNOSED };
+  assert.deepEqual(decide({ checks: [limited, reported] }), { action: 'failed', diagnosis: { state: 'reported', check: reported, count: 1 } });
+  assert.deepEqual(decide({ checks: [limited, reported], resume: true }), { action: 'resume', step: 'task', task: 'T002', attempt: 1, stale: [] });
+  assert.deepEqual(decide({ checks: [limited, reported], resumedAt: '2026-10-06T11:45:00Z' }), { action: 'resume', step: 'task', task: 'T002', attempt: 1, stale: [] }, 'a resume comment after the stop resumes');
+  assert.equal(decide({ checks: [limited, reported], resumedAt: '2026-10-06T11:15:00Z' }).action, 'failed', 'an older resume comment does not');
+  assert.deepEqual(decide({ checks: [running], runs: { task: [{ task: 'T002', status: 'in_progress', created_at: '2026-10-06T11:00:00Z' }] } }), { action: 'wait' }, 'a diagnosis started while tasks run lets them finish');
+});
+
+test('renders the next steps a person can take', () => {
+  const plain = renderNextSteps().join('\n');
+  assert.match(plain, /\/speckit diagnose \[notes\][\s\S]*\/speckit resume \[guidance\]/);
+  assert.doesNotMatch(plain, /\/speckit (sync|apply)/);
+  assert.match(plain, /push a fix to the implementation branch/);
+  const auto = renderNextSteps({ autoDiagnosis: true, behindMain: true }).join('\n');
+  assert.match(auto, /A diagnosis starts automatically/);
+  assert.doesNotMatch(auto, /\/speckit diagnose/);
+  assert.match(auto, /```text\n {3}\/speckit sync\n {3}```/);
+  const diagnosed = renderNextSteps({ options: [{ title: 'Retry with guidance', command: '/speckit resume Use the helper' }], amendmentPull: 7, diagnosed: true }).join('\n');
+  assert.ok(diagnosed.indexOf('/speckit resume Use the helper') < diagnosed.indexOf('/speckit apply'));
+  assert.match(diagnosed, /amendment #7[\s\S]*\/speckit revise <notes>[\s\S]*\/speckit discard[\s\S]*Diagnose again/);
+  assert.doesNotMatch(diagnosed, /\/speckit resume \[guidance\]/, 'an option already covers resume');
+});
+
+test('carries guidance through a marker, and validates amendments', () => {
+  const marker = renderGuidanceMarker('Use `x` --> <!-- y');
+  assert.equal(parseGuidance(`intro\n${marker}\nrest`), 'Use `x` --> <!-- y');
+  assert.equal(parseGuidance('no marker'), null);
+  assert.equal(parseGuidance('<!-- speckit-implement:guidance !!! -->'), null);
+
+  const before = '## P\n- [x] T001 Done\n- [ ] T002 Next\n- [ ] T003 Later\n';
+  const ok = validateAmendment({ folder: 'f', changedPaths: ['specs/f/research.md', 'specs/f/tasks.md', 'specs/f/spec.md'], beforeTasks: before, afterTasks: '## P\n- [ ] T001 Done\n- [ ] T004 Fix first\n- [ ] T002 Next, clarified\n' });
+  assert.deepEqual(ok.reasons, []);
+  assert.deepEqual(ok.notes, ['it changes the requirements in `spec.md`', 'T001 is unchecked and will be implemented again', 'it adds T004', 'it changes T002', 'it removes T003']);
+  const bad = validateAmendment({ folder: 'f', changedPaths: ['src/a.cs', 'specs/f/tasks.md'], beforeTasks: before, afterTasks: '## P\n- [x] T002 Next\n- [ ] T003 Later\n- [ ] T003 Again\n' });
+  assert.match(bad.reasons.join('\n'), /may only change files in `specs\/f\/`, but it changes `src\/a\.cs`/);
+  assert.match(bad.reasons.join('\n'), /may not check T002/);
+  assert.match(bad.reasons.join('\n'), /T003 appears more than once/);
+  assert.match(bad.reasons.join('\n'), /may not remove the completed task T001/);
+});
+
+test('renders the pull request task list from tasks.md, keeping the rest of the body', () => {
+  const body = renderPullRequestBody({ twinNumber: 5, folder: 'f', context, tasks: extractTasks('## P\n- [ ] T001 A\n- [ ] T002 B\n') });
+  const edited = body.replace('Closes #5', 'Closes #5\n\nA note a person added.');
+  const synced = syncPullRequestTaskList(edited, { twinNumber: 5, folder: 'f', context, tasksMarkdown: '## P\n- [x] T001 A\n- [ ] T004 Fix first\n- [ ] T002 B, clarified\n' });
+  assert.match(synced, /A note a person added\./);
+  assert.match(synced, /## Tasks \(3\)[\s\S]*- \[x\] T001 A\n- \[ \] T004 Fix first\n- \[ \] T002 B, clarified/);
+  assert.equal(syncPullRequestTaskList('no task section', { twinNumber: 5, folder: 'f', context, tasksMarkdown: '- [ ] T001 A\n' }), 'no task section');
+
+  const withNote = `${synced}\nA note below the task list.\n`;
+  const resynced = syncPullRequestTaskList(withNote, { twinNumber: 5, folder: 'f', context, tasksMarkdown: '## P\n- [x] T001 A\n- [x] T004 Fix first\n- [ ] T002 B, clarified\n' });
+  assert.match(resynced, /- \[x\] T004 Fix first[\s\S]*<!-- speckit-implement:tasks-end -->\n\nA note below the task list\.\n$/);
+  assert.equal(resynced.match(/## Tasks/g).length, 1);
+  const longPrefix = `${'p'.repeat(64_000)}\n${synced}`;
+  const fallback = syncPullRequestTaskList(longPrefix, { twinNumber: 5, folder: 'f', context, tasksMarkdown: '## P\n- [x] T001 A\n- [x] T004 Fix first\n- [ ] T002 B, clarified\n' });
+  assert.ok(fallback.length <= 65536);
+  assert.match(fallback, /- \[x\] T004 Fix first/, 'a body that would grow too long only gets its checks updated');
 });
 
 const PARALLEL_TASKS = [

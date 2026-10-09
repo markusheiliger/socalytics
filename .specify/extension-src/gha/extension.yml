@@ -4,7 +4,7 @@ extension:
   id: gha
   name: "GitHub Actions implementation routing"
   version: "1.0.0"
-  description: "Route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow"
+  description: "Route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow, and diagnose implementations that stopped"
   author: socalytics
   repository: https://github.com/markusheiliger/socalytics
   license: MIT
@@ -30,6 +30,9 @@ provides:
     - name: speckit.gha.request
       file: commands/speckit.gha.request.md
       description: "Request implementation of the active spec by the speckit-orchestrate GitHub Actions workflow"
+    - name: speckit.gha.diagnose
+      file: commands/speckit.gha.diagnose.md
+      description: "Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause"
 
 hooks:
   before_implement:

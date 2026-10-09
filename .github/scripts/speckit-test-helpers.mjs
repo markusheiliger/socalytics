@@ -90,7 +90,8 @@ export class FakeGitHub {
   }
 
   async createComment(number, body) {
-    this.comments.push({ number, body, user: { login: this.commentAuthor ?? 'github-actions[bot]' }, created_at: this.tick() });
+    this.nextCommentId = (this.nextCommentId ?? 0) + 1;
+    this.comments.push({ id: this.nextCommentId, number, body, user: { login: this.commentAuthor ?? 'github-actions[bot]' }, created_at: this.tick() });
   }
 
   async listBlockedBy(number) {
@@ -228,11 +229,41 @@ export class FakeGitHub {
     delete this.repo.branches[branch];
   }
 
+  // Commits on `head` (first-parent history) that `base` (all parents) does not contain.
   async aheadBy(base, head) {
-    const baseSha = this.repo.branches[base];
+    const ancestors = new Set();
+    const queue = [this.repo.branches[base]].filter(Boolean);
+    while (queue.length > 0) {
+      const sha = queue.pop();
+      if (ancestors.has(sha)) continue;
+      ancestors.add(sha);
+      queue.push(...(this.repo.commits[sha]?.parents ?? []));
+    }
     let count = 0;
-    for (let sha = this.repo.branches[head]; sha && sha !== baseSha; sha = this.repo.commits[sha]?.parents[0]) count += 1;
+    for (let sha = this.repo.branches[head]; sha && !ancestors.has(sha); sha = this.repo.commits[sha]?.parents[0]) count += 1;
     return count;
+  }
+
+  async listRunJobs(runId) {
+    return structuredClone(this.repo.jobs?.[runId] ?? []);
+  }
+
+  async getJobLogs(jobId) {
+    return this.repo.logs?.[jobId] ?? null;
+  }
+
+  async addCommentReaction(commentId, content) {
+    (this.reactions ??= []).push({ commentId, content });
+  }
+
+  // Test helper behavior: merges by moving `base` to a new merge commit, or reports the configured outcome.
+  async mergeBranch(base, head, message) {
+    if (this.mergeBranchOutcome) return this.mergeBranchOutcome;
+    if ((await this.aheadBy(base, head)) === 0) return 'up-to-date';
+    const sha = `sha-${this.repo.nextSha++}`;
+    this.repo.commits[sha] = { tree: this.repo.commits[this.repo.branches[base]]?.tree, parents: [this.repo.branches[base], this.repo.branches[head]], message };
+    this.repo.branches[base] = sha;
+    return 'merged';
   }
 
   async createEmptyCommit(parentSha, message) {
@@ -303,6 +334,29 @@ export function makeRepo(folders) {
 
 export function envFor(root) {
   return { GITHUB_REPOSITORY: 'octo/repo', GITHUB_STEP_SUMMARY: path.join(root, 'summary.md'), GITHUB_OUTPUT: path.join(root, 'output.txt') };
+}
+
+const DIAGNOSIS_BEFORE = '## P\n- [x] T001 Done\n- [ ] T002 Next\n';
+const DIAGNOSIS_AFTER = '## P\n- [x] T001 Done\n- [ ] T003 Fix the counter write first\n- [ ] T002 Next\n';
+
+// A fake GitHub with twin #5, its implementation pull request #9 on speckit/f, and optionally the amendment
+// pull request #11 on speckit-amend/f.
+export function diagnosisRepo({ amendment = true, amendmentFiles = ['specs/f/research.md', 'specs/f/tasks.md'], after = DIAGNOSIS_AFTER } = {}) {
+  const github = new FakeGitHub([{ number: 5, id: 5000, node_id: 'I_5', state: 'open', title: 'F', body: '', labels: [] }]);
+  github.permissions.dev = 'write';
+  github.repo.commits['sha-impl'] = { tree: 't', parents: ['sha-main'] };
+  github.repo.branches['speckit/f'] = 'sha-impl';
+  github.setFile('sha-impl', 'specs/f/tasks.md', DIAGNOSIS_BEFORE);
+  github.repo.pulls.push({ number: 9, node_id: 'PR_9', title: 'Implement: F', body: 'Closes #5\n\n## Tasks (2)\n', draft: true, state: 'open', base: { ref: 'main' }, head: { ref: 'speckit/f', sha: 'sha-impl', repo: { full_name: 'octo/repo' } }, created_at: github.tick() });
+  github.nextNumber = 10;
+  if (amendment) {
+    github.repo.commits['sha-amend'] = { tree: 't2', parents: ['sha-impl'] };
+    github.repo.branches['speckit-amend/f'] = 'sha-amend';
+    github.setFile('sha-amend', 'specs/f/tasks.md', after);
+    github.repo.pulls.push({ number: 11, node_id: 'PR_11', title: 'Amend: F', body: 'amend', draft: true, state: 'open', base: { ref: 'speckit/f', sha: 'sha-impl' }, head: { ref: 'speckit-amend/f', sha: 'sha-amend', repo: { full_name: 'octo/repo' } }, created_at: github.tick() });
+    github.repo.pullFiles[11] = amendmentFiles;
+  }
+  return github;
 }
 
 export const silent = () => {};

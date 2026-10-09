@@ -249,6 +249,7 @@ jobs:
       - name: Land the change and report
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node tooling/.github/scripts/speckit-step.mjs land
 
   # GitHub raises no workflow_run event for these runs, so the hand-back is an explicit dispatch.

@@ -10,6 +10,12 @@ because Spec Kit already bundles an extension with the ID `github`.
 | --- | --- | --- |
 | `speckit.gha.route` | `/speckit-gha-route` | Mandatory `before_implement` hook: choose local implementation or a GitHub request |
 | `speckit.gha.request` | `/speckit-gha-request [folder]` | Request implementation on GitHub directly |
+| `speckit.gha.diagnose` | `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` | Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause |
+
+`/speckit-gha-diagnose` is also the method of the `Spec Kit diagnose` agentic
+workflow, which runs it non-interactively when an implementation stops or a
+person comments `/speckit diagnose` on the pull request. Locally it runs
+interactively and asks before it changes anything.
 
 Both commands run `node .github/scripts/speckit-orchestrate.mjs request`, which
 checks the spec on the remote default branch (merged, stage `tasked`, all
@@ -43,7 +49,7 @@ without symlink support (the Git default on Windows), so commit them as regular
 files:
 
 ```powershell
-foreach ($name in 'speckit-gha-route', 'speckit-gha-request') {
+foreach ($name in 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose') {
     $skill = ".github/skills/$name/SKILL.md"
     $content = Get-Content -Raw ".specify/extensions/gha/.specify-dev/extension-skills/$name/SKILL.md"
     Remove-Item $skill -Force

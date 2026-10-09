@@ -9,9 +9,11 @@ name: Spec Kit orchestrate
 #      conflicts go to Spec Kit resolve and then back to 3.
 # Worker runs and the merge jobs hand control back by dispatching this workflow with their run id (after_run);
 # GitHub raises no workflow_run event for runs this workflow started. Each step gets at most three failed attempts;
-# then the person who requested the implementation is asked. A push by a person to an implementation branch
-# continues the implementation with a new attempt count. Implementation pull requests closed without merging send
-# their twin back to its computed stage.
+# then the person who requested the implementation is asked, and a diagnosis (Spec Kit diagnose) starts unless the
+# repository variable SPECKIT_AUTO_DIAGNOSE is false. A push by a person to an implementation branch, or a
+# `/speckit resume`, `/speckit sync`, or `/speckit apply` comment (Spec Kit commands), continues the implementation
+# with a new attempt count. Implementation pull requests closed without merging send their twin back to its
+# computed stage.
 on:
   workflow_run:
     workflows: [Spec Kit prepare]
@@ -26,7 +28,11 @@ on:
   workflow_dispatch:
     inputs:
       twin:
-        description: Spec twin issue number to resume after it reached the attempt limit (optional)
+        description: Spec twin issue number to resume with a new attempt count (optional)
+        required: false
+        type: string
+      guidance:
+        description: Guidance for the resumed step's agent (optional, with twin)
         required: false
         type: string
       after_run:
@@ -94,6 +100,8 @@ jobs:
           SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_RESUME_TWIN: ${{ inputs.twin }}
           SPECKIT_AFTER_RUN: ${{ inputs.after_run }}
+          SPECKIT_RESUME_GUIDANCE: ${{ inputs.guidance }}
+          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
           SPECKIT_MAX_PARALLEL_TASKS: ${{ vars.SPECKIT_MAX_PARALLEL_TASKS || '3' }}
         run: node .github/scripts/speckit-orchestrate.mjs orchestrate
 
@@ -264,6 +272,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_AUTO_MERGE: ${{ vars.SPECKIT_AUTO_MERGE || 'true' }}
+          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node .github/scripts/speckit-step.mjs merge-land
 
   hand-back:

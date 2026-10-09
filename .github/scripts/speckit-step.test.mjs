@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
-import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME } from './speckit-implement-core.mjs';
+import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, RESUME_COMMENT_MARKER, renderGuidanceMarker } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
   defaultGit,
@@ -202,6 +202,31 @@ test('begin takes over the queued progress check run of the head', async () => {
   assert.equal(result.check.id, progress.id);
   assert.equal(github.repo.checkRuns.length, 1);
   assert.deepEqual([github.repo.checkRuns[0].status, github.repo.checkRuns[0].external_id], ['in_progress', CHECK_ATTEMPT]);
+});
+
+test('begin adds the guidance of the latest resume to the prompt until a person pushes', async () => {
+  const outputDir = mkdtempSync(path.join(tmpdir(), 'speckit-out-'));
+  try {
+    const github = fakeGitHub();
+    github.setFile('sha-head', 'specs/f/tasks.md', TASKS);
+    await github.createComment(9, `${RESUME_COMMENT_MARKER}\n${renderGuidanceMarker('Use one statement\non every path')}\nImplementation resumed on request.`);
+    const outputFile = path.join(outputDir, 'out.txt');
+    const result = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo', GITHUB_OUTPUT: outputFile }, inputs: TASK_INPUTS, log: silent });
+    assert.equal(result.guidance, 'Use one statement\non every path');
+    assert.match(readFileSync(outputFile, 'utf8'), /prompt=\/speckit-implement Implement only task T001\.[^\n]* Guidance from the person who resumed this implementation: Use one statement on every path\n/);
+
+    github.repo.pullCommits[9] = [{ author: { login: 'dev' }, committer: { login: 'web-flow' }, commit: { committer: { date: new Date(github.clock + 1000).toISOString() } } }];
+    const pushed = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: TASK_INPUTS, log: silent });
+    assert.equal(pushed.guidance, null, 'a push by a person starts a window without the guidance');
+
+    github.repo.pullCommits[9] = [];
+    await github.dispatchWorkflow('speckit-implement.yml', 'main', { twin: '5', pull: '9', task: 'T001', attempt: '1' });
+    github.completeRun(github.repo.runs.at(-1).id, 'success');
+    const succeeded = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: { ...TASK_INPUTS, task: 'T001' }, log: silent });
+    assert.equal(succeeded.guidance, null, 'the guidance ends once a step after the resume succeeded');
+  } finally {
+    rmSync(outputDir, { recursive: true, force: true });
+  }
 });
 
 test('begin does nothing when the inputs no longer match the state', async () => {
@@ -407,7 +432,7 @@ test('converge: appended tasks are committed and added to the pull request', () 
   assert.equal(landed.exitCode, 0);
   assert.match(remoteHead(repos), /\|chore\(f\): convergence round 1$/);
   assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /## Phase 2: Convergence\n\n- \[ \] T003 Add the missing guard \(FR-001\)\n- \[ \] T004 Cover SC-002/);
-  assert.match(github.repo.pulls[0].body, /## Tasks \(4\)[\s\S]*### Phase 2: Convergence\n\n- \[ \] T003 Add the missing guard \(FR-001\)\n- \[ \] T004 Cover SC-002\n$/);
+  assert.match(github.repo.pulls[0].body, /## Tasks \(4\)[\s\S]*### Phase 2: Convergence\n\n- \[ \] T003 Add the missing guard \(FR-001\)\n- \[ \] T004 Cover SC-002\n\n<!-- speckit-implement:tasks-end -->\n$/);
   assert.equal(landed.check.output.title, 'Convergence round 1: 2 task(s) appended');
   assert.equal(github.repo.checkRuns.at(-1).output.title, '2 of 4 tasks implemented');
   assert.match(github.comments.at(-1).body, /Convergence round 1 of at most 3\*\* found gaps; 2 task\(s\)[\s\S]*- T003 Add the missing guard/);
@@ -430,6 +455,7 @@ test('converge: code changes are rejected, and the round limit asks the requeste
     assert.deepEqual([landed.exitCode, landed.check.conclusion, landed.check.external_id], [1, 'failure', CHECK_LIMIT]);
     assert.equal(remoteHead(repos), before);
     assert.match(github.comments.at(-1).body, /^\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
+    assert.match(github.comments.at(-1).body, /\*\*Next steps\*\*[\s\S]*A diagnosis starts automatically[\s\S]*\/speckit resume \[guidance\]/);
   });
 });
 
@@ -582,6 +608,8 @@ test('resolve: conflicts in protected paths ask the requester', () => withRepos(
   const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
   assert.deepEqual([landed.exitCode, landed.check.external_id], [1, CHECK_LIMIT]);
   assert.match(github.comments.at(-1).body, /^\*\*Implementation needs attention\*\* @dev: conflicts in protected paths need a person: specs\/f\/spec\.md/);
+  assert.doesNotMatch(github.comments.at(-1).body, /Spec Kit orchestrate` workflow manually/);
+  assert.match(github.comments.at(-1).body, /\/speckit diagnose|A diagnosis starts automatically/);
 }));
 
 // merge-land only reads the result of merge-verify and talks to the GitHub API.

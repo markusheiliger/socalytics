@@ -7,6 +7,7 @@ import { IMPLEMENT_STAGE, hasLabel, resolveTwins, stageLabel, stageLabelChange }
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import {
+  BOT_LOGIN,
   CHECK_ATTEMPT,
   CHECK_CONFLICT,
   CHECK_DONE,
@@ -17,6 +18,8 @@ import {
   DONE_COMMENT_MARKER,
   MAX_CONVERGE_ROUNDS,
   PREPARE_WORKFLOW_FILE,
+  RESUME_COMMENT_MARKER,
+  STEPS,
   appendPullRequestTasks,
   convergenceRounds,
   environmentExclusivityReasons,
@@ -25,16 +28,21 @@ import {
   isEnvironmentPath,
   isProtectedPath,
   latestCheckRun,
+  latestHumanCommit,
   listTasks,
   neutralizeMarkers,
   nextTaskGroup,
+  parseGuidance,
   parseMaxParallel,
+  parseStepRunName,
   progressOutput,
   renderConvergePrompt,
+  renderNextSteps,
   renderResolvePrompt,
   renderTaskPrompt,
   stepLabel,
   summarizeTask,
+  syncPullRequestTaskList,
   syncPullRequestTicks,
   taskProgress,
   tickTask,
@@ -172,8 +180,28 @@ export async function runBegin({ client, env, inputs, log }) {
   setOutput(env, 'folder', folder);
   setOutput(env, 'head', pull.head.sha);
   setOutput(env, 'check_run', String(check.id));
-  setOutput(env, 'prompt', inputs.step === 'task' ? renderTaskPrompt(inputs.task) : inputs.step === 'converge' ? renderConvergePrompt() : '');
-  return { exitCode: 0, proceed: true, folder, check };
+  const prompt = inputs.step === 'task' ? renderTaskPrompt(inputs.task) : inputs.step === 'converge' ? renderConvergePrompt() : '';
+  const guidance = prompt ? await currentGuidance(client, inputs) : null;
+  // Step outputs are single lines; the guidance is flattened and clipped.
+  setOutput(env, 'prompt', guidance ? `${prompt} Guidance from the person who resumed this implementation: ${guidance.replace(/\s+/g, ' ').slice(0, 1500)}` : prompt);
+  return { exitCode: 0, proceed: true, folder, check, guidance };
+}
+
+// Guidance from the latest resume (`/speckit resume <guidance>`). It applies to the stopped step only: it ends when a
+// worker run of this twin that started after the resume succeeded, or when a person pushed since.
+async function currentGuidance(client, { pull, twin }) {
+  const resume = (await client.listIssueComments(pull))
+    .filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(RESUME_COMMENT_MARKER))
+    .at(-1);
+  const guidance = resume ? parseGuidance(resume.body) : null;
+  if (!guidance) return null;
+  const pushedAt = latestHumanCommit(await client.listPullRequestCommits(pull));
+  if (pushedAt && Date.parse(pushedAt) > Date.parse(resume.created_at)) return null;
+  for (const [step, { file }] of Object.entries(STEPS)) {
+    const runs = await client.listWorkflowRuns(file, resume.created_at, 1);
+    if (runs.some((run) => run.status === 'completed' && run.conclusion === 'success' && parseStepRunName(step, run.display_title)?.twin === twin)) return null;
+  }
+  return guidance;
 }
 
 export function defaultGit(cwd) {
@@ -444,8 +472,9 @@ async function reportFailure({ client, inputs, reasons, resultDir }) {
   ].join('\n'));
 }
 
-// Stops the implementation and asks the person who requested it, because automation cannot continue.
-async function requestAttention({ client, inputs, reason, next, resultDir }) {
+// Stops the implementation and asks the person who requested it, because automation cannot continue. The comment
+// ends with the commands that can continue from here; a diagnosis starts automatically unless it is turned off.
+async function requestAttention({ client, env = {}, inputs, reason, next, resultDir }) {
   const { mention } = await requesterMention(client, inputs.twin);
   await client.updateCheckRun(inputs.checkRun, {
     status: 'completed',
@@ -453,11 +482,19 @@ async function requestAttention({ client, inputs, reason, next, resultDir }) {
     external_id: CHECK_LIMIT,
     output: { title: `${title(inputs)} needs a person`, summary: neutralizeMarkers(reason) },
   });
+  let behindMain = false;
+  try {
+    behindMain = inputs.folder ? (await client.aheadBy(implementationBranch(inputs.folder), env.SPECKIT_BRANCH || 'main')) > 0 : false;
+  } catch {
+    // Only used to suggest /speckit sync.
+  }
   await client.createComment(inputs.pull, [
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: ${neutralizeMarkers(reason)}`,
     '',
-    next,
+    next.trim(),
     ...(resultDir ? agentDetails(resultDir) : []),
+    '',
+    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', behindMain }),
   ].join('\n'));
 }
 
@@ -559,8 +596,8 @@ async function push({ client, git, env, inputs, folder, resultDir, report }) {
   return null;
 }
 
-const RESUME_HINT = 'Fix the cause (for example by pushing to the implementation branch, which continues automatically), or run the '
-  + '`Spec Kit orchestrate` workflow manually with `twin` set to the twin issue number. To abandon the implementation, close this pull request.';
+// The next-steps block of an attention comment lists the commands that continue from here.
+const RESUME_HINT = '';
 
 // Worker workflows, job "land" (write token, never runs agent-written code): re-validates the change, commits and
 // pushes it, and reports progress.
@@ -576,7 +613,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     const next = result.limit
       ? `Implement the remaining gaps yourself on the implementation branch, or adjust the spec and tasks. ${RESUME_HINT}`
       : `Resolve the conflicts on the implementation branch and push; the implementation then continues automatically. ${RESUME_HINT}`;
-    await requestAttention({ client, inputs, reason: reasons.join('; '), next, resultDir });
+    await requestAttention({ client, env, inputs, reason: reasons.join('; '), next, resultDir });
     report.line(`${title(inputs)} needs a person: ${reasons.join('; ')}`);
     report.flush();
     return { exitCode: 1, reasons };
@@ -598,7 +635,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       },
     }));
     if (limit) {
-      await requestAttention({ client, inputs, reason: reasons.join('; '), next: `Implement the remaining gaps yourself, or adjust the spec and tasks. ${RESUME_HINT}`, resultDir });
+      await requestAttention({ client, env, inputs, reason: reasons.join('; '), next: `Implement the remaining gaps yourself, or adjust the spec and tasks. ${RESUME_HINT}`, resultDir });
       report.flush();
       return { exitCode: 1, reasons };
     }
@@ -655,7 +692,13 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     const appended = appendedTasks;
     message = [`chore(${folder}): convergence round ${round}`, `/speckit-converge appended ${appended.length} task(s) (attempt ${inputs.attempt}).`];
     checkTitle = `Convergence round ${round}: ${appended.length} task(s) appended`;
-    body = appendPullRequestTasks(pull.body, appended, heading);
+    const synced = syncPullRequestTaskList(pull.body, {
+      twinNumber: inputs.twin,
+      folder,
+      tasksMarkdown,
+      context: { serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, ''), repository: env.GITHUB_REPOSITORY, branch: env.SPECKIT_BRANCH || 'main' },
+    });
+    body = synced !== String(pull.body ?? '') ? synced : appendPullRequestTasks(pull.body, appended, heading);
     comment = [
       `**Convergence round ${round} of at most ${MAX_CONVERGE_ROUNDS}** found gaps; ${appended.length} task(s) were appended and are implemented next:`,
       '',
@@ -776,7 +819,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
   const pull = await client.getPullRequest(inputs.pull);
   const reasons = result ? [...result.reasons] : [`the merge verification did not finish (result: ${workResult || 'unknown'})`];
   if (result?.attention) {
-    await requestAttention({ client, inputs, reason: reasons.join('; '), next: `Resolve the conflicts on the implementation branch and push. ${RESUME_HINT}` });
+    await requestAttention({ client, env, inputs, reason: reasons.join('; '), next: `Resolve the conflicts on the implementation branch and push. ${RESUME_HINT}` });
     report.flush();
     return { exitCode: 1, reasons };
   }

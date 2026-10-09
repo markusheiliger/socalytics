@@ -27,6 +27,17 @@ export const CHECK_LIMIT = 'speckit:limit';
 export const CHECK_DONE = 'speckit:done';
 export const CHECK_MERGE = 'speckit:merge';
 export const CHECK_CONFLICT = 'speckit:conflict';
+// A diagnosis of a stopped implementation is running, or its findings wait for a person's decision.
+export const CHECK_DIAGNOSING = 'speckit:diagnosing';
+export const CHECK_DIAGNOSED = 'speckit:diagnosed';
+// A diagnosis that has not reported after this long belongs to a cancelled or crashed run.
+export const DIAGNOSIS_STALE_MS = 60 * 60 * 1000;
+// Automatic diagnoses per head; further diagnoses need a person's `/speckit diagnose`.
+export const MAX_AUTO_DIAGNOSES = 2;
+export const DIAGNOSE_WORKFLOW_FILE = 'speckit-diagnose.lock.yml';
+export const AMEND_BRANCH_PREFIX = 'speckit-amend/';
+export const DIAGNOSIS_COMMENT_MARKER = '<!-- speckit-implement:diagnosis -->';
+const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
 // Paths the agent must never change; specs/<folder>/tasks.md may only receive the target task's tick.
 export const PROTECTED_PREFIXES = ['.github/', '.specify/', 'specs/'];
 // The solution's environment actions. Agents may change them, but only in a standalone environment spec, whose
@@ -53,6 +64,56 @@ const CONVERGENCE_HEADING_PATTERN = /^##\s+Phase\s+\d+\s*:\s*Convergence\b/i;
 
 export function implementationBranch(folder) {
   return `${BRANCH_PREFIX}${folder}`;
+}
+
+export function amendmentBranch(folder) {
+  return `${AMEND_BRANCH_PREFIX}${folder}`;
+}
+
+// The spec folder of an implementation or amendment branch, or null.
+export function folderOfBranch(branch) {
+  const value = String(branch ?? '');
+  for (const prefix of [AMEND_BRANCH_PREFIX, BRANCH_PREFIX]) {
+    if (value.startsWith(prefix) && value.length > prefix.length) return value.slice(prefix.length);
+  }
+  return null;
+}
+
+// Creation time of the latest commit on the implementation branch that a person (not the workflow) made.
+export function latestHumanCommit(commits) {
+  return commits
+    .filter((commit) => commit.author?.login !== BOT_LOGIN && commit.committer?.login !== BOT_LOGIN)
+    .map((commit) => commit.commit?.committer?.date ?? commit.commit?.author?.date)
+    .filter(Boolean)
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+}
+
+// Guidance a person gave with `/speckit resume <guidance>`, carried in the workflow's resume comment.
+export function renderGuidanceMarker(text) {
+  return `<!-- speckit-implement:guidance ${Buffer.from(JSON.stringify({ text: String(text) }), 'utf8').toString('base64')} -->`;
+}
+
+export function parseGuidance(body) {
+  const match = String(body ?? '').match(GUIDANCE_PATTERN);
+  if (!match) return null;
+  try {
+    const text = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')).text;
+    return typeof text === 'string' && text.trim() ? text.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+// The comment that starts a new attempt window; it persists the resume, so a replaced orchestrator run cannot lose
+// it. Guidance applies to the stopped step until it succeeds.
+export function renderResumeComment(lead, guidance = '') {
+  const value = String(guidance ?? '').trim();
+  return [
+    RESUME_COMMENT_MARKER,
+    ...(value ? [renderGuidanceMarker(value)] : []),
+    lead,
+    ...(value ? ['', 'Guidance for the next attempts of the stopped step:', '', ...neutralizeMarkers(value).split('\n').map((line) => `> ${line}`)] : []),
+  ].join('\n');
 }
 
 // Extracts task checkboxes from tasks.md, keeping the headings (## to ####) that contain tasks.
@@ -229,7 +290,9 @@ const latestSuccess = (runs) => Math.max(0, ...runs.filter((run) => run.status =
 // unsuccessful runs count as attempts; the total number of runs per step is capped separately so no-op runs (such
 // as a parallel task that had to be redone from a newer head) cannot loop forever. While tasks of a group run,
 // free slots (up to `maxParallel`) are filled with the group's other tasks; everything else waits for them.
-export function decideContinuation({ tasksMarkdown, checks = [], runs = {}, windowStart, done = false, resume = false, now = Date.now(), maxParallel = 1 }) {
+// A stop that needs a person (attempt limit, attention, or a diagnosis that runs or waits for a decision) holds
+// everything until a person pushes or resumes; `resume` restarts the next step with a new attempt window.
+export function decideContinuation({ tasksMarkdown, checks = [], runs = {}, windowStart, done = false, resume = false, resumedAt = null, now = Date.now(), maxParallel = 1 }) {
   const active = Object.entries(runs).flatMap(([step, list]) => list.filter((run) => run.status !== 'completed').map((run) => ({ ...run, step })));
   if (active.some((run) => run.step !== 'task')) return { action: 'wait' };
   const mergeChecks = checks.filter((check) => check.external_id === CHECK_MERGE);
@@ -237,16 +300,30 @@ export function decideContinuation({ tasksMarkdown, checks = [], runs = {}, wind
   if (mergeChecks.some((check) => check.status !== 'completed' && !stale.includes(check))) return { action: 'wait' };
   const latest = latestCheckRun(checks);
   const isDone = done || (latest?.external_id === CHECK_DONE && latest.conclusion === 'success');
-  const failed = latest?.external_id === CHECK_LIMIT && latest.conclusion === 'failure';
+  const diagnosing = latest?.external_id === CHECK_DIAGNOSING && latest.status !== 'completed';
+  const failed = (latest?.external_id === CHECK_LIMIT && latest.conclusion === 'failure') || diagnosing || latest?.external_id === CHECK_DIAGNOSED;
   if (active.length > 0 && (isDone || failed)) return { action: 'wait' };
   if (isDone) return { action: 'done' };
-  if (failed && !resume) return { action: 'failed' };
+  // A resume comment newer than the stop (from a `/speckit` command) counts like a requested resume.
+  resume = resume || (failed && Boolean(resumedAt) && Date.parse(resumedAt) >= checkTime(latest));
+  if (failed && !resume) {
+    if (diagnosing && now - checkTime(latest) < DIAGNOSIS_STALE_MS) return { action: 'diagnosing' };
+    return {
+      action: 'failed',
+      diagnosis: {
+        state: diagnosing ? 'stale' : latest.external_id === CHECK_DIAGNOSED ? 'reported' : 'none',
+        check: latest,
+        count: checks.filter((check) => [CHECK_DIAGNOSING, CHECK_DIAGNOSED].includes(check.external_id)).length,
+      },
+    };
+  }
+  const restart = resume && active.length === 0;
 
   const since = Date.parse(windowStart);
   const taskRuns = runs.task ?? [];
   const group = nextTaskGroup(tasksMarkdown, maxParallel);
   if (group.length > 0) {
-    if (failed) return { action: 'resume', step: 'task', task: group[0].id, attempt: 1, stale };
+    if (restart) return { action: 'resume', step: 'task', task: group[0].id, attempt: 1, stale };
     const busy = new Set(active.map((run) => run.task));
     // Runs outside the group (a sequential task, or a task that landed but whose run has not ended) finish first.
     if ([...busy].some((task) => !group.some((member) => member.id === task))) return { action: 'wait' };
@@ -291,7 +368,7 @@ export function decideContinuation({ tasksMarkdown, checks = [], runs = {}, wind
     step = { step: 'merge' };
     candidates = null;
   }
-  if (failed) return { action: 'resume', ...step, attempt: 1, stale };
+  if (restart) return { action: 'resume', ...step, attempt: 1, stale };
 
   if (step.step === 'merge') {
     const inWindow = mergeChecks.filter((check) => checkTime(check) >= since);
@@ -343,6 +420,8 @@ export function validateConvergeChange({ folder, before, after, changedPaths }) 
 
 // GitHub rejects pull request bodies above 65,536 characters; this leaves room for later appended tasks.
 export const MAX_PULL_BODY = 60000;
+const GITHUB_BODY_LIMIT = 65536;
+const TASKS_END_MARKER = '<!-- speckit-implement:tasks-end -->';
 const TASK_SUMMARY_CHARS = 160;
 
 // A short form of a task for lists: its leading tags (such as `[P] [US1]`) and its first sentence, cut on a word
@@ -365,7 +444,7 @@ export function summarizeTask(text) {
   return `${tags}${summary}`.trim();
 }
 
-const taskLine = (task, short) => `- [ ] ${task.id} ${short ? (task.text.match(/^(?:\[[^\]]+\]\s*)+/)?.[0] ?? '').trim() : summarizeTask(task.text)}`.trimEnd();
+const taskLine = (task, short, ticks = false) => `- [${ticks && task.done ? 'x' : ' '}] ${task.id} ${short ? (task.text.match(/^(?:\[[^\]]+\]\s*)+/)?.[0] ?? '').trim() : summarizeTask(task.text)}`.trimEnd();
 
 // Adds appended convergence tasks to the task list of the pull request body and updates the count. Tasks are listed
 // in short form; when even that would exceed the body limit, only their IDs are listed, and otherwise a note.
@@ -414,7 +493,7 @@ export function renderPullRequestTitle(spec) {
   return `Implement: ${spec.title}`;
 }
 
-export function renderPullRequestBody({ twinNumber, folder, tasks, context }) {
+export function renderPullRequestBody({ twinNumber, folder, tasks, context, ticks = false }) {
   const render = (short, limit = Infinity) => {
     let shown = 0;
     const lines = [];
@@ -422,7 +501,7 @@ export function renderPullRequestBody({ twinNumber, folder, tasks, context }) {
       if (item.type === 'heading') {
         lines.push(`\n${'#'.repeat(Math.min(item.level + 1, 6))} ${item.text}\n`);
       } else if (shown < limit) {
-        lines.push(taskLine(item, short));
+        lines.push(taskLine(item, short, ticks));
         shown += 1;
       }
     }
@@ -442,6 +521,8 @@ export function renderPullRequestBody({ twinNumber, folder, tasks, context }) {
       ...(lines.length > 0 ? lines : ['', '_No tasks were found in `tasks.md`._']),
       ...(hidden > 0 ? ['', `_${hidden} more task(s) are not listed because the description would be too long._`] : []),
       '',
+      TASKS_END_MARKER,
+      '',
     ].join('\n').replace(/\n{3,}/g, '\n\n');
   };
   for (const short of [false, true]) {
@@ -455,6 +536,97 @@ export function renderPullRequestBody({ twinNumber, folder, tasks, context }) {
     body = render(true, limit);
   }
   return body;
+}
+
+// Replaces the task section of a pull request body (from `## Tasks (N)` to its end marker, or to the end of older
+// bodies) with one rendered from tasks.md: task texts, appended and corrective tasks, and checks, so amendments and
+// concurrently landed tasks show. Text before and after the section stays. When the result would exceed GitHub's
+// limit, only the checks are updated in place.
+export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdown, context }) {
+  const text = String(body ?? '');
+  const heading = /^## Tasks \(\d+\)$/m;
+  const start = text.search(heading);
+  if (start < 0) return text;
+  const endMarker = text.indexOf(TASKS_END_MARKER, start);
+  const suffix = endMarker < 0 ? '' : text.slice(endMarker + TASKS_END_MARKER.length).replace(/^\n+/, '');
+  const fresh = renderPullRequestBody({ twinNumber, folder, tasks: extractTasks(tasksMarkdown), context, ticks: true });
+  const result = `${text.slice(0, start)}${fresh.slice(fresh.search(heading))}${suffix ? `\n${suffix}` : ''}`;
+  return result.length > GITHUB_BODY_LIMIT ? syncPullRequestTicks(text, tasksMarkdown) : result;
+}
+
+// The commands a person can comment on an implementation (or amendment) pull request.
+export const PR_COMMANDS = [
+  { name: 'diagnose', usage: '/speckit diagnose [notes]', help: 'diagnose why the implementation stopped; notes steer the analysis' },
+  { name: 'revise', usage: '/speckit revise <notes or answers>', help: 'diagnose again with your notes or answers to the open questions' },
+  { name: 'apply', usage: '/speckit apply', help: 'apply the proposed amendment of the spec artifacts and continue the implementation' },
+  { name: 'discard', usage: '/speckit discard', help: 'close the proposed amendment' },
+  { name: 'resume', usage: '/speckit resume [guidance]', help: 'retry the stopped step with a fresh attempt count; guidance goes into the next attempt\'s prompt' },
+  { name: 'sync', usage: '/speckit sync', help: 'merge the default branch into the implementation branch and retry' },
+  { name: 'help', usage: '/speckit help', help: 'list these commands' },
+];
+
+const commandEntry = (text, command) => [`1. ${text}:`, '', '   ```text', `   ${command}`, '   ```'];
+
+// The "Next steps" block of a comment where the implementation waits for a person. Only commands that are valid in
+// the given state are suggested, the recommended one first. `options` are a diagnosis' options
+// ({ title, command }), `amendmentPull` an open amendment pull request, `behindMain` whether the default branch has
+// commits the implementation branch lacks, and `autoDiagnosis` whether a diagnosis starts automatically.
+export function renderNextSteps({ options = null, amendmentPull = null, behindMain = false, autoDiagnosis = false, diagnosed = false } = {}) {
+  const lines = ['**Next steps**: comment one of these commands on this pull request (people with write access):', ''];
+  if (autoDiagnosis) lines.push('_A diagnosis starts automatically and posts its findings here; you can also act right away._', '');
+  const entries = [];
+  for (const option of options ?? []) {
+    if (option.command) entries.push(commandEntry(option.title, option.command));
+  }
+  if (amendmentPull) {
+    entries.push(commandEntry(`Apply the proposed amendment #${amendmentPull} and continue the implementation`, '/speckit apply'));
+    entries.push(commandEntry('Ask for a different amendment (add your notes or answers)', '/speckit revise <notes>'));
+    entries.push(commandEntry(`Close the proposed amendment #${amendmentPull}`, '/speckit discard'));
+  }
+  const used = new Set((options ?? []).map((option) => String(option.command ?? '').split(/\s+/)[1]));
+  if (!autoDiagnosis && !used.has('diagnose') && !used.has('revise')) {
+    entries.push(commandEntry(diagnosed ? 'Diagnose again, optionally with your notes' : 'Diagnose why the implementation stopped (notes steer the analysis)', '/speckit diagnose [notes]'));
+  }
+  if (!used.has('resume')) entries.push(commandEntry('Retry with a fresh attempt count, optionally with guidance for the agent', '/speckit resume [guidance]'));
+  if (behindMain && !used.has('sync')) entries.push(commandEntry('Merge the default branch (for example a fix that landed there) and retry', '/speckit sync'));
+  for (const entry of entries) lines.push(...entry);
+  lines.push(
+    '',
+    'Or push a fix to the implementation branch (the implementation continues automatically), or close this pull request to abandon it.',
+  );
+  return lines;
+}
+
+// Reasons why a proposed amendment of the spec artifacts cannot be applied, and notes a person should see. It may
+// only change files in specs/<folder>/; in tasks.md it may edit, add, or remove unchecked tasks and uncheck a task
+// to redo it, but never check a task or drop a completed one.
+export function validateAmendment({ folder, changedPaths, beforeTasks, afterTasks }) {
+  const reasons = [];
+  const notes = [];
+  const prefix = `specs/${folder}/`;
+  const outside = changedPaths.filter((file) => !file.startsWith(prefix));
+  if (outside.length > 0) reasons.push(`an amendment may only change files in \`${prefix}\`, but it changes ${outside.map((file) => `\`${file}\``).join(', ')}`);
+  if (changedPaths.includes(`${prefix}spec.md`)) notes.push('it changes the requirements in `spec.md`');
+  if (changedPaths.includes(`${prefix}tasks.md`)) {
+    const before = new Map(listTasks(beforeTasks).map((task) => [task.id, task]));
+    const after = listTasks(afterTasks);
+    const seen = new Set();
+    for (const task of after) {
+      if (seen.has(task.id)) reasons.push(`task ${task.id} appears more than once in \`tasks.md\``);
+      seen.add(task.id);
+      const old = before.get(task.id);
+      if (task.done && !old?.done) reasons.push(`an amendment may not check ${task.id}; only implementation checks tasks`);
+      if (!old) notes.push(`it adds ${task.id}`);
+      else if (old.done && !task.done) notes.push(`${task.id} is unchecked and will be implemented again`);
+      else if (old.text !== task.text) notes.push(`it changes ${task.id}`);
+    }
+    for (const [id, task] of before) {
+      if (seen.has(id)) continue;
+      if (task.done) reasons.push(`an amendment may not remove the completed task ${id}`);
+      else notes.push(`it removes ${id}`);
+    }
+  }
+  return { reasons, notes };
 }
 
 export function renderStartComment({ twinNumber, folder, taskCount }) {
