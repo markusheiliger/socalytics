@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { GitHubClient } from './speckit-prepare-github.mjs';
-import { beginAmendment, checkAmendment, findAmendment, pendingFeedback, presentAmendment, resolveAmendment, startAnalysis } from './speckit-amend.mjs';
+import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
 import {
   BOT_LOGIN,
   CHECK_AMEND_CHECKING,
@@ -14,6 +14,7 @@ import {
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_COMMENT_MARKER,
   MAX_CORRECTION_ROUNDS,
+  MAX_STALLED_ROUNDS,
   STEPS,
   amendmentBranch,
   implementationBranch,
@@ -99,7 +100,16 @@ function inputsFrom(env) {
   const mode = MODES.includes(env.SPECKIT_MODE) ? env.SPECKIT_MODE : 'diagnose';
   const amendment = Number(env.SPECKIT_AMENDMENT);
   if (mode !== 'diagnose' && (!Number.isInteger(amendment) || amendment <= 0)) throw new DiagnoseUsageError(`Mode ${mode} needs SPECKIT_AMENDMENT.`);
-  return { twin, pull, folder, mode, amendment: mode === 'diagnose' ? null : amendment, round: Math.max(0, Number(env.SPECKIT_ROUND) || 0) };
+  return {
+    twin,
+    pull,
+    folder,
+    mode,
+    amendment: mode === 'diagnose' ? null : amendment,
+    round: Math.max(0, Number(env.SPECKIT_ROUND) || 0),
+    stalls: Math.max(0, Number(env.SPECKIT_STALLS) || 0),
+    findings: decodeTracked(env.SPECKIT_FINDINGS),
+  };
 }
 
 function logTail(text) {
@@ -113,7 +123,7 @@ function logTail(text) {
 // Agent job, before the agent: collects what the agent needs to diagnose the stop and cannot fetch itself, and writes
 // evidence.md and context.json to SPECKIT_EVIDENCE_DIR.
 export async function runEvidence({ client, env, log }) {
-  const { twin, pull: pullNumber, folder, mode, amendment: amendmentNumber, round } = inputsFrom(env);
+  const { twin, pull: pullNumber, folder, mode, amendment: amendmentNumber, round, stalls } = inputsFrom(env);
   const outDir = path.resolve(env.SPECKIT_EVIDENCE_DIR || 'evidence');
   mkdirSync(outDir, { recursive: true });
   const defaultBranch = env.SPECKIT_BRANCH || 'main';
@@ -137,7 +147,7 @@ export async function runEvidence({ client, env, log }) {
   const sections = [
     `# Evidence for the diagnosis of #${twin} (pull request #${pullNumber})`,
     '',
-    `- Mode: \`${mode}\`${mode === 'fix' ? ` (correction round ${round} of ${MAX_CORRECTION_ROUNDS})` : ''}${amendmentNumber ? `; amendment pull request #${amendmentNumber} on \`${amendmentBranch(folder)}\`` : ''}`,
+    `- Mode: \`${mode}\`${mode === 'fix' ? ` (correction round ${round}; rounds without progress so far: ${stalls} of ${MAX_STALLED_ROUNDS})` : ''}${amendmentNumber ? `; amendment pull request #${amendmentNumber} on \`${amendmentBranch(folder)}\`` : ''}`,
     `- Spec folder: \`specs/${folder}\``,
     `- Implementation branch: \`${branch}\` at ${pull.head.sha}`,
     `- Default branch \`${defaultBranch}\`: ${behind ?? '?'} commit(s) the implementation branch lacks; the branch is ${ahead ?? '?'} commit(s) ahead`,
@@ -192,6 +202,7 @@ export async function runEvidence({ client, env, log }) {
     amendmentPull: amendmentNumber,
     round,
     maxCorrectionRounds: MAX_CORRECTION_ROUNDS,
+    maxStalledRounds: MAX_STALLED_ROUNDS,
     defaultBranch,
     head: pull.head.sha,
     nextTask: next?.id ?? null,
@@ -334,7 +345,7 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
   if (amendment) {
     lines.push(
       '',
-      `**Proposed amendment**: #${amendment.number} (\`${amendment.head.ref}\` → \`${amendment.base.ref}\`). An independent \`/speckit-analyze\` checks it for consistency first (up to ${MAX_CORRECTION_ROUNDS} correction rounds); you get a review request there when it is ready.`,
+      `**Proposed amendment**: #${amendment.number} (\`${amendment.head.ref}\` → \`${amendment.base.ref}\`). An independent \`/speckit-analyze\` checks it for consistency first, and correction rounds fix what it finds while they make progress; you get a review request there when it is ready.`,
       '',
     );
     for (const item of report.artifacts) lines.push(`- \`${safe(item.file)}\`${item.reason ? `: ${safe(item.reason)}` : ''}`);
@@ -408,7 +419,7 @@ export async function runRecord({ client, env, log }) {
 // Records a rework of an amendment (`fix` after the consistency check, `revise` after a person's feedback) and starts
 // the consistency check of the result.
 async function recordRework({ client, env, log, inputs }) {
-  const { mode, amendment: number, round } = inputs;
+  const { mode, amendment: number, round, stalls, findings } = inputs;
   const checkRun = Number(env.SPECKIT_CHECK_RUN);
   const complete = async (conclusion, title, summary) => {
     if (Number.isInteger(checkRun) && checkRun > 0) {
@@ -448,23 +459,33 @@ async function recordRework({ client, env, log, inputs }) {
   const pushed = String(env.SPECKIT_PUSH_SHA ?? '').trim();
   // A push the safe-output tool refused never reaches the push job; the agent reports it as incomplete instead.
   const incomplete = readAgentItems(env, 'report_incomplete').map((item) => String(item.reason ?? '').trim()).filter(Boolean);
-  if (pushFailures > 0 || (!pushed && incomplete.length > 0) || (!pushed && mode === 'fix')) {
+  if (pushFailures > 0 || (!pushed && incomplete.length > 0)) {
     const what = mode === 'fix' ? `Correction round ${round}` : 'The rework';
-    const why = pushFailures > 0
-      ? `${pushFailures} push(es) to \`${context.amendment.head.ref}\` failed.`
-      : incomplete.length > 0 ? `The push was refused: ${incomplete.join('; ')}` : 'It pushed no changes.';
+    const why = pushFailures > 0 ? `${pushFailures} push(es) to \`${context.amendment.head.ref}\` failed.` : `The push was refused: ${incomplete.join('; ')}`;
     await complete('failure', `${what} could not push its changes`, why);
     await client.createComment(number, [
       `${what} could not push its changes to this pull request, so nothing changed. Comment on this pull request to try again.`,
       '',
       `> ${neutralizeMarkers(clip(why, 1500)).replace(/\n/g, '\n> ')}`,
     ].join('\n'));
+    // A refused push is a correction round without progress; the next round retries the same findings.
+    if (mode === 'fix' && stalls + 1 < MAX_STALLED_ROUNDS && round < MAX_CORRECTION_ROUNDS) {
+      await startRework(client, env, context, { mode: 'fix', round: round + 1, notes: env.SPECKIT_NOTES ?? '', stalls: stalls + 1, findings, progress: `Round ${round} could not push its changes.` });
+      return { exitCode: 0, outcome: 'push failed' };
+    }
     await handBack(`correction round ${round} could not push its changes`);
     return { exitCode: 0, outcome: 'push failed' };
   }
+  // A correction round may leave findings it judges wrong; then another analysis would only repeat them.
+  if (!pushed && mode === 'fix') {
+    await complete('neutral', `Correction round ${round} changed nothing`, report.summary);
+    await client.createComment(number, `**Correction round ${round} changed nothing**: ${neutralizeMarkers(report.summary)}`);
+    await handBack(`correction round ${round} changed nothing`);
+    return { exitCode: 0, outcome: 'unchanged' };
+  }
   if (pushed && context.amendment.head.sha !== pushed) log(`Amendment #${number}: the head ${context.amendment.head.sha} is not the pushed ${pushed}; a person pushed as well.`);
   const changed = pushed ? 'pushed' : 'finished without changes';
-  await complete('neutral', mode === 'fix' ? `Correction round ${round} of ${MAX_CORRECTION_ROUNDS} ${changed}` : `Rework ${changed}`, report.summary);
+  await complete('neutral', mode === 'fix' ? `Correction round ${round} ${changed}` : `Rework ${changed}`, report.summary);
   if (mode === 'revise') {
     await client.createComment(number, [
       `**${pushed ? 'Reworked' : 'Answered without changes'}**: ${neutralizeMarkers(report.summary)}`,
@@ -473,7 +494,8 @@ async function recordRework({ client, env, log, inputs }) {
       'The consistency check runs again; you get a review request when it is done.',
     ].join('\n'));
   }
-  await startAnalysis(client, env, context, { round: mode === 'fix' ? round : 0, mode: 'loop' });
+  // A rework after a person's feedback starts a fresh correction budget.
+  await startAnalysis(client, env, context, mode === 'fix' ? { round, mode: 'loop', stalls, previous: findings } : { round: 0, mode: 'loop' });
   log(`Recorded the ${mode} of amendment #${number}; the consistency check runs.`);
   return { exitCode: 0, outcome: 'checking' };
 }

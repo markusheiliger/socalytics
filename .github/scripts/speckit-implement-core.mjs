@@ -47,8 +47,11 @@ export const AMEND_REWORK_MARKER = '<!-- speckit-amend:rework -->';
 export const AMEND_PRESENTED_MARKER = '<!-- speckit-amend:presented -->';
 export const AMEND_STATUS_START = '<!-- speckit-amend:status -->';
 export const AMEND_STATUS_END = '<!-- /speckit-amend:status -->';
-// Correction rounds (analyze, then fix) before an amendment is handed to a person as still inconsistent.
-export const MAX_CORRECTION_ROUNDS = 3;
+// Correction rounds (analyze, then fix) continue while they make progress (a previous finding gets resolved); an
+// amendment is handed to a person as still inconsistent after MAX_STALLED_ROUNDS rounds without progress, or after
+// MAX_CORRECTION_ROUNDS rounds in total, which bounds the agent runs.
+export const MAX_STALLED_ROUNDS = 3;
+export const MAX_CORRECTION_ROUNDS = 10;
 export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
 // Paths the agent must never change; specs/<folder>/tasks.md may only receive the target task's tick.

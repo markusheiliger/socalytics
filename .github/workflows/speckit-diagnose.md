@@ -45,6 +45,15 @@ on:
         required: false
         type: string
         default: "0"
+      stalls:
+        description: Correction rounds without progress so far (fix)
+        required: false
+        type: string
+        default: "0"
+      findings:
+        description: The tracked findings this correction round fixes, as JSON (fix)
+        required: false
+        type: string
   # Only the Spec Kit workflows dispatch this workflow, with the repository's token; dispatching already requires
   # write access.
   roles: all
@@ -108,6 +117,7 @@ steps:
       SPECKIT_MODE: ${{ inputs.mode }}
       SPECKIT_AMENDMENT: ${{ inputs.amendment }}
       SPECKIT_ROUND: ${{ inputs.round }}
+      SPECKIT_STALLS: ${{ inputs.stalls }}
       SPECKIT_EVIDENCE_DIR: .speckit-diagnosis
     run: node .speckit-tooling/.github/scripts/speckit-diagnose.mjs evidence
   # Optional, solution-owned extension point, so the agent can build and run tests to check a hypothesis.
@@ -188,6 +198,9 @@ safe-outputs:
             SPECKIT_MODE: ${{ inputs.mode }}
             SPECKIT_AMENDMENT: ${{ inputs.amendment }}
             SPECKIT_ROUND: ${{ inputs.round }}
+            SPECKIT_STALLS: ${{ inputs.stalls }}
+            SPECKIT_FINDINGS: ${{ inputs.findings }}
+            SPECKIT_NOTES: ${{ inputs.notes }}
             # Only a report that passed threat detection is used, and only the amendment this run created is shown.
             SPECKIT_DETECTION: ${{ needs.detection.result }}
             SPECKIT_CREATED_PULL: ${{ needs.safe_outputs.outputs.created_pr_number }}

@@ -21,7 +21,7 @@ const amendmentPull = (github) => github.repo.pulls.find((pull) => pull.number =
 const later = (github, ms = 1000) => new Date(github.clock + ms).toISOString();
 
 // Records an analysis of amendment #11 as the custom safe-output job of Spec Kit analyze would.
-async function recordAnalysis(github, report, { round = 0, mode = 'loop', detection = 'success' } = {}) {
+async function recordAnalysis(github, report, { round = 0, mode = 'loop', detection = 'success', stalls = 0, previous = '' } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), 'speckit-analysis-'));
   try {
     const check = await github.createCheckRun({ name: 'Spec Kit amendment', head_sha: 'sha-amend', status: 'in_progress', external_id: 'speckit:amend-checking' });
@@ -29,7 +29,7 @@ async function recordAnalysis(github, report, { round = 0, mode = 'loop', detect
     writeFileSync(output, JSON.stringify({ items: report === null ? [] : [{ type: 'speckit_analysis', report: JSON.stringify(report) }] }));
     const result = await runRecordAnalysis({
       client: github,
-      env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: String(round), SPECKIT_MODE: mode, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_DETECTION: detection }),
+      env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: String(round), SPECKIT_STALLS: String(stalls), SPECKIT_PREVIOUS: previous, SPECKIT_MODE: mode, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_DETECTION: detection }),
       log: silent,
     });
     return { ...result, check: github.repo.checkRuns.find((run) => run.id === check.id) };
@@ -55,34 +55,57 @@ test('a consistent amendment is handed to the requester for review', async () =>
   assert.match(github.comments.find((comment) => comment.number === 9).body, /^\*\*Amendment #11 is ready for your review\*\*/);
 });
 
-test('inconsistencies lead to up to three correction rounds, then to a review of the remaining findings', async () => {
+test('correction rounds continue while they make progress and stop after three rounds without it', async () => {
   const github = diagnosisRepo();
   const first = await recordAnalysis(github, { summary: 'One issue.', findings: [HIGH] });
   assert.equal(first.outcome, 'correcting');
-  assert.deepEqual([first.check.conclusion, first.check.output.title], ['neutral', '1 inconsistency(ies) found; correction round 1 of 3 follows']);
+  assert.deepEqual([first.check.conclusion, first.check.output.title], ['neutral', '1 inconsistency(ies) found; correction round 1 follows']);
   const fix = github.repo.runs.at(-1);
   assert.equal(fix.workflow, 'speckit-diagnose.lock.yml');
-  assert.deepEqual([fix.inputs.mode, fix.inputs.amendment, fix.inputs.round, fix.inputs.pull, fix.inputs.twin], ['fix', '11', '1', '9', '5']);
-  assert.match(fix.inputs.notes, /\*\*HIGH\*\* \(Inconsistency\) `plan\.md CI-R10`: CI-R10 still expects a residual difference\. — Update it to the refined R6\./);
-  assert.match(github.comments.at(-1).body, /^\*\*Correction round 1 of 3\*\*/);
+  assert.deepEqual([fix.inputs.mode, fix.inputs.amendment, fix.inputs.round, fix.inputs.stalls, fix.inputs.pull, fix.inputs.twin], ['fix', '11', '1', '0', '9', '5']);
+  assert.match(fix.inputs.notes, /- \[F1\] \*\*HIGH\*\* \(Inconsistency\) `plan\.md CI-R10`: CI-R10 still expects a residual difference\. — Update it to the refined R6\./);
+  const tracked = JSON.parse(fix.inputs.findings);
+  assert.deepEqual(tracked.map((item) => [item.id, item.severity, item.location]), [['F1', 'HIGH', 'plan.md CI-R10']]);
+  assert.match(github.comments.at(-1).body, /^\*\*Correction round 1\*\*: [\s\S]*Rounds without progress so far: 0 of 3\./);
   assert.equal(amendmentPull(github).draft, true);
   assert.deepEqual(github.repo.reviewRequests, [], 'nobody is asked while corrections run');
 
-  const rules = diagnosisRepo({ after: '## P\n- [x] T001 Done\n- [x] T002 Next\n' });
-  const ruled = await recordAnalysis(rules, { summary: 'Clean.', findings: [] }, { round: 2 });
-  assert.equal(ruled.outcome, 'correcting', 'a broken amendment rule counts like a finding');
-  assert.match(rules.repo.runs.at(-1).inputs.notes, /\*\*RULE\*\*: an amendment may not check T002/);
+  // Progress: a previous finding is resolved, even though a new one appears; the budget is untouched.
+  const NEW = { severity: 'MEDIUM', location: 'data-model.md', summary: 'A new gap.' };
+  const progressed = await recordAnalysis(github, { findings: [NEW], resolved: ['F1', 'F9', 'x'] }, { round: 4, stalls: 2, previous: fix.inputs.findings });
+  assert.deepEqual([progressed.outcome, progressed.stalls], ['correcting', 2]);
+  assert.match(progressed.check.output.summary, /^Round 4 resolved F1\./);
+  assert.deepEqual([github.repo.runs.at(-1).inputs.round, github.repo.runs.at(-1).inputs.stalls], ['5', '2']);
+  assert.match(github.comments.at(-1).body, /^\*\*Correction round 5\*\*: [\s\S]*Round 4 resolved F1\. Rounds without progress so far: 2 of 3\./);
 
-  const last = await recordAnalysis(github, { summary: 'Still one issue.', findings: [HIGH] }, { round: 3 });
-  assert.equal(last.outcome, 'inconsistent');
+  // No progress: the same finding persists; the third round without progress hands the amendment over.
+  const stalled = await recordAnalysis(github, { findings: [HIGH] }, { round: 1, stalls: 0, previous: fix.inputs.findings });
+  assert.deepEqual([stalled.outcome, stalled.stalls], ['correcting', 1]);
+  const last = await recordAnalysis(github, { summary: 'Still one issue.', findings: [HIGH] }, { round: 6, stalls: 2, previous: fix.inputs.findings });
+  assert.deepEqual([last.outcome, last.stalls], ['inconsistent', 3]);
   assert.deepEqual([last.check.conclusion, last.check.output.title], ['failure', '1 inconsistency(ies) remain']);
   assert.equal(amendmentPull(github).draft, true, 'an inconsistent amendment stays a draft');
   assert.deepEqual(github.repo.reviewRequests, [{ number: 11, reviewers: ['dev'] }]);
-  assert.match(amendmentPull(github).body, /⚠️ \*\*Not consistent\*\*: 1 inconsistency\(ies\) remain after 3 correction rounds/);
-  assert.match(github.comments.find((comment) => comment.number === 9 && /not consistent/.test(comment.body)).body, /^\*\*Amendment #11 is not consistent\*\*/);
+  assert.match(amendmentPull(github).body, /⚠️ \*\*Not consistent\*\*: 1 inconsistency\(ies\) remain; 3 of 6 correction round\(s\) made no progress/);
+  assert.match(github.comments.find((comment) => comment.number === 9 && /not consistent/.test(comment.body)).body, /^\*\*Amendment #11 is not consistent\*\* \(1 inconsistency\(ies\) remain; 3 of 6/);
+
+  const capped = diagnosisRepo();
+  const limit = await recordAnalysis(capped, { findings: [HIGH], resolved: ['F1'] }, { round: 10, stalls: 0, previous: fix.inputs.findings });
+  assert.equal(limit.outcome, 'inconsistent', 'progress or not, ten rounds are the limit');
+  assert.match(amendmentPull(capped).body, /after the limit of 10 correction rounds/);
+
+  // A broken amendment rule counts like a finding, and its repair is progress.
+  const rules = diagnosisRepo({ after: '## P\n- [x] T001 Done\n- [x] T002 Next\n' });
+  const ruled = await recordAnalysis(rules, { summary: 'Clean.', findings: [] }, { round: 2 });
+  assert.equal(ruled.outcome, 'correcting');
+  assert.match(rules.repo.runs.at(-1).inputs.notes, /- \[R1\] \*\*RULE\*\*: an amendment may not check T002/);
+  const repaired = diagnosisRepo();
+  const fixedRule = await recordAnalysis(repaired, { findings: [HIGH] }, { round: 3, stalls: 1, previous: rules.repo.runs.at(-1).inputs.findings });
+  assert.deepEqual([fixedRule.outcome, fixedRule.stalls], ['correcting', 1]);
 
   const checked = diagnosisRepo();
-  assert.equal((await recordAnalysis(checked, { summary: '', findings: [HIGH] }, { round: 3, mode: 'check' })).outcome, 'inconsistent', 'a check after a person\'s push never corrects');
+  assert.equal((await recordAnalysis(checked, { summary: '', findings: [HIGH] }, { round: 0, mode: 'check' })).outcome, 'inconsistent', 'a check after a person\'s push never corrects');
+  assert.match(amendmentPull(checked).body, /⚠️ \*\*Not consistent\*\*: 1 inconsistency\(ies\) remain\./);
 });
 
 test('a missing or withheld analysis is reported, not mistaken for consistency', async () => {
@@ -215,7 +238,7 @@ test('merging continues the implementation; closing discards; a person\'s push i
 
   const pushed = diagnosisRepo();
   assert.equal((await runPushed({ client: pushed, env: env({ SPECKIT_PULL: '11' }), log: silent })).outcome, 'checking');
-  assert.deepEqual([pushed.repo.runs.at(-1).workflow, pushed.repo.runs.at(-1).inputs.mode, pushed.repo.runs.at(-1).inputs.round], ['speckit-analyze.lock.yml', 'check', '3']);
+  assert.deepEqual([pushed.repo.runs.at(-1).workflow, pushed.repo.runs.at(-1).inputs.mode, pushed.repo.runs.at(-1).inputs.round], ['speckit-analyze.lock.yml', 'check', '0']);
   await assert.rejects(() => main(['nope'], { env: {}, client: pushed }), /Usage/);
 });
 

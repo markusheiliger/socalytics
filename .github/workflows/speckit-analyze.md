@@ -28,6 +28,15 @@ on:
         required: false
         type: string
         default: "0"
+      stalls:
+        description: Correction rounds without progress so far
+        required: false
+        type: string
+        default: "0"
+      previous:
+        description: The tracked findings the last correction round fixed, as JSON (after a correction round)
+        required: false
+        type: string
       mode:
         description: loop (findings lead to correction rounds) or check (report only, after a person's push)
         required: false
@@ -78,6 +87,14 @@ steps:
       ref: ${{ github.event.repository.default_branch }}
       path: .speckit-tooling
       persist-credentials: false
+  # The findings the last correction round fixed, so the analysis can say which of them are resolved.
+  - name: Write the findings of the previous round
+    env:
+      SPECKIT_PREVIOUS: ${{ inputs.previous }}
+    run: |
+      mkdir -p .speckit-analysis
+      printf '%s' "${SPECKIT_PREVIOUS:-[]}" > .speckit-analysis/previous.json
+      printf '.speckit-tooling/\n.speckit-analysis/\n' >> .git/info/exclude
 safe-outputs:
   jobs:
     speckit-analysis:
@@ -94,7 +111,7 @@ safe-outputs:
         report:
           description: >-
             The analysis as one JSON object: {"summary": "...", "findings": [{"severity": "CRITICAL|HIGH|MEDIUM|LOW",
-            "category": "...", "location": "file and section", "summary": "...", "recommendation": "..."}]}.
+            "category": "...", "location": "file and section", "summary": "...", "recommendation": "..."}], "resolved": ["F1"]}.
           required: true
           type: string
       steps:
@@ -113,6 +130,8 @@ safe-outputs:
             SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
             SPECKIT_AMENDMENT: ${{ inputs.amendment }}
             SPECKIT_ROUND: ${{ inputs.round }}
+            SPECKIT_STALLS: ${{ inputs.stalls }}
+            SPECKIT_PREVIOUS: ${{ inputs.previous }}
             SPECKIT_MODE: ${{ inputs.mode }}
             SPECKIT_CHECK_RUN: ${{ inputs.check_run }}
             # Only an analysis that passed threat detection is used.
@@ -137,5 +156,10 @@ consistent with each other and with the constitution.
    dependency notes). A statement that the amendment made stale is a finding.
 3. Use the severities of the skill. Report only real inconsistencies, ambiguities, coverage gaps, and constitution
    conflicts; no style preferences above LOW.
-4. Finish by calling `speckit_analysis` exactly once with the JSON report described in its input. An empty
+4. `.speckit-analysis/previous.json` lists the findings that the last correction round tried to fix, each with an id
+   (`F1`, `F2`, …; `R…` are amendment rules, checked separately). It is `[]` before the first correction round. Judge
+   each `F` finding against the current artifacts and list the ids of those that are fixed in `resolved`. A finding that
+   persists, even partly or in other words, is not resolved and belongs in `findings` again. Find all issues afresh;
+   do not limit the analysis to the previous findings.
+5. Finish by calling `speckit_analysis` exactly once with the JSON report described in its input. An empty
    `findings` list means the folder is consistent.

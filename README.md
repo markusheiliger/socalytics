@@ -414,12 +414,16 @@ one. Before anyone is asked to review it:
     amendment branch. The `Spec Kit amendment` check run shows the result.
 2. CRITICAL, HIGH, or MEDIUM findings, or a broken amendment rule, start a
     correction round: the diagnose workflow fixes them on the same pull request,
-    and the analysis runs again, up to 3 rounds.
+    and the analysis runs again. Each finding gets an id (`F1`, `R1`, …), and
+    the next analysis reports which of them the round resolved. Rounds continue
+    while they make progress (at least one previous finding resolved); a round
+    without progress, including one whose push fails, counts against a budget
+    of 3, and 10 rounds are the limit in any case.
 3. A consistent amendment becomes ready for review, assigned to the person who
     requested the implementation, with a review request and a status and
     **How to proceed** section in its description. An amendment that is still
-    inconsistent after 3 rounds stays a draft with its findings, and you are
-    asked to review it as well.
+    inconsistent when the budget or the limit is reached stays a draft with its
+    findings, and you are asked to review it as well.
 
 Then you handle it like any pull request:
 
@@ -433,9 +437,10 @@ Then you handle it like any pull request:
 Approving does not start anything; merge when you are satisfied. Feedback that
 arrives while a rework or check runs is handled when it ends (the comment's job
 waits up to 20 minutes, the orchestrator handles it after that). A rework that
-cannot push, or a correction round that fails or pushes nothing, is reported on
-the amendment; such a correction round also hands the amendment to you as not
-consistent.
+cannot push is reported on the amendment. A correction round that fails or
+changes nothing (it judges the findings wrong), and the end of the correction
+budget, hand the amendment to you as not consistent; a rework after your
+feedback starts a fresh budget.
 Reviews reach the automation through a small forwarder job that runs from the
 pull request's merge ref, and merges and closes through a job that runs from the
 implementation branch, so both need the current `speckit-commands.yml` there.

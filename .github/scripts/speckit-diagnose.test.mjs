@@ -98,7 +98,7 @@ test('records the diagnosis with the amendment, questions, options, and next ste
     assert.ok(comment.body.startsWith(DIAGNOSIS_COMMENT_MARKER));
     assert.match(comment.body, /\*\*Diagnosis\*\*: the spec artifacts need an amendment \(`artifacts`, confidence high\)/);
     assert.match(comment.body, /&lt;!-- speckit-implement:resume -->/, 'agent text cannot carry workflow markers');
-    assert.match(comment.body, /\*\*Proposed amendment\*\*: #11[\s\S]*checks it for consistency first \(up to 3 correction rounds\)[\s\S]*`specs\/f\/research\.md`: refine R6/);
+    assert.match(comment.body, /\*\*Proposed amendment\*\*: #11[\s\S]*checks it for consistency first, and correction rounds fix what it finds while they make progress[\s\S]*`specs\/f\/research\.md`: refine R6/);
     assert.match(comment.body, /\*\*Questions\*\* \(answer with `\/speckit diagnose <answers>`\)[\s\S]*Keep the counter write\?\n {3}- Yes/);
     assert.match(comment.body, /Actions outside these commands[\s\S]*\*\*Recommended:\*\* Review and merge the amendment[\s\S]*Ask the platform team/);
     assert.match(comment.body, /\*\*Review the amendment #11\*\*: merge it to apply it[\s\S]*\/speckit resume Use one statement/);
@@ -113,7 +113,7 @@ test('records the diagnosis with the amendment, questions, options, and next ste
     assert.match(github.comments.find((item) => item.number === 11).body, /^<!-- speckit-amend:rework -->\n<!-- speckit-amend:cutoff \S+ -->\nThis amendment comes from the diagnosis on #9[\s\S]*handed to @dev for review/);
     const analysis = github.repo.checkRuns.at(-1);
     assert.deepEqual([analysis.name, analysis.head_sha, analysis.status, analysis.external_id], ['Spec Kit amendment', 'sha-amend', 'in_progress', 'speckit:amend-checking']);
-    assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-analyze.lock.yml', { twin: '5', pull: '9', folder: 'f', amendment: '11', round: '0', mode: 'loop', check_run: String(analysis.id) }]);
+    assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-analyze.lock.yml', { twin: '5', pull: '9', folder: 'f', amendment: '11', round: '0', stalls: '0', previous: '', mode: 'loop', check_run: String(analysis.id) }]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -161,9 +161,9 @@ test('collects the findings to fix and the feedback to address for a rework', as
   const dir = mkdtempSync(path.join(tmpdir(), 'speckit-evidence-'));
   try {
     const github = diagnosisRepo();
-    await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir, SPECKIT_MODE: 'fix', SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: '2', SPECKIT_NOTES: '- **HIGH** `plan.md` CI-R10: stale' }), log: silent });
+    await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir, SPECKIT_MODE: 'fix', SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: '2', SPECKIT_STALLS: '1', SPECKIT_NOTES: '- **HIGH** `plan.md` CI-R10: stale' }), log: silent });
     const fix = readFileSync(path.join(dir, 'evidence.md'), 'utf8');
-    assert.match(fix, /Mode: `fix` \(correction round 2 of 3\); amendment pull request #11 on `speckit-amend\/f`/);
+    assert.match(fix, /Mode: `fix` \(correction round 2; rounds without progress so far: 1 of 3\); amendment pull request #11 on `speckit-amend\/f`/);
     assert.match(fix, /## Findings of the consistency check to fix\n\n- \*\*HIGH\*\* `plan\.md` CI-R10: stale/);
     assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'context.json'), 'utf8')).amendmentPull, 11);
 
@@ -183,6 +183,42 @@ test('collects the findings to fix and the feedback to address for a rework', as
     await assert.rejects(() => runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir, SPECKIT_MODE: 'fix' }), log: silent }), /needs SPECKIT_AMENDMENT/);
     await assert.rejects(() => main(['nope'], { env: {}, client: github }), /Usage/);
     await assert.rejects(() => runEvidence({ client: github, env: { SPECKIT_TWIN: 'x' }, log: silent }), /SPECKIT_TWIN/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a correction round hands its findings to the next analysis, and a refused push retries until the budget is spent', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-fix-'));
+  try {
+    const github = diagnosisRepo();
+    const findings = JSON.stringify([{ id: 'F1', severity: 'HIGH', location: 'plan.md', summary: 'stale' }]);
+    const output = path.join(dir, 'agent_output.json');
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report: JSON.stringify({ summary: 'Fixed CI-R10.' }) }] }));
+    const fixEnv = (extra) => env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success', SPECKIT_MODE: 'fix', SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: '2', SPECKIT_STALLS: '1', SPECKIT_FINDINGS: findings, SPECKIT_NOTES: '- [F1] **HIGH** stale', ...extra });
+
+    const pushed = await github.createCheckRun({ name: 'Spec Kit amendment', head_sha: 'sha-amend', status: 'in_progress', external_id: 'speckit:amend-checking' });
+    assert.equal((await runRecord({ client: github, env: fixEnv({ SPECKIT_CHECK_RUN: String(pushed.id), SPECKIT_PUSH_SHA: 'sha-amend' }), log: silent })).outcome, 'checking');
+    assert.equal(github.repo.checkRuns.find((run) => run.id === pushed.id).output.title, 'Correction round 2 pushed');
+    const analysis = github.repo.runs.at(-1);
+    assert.deepEqual([analysis.workflow, analysis.inputs.mode, analysis.inputs.round, analysis.inputs.stalls, analysis.inputs.previous], ['speckit-analyze.lock.yml', 'loop', '2', '1', findings]);
+
+    writeFileSync(output, JSON.stringify({ items: [
+      { type: 'speckit_diagnosis', report: JSON.stringify({ summary: 'Fixed CI-R10.' }) },
+      { type: 'report_incomplete', reason: 'push refused' },
+    ] }));
+    const refused = await github.createCheckRun({ name: 'Spec Kit amendment', head_sha: 'sha-amend', status: 'in_progress', external_id: 'speckit:amend-checking' });
+    assert.equal((await runRecord({ client: github, env: fixEnv({ SPECKIT_CHECK_RUN: String(refused.id) }), log: silent })).outcome, 'push failed');
+    const retry = github.repo.runs.at(-1);
+    assert.deepEqual([retry.workflow, retry.inputs.mode, retry.inputs.round, retry.inputs.stalls, retry.inputs.findings, retry.inputs.notes], ['speckit-diagnose.lock.yml', 'fix', '3', '2', findings, '- [F1] **HIGH** stale']);
+    assert.match(github.comments.at(-1).body, /^\*\*Correction round 3\*\*: [\s\S]*Round 2 could not push its changes\. Rounds without progress so far: 2 of 3\./);
+    assert.deepEqual(github.repo.reviewRequests, []);
+
+    const spent = await github.createCheckRun({ name: 'Spec Kit amendment', head_sha: 'sha-amend', status: 'in_progress', external_id: 'speckit:amend-checking' });
+    const runs = github.repo.runs.length;
+    assert.equal((await runRecord({ client: github, env: fixEnv({ SPECKIT_CHECK_RUN: String(spent.id), SPECKIT_ROUND: '3', SPECKIT_STALLS: '2' }), log: silent })).outcome, 'push failed');
+    assert.equal(github.repo.runs.length, runs, 'the third round without progress ends the loop');
+    assert.match(github.comments.at(-1).body, /^\*\*Amendment #11 is not consistent\*\* \(correction round 3 could not push its changes\)/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -224,9 +260,9 @@ test('records a rework: replies to the feedback and checks the amendment again',
     assert.equal((await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: refusedOutput, SPECKIT_DETECTION: 'success', SPECKIT_MODE: 'revise', SPECKIT_AMENDMENT: '11', SPECKIT_CHECK_RUN: String(tool.id) }), log: silent })).outcome, 'push failed');
     assert.match(github.comments.at(-1).body, /could not push its changes[\s\S]*> The push was refused: push_to_pull_request_branch rejected: files outside allowed-files/);
     const empty = await github.createCheckRun({ name: 'Spec Kit amendment', head_sha: 'sha-amend', status: 'in_progress', external_id: 'speckit:amend-checking' });
-    assert.equal((await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success', SPECKIT_MODE: 'fix', SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: '1', SPECKIT_CHECK_RUN: String(empty.id) }), log: silent })).outcome, 'push failed');
-    assert.equal(github.repo.checkRuns.find((run) => run.id === empty.id).output.title, 'Correction round 1 could not push its changes');
-    assert.match(github.comments.at(-1).body, /^\*\*Amendment #11 is not consistent\*\* \(correction round 1 could not push its changes\)/, 'an empty correction round ends the loop');
+    assert.equal((await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success', SPECKIT_MODE: 'fix', SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: '1', SPECKIT_CHECK_RUN: String(empty.id) }), log: silent })).outcome, 'unchanged');
+    assert.equal(github.repo.checkRuns.find((run) => run.id === empty.id).output.title, 'Correction round 1 changed nothing');
+    assert.match(github.comments.at(-1).body, /^\*\*Amendment #11 is not consistent\*\* \(correction round 1 changed nothing\)/, 'an empty correction round ends the loop');
     assert.equal(github.repo.runs.length, runs, 'no further analysis');
     github.repo.reviewRequests = [];
 

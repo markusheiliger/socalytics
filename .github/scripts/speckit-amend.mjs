@@ -14,6 +14,7 @@ import {
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_STALE_MS,
   MAX_CORRECTION_ROUNDS,
+  MAX_STALLED_ROUNDS,
   ORCHESTRATE_WORKFLOW_FILE,
   amendmentBranch,
   folderOfBranch,
@@ -90,8 +91,9 @@ function runLink(env) {
 }
 
 // Starts the independent consistency analysis of the amendment's current head. `mode` is `loop` (findings lead to
-// correction rounds) or `check` (after a person's push: report only).
-export async function startAnalysis(client, env, { amendment, folder, implementation, twin }, { round, mode = 'loop' }) {
+// correction rounds) or `check` (after a person's push: report only). After a correction round, `previous` holds the
+// round's tracked findings and `stalls` the rounds without progress so far.
+export async function startAnalysis(client, env, { amendment, folder, implementation, twin }, { round, mode = 'loop', stalls = 0, previous = [] }) {
   const current = await client.getPullRequest(amendment.number);
   const check = await client.createCheckRun({
     name: AMEND_CHECK_NAME,
@@ -99,7 +101,7 @@ export async function startAnalysis(client, env, { amendment, folder, implementa
     status: 'in_progress',
     external_id: CHECK_AMEND_CHECKING,
     output: {
-      title: round === 0 || mode === 'check' ? 'Checking consistency' : `Checking consistency after correction round ${round} of ${MAX_CORRECTION_ROUNDS}`,
+      title: round === 0 || mode === 'check' ? 'Checking consistency' : `Checking consistency after correction round ${round}`,
       summary: 'An independent /speckit-analyze checks every artifact of the spec folder against the others and the constitution.',
     },
   });
@@ -110,6 +112,8 @@ export async function startAnalysis(client, env, { amendment, folder, implementa
       folder,
       amendment: String(amendment.number),
       round: String(round),
+      stalls: String(stalls),
+      previous: previous.length > 0 ? encodeTracked(previous) : '',
       mode,
       check_run: String(check.id),
     });
@@ -129,7 +133,7 @@ export async function startAnalysis(client, env, { amendment, folder, implementa
 // Starts a rework of the amendment: `revise` with a person's feedback (`feedback`, from pendingFeedback, handed to the
 // rework as notes), or `fix` with the findings of the consistency check. The pull request goes back to draft until it
 // is presented again.
-export async function startRework(client, env, context, { mode, round = 0, notes = '', feedback = null }) {
+export async function startRework(client, env, context, { mode, round = 0, notes = '', feedback = null, stalls = 0, findings = [], progress = null }) {
   const { amendment, folder, implementation, twin } = context;
   const current = await client.getPullRequest(amendment.number);
   if (!current.draft) await client.convertToDraft(current.node_id);
@@ -145,7 +149,7 @@ export async function startRework(client, env, context, { mode, round = 0, notes
     ].join('\n'));
   } else {
     await client.createComment(amendment.number, [
-      `**Correction round ${round} of ${MAX_CORRECTION_ROUNDS}**: the consistency check found inconsistencies; they are being fixed.`,
+      `**Correction round ${round}**: the consistency check found inconsistencies; they are being fixed.${progress ? ` ${progress}` : ''} Rounds without progress so far: ${stalls} of ${MAX_STALLED_ROUNDS}.`,
       '',
       '<details><summary>Findings</summary>',
       '',
@@ -159,7 +163,7 @@ export async function startRework(client, env, context, { mode, round = 0, notes
     head_sha: current.head.sha,
     status: 'in_progress',
     external_id: CHECK_AMEND_CHECKING,
-    output: { title: mode === 'revise' ? 'Rework in progress' : `Correction round ${round} of ${MAX_CORRECTION_ROUNDS} in progress`, summary: clip(notes, 2000) || 'Reworking the amendment.' },
+    output: { title: mode === 'revise' ? 'Rework in progress' : `Correction round ${round} in progress`, summary: clip(notes, 2000) || 'Reworking the amendment.' },
   });
   try {
     await client.dispatchWorkflow(DIAGNOSE_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', {
@@ -172,6 +176,8 @@ export async function startRework(client, env, context, { mode, round = 0, notes
       mode,
       amendment: String(amendment.number),
       round: String(round),
+      stalls: String(stalls),
+      findings: findings.length > 0 ? encodeTracked(findings) : '',
     });
     return { started: true, check };
   } catch (error) {
@@ -194,7 +200,7 @@ export async function beginAmendment(client, env, context) {
   await client.createComment(amendment.number, [
     AMEND_REWORK_MARKER,
     renderCutoff(amendment.created_at ?? new Date(0).toISOString()),
-    `This amendment comes from the diagnosis on #${implementation.number}. An independent \`/speckit-analyze\` now checks it for consistency (up to ${MAX_CORRECTION_ROUNDS} correction rounds); then it is handed to ${requester ? `@${requester}` : 'you'} for review.`,
+    `This amendment comes from the diagnosis on #${implementation.number}. An independent \`/speckit-analyze\` now checks it for consistency, and correction rounds fix what it finds while they make progress; then it is handed to ${requester ? `@${requester}` : 'you'} for review.`,
   ].join('\n'));
   const current = await client.getPullRequest(amendment.number);
   await client.updatePullRequest(amendment.number, {
@@ -277,13 +283,51 @@ export function validateAnalysis(raw) {
     }))
     .filter((item) => item.summary)
     .slice(0, 40);
-  return { reasons: [], analysis: { summary: text(report.summary, 1500), findings } };
+  const resolved = Array.isArray(report.resolved) ? [...new Set(report.resolved.map((id) => String(id).trim().toUpperCase()).filter((id) => /^F\d{1,3}$/.test(id)))] : [];
+  return { reasons: [], analysis: { summary: text(report.summary, 1500), findings, resolved } };
 }
 
-function renderFindings(findings, rules = []) {
+// The blocking findings and broken amendment rules of a round, with ids (F1…, R1…) so the next analysis can say which
+// of them the correction resolved. Carried between the workflows as compact JSON.
+export function trackFindings(blocking, rules = []) {
   return [
-    ...rules.map((reason) => `- **RULE**: ${reason}`),
-    ...findings.map((item) => `- **${item.severity}**${item.category ? ` (${neutralizeMarkers(item.category)})` : ''}${item.location ? ` \`${neutralizeMarkers(item.location)}\`` : ''}: ${neutralizeMarkers(item.summary)}${item.recommendation ? ` — ${neutralizeMarkers(item.recommendation)}` : ''}`),
+    ...rules.map((reason, index) => ({ id: `R${index + 1}`, severity: 'RULE', summary: clip(reason, 400) })),
+    ...blocking.map((item, index) => ({ id: `F${index + 1}`, severity: item.severity, location: clip(item.location ?? '', 200), summary: clip(item.summary, 600) })),
+  ];
+}
+
+export function encodeTracked(tracked) {
+  const items = [...tracked];
+  let json = JSON.stringify(items);
+  while (json.length > 12_000 && items.length > 1) {
+    items.pop();
+    json = JSON.stringify(items);
+  }
+  return json;
+}
+
+export function decodeTracked(raw) {
+  try {
+    const items = JSON.parse(String(raw ?? '').trim() || '[]');
+    return Array.isArray(items) ? items.filter((item) => item && typeof item.id === 'string' && typeof item.summary === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+// Progress of a correction round: the analysis resolved one of the previous round's blocking findings, or a broken
+// amendment rule of the previous round holds again.
+export function correctionProgress(previous, analysis, rules) {
+  const ids = new Set(previous.filter((item) => item.id.startsWith('F')).map((item) => item.id));
+  const resolved = (analysis?.resolved ?? []).filter((id) => ids.has(id));
+  const fixedRules = previous.filter((item) => item.id.startsWith('R') && !rules.some((reason) => clip(reason, 400) === item.summary));
+  return { progress: resolved.length + fixedRules.length > 0, resolved: [...resolved, ...fixedRules.map((item) => item.id)] };
+}
+
+function renderFindings(findings, rules = [], { ids = false } = {}) {
+  return [
+    ...rules.map((reason, index) => `- ${ids ? `[R${index + 1}] ` : ''}**RULE**: ${reason}`),
+    ...findings.map((item) => `- ${item.id ? `[${item.id}] ` : ''}**${item.severity}**${item.category ? ` (${neutralizeMarkers(item.category)})` : ''}${item.location ? ` \`${neutralizeMarkers(item.location)}\`` : ''}: ${neutralizeMarkers(item.summary)}${item.recommendation ? ` — ${neutralizeMarkers(item.recommendation)}` : ''}`),
   ].join('\n');
 }
 
@@ -310,7 +354,7 @@ export async function presentAmendment(client, env, context, { consistent, analy
   const blocking = findings.filter((item) => BLOCKING.has(item.severity));
   const status = consistent
     ? `✅ **Consistent**: an independent \`/speckit-analyze\` of \`specs/${folder}/\` found no CRITICAL, HIGH, or MEDIUM inconsistencies${findings.length > 0 ? ` (${findings.length} LOW finding(s), listed in the comments)` : ''}.`
-    : `⚠️ **Not consistent**: ${problem ?? `${blocking.length + rules.length} inconsistency(ies) remain after ${MAX_CORRECTION_ROUNDS} correction rounds`}. Review the findings in the comments; merging is possible but not recommended.`;
+    : `⚠️ **Not consistent**: ${problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`}. Review the findings in the comments; merging is possible but not recommended.`;
   await client.updatePullRequest(amendment.number, { body: setAmendmentStatus(current.body, [status, '', ...renderAmendmentHowTo(implementation.number)]) });
   await client.createComment(amendment.number, [
     AMEND_PRESENTED_MARKER,
@@ -323,7 +367,7 @@ export async function presentAmendment(client, env, context, { consistent, analy
   ].join('\n'));
   await client.createComment(implementation.number, consistent
     ? `**Amendment #${amendment.number} is ready for your review**: it is consistent. Merge it to apply it (the implementation then continues), comment or request changes there to have it reworked, or close it to discard it.`
-    : `**Amendment #${amendment.number} is not consistent** (${problem ?? `after ${MAX_CORRECTION_ROUNDS} correction rounds`}). Review its findings there: comment or request changes to have it reworked, or close it.`);
+    : `**Amendment #${amendment.number} is not consistent** (${problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`}). Review its findings there: comment or request changes to have it reworked, or close it.`);
   return { consistent, requester };
 }
 
@@ -383,22 +427,39 @@ export async function runRecordAnalysis({ client, env, log }) {
     await presentAmendment(client, env, context, { consistent: false, rules, problem: reasons.join('; '), since: pending.since });
     return { exitCode: 0, outcome: 'no analysis' };
   }
-  if (!consistent && mode === 'loop' && round < MAX_CORRECTION_ROUNDS) {
-    await complete('neutral', `${blocking.length + rules.length} inconsistency(ies) found; correction round ${round + 1} of ${MAX_CORRECTION_ROUNDS} follows`, findingsText);
-    await startRework(client, env, context, { mode: 'fix', round: round + 1, notes: renderFindings(blocking, rules) });
-    log(`Amendment #${number}: ${blocking.length + rules.length} inconsistency(ies); started correction round ${round + 1}.`);
-    return { exitCode: 0, outcome: 'correcting' };
+  // After a correction round, only a round without progress counts against the budget.
+  const previous = decodeTracked(env.SPECKIT_PREVIOUS);
+  let stalls = Math.max(0, Number(env.SPECKIT_STALLS) || 0);
+  let progressNote = null;
+  if (mode === 'loop' && round > 0) {
+    const { progress, resolved } = correctionProgress(previous, analysis, rules);
+    if (!progress) stalls += 1;
+    progressNote = progress ? `Round ${round} resolved ${resolved.join(', ')}.` : `Round ${round} resolved none of the previous findings.`;
   }
-  await complete(consistent ? 'success' : 'failure', consistent ? 'Consistent' : `${blocking.length + rules.length} inconsistency(ies) remain`, findingsText || analysis.summary || 'No findings.');
+  const remaining = blocking.length + rules.length;
+  const tracked = trackFindings(blocking, rules);
+  const trackedBlocking = blocking.map((item, index) => ({ ...item, id: `F${index + 1}` }));
+  if (!consistent && mode === 'loop' && stalls < MAX_STALLED_ROUNDS && round < MAX_CORRECTION_ROUNDS) {
+    await complete('neutral', `${remaining} inconsistency(ies) found; correction round ${round + 1} follows`, [progressNote, renderFindings(trackedBlocking.concat(analysis.findings.filter((item) => !BLOCKING.has(item.severity))), rules, { ids: true })].filter(Boolean).join('\n\n'));
+    await startRework(client, env, context, { mode: 'fix', round: round + 1, notes: renderFindings(trackedBlocking, rules, { ids: true }), stalls, findings: tracked, progress: progressNote });
+    log(`Amendment #${number}: ${remaining} inconsistency(ies); started correction round ${round + 1} (${stalls} without progress).`);
+    return { exitCode: 0, outcome: 'correcting', stalls };
+  }
+  await complete(consistent ? 'success' : 'failure', consistent ? 'Consistent' : `${remaining} inconsistency(ies) remain`, [progressNote, findingsText || analysis.summary || 'No findings.'].filter(Boolean).join('\n\n'));
   const pending = await pendingFeedback(client, context.amendment);
   if (pending.items.length > 0) {
     await startRework(client, env, context, { mode: 'revise', feedback: pending });
     log(`Amendment #${number}: feedback arrived during the check; started a rework.`);
     return { exitCode: 0, outcome: 'rework' };
   }
-  await presentAmendment(client, env, context, { consistent, analysis, rules, since: pending.since });
+  const problem = consistent || mode !== 'loop'
+    ? null
+    : stalls >= MAX_STALLED_ROUNDS
+      ? `${remaining} inconsistency(ies) remain; ${stalls} of ${round} correction round(s) made no progress`
+      : `${remaining} inconsistency(ies) remain after the limit of ${MAX_CORRECTION_ROUNDS} correction rounds`;
+  await presentAmendment(client, env, context, { consistent, analysis, rules, problem, since: pending.since });
   log(`Amendment #${number}: presented (${consistent ? 'consistent' : 'not consistent'}).`);
-  return { exitCode: 0, outcome: consistent ? 'consistent' : 'inconsistent' };
+  return { exitCode: 0, outcome: consistent ? 'consistent' : 'inconsistent', stalls };
 }
 
 // Whether a consistency check or rework of the amendment is running: a diagnose or analyze run of the twin is active
@@ -527,7 +588,7 @@ export async function runClosed({ client, env, log }) {
 export async function runPushed({ client, env, log }) {
   const context = await resolveAmendment(client, env, Number(env.SPECKIT_PULL));
   if (context.reason || context.amendment.state !== 'open') return { exitCode: 0, outcome: 'ignored' };
-  await startAnalysis(client, env, context, { round: MAX_CORRECTION_ROUNDS, mode: 'check' });
+  await startAnalysis(client, env, context, { round: 0, mode: 'check' });
   log(`Amendment #${context.amendment.number}: checking the pushed changes.`);
   return { exitCode: 0, outcome: 'checking' };
 }
@@ -560,7 +621,7 @@ export async function maintainAmendment(client, env, { folder, implementation, t
     return { outcome: 'rework' };
   }
   if (!state.stale && !state.latest) {
-    await startAnalysis(client, env, context, { round: MAX_CORRECTION_ROUNDS, mode: 'check' });
+    await startAnalysis(client, env, context, { round: 0, mode: 'check' });
     report(`- Checking the changes pushed to amendment #${latest.number}.`);
     return { outcome: 'checking' };
   }
