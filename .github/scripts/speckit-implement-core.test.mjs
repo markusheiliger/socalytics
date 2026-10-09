@@ -235,6 +235,9 @@ test('renders the next steps a person can take', () => {
   assert.ok(diagnosed.indexOf('/speckit resume Use the helper') < diagnosed.indexOf('/speckit apply'));
   assert.match(diagnosed, /amendment #7[\s\S]*\/speckit revise <notes>[\s\S]*\/speckit discard[\s\S]*Diagnose again/);
   assert.doesNotMatch(diagnosed, /\/speckit resume \[guidance\]/, 'an option already covers resume');
+  const recommendedApply = renderNextSteps({ options: [{ title: 'Apply it', command: '/speckit apply' }], amendmentPull: 7, diagnosed: true }).join('\n');
+  assert.equal(recommendedApply.match(/\/speckit apply/g).length, 1, 'an option that applies is not repeated');
+  assert.match(recommendedApply, /\/speckit discard/);
 });
 
 test('carries guidance through a marker, and validates amendments', () => {

@@ -578,12 +578,13 @@ export function renderNextSteps({ options = null, amendmentPull = null, behindMa
   for (const option of options ?? []) {
     if (option.command) entries.push(commandEntry(option.title, option.command));
   }
-  if (amendmentPull) {
-    entries.push(commandEntry(`Apply the proposed amendment #${amendmentPull} and continue the implementation`, '/speckit apply'));
-    entries.push(commandEntry('Ask for a different amendment (add your notes or answers)', '/speckit revise <notes>'));
-    entries.push(commandEntry(`Close the proposed amendment #${amendmentPull}`, '/speckit discard'));
-  }
+  // Commands an option already suggests are not repeated.
   const used = new Set((options ?? []).map((option) => String(option.command ?? '').split(/\s+/)[1]));
+  if (amendmentPull) {
+    if (!used.has('apply')) entries.push(commandEntry(`Apply the proposed amendment #${amendmentPull} and continue the implementation`, '/speckit apply'));
+    if (!used.has('revise')) entries.push(commandEntry('Ask for a different amendment (add your notes or answers)', '/speckit revise <notes>'));
+    if (!used.has('discard')) entries.push(commandEntry(`Close the proposed amendment #${amendmentPull}`, '/speckit discard'));
+  }
   if (!autoDiagnosis && !used.has('diagnose') && !used.has('revise')) {
     entries.push(commandEntry(diagnosed ? 'Diagnose again, optionally with your notes' : 'Diagnose why the implementation stopped (notes steer the analysis)', '/speckit diagnose [notes]'));
   }
