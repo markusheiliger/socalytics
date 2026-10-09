@@ -250,6 +250,24 @@ export async function findAmendment(client, folder) {
   return pulls.find((pull) => pull.state === 'open' && pull.base?.ref === implementationBranch(folder)) ?? null;
 }
 
+// Whether the diagnose run tracked by a still-open diagnosis check run has ended without reporting (agent failure,
+// cancellation, crash): a run for the twin started after the check run exists, and all such runs are completed.
+export async function diagnosisRunEnded(client, twin, check) {
+  const since = check?.started_at ?? check?.created_at;
+  if (!since) return false;
+  const runs = (await client.listWorkflowRuns(DIAGNOSE_WORKFLOW_FILE, since, 1)).filter((run) => run.display_title === `Spec Kit diagnose #${twin}`);
+  return runs.length > 0 && runs.every((run) => run.status === 'completed');
+}
+
+export async function closeUnfinishedDiagnosis(client, check) {
+  await client.updateCheckRun(check.id, {
+    status: 'completed',
+    conclusion: 'failure',
+    external_id: CHECK_DIAGNOSED,
+    output: { title: 'Diagnosis did not finish', summary: 'The diagnose run ended without a report, or did not report within an hour.' },
+  });
+}
+
 // The amendment pull request this diagnosis run created (SPECKIT_CREATED_PULL). One that targets another spec, which
 // only a misled agent would create, is closed and its branch deleted.
 async function createdAmendment(client, env, folder, reasons) {

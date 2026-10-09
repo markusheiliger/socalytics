@@ -51,6 +51,12 @@ test('diagnose and revise start a diagnosis, unless one is running', async () =>
 
   assert.equal((await run(github, '/speckit diagnose')).outcome, 'already running');
 
+  // The diagnose run ended without reporting (for example the agent failed): a new diagnosis may start.
+  const unfinished = github.repo.checkRuns.at(-1);
+  github.repo.runs.push({ id: 900, workflow: 'speckit-diagnose.lock.yml', display_title: 'Spec Kit diagnose #5', status: 'completed', conclusion: 'failure', created_at: github.tick() });
+  assert.equal((await run(github, '/speckit diagnose')).outcome, 'started');
+  assert.deepEqual([unfinished.status, unfinished.conclusion, unfinished.output.title], ['completed', 'failure', 'Diagnosis did not finish']);
+
   Object.assign(github.repo.checkRuns.at(-1), { status: 'completed', external_id: CHECK_DIAGNOSED });
   await github.createComment(9, `${DIAGNOSIS_COMMENT_MARKER}\n**Diagnosis**: …`);
   const previous = github.comments.at(-1).id;

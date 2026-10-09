@@ -18,9 +18,10 @@ import {
 } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
-import { startDiagnosis } from './speckit-diagnose.mjs';
+import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
 import {
   CHECK_DIAGNOSED,
+  CHECK_DIAGNOSING,
   CHECK_LIMIT,
   CHECK_MERGE,
   CHECK_PROGRESS,
@@ -244,7 +245,15 @@ async function decideForPull(client, { twin, folder, pullNumber, resume, now, ma
       .filter((run) => run.twin === twin);
   }
   // Only a resume requested through this run (a manual run with `twin`) is announced; a command already commented.
-  return { ...decideContinuation({ tasksMarkdown, checks, runs, windowStart, done, resume, resumedAt: latestResume, now, maxParallel }), pull, announce: resume };
+  const decision = decideContinuation({ tasksMarkdown, checks, runs, windowStart, done, resume, resumedAt: latestResume, now, maxParallel });
+  if (decision.action === 'diagnosing') {
+    const check = latestCheckRun(checks);
+    if (await diagnosisRunEnded(client, twin, check)) {
+      const count = checks.filter((item) => [CHECK_DIAGNOSING, CHECK_DIAGNOSED].includes(item.external_id)).length;
+      return { action: 'failed', diagnosis: { state: 'stale', check, count }, pull, announce: resume };
+    }
+  }
+  return { ...decision, pull, announce: resume };
 }
 
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -317,17 +326,22 @@ async function stopAtLimit(client, env, twin, decision) {
 }
 
 // Starts a diagnosis of a stopped implementation by itself, unless automatic diagnosis is off, a diagnosis already
-// reported for this stop, or the head already had the maximum number of diagnoses.
+// reported for this stop, or the head already had the maximum number of diagnoses. A diagnosis that ended without a
+// report is closed with a comment first, so it never blocks the implementation.
 async function maybeDiagnose(client, env, twin, { head, diagnosis }, report) {
-  if (!autoDiagnosisEnabled(env) || diagnosis.state === 'reported' || diagnosis.count >= MAX_AUTO_DIAGNOSES) return false;
+  const allowed = autoDiagnosisEnabled(env) && diagnosis.count < MAX_AUTO_DIAGNOSES;
   if (diagnosis.state === 'stale') {
-    await client.updateCheckRun(diagnosis.check.id, {
-      status: 'completed',
-      conclusion: 'failure',
-      external_id: CHECK_DIAGNOSED,
-      output: { title: 'Diagnosis did not finish', summary: 'The diagnosis did not report within an hour.' },
-    });
+    await closeUnfinishedDiagnosis(client, diagnosis.check);
+    const runs = `${contextFromEnv(env).serverUrl}/${env.GITHUB_REPOSITORY}/actions/workflows/speckit-diagnose.lock.yml`;
+    await client.createComment(twin.pull, [
+      `**The diagnosis did not finish** (see the [diagnose runs](${runs})).`,
+      '',
+      ...(allowed ? ['A new diagnosis starts automatically.'] : renderNextSteps({ diagnosed: true, behindMain: await isBehindDefaultBranch(client, env, twin.folder) })),
+    ].join('\n'));
+    report.line(`- Closed the unfinished diagnosis of #${twin.number}.`);
+    if (!allowed) return true;
   }
+  if (!allowed || diagnosis.state === 'reported') return diagnosis.state === 'stale';
   const started = await startDiagnosis(client, env, { twin: twin.number, pull: twin.pull, folder: twin.folder, head, auto: true });
   report.line(started.started
     ? `- Started a diagnosis of #${twin.number} (pull request #${twin.pull}).`

@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { canWrite } from './speckit-prepare.mjs';
-import { checkAmendment, findAmendment, startDiagnosis } from './speckit-diagnose.mjs';
+import { checkAmendment, closeUnfinishedDiagnosis, diagnosisRunEnded, findAmendment, startDiagnosis } from './speckit-diagnose.mjs';
 import {
   BOT_LOGIN,
   CHECK_DIAGNOSING,
@@ -122,9 +122,13 @@ export async function runCommand({ client, env, log, now = Date.now }) {
 async function handleDiagnose({ client, env, actor, number, argument, now, folder, implementation, twin }, { revise = false } = {}) {
   const checks = await client.listCheckRuns(implementation.head.sha, CHECK_RUN_NAME);
   const latest = latestCheckRun(checks);
-  if (latest?.external_id === CHECK_DIAGNOSING && latest.status !== 'completed' && now() - Date.parse(latest.started_at ?? latest.created_at ?? 0) < DIAGNOSIS_STALE_MS) {
-    await reply(client, number, 'A diagnosis is already running; its findings will be posted on the implementation pull request.');
-    return { outcome: 'already running' };
+  if (latest?.external_id === CHECK_DIAGNOSING && latest.status !== 'completed') {
+    const fresh = now() - Date.parse(latest.started_at ?? latest.created_at ?? 0) < DIAGNOSIS_STALE_MS;
+    if (fresh && !(await diagnosisRunEnded(client, twin, latest))) {
+      await reply(client, number, 'A diagnosis is already running; its findings will be posted on the implementation pull request.');
+      return { outcome: 'already running' };
+    }
+    await closeUnfinishedDiagnosis(client, latest);
   }
   const comments = await client.listIssueComments(implementation.number);
   const previous = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).at(-1);

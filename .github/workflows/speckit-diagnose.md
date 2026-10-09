@@ -1,4 +1,5 @@
 ---
+name: Spec Kit diagnose
 description: >-
   Diagnoses why a Spec Kit implementation stopped and proposes how to continue. Started by the orchestrator when an
   implementation stops for a person, or by a `/speckit diagnose` or `/speckit revise` comment (Spec Kit commands).
@@ -47,9 +48,6 @@ permissions:
   copilot-requests: write
 engine: copilot
 timeout-minutes: 30
-checkout:
-  ref: speckit/${{ inputs.folder }}
-  fetch-depth: 0
 network:
   allowed:
     - defaults
@@ -62,6 +60,14 @@ tools:
   github:
     toolsets: [default, actions]
 steps:
+  # Custom steps replace gh-aw's default checkout: the workspace is the implementation branch, from which an
+  # amendment pull request is generated.
+  - name: Check out the implementation branch
+    uses: actions/checkout@v5
+    with:
+      ref: speckit/${{ inputs.folder }}
+      fetch-depth: 0
+      persist-credentials: false
   # The trusted tooling comes from the default branch; the implementation branch may carry older copies.
   - name: Check out the Spec Kit tooling
     uses: actions/checkout@v5

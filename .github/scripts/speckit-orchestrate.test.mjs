@@ -424,10 +424,29 @@ test('orchestrate waits, retries, stops at the attempt limit, and resumes on req
     assert.equal(github.repo.runs.length, 4, 'a stopped implementation waits for the diagnosis');
     assert.match(waiting.text, /a diagnosis is running/);
 
-    Object.assign(diagnosing, { status: 'completed', conclusion: 'neutral', external_id: 'speckit:diagnosed' });
+    // The diagnose run ends without a report: the check run is closed, a comment says so, and a second diagnosis
+    // starts (the cap is two per head); when that one ends too, the comment offers the commands instead.
+    const firstRun = github.repo.runs.at(-1);
+    Object.assign(firstRun, { display_title: `Spec Kit diagnose #${twin.number}`, status: 'completed', conclusion: 'failure' });
+    const retried = await orchestrate(github, root);
+    assert.match(retried.text, /Closed the unfinished diagnosis[\s\S]*Started a diagnosis/);
+    assert.deepEqual([diagnosing.status, diagnosing.conclusion, diagnosing.output.title], ['completed', 'failure', 'Diagnosis did not finish']);
+    assert.match(github.comments.at(-1).body, /\*\*The diagnosis did not finish\*\*[\s\S]*A new diagnosis starts automatically/);
+    const second = github.repo.checkRuns.at(-1);
+    Object.assign(github.repo.runs.at(-1), { display_title: `Spec Kit diagnose #${twin.number}`, status: 'completed', conclusion: 'failure' });
+    await orchestrate(github, root);
+    assert.equal(second.output.title, 'Diagnosis did not finish');
+    assert.match(github.comments.at(-1).body, /\*\*The diagnosis did not finish\*\*[\s\S]*\/speckit diagnose \[notes\]/);
+    const runsAfterCap = github.repo.runs.length;
+    await orchestrate(github, root);
+    assert.equal(github.repo.runs.length, runsAfterCap, 'no third automatic diagnosis');
+
+    const diagnosed = { ...second };
+    Object.assign(second, { external_id: 'speckit:diagnosed', conclusion: 'neutral' });
     const decided = await orchestrate(github, root);
-    assert.equal(github.repo.runs.length, 4, 'a reported diagnosis waits for a person');
+    assert.equal(github.repo.runs.length, runsAfterCap, 'a reported diagnosis waits for a person');
     assert.match(decided.text, /waits for a person's decision/);
+    assert.ok(diagnosed);
 
     await orchestrate(github, root, { SPECKIT_RESUME_TWIN: String(twin.number), SPECKIT_RESUME_GUIDANCE: 'Use the existing helper.\nKeep the test.' });
     assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 1`);
