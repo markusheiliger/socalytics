@@ -138,6 +138,8 @@ safe-outputs:
   push-to-pull-request-branch:
     # Only the amendment pull request of this run; in diagnose mode there is none, so nothing can be pushed.
     target: ${{ inputs.amendment }}
+    # The amendment's base: the allowed-files check covers the commits since it (the amendment's own), not since main.
+    base-branch: speckit/${{ inputs.folder }}
     required-title-prefix: "Amend: "
     allowed-files: ["specs/**"]
     fallback-as-pull-request: false

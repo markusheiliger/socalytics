@@ -214,6 +214,22 @@ test('records a rework: replies to the feedback and checks the amendment again',
     assert.match(github.comments.at(-1).body, /^The rework could not push its changes to this pull request, so nothing changed\./);
     assert.equal(github.repo.runs.length, runs, 'no check of unchanged files');
 
+    // The safe-output tool refused the push (the agent reports it as incomplete), or a correction round pushed nothing.
+    const refusedOutput = path.join(dir, 'refused.json');
+    writeFileSync(refusedOutput, JSON.stringify({ items: [
+      { type: 'speckit_diagnosis', report: JSON.stringify({ summary: 'Reworded CI-R10.' }) },
+      { type: 'report_incomplete', reason: 'push_to_pull_request_branch rejected: files outside allowed-files' },
+    ] }));
+    const tool = await github.createCheckRun({ name: 'Spec Kit amendment', head_sha: 'sha-amend', status: 'in_progress', external_id: 'speckit:amend-checking' });
+    assert.equal((await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: refusedOutput, SPECKIT_DETECTION: 'success', SPECKIT_MODE: 'revise', SPECKIT_AMENDMENT: '11', SPECKIT_CHECK_RUN: String(tool.id) }), log: silent })).outcome, 'push failed');
+    assert.match(github.comments.at(-1).body, /could not push its changes[\s\S]*> The push was refused: push_to_pull_request_branch rejected: files outside allowed-files/);
+    const empty = await github.createCheckRun({ name: 'Spec Kit amendment', head_sha: 'sha-amend', status: 'in_progress', external_id: 'speckit:amend-checking' });
+    assert.equal((await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success', SPECKIT_MODE: 'fix', SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: '1', SPECKIT_CHECK_RUN: String(empty.id) }), log: silent })).outcome, 'push failed');
+    assert.equal(github.repo.checkRuns.find((run) => run.id === empty.id).output.title, 'Correction round 1 could not push its changes');
+    assert.match(github.comments.at(-1).body, /^\*\*Amendment #11 is not consistent\*\* \(correction round 1 could not push its changes\)/, 'an empty correction round ends the loop');
+    assert.equal(github.repo.runs.length, runs, 'no further analysis');
+    github.repo.reviewRequests = [];
+
     const failing = await github.createCheckRun({ name: 'Spec Kit amendment', head_sha: 'sha-amend', status: 'in_progress', external_id: 'speckit:amend-checking' });
     const fixed = await runRecord({ client: github, env: env({ SPECKIT_DETECTION: 'success', SPECKIT_MODE: 'fix', SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: '2', SPECKIT_CHECK_RUN: String(failing.id) }), log: silent });
     assert.equal(fixed.outcome, 'failed');

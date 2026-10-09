@@ -433,8 +433,9 @@ Then you handle it like any pull request:
 Approving does not start anything; merge when you are satisfied. Feedback that
 arrives while a rework or check runs is handled when it ends (the comment's job
 waits up to 20 minutes, the orchestrator handles it after that). A rework that
-cannot push, or a correction round that fails, is reported on the amendment;
-a failed correction round also hands the amendment to you as not consistent.
+cannot push, or a correction round that fails or pushes nothing, is reported on
+the amendment; such a correction round also hands the amendment to you as not
+consistent.
 Reviews reach the automation through a small forwarder job that runs from the
 pull request's merge ref, and merges and closes through a job that runs from the
 implementation branch, so both need the current `speckit-commands.yml` there.

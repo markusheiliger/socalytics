@@ -250,15 +250,19 @@ export function validateReport(raw, { requireCategory = true } = {}) {
   return { reasons, report: normalized };
 }
 
-function readAgentReports(env) {
+function readAgentItems(env, type) {
   const file = env.GH_AW_AGENT_OUTPUT;
   if (!file || !existsSync(file)) return [];
   try {
     const output = JSON.parse(readFileSync(file, 'utf8'));
-    return (output.items ?? []).filter((item) => item.type === 'speckit_diagnosis').map((item) => item.report ?? item);
+    return (output.items ?? []).filter((item) => item.type === type);
   } catch {
     return [];
   }
+}
+
+function readAgentReports(env) {
+  return readAgentItems(env, 'speckit_diagnosis').map((item) => item.report ?? item);
 }
 
 // Whether the diagnose run tracked by a still-open diagnosis check run has ended without reporting (agent failure,
@@ -441,14 +445,23 @@ async function recordRework({ client, env, log, inputs }) {
     return { exitCode: 0, outcome: 'failed' };
   }
   const pushFailures = Number(env.SPECKIT_PUSH_FAILURES || 0);
-  if (pushFailures > 0) {
+  const pushed = String(env.SPECKIT_PUSH_SHA ?? '').trim();
+  // A push the safe-output tool refused never reaches the push job; the agent reports it as incomplete instead.
+  const incomplete = readAgentItems(env, 'report_incomplete').map((item) => String(item.reason ?? '').trim()).filter(Boolean);
+  if (pushFailures > 0 || (!pushed && incomplete.length > 0) || (!pushed && mode === 'fix')) {
     const what = mode === 'fix' ? `Correction round ${round}` : 'The rework';
-    await complete('failure', `${what} could not push its changes`, `${pushFailures} push(es) to \`${context.amendment.head.ref}\` failed.`);
-    await client.createComment(number, `${what} could not push its changes to this pull request, so nothing changed. Comment on this pull request to try again.`);
+    const why = pushFailures > 0
+      ? `${pushFailures} push(es) to \`${context.amendment.head.ref}\` failed.`
+      : incomplete.length > 0 ? `The push was refused: ${incomplete.join('; ')}` : 'It pushed no changes.';
+    await complete('failure', `${what} could not push its changes`, why);
+    await client.createComment(number, [
+      `${what} could not push its changes to this pull request, so nothing changed. Comment on this pull request to try again.`,
+      '',
+      `> ${neutralizeMarkers(clip(why, 1500)).replace(/\n/g, '\n> ')}`,
+    ].join('\n'));
     await handBack(`correction round ${round} could not push its changes`);
     return { exitCode: 0, outcome: 'push failed' };
   }
-  const pushed = String(env.SPECKIT_PUSH_SHA ?? '').trim();
   if (pushed && context.amendment.head.sha !== pushed) log(`Amendment #${number}: the head ${context.amendment.head.sha} is not the pushed ${pushed}; a person pushed as well.`);
   const changed = pushed ? 'pushed' : 'finished without changes';
   await complete('neutral', mode === 'fix' ? `Correction round ${round} of ${MAX_CORRECTION_ROUNDS} ${changed}` : `Rework ${changed}`, report.summary);
