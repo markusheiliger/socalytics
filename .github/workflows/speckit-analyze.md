@@ -79,6 +79,8 @@ steps:
     uses: actions/checkout@v5
     with:
       ref: speckit-amend/${{ inputs.folder }}
+      # Full history with all branches, so the agent can diff the amendment against origin/speckit/<folder>.
+      fetch-depth: 0
       persist-credentials: false
   # The trusted Spec Kit skill and scripts come from the default branch.
   - name: Check out the Spec Kit tooling
