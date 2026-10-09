@@ -11,7 +11,7 @@ name: Spec Kit orchestrate
 # GitHub raises no workflow_run event for runs this workflow started. Each step gets at most three failed attempts;
 # then the person who requested the implementation is asked, and a diagnosis (Spec Kit diagnose) starts unless the
 # repository variable SPECKIT_AUTO_DIAGNOSE is false. A push by a person to an implementation branch, or a
-# `/speckit resume`, `/speckit sync`, or `/speckit apply` comment (Spec Kit commands), continues the implementation
+# `/speckit resume` or `/speckit sync` comment (Spec Kit commands), or merging an amendment pull request, continues the implementation
 # with a new attempt count. Implementation pull requests closed without merging send their twin back to its
 # computed stage.
 on:

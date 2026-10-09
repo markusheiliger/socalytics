@@ -37,6 +37,19 @@ export const MAX_AUTO_DIAGNOSES = 2;
 export const DIAGNOSE_WORKFLOW_FILE = 'speckit-diagnose.lock.yml';
 export const AMEND_BRANCH_PREFIX = 'speckit-amend/';
 export const DIAGNOSIS_COMMENT_MARKER = '<!-- speckit-implement:diagnosis -->';
+// Amendment pull requests: the check that tracks consistency, the markers of a rework and of a presentation (both
+// end the window of feedback that is already handled), and the status block in the description.
+export const AMEND_CHECK_NAME = 'Spec Kit amendment';
+export const CHECK_AMEND_CHECKING = 'speckit:amend-checking';
+export const CHECK_AMEND_CONSISTENT = 'speckit:amend-consistent';
+export const CHECK_AMEND_INCONSISTENT = 'speckit:amend-inconsistent';
+export const AMEND_REWORK_MARKER = '<!-- speckit-amend:rework -->';
+export const AMEND_PRESENTED_MARKER = '<!-- speckit-amend:presented -->';
+export const AMEND_STATUS_START = '<!-- speckit-amend:status -->';
+export const AMEND_STATUS_END = '<!-- /speckit-amend:status -->';
+// Correction rounds (analyze, then fix) before an amendment is handed to a person as still inconsistent.
+export const MAX_CORRECTION_ROUNDS = 3;
+export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
 // Paths the agent must never change; specs/<folder>/tasks.md may only receive the target task's tick.
 export const PROTECTED_PREFIXES = ['.github/', '.specify/', 'specs/'];
@@ -554,12 +567,10 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
   return result.length > GITHUB_BODY_LIMIT ? syncPullRequestTicks(text, tasksMarkdown) : result;
 }
 
-// The commands a person can comment on an implementation (or amendment) pull request.
+// The commands a person can comment on an implementation pull request. An amendment pull request needs none: merging
+// it applies the amendment, closing it discards it, and a comment or review asks for a rework.
 export const PR_COMMANDS = [
-  { name: 'diagnose', usage: '/speckit diagnose [notes]', help: 'diagnose why the implementation stopped; notes steer the analysis' },
-  { name: 'revise', usage: '/speckit revise <notes or answers>', help: 'diagnose again with your notes or answers to the open questions' },
-  { name: 'apply', usage: '/speckit apply', help: 'apply the proposed amendment of the spec artifacts and continue the implementation' },
-  { name: 'discard', usage: '/speckit discard', help: 'close the proposed amendment' },
+  { name: 'diagnose', usage: '/speckit diagnose [notes]', help: 'diagnose why the implementation stopped; notes steer the analysis or answer its questions' },
   { name: 'resume', usage: '/speckit resume [guidance]', help: 'retry the stopped step with a fresh attempt count; guidance goes into the next attempt\'s prompt' },
   { name: 'sync', usage: '/speckit sync', help: 'merge the default branch into the implementation branch and retry' },
   { name: 'help', usage: '/speckit help', help: 'list these commands' },
@@ -567,12 +578,43 @@ export const PR_COMMANDS = [
 
 const commandEntry = (text, command) => [`1. ${text}:`, '', '   ```text', `   ${command}`, '   ```'];
 
+// How a person handles an amendment pull request; shown in its description and referenced from the implementation.
+export function renderAmendmentHowTo(implementationPull) {
+  return [
+    '**How to proceed** (people with write access):',
+    '',
+    `- **Merge** this pull request to apply the amendment. It merges into the implementation branch, and the implementation continues on #${implementationPull} with a fresh attempt count, starting with the next unchecked task.`,
+    '- **Comment**, or **submit a review** with *Comment* or *Request changes* (line comments included), to have the amendment reworked with your feedback. It returns here, checked again, for your review.',
+    `- **Close** this pull request without merging to discard the amendment; #${implementationPull} stays stopped and lists what you can do next.`,
+  ];
+}
+
+// Replaces the status block at the top of an amendment pull request description (or adds it), keeping the rest.
+export function setAmendmentStatus(body, lines) {
+  const text = String(body ?? '');
+  const block = [AMEND_STATUS_START, ...lines, AMEND_STATUS_END].join('\n');
+  const start = text.indexOf(AMEND_STATUS_START);
+  const end = text.indexOf(AMEND_STATUS_END);
+  if (start >= 0 && end > start) return `${text.slice(0, start)}${block}${text.slice(end + AMEND_STATUS_END.length)}`;
+  return `${block}\n\n${text}`;
+}
+
 // The "Next steps" block of a comment where the implementation waits for a person. Only commands that are valid in
 // the given state are suggested, the recommended one first. `options` are a diagnosis' options
 // ({ title, command }), `amendmentPull` an open amendment pull request, `behindMain` whether the default branch has
 // commits the implementation branch lacks, and `autoDiagnosis` whether a diagnosis starts automatically.
 export function renderNextSteps({ options = null, amendmentPull = null, behindMain = false, autoDiagnosis = false, diagnosed = false } = {}) {
-  const lines = ['**Next steps**: comment one of these commands on this pull request (people with write access):', ''];
+  const lines = [];
+  if (amendmentPull) {
+    lines.push(
+      `**Review the amendment #${amendmentPull}**: merge it to apply it (the implementation then continues), comment or request changes there to have it reworked, or close it to discard it.`,
+      '',
+      'Instead of the amendment, you can also comment one of these commands on this pull request (people with write access):',
+      '',
+    );
+  } else {
+    lines.push('**Next steps**: comment one of these commands on this pull request (people with write access):', '');
+  }
   if (autoDiagnosis) lines.push('_A diagnosis starts automatically and posts its findings here; you can also act right away._', '');
   const entries = [];
   for (const option of options ?? []) {
@@ -580,13 +622,8 @@ export function renderNextSteps({ options = null, amendmentPull = null, behindMa
   }
   // Commands an option already suggests are not repeated.
   const used = new Set((options ?? []).map((option) => String(option.command ?? '').split(/\s+/)[1]));
-  if (amendmentPull) {
-    if (!used.has('apply')) entries.push(commandEntry(`Apply the proposed amendment #${amendmentPull} and continue the implementation`, '/speckit apply'));
-    if (!used.has('revise')) entries.push(commandEntry('Ask for a different amendment (add your notes or answers)', '/speckit revise <notes>'));
-    if (!used.has('discard')) entries.push(commandEntry(`Close the proposed amendment #${amendmentPull}`, '/speckit discard'));
-  }
-  if (!autoDiagnosis && !used.has('diagnose') && !used.has('revise')) {
-    entries.push(commandEntry(diagnosed ? 'Diagnose again, optionally with your notes' : 'Diagnose why the implementation stopped (notes steer the analysis)', '/speckit diagnose [notes]'));
+  if (!autoDiagnosis && !used.has('diagnose')) {
+    entries.push(commandEntry(diagnosed ? 'Diagnose again, optionally with your notes or answers' : 'Diagnose why the implementation stopped (notes steer the analysis)', '/speckit diagnose [notes]'));
   }
   if (!used.has('resume')) entries.push(commandEntry('Retry with a fresh attempt count, optionally with guidance for the agent', '/speckit resume [guidance]'));
   if (behindMain && !used.has('sync')) entries.push(commandEntry('Merge the default branch (for example a fix that landed there) and retry', '/speckit sync'));

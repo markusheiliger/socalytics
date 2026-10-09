@@ -14,10 +14,13 @@ because Spec Kit already bundles an extension with the ID `github`.
 
 `/speckit-gha-diagnose` is also the method of the `Spec Kit diagnose` agentic
 workflow, which runs it non-interactively when an implementation stops or a
-person comments `/speckit diagnose` on the pull request. Locally it runs
-interactively and asks before it changes anything.
+person comments `/speckit diagnose` on the pull request, and to rework an
+amendment pull request after consistency findings (`fix`) or a person's
+feedback (`revise`). Locally it runs interactively and asks before it changes
+anything.
 
-Both commands run `node .github/scripts/speckit-orchestrate.mjs request`, which
+`speckit.gha.route` and `speckit.gha.request` both run
+`node .github/scripts/speckit-orchestrate.mjs request`, which
 checks the spec on the remote default branch (merged, stage `tasked`, all
 checklists checked), finds its twin issue, and adds the
 `speckit:stage:implement` label with the user's own GitHub token. The

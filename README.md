@@ -377,44 +377,80 @@ every stop is a spec problem, so the next step starts with a diagnosis:
 
     | Category | Meaning | Typical way forward |
     | --- | --- | --- |
-    | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | a stacked draft pull request `speckit-amend/<folder>` → `speckit/<folder>` with the amended artifacts; review or edit it, then `/speckit apply` |
+    | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | an **amendment pull request** (below) that you review and merge |
     | `retry` | a transient failure, or the agent took a poor approach | `/speckit resume <guidance>` |
     | `outside` | environment or tooling, another feature's code or tests on `main`, permissions, quotas | fix it where it belongs, then `/speckit sync` or `/speckit resume` |
-    | `decision` | a trade-off only a person can make | answer its questions with `/speckit revise <answers>` |
+    | `decision` | a trade-off only a person can make | answer its questions with `/speckit diagnose <answers>` |
     | `unknown` | not enough evidence | what was ruled out and what to check next |
 
-    The diagnosis never weakens requirements, success criteria, or tests, and
-    nothing is applied without a person's command. The agent runs read-only
-    behind gh-aw's network firewall; an amendment may only change
-    `specs/<folder>/` and never check a task, which both the workflow and
-    `/speckit apply` verify.
-3. You answer with a pull request comment command. The command must be the
-    first word of the comment; only people with write access can use them; a
-    👀 reaction confirms receipt, and a comment reports the result.
+    The diagnosis never weakens requirements, success criteria, or tests. The
+    agent runs read-only behind gh-aw's network firewall.
+3. On the implementation pull request you answer with a comment command. The
+    command must be the first word of the comment; only people with write
+    access can use them; a 👀 reaction confirms receipt, and a comment reports
+    the result.
 
     | Command | Effect |
     | --- | --- |
-    | `/speckit diagnose [notes]` | start a diagnosis (also while the implementation runs; it then waits) |
-    | `/speckit revise <notes or answers>` | diagnose again with your notes or answers |
-    | `/speckit apply` | merge the amendment into the implementation branch and continue with a fresh attempt count |
-    | `/speckit discard` | close the amendment |
-    | `/speckit resume [guidance]` | restart the stopped step with a fresh attempt count; the guidance goes into the agent's prompt |
+    | `/speckit diagnose [notes]` | start a diagnosis; notes steer it or answer its questions (also while the implementation runs; it then waits) |
+    | `/speckit resume [guidance]` | restart the stopped step with a fresh attempt count; the guidance goes into the stopped step's prompt |
     | `/speckit sync` | merge `main` into the implementation branch (for a fix that landed there) and continue |
     | `/speckit help` | list the commands |
 
-    The commands work on the implementation pull request and on its amendment
-    pull request. Merging the amendment pull request yourself, or pushing a fix
-    to the implementation branch, continues the implementation as well.
+    Pushing a fix to the implementation branch continues the implementation as
+    well.
+
+#### Amendment Pull Requests
+
+For `artifacts`, the diagnosis amends the spec artifacts top-down (spec, then
+plan, research, data model, contracts, and quickstart, then tasks) and opens a
+draft pull request `speckit-amend/<folder>` → `speckit/<folder>`. It may only
+change `specs/<folder>/`, never checks a task, and never removes a completed
+one. Before anyone is asked to review it:
+
+1. The `Spec Kit analyze` agentic workflow
+    ([`speckit-analyze.md`](.github/workflows/speckit-analyze.md)) runs an
+    independent, read-only `/speckit-analyze` of the whole spec folder on the
+    amendment branch. The `Spec Kit amendment` check run shows the result.
+2. CRITICAL, HIGH, or MEDIUM findings, or a broken amendment rule, start a
+    correction round: the diagnose workflow fixes them on the same pull request,
+    and the analysis runs again, up to 3 rounds.
+3. A consistent amendment becomes ready for review, assigned to the person who
+    requested the implementation, with a review request and a status and
+    **How to proceed** section in its description. An amendment that is still
+    inconsistent after 3 rounds stays a draft with its findings, and you are
+    asked to review it as well.
+
+Then you handle it like any pull request:
+
+| You do | Effect |
+| --- | --- |
+| Merge | the amendment lands on the implementation branch; a resume comment on the implementation pull request restarts the implementation with a fresh attempt count, starting with the next unchecked task (for example a new corrective task) |
+| Comment, or submit a review with *Comment* or *Request changes* (line comments included) | a rework: the pull request goes back to draft, the diagnose workflow addresses all feedback since the last round, replies, pushes to the same pull request, and the consistency check runs again before it comes back to you |
+| Close without merging | the amendment is discarded; the implementation pull request lists what you can do next |
+| Push to the amendment branch yourself | the consistency check runs again, without correction rounds |
+
+Approving does not start anything; merge when you are satisfied. Feedback that
+arrives while a rework or check runs is handled when it ends (the comment's job
+waits up to 20 minutes, the orchestrator handles it after that). A rework that
+cannot push, or a correction round that fails, is reported on the amendment;
+a failed correction round also hands the amendment to you as not consistent.
+Reviews reach the automation through a small forwarder job that runs from the
+pull request's merge ref, and merges and closes through a job that runs from the
+implementation branch, so both need the current `speckit-commands.yml` there.
+The hourly `Spec Kit orchestrate` run, which always runs from `main`, settles
+merges and closes that no event reported, picks up feedback that no event
+delivered, checks pushes that no event reported, and closes checks that never
+finished.
 
 These pull request comment commands are not skills. To walk through a stop
 locally, run the skill `/speckit-gha-diagnose [pull request, twin, or folder]`
 in GitHub Copilot: it uses the same method, asks you the decisions, and pushes
-the result. The diagnose workflow is compiled with GitHub Agentic Workflows;
-after editing `speckit-diagnose.md`, install the extension
-(`gh extension install github/gh-aw`) and run `gh aw compile speckit-diagnose`.
-Do not edit the generated `speckit-diagnose.lock.yml`. Its Copilot engine uses
-the workflow token with the `copilot-requests` permission, so no secret is
-needed.
+the result. The diagnose and analyze workflows are compiled with GitHub Agentic
+Workflows; after editing `speckit-diagnose.md` or `speckit-analyze.md`, install
+the extension (`gh extension install github/gh-aw`) and run `gh aw compile`.
+Do not edit the generated `.lock.yml` files. Their Copilot engine uses the
+workflow token with the `copilot-requests` permission, so no secret is needed.
 
 ### Spec Kit Configuration
 

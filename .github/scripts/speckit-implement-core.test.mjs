@@ -32,6 +32,7 @@ import {
   parseStepRunName,
   renderConvergePrompt,
   renderGuidanceMarker,
+  renderAmendmentHowTo,
   renderNextSteps,
   renderPullRequestBody,
   renderPullRequestTitle,
@@ -41,6 +42,7 @@ import {
   renderTaskPrompt,
   RESUME_COMMENT_MARKER,
   START_COMMENT_MARKER,
+  setAmendmentStatus,
   stepLabel,
   summarizeTask,
   syncPullRequestTaskList,
@@ -232,12 +234,16 @@ test('renders the next steps a person can take', () => {
   assert.doesNotMatch(auto, /\/speckit diagnose/);
   assert.match(auto, /```text\n {3}\/speckit sync\n {3}```/);
   const diagnosed = renderNextSteps({ options: [{ title: 'Retry with guidance', command: '/speckit resume Use the helper' }], amendmentPull: 7, diagnosed: true }).join('\n');
-  assert.ok(diagnosed.indexOf('/speckit resume Use the helper') < diagnosed.indexOf('/speckit apply'));
-  assert.match(diagnosed, /amendment #7[\s\S]*\/speckit revise <notes>[\s\S]*\/speckit discard[\s\S]*Diagnose again/);
+  assert.match(diagnosed, /^\*\*Review the amendment #7\*\*: merge it to apply it[\s\S]*Instead of the amendment[\s\S]*\/speckit resume Use the helper[\s\S]*Diagnose again/);
+  assert.doesNotMatch(diagnosed, /\/speckit (apply|revise|discard)/);
   assert.doesNotMatch(diagnosed, /\/speckit resume \[guidance\]/, 'an option already covers resume');
-  const recommendedApply = renderNextSteps({ options: [{ title: 'Apply it', command: '/speckit apply' }], amendmentPull: 7, diagnosed: true }).join('\n');
-  assert.equal(recommendedApply.match(/\/speckit apply/g).length, 1, 'an option that applies is not repeated');
-  assert.match(recommendedApply, /\/speckit discard/);
+  const recommended = renderNextSteps({ options: [{ title: 'Diagnose with these notes', command: '/speckit diagnose keep it' }], diagnosed: true }).join('\n');
+  assert.equal(recommended.match(/\/speckit diagnose/g).length, 1, 'a command an option suggests is not repeated');
+  const howTo = renderAmendmentHowTo(49).join('\n');
+  assert.match(howTo, /\*\*Merge\*\* this pull request[\s\S]*continues on #49[\s\S]*\*Request changes\*[\s\S]*\*\*Close\*\*/);
+  const status = setAmendmentStatus('Body from the agent.', ['⏳ checking']);
+  assert.equal(status, '<!-- speckit-amend:status -->\n⏳ checking\n<!-- /speckit-amend:status -->\n\nBody from the agent.');
+  assert.equal(setAmendmentStatus(status, ['✅ done']), '<!-- speckit-amend:status -->\n✅ done\n<!-- /speckit-amend:status -->\n\nBody from the agent.');
 });
 
 test('carries guidance through a marker, and validates amendments', () => {

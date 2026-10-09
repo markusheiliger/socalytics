@@ -14,18 +14,18 @@ const run = (github, body, { pull = 9, actor = 'dev' } = {}) => runCommand({
 
 test('parses commands: the first word, the name, and the rest as argument', () => {
   assert.deepEqual(parseCommand('/speckit resume Use the helper\nand keep the test'), { name: 'resume', given: 'resume', argument: 'Use the helper\nand keep the test' });
-  assert.deepEqual(parseCommand('  /speckit APPLY'), { name: 'apply', given: 'APPLY', argument: '' });
+  assert.deepEqual(parseCommand('  /speckit SYNC'), { name: 'sync', given: 'SYNC', argument: '' });
   assert.deepEqual(parseCommand('/speckit'), { name: 'help', given: '', argument: '' });
   assert.equal(parseCommand('/speckit deploy now').name, 'unknown');
-  assert.equal(parseCommand('please /speckit apply'), null);
+  assert.equal(parseCommand('please /speckit resume'), null);
   assert.equal(parseCommand('/speckit-gha-diagnose'), null, 'a skill name is not a command');
-  assert.match(renderHelp(), /\| `\/speckit sync` \|[\s\S]*skill `\/speckit-gha-diagnose`/);
+  assert.match(renderHelp(), /\| `\/speckit sync` \|[\s\S]*An amendment pull request[\s\S]*skill `\/speckit-gha-diagnose`/);
 });
 
 test('ignores people without write access and bots, reacts, and answers help and unknown commands', async () => {
   const github = diagnosisRepo();
-  assert.equal((await run(github, '/speckit apply', { actor: 'stranger' })).handled, false);
-  assert.equal((await run(github, '/speckit apply', { actor: 'github-actions[bot]' })).handled, false);
+  assert.equal((await run(github, '/speckit resume', { actor: 'stranger' })).handled, false);
+  assert.equal((await run(github, '/speckit resume', { actor: 'github-actions[bot]' })).handled, false);
   assert.equal((await run(github, 'just a comment')).handled, false);
   assert.equal(github.comments.length, 0);
 
@@ -38,12 +38,12 @@ test('ignores people without write access and bots, reacts, and answers help and
   assert.match(elsewhere.rejected, /not a Spec Kit implementation or amendment pull request/);
 });
 
-test('diagnose and revise start a diagnosis, unless one is running', async () => {
+test('diagnose starts a diagnosis with the previous one as context, unless one is running', async () => {
   const github = diagnosisRepo();
   const started = await run(github, '/speckit diagnose look at research R6');
   assert.equal(started.outcome, 'started');
   assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_DIAGNOSING);
-  assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', notes: 'look at research R6', previous: '', check_run: String(github.repo.checkRuns.at(-1).id) });
+  assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', notes: 'look at research R6', previous: '', check_run: String(github.repo.checkRuns.at(-1).id), mode: 'diagnose', amendment: '', round: '0' });
   assert.match(github.comments.at(-1).body, /A diagnosis was started by @dev with your notes/);
   assert.equal(github.repo.pulls.find((pull) => pull.number === 11).state, 'closed', 'a new diagnosis supersedes the open amendment');
   assert.equal(github.repo.branches['speckit-amend/f'], undefined, 'so the new run can create the amendment branch afresh');
@@ -53,6 +53,7 @@ test('diagnose and revise start a diagnosis, unless one is running', async () =>
 
   // The diagnose run ended without reporting (for example the agent failed): a new diagnosis may start.
   const unfinished = github.repo.checkRuns.at(-1);
+  Object.assign(github.repo.runs.at(-1), { status: 'completed', conclusion: 'failure' });
   github.repo.runs.push({ id: 900, workflow: 'speckit-diagnose.lock.yml', display_title: 'Spec Kit diagnose #5', status: 'completed', conclusion: 'failure', created_at: github.tick() });
   assert.equal((await run(github, '/speckit diagnose')).outcome, 'started');
   assert.deepEqual([unfinished.status, unfinished.conclusion, unfinished.output.title], ['completed', 'failure', 'Diagnosis did not finish']);
@@ -60,48 +61,24 @@ test('diagnose and revise start a diagnosis, unless one is running', async () =>
   Object.assign(github.repo.checkRuns.at(-1), { status: 'completed', external_id: CHECK_DIAGNOSED });
   await github.createComment(9, `${DIAGNOSIS_COMMENT_MARKER}\n**Diagnosis**: …`);
   const previous = github.comments.at(-1).id;
-  const revised = await run(github, '/speckit revise Keep the counter write', { pull: 11 });
-  assert.equal(revised.outcome, 'started');
-  assert.equal(github.repo.runs.at(-1).inputs.previous, String(previous), 'a revise passes the previous diagnosis');
-  assert.match(github.comments.at(-1).body, /A revised diagnosis was started/);
-  assert.equal(github.comments.at(-1).number, 11, 'the reply goes where the command was given');
+  const answered = await run(github, '/speckit diagnose Keep the counter write');
+  assert.equal(answered.outcome, 'started');
+  assert.equal(github.repo.runs.at(-1).inputs.previous, String(previous), 'the previous diagnosis is context for the answers');
+  assert.match(github.comments.at(-1).body, /A new diagnosis was started/);
 });
 
-test('apply validates, merges the amendment, deletes its branch, and resumes', async () => {
+test('apply, revise, and discard are no commands: the amendment pull request is merged, commented, or closed', async () => {
   const github = diagnosisRepo();
-  const applied = await run(github, '/speckit apply');
-  assert.equal(applied.outcome, 'applied');
-  const merge = github.repo.merges.at(-1);
-  assert.deepEqual([merge.number, merge.sha, merge.merge_method, merge.commit_title], [11, 'sha-amend', 'squash', 'docs(f): amend spec artifacts (#11)']);
-  assert.equal(github.repo.pulls.find((pull) => pull.number === 11).draft, false);
-  assert.equal(github.repo.branches['speckit-amend/f'], undefined);
-  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-orchestrate.yml', {}]);
-  const appliedComment = github.comments.at(-1);
-  assert.equal(appliedComment.number, 9);
-  assert.ok(appliedComment.body.startsWith('<!-- speckit-implement:resume -->'), 'the resume persists as a comment, not only as a dispatch');
-  assert.match(appliedComment.body, /\*\*Amendment applied\*\* by @dev: #11 was merged into `speckit\/f`[\s\S]*it adds T003[\s\S]*fresh attempt count/);
-
-  assert.equal((await run(github, '/speckit apply')).outcome, 'no amendment');
+  for (const name of ['apply', 'revise', 'discard']) {
+    assert.equal(parseCommand(`/speckit ${name}`).name, 'unknown');
+    await run(github, `/speckit ${name}`);
+    assert.match(github.comments.at(-1).body, new RegExp(`^Unknown command \`/speckit ${name}\`[\\s\\S]*merge it to apply the amendment, comment or submit a review`));
+  }
+  assert.equal(github.repo.merges.length, 0);
 });
 
-test('apply refuses an amendment that breaks the rules or cannot be merged', async () => {
-  const invalid = diagnosisRepo({ amendmentFiles: ['src/a.cs'] });
-  assert.equal((await run(invalid, '/speckit apply')).outcome, 'invalid');
-  assert.match(invalid.comments.at(-1).body, /cannot be applied:\n\n- an amendment may only change files in `specs\/f\/`/);
-  assert.equal(invalid.repo.merges.length, 0);
-
-  const refused = diagnosisRepo();
-  refused.mergeRefusal = 'Merge conflict';
-  assert.equal((await run(refused, '/speckit apply')).outcome, 'merge refused');
-  assert.match(refused.comments.at(-1).body, /could not be merged: Merge conflict/);
-});
-
-test('discard closes the amendment; resume passes guidance; sync merges the default branch', async () => {
+test('resume passes guidance; sync merges the default branch', async () => {
   const github = diagnosisRepo();
-  assert.equal((await run(github, '/speckit discard', { pull: 11 })).outcome, 'discarded');
-  assert.equal(github.repo.pulls.find((pull) => pull.number === 11).state, 'closed');
-  assert.match(github.comments.find((comment) => comment.number === 9).body, /Amendment #11 was discarded by @dev/);
-
   await run(github, '/speckit resume Use one statement on every refusal path');
   assert.deepEqual(github.repo.runs.at(-1).inputs, {});
   const resumed = github.comments.at(-1);
@@ -122,7 +99,6 @@ test('discard closes the amendment; resume passes guidance; sync merges the defa
   assert.match(github.comments.at(-1).body, /could not be merged into `speckit\/f`: [\s\S]*HTTP 403[\s\S]*Merge it locally and push/);
   await assert.rejects(() => main(['other'], { env: {}, client: github }), /Usage/);
 });
-
 test('commands need an open implementation pull request with a twin', async () => {
   const github = diagnosisRepo();
   github.repo.pulls[0].state = 'closed';

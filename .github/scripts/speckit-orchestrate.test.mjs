@@ -413,7 +413,7 @@ test('orchestrate waits, retries, stops at the attempt limit, and resumes on req
     const [limit, diagnosing] = github.repo.checkRuns.slice(-2);
     assert.deepEqual([limit.external_id, limit.status, limit.conclusion, limit.head_sha], [CHECK_LIMIT, 'completed', 'failure', github.repo.branches['speckit/a']]);
     assert.deepEqual([diagnosing.external_id, diagnosing.status], ['speckit:diagnosing', 'in_progress']);
-    assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: String(twin.number), pull: String(pull.number), folder: 'a', notes: '', previous: '', check_run: String(diagnosing.id) });
+    assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: String(twin.number), pull: String(pull.number), folder: 'a', notes: '', previous: '', check_run: String(diagnosing.id), mode: 'diagnose', amendment: '', round: '0' });
     const stop = github.comments.at(-1).body;
     assert.match(stop, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts/);
     assert.match(stop, /A diagnosis starts automatically[\s\S]*\/speckit resume \[guidance\]/);
@@ -485,6 +485,36 @@ test('orchestrate resumes after a resume comment from a command, even without a 
     assert.equal(github.repo.runs.length, runs + 1);
     assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 1`, 'the resume comment starts a new attempt window');
     assert.equal(github.comments.length, comments, 'a command already announced the resume');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('orchestrate settles a merged amendment and resumes the implementation with a fresh attempt count', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      github.completeRun(github.repo.runs.at(-1).id);
+      await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    }
+    assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_LIMIT);
+    const implementation = github.repo.pulls[0];
+    const runs = github.repo.runs.length;
+
+    // A person merged the amendment; the amendment branch's workflows did not report it.
+    github.repo.pulls.push({ number: 77, node_id: 'PR_77', title: 'Amend: a', body: '', draft: false, state: 'closed', merged_at: github.tick(), closed_at: github.tick(), merged_by: { login: 'dev' }, base: { ref: 'speckit/a' }, head: { ref: 'speckit-amend/a', sha: 'sha-x' }, created_at: github.tick() });
+    const settled = await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    const resume = github.comments.find((comment) => comment.number === implementation.number && comment.body.includes('<!-- speckit-amend:closed 77 -->'));
+    assert.match(resume.body, /^<!-- speckit-implement:resume -->\n<!-- speckit-amend:closed 77 -->\n\*\*Amendment #77 was merged\*\* by @dev\./);
+    assert.match(settled.text, /Amendment #77 was merged/);
+    assert.equal(github.repo.runs.length, runs + 1);
+    assert.equal(taskRuns(github).at(-1), `#${twin.number} T001 attempt 1`, 'the merge starts a new attempt window');
+
+    github.completeRun(github.repo.runs.at(-1).id);
+    await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    assert.equal(github.comments.filter((comment) => comment.body.includes('<!-- speckit-amend:closed 77 -->')).length, 1, 'settled once');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

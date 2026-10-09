@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { canWrite } from './speckit-prepare.mjs';
-import { checkAmendment, closeUnfinishedDiagnosis, diagnosisRunEnded, findAmendment, startDiagnosis } from './speckit-diagnose.mjs';
+import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
 import {
   BOT_LOGIN,
   CHECK_DIAGNOSING,
@@ -12,7 +12,6 @@ import {
   DIAGNOSIS_STALE_MS,
   ORCHESTRATE_WORKFLOW_FILE,
   PR_COMMANDS,
-  amendmentBranch,
   folderOfBranch,
   implementationBranch,
   latestCheckRun,
@@ -36,11 +35,13 @@ export function parseCommand(body) {
 
 export function renderHelp() {
   return [
-    '**Spec Kit commands** — comment one of these on an implementation pull request (`speckit/<folder>`) or its amendment pull request (`speckit-amend/<folder>`). Only people with write access can use them; the command must be the first word of the comment.',
+    '**Spec Kit commands** — comment one of these on an implementation pull request (`speckit/<folder>`). Only people with write access can use them; the command must be the first word of the comment.',
     '',
     '| Command | What it does |',
     '| --- | --- |',
     ...PR_COMMANDS.map((command) => `| \`${command.usage}\` | ${command.help} |`),
+    '',
+    'An amendment pull request (`speckit-amend/<folder>`) needs no commands: merge it to apply the amendment, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
     '',
     'These are pull request comment commands, not skills. To walk through a stop locally in VS Code, use the skill `/speckit-gha-diagnose`.',
   ].join('\n');
@@ -48,8 +49,8 @@ export function renderHelp() {
 
 const reply = (client, number, lines) => client.createComment(number, (Array.isArray(lines) ? lines : [lines]).join('\n'));
 
-// Resolves the implementation pull request, its twin, and an open amendment from the pull request a command was
-// commented on (either the implementation or the amendment pull request).
+// Resolves the implementation pull request and its twin from the pull request a command was commented on (the
+// implementation pull request, or an amendment pull request of it).
 async function resolveTarget(client, env, number) {
   const pull = await client.getPullRequest(number);
   const folder = folderOfBranch(pull.head?.ref);
@@ -61,7 +62,7 @@ async function resolveTarget(client, env, number) {
   const full = implementation === pull ? pull : await client.getPullRequest(implementation.number);
   const twin = Number(String(full.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
   if (!Number.isInteger(twin)) return { reason: `the implementation pull request #${full.number} does not name its twin` };
-  return { folder, implementation: full, twin, amendment: await findAmendment(client, folder) };
+  return { folder, implementation: full, twin };
 }
 
 async function dispatchOrchestrate(client, env) {
@@ -119,7 +120,7 @@ export async function runCommand({ client, env, log, now = Date.now }) {
   return { exitCode: 0, handled: true, command: command.name, ...result };
 }
 
-async function handleDiagnose({ client, env, actor, number, argument, now, folder, implementation, twin }, { revise = false } = {}) {
+async function handleDiagnose({ client, env, actor, number, argument, now, folder, implementation, twin }) {
   const checks = await client.listCheckRuns(implementation.head.sha, CHECK_RUN_NAME);
   const latest = latestCheckRun(checks);
   if (latest?.external_id === CHECK_DIAGNOSING && latest.status !== 'completed') {
@@ -138,7 +139,8 @@ async function handleDiagnose({ client, env, actor, number, argument, now, folde
     folder,
     head: implementation.head.sha,
     notes: argument,
-    previous: revise && previous ? previous.id : '',
+    // The previous diagnosis is context, for example when the notes answer its questions.
+    previous: previous ? previous.id : '',
     actor,
   });
   if (!started.started) {
@@ -146,62 +148,9 @@ async function handleDiagnose({ client, env, actor, number, argument, now, folde
     return { outcome: 'not started' };
   }
   await reply(client, number, [
-    `${revise && previous ? 'A revised diagnosis' : 'A diagnosis'} was started by @${actor}${argument ? ' with your notes' : ''}. The implementation waits; the findings will be posted on #${implementation.number}.`,
+    `${previous ? 'A new diagnosis' : 'A diagnosis'} was started by @${actor}${argument ? ' with your notes' : ''}. The implementation waits; the findings will be posted on #${implementation.number}.`,
   ]);
   return { outcome: 'started' };
-}
-
-async function handleApply({ client, env, actor, number, folder, implementation, twin, amendment }) {
-  if (!amendment) {
-    await reply(client, number, `There is no open amendment pull request (\`${amendmentBranch(folder)}\`) to apply. Comment \`/speckit diagnose\` to get one.`);
-    return { outcome: 'no amendment' };
-  }
-  const full = await client.getPullRequest(amendment.number);
-  const check = await checkAmendment(client, { folder, amendment: full });
-  if (check.reasons.length > 0) {
-    await reply(client, number, [`Amendment #${full.number} cannot be applied:`, '', ...check.reasons.map((reason) => `- ${reason}`), '', 'Edit it on its branch, or comment `/speckit revise <notes>`.']);
-    return { outcome: 'invalid' };
-  }
-  if (full.draft) await client.markReadyForReview(full.node_id);
-  const merged = await client.mergePullRequest(full.number, {
-    sha: full.head.sha,
-    merge_method: 'squash',
-    commit_title: `docs(${folder}): amend spec artifacts (#${full.number})`,
-    commit_message: `Applied by @${actor} from the diagnosis on #${implementation.number}.`,
-  });
-  if (!merged.merged) {
-    await reply(client, number, `Amendment #${full.number} could not be merged: ${neutralizeMarkers(merged.message)}. Update it, or comment \`/speckit revise <notes>\`.`);
-    return { outcome: 'merge refused' };
-  }
-  try {
-    await client.deleteBranch(amendmentBranch(folder));
-  } catch {
-    // A leftover branch is harmless; the next amendment recreates it.
-  }
-  await resumeImplementation(client, env, implementation, [
-    `**Amendment applied** by @${actor}: #${full.number} was merged into \`${implementationBranch(folder)}\` as ${merged.sha}.`,
-    ...(check.notes.length > 0 ? ['', ...check.notes.map((note) => `- ${note}`)] : []),
-    '',
-    'The implementation resumes with a fresh attempt count.',
-  ].join('\n'));
-  if (number !== implementation.number) await reply(client, number, `Applied; the implementation continues on #${implementation.number}.`);
-  return { outcome: 'applied', sha: merged.sha };
-}
-
-async function handleDiscard({ client, actor, number, folder, implementation, amendment }) {
-  if (!amendment) {
-    await reply(client, number, 'There is no open amendment pull request to discard.');
-    return { outcome: 'no amendment' };
-  }
-  await client.updatePullRequest(amendment.number, { state: 'closed' });
-  try {
-    await client.deleteBranch(amendmentBranch(folder));
-  } catch {
-    // Harmless.
-  }
-  await reply(client, implementation.number, `Amendment #${amendment.number} was discarded by @${actor}. The implementation stays stopped until you resume, sync, diagnose again, or push a fix.`);
-  if (number !== implementation.number) await reply(client, number, `Discarded; see #${implementation.number}.`);
-  return { outcome: 'discarded' };
 }
 
 async function handleResume({ client, env, actor, number, argument, implementation }) {
@@ -241,10 +190,7 @@ async function handleSync({ client, env, actor, number, folder, implementation }
 }
 
 const HANDLERS = {
-  diagnose: (context) => handleDiagnose(context),
-  revise: (context) => handleDiagnose(context, { revise: true }),
-  apply: handleApply,
-  discard: handleDiscard,
+  diagnose: handleDiagnose,
   resume: handleResume,
   sync: handleSync,
 };

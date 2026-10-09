@@ -174,7 +174,9 @@ export class FakeGitHub {
       workflow: workflowFile,
       ref,
       inputs: structuredClone(inputs),
-      display_title: step ? renderStepRunName({ step, twin: inputs.twin, task: inputs.task, attempt: inputs.attempt }) : workflowFile,
+      display_title: step
+        ? renderStepRunName({ step, twin: inputs.twin, task: inputs.task, attempt: inputs.attempt })
+        : { 'speckit-diagnose.lock.yml': `Spec Kit diagnose #${inputs.twin}`, 'speckit-analyze.lock.yml': `Spec Kit analyze #${inputs.twin}` }[workflowFile] ?? workflowFile,
       status: 'queued',
       conclusion: null,
       created_at: this.tick(),
@@ -254,6 +256,18 @@ export class FakeGitHub {
 
   async addCommentReaction(commentId, content) {
     (this.reactions ??= []).push({ commentId, content });
+  }
+
+  async listPullRequestReviews(number) {
+    return structuredClone((this.repo.reviews ?? []).filter((review) => review.pull === number));
+  }
+
+  async listPullRequestReviewComments(number) {
+    return structuredClone((this.repo.reviewComments ?? []).filter((comment) => comment.pull === number));
+  }
+
+  async convertToDraft(nodeId) {
+    this.repo.pulls.find((item) => item.node_id === nodeId).draft = true;
   }
 
   // Test helper behavior: merges by moving `base` to a new merge commit, or reports the configured outcome.
@@ -344,6 +358,7 @@ const DIAGNOSIS_AFTER = '## P\n- [x] T001 Done\n- [ ] T003 Fix the counter write
 export function diagnosisRepo({ amendment = true, amendmentFiles = ['specs/f/research.md', 'specs/f/tasks.md'], after = DIAGNOSIS_AFTER } = {}) {
   const github = new FakeGitHub([{ number: 5, id: 5000, node_id: 'I_5', state: 'open', title: 'F', body: '', labels: [] }]);
   github.permissions.dev = 'write';
+  github.humanLabel(5, 'speckit:stage:implement', 'dev');
   github.repo.commits['sha-impl'] = { tree: 't', parents: ['sha-main'] };
   github.repo.branches['speckit/f'] = 'sha-impl';
   github.setFile('sha-impl', 'specs/f/tasks.md', DIAGNOSIS_BEFORE);
@@ -353,7 +368,7 @@ export function diagnosisRepo({ amendment = true, amendmentFiles = ['specs/f/res
     github.repo.commits['sha-amend'] = { tree: 't2', parents: ['sha-impl'] };
     github.repo.branches['speckit-amend/f'] = 'sha-amend';
     github.setFile('sha-amend', 'specs/f/tasks.md', after);
-    github.repo.pulls.push({ number: 11, node_id: 'PR_11', title: 'Amend: F', body: 'amend', draft: true, state: 'open', base: { ref: 'speckit/f', sha: 'sha-impl' }, head: { ref: 'speckit-amend/f', sha: 'sha-amend', repo: { full_name: 'octo/repo' } }, created_at: github.tick() });
+    github.repo.pulls.push({ number: 11, node_id: 'PR_11', title: 'Amend: F', body: 'amend', draft: true, state: 'open', assignees: [], base: { ref: 'speckit/f', sha: 'sha-impl' }, head: { ref: 'speckit-amend/f', sha: 'sha-amend', repo: { full_name: 'octo/repo' } }, created_at: github.tick() });
     github.repo.pullFiles[11] = amendmentFiles;
   }
   return github;

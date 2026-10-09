@@ -18,6 +18,7 @@ import {
 } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
+import { maintainAmendment } from './speckit-amend.mjs';
 import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
 import {
   CHECK_DIAGNOSED,
@@ -92,6 +93,8 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   const inProgress = [];
   const fallback = [];
   const merged = [];
+  const amendmentNotes = [];
+  let amendmentActions = 0;
   for (const [folder, issue] of [...byFolder.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     if (!hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) continue;
     const open = issue.state === 'open';
@@ -121,6 +124,13 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
     }
 
     if (lifecycle.state === 'in-progress') {
+      // Amendments first: a merged one resumes the implementation, which the decision must see.
+      try {
+        const amendment = await maintainAmendment(client, env, { folder, implementation: lifecycle.pull, twin: issue.number }, { now: now(), report: (line) => amendmentNotes.push(line) });
+        if (amendment.outcome === 'rework' || amendment.outcome === 'checking') amendmentActions += 1;
+      } catch (error) {
+        amendmentNotes.push(`- Warning: could not check the amendment of #${issue.number}: ${error.message}`);
+      }
       const decision = await decideForPull(client, {
         twin: issue.number,
         folder,
@@ -165,12 +175,13 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   for (const twin of inconsistent) {
     report.line(`- Inconsistent (the next sync revokes the flag): #${twin.number} \`${twin.folder}\`: ${twin.reasons.join('; ')}`);
   }
+  for (const line of amendmentNotes) report.line(line);
   const total = ready.length + inProgress.length + blocked.length + fallback.length + merged.length + inconsistent.length;
   if (total === 0) report.line('- No spec twin is flagged for implementation.');
   report.flush();
   setOutput(env, 'count', String(ready.length));
   setOutput(env, 'matrix', JSON.stringify({ include: ready }));
-  return { exitCode: 0, ready, blocked, inconsistent, inProgress, fallback, merged };
+  return { exitCode: 0, ready, blocked, inconsistent, inProgress, fallback, merged, amendmentActions };
 }
 
 async function findOpenPull(client, branch) {
@@ -362,7 +373,7 @@ export async function runOrchestrate({ client, rootDir, env, log, sleep = defaul
   report.line('### Actions');
   report.line();
   for (const line of pending) report.line(line);
-  let actions = 0;
+  let actions = selection.amendmentActions ?? 0;
   const merges = [];
   for (const twin of selection.ready) {
     const started = await runStart({ client, rootDir, env, issueNumber: twin.number, folder: twin.folder, requester: twin.requester, reset: twin.reset, log });
@@ -401,6 +412,7 @@ export async function runOrchestrate({ client, rootDir, env, log, sleep = defaul
       report.line(`- Stopped #${twin.number}: ${stepLabel(decision)} reached the attempt limit.`);
       await maybeDiagnose(client, env, twin, { head: decision.pull.head.sha, diagnosis: { state: 'none', count: 0 } }, report);
     } else if (decision.action === 'failed') {
+      if (decision.diagnosis?.state === 'reported') continue;
       if (!(await maybeDiagnose(client, env, twin, { head: decision.pull.head.sha, diagnosis: decision.diagnosis }, report))) continue;
     } else {
       continue;

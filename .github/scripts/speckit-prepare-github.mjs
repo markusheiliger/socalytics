@@ -323,6 +323,21 @@ export class GitHubClient {
     await this.request('POST', this.repoPath(`/issues/comments/${encodeURIComponent(commentId)}/reactions`), { content });
   }
 
+  async listPullRequestReviews(number) {
+    return this.paginate(this.repoPath(`/pulls/${number}/reviews`));
+  }
+
+  async listPullRequestReviewComments(number) {
+    return this.paginate(this.repoPath(`/pulls/${number}/comments`));
+  }
+
+  async convertToDraft(pullNodeId) {
+    await this.graphql(
+      'mutation($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { pullRequest { isDraft } } }',
+      { id: pullNodeId },
+    );
+  }
+
   // Merges `head` into the branch `base`: 'merged', 'up-to-date' (nothing to merge), or 'conflict'.
   async mergeBranch(base, head, commitMessage) {
     const { status } = await this.request('POST', this.repoPath('/merges'), { base, head, commit_message: commitMessage }, { allow: [204, 409] });

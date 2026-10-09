@@ -1,15 +1,19 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { GitHubClient } from './speckit-prepare-github.mjs';
+import { beginAmendment, checkAmendment, findAmendment, pendingFeedback, presentAmendment, resolveAmendment, startAnalysis } from './speckit-amend.mjs';
 import {
   BOT_LOGIN,
+  CHECK_AMEND_CHECKING,
+  CHECK_AMEND_INCONSISTENT,
   CHECK_DIAGNOSED,
   CHECK_DIAGNOSING,
   CHECK_RUN_NAME,
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_COMMENT_MARKER,
+  MAX_CORRECTION_ROUNDS,
   STEPS,
   amendmentBranch,
   implementationBranch,
@@ -17,12 +21,14 @@ import {
   nextTaskGroup,
   parseStepRunName,
   renderNextSteps,
-  validateAmendment,
 } from './speckit-implement-core.mjs';
+
+export { checkAmendment, findAmendment };
 
 export const CATEGORIES = ['artifacts', 'retry', 'outside', 'decision', 'unknown'];
 export const CONFIDENCE = ['high', 'medium', 'low'];
-const COMMAND_PATTERN = /^\/speckit (diagnose|revise|apply|discard|resume|sync)( [^\n]*)?$/;
+export const MODES = ['diagnose', 'fix', 'revise'];
+const COMMAND_PATTERN = /^\/speckit (diagnose|resume|sync)( [^\n]*)?$/;
 const MAX_EVIDENCE_BYTES = 200_000;
 const LOG_TAIL_LINES = 150;
 
@@ -32,10 +38,6 @@ const clip = (text, max) => {
 };
 
 export class DiagnoseUsageError extends Error {}
-
-function setOutput(env, name, value) {
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `${name}=${value}\n`);
-}
 
 // Starts a diagnosis of the implementation pull request `pull`: a check run on the head marks the implementation as
 // waiting for the diagnosis, and the agentic diagnose workflow is dispatched. A dispatch failure leaves the check run
@@ -71,6 +73,9 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, no
       notes: clip(notes, 4000),
       previous: String(previous ?? ''),
       check_run: String(check.id),
+      mode: 'diagnose',
+      amendment: '',
+      round: '0',
     });
     return { started: true, check };
   } catch (error) {
@@ -91,7 +96,10 @@ function inputsFrom(env) {
   if (!Number.isInteger(twin) || twin <= 0 || !Number.isInteger(pull) || pull <= 0 || !/^[\w.-]+$/.test(folder)) {
     throw new DiagnoseUsageError('Expected SPECKIT_TWIN and SPECKIT_PULL as positive integers and SPECKIT_FOLDER as a spec folder name.');
   }
-  return { twin, pull, folder };
+  const mode = MODES.includes(env.SPECKIT_MODE) ? env.SPECKIT_MODE : 'diagnose';
+  const amendment = Number(env.SPECKIT_AMENDMENT);
+  if (mode !== 'diagnose' && (!Number.isInteger(amendment) || amendment <= 0)) throw new DiagnoseUsageError(`Mode ${mode} needs SPECKIT_AMENDMENT.`);
+  return { twin, pull, folder, mode, amendment: mode === 'diagnose' ? null : amendment, round: Math.max(0, Number(env.SPECKIT_ROUND) || 0) };
 }
 
 function logTail(text) {
@@ -105,7 +113,7 @@ function logTail(text) {
 // Agent job, before the agent: collects what the agent needs to diagnose the stop and cannot fetch itself, and writes
 // evidence.md and context.json to SPECKIT_EVIDENCE_DIR.
 export async function runEvidence({ client, env, log }) {
-  const { twin, pull: pullNumber, folder } = inputsFrom(env);
+  const { twin, pull: pullNumber, folder, mode, amendment: amendmentNumber, round } = inputsFrom(env);
   const outDir = path.resolve(env.SPECKIT_EVIDENCE_DIR || 'evidence');
   mkdirSync(outDir, { recursive: true });
   const defaultBranch = env.SPECKIT_BRANCH || 'main';
@@ -129,20 +137,30 @@ export async function runEvidence({ client, env, log }) {
   const sections = [
     `# Evidence for the diagnosis of #${twin} (pull request #${pullNumber})`,
     '',
+    `- Mode: \`${mode}\`${mode === 'fix' ? ` (correction round ${round} of ${MAX_CORRECTION_ROUNDS})` : ''}${amendmentNumber ? `; amendment pull request #${amendmentNumber} on \`${amendmentBranch(folder)}\`` : ''}`,
     `- Spec folder: \`specs/${folder}\``,
     `- Implementation branch: \`${branch}\` at ${pull.head.sha}`,
     `- Default branch \`${defaultBranch}\`: ${behind ?? '?'} commit(s) the implementation branch lacks; the branch is ${ahead ?? '?'} commit(s) ahead`,
     `- Next unchecked task: ${next ? `${next.id} ${next.text}` : 'none (all tasks are checked)'}`,
     '',
-    '## Notes from the person who started this diagnosis',
-    '',
-    env.SPECKIT_NOTES?.trim() ? env.SPECKIT_NOTES.trim() : '_None._',
-    '',
+  ];
+  if (mode === 'fix') {
+    sections.push('## Findings of the consistency check to fix', '', env.SPECKIT_NOTES?.trim() || '_None._', '');
+  } else if (mode === 'revise') {
+    // The feedback was collected when the rework started (the notes); its marker already moved the feedback window.
+    sections.push('## Feedback on the amendment to address', '', env.SPECKIT_NOTES?.trim() || '_None._', '');
+    const comments = await client.listIssueComments(amendmentNumber);
+    sections.push('## Earlier comments on the amendment (oldest first)', '');
+    for (const comment of comments.slice(-10)) sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 4000), '');
+  } else {
+    sections.push('## Notes from the person who started this diagnosis', '', env.SPECKIT_NOTES?.trim() ? env.SPECKIT_NOTES.trim() : '_None._', '');
+  }
+  sections.push(
     '## Check runs on the head (oldest first)',
     '',
     ...checks.map((check) => `- ${check.external_id ?? '-'} ${check.status}/${check.conclusion ?? '-'}: ${check.output?.title ?? ''}${check.output?.summary ? ` — ${clip(check.output.summary, 600).replace(/\s+/g, ' ')}` : ''}`),
     '',
-  ];
+  );
   if (previous) sections.push('## Previous diagnosis', '', clip(previous.body, 20_000), '');
   sections.push('## Recent pull request comments (oldest first)', '');
   for (const comment of comments.slice(-15)) {
@@ -165,11 +183,15 @@ export async function runEvidence({ client, env, log }) {
   if (Buffer.byteLength(evidence) > MAX_EVIDENCE_BYTES) evidence = `${evidence.slice(0, MAX_EVIDENCE_BYTES)}\n\n_(evidence truncated)_\n`;
   writeFileSync(path.join(outDir, 'evidence.md'), evidence);
   writeFileSync(path.join(outDir, 'context.json'), `${JSON.stringify({
+    mode,
     twin,
     pull: pullNumber,
     folder,
     implementationBranch: branch,
     amendmentBranch: amendmentBranch(folder),
+    amendmentPull: amendmentNumber,
+    round,
+    maxCorrectionRounds: MAX_CORRECTION_ROUNDS,
     defaultBranch,
     head: pull.head.sha,
     nextTask: next?.id ?? null,
@@ -180,7 +202,8 @@ export async function runEvidence({ client, env, log }) {
 }
 
 // Validates and normalizes the agent's report; the agent's text is untrusted, so every field is checked and clipped.
-export function validateReport(raw) {
+// A rework (`fix`, `revise`) reports a summary and responses to the feedback, but no category.
+export function validateReport(raw, { requireCategory = true } = {}) {
   const reasons = [];
   let report = raw;
   if (typeof raw === 'string') {
@@ -210,8 +233,12 @@ export function validateReport(raw) {
       .map((item) => ({ question: text(item?.question, 600), choices: (Array.isArray(item?.choices) ? item.choices : []).map((choice) => text(choice, 300)).filter(Boolean).slice(0, 5) }))
       .filter((item) => item.question)
       .slice(0, 3),
+    responses: (Array.isArray(report.responses) ? report.responses : [])
+      .map((item) => ({ feedback: text(item?.feedback, 400), response: text(item?.response, 1500) }))
+      .filter((item) => item.response)
+      .slice(0, 20),
   };
-  if (!normalized.category) reasons.push(`the category must be one of ${CATEGORIES.join(', ')}`);
+  if (requireCategory && !normalized.category) reasons.push(`the category must be one of ${CATEGORIES.join(', ')}`);
   if (!normalized.summary) reasons.push('the summary is missing');
   for (const option of normalized.options) {
     if (option.command && (!COMMAND_PATTERN.test(option.command) || option.command.length > 600)) {
@@ -232,22 +259,6 @@ function readAgentReports(env) {
   } catch {
     return [];
   }
-}
-
-// Checks the open amendment pull request of the folder against the rules for amendments.
-export async function checkAmendment(client, { folder, amendment }) {
-  const files = await client.listPullRequestFiles(amendment.number);
-  const changedPaths = [...new Set(files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean))];
-  const tasksPath = `specs/${folder}/tasks.md`;
-  const changesTasks = changedPaths.includes(tasksPath);
-  const beforeTasks = changesTasks ? await client.getFileContent(tasksPath, amendment.base.sha) : null;
-  const afterTasks = changesTasks ? await client.getFileContent(tasksPath, amendment.head.sha) : null;
-  return { changedPaths, ...validateAmendment({ folder, changedPaths, beforeTasks, afterTasks }) };
-}
-
-export async function findAmendment(client, folder) {
-  const pulls = await client.listPullRequestsForHead(amendmentBranch(folder));
-  return pulls.find((pull) => pull.state === 'open' && pull.base?.ref === implementationBranch(folder)) ?? null;
 }
 
 // Whether the diagnose run tracked by a still-open diagnosis check run has ended without reporting (agent failure,
@@ -295,7 +306,7 @@ const CATEGORY_TEXT = {
   unknown: 'the cause is not clear yet',
 };
 
-export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, amendmentCheck = null, behindMain = false }) {
+export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindMain = false }) {
   const lines = [DIAGNOSIS_COMMENT_MARKER];
   if (!report) {
     lines.push(
@@ -316,17 +327,18 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
   if (report.evidence.length > 0) {
     lines.push('', '<details><summary>Evidence</summary>', '', ...report.evidence.map((item) => `- ${safe(item)}`), '', '</details>');
   }
-  const amendmentValid = amendment && amendmentCheck && amendmentCheck.reasons.length === 0;
   if (amendment) {
-    lines.push('', `**Proposed amendment**: #${amendment.number} (\`${amendment.head.ref}\` → \`${amendment.base.ref}\`). Review and edit it there before applying.`, '');
+    lines.push(
+      '',
+      `**Proposed amendment**: #${amendment.number} (\`${amendment.head.ref}\` → \`${amendment.base.ref}\`). An independent \`/speckit-analyze\` checks it for consistency first (up to ${MAX_CORRECTION_ROUNDS} correction rounds); you get a review request there when it is ready.`,
+      '',
+    );
     for (const item of report.artifacts) lines.push(`- \`${safe(item.file)}\`${item.reason ? `: ${safe(item.reason)}` : ''}`);
-    for (const note of amendmentCheck?.notes ?? []) lines.push(`- Note: ${note}.`);
-    if (amendmentCheck?.reasons.length) lines.push('', `It cannot be applied: ${amendmentCheck.reasons.join('; ')}.`);
   } else if (report.category === 'artifacts') {
     lines.push('', '_No amendment pull request was created._');
   }
   if (report.questions.length > 0) {
-    lines.push('', '**Questions** (answer with `/speckit revise <answers>`)', '');
+    lines.push('', '**Questions** (answer with `/speckit diagnose <answers>`)', '');
     report.questions.forEach((item, index) => {
       lines.push(`${index + 1}. ${safe(item.question)}`);
       for (const choice of item.choices) lines.push(`   - ${safe(choice)}`);
@@ -337,19 +349,21 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
     lines.push('', '**Actions outside these commands**', '', ...manual.map((option) => `- ${option.recommended ? '**Recommended:** ' : ''}${safe(option.title)}`));
   }
   const commandOptions = report.options
-    .filter((option) => option.command && (!/^\/speckit (apply|discard)\b/.test(option.command) || amendmentValid))
+    .filter((option) => option.command)
     .map((option) => ({ title: `${option.recommended ? '**Recommended:** ' : ''}${safe(option.title)}`, command: option.command }));
-  lines.push('', ...renderNextSteps({ options: commandOptions, amendmentPull: amendmentValid ? amendment.number : null, behindMain, diagnosed: true }));
+  lines.push('', ...renderNextSteps({ options: commandOptions, amendmentPull: amendment?.number ?? null, behindMain, diagnosed: true }));
   if (reasons.length > 0) lines.push('', `_Parts of the report were dropped: ${reasons.map(safe).join('; ')}._`);
   if (runUrl) lines.push('', `<sub>[Diagnosis run](${runUrl})</sub>`);
   return lines.join('\n');
 }
 
-// Custom safe-output job, after the agent and the built-in safe outputs: validates the agent's report and the
-// amendment pull request, posts the diagnosis on the implementation pull request, and marks the check run as
-// waiting for a decision.
+// Custom safe-output job, after the agent and the built-in safe outputs. A diagnosis posts its findings on the
+// implementation pull request and marks its check run as waiting for a decision; a created amendment then goes into
+// the consistency check. A rework (`fix`, `revise`) reports on the amendment pull request and checks it again.
 export async function runRecord({ client, env, log }) {
-  const { pull: pullNumber, folder } = inputsFrom(env);
+  const inputs = inputsFrom(env);
+  if (inputs.mode !== 'diagnose') return recordRework({ client, env, log, inputs });
+  const { pull: pullNumber, folder, twin } = inputs;
   const detection = String(env.SPECKIT_DETECTION ?? '').trim();
   const withheld = detection && detection !== 'success';
   const reports = withheld ? [] : readAgentReports(env);
@@ -360,7 +374,6 @@ export async function runRecord({ client, env, log }) {
   const comments = await client.listIssueComments(pullNumber);
   const round = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).length + 1;
   const amendment = usable ? await createdAmendment(client, env, folder, reasons) : null;
-  const amendmentCheck = amendment ? await checkAmendment(client, { folder, amendment }) : null;
   let behindMain = false;
   try {
     behindMain = (await client.aheadBy(implementationBranch(folder), env.SPECKIT_BRANCH || 'main')) > 0;
@@ -368,7 +381,7 @@ export async function runRecord({ client, env, log }) {
     // Only used to suggest /speckit sync.
   }
   const runUrl = env.GITHUB_RUN_ID ? `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
-  await client.createComment(pullNumber, renderDiagnosisComment({ report: usable, reasons, round, runUrl, amendment, amendmentCheck, behindMain }));
+  await client.createComment(pullNumber, renderDiagnosisComment({ report: usable, reasons, round, runUrl, amendment, behindMain }));
   const checkRun = Number(env.SPECKIT_CHECK_RUN);
   if (Number.isInteger(checkRun) && checkRun > 0) {
     await client.updateCheckRun(checkRun, {
@@ -380,29 +393,76 @@ export async function runRecord({ client, env, log }) {
         : { title: 'Diagnosis without a usable report', summary: clip(reasons.join('; '), 2000) },
     });
   }
+  if (amendment) {
+    const implementation = await client.getPullRequest(pullNumber);
+    await beginAmendment(client, env, { amendment, folder, implementation, twin });
+  }
   log(usable ? `Posted the diagnosis (${usable.category}) on #${pullNumber}.` : `Posted that the diagnosis had no usable report on #${pullNumber}.`);
   return { exitCode: 0, report: usable, reasons };
 }
 
-// Pull request check of an amendment that a person may have edited: are the changes still applicable?
-export async function runCheckAmendment({ client, env, log }) {
-  const pullNumber = Number(env.SPECKIT_PULL);
-  const amendment = await client.getPullRequest(pullNumber);
-  const folder = String(amendment.head.ref).slice('speckit-amend/'.length);
-  const result = await checkAmendment(client, { folder, amendment });
-  await client.createCheckRun({
-    name: 'Spec Kit amendment',
-    head_sha: amendment.head.sha,
-    status: 'completed',
-    conclusion: result.reasons.length === 0 ? 'success' : 'failure',
-    output: {
-      title: result.reasons.length === 0 ? 'The amendment can be applied' : 'The amendment cannot be applied',
-      summary: [...result.reasons.map((reason) => `- ${reason}`), ...result.notes.map((note) => `- Note: ${note}`)].join('\n') || 'Only spec artifacts change.',
-    },
-  });
-  setOutput(env, 'valid', String(result.reasons.length === 0));
-  log(result.reasons.length === 0 ? 'The amendment can be applied.' : `The amendment cannot be applied: ${result.reasons.join('; ')}`);
-  return { exitCode: 0, ...result };
+// Records a rework of an amendment (`fix` after the consistency check, `revise` after a person's feedback) and starts
+// the consistency check of the result.
+async function recordRework({ client, env, log, inputs }) {
+  const { mode, amendment: number, round } = inputs;
+  const checkRun = Number(env.SPECKIT_CHECK_RUN);
+  const complete = async (conclusion, title, summary) => {
+    if (Number.isInteger(checkRun) && checkRun > 0) {
+      await client.updateCheckRun(checkRun, {
+        status: 'completed',
+        conclusion,
+        external_id: conclusion === 'failure' ? CHECK_AMEND_INCONSISTENT : CHECK_AMEND_CHECKING,
+        output: { title, summary: clip(summary || title, 2000) },
+      });
+    }
+  };
+  const context = await resolveAmendment(client, env, number);
+  if (context.reason || context.amendment.state !== 'open') {
+    await complete('neutral', 'The amendment is no longer open', context.reason ?? '');
+    return { exitCode: 0, outcome: 'closed' };
+  }
+  // A failed correction round ends the loop: the requester gets the amendment for review, marked not consistent.
+  // (A failed rework answers a person who is already in the conversation.)
+  const handBack = async (problem) => {
+    if (mode !== 'fix') return;
+    const pending = await pendingFeedback(client, context.amendment);
+    await presentAmendment(client, env, context, { consistent: false, problem, since: pending.since });
+  };
+  const detection = String(env.SPECKIT_DETECTION ?? '').trim();
+  const withheld = detection && detection !== 'success';
+  const reports = withheld ? [] : readAgentReports(env);
+  const { reasons, report } = withheld
+    ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
+    : reports.length > 0 ? validateReport(reports.at(-1), { requireCategory: false }) : { reasons: ['the agent did not report'], report: null };
+  if (!report || !report.summary) {
+    await complete('failure', mode === 'fix' ? `Correction round ${round} did not finish` : 'The rework did not finish', reasons.join('; '));
+    await client.createComment(number, `The ${mode === 'fix' ? `correction round ${round}` : 'rework'} did not produce a result: ${neutralizeMarkers(reasons.join('; ') || 'no report')}. Comment on this pull request to try again.`);
+    await handBack(`correction round ${round} did not finish`);
+    return { exitCode: 0, outcome: 'failed' };
+  }
+  const pushFailures = Number(env.SPECKIT_PUSH_FAILURES || 0);
+  if (pushFailures > 0) {
+    const what = mode === 'fix' ? `Correction round ${round}` : 'The rework';
+    await complete('failure', `${what} could not push its changes`, `${pushFailures} push(es) to \`${context.amendment.head.ref}\` failed.`);
+    await client.createComment(number, `${what} could not push its changes to this pull request, so nothing changed. Comment on this pull request to try again.`);
+    await handBack(`correction round ${round} could not push its changes`);
+    return { exitCode: 0, outcome: 'push failed' };
+  }
+  const pushed = String(env.SPECKIT_PUSH_SHA ?? '').trim();
+  if (pushed && context.amendment.head.sha !== pushed) log(`Amendment #${number}: the head ${context.amendment.head.sha} is not the pushed ${pushed}; a person pushed as well.`);
+  const changed = pushed ? 'pushed' : 'finished without changes';
+  await complete('neutral', mode === 'fix' ? `Correction round ${round} of ${MAX_CORRECTION_ROUNDS} ${changed}` : `Rework ${changed}`, report.summary);
+  if (mode === 'revise') {
+    await client.createComment(number, [
+      `**${pushed ? 'Reworked' : 'Answered without changes'}**: ${neutralizeMarkers(report.summary)}`,
+      ...(report.responses.length > 0 ? ['', ...report.responses.map((item) => `- ${item.feedback ? `_${neutralizeMarkers(item.feedback)}_: ` : ''}${neutralizeMarkers(item.response)}`)] : []),
+      '',
+      'The consistency check runs again; you get a review request when it is done.',
+    ].join('\n'));
+  }
+  await startAnalysis(client, env, context, { round: mode === 'fix' ? round : 0, mode: 'loop' });
+  log(`Recorded the ${mode} of amendment #${number}; the consistency check runs.`);
+  return { exitCode: 0, outcome: 'checking' };
 }
 
 function githubClient(env) {
@@ -419,8 +479,7 @@ export async function main(argv, { env = process.env, log = console.log, client 
   const run = { client: client ?? githubClient(env), env, log };
   if (command === 'evidence') return (await runEvidence(run)).exitCode;
   if (command === 'record') return (await runRecord(run)).exitCode;
-  if (command === 'check-amendment') return (await runCheckAmendment(run)).exitCode;
-  throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs <evidence | record | check-amendment>');
+  throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs <evidence | record>');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
