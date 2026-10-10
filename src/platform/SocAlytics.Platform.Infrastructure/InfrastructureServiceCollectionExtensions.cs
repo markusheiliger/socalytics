@@ -5,7 +5,9 @@ using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Club;
 using SocAlytics.Platform.Application.Abstractions.ObjectStorage;
 using SocAlytics.Platform.Application.IdentityAccess;
+using SocAlytics.Platform.Application.Recordings;
 using SocAlytics.Platform.Infrastructure.Club;
+using SocAlytics.Platform.Infrastructure.Recordings;
 using SocAlytics.Platform.Infrastructure.IdentityAccess;
 using SocAlytics.Platform.Infrastructure.ObjectStorage;
 using SocAlytics.Platform.Infrastructure.Persistence;
@@ -26,6 +28,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<IAccountCredentialService, AccountCredentialService>();
         services.TryAddScoped<ISessionStore, SessionStore>();
         services.TryAddScoped<IClubHierarchyStore, ClubHierarchyStore>();
+        services.TryAddScoped<IRecordingRetryOutcomeStore, RecordingRetryOutcomeStore>();
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
 
