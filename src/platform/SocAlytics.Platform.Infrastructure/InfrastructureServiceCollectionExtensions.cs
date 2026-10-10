@@ -29,6 +29,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<ISessionStore, SessionStore>();
         services.TryAddScoped<IClubHierarchyStore, ClubHierarchyStore>();
         services.TryAddScoped<IRecordingRetryOutcomeStore, RecordingRetryOutcomeStore>();
+        services.TryAddScoped<IRecordingStore, RecordingStore>();
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
 
