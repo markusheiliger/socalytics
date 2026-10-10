@@ -13,7 +13,41 @@ internal static class AnalystManagerSelfEndpoints
 			.AddEndpointFilter<RequireHttpsEndpointFilter>()
 			.WithTags("Analyst Manager self")
 			.WithName("getOwnAnalystManagerRegistration");
+		routes.MapPost("/api/v1/analyst-managers/self/unregistration", BeginUnregistrationAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AnalystManager)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.WithTags("Analyst Manager self")
+			.WithName("beginAnalystManagerUnregistration");
+		routes.MapPost("/api/v1/analyst-managers/self/unregistration/completion", CompleteUnregistrationAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AnalystManager)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.WithTags("Analyst Manager self")
+			.WithName("completeAnalystManagerUnregistration");
 		return routes;
+	}
+
+	private static async Task<IResult> BeginUnregistrationAsync(HttpContext http, BeginUnregistrationHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		if (!Guid.TryParse(http.User.FindFirst(AnalystManagerClaimTypes.RegistrationId)?.Value, out var registrationId))
+		{
+			return ProblemResults.From(Application.Abstractions.OperationFailure.Unauthenticated());
+		}
+
+		var result = await handler.HandleAsync(registrationId, cancellationToken);
+		return result.IsSuccess ? Results.Ok(result.Value) : ProblemResults.From(result.Failure);
+	}
+
+	private static async Task<IResult> CompleteUnregistrationAsync(HttpContext http, CompleteUnregistrationHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		if (!Guid.TryParse(http.User.FindFirst(AnalystManagerClaimTypes.RegistrationId)?.Value, out var registrationId))
+		{
+			return ProblemResults.From(Application.Abstractions.OperationFailure.Unauthenticated());
+		}
+
+		var result = await handler.HandleAsync(registrationId, cancellationToken);
+		return result.IsSuccess ? Results.Ok(result.Value) : ProblemResults.From(result.Failure);
 	}
 
 	private static async Task<IResult> GetAsync(HttpContext http, GetOwnRegistrationHandler handler, CancellationToken cancellationToken)

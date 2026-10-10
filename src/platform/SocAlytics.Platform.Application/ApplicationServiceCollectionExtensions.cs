@@ -75,6 +75,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.IssueManagerTokenHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.AuthenticateManagerRequestHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.GetOwnRegistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.BeginUnregistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.CompleteUnregistrationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Expiry.ExpireDueRegistrationsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.SubmitPairingCodeHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.GetRegistrationHandler>();
