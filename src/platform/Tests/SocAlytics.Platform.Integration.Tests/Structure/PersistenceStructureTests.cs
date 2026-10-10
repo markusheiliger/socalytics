@@ -17,6 +17,7 @@ public sealed class PersistenceStructureTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    // Quickstart A37
     public async Task PlatformCatalogHasNoStructureViolations()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -33,7 +34,7 @@ public sealed class PersistenceStructureTests(PostgresContainerFixture postgres)
     {
         var ct = TestContext.Current.CancellationToken;
         await using var db = await MigrateAsync(TestMigrationCatalogs.With("Versioning"), ct);
-        var manifest = new Dictionary<string, TableClassification>
+        var manifest = new Dictionary<string, TableClassification>(PersistedTableClassifications.Platform)
         {
             ["test_widget_part"] = TableClassification.ChildOf("test_widget", "widget_id"),
         };
@@ -52,7 +53,7 @@ public sealed class PersistenceStructureTests(PostgresContainerFixture postgres)
 
         (await PersistenceStructureChecker.CountTablesAsync(db.MigratorConnectionString, ct)).ShouldBe(0);
         var violations = await PersistenceStructureChecker.CheckAsync(
-            db.MigratorConnectionString, PersistedTableClassifications.Platform, ct);
+            db.MigratorConnectionString, new Dictionary<string, TableClassification>(), ct);
         violations.ShouldBeEmpty(string.Join(Environment.NewLine, violations));
     }
 

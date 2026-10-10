@@ -10,6 +10,7 @@ using Microsoft.Extensions.Logging;
 using Npgsql;
 using Shouldly;
 using SocAlytics.Platform.Infrastructure.Persistence.Migrations;
+using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using SocAlytics.Platform.Migrator;
 using Xunit;
@@ -24,13 +25,36 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
             builder.ConfigureAppConfiguration((_, configuration) =>
             {
                 configuration.Sources.Clear();
-                configuration.AddInMemoryCollection(
-                    connectionString is null
-                        ? new Dictionary<string, string?>()
-                        : new Dictionary<string, string?> { ["ConnectionStrings:socalytics"] = connectionString });
+                var settings = new Dictionary<string, string?>(TestIdentityAccessSettings.Values);
+                settings["ClubBootstrap:ClubDisplayName"] = "Readiness Club";
+                settings["ClubBootstrap:FirstClubAdmin:AccountName"] = "readiness-admin";
+                settings["ClubBootstrap:FirstClubAdmin:InitialPassword"] = "Readiness-Initial-Pass-1234";
+                if (connectionString is not null)
+                {
+                    settings["ConnectionStrings:socalytics"] = connectionString;
+                }
+
+                configuration.AddInMemoryCollection(settings);
             });
             builder.ConfigureLogging(logging => logging.AddProvider(capture));
         });
+
+    internal static async Task ShouldBecomeHealthyAsync(HttpClient client, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        HttpStatusCode status;
+        do
+        {
+            status = (await client.GetAsync("/health", ct)).StatusCode;
+            if (status != HttpStatusCode.OK)
+            {
+                await Task.Delay(200, ct);
+            }
+        }
+        while (status != HttpStatusCode.OK && DateTime.UtcNow < deadline);
+
+        status.ShouldBe(HttpStatusCode.OK);
+    }
 
     internal static async Task<string?> DescriptionAsync(WebApplicationFactory<Program> factory, CancellationToken ct)
     {
@@ -49,7 +73,7 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
         await using var factory = CreateFactory(db.AppConnectionString, new CapturingLoggerProvider());
         using var client = factory.CreateClient();
 
-        (await client.GetAsync("/health", ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
+        await ShouldBecomeHealthyAsync(client, ct);
     }
 
     [Fact]
@@ -100,6 +124,6 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
         (await client.GetAsync("/alive", ct)).StatusCode.ShouldBe(HttpStatusCode.OK);
 
         using var openApi = JsonDocument.Parse(await client.GetStringAsync("/openapi/v1.json", ct));
-        openApi.RootElement.GetProperty("paths").EnumerateObject().ShouldBeEmpty();
+        openApi.RootElement.GetProperty("paths").TryGetProperty("/api/v1/session", out _).ShouldBeTrue();
     }
 }

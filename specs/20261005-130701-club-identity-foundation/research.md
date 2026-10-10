@@ -234,9 +234,25 @@ re-decided here.
   - Every failure returns the identical `401` problem body
     (`sign-in-failed`, fixed title and detail).
   - The failure path performs the same database work on every branch: one
-    account lookup, one audit insert, and the commit. Only the conditional
-    counter update differs; it is a single-row `UPDATE` with negligible cost
-    next to PBKDF2.
+    account lookup, one hash verification, and one shared refusal statement
+    in one round trip. The statement is a single
+    `WITH … UPDATE … INSERT`: the `UPDATE` of `access_failed_count` and
+    `lockout_end` is guarded by a parameter and matches zero rows on every
+    path except a wrong password outside lockout (an unknown account passes
+    `Guid.Empty`), and the `INSERT` writes the `session.sign-in` audit row.
+    The counter is computed in SQL from the lockout options and a
+    `TimeProvider` value, without `UserManager.UpdateAsync`.
+    *Refined decision.* The earlier assumption that the conditional counter
+    `UPDATE` is negligible next to PBKDF2 was wrong. Three T018 attempts
+    measured the wrong-password class 1 to 2 ms slower (KS D 0.83 to 0.93
+    against a critical value of 0.212), because only that path ran
+    `UserManager.UpdateAsync` (validator lookup, a separate round trip, and
+    the `version` trigger on a changed row) in addition to the audit insert.
+    Adding no-op single-row `UPDATE`s to the other paths narrowed the gap only
+    partly (D 0.4 to 0.9); the unknown-account class stayed furthest away
+    because it has no row to write. The rejected alternative is equalizing
+    with separate no-op writes per path. Corrective task T040 implements the
+    shared statement before the timing evidence in T018.
   - The failure counter, lockout, and `session.sign-in` audit event (outcome
     `failed`, internal `reason_code`) commit in one unit of work.
   - The audit event names the account only when it exists. Unknown account
@@ -253,12 +269,11 @@ re-decided here.
     (critical-value coefficient `c(α) = sqrt(-ln(α / 2) / 2)` ≈ 2.120). When a
     comparison is significant, the test collects one fresh, independent sample
     of every class and fails only if a comparison is significant again
-    (SC-005). The wrong-password class alone performs the conditional
-    single-row counter `UPDATE` (an unknown account has no row to update);
-    this is the expected residual difference and is not removed. If it alone
-    stays significant after the re-sample, the counter write moves into the
-    same statement and round trip as the shared refusal work, or an
-    equivalent single-row write is added to every refusal path; the test is
+    (SC-005). Every refusal class runs the same lookup, verification, and
+    shared refusal statement (T040), so no residual difference is expected. If
+    a comparison is still significant after the re-sample, production code is
+    not changed inside the evidence task; the statistics and suspected cause
+    are reported to a person. The test is
     never weakened. No other test in the assembly runs concurrently, and
     interleaved sampling controls noise from other test assemblies.
 - **Rationale**: This satisfies FR-018, FR-019, SC-005, and the US6 lockout
