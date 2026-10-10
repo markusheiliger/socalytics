@@ -68,6 +68,20 @@ internal static class RecordingEndpoints
 			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
 			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
 			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+		members.MapPost("/matches/{matchId:guid}/recording-versions/{recordingVersionId:guid}/timeline-mappings", ReviseAsync)
+			.AddEndpointFilter<RecordingBodyLimitFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("reviseRecordingTimelineMapping")
+			.WithTags("Recording lineage")
+			.Produces<TimelineMappingDto>(StatusCodes.Status201Created)
+			.Produces<TimelineMappingDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
 		members.MapPost("/matches/{matchId:guid}/recording-set-versions", FinalizeAsync)
 			.AddEndpointFilter<RecordingBodyLimitFilter>()
 			.AddEndpointFilter<JsonOnlyFilter>()
@@ -89,6 +103,62 @@ internal static class RecordingEndpoints
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound);
 		return routes;
+	}
+
+	private static async Task<IResult> ReviseAsync(Guid matchId, Guid recordingVersionId, HttpContext http, ReviseTimelineMappingHandler handler, CancellationToken cancellationToken)
+	{
+		var keyHeader = http.Request.Headers["Idempotency-Key"];
+		if (keyHeader.Count == 0)
+		{
+			return ProblemResults.Problem(SharedProblemCodes.StatusOf(SharedProblemCodes.IdempotencyKeyMissing), SharedProblemCodes.IdempotencyKeyMissing);
+		}
+
+		TimelineMappingContentDto? body = null;
+		try
+		{
+			using var buffer = new MemoryStream();
+			var chunk = new byte[16 * 1024];
+			int read;
+			while ((read = await http.Request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+			{
+				buffer.Write(chunk, 0, read);
+				if (buffer.Length > MaxBodyBytes)
+				{
+					return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+				}
+			}
+
+			buffer.Position = 0;
+			body = await JsonSerializer.DeserializeAsync<TimelineMappingContentDto>(buffer, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+		}
+		catch (BadHttpRequestException)
+		{
+			return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+		}
+
+		var spans = body?.Spans?
+			.Select(s => new SocAlytics.Platform.Domain.Recordings.TimelineSpanSeconds(s.MediaStartSeconds, s.MediaEndSeconds, s.MatchStartSeconds))
+			.ToList();
+		var result = await handler.HandleAsync(
+			new ReviseTimelineMappingCommand(matchId, recordingVersionId, keyHeader.Count == 1 ? keyHeader[0] : null, spans), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return Failure(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		var dto = TimelineMappingDto.From(result.Value.Mapping);
+		var location = $"/api/v1/matches/{matchId}/timeline-mappings/{dto.Id}";
+		if (result.Value.Created)
+		{
+			return Results.Created(location, dto);
+		}
+
+		http.Response.Headers.Location = location;
+		return Results.Ok(dto);
 	}
 
 	private static async Task<IResult> FinalizeAsync(Guid matchId, HttpContext http, FinalizeRecordingSetHandler handler, CancellationToken cancellationToken)

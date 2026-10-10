@@ -55,4 +55,13 @@ public interface IRecordingStore
     Task InsertFinalizedEventAsync(
         Guid eventId, Guid recordingSetVersionId, Guid matchId, Guid teamId, DateTimeOffset occurredAt, string payloadJson,
         CancellationToken cancellationToken);
+
+    Task<bool> RecordingVersionExistsAsync(Guid matchId, Guid recordingVersionId, CancellationToken cancellationToken);
+
+    Task<StoredTimelineMapping?> FindMappingAsync(Guid matchId, Guid timelineMappingId, CancellationToken cancellationToken);
+
+    Task<StoredTimelineMapping?> FindMappingByDigestAsync(Guid matchId, Guid recordingVersionId, string digest, CancellationToken cancellationToken);
+
+    /// <summary>Inserts a revised mapping in the active unit of work.</summary>
+    Task InsertTimelineMappingAsync(StoredTimelineMapping mapping, string canonicalSpansJson, Guid createdBy, CancellationToken cancellationToken);
 }

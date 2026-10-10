@@ -309,6 +309,80 @@ internal sealed class RecordingStore(IDbSession session) : IRecordingStore
             cancellationToken: cancellationToken));
     }
 
+    public async Task<bool> RecordingVersionExistsAsync(Guid matchId, Guid recordingVersionId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS (SELECT 1 FROM socalytics.recording_versions WHERE id = @recordingVersionId AND match_id = @matchId)",
+            new { recordingVersionId, matchId },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    private sealed record MappingRow(Guid Id, Guid RecordingVersionId, Guid MatchId, string Spans, string Digest, DateTime CreatedAt);
+
+    private const string MappingSelect =
+        "SELECT id AS Id, recording_version_id AS RecordingVersionId, match_id AS MatchId, spans::text AS Spans, " +
+        "mapping_digest AS Digest, created_at AS CreatedAt FROM socalytics.recording_timeline_mappings ";
+
+    private async Task<StoredTimelineMapping?> QueryMappingAsync(string where, object parameters, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<MappingRow>(new CommandDefinition(
+            MappingSelect + where, parameters, session.Transaction, cancellationToken: cancellationToken));
+        if (row is null)
+        {
+            return null;
+        }
+
+        var spans = new List<TimelineSpan>();
+        using var document = System.Text.Json.JsonDocument.Parse(row.Spans);
+        foreach (var span in document.RootElement.GetProperty("spans").EnumerateArray())
+        {
+            spans.Add(new TimelineSpan(
+                span.GetProperty("mediaStartMilliseconds").GetInt64(),
+                span.GetProperty("mediaEndMilliseconds").GetInt64(),
+                span.GetProperty("matchStartMilliseconds").GetInt64()));
+        }
+
+        return new StoredTimelineMapping(row.Id, row.RecordingVersionId, row.MatchId, spans, row.Digest, Utc(row.CreatedAt));
+    }
+
+    public Task<StoredTimelineMapping?> FindMappingAsync(Guid matchId, Guid timelineMappingId, CancellationToken cancellationToken) =>
+        QueryMappingAsync("WHERE id = @timelineMappingId AND match_id = @matchId", new { timelineMappingId, matchId }, cancellationToken);
+
+    public Task<StoredTimelineMapping?> FindMappingByDigestAsync(
+        Guid matchId, Guid recordingVersionId, string digest, CancellationToken cancellationToken) =>
+        QueryMappingAsync(
+            "WHERE match_id = @matchId AND recording_version_id = @recordingVersionId AND mapping_digest = @digest " +
+            "ORDER BY created_at, id LIMIT 1",
+            new { matchId, recordingVersionId, digest },
+            cancellationToken);
+
+    public async Task InsertTimelineMappingAsync(
+        StoredTimelineMapping mapping, string canonicalSpansJson, Guid createdBy, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(mapping);
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO socalytics.recording_timeline_mappings " +
+            "(id, recording_version_id, match_id, spans, mapping_digest, created_by, created_at) " +
+            "VALUES (@id, @versionId, @matchId, CAST(@spans AS jsonb), @digest, @createdBy, @createdAt)",
+            new
+            {
+                id = mapping.Id,
+                versionId = mapping.RecordingVersionId,
+                matchId = mapping.MatchId,
+                spans = canonicalSpansJson,
+                digest = mapping.Digest,
+                createdBy,
+                createdAt = mapping.CreatedAt,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
     private static UploadSession Map(SessionRow row)
     {
         var digests = new List<string>(row.PartDigests.Length / Sha256Digest.ByteLength);
