@@ -11,8 +11,11 @@ public sealed class ManagerControl : IManagerControl
     private readonly TimeProvider _time;
     private readonly DateTimeOffset _started;
 
-    public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time)
+    private readonly IManagerWorkTracker _work;
+
+    public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work)
     {
+        _work = work;
         _coordinator = coordinator;
         _time = time;
         _started = time.GetUtcNow();
@@ -38,7 +41,9 @@ public sealed class ManagerControl : IManagerControl
             machine is null ? null : StateWire(machine.State.Kind),
             machine is null ? null : IntentWire(machine.Intent.Kind),
             _coordinator.PendingUnregister,
-            null,
+            machine?.State is { Kind: OperatingStateKind.Draining, Deadline: { } deadline } drain
+                ? new DrainStatus(PurposeWire(drain.Purpose), deadline, _work.ActiveCount)
+                : null,
             (_time.GetUtcNow() - _started).TotalSeconds,
             null,
             _coordinator.Diagnostics,
@@ -54,6 +59,13 @@ public sealed class ManagerControl : IManagerControl
         _coordinator.RegisterAsync(request, cancellationToken);
 
     public Task CancelRegistrationAsync() => _coordinator.CancelAsync();
+
+    private static string PurposeWire(DrainPurpose? purpose) => purpose switch
+    {
+        DrainPurpose.Unregister => "unregister",
+        DrainPurpose.SessionEnd => "session-end",
+        _ => "safe-exit",
+    };
 
     private static string StateWire(OperatingStateKind kind) => kind switch
     {

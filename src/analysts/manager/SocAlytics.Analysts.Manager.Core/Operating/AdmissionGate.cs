@@ -10,6 +10,11 @@ public sealed class AdmissionGate
     private OperatingStateMachine? machine;
     private bool unregisterHold;
 
+    public OperatingStateMachine? Machine
+    {
+        get { lock (gate) { return machine; } }
+    }
+
     public void Attach(OperatingStateMachine confirmedMachine)
     {
         lock (gate) { machine = confirmedMachine; }

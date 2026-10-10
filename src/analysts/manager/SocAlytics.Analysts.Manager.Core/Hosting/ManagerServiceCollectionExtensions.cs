@@ -35,6 +35,8 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<ProofFactory>();
         services.AddHttpClient<PlatformClient>();
         services.AddSingleton<Operating.AdmissionGate>();
+        services.AddSingleton<Operating.IManagerWorkTracker, Operating.NoManagerWork>();
+        services.AddSingleton<Operating.DrainCoordinator>();
         services.AddSingleton(sp => new LocalState.SignedStateStore(
             ManagerStatePaths.Resolve(sp.GetRequiredService<IOptions<ManagerOptions>>().Value.StateDirectory),
             sp.GetServices<IDeviceKeyProvider>()));
