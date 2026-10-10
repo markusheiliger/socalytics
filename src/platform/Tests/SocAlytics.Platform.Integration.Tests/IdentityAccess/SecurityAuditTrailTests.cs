@@ -152,6 +152,7 @@ public sealed class SecurityAuditTrailTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    // Quickstart A35
     public async Task RuntimeRoleCannotMutateAndMigratorIsStoppedByTrigger()
     {
         var ct = TestContext.Current.CancellationToken;

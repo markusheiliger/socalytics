@@ -35,6 +35,7 @@ public sealed class ClubBootstrapHostingTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A1
 	public async Task ConfiguredHostBecomesHealthyWithOneClub()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -47,6 +48,7 @@ public sealed class ClubBootstrapHostingTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A3
 	public async Task ConcurrentHostsProduceOneClubAndAdmin()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -69,6 +71,7 @@ public sealed class ClubBootstrapHostingTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A4
 	public async Task RestartWithDifferentAccountNameReportsConflict()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -87,6 +90,7 @@ public sealed class ClubBootstrapHostingTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A5
 	public async Task HostWithoutConfigurationStaysNotEstablished()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -116,6 +120,7 @@ public sealed class ClubBootstrapHostingTests(PostgresContainerFixture postgres)
 	[Theory]
 	[InlineData(false)]
 	[InlineData(true)]
+	// Quickstart A50
 	public async Task RestartWithoutPasswordOrSectionStaysHealthyWithoutNewAudit(bool removeSection)
 	{
 		var ct = TestContext.Current.CancellationToken;

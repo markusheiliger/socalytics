@@ -60,6 +60,7 @@ public sealed class ClubSettingsEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A49
 	public async Task RestrictedSessionIsRejectedUntilPasswordIsChanged()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -97,6 +98,7 @@ public sealed class ClubSettingsEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A27
 	public async Task UpdateRequiresCurrentVersion()
 	{
 		var ct = TestContext.Current.CancellationToken;

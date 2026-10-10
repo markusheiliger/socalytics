@@ -54,6 +54,7 @@ public sealed class BreakGlassRecoveryEvidenceTests(PostgresContainerFixture pos
 			e.Message + " " + string.Join(' ', e.State.Select(s => s.Key + "=" + s.Value)) + " " + e.Exception));
 
 	[Fact]
+	// Quickstart A42
 	public async Task RestrictedSessionIsLimitedUntilPasswordChanged()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -80,6 +81,7 @@ public sealed class BreakGlassRecoveryEvidenceTests(PostgresContainerFixture pos
 	}
 
 	[Fact]
+	// Quickstart A44
 	public async Task ConcurrentHostsApplyTheSameDirectiveExactlyOnce()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -110,6 +112,7 @@ public sealed class BreakGlassRecoveryEvidenceTests(PostgresContainerFixture pos
 	}
 
 	[Fact]
+	// Quickstart A48
 	public async Task TemporaryCredentialsAppearNowhereAndNoEndpointAcceptsDirectives()
 	{
 		var ct = TestContext.Current.CancellationToken;

@@ -110,6 +110,7 @@ public sealed class IdentityAccessSchemaTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    // Quickstart A47
     public async Task RecoveryDirectiveUseIsAppendOnlyForRuntimeRole()
     {
         var ct = TestContext.Current.CancellationToken;

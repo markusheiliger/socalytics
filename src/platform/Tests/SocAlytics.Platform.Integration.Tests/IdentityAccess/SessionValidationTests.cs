@@ -105,6 +105,7 @@ public sealed class SessionValidationTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    // Quickstart A32
     public async Task SessionFailsAfterIdleTimeout()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -116,6 +117,7 @@ public sealed class SessionValidationTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    // Quickstart A32
     public async Task SessionFailsAfterAbsoluteLifetimeEvenWhenActive()
     {
         var ct = TestContext.Current.CancellationToken;

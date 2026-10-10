@@ -41,6 +41,7 @@ public sealed class ClubRoleEndpointTests(PostgresContainerFixture postgres)
 	private static string RolePath(Guid id, string role) => $"/api/v1/members/{id}/club-roles/{role}";
 
 	[Fact]
+	// Quickstart A11
 	public async Task AssigningRegistrarTakesEffectAndRepeatIsUnchanged()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -74,6 +75,7 @@ public sealed class ClubRoleEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A28
 	public async Task StaleIfMatchOnAssignmentIsIgnored()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -92,6 +94,7 @@ public sealed class ClubRoleEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A13
 	public async Task SoleClubAdminCannotRevokeOwnRole()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -108,6 +111,7 @@ public sealed class ClubRoleEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A14
 	public async Task ConcurrentMutualRevocationNeverLeavesZeroClubAdmins()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -142,6 +146,7 @@ public sealed class ClubRoleEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A51
 	public async Task RevokingIssuerClubAdminRevokesOpenCredentials()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -174,6 +179,7 @@ public sealed class ClubRoleEndpointTests(PostgresContainerFixture postgres)
 	[Theory]
 	[InlineData("registrar")]
 	[InlineData("none")]
+	// Quickstart A16
 	public async Task NonAdminsCannotAssignOrRevokeClubRoles(string callerRole)
 	{
 		var ct = TestContext.Current.CancellationToken;

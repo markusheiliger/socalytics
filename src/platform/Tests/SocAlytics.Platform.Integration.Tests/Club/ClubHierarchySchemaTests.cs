@@ -55,6 +55,7 @@ public sealed class ClubHierarchySchemaTests(PostgresContainerFixture postgres)
         (long)(await ExecAsync(c, $"SELECT version FROM socalytics.{table} WHERE id = '{id}'", ct))!;
 
     [Fact]
+    // Quickstart A36
     public async Task SecondClubRowViolatesUnique()
     {
         var ct = TestContext.Current.CancellationToken;

@@ -150,6 +150,7 @@ public sealed class AuditEvidenceTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A34
 	public async Task EveryCatalogEventIsRecordedAndNoSecretLeaks()
 	{
 		var ct = TestContext.Current.CancellationToken;

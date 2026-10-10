@@ -60,6 +60,7 @@ public sealed class TeamRoleEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A22
 	public async Task TeamRolesScopeVisibilityAndRevocationTakesEffectImmediately()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -165,6 +166,7 @@ public sealed class TeamRoleEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A24
 	public async Task ReplacingRolesAndRejections()
 	{
 		var ct = TestContext.Current.CancellationToken;

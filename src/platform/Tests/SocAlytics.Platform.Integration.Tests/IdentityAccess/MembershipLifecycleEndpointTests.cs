@@ -45,6 +45,7 @@ public sealed class MembershipLifecycleEndpointTests(PostgresContainerFixture po
 	}
 
 	[Fact]
+	// Quickstart A12
 	public async Task DeactivationEndsSessionsRemovesRolesAndBlocksSignIn()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -78,6 +79,7 @@ public sealed class MembershipLifecycleEndpointTests(PostgresContainerFixture po
 	}
 
 	[Fact]
+	// Quickstart A13
 	public async Task OnlyClubAdminCannotDeactivateSelfAndReactivationRestoresNothing()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -109,6 +111,7 @@ public sealed class MembershipLifecycleEndpointTests(PostgresContainerFixture po
 	}
 
 	[Fact]
+	// Quickstart A15
 	public async Task DeactivationRacingRoleAssignmentAlwaysEndsDeactivatedWithoutRoles()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -142,6 +145,7 @@ public sealed class MembershipLifecycleEndpointTests(PostgresContainerFixture po
 	}
 
 	[Fact]
+	// Quickstart A52, A53
 	public async Task CredentialsAreRevokedOnDeactivation()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -177,6 +181,7 @@ public sealed class MembershipLifecycleEndpointTests(PostgresContainerFixture po
 	}
 
 	[Fact]
+	// Quickstart A54
 	public async Task DeactivationRacingRedemptionNeverLeavesDeactivatedAccountWithPasswordAndSession()
 	{
 		var ct = TestContext.Current.CancellationToken;

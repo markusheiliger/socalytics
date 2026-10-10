@@ -66,6 +66,7 @@ public sealed class PerformanceEvidenceTests(PostgresContainerFixture postgres, 
 	}
 
 	[Fact]
+	// Quickstart A39
 	public async Task CoreOperationsHaveSubSecondP95()
 	{
 		var ct = TestContext.Current.CancellationToken;

@@ -39,6 +39,7 @@ public sealed class ClubBootstrapHandlerTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    // Quickstart A1
     public async Task FreshDatabaseCreatesClubAdminAndOneAuditEventWithoutPassword()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -55,6 +56,7 @@ public sealed class ClubBootstrapHandlerTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    // Quickstart A2
     public async Task SecondRunChangesNothingAndRecordsNothing()
     {
         var ct = TestContext.Current.CancellationToken;

@@ -72,6 +72,7 @@ public sealed class TeamEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A18, A20
 	public async Task CreateUpdateAndArchivedSeasonRules()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -133,6 +134,7 @@ public sealed class TeamEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A19
 	public async Task ConcurrentArchiveAndRenameNeverChangeTeamAfterArchive()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -171,6 +173,7 @@ public sealed class TeamEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A21
 	public async Task VisibilityAndAuthorization()
 	{
 		var ct = TestContext.Current.CancellationToken;

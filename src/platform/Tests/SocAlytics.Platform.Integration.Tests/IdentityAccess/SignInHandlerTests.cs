@@ -79,6 +79,7 @@ public sealed class SignInHandlerTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    // Quickstart A9
     public async Task EveryRefusalIsIdenticalAndVerifiesExactlyOnce()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -142,6 +143,7 @@ public sealed class SignInHandlerTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    // Quickstart A56
     public async Task LockedAccountStaysUnchangedAndUnlocksAtOriginalTime()
     {
         var ct = TestContext.Current.CancellationToken;

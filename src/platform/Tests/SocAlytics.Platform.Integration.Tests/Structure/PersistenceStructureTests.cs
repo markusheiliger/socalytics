@@ -17,6 +17,7 @@ public sealed class PersistenceStructureTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    // Quickstart A37
     public async Task PlatformCatalogHasNoStructureViolations()
     {
         var ct = TestContext.Current.CancellationToken;

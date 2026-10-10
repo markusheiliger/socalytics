@@ -219,6 +219,7 @@ public sealed class AuthorizationMatrixTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A23, A38
 	public async Task AuthorizationMatrixAllowsOnlyPermittedCombinationsAndLeaksNothing()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -332,6 +333,53 @@ public sealed class AuthorizationMatrixTests(PostgresContainerFixture postgres)
 		}
 
 		failures.ShouldBeEmpty(string.Join(Environment.NewLine, failures));
+	}
+
+	// Quickstart A8
+	[Fact]
+	public async Task EveryUnsafeOperationWithoutOrWithWrongAntiforgeryTokenIsRejectedWithoutChange()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, factory) = await StartAsync(ct);
+		await using var _ = db;
+		await using var __ = factory;
+		await TestMembers.SeedAsync(db, "mx-admin", clubRoles: ["club-admin"], cancellationToken: ct);
+		var victim = await TestMembers.SeedAsync(db, "mx-victim", cancellationToken: ct);
+		using var admin = await ApiSession.SignInAsync(factory, "mx-admin", TestMembers.DefaultPassword, ct);
+		var season = await CreateAsync(admin, "/api/v1/seasons", new { name = "Csrf" }, ct);
+		var team = await CreateAsync(admin, $"/api/v1/seasons/{season}/teams", new { name = "Csrf A" }, ct);
+		var match = await CreateAsync(admin, $"/api/v1/teams/{team}/matches", new { opponent = new { name = "Opp" }, kickoffAt = "2026-05-01T10:00:00Z", homeAway = "home", competition = "League" }, ct);
+		var ids = new Ids(season, team, team, match, match, victim, Guid.NewGuid());
+		var before = await SnapshotAsync(db, ct);
+		var failures = new List<string>();
+
+		foreach (var op in Operations.Where(o => o.Method != HttpMethod.Get))
+		{
+			foreach (var token in new string?[] { null, "wrong" })
+			{
+				using var request = new HttpRequestMessage(op.Method, Resolve(op, ids, Target.TeamA));
+				if (Body(op) is { } body)
+				{
+					request.Content = JsonContent.Create(body);
+				}
+
+				if (token is not null)
+				{
+					request.Headers.Add("X-CSRF-Token", token);
+				}
+
+				request.Headers.TryAddWithoutValidation("If-Match", "\"1\"");
+				using var response = await admin.Client.SendAsync(request, ct);
+				var text = await response.Content.ReadAsStringAsync(ct);
+				if (response.StatusCode != HttpStatusCode.Forbidden || !text.Contains("antiforgery-failed", StringComparison.Ordinal))
+				{
+					failures.Add($"{op.Id} token={token ?? "none"}: {(int)response.StatusCode}");
+				}
+			}
+		}
+
+		failures.ShouldBeEmpty();
+		(await SnapshotAsync(db, ct)).ShouldBe(before);
 	}
 
 	[Fact]

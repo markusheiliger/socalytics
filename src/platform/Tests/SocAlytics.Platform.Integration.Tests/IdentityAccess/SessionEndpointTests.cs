@@ -33,6 +33,7 @@ public sealed class SessionEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A6
 	public async Task SignInSetsHardenedCookieAndLeaksNoSecrets()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -62,6 +63,7 @@ public sealed class SessionEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A7
 	public async Task SignedOutCookieAndMissingSessionGetUnauthorizedWithoutRedirect()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -110,6 +112,7 @@ public sealed class SessionEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A57
 	public async Task AntiforgeryTokenIsBoundToItsSession()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -136,6 +139,7 @@ public sealed class SessionEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A9
 	public async Task AllSignInFailureClassesReturnIdenticalBodies()
 	{
 		var ct = TestContext.Current.CancellationToken;

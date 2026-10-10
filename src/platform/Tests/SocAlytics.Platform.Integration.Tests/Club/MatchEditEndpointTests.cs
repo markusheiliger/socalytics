@@ -40,6 +40,7 @@ public sealed class MatchEditEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A25, A26, A27
 	public async Task MatchEditsAreImmutableVersionedAndBlockedInArchivedSeasons()
 	{
 		var ct = TestContext.Current.CancellationToken;

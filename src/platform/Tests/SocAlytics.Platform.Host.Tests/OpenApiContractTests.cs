@@ -9,6 +9,7 @@ namespace SocAlytics.Platform.Host.Tests;
 public sealed class OpenApiContractTests
 {
 	[Fact]
+	// Quickstart A40
 	public async Task OpenApiDocumentMatchesContractOperationsAndSecuritySchemes()
 	{
 		using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));

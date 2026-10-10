@@ -31,6 +31,7 @@ public sealed class SelfServiceEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A30, A49
 	public async Task PasswordChangeKeepsCurrentSessionAndEndsOthers()
 	{
 		var ct = TestContext.Current.CancellationToken;

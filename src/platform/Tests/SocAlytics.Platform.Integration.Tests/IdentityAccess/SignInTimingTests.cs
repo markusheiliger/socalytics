@@ -41,6 +41,7 @@ public sealed class SignInTimingTests(PostgresContainerFixture postgres, ITestOu
 	private static readonly string[] Classes = ["wrong-password", "unknown", "no-password", "locked", "inactive"];
 
 	[Fact]
+	// Quickstart A55
 	public async Task RefusalClassesHaveIndistinguishableTimingDistributions()
 	{
 		var ct = TestContext.Current.CancellationToken;

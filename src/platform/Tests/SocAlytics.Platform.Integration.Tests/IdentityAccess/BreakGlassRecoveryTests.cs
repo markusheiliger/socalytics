@@ -57,6 +57,7 @@ public sealed class BreakGlassRecoveryTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A41
 	public async Task ValidDirectiveRecoversLockedOutAdminOnce()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -88,6 +89,7 @@ public sealed class BreakGlassRecoveryTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A43
 	public async Task RestartWithUsedDirectiveChangesNothingAndRecordsRefusal()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -114,6 +116,7 @@ public sealed class BreakGlassRecoveryTests(PostgresContainerFixture postgres)
 	[InlineData("account-inactive")]
 	[InlineData("password-policy")]
 	[InlineData("directive-incomplete")]
+	// Quickstart A45
 	public async Task RefusedDirectivesChangeNothingAndKeepIdUnused(string reason)
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -146,6 +149,7 @@ public sealed class BreakGlassRecoveryTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A46
 	public async Task RecoveringAccountWithoutClubAdminGrantsNoRole()
 	{
 		var ct = TestContext.Current.CancellationToken;

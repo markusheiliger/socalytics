@@ -28,6 +28,7 @@ public sealed class MemberAdministrationEndpointTests(PostgresContainerFixture p
 	}
 
 	[Fact]
+	// Quickstart A33
 	public async Task EndMemberSessionsEndsEverySession()
 	{
 		var ct = TestContext.Current.CancellationToken;

@@ -57,6 +57,7 @@ public sealed class PasswordRecoveryEndpointTests(PostgresContainerFixture postg
 	}
 
 	[Fact]
+	// Quickstart A29
 	public async Task LockoutRejectsCorrectPasswordUntilClubAdminUnlocks()
 	{
 		var ct = TestContext.Current.CancellationToken;
@@ -84,6 +85,7 @@ public sealed class PasswordRecoveryEndpointTests(PostgresContainerFixture postg
 	}
 
 	[Fact]
+	// Quickstart A31
 	public async Task ResetEndsSessionsAndCredentialIsSingleUse()
 	{
 		var ct = TestContext.Current.CancellationToken;

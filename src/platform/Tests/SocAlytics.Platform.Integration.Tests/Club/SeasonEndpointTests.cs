@@ -67,6 +67,7 @@ public sealed class SeasonEndpointTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	// Quickstart A17
 	public async Task LifecycleTransitionsAndConflicts()
 	{
 		var ct = TestContext.Current.CancellationToken;

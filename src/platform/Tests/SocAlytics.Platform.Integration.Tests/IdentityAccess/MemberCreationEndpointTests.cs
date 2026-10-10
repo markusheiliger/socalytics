@@ -48,6 +48,7 @@ public sealed class MemberCreationEndpointTests(PostgresContainerFixture postgre
 	}
 
 	[Fact]
+	// Quickstart A10
 	public async Task ClubAdminCreatesMemberWhoRedeemsCredentialAndSignsIn()
 	{
 		var ct = TestContext.Current.CancellationToken;
