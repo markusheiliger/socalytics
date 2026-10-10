@@ -5,7 +5,8 @@ namespace SocAlytics.Analysts.Manager.Platform;
 public sealed record SelfRegistrationResult(PlatformSignal Signal, OwnRegistration? Registration);
 
 /// <summary>Holds the short-lived access token in memory only; it is never persisted or logged.</summary>
-public sealed class ManagerTokenCache(PlatformClient platform, TimeProvider time)
+public sealed class ManagerTokenCache(
+    PlatformClient platform, TimeProvider time, Registration.ProtectedStoreFailureHandler? failures = null)
 {
     private readonly object _gate = new();
     private string? _token;
@@ -17,6 +18,20 @@ public sealed class ManagerTokenCache(PlatformClient platform, TimeProvider time
     }
 
     public async Task<SelfRegistrationResult> GetSelfRegistrationAsync(
+        Uri endpoint, IDeviceKey key, string managerId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await GetSelfRegistrationCoreAsync(endpoint, key, managerId, cancellationToken);
+        }
+        catch (DeviceKeyException e) when (failures?.Handle(e.Code) == true)
+        {
+            Clear();
+            return new(new PlatformSignal(PlatformOutcome.Refused), null);
+        }
+    }
+
+    private async Task<SelfRegistrationResult> GetSelfRegistrationCoreAsync(
         Uri endpoint, IDeviceKey key, string managerId, CancellationToken cancellationToken)
     {
         var (signal, token) = await GetTokenAsync(endpoint, key, managerId, cancellationToken);

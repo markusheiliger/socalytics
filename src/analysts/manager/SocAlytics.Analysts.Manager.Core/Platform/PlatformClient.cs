@@ -18,7 +18,17 @@ public sealed record PlatformResponse(System.Net.HttpStatusCode Status, string B
         string.IsNullOrEmpty(Body) ? null : JsonSerializer.Deserialize<T>(Body, PlatformJson.Options);
 }
 
-public sealed class PlatformClient(HttpClient http, ProofFactory proofs)
+/// <summary>Single hub through which every platform response reports an inactive (revoked or unregistered) signal.</summary>
+public sealed class InactiveSignalSink
+{
+    private Func<InactiveReason, Task>? _handler;
+
+    public void Subscribe(Func<InactiveReason, Task> handler) => _handler = handler;
+
+    public Task ReportAsync(InactiveReason reason) => _handler?.Invoke(reason) ?? Task.CompletedTask;
+}
+
+public sealed class PlatformClient(HttpClient http, ProofFactory proofs, InactiveSignalSink? sink = null)
 {
     private const string Prefix = "api/v1/analyst-managers/";
 
@@ -92,7 +102,19 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs)
     {
         using var response = await http.SendAsync(request, cancellationToken);
         var body = await response.Content.ReadAsStringAsync(cancellationToken);
-        return new PlatformResponse(response.StatusCode, body, response.Headers.WwwAuthenticate.Select(h => h.ToString()).ToList());
+        var result = new PlatformResponse(response.StatusCode, body, response.Headers.WwwAuthenticate.Select(h => h.ToString()).ToList());
+        var path = request.RequestUri!.AbsolutePath;
+        var signal = path.EndsWith("/token", StringComparison.Ordinal)
+            ? PlatformSignals.ClassifyToken(result.Status, body)
+            : path.Contains("/self/", StringComparison.Ordinal)
+                ? PlatformSignals.ClassifyResource(result.Status, result.WwwAuthenticate, body)
+                : null;
+        if (sink is not null && signal is { Outcome: PlatformOutcome.Inactive, Reason: { } reason })
+        {
+            await sink.ReportAsync(reason);
+        }
+
+        return result;
     }
 
     private HttpRequestMessage Self(HttpMethod method, Uri uri, IDeviceKey key, string accessToken)

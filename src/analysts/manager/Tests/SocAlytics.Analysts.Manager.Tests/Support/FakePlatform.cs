@@ -37,6 +37,8 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
 
     public bool Inactive { get; set; }
 
+    public HttpStatusCode? SelfStatus { get; set; }
+
     public string? OwnStampId { get; set; }
 
     public int TokenRequests => Requests.Count(r => r.Uri.AbsolutePath.EndsWith("/token", StringComparison.Ordinal));
@@ -74,6 +76,22 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
             {
                 UnreachableCount--;
                 throw new HttpRequestException("unreachable");
+            }
+
+            if (path == "self/registration" && SelfStatus is { } forced)
+            {
+                return new HttpResponseMessage(forced);
+            }
+
+            if (Inactive && path == "self/registration")
+            {
+                var denied = new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                {
+                    Content = new StringContent(
+                        "{\"type\":\"https://platform.test/problems/analyst-manager-registration-inactive\",\"title\":\"Inactive\",\"status\":401,\"code\":\"analyst-manager-registration-inactive\",\"correlationId\":\"c\",\"registrationState\":\"revoked\"}"),
+                };
+                denied.Headers.TryAddWithoutValidation("WWW-Authenticate", "DPoP error=\"invalid_token\"");
+                return denied;
             }
 
             if (Inactive && path == "token")

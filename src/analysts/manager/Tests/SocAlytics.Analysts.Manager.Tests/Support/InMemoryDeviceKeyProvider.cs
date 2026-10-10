@@ -15,6 +15,8 @@ internal sealed class InMemoryDeviceKeyProvider(KeyProtection protection = KeyPr
 
     public KeyProtection Protection => protection;
 
+    public bool SigningFails { get; set; }
+
     public int CreatedCount { get; private set; }
 
     public int LiveCount => _keys.Count;
@@ -49,7 +51,7 @@ internal sealed class InMemoryDeviceKeyProvider(KeyProtection protection = KeyPr
 
     private InMemoryKey Add(ECDsa ecdsa)
     {
-        var key = new InMemoryKey(ecdsa, protection, new DeviceKeyReference(DeviceKeyReference.Pkcs11, Guid.NewGuid().ToString("N")));
+        var key = new InMemoryKey(ecdsa, protection, new DeviceKeyReference(DeviceKeyReference.Pkcs11, Guid.NewGuid().ToString("N")), () => SigningFails);
         _keys[key.Reference.Reference] = key;
         return key;
     }
@@ -57,9 +59,11 @@ internal sealed class InMemoryDeviceKeyProvider(KeyProtection protection = KeyPr
     private sealed class InMemoryKey : IDeviceKey
     {
         private readonly ECDsa _ecdsa;
+        private readonly Func<bool> _failing;
 
-        public InMemoryKey(ECDsa ecdsa, KeyProtection protection, DeviceKeyReference reference)
+        public InMemoryKey(ECDsa ecdsa, KeyProtection protection, DeviceKeyReference reference, Func<bool> failing)
         {
+            _failing = failing;
             _ecdsa = ecdsa;
             Protection = protection;
             Reference = reference;
@@ -76,6 +80,6 @@ internal sealed class InMemoryDeviceKeyProvider(KeyProtection protection = KeyPr
         public DeviceKeyReference Reference { get; }
 
         public byte[] SignEs256(ReadOnlySpan<byte> data) =>
-            _ecdsa.SignData(data.ToArray(), HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
+            _failing() ? throw new DeviceKeyException("key-inaccessible") : _ecdsa.SignData(data.ToArray(), HashAlgorithmName.SHA256, DSASignatureFormat.IeeeP1363FixedFieldConcatenation);
     }
 }

@@ -38,7 +38,11 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton(sp => new LocalState.SignedStateStore(
             ManagerStatePaths.Resolve(sp.GetRequiredService<IOptions<ManagerOptions>>().Value.StateDirectory),
             sp.GetServices<IDeviceKeyProvider>()));
+        services.AddSingleton<Platform.InactiveSignalSink>();
+        services.AddSingleton<Registration.ProtectedStoreFailureHandler>();
         services.AddSingleton<Platform.ManagerTokenCache>();
+        services.AddSingleton<Registration.RegistrationStatusMonitor>();
+        services.AddHostedService(sp => sp.GetRequiredService<Registration.RegistrationStatusMonitor>());
         services.AddSingleton<Registration.RegistrationCoordinator>();
         services.AddSingleton<Registration.RegistrationRestorer>();
         services.AddHostedService<Registration.RestoreHostedService>();

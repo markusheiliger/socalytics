@@ -346,9 +346,14 @@ public sealed class RegistrationCoordinator(
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    public void SetConnectivity(ConnectivityStatus connectivity)
+    public void SetConnectivity(ConnectivityStatus connectivity, string? clubName = null)
     {
-        lock (_gate) { _connectivity = connectivity; }
+        lock (_gate)
+        {
+            _connectivity = connectivity;
+            _clubName = clubName ?? _clubName;
+        }
+
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
