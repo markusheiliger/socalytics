@@ -8,9 +8,9 @@ the domain responsibilities in the owning architecture topics.
 
 ## Contract Authority
 
-No machine-readable contracts exist yet. Canonical machine-readable contracts
-will live under the repository-root `contracts/` directory. The Recording
-Lineage and Upload feature will introduce the directory, its index
+Canonical machine-readable contracts
+live under the repository-root `contracts/` directory. The Recording
+Lineage and Upload feature introduces the directory, its index
 `contracts/README.md`, which identifies every published artifact, owner,
 version, example, and validation command, and the first artifact, the
 recordings-finalized event schema. The Durable Analysis Workflow feature will
@@ -20,7 +20,9 @@ Each schema lives at `contracts/<area>/<name>/v<major>/<name>.schema.json`,
 declares the `$id`
 `https://socalytics.invalid/contracts/<area>/<name>/v<major>/<name>.schema.json`
 on a reserved domain that is never dereferenced, and records its exact semantic
-version in `x-socalytics-version`. Until a behavior has a canonical artifact,
+version in `x-socalytics-version`. Shared definitions are the one exception to
+that path form: each major version lives in a single schema at
+`contracts/common/v<major>/common.schema.json`. Until a behavior has a canonical artifact,
 the architecture topics linked below remain authoritative for it.
 
 OpenAPI 3.1 documents are authoritative for the REST transport surface.
@@ -60,7 +62,7 @@ decide the Open / Blocking client code-sharing question in
 
 ## Scope And Dependencies
 
-The Recording Lineage and Upload feature will establish the contract baseline
+The Recording Lineage and Upload feature establishes the contract baseline
 with the recordings-finalized event schema. The documented Analyst workflow
 contracts (shared resources and errors under `contracts/common/v1`, logical
 segments, Analyst jobs and result manifests, capability declarations, accepted
@@ -146,7 +148,7 @@ the prior major remains addressable for its supported compatibility window.
 
 The repository contract command,
 `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`, which the
-Recording Lineage and Upload feature will introduce, will be the deterministic
+Recording Lineage and Upload feature introduces, is the deterministic
 authority for JSON Schema syntax and the 2020-12 dialect, `$id` and version
 metadata, offline references, index coverage, and example outcomes. Features
 that add further contract kinds will extend the same command with

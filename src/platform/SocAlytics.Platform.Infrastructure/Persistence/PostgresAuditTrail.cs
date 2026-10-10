@@ -22,6 +22,11 @@ internal sealed class PostgresAuditTrail(
         "recoveryId",
         "fromState",
         "toState",
+        "matchId",
+        "partCount",
+        "grantedPartCount",
+        "grantExpiresAt",
+        "memberCount",
     };
 
     private const string InsertSql =

@@ -38,7 +38,7 @@ sequenceDiagram
   creates a new recording-set version and a new run rather than overwriting
   accepted evidence.
 
-  Every recording upload will be one multipart upload of one platform-chosen
+  Every recording upload is one multipart upload of one platform-chosen
   object. The client declares the total size, a fixed part size, and the
   SHA-256 digest of every part; the platform issues one short-lived presigned
   grant per part that signs the part number, its exact `Content-Length`, and
@@ -52,7 +52,7 @@ sequenceDiagram
 
 ### Planned Recording-Lineage Foundation
 
-The planned Recordings functional area will persist, in the platform's
+The Recordings functional area persists, in the platform's
 application schema, upload sessions as its only mutable aggregate, and
 immutable recording versions, immutable timeline mappings, finalized
 recording-set versions, ordered memberships, scoped idempotency outcomes, and
