@@ -10,6 +10,7 @@ internal static class RegistryApiRegistration
 		builder.Services.AddSingleton<IValidateOptions<StampOptions>>(
 			new StampOptionsValidator(builder.Environment.IsDevelopment()));
 		builder.Services.AddOptions<StampOptions>().ValidateOnStart();
+		builder.Services.AddHostedService<RegistrationExpiryWorker>();
 		return builder;
 	}
 
