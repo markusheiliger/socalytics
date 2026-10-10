@@ -36,6 +36,10 @@ public sealed class ManagerControl : IManagerControl
 
     public event EventHandler? ExitCompleted;
 
+    public event EventHandler? ShowStatusRequested;
+
+    public void RequestShowStatus() => ShowStatusRequested?.Invoke(this, EventArgs.Empty);
+
     public string ControlSurface { get; set; } = "none";
 
     public ManagerStatusSnapshot GetStatus()

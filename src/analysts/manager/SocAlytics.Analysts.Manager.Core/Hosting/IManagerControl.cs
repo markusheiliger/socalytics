@@ -10,6 +10,11 @@ public interface IManagerControl
     /// <summary>Raised once a safe exit or session end finished draining and the process should stop.</summary>
     event EventHandler? ExitCompleted;
 
+    /// <summary>Raised when another instance or the CLI asks to bring the status window forward.</summary>
+    event EventHandler? ShowStatusRequested;
+
+    void RequestShowStatus();
+
     ManagerStatusSnapshot GetStatus();
 
     Task<ControlResult> PauseAsync();

@@ -3,6 +3,7 @@ using Avalonia;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using SocAlytics.Analysts.Manager.Hosting;
+using SocAlytics.Analysts.Manager.LocalControl;
 
 namespace SocAlytics.Analysts.Manager;
 
@@ -11,11 +12,18 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        using var instance = SingleInstanceGuard.AcquireAsync(LocalControlPaths.SocketPath()).GetAwaiter().GetResult();
+        if (instance is null)
+        {
+            return 0;
+        }
+
         using var host = ManagerHost.CreateBuilder(args).Build();
         host.Start();
         try
         {
             var control = host.Services.GetRequiredService<IManagerControl>();
+            instance.Start(control);
             using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
             {
                 context.Cancel = true;

@@ -34,6 +34,7 @@ public partial class App : Application
         {
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             Control.ExitCompleted += (_, _) => Dispatcher.UIThread.Post(() => desktop.Shutdown());
+            Control.ShowStatusRequested += (_, _) => Dispatcher.UIThread.Post(ShowStatus);
             desktop.ShutdownRequested += (_, e) =>
             {
                 if (_sessionEnding)

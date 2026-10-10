@@ -14,6 +14,10 @@ internal sealed class FakeManagerControl : IManagerControl
 
     public event EventHandler? ExitCompleted;
 
+    public event EventHandler? ShowStatusRequested;
+
+    public void RequestShowStatus() => ShowStatusRequested?.Invoke(this, EventArgs.Empty);
+
     public Task<ControlResult> PauseAsync() => Task.FromResult(new ControlResult(true));
 
     public Task<ControlResult> PauseAsync(TimeSpan duration) => Task.FromResult(new ControlResult(true));
@@ -36,8 +40,10 @@ internal sealed class FakeManagerControl : IManagerControl
         State, null, null, "stamp-1", "https://platform.example", null, new ConnectivityStatus("unknown"), null, null,
         false, null, 0, null, [], null, null, "tpm", null, "none", Fingerprint);
 
+    public string RegisterFingerprint { get; set; } = "fp-xyz";
+
     public Task<RegisterResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default) =>
-        Task.FromResult(new RegisterResult(true, null, "ABCD-1234", "fp-xyz", "https://platform.example/pair"));
+        Task.FromResult(new RegisterResult(true, null, "ABCD-1234", RegisterFingerprint, "https://platform.example/pair", DateTimeOffset.UtcNow.AddMinutes(10)));
 
     public Task CancelRegistrationAsync() => Task.CompletedTask;
 
