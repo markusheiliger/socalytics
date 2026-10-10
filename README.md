@@ -16,6 +16,8 @@ through approved changes.
 - [`src/analysts/`](src/analysts/README.md) records the planned Analyst Manager,
     Analyst SDK, and Analyst capability ownership boundary.
 - [`docs/`](docs/README.md) indexes architecture, component, and operational documentation.
+- [`contracts/`](contracts/README.md) holds the canonical machine-readable
+    contracts (JSON Schema 2020-12) and their index.
 - [`.specify/`](.specify/memory/constitution.md) holds the Spec Kit project
     constitution, templates, and helper scripts; `.github/skills/speckit-*`
     holds the generated Spec Kit skills for GitHub Copilot.
@@ -67,8 +69,12 @@ dependencies.
 
 The persistence foundation (schema, migrations, Migrator, units of work,
 optimistic concurrency, and database-aware readiness) is implemented as
-development evidence. Further domain behavior, NATS messaging, S3-compatible
-storage, the transactional outbox, client
+development evidence. Multipart recording upload, recording lineage, and
+recording-set finalization run against the local RustFS container started by
+the AppHost; the opt-in above-5-GiB acceptance test
+(`SOCALYTICS_RUN_LARGE_UPLOAD_TEST=true`) needs about 12 GB of free Docker
+disk. Local evidence is not production readiness. Further domain behavior,
+NATS messaging, the transactional outbox, client
 applications, deployment images and configuration, production credentials, and
 production readiness remain deferred. "Docker support" still means deployment
 images and Compose files (deferred), not the local container runtime
@@ -105,6 +111,19 @@ Operator break-glass recovery: set `BreakGlassRecovery__AccountName`,
 `break-glass-recovery.applied` audit event, then remove the directive.
 `IdentityAccess` settings exist only in `appsettings.Development.json` and
 test configuration.
+
+### Contracts
+
+Canonical machine-readable contracts live in [`contracts/`](contracts/README.md),
+whose index lists every artifact with its owner, version, example, and
+validation command. Validate them from the repository root with the
+contract command:
+
+```powershell
+dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests
+```
+
+The platform `dotnet test` command above also runs these tests.
 
 ### Spec Kit
 
@@ -286,14 +305,17 @@ their "blocked by" issues are closed.
   - `environment-setup` installs .NET from `src/platform/global.json`, the
       Markdown linters, and SoftHSM2 (refreshing the package lists only when
       the install fails); Docker for Testcontainers is already on the runner;
-  - `environment-verify` runs the platform restore and build when
-      `src/platform/**` changed, and the Markdown check when Markdown changed.
+  - `environment-verify` runs the platform restore, build, and tests when
+      `src/platform/**` or the repository-root `contracts/**` changed (the
+      contract coverage is active because the platform solution exists, and
+      the contract tests run as part of the platform tests) and the Markdown
+      check when Markdown changed.
       In mode `task` it runs the architecture tests, the test classes declared
       in changed test files, and a whole test project when other files of it
       changed; in modes `phase` and `finalize`, all tests.
       It lists the paths it covers in `COVERED`; changed files outside them
-      are reported as not covered, including platform files when the platform
-      solution is missing.
+      are reported as not covered, including platform and contract files when
+      the platform solution is missing.
 - Specs extend these actions when they need a new framework, SDK, or tool, in
   a standalone environment spec:
   1. The environment spec's tasks change only
