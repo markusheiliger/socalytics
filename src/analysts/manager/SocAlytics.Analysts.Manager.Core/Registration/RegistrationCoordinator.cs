@@ -438,6 +438,42 @@ public sealed class RegistrationCoordinator(
         Reset();
     }
 
+    /// <summary>Records the pause or resume intent in the re-signed state, then applies it to the state machine.</summary>
+    public async Task<ControlResult> SetPausedAsync(bool paused)
+    {
+        ActiveRegistration? active;
+        OperatingStateMachine? machine;
+        lock (_gate)
+        {
+            active = _active;
+            machine = _machine;
+            if (_state != ManagerRegistrationState.Active || active is null || machine is null
+                || machine.State.Kind is OperatingStateKind.Draining or OperatingStateKind.Ended || _pendingUnregister)
+            {
+                return new ControlResult(false, "invalid-registration-state");
+            }
+        }
+
+        var key = await OpenKeyAsync(active);
+        if (key is null)
+        {
+            return new ControlResult(false, ManagerDiagnosticCodes.KeyInaccessible);
+        }
+
+        try
+        {
+            WriteState(active, key, paused ? OperatingIntent.Paused : OperatingIntent.Running, false);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return new ControlResult(false, ManagerDiagnosticCodes.StateUnreadable);
+        }
+
+        return (paused ? machine.Pause() : machine.Resume())
+            ? new ControlResult(true)
+            : new ControlResult(false, "invalid-registration-state");
+    }
+
     public async Task<ControlResult> UnregisterAsync()
     {
         ActiveRegistration? active;

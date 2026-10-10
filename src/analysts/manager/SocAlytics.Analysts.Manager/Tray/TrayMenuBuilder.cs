@@ -18,7 +18,7 @@ public static class TrayMenuBuilder
                 register.IsEnabled = model.RegisterEnabled;
             }
         };
-        var quit = new NativeMenuItem("Exit");
+        var quit = new NativeMenuItem("Safe exit");
         quit.Click += (_, _) => exit();
         return [status, register, quit];
     }

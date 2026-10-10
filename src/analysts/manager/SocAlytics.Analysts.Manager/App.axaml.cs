@@ -16,6 +16,7 @@ public partial class App : Application
     private StatusWindow? _status;
     private RegisterWindow? _register;
     private TrayIcon? _tray;
+    private bool _sessionEnding;
 
     public IManagerControl? Control { get; set; }
 
@@ -30,6 +31,18 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop && Control is not null)
         {
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Control.ExitCompleted += (_, _) => Dispatcher.UIThread.Post(() => desktop.Shutdown());
+            desktop.ShutdownRequested += (_, e) =>
+            {
+                if (_sessionEnding)
+                {
+                    return;
+                }
+
+                e.Cancel = true;
+                _sessionEnding = true;
+                _ = Control.SessionEndingAsync();
+            };
             if (!Detector.IsTrayAvailable() || !TryCreateTray(desktop))
             {
                 ShowStatus();
@@ -84,7 +97,7 @@ public partial class App : Application
         try
         {
             var menu = TrayMenuBuilder.Build(
-                new TrayMenuViewModel(Control!, a => Dispatcher.UIThread.Post(a)), ShowStatus, ShowRegister, () => desktop.Shutdown());
+                new TrayMenuViewModel(Control!, a => Dispatcher.UIThread.Post(a)), ShowStatus, ShowRegister, () => _ = Control!.ExitAsync());
             var icon = new TrayIcon
             {
                 Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://socalytics-manager/Assets/tray.png"))),

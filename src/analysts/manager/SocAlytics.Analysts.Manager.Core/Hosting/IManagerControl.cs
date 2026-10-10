@@ -7,7 +7,18 @@ public interface IManagerControl
 {
     event EventHandler? StatusChanged;
 
+    /// <summary>Raised once a safe exit or session end finished draining and the process should stop.</summary>
+    event EventHandler? ExitCompleted;
+
     ManagerStatusSnapshot GetStatus();
+
+    Task<ControlResult> PauseAsync();
+
+    Task<ControlResult> ResumeAsync();
+
+    Task<ControlResult> ExitAsync();
+
+    Task<ControlResult> SessionEndingAsync();
 
     Task<RegisterResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default);
 

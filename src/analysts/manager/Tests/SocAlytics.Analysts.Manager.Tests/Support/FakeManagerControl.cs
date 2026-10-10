@@ -12,7 +12,19 @@ internal sealed class FakeManagerControl : IManagerControl
 
     public event EventHandler? StatusChanged;
 
+    public event EventHandler? ExitCompleted;
+
+    public Task<ControlResult> PauseAsync() => Task.FromResult(new ControlResult(true));
+
+    public Task<ControlResult> ResumeAsync() => Task.FromResult(new ControlResult(true));
+
+    public Task<ControlResult> ExitAsync() => Task.FromResult(new ControlResult(true));
+
+    public Task<ControlResult> SessionEndingAsync() => Task.FromResult(new ControlResult(true));
+
     public void Raise() => StatusChanged?.Invoke(this, EventArgs.Empty);
+
+    public void RaiseExit() => ExitCompleted?.Invoke(this, EventArgs.Empty);
 
     public ManagerStatusSnapshot GetStatus() => new(
         State, null, null, "stamp-1", "https://platform.example", null, new ConnectivityStatus("unknown"), null, null,

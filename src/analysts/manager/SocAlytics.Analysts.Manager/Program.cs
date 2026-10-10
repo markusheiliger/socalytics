@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Avalonia;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -15,6 +16,11 @@ internal static class Program
         try
         {
             var control = host.Services.GetRequiredService<IManagerControl>();
+            using var sigterm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, context =>
+            {
+                context.Cancel = true;
+                _ = control.SessionEndingAsync();
+            });
             return BuildAvaloniaApp(control).StartWithClassicDesktopLifetime(args, Avalonia.Controls.ShutdownMode.OnExplicitShutdown);
         }
         finally

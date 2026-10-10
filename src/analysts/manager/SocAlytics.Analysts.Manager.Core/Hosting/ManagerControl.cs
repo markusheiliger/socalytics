@@ -13,9 +13,14 @@ public sealed class ManagerControl : IManagerControl
 
     private readonly IManagerWorkTracker _work;
     private readonly Runtime.PreflightScheduler _preflight;
+    private readonly DrainCoordinator _drain;
+    private readonly Microsoft.Extensions.Options.IOptions<OperatingOptions> _operating;
 
-    public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work, Runtime.PreflightScheduler preflight)
+    public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work, Runtime.PreflightScheduler preflight,
+        DrainCoordinator drain, Microsoft.Extensions.Options.IOptions<OperatingOptions> operating)
     {
+        _drain = drain;
+        _operating = operating;
         _preflight = preflight;
         _work = work;
         _coordinator = coordinator;
@@ -25,6 +30,8 @@ public sealed class ManagerControl : IManagerControl
     }
 
     public event EventHandler? StatusChanged;
+
+    public event EventHandler? ExitCompleted;
 
     public string ControlSurface { get; set; } = "none";
 
@@ -59,6 +66,38 @@ public sealed class ManagerControl : IManagerControl
 
     public Task<RegisterResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default) =>
         _coordinator.RegisterAsync(request, cancellationToken);
+
+    public Task<ControlResult> PauseAsync() => _coordinator.SetPausedAsync(true);
+
+    public Task<ControlResult> ResumeAsync() => _coordinator.SetPausedAsync(false);
+
+    public Task<ControlResult> ExitAsync() => ExitAsync(DrainPurpose.SafeExit, null);
+
+    public Task<ControlResult> SessionEndingAsync() => ExitAsync(DrainPurpose.SessionEnd, _operating.Value.SessionEndDrainBound);
+
+    private async Task<ControlResult> ExitAsync(DrainPurpose purpose, TimeSpan? bound)
+    {
+        var machine = _coordinator.Machine;
+        if (_coordinator.State != Registration.ManagerRegistrationState.Active || machine is null
+            || machine.State.Kind is OperatingStateKind.Draining or OperatingStateKind.Ended || _coordinator.PendingUnregister)
+        {
+            if (purpose == DrainPurpose.SessionEnd)
+            {
+                ExitCompleted?.Invoke(this, EventArgs.Empty);
+            }
+
+            return new ControlResult(false, "invalid-registration-state");
+        }
+
+        var result = await _drain.DrainAsync(purpose, default, bound);
+        if (result == DrainResult.Cancelled && purpose == DrainPurpose.SafeExit)
+        {
+            return new ControlResult(false, "drain-timeout");
+        }
+
+        ExitCompleted?.Invoke(this, EventArgs.Empty);
+        return new ControlResult(true);
+    }
 
     public Task CancelRegistrationAsync() => _coordinator.CancelAsync();
 

@@ -14,11 +14,11 @@ public enum DrainResult
 public sealed class DrainCoordinator(
     AdmissionGate admission, IManagerWorkTracker work, IOptions<OperatingOptions> options, TimeProvider time)
 {
-    public async Task<DrainResult> DrainAsync(DrainPurpose purpose, CancellationToken ct = default)
+    public async Task<DrainResult> DrainAsync(DrainPurpose purpose, CancellationToken ct = default, TimeSpan? timeout = null)
     {
         var machine = admission.Machine ?? throw new InvalidOperationException("No confirmed registration.");
         var settings = options.Value;
-        var bound = settings.DrainTimeout;
+        var bound = timeout ?? settings.DrainTimeout;
 
         var revoked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         void OnChanged(object? s, EventArgs e)
