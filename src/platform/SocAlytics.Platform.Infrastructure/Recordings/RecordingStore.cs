@@ -86,6 +86,122 @@ internal sealed class RecordingStore(IDbSession session) : IRecordingStore
         return row is null ? null : new StoredUploadSession(Map(row), Utc(row.DatabaseNow));
     }
 
+    public async Task<bool> TryCompleteUploadSessionAsync(Guid uploadSessionId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE socalytics.recording_upload_sessions SET state = 'completed', completed_at = now() " +
+            "WHERE id = @uploadSessionId AND state = 'pending' AND expires_at > now()",
+            new { uploadSessionId },
+            transaction,
+            cancellationToken: cancellationToken));
+        return rows == 1;
+    }
+
+    public async Task InsertCompletedUploadAsync(
+        RecordingVersion version, StoredTimelineMapping mapping, string canonicalSpansJson, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(version);
+        ArgumentNullException.ThrowIfNull(mapping);
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO socalytics.recording_versions " +
+            "(id, match_id, team_id, upload_session_id, object_key, total_size_bytes, part_size_bytes, part_count, content_digest, " +
+            "display_name, description, content_type, storage_etag, created_by, created_at) " +
+            "VALUES (@id, @matchId, @teamId, @uploadSessionId, @objectKey, @total, @partSize, @partCount, @digest, " +
+            "@displayName, @description, @contentType, @etag, @createdBy, @createdAt)",
+            new
+            {
+                id = version.Id,
+                matchId = version.MatchId,
+                teamId = version.TeamId,
+                uploadSessionId = version.UploadSessionId,
+                objectKey = version.ObjectKey,
+                total = version.TotalSizeBytes,
+                partSize = version.PartSizeBytes,
+                partCount = version.PartCount,
+                digest = version.ContentDigest.ToString(),
+                displayName = version.Descriptor.DisplayName,
+                description = version.Descriptor.Description,
+                contentType = version.Descriptor.ContentType,
+                etag = version.StorageETag,
+                createdBy = version.CreatedBy,
+                createdAt = version.CreatedAt,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO socalytics.recording_timeline_mappings " +
+            "(id, recording_version_id, match_id, spans, mapping_digest, created_by, created_at) " +
+            "VALUES (@id, @versionId, @matchId, CAST(@spans AS jsonb), @digest, @createdBy, @createdAt)",
+            new
+            {
+                id = mapping.Id,
+                versionId = version.Id,
+                matchId = version.MatchId,
+                spans = canonicalSpansJson,
+                digest = mapping.Digest,
+                createdBy = version.CreatedBy,
+                createdAt = mapping.CreatedAt,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    private sealed record CompletedRow(
+        Guid VersionId, Guid MatchId, Guid TeamId, Guid UploadSessionId, string ObjectKey, long TotalSizeBytes,
+        long PartSizeBytes, int PartCount, string ContentDigest, string DisplayName, string? Description, string ContentType,
+        string? StorageETag, Guid CreatedBy, DateTime VersionCreatedAt, Guid MappingId, string Spans, string MappingDigest,
+        DateTime MappingCreatedAt);
+
+    public async Task<StoredCompletedUpload?> FindCompletedUploadAsync(
+        Guid matchId, Guid recordingVersionId, Guid timelineMappingId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<CompletedRow>(new CommandDefinition(
+            "SELECT v.id AS VersionId, v.match_id AS MatchId, v.team_id AS TeamId, v.upload_session_id AS UploadSessionId, " +
+            "v.object_key AS ObjectKey, v.total_size_bytes AS TotalSizeBytes, v.part_size_bytes AS PartSizeBytes, " +
+            "v.part_count AS PartCount, v.content_digest AS ContentDigest, v.display_name AS DisplayName, " +
+            "v.description AS Description, v.content_type AS ContentType, v.storage_etag AS StorageETag, " +
+            "v.created_by AS CreatedBy, v.created_at AS VersionCreatedAt, m.id AS MappingId, m.spans::text AS Spans, " +
+            "m.mapping_digest AS MappingDigest, m.created_at AS MappingCreatedAt " +
+            "FROM socalytics.recording_versions v JOIN socalytics.recording_timeline_mappings m " +
+            "ON m.recording_version_id = v.id AND m.match_id = v.match_id " +
+            "WHERE v.id = @recordingVersionId AND v.match_id = @matchId AND m.id = @timelineMappingId",
+            new { recordingVersionId, matchId, timelineMappingId },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        if (row is null)
+        {
+            return null;
+        }
+
+        if (!RecordingDescriptor.TryCreate(row.DisplayName, row.Description, row.ContentType, out var descriptor, out _))
+        {
+            throw new InvalidOperationException($"Recording version {row.VersionId} holds an invalid stored descriptor.");
+        }
+
+        var spans = new List<TimelineSpan>();
+        using (var document = System.Text.Json.JsonDocument.Parse(row.Spans))
+        {
+            foreach (var span in document.RootElement.GetProperty("spans").EnumerateArray())
+            {
+                spans.Add(new TimelineSpan(
+                    span.GetProperty("mediaStartMilliseconds").GetInt64(),
+                    span.GetProperty("mediaEndMilliseconds").GetInt64(),
+                    span.GetProperty("matchStartMilliseconds").GetInt64()));
+            }
+        }
+
+        var version = new RecordingVersion(
+            row.VersionId, row.MatchId, row.TeamId, row.UploadSessionId, row.ObjectKey, row.TotalSizeBytes, row.PartSizeBytes,
+            row.PartCount, CompositeContentDigest.Parse(row.ContentDigest), descriptor!, row.StorageETag, row.CreatedBy, Utc(row.VersionCreatedAt));
+        return new StoredCompletedUpload(
+            version, new StoredTimelineMapping(row.MappingId, row.VersionId, row.MatchId, spans, row.MappingDigest, Utc(row.MappingCreatedAt)));
+    }
+
     private static UploadSession Map(SessionRow row)
     {
         var digests = new List<string>(row.PartDigests.Length / Sha256Digest.ByteLength);

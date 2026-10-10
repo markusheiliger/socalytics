@@ -17,7 +17,8 @@ internal static class RecordingAuditAssertions
 		string outcome,
 		string traceId,
 		IReadOnlySet<string> allowedDetailKeys,
-		CancellationToken cancellationToken)
+		CancellationToken cancellationToken,
+		string resourceType = "upload-session")
 	{
 		await using var connection = new NpgsqlConnection(db.MigratorConnectionString);
 		await connection.OpenAsync(cancellationToken);
@@ -31,7 +32,7 @@ internal static class RecordingAuditAssertions
 		(await reader.ReadAsync(cancellationToken)).ShouldBeTrue();
 		reader.GetString(0).ShouldBe("member");
 		reader.GetGuid(1).ShouldBe(actorAccountId);
-		reader.GetString(2).ShouldBe("upload-session");
+		reader.GetString(2).ShouldBe(resourceType);
 		reader.GetGuid(3).ShouldBe(teamId);
 		var details = JsonDocument.Parse(reader.GetString(4)).RootElement;
 		details.GetProperty("matchId").GetString().ShouldBe(matchId.ToString());

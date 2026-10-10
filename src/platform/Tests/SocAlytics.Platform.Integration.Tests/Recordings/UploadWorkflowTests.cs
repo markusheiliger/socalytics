@@ -207,4 +207,94 @@ public sealed class UploadWorkflowTests(PostgresContainerFixture postgres, RustF
 		large.StatusCode.ShouldBe(HttpStatusCode.RequestEntityTooLarge, await large.Content.ReadAsStringAsync(ct));
 		(await ScalarAsync(s.Db, "SELECT count(*) FROM socalytics.recording_upload_sessions", ct)).ShouldBe(0);
 	}
+
+	private static readonly object ValidMapping = new { timelineMapping = new { spans = new[] { new { mediaStartSeconds = 0, mediaEndSeconds = 10, matchStartSeconds = 5 } } } };
+
+	private static async Task<HttpResponseMessage> CompleteAsync(ApiSession session, Guid matchId, string uploadId, object body, CancellationToken ct)
+	{
+		using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/matches/{matchId}/upload-sessions/{uploadId}/completion") { Content = JsonContent.Create(body) };
+		request.Headers.Add("X-CSRF-Token", session.AntiforgeryToken);
+		request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+		return await session.Client.SendAsync(request, ct);
+	}
+
+	private async Task<string> StartAndUploadAsync(Setup s, TestRecording recording, CancellationToken ct)
+	{
+		using var response = await StartUploadAsync(s.Coach, s.Hierarchy.MatchId, recording.Declaration(), null, ct);
+		response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(ct));
+		var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+		using var storage = new HttpClient();
+		var i = 0;
+		foreach (var grant in body.GetProperty("grants").GetProperty("parts").EnumerateArray())
+		{
+			using var put = await RecordingTestData.PutPartAsync(storage, grant, recording.Parts[i++], ct);
+			put.IsSuccessStatusCode.ShouldBeTrue(await put.Content.ReadAsStringAsync(ct));
+		}
+
+		return body.GetProperty("session").GetProperty("id").GetString()!;
+	}
+
+	[Fact]
+	// US1 AS2, SC-001, FR-030
+	public async Task ThreePartUploadCompletesWithOneAuditEvent()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var s = await StartAsync(ct);
+		await using var db0 = s.Db;
+		await using var fac0 = s.Factory;
+		var recording = RecordingTestData.Generate(1, 5_242_880, 5_242_880, 1_234_567);
+		var id = await StartAndUploadAsync(s, recording, ct);
+		var traceId = Guid.NewGuid().ToString("N");
+
+		using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/matches/{s.Hierarchy.MatchId}/upload-sessions/{id}/completion") { Content = JsonContent.Create(ValidMapping) };
+		request.Headers.Add("X-CSRF-Token", s.Coach.AntiforgeryToken);
+		request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+		request.Headers.Add("traceparent", $"00-{traceId}-0123456789abcdef-01");
+		using var response = await s.Coach.Client.SendAsync(request, ct);
+		response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(ct));
+		response.Headers.Location.ShouldNotBeNull();
+		var body = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+		var version = body.GetProperty("recordingVersion");
+		version.GetProperty("totalSizeBytes").GetInt64().ShouldBe(11_720_327);
+		version.GetProperty("contentDigest").GetString().ShouldBe(recording.ExpectedContentDigest);
+		body.GetProperty("timelineMapping").GetProperty("digest").GetString()!.ShouldStartWith("sha-256:");
+		(await ScalarAsync(s.Db, "SELECT count(*) FROM socalytics.recording_upload_sessions WHERE state = 'completed'", ct)).ShouldBe(1);
+		await RecordingAuditAssertions.AssertSingleAsync(
+			s.Db, "recording.upload.complete", version.GetProperty("id").GetString()!, s.CoachId, s.Hierarchy.TeamId, s.Hierarchy.MatchId, "succeeded", traceId,
+			new HashSet<string> { "matchId" }, ct, "recording-version");
+	}
+
+	[Fact]
+	public async Task SinglePartUploadYieldsCompositeDigestDifferingFromFileDigest()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var s = await StartAsync(ct);
+		await using var db0 = s.Db;
+		await using var fac0 = s.Factory;
+		var recording = RecordingTestData.Generate(5, 1024);
+		var id = await StartAndUploadAsync(s, recording, ct);
+
+		using var response = await CompleteAsync(s.Coach, s.Hierarchy.MatchId, id, ValidMapping, ct);
+		response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(ct));
+		var digest = (await response.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("recordingVersion").GetProperty("contentDigest").GetString()!;
+		digest.ShouldStartWith("sha-256-parts:1024:1:");
+		digest.ShouldNotBe(recording.PartDigests[0].Replace("sha-256:", "sha-256-parts:1024:1:"));
+	}
+
+	[Fact]
+	public async Task InvalidMappingIsRejectedAndSessionStaysPending()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var s = await StartAsync(ct);
+		await using var db0 = s.Db;
+		await using var fac0 = s.Factory;
+		var id = await StartAndUploadAsync(s, RecordingTestData.Generate(6, 1024), ct);
+
+		var invalid = new { timelineMapping = new { spans = new[] { new { mediaStartSeconds = 5, mediaEndSeconds = 5, matchStartSeconds = 0 } } } };
+		using var response = await CompleteAsync(s.Coach, s.Hierarchy.MatchId, id, invalid, ct);
+		response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+		(await response.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("code").GetString().ShouldBe("timeline-mapping-invalid");
+		(await ScalarAsync(s.Db, "SELECT count(*) FROM socalytics.recording_upload_sessions WHERE state = 'pending'", ct)).ShouldBe(1);
+		(await ScalarAsync(s.Db, "SELECT count(*) FROM socalytics.recording_versions", ct)).ShouldBe(0);
+	}
 }

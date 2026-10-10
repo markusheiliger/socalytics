@@ -53,7 +53,72 @@ internal static class RecordingEndpoints
 			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
 			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
 			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+		members.MapPost("/matches/{matchId:guid}/upload-sessions/{uploadSessionId:guid}/completion", CompleteAsync)
+			.AddEndpointFilter<RecordingBodyLimitFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
+			.WithName("completeRecordingUpload")
+			.WithTags("Recording uploads")
+			.Produces<CompletedUploadDto>(StatusCodes.Status201Created)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 		return routes;
+	}
+
+	private static async Task<IResult> CompleteAsync(Guid matchId, Guid uploadSessionId, HttpContext http, CompleteRecordingUploadHandler handler, CancellationToken cancellationToken)
+	{
+		var keyHeader = http.Request.Headers["Idempotency-Key"];
+		if (keyHeader.Count == 0)
+		{
+			return ProblemResults.Problem(SharedProblemCodes.StatusOf(SharedProblemCodes.IdempotencyKeyMissing), SharedProblemCodes.IdempotencyKeyMissing);
+		}
+
+		CompleteUploadRequest? body = null;
+		try
+		{
+			using var buffer = new MemoryStream();
+			var chunk = new byte[16 * 1024];
+			int read;
+			while ((read = await http.Request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+			{
+				buffer.Write(chunk, 0, read);
+				if (buffer.Length > MaxBodyBytes)
+				{
+					return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+				}
+			}
+
+			buffer.Position = 0;
+			body = await JsonSerializer.DeserializeAsync<CompleteUploadRequest>(buffer, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+		}
+		catch (BadHttpRequestException)
+		{
+			return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+		}
+
+		var spans = body?.TimelineMapping?.Spans?
+			.Select(s => new SocAlytics.Platform.Domain.Recordings.TimelineSpanSeconds(s.MediaStartSeconds, s.MediaEndSeconds, s.MatchStartSeconds))
+			.ToList();
+		var result = await handler.HandleAsync(
+			new CompleteRecordingUploadCommand(matchId, uploadSessionId, keyHeader.Count == 1 ? keyHeader[0] : null, spans), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return Failure(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Created(
+			$"/api/v1/matches/{matchId}/recording-versions/{result.Value.Version.Id}",
+			new CompletedUploadDto(RecordingVersionDto.From(result.Value.Version), TimelineMappingDto.From(result.Value.Mapping)));
 	}
 
 	private static async Task<IResult> IssueGrantsAsync(Guid matchId, Guid uploadSessionId, HttpContext http, IssueRecordingUploadGrantsHandler handler, CancellationToken cancellationToken)
