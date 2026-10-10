@@ -373,8 +373,11 @@ export function parseAttemptCheckId(externalId) {
 // The verification after the agent runs the full test suite; the agent running it as well doubled the time of a task.
 export const TASK_TEST_SCOPE = 'Build what you change and run only the tests that cover this task (the tests you add or change, for example through a test filter). Do not run the whole test suite: the full verification runs automatically after you, and its failures come back to the next attempt.';
 
-export function renderTaskPrompt(taskId) {
-  return `/speckit-implement Implement only task ${taskId}. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`;
+// The task is named together with its spec folder: task IDs repeat across specs, and an agent that searched the whole
+// repository for one picked another spec's task.
+export function renderTaskPrompt(taskId, folder) {
+  const where = folder ? ` of the spec in \`specs/${folder}/\` (its \`tasks.md\`); ignore the other specs` : '';
+  return `/speckit-implement Implement only task ${taskId}${where}. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`;
 }
 
 export function renderConvergePrompt() {

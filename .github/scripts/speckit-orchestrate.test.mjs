@@ -527,7 +527,7 @@ test('chain: decide plans the stages of a phase with prompts, verify modes, and 
     assert.deepEqual(JSON.parse(decided.outputs.stage_matrix), { include: [{ number: 1, index: 0 }, { number: 2, index: 1 }] });
     const stages = JSON.parse(decided.outputs.stages);
     assert.deepEqual(stages.map((stage) => stage.include.map((entry) => [entry.task, entry.attempt, entry.verify_mode])), [[['T001', 1, 'task'], ['T002', 1, 'task']], [['T003', 1, 'phase']]]);
-    assert.match(stages[0].include[0].prompt, /^\/speckit-implement Implement only task T001\./);
+    assert.match(stages[0].include[0].prompt, /^\/speckit-implement Implement only task T001 of the spec in `specs\/a\/` \(its `tasks\.md`\); ignore the other specs\./);
     assert.equal(stages[1].include[0].summary, '[US1] Build it');
     assert.equal(progress.external_id, 'speckit:attempt:task:T001:1', 'the first attempt takes over the queued progress check run');
     assert.deepEqual(github.repo.checkRuns.filter((check) => String(check.external_id).startsWith('speckit:attempt:')).map((check) => [check.external_id, check.status]), [['speckit:attempt:task:T001:1', 'in_progress'], ['speckit:attempt:task:T002:1', 'in_progress']]);

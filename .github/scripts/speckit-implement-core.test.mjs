@@ -194,6 +194,7 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.equal(parseAttemptCheckId(CHECK_ATTEMPT), null);
   assert.equal(renderTaskPrompt('T004'), `/speckit-implement Implement only task T004. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`);
   assert.match(TASK_TEST_SCOPE, /Do not run the whole test suite/);
+  assert.match(renderTaskPrompt('T004', 'f'), /^\/speckit-implement Implement only task T004 of the spec in `specs\/f\/` \(its `tasks\.md`\); ignore the other specs\. Do not implement any other task\./);
   assert.match(renderConvergePrompt(), /^\/speckit-converge /);
   assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs', 'b.md'] }), /`specs\/f`[\s\S]*`a\.cs`, `b\.md`[\s\S]*Do not change any other file/);
   assert.equal(stepLabel({ step: 'task', task: 'T001' }), 'T001');

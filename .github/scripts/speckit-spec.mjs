@@ -313,7 +313,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   const stages = decision.stages.map((stage, index) => ({
     include: stage.map(({ task, attempt }) => {
       const last = index === decision.stages.length - 1 && decision.phaseEnd && stage.length === 1;
-      const prompt = decision.step === 'task' ? renderTaskPrompt(task) : decision.step === 'converge' ? renderConvergePrompt() : '';
+      const prompt = decision.step === 'task' ? renderTaskPrompt(task, folder) : decision.step === 'converge' ? renderConvergePrompt() : '';
       return {
         task: task ?? '',
         attempt,
