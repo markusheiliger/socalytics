@@ -15,7 +15,8 @@ internal sealed class ManagerTestHost : IAsyncDisposable
     private readonly IHost _host;
     private readonly string _stateDirectory = Path.Combine(Path.GetTempPath(), "socalytics-manager-test-" + Guid.NewGuid().ToString("N"));
 
-    public ManagerTestHost(KeyProtection protection = KeyProtection.Tpm, bool providerAvailable = true)
+    public ManagerTestHost(KeyProtection protection = KeyProtection.Tpm, bool providerAvailable = true,
+        Action<IServiceCollection>? configure = null)
     {
         Time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero));
         Platform = new FakePlatform(Time);
@@ -27,6 +28,7 @@ internal sealed class ManagerTestHost : IAsyncDisposable
         builder.Services.RemoveAll<TimeProvider>();
         builder.Services.AddSingleton<TimeProvider>(Time);
         builder.Services.AddHttpClient<SocAlytics.Analysts.Manager.Platform.PlatformClient>().ConfigurePrimaryHttpMessageHandler(() => Platform);
+        configure?.Invoke(builder.Services);
         builder.Services.AddFakeLogging();
         builder.Logging.SetMinimumLevel(LogLevel.Trace);
         _host = builder.Build();

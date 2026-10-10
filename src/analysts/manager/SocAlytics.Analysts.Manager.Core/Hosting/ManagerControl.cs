@@ -60,6 +60,10 @@ public sealed class ManagerControl : IManagerControl
 
     public Task CancelRegistrationAsync() => _coordinator.CancelAsync();
 
+    public Task<ControlResult> UnregisterAsync() => _coordinator.UnregisterAsync();
+
+    public Task<ControlResult> DiscardLocalRegistrationAsync() => _coordinator.DiscardLocalAsync();
+
     private static string PurposeWire(DrainPurpose? purpose) => purpose switch
     {
         DrainPurpose.Unregister => "unregister",

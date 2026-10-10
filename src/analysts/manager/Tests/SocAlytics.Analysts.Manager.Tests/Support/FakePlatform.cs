@@ -37,6 +37,10 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
 
     public bool Inactive { get; set; }
 
+    public int UnregistrationUnreachableCount { get; set; }
+
+    public bool InactiveOnUnregistration { get; set; }
+
     public HttpStatusCode? SelfStatus { get; set; }
 
     public string? OwnStampId { get; set; }
@@ -100,6 +104,26 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
                 {
                     Content = new StringContent("{\"error\":\"invalid_client\",\"registration_state\":\"revoked\"}"),
                 };
+            }
+        }
+
+        if (path.StartsWith("self/unregistration", StringComparison.Ordinal))
+        {
+            if (UnregistrationUnreachableCount > 0)
+            {
+                UnregistrationUnreachableCount--;
+                throw new HttpRequestException("unreachable");
+            }
+
+            if (InactiveOnUnregistration)
+            {
+                var denied = new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                {
+                    Content = new StringContent(
+                        "{\"type\":\"https://platform.test/problems/analyst-manager-registration-inactive\",\"title\":\"Inactive\",\"status\":401,\"code\":\"analyst-manager-registration-inactive\",\"correlationId\":\"c\",\"registrationState\":\"revoked\"}"),
+                };
+                denied.Headers.TryAddWithoutValidation("WWW-Authenticate", "DPoP error=\"invalid_token\"");
+                return denied;
             }
         }
 

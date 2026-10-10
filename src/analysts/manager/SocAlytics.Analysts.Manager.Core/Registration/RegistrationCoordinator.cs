@@ -1,6 +1,9 @@
 using System.Net;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using SocAlytics.Analysts.Manager.Hosting;
 using SocAlytics.Analysts.Manager.DeviceKeys;
 using SocAlytics.Analysts.Manager.Diagnostics;
 using SocAlytics.Analysts.Manager.LocalState;
@@ -24,10 +27,15 @@ public sealed class RegistrationCoordinator(
     DeviceKeyProviderSelector selector,
     SignedStateStore store,
     AdmissionGate admission,
+    DrainCoordinator drain,
+    IServiceProvider services,
+    IEnumerable<IDeviceKeyProvider> providers,
+    IOptions<PlatformOptions> options,
     TimeProvider time,
     ILogger<RegistrationCoordinator> logger)
 {
     private const string ManagerVersion = "0.1.0";
+    private ManagerTokenCache tokens => services.GetRequiredService<ManagerTokenCache>();
     private readonly object _gate = new();
     private ManagerRegistrationState _state = ManagerRegistrationState.Unregistered;
     private PairingPhase? _phase;
@@ -44,6 +52,9 @@ public sealed class RegistrationCoordinator(
     private IReadOnlyList<StatusDiagnostic> _diagnostics = [];
 
     public event EventHandler? Changed;
+
+    /// <summary>Completes when the background retry of a pending unregister ended.</summary>
+    public Task UnregisterCompletion { get; private set; } = Task.CompletedTask;
 
     public ManagerRegistrationState State { get { lock (_gate) { return _state; } } }
 
@@ -421,8 +432,251 @@ public sealed class RegistrationCoordinator(
             _diagnostics = [];
         }
 
+        admission.ReleaseUnregisterHold();
         Reset();
     }
+
+    public async Task<ControlResult> UnregisterAsync()
+    {
+        ActiveRegistration? active;
+        OperatingStateMachine? machine;
+        lock (_gate)
+        {
+            active = _active;
+            machine = _machine;
+            if (_state != ManagerRegistrationState.Active || active is null || machine is null
+                || machine.State.Kind == OperatingStateKind.Draining || _pendingUnregister)
+            {
+                return new ControlResult(false, "invalid-registration-state");
+            }
+
+            _pendingUnregister = true;
+            _diagnostics = [];
+        }
+
+        var key = await OpenKeyAsync(active);
+        if (key is null)
+        {
+            lock (_gate) { _pendingUnregister = false; }
+            return new ControlResult(false, ManagerDiagnosticCodes.KeyInaccessible);
+        }
+
+        try
+        {
+            WriteState(active, key, machine.Intent, true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            lock (_gate) { _pendingUnregister = false; }
+            return new ControlResult(false, ManagerDiagnosticCodes.StateUnreadable);
+        }
+
+        admission.HoldForUnregister();
+        Changed?.Invoke(this, EventArgs.Empty);
+        return await RunUnregisterAsync(active, key, true);
+    }
+
+    /// <summary>Continues a pending unregister after a restart; the drain is skipped when the platform is already unregistering.</summary>
+    public Task<ControlResult> ResumeUnregisterAsync(IDeviceKey key, bool withDrain)
+    {
+        ActiveRegistration active;
+        lock (_gate)
+        {
+            active = _active ?? throw new InvalidOperationException("No confirmed registration.");
+        }
+
+        return RunUnregisterAsync(active, key, withDrain);
+    }
+
+    private async Task<ControlResult> RunUnregisterAsync(ActiveRegistration active, IDeviceKey key, bool withDrain)
+    {
+        if (withDrain)
+        {
+            var result = await drain.DrainAsync(DrainPurpose.Unregister);
+            if (result == DrainResult.Revoked)
+            {
+                return new ControlResult(true);
+            }
+
+            if (result == DrainResult.Cancelled)
+            {
+                try
+                {
+                    WriteState(active, key, Machine?.Intent ?? OperatingIntent.Running, false);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogWarning("Persisting the cancelled unregister failed.");
+                }
+
+                lock (_gate)
+                {
+                    _pendingUnregister = false;
+                    _diagnostics = [new StatusDiagnostic(
+                        ManagerDiagnosticCodes.UnregisterCancelled, "The unregister was cancelled: the drain timed out.",
+                        time.GetUtcNow())];
+                }
+
+                admission.ReleaseUnregisterHold();
+                Changed?.Invoke(this, EventArgs.Empty);
+                return new ControlResult(false, ManagerDiagnosticCodes.UnregisterCancelled);
+            }
+        }
+
+        lock (_gate)
+        {
+            _state = ManagerRegistrationState.Unregistering;
+            _pendingUnregister = true;
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+        if (await TryFinishUnregisterAsync(active, key))
+        {
+            return new ControlResult(true);
+        }
+
+        UnregisterCompletion = Task.Run(async () =>
+        {
+            var delay = options.Value.RetryBackoff.Initial;
+            while (State == ManagerRegistrationState.Unregistering)
+            {
+                await Task.Delay(delay, time);
+                if (State != ManagerRegistrationState.Unregistering || await TryFinishUnregisterAsync(active, key))
+                {
+                    return;
+                }
+
+                delay = TimeSpan.FromTicks(Math.Min(delay.Ticks * 2, options.Value.RetryBackoff.Max.Ticks));
+            }
+        });
+        return new ControlResult(true, null, "unregister-pending");
+    }
+
+    // True when the unregister ended: completed, or ended by an inactive signal.
+    private async Task<bool> TryFinishUnregisterAsync(ActiveRegistration active, IDeviceKey key)
+    {
+        try
+        {
+            foreach (var completion in new[] { false, true })
+            {
+                var signal = await tokens.PostUnregistrationAsync(
+                    active.PlatformEndpoint, key, active.ManagerId, completion, CancellationToken.None);
+                if (signal.Outcome == PlatformOutcome.Success)
+                {
+                    continue;
+                }
+
+                if (signal.Outcome != PlatformOutcome.Inactive)
+                {
+                    return false;
+                }
+
+                break;
+            }
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException)
+        {
+            logger.LogDebug("Platform unreachable during unregister.");
+            return false;
+        }
+
+        await CleanUpLocalAsync(active);
+        return true;
+    }
+
+    private async Task CleanUpLocalAsync(ActiveRegistration active)
+    {
+        if (State != ManagerRegistrationState.Unregistering)
+        {
+            return;
+        }
+
+        tokens.Clear();
+        store.Delete();
+        await DeleteKeyAsync(active.KeyReference);
+        admission.Detach();
+        ClearIdentity();
+    }
+
+    public async Task<ControlResult> DiscardLocalAsync()
+    {
+        lock (_gate)
+        {
+            if (_state != ManagerRegistrationState.RestoreFailed)
+            {
+                return new ControlResult(false, "invalid-registration-state");
+            }
+        }
+
+        var remnant = ReadUnverified();
+        store.Delete();
+        if (remnant is not null)
+        {
+            await DeleteKeyAsync(remnant.DeviceKey);
+        }
+
+        tokens.Clear();
+        ClearIdentity();
+        return new ControlResult(true, null, "club-admin-must-revoke");
+    }
+
+    private ProtectedRegistrationState? ReadUnverified()
+    {
+        try
+        {
+            var parts = File.ReadAllText(store.Path).Trim().Split('.');
+            return parts.Length == 3
+                && System.Text.Json.Nodes.JsonNode.Parse(System.Buffers.Text.Base64Url.DecodeFromChars(parts[1]))
+                    is System.Text.Json.Nodes.JsonObject json
+                ? ProtectedRegistrationState.TryParse(json)
+                : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or FormatException or System.Text.Json.JsonException)
+        {
+            return null;
+        }
+    }
+
+    private async Task<IDeviceKey?> OpenKeyAsync(ActiveRegistration active)
+    {
+        var provider = providers.FirstOrDefault(p => p.Id == active.KeyReference.Provider);
+        if (provider is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return await provider.OpenKeyAsync(active.KeyReference);
+        }
+        catch (DeviceKeyException)
+        {
+            return null;
+        }
+    }
+
+    private async Task DeleteKeyAsync(DeviceKeyReference reference)
+    {
+        try
+        {
+            if (providers.FirstOrDefault(p => p.Id == reference.Provider) is { } provider)
+            {
+                await provider.DeleteKeyAsync(reference);
+            }
+        }
+        catch (Exception e) when (e is DeviceKeyException or IOException or InvalidOperationException)
+        {
+            logger.LogWarning("Deleting the device key failed.");
+        }
+    }
+
+    private void WriteState(ActiveRegistration active, IDeviceKey key, OperatingIntent intent, bool pending) =>
+        store.Write(
+            new ProtectedRegistrationState(
+                ProtectedRegistrationState.CurrentSchemaVersion, active.ManagerId, active.StampId,
+                active.PlatformEndpoint.GetLeftPart(UriPartial.Authority), active.KeyReference, active.Protection,
+                key.Thumbprint, intent with { PendingUnregister = pending }, pending, time.GetUtcNow()),
+            key);
 
     private void SetPhase(PairingPhase phase)
     {

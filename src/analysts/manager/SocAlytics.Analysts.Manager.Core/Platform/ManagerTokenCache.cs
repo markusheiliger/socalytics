@@ -31,6 +31,29 @@ public sealed class ManagerTokenCache(
         }
     }
 
+    /// <summary>Begins (<paramref name="completion"/> false) or completes the platform unregistration.</summary>
+    public async Task<PlatformSignal> PostUnregistrationAsync(
+        Uri endpoint, IDeviceKey key, string managerId, bool completion, CancellationToken cancellationToken)
+    {
+        var (signal, token) = await GetTokenAsync(endpoint, key, managerId, cancellationToken);
+        if (token is null)
+        {
+            return signal;
+        }
+
+        var request = completion
+            ? platform.BuildUnregistrationCompletion(endpoint, key, token)
+            : platform.BuildUnregistration(endpoint, key, token);
+        var response = await platform.SendAsync(request, cancellationToken);
+        signal = PlatformSignals.ClassifyResource(response.Status, response.WwwAuthenticate, response.Body);
+        if (signal.Outcome != PlatformOutcome.Success)
+        {
+            Clear();
+        }
+
+        return signal;
+    }
+
     private async Task<SelfRegistrationResult> GetSelfRegistrationCoreAsync(
         Uri endpoint, IDeviceKey key, string managerId, CancellationToken cancellationToken)
     {

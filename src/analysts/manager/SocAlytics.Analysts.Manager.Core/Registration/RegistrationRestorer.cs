@@ -21,6 +21,20 @@ public sealed class RegistrationRestorer(
     TimeProvider time,
     ILogger<RegistrationRestorer> logger)
 {
+    /// <summary>Resumes a pending unregister after a confirmed restore.</summary>
+    public async Task ResumePendingAsync(CancellationToken ct)
+    {
+        if (coordinator.State is not (ManagerRegistrationState.Active or ManagerRegistrationState.Unregistering)
+            || !coordinator.PendingUnregister || coordinator.Active is not { } active
+            || providers.FirstOrDefault(p => p.Id == active.KeyReference.Provider) is not { } provider)
+        {
+            return;
+        }
+
+        var key = await provider.OpenKeyAsync(active.KeyReference, ct);
+        await coordinator.ResumeUnregisterAsync(key, coordinator.State == ManagerRegistrationState.Active);
+    }
+
     public async Task RunAsync(CancellationToken ct)
     {
         if (!File.Exists(store.Path))
@@ -150,5 +164,9 @@ public sealed class RegistrationRestorer(
 public sealed class RestoreHostedService(RegistrationRestorer restorer) : BackgroundService
 {
     protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
-        Task.Run(() => restorer.RunAsync(stoppingToken), stoppingToken);
+        Task.Run(async () =>
+        {
+            await restorer.RunAsync(stoppingToken);
+            await restorer.ResumePendingAsync(stoppingToken);
+        }, stoppingToken);
 }

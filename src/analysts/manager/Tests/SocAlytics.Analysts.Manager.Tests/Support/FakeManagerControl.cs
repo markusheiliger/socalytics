@@ -22,4 +22,8 @@ internal sealed class FakeManagerControl : IManagerControl
         Task.FromResult(new RegisterResult(true, null, "ABCD-1234", "fp-xyz", "https://platform.example/pair"));
 
     public Task CancelRegistrationAsync() => Task.CompletedTask;
+
+    public Task<ControlResult> UnregisterAsync() => Task.FromResult(new ControlResult(true));
+
+    public Task<ControlResult> DiscardLocalRegistrationAsync() => Task.FromResult(new ControlResult(true));
 }
