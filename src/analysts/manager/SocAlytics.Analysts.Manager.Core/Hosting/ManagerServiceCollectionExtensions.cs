@@ -20,12 +20,21 @@ public static class ManagerServiceCollectionExtensions
             AddPkcs11(services);
         }
 
+        if (OperatingSystem.IsWindows())
+        {
+            AddWindowsCng(services);
+        }
+
         services.AddSingleton<DeviceKeyProviderSelector>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ProofFactory>();
         services.AddHttpClient<PlatformClient>();
         return services;
     }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static void AddWindowsCng(IServiceCollection services) =>
+        services.AddSingleton<IDeviceKeyProvider, WindowsCngKeyProvider>();
 
     [System.Runtime.Versioning.SupportedOSPlatform("linux")]
     private static void AddPkcs11(IServiceCollection services) =>
