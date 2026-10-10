@@ -6,7 +6,8 @@ using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Application.Registry.Pairing;
 
-public sealed record PairingStatusResult(string Status, double PollingIntervalSeconds, DateTimeOffset? ExpiresAt);
+public sealed record PairingStatusResult(
+    string Status, double PollingIntervalSeconds, DateTimeOffset? ExpiresAt, string? Challenge = null, DateTimeOffset? ChallengeExpiresAt = null);
 
 public sealed class GetPairingStatusHandler(
     IUnitOfWork unitOfWork,
@@ -45,11 +46,36 @@ public sealed class GetPairingStatusHandler(
                 return await ExpireAsync(registration, expected, AnalystManagerRegistration.ApprovalWindowElapsed, now, scope, cancellationToken);
             case RegistrationState.PendingApproval:
                 return new PairingStatusResult("pending_approval", interval, registration.ApprovalExpiresAt);
+            case RegistrationState.Approved when now >= registration.ActivationExpiresAt:
+                return await ExpireAsync(registration, expected, AnalystManagerRegistration.ActivationWindowElapsed, now, scope, cancellationToken);
+            case RegistrationState.Approved:
+                return await IssueChallengeAsync(registration, interval, now, scope, cancellationToken);
             case RegistrationState.Rejected when now < registration.ApprovalExpiresAt:
                 return new PairingStatusResult("rejected", interval, registration.ApprovalExpiresAt);
             default:
                 return OperationFailure.Validation(PollingHandleInvalid);
         }
+    }
+
+    private async Task<OperationResult<PairingStatusResult>> IssueChallengeAsync(
+        AnalystManagerRegistration registration, double interval, DateTimeOffset now,
+        IUnitOfWorkScope scope, CancellationToken cancellationToken)
+    {
+        var challenge = secrets.NewChallenge();
+        if (!registration.IssueChallenge(secrets.Hash(challenge), now).Succeeded)
+        {
+            return OperationFailure.Validation(PollingHandleInvalid);
+        }
+
+        var write = await store.SetChallengeAsync(
+            registration.Id, RegistrationState.Approved, registration.ChallengeHash!, registration.ChallengeExpiresAt!.Value, cancellationToken);
+        if (write.Outcome != VersionedWriteOutcome.Applied)
+        {
+            return OperationFailure.Validation(PollingHandleInvalid);
+        }
+
+        await scope.CommitAsync(cancellationToken);
+        return new PairingStatusResult("approved", interval, registration.ActivationExpiresAt, challenge, registration.ChallengeExpiresAt);
     }
 
     private async Task<OperationResult<PairingStatusResult>> ExpireAsync(

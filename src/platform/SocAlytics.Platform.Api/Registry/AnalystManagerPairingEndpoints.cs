@@ -14,6 +14,8 @@ internal sealed record PairingRequestBody(string? StampId, JsonElement PublicKey
 
 internal sealed record PollingHandleBody(string? PollingHandle);
 
+internal sealed record ActivationBody(string? PollingHandle, string? Proof);
+
 internal static class AnalystManagerPairingEndpoints
 {
 	public static IEndpointRouteBuilder MapAnalystManagerPairingEndpoints(this IEndpointRouteBuilder routes)
@@ -44,6 +46,10 @@ internal static class AnalystManagerPairingEndpoints
 		group.MapPost("/pairings/status", GetStatusAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
 			.WithName("getAnalystManagerPairingStatus");
+
+		group.MapPost("/pairings/activation", ActivateAsync)
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("activateAnalystManagerRegistration");
 		return routes;
 	}
 
@@ -109,6 +115,29 @@ internal static class AnalystManagerPairingEndpoints
 		}
 
 		var v = result.Value;
-		return Results.Json(new { status = v.Status, pollingIntervalSeconds = v.PollingIntervalSeconds, expiresAt = v.ExpiresAt });
+		return Results.Json(new { status = v.Status, pollingIntervalSeconds = v.PollingIntervalSeconds, expiresAt = v.ExpiresAt, challenge = v.Challenge, challengeExpiresAt = v.ChallengeExpiresAt });
+	}
+
+	private static async Task<IResult> ActivateAsync(HttpContext http, ActivateRegistrationHandler handler, CancellationToken cancellationToken)
+	{
+		ActivationBody? body;
+		try
+		{
+			body = await http.Request.ReadFromJsonAsync<ActivationBody>(cancellationToken);
+		}
+		catch (JsonException)
+		{
+			body = null;
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		var result = await handler.HandleAsync(body?.PollingHandle, body?.Proof, cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		var v = result.Value;
+		return Results.Json(new { managerId = v.ManagerId, stampId = v.StampId, tokenEndpoint = v.TokenEndpoint, keyThumbprint = v.KeyThumbprint });
 	}
 }
