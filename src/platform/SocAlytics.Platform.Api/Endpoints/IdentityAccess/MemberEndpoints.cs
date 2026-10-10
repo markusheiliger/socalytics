@@ -8,6 +8,8 @@ namespace SocAlytics.Platform.Api.Endpoints.IdentityAccess;
 
 internal sealed record MemberCreateRequest(string? AccountName);
 
+internal sealed record TeamRoleAssignmentRequest(string? Role);
+
 internal sealed record MemberTeamRoleDto(Guid TeamId, string Role);
 
 internal sealed record MemberDto(
@@ -76,6 +78,24 @@ internal static class MemberEndpoints
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict);
+		members.MapPut("/members/{memberId:guid}/team-roles/{teamId:guid}", AssignTeamRoleAsync)
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("assignTeamRole")
+			.WithTags("Members")
+			.Produces<MemberDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+		members.MapDelete("/members/{memberId:guid}/team-roles/{teamId:guid}", RevokeTeamRoleAsync)
+			.WithName("revokeTeamRole")
+			.WithTags("Members")
+			.Produces<MemberDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		members.MapPost("/members/{memberId:guid}/deactivate", DeactivateMemberAsync)
 			.WithName("deactivateMember")
 			.WithTags("Members")
@@ -165,6 +185,39 @@ internal static class MemberEndpoints
 
 		return RoleResult(http, await handler.HandleAsync(new RevokeClubRoleCommand(memberId, role), cancellationToken));
 	}
+
+	private static async Task<IResult> AssignTeamRoleAsync(
+		Guid memberId,
+		Guid teamId,
+		HttpContext http,
+		AssignTeamRoleHandler handler,
+		CancellationToken cancellationToken)
+	{
+		TeamRoleAssignmentRequest? body;
+		try
+		{
+			body = await http.Request.ReadFromJsonAsync<TeamRoleAssignmentRequest>(cancellationToken);
+		}
+		catch (System.Text.Json.JsonException)
+		{
+			body = null;
+		}
+
+		if (!TeamRoleRules.TryParse(body?.Role, out var role))
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("role", "invalid-value")));
+		}
+
+		return RoleResult(http, await handler.HandleAsync(new AssignTeamRoleCommand(memberId, teamId, role), cancellationToken));
+	}
+
+	private static async Task<IResult> RevokeTeamRoleAsync(
+		Guid memberId,
+		Guid teamId,
+		HttpContext http,
+		RevokeTeamRoleHandler handler,
+		CancellationToken cancellationToken) =>
+		RoleResult(http, await handler.HandleAsync(new RevokeTeamRoleCommand(memberId, teamId), cancellationToken));
 
 	private static async Task<IResult> DeactivateMemberAsync(
 		Guid memberId,

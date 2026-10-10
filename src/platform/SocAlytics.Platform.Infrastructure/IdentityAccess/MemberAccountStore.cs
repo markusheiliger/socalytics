@@ -176,6 +176,54 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
             cancellationToken: cancellationToken));
     }
 
+    public async Task<bool> TeamExistsAsync(Guid teamId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS (SELECT 1 FROM socalytics.team WHERE id = @teamId)",
+            new { teamId },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<TeamRoleChange> UpsertTeamRoleAsync(Guid accountId, Guid teamId, TeamRole role, Guid assignedBy, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var existing = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT role FROM socalytics.team_role_assignment WHERE member_account_id = @accountId AND team_id = @teamId FOR UPDATE",
+            new { accountId, teamId },
+            transaction,
+            cancellationToken: cancellationToken));
+        TeamRole? previous = existing is not null && TeamRoleRules.TryParse(existing, out var parsed) ? parsed : null;
+        if (previous == role)
+        {
+            return new TeamRoleChange(false, previous);
+        }
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO socalytics.team_role_assignment (member_account_id, team_id, role, assigned_at, assigned_by_account_id) " +
+            "VALUES (@accountId, @teamId, @role, @now, @assignedBy) " +
+            "ON CONFLICT (member_account_id, team_id) DO UPDATE SET role = EXCLUDED.role, assigned_at = EXCLUDED.assigned_at, " +
+            "assigned_by_account_id = EXCLUDED.assigned_by_account_id",
+            new { accountId, teamId, role = role.ToWireValue(), now = time.GetUtcNow(), assignedBy },
+            transaction,
+            cancellationToken: cancellationToken));
+        return new TeamRoleChange(true, previous);
+    }
+
+    public async Task<TeamRole?> RemoveTeamRoleAsync(Guid accountId, Guid teamId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var removed = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "DELETE FROM socalytics.team_role_assignment WHERE member_account_id = @accountId AND team_id = @teamId RETURNING role",
+            new { accountId, teamId },
+            transaction,
+            cancellationToken: cancellationToken));
+        return removed is not null && TeamRoleRules.TryParse(removed, out var parsed) ? parsed : null;
+    }
+
     public async Task<LockedAccount?> LockAccountAsync(Guid id, CancellationToken cancellationToken)
     {
         var transaction = session.RequireTransaction();

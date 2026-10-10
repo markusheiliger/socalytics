@@ -24,6 +24,9 @@ public sealed record MemberPageKey(string NormalizedAccountName, Guid Id);
 
 public sealed record MemberPageResult(IReadOnlyList<MemberDetails> Items, bool HasMore, MemberPageKey? LastKey);
 
+/// <summary><see cref="Changed"/> is false when the stored role already matched; <see cref="Previous"/> is the role before the write.</summary>
+public sealed record TeamRoleChange(bool Changed, TeamRole? Previous);
+
 public interface IMemberAccountStore
 {
     Task<MemberPageResult> ListMembersAsync(MemberPageKey? after, int pageSize, CancellationToken cancellationToken);
@@ -37,6 +40,14 @@ public interface IMemberAccountStore
     Task<IReadOnlyList<Guid>> ListAllTeamIdsAsync(CancellationToken cancellationToken);
 
     Task AssignClubRoleAsync(Guid accountId, ClubRole role, Guid? assignedBy, CancellationToken cancellationToken);
+
+    Task<bool> TeamExistsAsync(Guid teamId, CancellationToken cancellationToken);
+
+    /// <summary>Inserts or replaces the member's role on the team; reports no change for the same role.</summary>
+    Task<TeamRoleChange> UpsertTeamRoleAsync(Guid accountId, Guid teamId, TeamRole role, Guid assignedBy, CancellationToken cancellationToken);
+
+    /// <summary>Deletes the member's role on the team; returns the removed role or null when none existed.</summary>
+    Task<TeamRole?> RemoveTeamRoleAsync(Guid accountId, Guid teamId, CancellationToken cancellationToken);
 
     Task<LockedAccount?> LockAccountAsync(Guid id, CancellationToken cancellationToken);
 
