@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using Amazon.S3.Model;
 using SocAlytics.Platform.Domain.Recordings;
 
 namespace SocAlytics.Platform.Integration.Tests.Recordings;
@@ -25,6 +26,30 @@ internal sealed record TestRecording(long PartSize, IReadOnlyList<byte[]> Parts)
 internal static class RecordingTestData
 {
 	public const long MinPart = 5_242_880;
+
+	public static string NewKeyPrefix() => $"recordings/{Guid.NewGuid()}/";
+
+	public static Dictionary<string, string?> WithKeyPrefix(string keyPrefix, Dictionary<string, string?>? values = null) =>
+		new(values ?? []) { ["KeyPrefix"] = keyPrefix };
+
+	// Counts in-flight multipart uploads under one prefix so parallel test classes do not affect each other.
+	public static async Task<int> InFlightUploadsAsync(RustFsContainerFixture rustFs, string keyPrefix, CancellationToken cancellationToken)
+	{
+		using var s3 = rustFs.CreateS3Client();
+		var count = 0;
+		var request = new ListMultipartUploadsRequest { BucketName = rustFs.Bucket, Prefix = keyPrefix };
+		ListMultipartUploadsResponse page;
+		do
+		{
+			page = await s3.ListMultipartUploadsAsync(request, cancellationToken);
+			count += page.MultipartUploads?.Count ?? 0;
+			request.KeyMarker = page.NextKeyMarker;
+			request.UploadIdMarker = page.NextUploadIdMarker;
+		}
+		while (page.IsTruncated == true);
+
+		return count;
+	}
 
 	// Deterministic content: each byte is derived from the seed, part number, and offset.
 	public static TestRecording Generate(int seed, params int[] partLengths) =>

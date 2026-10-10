@@ -34,7 +34,7 @@ public sealed class UploadSessionExpiryTests(PostgresContainerFixture postgres, 
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
 		await using var factory = new PlatformApiFactory(
 			db,
-			recordingUpload: new Dictionary<string, string?> { ["SessionLifetime"] = "00:00:02", ["ExpirySweepInterval"] = "01:00:00" },
+			recordingUpload: RecordingTestData.WithKeyPrefix(RecordingTestData.NewKeyPrefix(), new Dictionary<string, string?> { ["SessionLifetime"] = "00:00:02", ["ExpirySweepInterval"] = "01:00:00" }),
 			objectStorage: new Dictionary<string, string?>
 			{
 				["ServiceUrl"] = rustFs.ServiceUrl,
@@ -60,7 +60,7 @@ public sealed class UploadSessionExpiryTests(PostgresContainerFixture postgres, 
 		using (var storage = new HttpClient())
 		{
 			using var put = await RecordingTestData.PutPartAsync(storage, firstGrant, recording.Parts[0], ct);
-			put.IsSuccessStatusCode.ShouldBeTrue();
+			put.IsSuccessStatusCode.ShouldBeTrue($"part PUT returned {(int)put.StatusCode}: {await put.Content.ReadAsStringAsync(ct)}");
 		}
 
 		var sessionUrl = $"/api/v1/matches/{hierarchy.MatchId}/upload-sessions/{id}";

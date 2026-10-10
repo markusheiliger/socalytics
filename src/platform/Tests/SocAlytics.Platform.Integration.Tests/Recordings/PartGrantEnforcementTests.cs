@@ -20,7 +20,7 @@ public sealed class PartGrantEnforcementTests(PostgresContainerFixture postgres,
 	{
 		var db = await postgres.CreateDatabaseAsync(ct);
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
-		var factory = new PlatformApiFactory(db, objectStorage: new Dictionary<string, string?>
+		var factory = new PlatformApiFactory(db, recordingUpload: RecordingTestData.WithKeyPrefix(RecordingTestData.NewKeyPrefix()), objectStorage: new Dictionary<string, string?>
 		{
 			["ServiceUrl"] = rustFs.ServiceUrl,
 			["Region"] = rustFs.Region,

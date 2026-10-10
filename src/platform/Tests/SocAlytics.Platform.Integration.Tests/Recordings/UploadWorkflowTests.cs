@@ -20,7 +20,7 @@ public sealed class UploadWorkflowTests(PostgresContainerFixture postgres, RustF
 	{
 		var db = await postgres.CreateDatabaseAsync(ct);
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
-		var factory = new PlatformApiFactory(db, objectStorage: new Dictionary<string, string?>
+		var factory = new PlatformApiFactory(db, recordingUpload: RecordingTestData.WithKeyPrefix(_keyPrefix), objectStorage: new Dictionary<string, string?>
 		{
 			["ServiceUrl"] = rustFs.ServiceUrl,
 			["Region"] = rustFs.Region,
@@ -68,12 +68,9 @@ public sealed class UploadWorkflowTests(PostgresContainerFixture postgres, RustF
 		return Convert.ToInt64(await command.ExecuteScalarAsync(ct));
 	}
 
-	private async Task<int> InFlightUploadsAsync(CancellationToken ct)
-	{
-		using var s3 = rustFs.CreateS3Client();
-		var listed = await s3.ListMultipartUploadsAsync(new ListMultipartUploadsRequest { BucketName = rustFs.Bucket }, ct);
-		return listed.MultipartUploads?.Count ?? 0;
-	}
+	private readonly string _keyPrefix = RecordingTestData.NewKeyPrefix();
+
+	private Task<int> InFlightUploadsAsync(CancellationToken ct) => RecordingTestData.InFlightUploadsAsync(rustFs, _keyPrefix, ct);
 
 	[Fact]
 	// US1 AS1, AS3

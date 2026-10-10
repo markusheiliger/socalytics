@@ -31,7 +31,7 @@ public sealed class RecordingAuthorizationTests(PostgresContainerFixture postgre
 	{
 		var db = await postgres.CreateDatabaseAsync(ct);
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
-		var factory = new PlatformApiFactory(db, objectStorage: new Dictionary<string, string?>
+		var factory = new PlatformApiFactory(db, recordingUpload: RecordingTestData.WithKeyPrefix(_keyPrefix), objectStorage: new Dictionary<string, string?>
 		{
 			["ServiceUrl"] = rustFs.ServiceUrl,
 			["Region"] = rustFs.Region,
@@ -89,12 +89,9 @@ public sealed class RecordingAuthorizationTests(PostgresContainerFixture postgre
 		return string.Join(';', parts);
 	}
 
-	private async Task<int> InFlightUploadsAsync(CancellationToken ct)
-	{
-		using var s3 = rustFs.CreateS3Client();
-		var listed = await s3.ListMultipartUploadsAsync(new ListMultipartUploadsRequest { BucketName = rustFs.Bucket }, ct);
-		return listed.MultipartUploads?.Count ?? 0;
-	}
+	private readonly string _keyPrefix = RecordingTestData.NewKeyPrefix();
+
+	private Task<int> InFlightUploadsAsync(CancellationToken ct) => RecordingTestData.InFlightUploadsAsync(rustFs, _keyPrefix, ct);
 
 	private static Task<long> DenialsAsync(IsolatedDatabase db, CancellationToken ct) =>
 		ScalarAsync(db, "SELECT count(*) FROM socalytics.security_audit_event WHERE event_type = 'authorization.denied'", ct);

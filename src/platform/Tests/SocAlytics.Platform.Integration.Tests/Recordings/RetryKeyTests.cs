@@ -24,7 +24,7 @@ public sealed class RetryKeyTests(PostgresContainerFixture postgres, RustFsConta
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
 		var factory = new PlatformApiFactory(
 			db,
-			recordingUpload: recordingUpload,
+			recordingUpload: RecordingTestData.WithKeyPrefix(_keyPrefix, recordingUpload),
 			objectStorage: new Dictionary<string, string?>
 			{
 				["ServiceUrl"] = rustFs.ServiceUrl,
@@ -97,12 +97,9 @@ public sealed class RetryKeyTests(PostgresContainerFixture postgres, RustFsConta
 		return Convert.ToInt64(await command.ExecuteScalarAsync(ct));
 	}
 
-	private async Task<int> InFlightUploadsAsync(CancellationToken ct)
-	{
-		using var s3 = rustFs.CreateS3Client();
-		var listed = await s3.ListMultipartUploadsAsync(new ListMultipartUploadsRequest { BucketName = rustFs.Bucket }, ct);
-		return listed.MultipartUploads?.Count ?? 0;
-	}
+	private readonly string _keyPrefix = RecordingTestData.NewKeyPrefix();
+
+	private Task<int> InFlightUploadsAsync(CancellationToken ct) => RecordingTestData.InFlightUploadsAsync(rustFs, _keyPrefix, ct);
 
 	private static string SessionId(JsonElement body) => body.GetProperty("session").GetProperty("id").GetString()!;
 
