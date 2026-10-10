@@ -65,7 +65,7 @@ public sealed class AccessAuthorizer(
 
         if (!snapshot.TeamRoles.TryGetValue(scope.TeamId, out var role))
         {
-            return await DenyAsync(AccessDecision.NotFound, audited, scope.TeamId, "not-visible", cancellationToken);
+            return await DenyAsync(AccessDecision.NotVisible, audited, scope.TeamId, "not-visible", cancellationToken);
         }
 
         if (permission == TeamPermission.Write && role != TeamRole.Coach)

@@ -24,7 +24,7 @@ public sealed class GetRecordingUploadSessionHandler(
         var decision = await authorizer.AuthorizeTeamResourceAsync(new("match", query.MatchId), TeamPermission.Write, cancellationToken);
         if (!decision.IsGranted)
         {
-            return decision.Kind == AccessDecisionKind.Forbidden ? OperationFailure.Forbidden() : OperationFailure.NotFound();
+            return decision.IsForbidden ? OperationFailure.Forbidden() : OperationFailure.NotFound();
         }
 
         var stored = await recordings.FindUploadSessionAsync(query.MatchId, query.UploadSessionId, cancellationToken);
