@@ -46,5 +46,11 @@ public interface IMemberAccountStore
 
     Task RemoveClubRoleAsync(Guid accountId, ClubRole role, CancellationToken cancellationToken);
 
+    /// <summary>Deletes every club and team role, sets the status to deactivated, stamps <c>membership_changed_at</c>, and rotates the security stamp.</summary>
+    Task DeactivateAccountAsync(Guid accountId, CancellationToken cancellationToken);
+
+    /// <summary>Sets the status to active and stamps <c>membership_changed_at</c>; restores nothing else.</summary>
+    Task ReactivateAccountAsync(Guid accountId, CancellationToken cancellationToken);
+
     Task<Guid?> FindAccountIdByNameAsync(AccountName name, CancellationToken cancellationToken);
 }

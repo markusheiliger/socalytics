@@ -76,6 +76,22 @@ internal static class MemberEndpoints
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict);
+		members.MapPost("/members/{memberId:guid}/deactivate", DeactivateMemberAsync)
+			.WithName("deactivateMember")
+			.WithTags("Members")
+			.Produces<MemberDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
+		members.MapPost("/members/{memberId:guid}/reactivate", ReactivateMemberAsync)
+			.WithName("reactivateMember")
+			.WithTags("Members")
+			.Produces<MemberDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
 		return routes;
 	}
 
@@ -119,6 +135,20 @@ internal static class MemberEndpoints
 
 		return RoleResult(http, await handler.HandleAsync(new RevokeClubRoleCommand(memberId, role), cancellationToken));
 	}
+
+	private static async Task<IResult> DeactivateMemberAsync(
+		Guid memberId,
+		HttpContext http,
+		DeactivateMemberHandler handler,
+		CancellationToken cancellationToken) =>
+		RoleResult(http, await handler.HandleAsync(new DeactivateMemberCommand(memberId), cancellationToken));
+
+	private static async Task<IResult> ReactivateMemberAsync(
+		Guid memberId,
+		HttpContext http,
+		ReactivateMemberHandler handler,
+		CancellationToken cancellationToken) =>
+		RoleResult(http, await handler.HandleAsync(new ReactivateMemberCommand(memberId), cancellationToken));
 
 	internal static MemberDto ToDto(MemberDetails m) => new(
 		m.Id,

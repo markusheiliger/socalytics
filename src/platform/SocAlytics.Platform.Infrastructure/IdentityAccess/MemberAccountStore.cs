@@ -241,6 +241,31 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
             cancellationToken: cancellationToken));
     }
 
+    public async Task DeactivateAccountAsync(Guid accountId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM socalytics.club_role_assignment WHERE member_account_id = @accountId; " +
+            "DELETE FROM socalytics.team_role_assignment WHERE member_account_id = @accountId; " +
+            "UPDATE socalytics.member_account SET membership_status = 'deactivated', membership_changed_at = @now, " +
+            "security_stamp = @stamp WHERE id = @accountId",
+            new { accountId, now = time.GetUtcNow(), stamp = Guid.NewGuid().ToString("N") },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task ReactivateAccountAsync(Guid accountId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE socalytics.member_account SET membership_status = 'active', membership_changed_at = @now WHERE id = @accountId",
+            new { accountId, now = time.GetUtcNow() },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
     public async Task<Guid?> FindAccountIdByNameAsync(AccountName name, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);
