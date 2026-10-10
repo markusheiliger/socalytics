@@ -14,17 +14,19 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
 {
     private readonly AmazonS3Client _client;
     private readonly string _bucket;
+    private readonly bool _useHttp;
 
     public S3ObjectStorage(IOptions<ObjectStorageOptions> options)
     {
         var value = options.Value;
         _bucket = value.Bucket;
+        _useHttp = value.ServiceUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase);
         var config = new AmazonS3Config
         {
             ServiceURL = value.ServiceUrl,
             ForcePathStyle = value.ForcePathStyle,
             AuthenticationRegion = value.Region,
-            UseHttp = value.ServiceUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase),
+            UseHttp = _useHttp,
             RequestChecksumCalculation = RequestChecksumCalculation.WHEN_REQUIRED,
             ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
             LogResponse = false,
@@ -61,6 +63,7 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
             PartNumber = partNumber,
             UploadId = upload.UploadId,
             Expires = expiresAt.UtcDateTime,
+            Protocol = _useHttp ? Protocol.HTTP : Protocol.HTTPS,
         };
         request.Headers["Content-Length"] = contentLength.ToString(CultureInfo.InvariantCulture);
         request.Headers["x-amz-checksum-sha256"] = checksum;
