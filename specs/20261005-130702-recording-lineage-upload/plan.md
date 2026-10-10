@@ -212,7 +212,7 @@ src/platform/
     │       ├── RustFsContainerFixture.cs                 # container, bucket creation, S3 client for assertions (no stop/restart helpers)
     │       ├── RecordingOptionsValidationTests.cs        # startup validation of upload, set, and storage options
     │       ├── RecordingRetryOutcomeStoreTests.cs
-    │       ├── RecordingTestData.cs                      # deterministic parts, digests, declarations, grant PUT helper
+    │       ├── RecordingTestData.cs                      # deterministic parts, digests, declarations, grant PUT helper, prefix-scoped in-flight upload count (T039)
     │       ├── RecordingAuditAssertions.cs               # exactly-one success audit event per operation (FR-030)
     │       ├── UploadSessionRulesTests.cs                # pure: session transitions, expiry boundary, key layout
     │       ├── ObjectStoreConformanceTests.cs            # reduced storage spike; runnable against an external store
@@ -245,6 +245,7 @@ src/platform/
     │   └── Recordings/
     │       └── RecordingsFinalizedSchemaTests.cs         # feature fixture: plain sha-256 recording digest rejected
     └── SocAlytics.Platform.Host.Tests/
+        ├── OpenApiContractTests.cs                       # Club contract: operation count excludes the recording paths (T038)
         └── RecordingsOpenApiTests.cs                     # operationIds, response codes, security schemes, no binary request bodies
 ```
 
