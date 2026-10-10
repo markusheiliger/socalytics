@@ -17,6 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="../../../../../contracts/analyst-manager/**/*" LinkBase="contracts/analyst-manager" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\SocAlytics.Analysts.Manager.Core\SocAlytics.Analysts.Manager.Core.csproj" />
   </ItemGroup>
 </Project>
