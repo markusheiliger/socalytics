@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using SocAlytics.Analysts.Manager.DeviceKeys;
+using SocAlytics.Analysts.Manager.Platform;
 
 namespace SocAlytics.Analysts.Manager.Hosting;
 
@@ -14,6 +15,9 @@ public static class ManagerServiceCollectionExtensions
         services.Configure<OperatingOptions>(configuration.GetSection(OperatingOptions.SectionName));
         services.Configure<RuntimeOptions>(configuration.GetSection(RuntimeOptions.SectionName));
         services.AddSingleton<DeviceKeyProviderSelector>();
+        services.AddSingleton(TimeProvider.System);
+        services.AddSingleton<ProofFactory>();
+        services.AddHttpClient<PlatformClient>();
         return services;
     }
 }
