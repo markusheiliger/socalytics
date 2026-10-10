@@ -224,10 +224,14 @@ their "blocked by" issues are closed.
       implementation status, and a start comment.
 - Then the spec's implementation chain takes over: runs of
   `Spec Kit implement` (`speckit-implement.yml`), one at a time per spec,
-  each started by the previous one. Each run is named after what it most
-  likely tackles, for example
-  `Spec Kit implement #35 · Phase 3: User Story 1 - Upload a Source Recording for a Match · T013–T018`,
-  `… · Convergence`, `… · Merge`, or `… · Start a diagnosis`; the run decides again when it starts. Every run decides the next segment from the state on GitHub
+  each started by the previous one. A run that implements tasks tackles one
+  phase of `tasks.md`, the phase of the first open task, and decides itself
+  which of its tasks are still open; it is named after the phase, for example
+  `Spec Kit implement #35 · Phase 3: User Story 1 - Upload a Source Recording for a Match`.
+  Runs for the other segments are named `… · Convergence`,
+  `… · Conflict resolution`, `… · Merge`, or, when the implementation stops,
+  `… · Start a diagnosis`. The name is set when the run is started; the run
+  decides again from the state on GitHub when it begins. Every run decides the next segment from the state on GitHub
   (job `decide`), runs it, and starts the next run (job `continue`), until the
   implementation is merged, waits for review, or needs a person:
 

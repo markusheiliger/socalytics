@@ -397,7 +397,7 @@ test('orchestrate starts the implementation chain and continues it only when no 
     const broken = await orchestrate(github, root);
     assert.equal(chainRuns(github).length, 2, 'a chain that stopped with work left is continued');
     assert.match(broken.text, new RegExp(`Continued #${twin.number} \\(pull request #${pull.number}\\): next is T001 attempt 1`));
-    assert.equal(chainRuns(github).at(-1).display_title, `Spec Kit implement #${twin.number} · Phase 1: Setup · T001–T002`, 'the run is named after what it tackles');
+    assert.equal(chainRuns(github).at(-1).display_title, `Spec Kit implement #${twin.number} · Phase 1: Setup`, 'the run is named after what it tackles');
 
     github.completeRun(github.repo.runs.at(-1).id, 'success');
     await limitCheck(github, github.repo.branches['speckit/a']);

@@ -281,7 +281,7 @@ export function taskProgress(tasksMarkdown) {
 }
 
 // Run name of the implementation chain of a twin, with what the run most likely does ("Spec Kit implement #35 · Phase
-// 3: User Story 1 · T013–T018"). Runs of the per-task workflow before the chain existed were named
+// 3: User Story 1 - Upload a Source Recording for a Match", "Spec Kit implement #35 · Merge"). Runs of the per-task workflow before the chain existed were named
 // "Spec Kit implement #<twin> T001 attempt 1"; they count as runs of the twin as well.
 export function renderImplementRunName(twin, label = '') {
   return `${IMPLEMENT_RUN_PREFIX} #${twin}${label ? ` · ${label}` : ''}`;
@@ -304,7 +304,7 @@ const clipLabel = (text, max) => (text.length > max ? `${text.slice(0, max - 1).
 function phaseName(heading) {
   const text = String(heading ?? '');
   const symbol = text.search(/[^\p{L}\p{N}\s:,.'&/+()\-–]/u);
-  return clipLabel((symbol >= 0 ? text.slice(0, symbol) : text).replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim(), 70);
+  return clipLabel((symbol >= 0 ? text.slice(0, symbol) : text).replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim(), 100);
 }
 
 // What a run of the chain is going to tackle, for its run name, from the decision that starts it (decideNext). The
@@ -317,10 +317,12 @@ export function segmentLabel(decision) {
     const retry = retries.length > 0 ? ` (retry: ${retries.join(', ')})` : '';
     if (decision.step === 'converge') return `Convergence${retry}`;
     if (decision.step === 'resolve') return `Conflict resolution${retry}`;
-    const tasks = decision.stages.flat().map((entry) => entry.task);
-    const range = tasks.length > 1 ? `${tasks[0]}–${tasks.at(-1)}` : tasks[0];
+    // A run that implements tasks works on one phase, named after its heading; a tasks.md without phase headings
+    // falls back to the tasks.
     const phase = phaseName(decision.phase);
-    return clipLabel(`${phase ? `${phase} · ` : ''}${range}${retry}`, 120);
+    if (phase) return phase;
+    const tasks = decision.stages.flat().map((entry) => entry.task);
+    return tasks.length > 1 ? `${tasks[0]}–${tasks.at(-1)}` : tasks[0];
   }
   if (decision.action === 'merge') return `Merge${decision.attempt > 1 ? ` (attempt ${decision.attempt})` : ''}`;
   if (decision.action === 'limit') return `Stop: ${stepLabel(decision)} reached the attempt limit`;
