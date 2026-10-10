@@ -9,7 +9,7 @@ internal sealed class InMemoryDeviceKeyProvider(KeyProtection protection = KeyPr
 {
     private readonly Dictionary<string, InMemoryKey> _keys = [];
 
-    public string Id => "in-memory";
+    public string Id => DeviceKeyReference.Pkcs11;
 
     public bool IsAvailable => isAvailable;
 

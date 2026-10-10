@@ -1,5 +1,6 @@
 using SocAlytics.Analysts.Manager.DeviceKeys;
 using SocAlytics.Analysts.Manager.Diagnostics;
+using SocAlytics.Analysts.Manager.Operating;
 using SocAlytics.Analysts.Manager.Registration;
 
 namespace SocAlytics.Analysts.Manager.Hosting;
@@ -25,6 +26,7 @@ public sealed class ManagerControl : IManagerControl
     public ManagerStatusSnapshot GetStatus()
     {
         var active = _coordinator.Active;
+        var machine = _coordinator.Machine;
         return new ManagerStatusSnapshot(
             _coordinator.State.ToWireValue(),
             _coordinator.Phase?.ToWireValue(),
@@ -33,8 +35,8 @@ public sealed class ManagerControl : IManagerControl
             (active?.PlatformEndpoint ?? _coordinator.PlatformEndpoint)?.GetLeftPart(UriPartial.Authority),
             null,
             new ConnectivityStatus("unknown"),
-            null,
-            null,
+            machine is null ? null : StateWire(machine.State.Kind),
+            machine is null ? null : IntentWire(machine.Intent.Kind),
             false,
             null,
             (_time.GetUtcNow() - _started).TotalSeconds,
@@ -52,4 +54,19 @@ public sealed class ManagerControl : IManagerControl
         _coordinator.RegisterAsync(request, cancellationToken);
 
     public Task CancelRegistrationAsync() => _coordinator.CancelAsync();
+
+    private static string StateWire(OperatingStateKind kind) => kind switch
+    {
+        OperatingStateKind.Running => "running",
+        OperatingStateKind.Paused => "paused",
+        OperatingStateKind.Draining => "draining",
+        _ => "runtime-unavailable",
+    };
+
+    private static string IntentWire(OperatingIntentKind kind) => kind switch
+    {
+        OperatingIntentKind.Paused => "paused",
+        OperatingIntentKind.PausedUntil => "paused-until",
+        _ => "running",
+    };
 }

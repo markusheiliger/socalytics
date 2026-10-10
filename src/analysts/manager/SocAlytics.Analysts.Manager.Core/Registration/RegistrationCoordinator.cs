@@ -3,6 +3,8 @@ using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
 using SocAlytics.Analysts.Manager.DeviceKeys;
 using SocAlytics.Analysts.Manager.Diagnostics;
+using SocAlytics.Analysts.Manager.LocalState;
+using SocAlytics.Analysts.Manager.Operating;
 using SocAlytics.Analysts.Manager.Platform;
 
 namespace SocAlytics.Analysts.Manager.Registration;
@@ -20,6 +22,8 @@ public sealed record ActiveRegistration(
 public sealed class RegistrationCoordinator(
     PlatformClient platform,
     DeviceKeyProviderSelector selector,
+    SignedStateStore store,
+    AdmissionGate admission,
     TimeProvider time,
     ILogger<RegistrationCoordinator> logger)
 {
@@ -33,6 +37,7 @@ public sealed class RegistrationCoordinator(
     private KeyProtection? _protection;
     private ActiveRegistration? _active;
     private CancellationTokenSource? _cts;
+    private OperatingStateMachine? _machine;
 
     public event EventHandler? Changed;
 
@@ -47,6 +52,8 @@ public sealed class RegistrationCoordinator(
     public string? Fingerprint { get { lock (_gate) { return _fingerprint; } } }
 
     public KeyProtection? Protection { get { lock (_gate) { return _protection; } } }
+
+    public OperatingStateMachine? Machine { get { lock (_gate) { return _machine; } } }
 
     public ActiveRegistration? Active { get { lock (_gate) { return _active; } } }
 
@@ -266,8 +273,27 @@ public sealed class RegistrationCoordinator(
             throw new OperationCanceledException();
         }
 
+        try
+        {
+            store.Write(
+                new ProtectedRegistrationState(
+                    ProtectedRegistrationState.CurrentSchemaVersion, result.ManagerId, result.StampId,
+                    session.Endpoint.GetLeftPart(UriPartial.Authority), session.Key.Reference, session.Key.Protection,
+                    session.Key.Thumbprint, OperatingIntent.Running, false, time.GetUtcNow()),
+                session.Key);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            logger.LogWarning("Persisting the registration state failed.");
+            throw new OperationCanceledException();
+        }
+
+        var machine = new OperatingStateMachine(OperatingIntent.Running);
+        machine.Changed += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+        admission.Attach(machine);
         lock (_gate)
         {
+            _machine = machine;
             _active = new ActiveRegistration(
                 result.ManagerId, result.StampId, session.Endpoint, session.Key.Reference, session.Key.Protection,
                 _fingerprint ?? string.Empty);
