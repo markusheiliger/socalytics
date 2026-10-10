@@ -18,8 +18,14 @@ public sealed record MemberProfile(
     IReadOnlySet<ClubRole> ClubRoles,
     IReadOnlyList<MemberTeamRole> TeamRoles);
 
+public sealed record MemberPageKey(string NormalizedAccountName, Guid Id);
+
+public sealed record MemberPageResult(IReadOnlyList<MemberDetails> Items, bool HasMore, MemberPageKey? LastKey);
+
 public interface IMemberAccountStore
 {
+    Task<MemberPageResult> ListMembersAsync(MemberPageKey? after, int pageSize, CancellationToken cancellationToken);
+
     Task<MemberProfile?> GetProfileAsync(Guid accountId, CancellationToken cancellationToken);
 
     Task<MemberDetails?> GetMemberAsync(Guid id, CancellationToken cancellationToken);

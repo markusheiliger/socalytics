@@ -88,6 +88,38 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
             row.Version);
     }
 
+    public async Task<MemberPageResult> ListMembersAsync(MemberPageKey? after, int pageSize, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var keys = (await connection.QueryAsync<PageKeyRow>(new CommandDefinition(
+            "SELECT id AS Id, normalized_account_name AS NormalizedAccountName FROM socalytics.member_account " +
+            "WHERE @hasAfter = false OR (normalized_account_name, id) > (@afterName, @afterId) " +
+            "ORDER BY normalized_account_name, id LIMIT @limit",
+            new
+            {
+                hasAfter = after is not null,
+                afterName = after?.NormalizedAccountName ?? string.Empty,
+                afterId = after?.Id ?? Guid.Empty,
+                limit = pageSize + 1,
+            },
+            session.Transaction,
+            cancellationToken: cancellationToken))).ToList();
+
+        var hasMore = keys.Count > pageSize;
+        var pageKeys = keys.Take(pageSize).ToList();
+        var items = new List<MemberDetails>(pageKeys.Count);
+        foreach (var key in pageKeys)
+        {
+            if (await GetMemberAsync(key.Id, cancellationToken) is { } member)
+            {
+                items.Add(member);
+            }
+        }
+
+        var last = pageKeys.Count > 0 ? new MemberPageKey(pageKeys[^1].NormalizedAccountName, pageKeys[^1].Id) : null;
+        return new MemberPageResult(items, hasMore, last);
+    }
+
     public async Task<MemberProfile?> GetProfileAsync(Guid accountId, CancellationToken cancellationToken)
     {
         var snapshot = await GetAccessSnapshotAsync(accountId, cancellationToken);
@@ -162,6 +194,8 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
         bool TwoFactorEnabled,
         DateTime CreatedAt,
         long Version);
+
+    private sealed record PageKeyRow(Guid Id, string NormalizedAccountName);
 
     private sealed record AccountRow(string Status, bool PasswordChangeRequired);
 

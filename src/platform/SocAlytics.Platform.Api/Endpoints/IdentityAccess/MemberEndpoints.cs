@@ -26,6 +26,8 @@ internal sealed record IssuedCredentialDto(Guid MemberId, string Purpose, string
 
 internal sealed record MemberCreatedDto(MemberDto Member, IssuedCredentialDto SetPasswordCredential);
 
+internal sealed record MemberPageDto(IReadOnlyList<MemberDto> Items, string? ContinuationToken);
+
 internal static class MemberEndpoints
 {
 	public static IEndpointRouteBuilder MapMemberEndpoints(this IEndpointRouteBuilder routes)
@@ -41,6 +43,20 @@ internal static class MemberEndpoints
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status409Conflict)
 			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+		members.MapGet("/members", ListMembersAsync)
+			.WithName("listMembers")
+			.WithTags("Members")
+			.Produces<MemberPageDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden);
+		members.MapGet("/members/{memberId:guid}", GetMemberAsync)
+			.WithName("getMember")
+			.WithTags("Members")
+			.Produces<MemberDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		return routes;
 	}
 
@@ -56,6 +72,34 @@ internal static class MemberEndpoints
 		[.. m.TeamRoles.Select(t => new MemberTeamRoleDto(t.TeamId, t.Role.ToWireValue()))],
 		m.CreatedAt,
 		m.Version);
+
+	private static async Task<IResult> ListMembersAsync(
+		string? pageSize,
+		string? continuationToken,
+		ListMembersHandler handler,
+		CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new ListMembersQuery(pageSize, continuationToken), cancellationToken);
+		return result.IsSuccess
+			? Results.Ok(new MemberPageDto([.. result.Value.Items.Select(ToDto)], result.Value.ContinuationToken))
+			: ProblemResults.From(result.Failure);
+	}
+
+	private static async Task<IResult> GetMemberAsync(
+		Guid memberId,
+		HttpContext http,
+		GetMemberHandler handler,
+		CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetMemberQuery(memberId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = IfMatchHeader.Format(result.Value.Version);
+		return Results.Ok(ToDto(result.Value));
+	}
 
 	private static async Task<IResult> CreateMemberAsync(HttpContext http, CreateMemberHandler handler, CancellationToken cancellationToken)
 	{
