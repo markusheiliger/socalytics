@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Configuration;
+
 var builder = DistributedApplication.CreateBuilder(args);
 
 var generatedPassword = new GenerateParameterDefault { MinLength = 24, Special = false };
@@ -70,9 +72,17 @@ var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WaitFor(rustfs)
     .WaitForCompletion(migrator);
 
-if (!string.Equals(builder.Configuration["SocAlytics:ApiHttpsEndpoint"], "false", StringComparison.OrdinalIgnoreCase))
+api.WithEnvironment("Stamp__Id", "local-dev-stamp")
+    .WithEnvironment("Registry__AllowSoftwareKeys", "true");
+
+if (builder.Configuration.GetValue("SocAlytics:ApiHttpsEndpoint", true))
 {
     api.WithHttpsEndpoint();
+    api.WithEnvironment("Stamp__PublicBaseUri", ReferenceExpression.Create($"{api.GetEndpoint("https").Property(EndpointProperty.Url)}"));
+}
+else
+{
+    api.WithEnvironment("Stamp__PublicBaseUri", ReferenceExpression.Create($"{api.GetEndpoint("http").Property(EndpointProperty.Url)}"));
 }
 
 builder.Build().Run();

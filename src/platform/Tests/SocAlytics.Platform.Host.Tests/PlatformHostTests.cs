@@ -34,6 +34,14 @@ public sealed class PlatformHostTests
         migrator!.Snapshot.ExitCode.ShouldBe(0);
         await app.ResourceNotifications.WaitForResourceHealthyAsync(ApiResourceName, timeout.Token);
 
+        var apiResource = appHost.CreateResourceBuilder<ProjectResource>(ApiResourceName).Resource;
+#pragma warning disable CS0618 // the spec names this API for reading the resource environment
+        var environment = await apiResource.GetEnvironmentVariableValuesAsync();
+#pragma warning restore CS0618
+        environment["Stamp__Id"].ShouldBe("local-dev-stamp");
+        Uri.TryCreate(environment["Stamp__PublicBaseUri"], UriKind.Absolute, out var stampBase).ShouldBeTrue();
+        stampBase!.Scheme.ShouldBe("http");
+
         using var client = app.CreateHttpClient(ApiResourceName, "http");
         await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);
         await ShouldReturnSuccessAsync(client, "/health", timeout.Token);

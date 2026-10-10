@@ -10,6 +10,8 @@ internal static class TestIdentityAccessSettings
 		["IdentityAccess:Lockout:LockoutDuration"] = "00:15:00",
 		["IdentityAccess:Password:RequiredLength"] = "12",
 		["IdentityAccess:OneTimeCredential:Lifetime"] = "1.00:00:00",
+		["Stamp:Id"] = "local-dev-stamp",
+		["Stamp:PublicBaseUri"] = "https://localhost",
 		["ObjectStorage:ServiceUrl"] = "http://127.0.0.1:9",
 		["ObjectStorage:AccessKey"] = "test-access",
 		["ObjectStorage:SecretKey"] = "test-secret",

@@ -69,6 +69,8 @@ public static class ApplicationServiceCollectionExtensions
         services.AddOptions<RecordingSetOptions>().BindConfiguration(RecordingSetOptions.SectionName).ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingSetOptions>, RecordingSetOptionsValidator>());
 
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.StartPairingHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.GetPairingStatusHandler>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.RegistryOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.RegistryOptions.SectionName);
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()

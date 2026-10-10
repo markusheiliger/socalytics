@@ -18,7 +18,7 @@ public sealed class EndpointSecurityTests
     private const string ApiPrefix = "/api/v1";
     private const string SessionScheme = "SocAlyticsSession";
 
-    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential" };
+    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus" };
 
     private static readonly HashSet<string> SessionHolderOperations =
         new(StringComparer.Ordinal) { "getSession", "signOut", "getCurrentMember", "changeOwnPassword" };

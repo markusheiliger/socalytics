@@ -4,6 +4,7 @@ using SocAlytics.Platform.Api.Endpoints.Club;
 using SocAlytics.Platform.Api.Endpoints.IdentityAccess;
 using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Recordings;
+using SocAlytics.Platform.Api.Registry;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application;
 using SocAlytics.Platform.Application.Abstractions;
@@ -13,6 +14,7 @@ using SocAlytics.Platform.Infrastructure;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+builder.AddRegistryApi();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure();
 builder.Services.AddHttpContextAccessor();
@@ -63,6 +65,7 @@ app.MapMatchEndpoints();
 app.MapMemberEndpoints();
 app.MapCredentialEndpoints();
 app.MapRecordingEndpoints();
+app.MapRegistryEndpoints();
 
 app.Run();
 
