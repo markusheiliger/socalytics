@@ -1,7 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Club;
 using SocAlytics.Platform.Application.IdentityAccess;
+using SocAlytics.Platform.Application.Recordings;
 
 namespace SocAlytics.Platform.Application;
 
@@ -50,6 +52,11 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<ReactivateMemberHandler>();
         services.TryAddScoped<EndMemberSessionsHandler>();
         services.TryAddScoped<UnlockMemberHandler>();
+
+        services.AddOptions<RecordingUploadOptions>().BindConfiguration(RecordingUploadOptions.SectionName).ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingUploadOptions>, RecordingUploadOptionsValidator>());
+        services.AddOptions<RecordingSetOptions>().BindConfiguration(RecordingSetOptions.SectionName).ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingSetOptions>, RecordingSetOptionsValidator>());
 
         return services;
     }
