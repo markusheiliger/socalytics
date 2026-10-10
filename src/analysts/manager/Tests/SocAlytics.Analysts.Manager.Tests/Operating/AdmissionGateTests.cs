@@ -25,6 +25,19 @@ public class AdmissionGateTests
     }
 
     [Fact]
+    public void Unregister_hold_closes_gate_until_released()
+    {
+        var m = new OperatingStateMachine(OperatingIntent.Running);
+        var g = new AdmissionGate();
+        g.Attach(m);
+        m.PreflightPassed();
+        g.HoldForUnregister();
+        g.TryAdmit().ShouldBeFalse();
+        g.ReleaseUnregisterHold();
+        g.TryAdmit().ShouldBeTrue();
+    }
+
+    [Fact]
     public void Closed_when_paused_draining_unavailable_ended_or_detached()
     {
         var m = new OperatingStateMachine(OperatingIntent.Paused);

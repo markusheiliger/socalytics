@@ -38,7 +38,10 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton(sp => new LocalState.SignedStateStore(
             ManagerStatePaths.Resolve(sp.GetRequiredService<IOptions<ManagerOptions>>().Value.StateDirectory),
             sp.GetServices<IDeviceKeyProvider>()));
+        services.AddSingleton<Platform.ManagerTokenCache>();
         services.AddSingleton<Registration.RegistrationCoordinator>();
+        services.AddSingleton<Registration.RegistrationRestorer>();
+        services.AddHostedService<Registration.RestoreHostedService>();
         services.AddSingleton<ManagerControl>();
         services.AddSingleton<IManagerControl>(sp => sp.GetRequiredService<ManagerControl>());
         return services;

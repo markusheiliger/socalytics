@@ -38,6 +38,10 @@ public sealed class RegistrationCoordinator(
     private ActiveRegistration? _active;
     private CancellationTokenSource? _cts;
     private OperatingStateMachine? _machine;
+    private string? _clubName;
+    private bool _pendingUnregister;
+    private ConnectivityStatus _connectivity = new("unknown");
+    private IReadOnlyList<StatusDiagnostic> _diagnostics = [];
 
     public event EventHandler? Changed;
 
@@ -52,6 +56,14 @@ public sealed class RegistrationCoordinator(
     public string? Fingerprint { get { lock (_gate) { return _fingerprint; } } }
 
     public KeyProtection? Protection { get { lock (_gate) { return _protection; } } }
+
+    public string? ClubName { get { lock (_gate) { return _clubName; } } }
+
+    public bool PendingUnregister { get { lock (_gate) { return _pendingUnregister; } } }
+
+    public ConnectivityStatus Connectivity { get { lock (_gate) { return _connectivity; } } }
+
+    public IReadOnlyList<StatusDiagnostic> Diagnostics { get { lock (_gate) { return _diagnostics; } } }
 
     public OperatingStateMachine? Machine { get { lock (_gate) { return _machine; } } }
 
@@ -304,6 +316,107 @@ public sealed class RegistrationCoordinator(
 
         Changed?.Invoke(this, EventArgs.Empty);
         return true;
+    }
+
+    public void BeginRestore(ProtectedRegistrationState? state = null)
+    {
+        lock (_gate)
+        {
+            _state = ManagerRegistrationState.Restoring;
+            _diagnostics = [];
+            if (state is not null)
+            {
+                _endpoint = new Uri(state.PlatformEndpoint);
+                _stampId = state.StampId;
+            }
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void FailRestore(string code)
+    {
+        lock (_gate)
+        {
+            _state = ManagerRegistrationState.RestoreFailed;
+            _diagnostics = [new StatusDiagnostic(code, "The stored registration could not be restored.", time.GetUtcNow())];
+        }
+
+        logger.LogWarning("Restore failed: {Code}", code);
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void SetConnectivity(ConnectivityStatus connectivity)
+    {
+        lock (_gate) { _connectivity = connectivity; }
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>Confirms the restored identity; the operating-state machine starts only when not unregistering.</summary>
+    public void ConfirmRestored(
+        ProtectedRegistrationState state, IDeviceKey key, OwnRegistration own, OperatingIntent intent, bool unregistering)
+    {
+        OperatingStateMachine? machine = null;
+        if (!unregistering)
+        {
+            machine = new OperatingStateMachine(intent with { PendingUnregister = state.PendingUnregister });
+            machine.Changed += (_, _) => Changed?.Invoke(this, EventArgs.Empty);
+            admission.Attach(machine);
+            if (state.PendingUnregister)
+            {
+                admission.HoldForUnregister();
+            }
+        }
+        else
+        {
+            admission.Detach();
+            admission.HoldForUnregister();
+        }
+
+        lock (_gate)
+        {
+            _machine = machine;
+            _endpoint = new Uri(state.PlatformEndpoint);
+            _stampId = state.StampId;
+            _protection = state.DeviceKeyProtection;
+            _fingerprint = DeviceFingerprint.Compute(key.PublicJwk);
+            _clubName = own.ClubName;
+            _pendingUnregister = state.PendingUnregister;
+            _active = new ActiveRegistration(
+                state.ManagerId, state.StampId, _endpoint, state.DeviceKey, state.DeviceKeyProtection, _fingerprint);
+            _diagnostics = [];
+            _connectivity = new ConnectivityStatus("connected", time.GetUtcNow());
+            _state = unregistering ? ManagerRegistrationState.Unregistering : ManagerRegistrationState.Active;
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void EnterRevoked()
+    {
+        admission.Detach();
+        lock (_gate)
+        {
+            _machine?.Revoked();
+            _state = ManagerRegistrationState.Revoked;
+        }
+
+        Changed?.Invoke(this, EventArgs.Empty);
+    }
+
+    public void ClearIdentity()
+    {
+        lock (_gate)
+        {
+            _machine = null;
+            _active = null;
+            _clubName = null;
+            _pendingUnregister = false;
+            _connectivity = new ConnectivityStatus("unknown");
+            _diagnostics = [];
+        }
+
+        Reset();
     }
 
     private void SetPhase(PairingPhase phase)

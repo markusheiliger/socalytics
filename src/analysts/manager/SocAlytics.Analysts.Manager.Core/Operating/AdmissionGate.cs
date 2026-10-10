@@ -8,6 +8,7 @@ public sealed class AdmissionGate
 {
     private readonly object gate = new();
     private OperatingStateMachine? machine;
+    private bool unregisterHold;
 
     public void Attach(OperatingStateMachine confirmedMachine)
     {
@@ -19,10 +20,21 @@ public sealed class AdmissionGate
         lock (gate) { machine = null; }
     }
 
+    public void HoldForUnregister()
+    {
+        lock (gate) { unregisterHold = true; }
+    }
+
+    public void ReleaseUnregisterHold()
+    {
+        lock (gate) { unregisterHold = false; }
+    }
+
     public bool TryAdmit()
     {
         OperatingStateMachine? current;
-        lock (gate) { current = machine; }
-        return current is { IsRevoked: false } && current.State.Kind == OperatingStateKind.Running;
+        bool held;
+        lock (gate) { current = machine; held = unregisterHold; }
+        return !held && current is { IsRevoked: false } && current.State.Kind == OperatingStateKind.Running;
     }
 }

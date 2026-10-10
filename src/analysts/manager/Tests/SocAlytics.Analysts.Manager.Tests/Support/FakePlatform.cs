@@ -31,6 +31,24 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
 
     public string TerminalStatus { get; set; } = "approved";
 
+    public string OwnState { get; set; } = "active";
+
+    public int UnreachableCount { get; set; }
+
+    public bool Inactive { get; set; }
+
+    public string? OwnStampId { get; set; }
+
+    public int TokenRequests => Requests.Count(r => r.Uri.AbsolutePath.EndsWith("/token", StringComparison.Ordinal));
+
+    public int SelfCalls => Requests.Count(r => r.Uri.AbsolutePath.EndsWith("/self/registration", StringComparison.Ordinal));
+
+    public void Adopt(PublicJwk key)
+    {
+        _publicKey = key;
+        ManagerId = "manager-1";
+    }
+
     public int PollCount { get; private set; }
 
     public bool Activated { get; private set; }
@@ -50,6 +68,23 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
         }
 
         var path = request.RequestUri!.AbsolutePath.Replace("/api/v1/analyst-managers/", string.Empty);
+        if (path is "token" or "self/registration")
+        {
+            if (UnreachableCount > 0)
+            {
+                UnreachableCount--;
+                throw new HttpRequestException("unreachable");
+            }
+
+            if (Inactive && path == "token")
+            {
+                return new HttpResponseMessage(HttpStatusCode.BadRequest)
+                {
+                    Content = new StringContent("{\"error\":\"invalid_client\",\"registration_state\":\"revoked\"}"),
+                };
+            }
+        }
+
         return path switch
         {
             "stamp" => Json(HttpStatusCode.OK, new StampDiscovery(
@@ -58,7 +93,7 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
             "pairings/status" => Status(),
             "pairings/activation" => Activation(body),
             "token" => Json(HttpStatusCode.OK, new TokenResponse("opaque-token", "DPoP", 300, "analyst-manager")),
-            "self/registration" => Own("active"),
+            "self/registration" => Own(OwnState),
             "self/unregistration" => Own("unregistering"),
             "self/unregistration/completion" => Json(HttpStatusCode.OK, new UnregistrationResult(ManagerId ?? "m", "unregistered")),
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
@@ -120,7 +155,7 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
     }
 
     private HttpResponseMessage Own(string state) => Json(HttpStatusCode.OK, new OwnRegistration(
-        ManagerId ?? "manager-1", StampId, state, "Club", _publicKey is null ? string.Empty : JwkThumbprint.Compute(_publicKey),
+        ManagerId ?? "manager-1", OwnStampId ?? StampId, state, "Club", _publicKey is null ? string.Empty : JwkThumbprint.Compute(_publicKey),
         time.GetUtcNow(), 60));
 
     private static HttpResponseMessage Json<T>(HttpStatusCode status, T value) =>
