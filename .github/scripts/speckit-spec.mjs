@@ -22,7 +22,7 @@ import {
   decideNext,
   dispatchImplementation,
   implementationBranch,
-  isImplementRunOf,
+  isPerTaskRunOf,
   latestCheckRun,
   latestHumanCommit,
   listTasks,
@@ -37,6 +37,7 @@ import {
   renderNextSteps,
   renderResumeComment,
   renderTaskPrompt,
+  segmentLabel,
   stepLabel,
   summarizeTask,
   syncPullRequestTaskList,
@@ -115,6 +116,15 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
     return { action: 'failed', diagnosis: { state: 'stale', check: latestCheckRun(checks), count }, ...state };
   }
   return { ...decision, ...state };
+}
+
+// The label of the next run of the chain (see segmentLabel); empty when the state cannot be read.
+export async function labelForPull(client, env, { twin, pull, folder }) {
+  try {
+    return segmentLabel(await decideForPull(client, { twin, folder, pullNumber: pull, context: contextFromEnv(env) }));
+  } catch {
+    return '';
+  }
 }
 
 // Whether a decision needs a run of the chain: work to do, a stop to report, or a diagnosis to start.
@@ -252,8 +262,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   }
   // Runs of the per-task workflow from before the chain may still be finishing; they hand back to the scheduler.
   const others = (await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, listed.created_at))
-    .filter((run) => String(run.id) !== String(env.GITHUB_RUN_ID ?? '') && run.status !== 'completed'
-      && isImplementRunOf(run.display_title, twin) && run.display_title !== renderImplementRunName(twin));
+    .filter((run) => String(run.id) !== String(env.GITHUB_RUN_ID ?? '') && run.status !== 'completed' && isPerTaskRunOf(run.display_title, twin));
   if (others.length > 0) {
     report.line(`Waiting: an earlier implementation run of #${twin} is still active.`);
     return finish('wait');
@@ -356,8 +365,9 @@ export async function runContinue({ client, env, log }) {
     ].join('\n'));
     report.line('The phase verification failed; the implementation stops for a person.');
   }
-  await dispatchImplementation(client, env, { twin, pull: pullNumber });
-  report.line(`Started the next run of ${renderImplementRunName(twin)}.`);
+  const label = await labelForPull(client, env, { twin, pull: pullNumber, folder });
+  await dispatchImplementation(client, env, { twin, pull: pullNumber, label });
+  report.line(`Started the next run: ${renderImplementRunName(twin, label)}.`);
   report.flush();
   return { exitCode: 0 };
 }

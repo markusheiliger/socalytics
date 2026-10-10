@@ -223,9 +223,11 @@ their "blocked by" issues are closed.
   - a `Spec Kit implementation` check run on the pull request, which tracks the
       implementation status, and a start comment.
 - Then the spec's implementation chain takes over: runs of
-  `Spec Kit implement` (`speckit-implement.yml`, run name
-  `Spec Kit implement #<twin>`), one at a time per spec, each started by the
-  previous one. Every run decides the next segment from the state on GitHub
+  `Spec Kit implement` (`speckit-implement.yml`), one at a time per spec,
+  each started by the previous one. Each run is named after what it most
+  likely tackles, for example
+  `Spec Kit implement #35 · Phase 3: User Story 1 - Upload a Source Recording for a Match · T013–T018`,
+  `… · Convergence`, `… · Merge`, or `… · Start a diagnosis`; the run decides again when it starts. Every run decides the next segment from the state on GitHub
   (job `decide`), runs it, and starts the next run (job `continue`), until the
   implementation is merged, waits for review, or needs a person:
 

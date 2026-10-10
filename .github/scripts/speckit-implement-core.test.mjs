@@ -32,6 +32,8 @@ import {
   parseGuidance,
   parseMaxParallel,
   isImplementRunOf,
+  isPerTaskRunOf,
+  segmentLabel,
   MAX_STAGES_PER_RUN,
   parseAttemptCheckId,
   parseAttempts,
@@ -204,7 +206,7 @@ test('picks the newest check run', () => {
 });
 
 const attempt = (task, outcome = 'failure', at = '2026-10-06T11:00:00Z', step = 'task') => ({ step, task, attempt: 1, outcome, at });
-const stages = (...list) => ({ action: 'stages', step: 'task', stages: list, phaseEnd: true, lastIsGroup: false, stale: [] });
+const stages = (...list) => ({ action: 'stages', step: 'task', stages: list, phaseEnd: true, lastIsGroup: false, phase: 'Phase 1', stale: [] });
 
 test('decides the next stages of an implementation from the attempt ledger', () => {
   const windowStart = '2026-10-06T10:00:00Z';
@@ -334,14 +336,14 @@ test('plans the stages of a phase: single tasks, and [P] groups that run in para
     '## Phase 3: Polish', '- [ ] T009 i', '',
   ].join('\r\n');
   const tick = (markdown, ...ids) => ids.reduce((text, id) => text.replace(`- [ ] ${id}`, `- [x] ${id}`), markdown);
-  assert.deepEqual(planStages(tasks), { stages: [['T002']], phaseEnd: true, lastIsGroup: false }, 'a phase is planned on its own');
-  assert.deepEqual(planStages(tick(tasks, 'T002')), { stages: [['T003', 'T004'], ['T005'], ['T006'], ['T007', 'T008']], phaseEnd: true, lastIsGroup: true }, 'a ### heading ends a group, not the phase');
-  assert.deepEqual(planStages(tick(tasks, 'T002', 'T004')), { stages: [['T003'], ['T005'], ['T006'], ['T007', 'T008']], phaseEnd: true, lastIsGroup: true }, 'a landed sibling is skipped');
-  assert.deepEqual(planStages(tick(tasks, 'T002'), { maxStages: 2 }), { stages: [['T003', 'T004'], ['T005']], phaseEnd: false, lastIsGroup: false });
-  assert.deepEqual(planStages(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T006', 'T007', 'T008')), { stages: [['T009']], phaseEnd: true, lastIsGroup: false });
-  assert.deepEqual(planStages(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T007', 'T008')), { stages: [['T006']], phaseEnd: true, lastIsGroup: false }, 'an unchecked task between checked ones');
-  assert.deepEqual(planStages('- [ ] T001 a\n- [ ] T002 [P] b\n- [ ] T003 [P] c\n'), { stages: [['T001'], ['T002', 'T003']], phaseEnd: true, lastIsGroup: true }, 'no headings: one phase');
-  assert.deepEqual(planStages('- [x] T001 a\n'), { stages: [], phaseEnd: false, lastIsGroup: false });
+  assert.deepEqual(planStages(tasks), { stages: [['T002']], phaseEnd: true, lastIsGroup: false, phase: 'Phase 1: Setup' }, 'a phase is planned on its own');
+  assert.deepEqual(planStages(tick(tasks, 'T002')), { stages: [['T003', 'T004'], ['T005'], ['T006'], ['T007', 'T008']], phaseEnd: true, lastIsGroup: true, phase: 'Phase 2: Story' }, 'a ### heading ends a group, not the phase');
+  assert.deepEqual(planStages(tick(tasks, 'T002', 'T004')), { stages: [['T003'], ['T005'], ['T006'], ['T007', 'T008']], phaseEnd: true, lastIsGroup: true, phase: 'Phase 2: Story' }, 'a landed sibling is skipped');
+  assert.deepEqual(planStages(tick(tasks, 'T002'), { maxStages: 2 }), { stages: [['T003', 'T004'], ['T005']], phaseEnd: false, lastIsGroup: false, phase: 'Phase 2: Story' });
+  assert.deepEqual(planStages(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T006', 'T007', 'T008')), { stages: [['T009']], phaseEnd: true, lastIsGroup: false, phase: 'Phase 3: Polish' });
+  assert.deepEqual(planStages(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T007', 'T008')), { stages: [['T006']], phaseEnd: true, lastIsGroup: false, phase: 'Phase 2: Story' }, 'an unchecked task between checked ones');
+  assert.deepEqual(planStages('- [ ] T001 a\n- [ ] T002 [P] b\n- [ ] T003 [P] c\n'), { stages: [['T001'], ['T002', 'T003']], phaseEnd: true, lastIsGroup: true, phase: null }, 'no headings: one phase');
+  assert.deepEqual(planStages('- [x] T001 a\n'), { stages: [], phaseEnd: false, lastIsGroup: false, phase: null });
   assert.deepEqual([parseMaxActiveSpecs(undefined), parseMaxActiveSpecs('5'), parseMaxActiveSpecs('0'), parseMaxActiveSpecs('x')], [3, 5, 3, 3]);
 });
 test('ticks a task in tasks.md and syncs the pull request body with it', () => {
@@ -495,4 +497,21 @@ test('the implementation workflow runs the planned stages as a matrix, one at a 
   assert.match(stages, /uses: \.\/\.github\/workflows\/speckit-stage\.yml/);
   assert.match(workflow, /continue:[\s\S]*?needs: \[decide, stages, phase-check, merge-verify, merge-land\]/);
   assert.equal(MAX_STAGES_PER_RUN, 256, 'GitHub runs at most 256 matrix jobs per run');
+});
+
+test('labels the next run of the chain with what it tackles', () => {
+  const tasks = '## Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP\n- [ ] T013 [P] a\n- [ ] T014 [P] b\n- [ ] T015 c\n';
+  const decide = (fields) => decideNext({ tasksMarkdown: tasks, windowStart: '2026-10-06T10:00:00Z', ...fields });
+  assert.equal(segmentLabel(decide({})), 'Phase 3: User Story 1 - Upload a Source Recording for a Match · T013–T015');
+  assert.equal(segmentLabel(decide({ attempts: [attempt('T014')] })), 'Phase 3: User Story 1 - Upload a Source Recording for a Match · T013–T015 (retry: T014 attempt 2)');
+  assert.equal(segmentLabel(decideNext({ tasksMarkdown: '- [ ] T001 a\n', windowStart: '2026-10-06T10:00:00Z' })), 'T001', 'no heading');
+  assert.equal(segmentLabel({ action: 'stages', step: 'converge', stages: [[{ task: null, attempt: 2 }]] }), 'Convergence (retry: convergence attempt 2)');
+  assert.equal(segmentLabel({ action: 'stages', step: 'resolve', stages: [[{ task: null, attempt: 1 }]] }), 'Conflict resolution');
+  assert.deepEqual([segmentLabel({ action: 'merge', attempt: 1 }), segmentLabel({ action: 'merge', attempt: 2 })], ['Merge', 'Merge (attempt 2)']);
+  assert.equal(segmentLabel({ action: 'limit', step: 'task', task: 'T014' }), 'Stop: T014 reached the attempt limit');
+  assert.deepEqual([segmentLabel({ action: 'failed', diagnosis: { state: 'none' } }), segmentLabel({ action: 'failed', diagnosis: { state: 'stale' } })], ['Start a diagnosis', 'Close the unfinished diagnosis']);
+  assert.deepEqual([segmentLabel({ action: 'done' }), segmentLabel(null)], ['', '']);
+  assert.equal(renderImplementRunName(35, 'Merge'), 'Spec Kit implement #35 · Merge');
+  assert.equal(isImplementRunOf('Spec Kit implement #35 · Merge', 35), true);
+  assert.deepEqual([isPerTaskRunOf('Spec Kit implement #35 T002 attempt 1', 35), isPerTaskRunOf('Spec Kit implement #35 · Phase 1 · T002', 35)], [true, false]);
 });

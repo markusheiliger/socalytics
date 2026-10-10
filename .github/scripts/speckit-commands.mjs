@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { canWrite } from './speckit-prepare.mjs';
 import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
+import { labelForPull } from './speckit-spec.mjs';
 import {
   BOT_LOGIN,
   CHECK_DIAGNOSING,
@@ -67,10 +68,11 @@ async function resolveTarget(client, env, number) {
 
 // Starts a new attempt window: the resume comment persists the request (and the guidance), so a replaced pending
 // run cannot lose it; starting the implementation chain only makes it happen right away.
-async function resumeImplementation(client, env, { implementation, twin }, lead, guidance = '') {
+async function resumeImplementation(client, env, { implementation, twin, folder }, lead, guidance = '') {
   await client.createComment(implementation.number, renderResumeComment(lead, guidance));
   try {
-    await dispatchImplementation(client, env, { twin, pull: implementation.number });
+    const label = await labelForPull(client, env, { twin, pull: implementation.number, folder });
+    await dispatchImplementation(client, env, { twin, pull: implementation.number, label });
   } catch {
     // The resume comment persists the request; the hourly scheduler run continues the implementation.
   }
@@ -149,9 +151,9 @@ async function handleDiagnose({ client, env, actor, number, argument, now, folde
   return { outcome: 'started' };
 }
 
-async function handleResume({ client, env, actor, number, argument, implementation, twin }) {
+async function handleResume({ client, env, actor, number, argument, folder, implementation, twin }) {
   const guidance = argument.slice(0, 4000);
-  await resumeImplementation(client, env, { implementation, twin }, `Implementation resumed by @${actor}; the stopped step restarts with a fresh attempt count.`, guidance);
+  await resumeImplementation(client, env, { implementation, twin, folder }, `Implementation resumed by @${actor}; the stopped step restarts with a fresh attempt count.`, guidance);
   if (number !== implementation.number) await reply(client, number, `Resumed; the implementation continues on #${implementation.number}.`);
   return { outcome: 'resumed' };
 }
@@ -178,7 +180,7 @@ async function handleSync({ client, env, actor, number, folder, implementation, 
     ]);
     return { outcome: 'conflict' };
   }
-  await resumeImplementation(client, env, { implementation, twin }, result === 'up-to-date'
+  await resumeImplementation(client, env, { implementation, twin, folder }, result === 'up-to-date'
     ? `\`${branch}\` already contains \`${defaultBranch}\`; resumed by @${actor} with a fresh attempt count.`
     : `@${actor} merged \`${defaultBranch}\` into \`${branch}\`; the stopped step restarts with a fresh attempt count.`);
   if (number !== implementation.number) await reply(client, number, `Synced; the implementation continues on #${implementation.number}.`);

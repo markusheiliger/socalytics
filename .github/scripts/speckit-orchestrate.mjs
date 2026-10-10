@@ -19,7 +19,7 @@ import {
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment } from './speckit-amend.mjs';
-import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
+import { contextFromEnv, decideForPull, labelForPull, needsRun } from './speckit-spec.mjs';
 import {
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
@@ -35,6 +35,7 @@ import {
   renderPullRequestBody,
   renderPullRequestTitle,
   renderStartComment,
+  segmentLabel,
   stepLabel,
 } from './speckit-implement-core.mjs';
 export class UsageError extends Error {}
@@ -240,7 +241,7 @@ export async function runOrchestrate({ client, rootDir, env, log, sleep = defaul
   let active = selection.inProgress.filter((twin) => twin.active || needsRun(twin.decision, env)).length;
   for (const twin of selection.inProgress) {
     if (twin.active || !needsRun(twin.decision, env)) continue;
-    await dispatchImplementation(client, env, { twin: twin.number, pull: twin.pull });
+    await dispatchImplementation(client, env, { twin: twin.number, pull: twin.pull, label: segmentLabel(twin.decision) });
     report.line(`- Continued #${twin.number} (pull request #${twin.pull}): ${describeDecision(twin)}.`);
     actions += 1;
   }
@@ -251,7 +252,8 @@ export async function runOrchestrate({ client, rootDir, env, log, sleep = defaul
     }
     const started = await runStart({ client, rootDir, env, issueNumber: twin.number, folder: twin.folder, requester: twin.requester, reset: twin.reset, log });
     if (!started.pull) continue;
-    await dispatchImplementation(client, env, { twin: twin.number, pull: started.pull.number });
+    const label = await labelForPull(client, env, { twin: twin.number, pull: started.pull.number, folder: twin.folder });
+    await dispatchImplementation(client, env, { twin: twin.number, pull: started.pull.number, label });
     report.line(`- Started the implementation of #${twin.number} (pull request #${started.pull.number}).`);
     active += 1;
     actions += 1;

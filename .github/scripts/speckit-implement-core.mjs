@@ -225,7 +225,7 @@ export function nextTaskGroup(tasksMarkdown, max = 1) {
 export function planStages(tasksMarkdown, { maxStages = MAX_STAGES_PER_RUN } = {}) {
   const tasks = tasksWithSections(tasksMarkdown);
   const start = tasks.findIndex((task) => !task.done);
-  if (start < 0) return { stages: [], phaseEnd: false, lastIsGroup: false };
+  if (start < 0) return { stages: [], phaseEnd: false, lastIsGroup: false, phase: null };
   const phase = tasks[start].phase;
   const open = [];
   for (const task of tasks.slice(start)) {
@@ -245,7 +245,7 @@ export function planStages(tasksMarkdown, { maxStages = MAX_STAGES_PER_RUN } = {
     stages.push(stage);
   }
   const phaseEnd = index >= open.length;
-  return { stages, phaseEnd, lastIsGroup: phaseEnd && stages.at(-1).length > 1 };
+  return { stages, phaseEnd, lastIsGroup: phaseEnd && stages.at(-1).length > 1, phase: phase.replace(/^##\s+/, '').trim() || null };
 }
 
 // Parses SPECKIT_MAX_PARALLEL_TASKS; anything but a positive integer falls back to the default.
@@ -280,10 +280,11 @@ export function taskProgress(tasksMarkdown) {
   return { done: tasks.filter((task) => task.done).length, total: tasks.length };
 }
 
-// Run name of the implementation chain of a twin. Runs of the per-task workflow before the chain existed were named
+// Run name of the implementation chain of a twin, with what the run most likely does ("Spec Kit implement #35 · Phase
+// 3: User Story 1 · T013–T018"). Runs of the per-task workflow before the chain existed were named
 // "Spec Kit implement #<twin> T001 attempt 1"; they count as runs of the twin as well.
-export function renderImplementRunName(twin) {
-  return `${IMPLEMENT_RUN_PREFIX} #${twin}`;
+export function renderImplementRunName(twin, label = '') {
+  return `${IMPLEMENT_RUN_PREFIX} #${twin}${label ? ` · ${label}` : ''}`;
 }
 
 export function isImplementRunOf(title, twin) {
@@ -291,10 +292,47 @@ export function isImplementRunOf(title, twin) {
   return title === name || String(title ?? '').startsWith(`${name} `);
 }
 
+// A run of the per-task workflow from before the chain existed ("Spec Kit implement #<twin> T001 attempt 1").
+export function isPerTaskRunOf(title, twin) {
+  return new RegExp(`^${IMPLEMENT_RUN_PREFIX} #${twin} T\\d{3,} attempt \\d+$`).test(String(title ?? ''));
+}
+
+const clipLabel = (text, max) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
+
+// The short phase name of a tasks.md heading: up to the first symbol (such as a marker emoji), without parentheses
+// (such as the priority).
+function phaseName(heading) {
+  const text = String(heading ?? '');
+  const symbol = text.search(/[^\p{L}\p{N}\s:,.'&/+()\-–]/u);
+  return clipLabel((symbol >= 0 ? text.slice(0, symbol) : text).replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim(), 70);
+}
+
+// What a run of the chain is going to tackle, for its run name, from the decision that starts it (decideNext). The
+// run decides again when it starts, so the label describes the expected segment.
+export function segmentLabel(decision) {
+  if (!decision) return '';
+  if (decision.action === 'stages') {
+    const first = decision.stages[0] ?? [];
+    const retries = first.filter((entry) => entry.attempt > 1).map((entry) => `${stepLabel({ step: decision.step, task: entry.task })} attempt ${entry.attempt}`);
+    const retry = retries.length > 0 ? ` (retry: ${retries.join(', ')})` : '';
+    if (decision.step === 'converge') return `Convergence${retry}`;
+    if (decision.step === 'resolve') return `Conflict resolution${retry}`;
+    const tasks = decision.stages.flat().map((entry) => entry.task);
+    const range = tasks.length > 1 ? `${tasks[0]}–${tasks.at(-1)}` : tasks[0];
+    const phase = phaseName(decision.phase);
+    return clipLabel(`${phase ? `${phase} · ` : ''}${range}${retry}`, 120);
+  }
+  if (decision.action === 'merge') return `Merge${decision.attempt > 1 ? ` (attempt ${decision.attempt})` : ''}`;
+  if (decision.action === 'limit') return `Stop: ${stepLabel(decision)} reached the attempt limit`;
+  if (decision.action === 'failed') return decision.diagnosis?.state === 'stale' ? 'Close the unfinished diagnosis' : 'Start a diagnosis';
+  return '';
+}
+
 // Starts (or queues) the next run of the implementation chain of a twin. GitHub keeps one pending run per spec, and a
-// replaced pending run is harmless, because every run decides from the state on GitHub.
-export async function dispatchImplementation(client, env, { twin, pull }) {
-  await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', { twin: String(twin), pull: String(pull) });
+// replaced pending run is harmless, because every run decides from the state on GitHub. `label` names what the run
+// most likely does, for its run name.
+export async function dispatchImplementation(client, env, { twin, pull, label = '' }) {
+  await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', { twin: String(twin), pull: String(pull), ...(label ? { label } : {}) });
 }
 
 // The attempt marker of an outcome comment. `outcome` is success, failure, requeue (redone from a newer head; not a
@@ -435,6 +473,7 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
       stages: plan.stages.map((stage) => stage.map((id) => ({ task: id, attempt: ofTask(id).total + 1 }))),
       phaseEnd: plan.phaseEnd,
       lastIsGroup: plan.lastIsGroup,
+      phase: plan.phase,
       stale,
     };
   }

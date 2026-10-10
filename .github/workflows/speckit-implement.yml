@@ -11,7 +11,8 @@ name: Spec Kit implement
 #   merge-verify:      merges the default branch and runs the full verification (read-only token)
 #   merge-land:        squash-merges the pull request, or asks for review (never runs agent-written code)
 #   continue:          starts the next run of the chain
-run-name: "Spec Kit implement #${{ inputs.twin }}"
+# The label, set by whoever starts the run, names what the run most likely tackles (the run decides again when it starts).
+run-name: "Spec Kit implement #${{ inputs.twin }}${{ inputs.label && format(' · {0}', inputs.label) || '' }}"
 
 on:
   workflow_dispatch:
@@ -31,6 +32,10 @@ on:
         default: "false"
       guidance:
         description: Guidance for the agent of the resumed step (optional, with resume)
+        required: false
+        type: string
+      label:
+        description: 'What the run most likely tackles, for its run name (optional, for example "Phase 3: User Story 1 · T013–T018")'
         required: false
         type: string
 
