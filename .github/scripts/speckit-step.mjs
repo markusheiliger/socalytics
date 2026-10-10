@@ -744,7 +744,9 @@ export async function runLandStage({ client, git, env, folder, workspace, result
   const outcomes = [];
   for (const entry of stage.include) {
     const key = entry.task || step;
-    const resultDir = path.join(resultRoot, `speckit-result-${key}`);
+    // download-artifact extracts a single matching artifact straight into its path, several into one folder each.
+    const own = path.join(resultRoot, `speckit-result-${key}`);
+    const resultDir = stage.include.length === 1 && !existsSync(own) ? resultRoot : own;
     const recorded = String(readJson(path.join(resultDir, 'result.json'))?.base ?? '');
     const base = /^[0-9a-f]{40}$/.test(recorded) && git(['merge-base', '--is-ancestor', recorded, tip]).status === 0 ? recorded : tip;
     git(['merge', '--abort']);

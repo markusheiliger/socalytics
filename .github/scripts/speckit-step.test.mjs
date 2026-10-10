@@ -338,6 +338,18 @@ test('stage: a sibling that changed the same files is redone, and the chain stop
   assert.equal(result.exitCode, 1, 'the land job fails, so the matrix cancels the later stages');
   await assert.rejects(() => runLandStage({ client: github, git: defaultGit(repos.land), env: { SPECKIT_STEP: 'task' }, folder: 'f', workspace: repos.land, resultRoot: repos.base, log: silent }), /SPECKIT_STAGES/);
 }));
+test('stage: a single task finds its result where download-artifact puts a single artifact', () => withRepos({}, async (repos) => {
+  workStageTask(repos, 'T001', (dir) => agentDoesT001(dir));
+  const results = path.join(repos.base, 'results');
+  for (const file of ['result.json', 'changes.patch', 'agent-exit.txt', 'changed-files.txt']) {
+    writeFileSync(path.join(results, file), readFileSync(path.join(results, 'speckit-result-T001', file)));
+  }
+  rmSync(path.join(results, 'speckit-result-T001'), { recursive: true, force: true });
+  const github = fakeGitHub();
+  const result = await landStage(repos, github, [{ task: 'T001', attempt: 1 }]);
+  assert.deepEqual([result.ok, result.exitCode], [true, 0]);
+  assert.equal(remoteShow(repos, 'speckit/f:docs/x.md'), '# X\n');
+}));
 test('task: land reports a refused push as a failure instead of redoing the task', () => withRepos({ tasks: PARALLEL_TASKS }, async (repos) => {
   work(repos, { agent: (r) => agentDoesT001(r.work) });
   const hook = path.join(repos.bare, 'hooks', 'pre-receive');
