@@ -6,6 +6,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="Runtime/runtime-compatibility.json" LogicalName="SocAlytics.Analysts.Manager.Runtime.runtime-compatibility.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="SocAlytics.Analysts.Manager.Tests" />
   </ItemGroup>
 </Project>

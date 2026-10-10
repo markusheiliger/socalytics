@@ -48,6 +48,9 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Registration.RegistrationCoordinator>();
         services.AddSingleton<Registration.RegistrationRestorer>();
         services.AddHostedService<Registration.RestoreHostedService>();
+        services.AddSingleton(new Runtime.RuntimeAdapterCatalog([]));
+        services.AddSingleton(_ => Runtime.RuntimeCompatibilityList.LoadEmbedded());
+        services.AddSingleton<Runtime.PreflightRunner>();
         services.AddSingleton<ManagerControl>();
         services.AddSingleton<IManagerControl>(sp => sp.GetRequiredService<ManagerControl>());
         return services;
