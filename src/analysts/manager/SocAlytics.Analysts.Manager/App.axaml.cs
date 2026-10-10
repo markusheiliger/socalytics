@@ -20,6 +20,8 @@ public partial class App : Application
 
     public IManagerControl? Control { get; set; }
 
+    public bool Autostarted { get; set; }
+
     public TrayHostDetector Detector { get; set; } = new();
 
     public bool StatusWindowOpen => _status is not null;
@@ -43,7 +45,8 @@ public partial class App : Application
                 _sessionEnding = true;
                 _ = Control.SessionEndingAsync();
             };
-            if (!Detector.IsTrayAvailable() || !TryCreateTray(desktop))
+            var trayCreated = Detector.IsTrayAvailable() && TryCreateTray(desktop);
+            if (!trayCreated && !(Autostarted && Detector.IsTrayAvailable()))
             {
                 ShowStatus();
             }

@@ -14,11 +14,14 @@ public sealed class ManagerControl : IManagerControl
     private readonly IManagerWorkTracker _work;
     private readonly Runtime.PreflightScheduler _preflight;
     private readonly DrainCoordinator _drain;
+    private readonly Autostart.IAutostartRegistrar _autostart;
     private readonly Microsoft.Extensions.Options.IOptions<OperatingOptions> _operating;
 
     public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work, Runtime.PreflightScheduler preflight,
-        DrainCoordinator drain, Microsoft.Extensions.Options.IOptions<OperatingOptions> operating)
+        DrainCoordinator drain, Microsoft.Extensions.Options.IOptions<OperatingOptions> operating,
+        Autostart.IAutostartRegistrar autostart)
     {
+        _autostart = autostart;
         _drain = drain;
         _operating = operating;
         _preflight = preflight;
@@ -59,9 +62,43 @@ public sealed class ManagerControl : IManagerControl
             machine?.Intent.EndUtc,
             machine?.Intent.EndUtc is { } end ? Math.Max(0, (end - _time.GetUtcNow()).TotalSeconds) : null,
             _coordinator.Protection?.ToWireValue(),
-            null,
+            ReadAutostart(),
             ControlSurface,
             _coordinator.Fingerprint);
+    }
+
+    public async Task<ControlResult> SetAutostartAsync(bool enabled)
+    {
+        try
+        {
+            if (enabled)
+            {
+                await _autostart.EnableAsync(Environment.ProcessPath ?? throw new Autostart.AutostartException("no executable path"));
+            }
+            else
+            {
+                await _autostart.DisableAsync();
+            }
+
+            StatusChanged?.Invoke(this, EventArgs.Empty);
+            return new ControlResult(true);
+        }
+        catch (Autostart.AutostartException)
+        {
+            return new ControlResult(false, "autostart-failed");
+        }
+    }
+
+    private bool? ReadAutostart()
+    {
+        try
+        {
+            return _autostart.IsEnabledAsync().GetAwaiter().GetResult();
+        }
+        catch (Autostart.AutostartException)
+        {
+            return null;
+        }
     }
 
     public Task<RegisterResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default) =>

@@ -24,6 +24,8 @@ public interface IManagerControl
 
     Task<ControlResult> SessionEndingAsync();
 
+    Task<ControlResult> SetAutostartAsync(bool enabled);
+
     Task<RegisterResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default);
 
     Task CancelRegistrationAsync();

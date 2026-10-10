@@ -30,6 +30,19 @@ public static class ManagerServiceCollectionExtensions
             AddMacBridge(services);
         }
 
+        if (OperatingSystem.IsLinux())
+        {
+            services.AddSingleton<Autostart.IAutostartRegistrar, Autostart.XdgAutostartRegistrar>();
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<Autostart.IAutostartRegistrar, Autostart.WindowsRunKeyRegistrar>();
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            services.AddSingleton<Autostart.IAutostartRegistrar, Autostart.MacAutostartRegistrar>();
+        }
+
         services.AddSingleton<DeviceKeyProviderSelector>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ProofFactory>();

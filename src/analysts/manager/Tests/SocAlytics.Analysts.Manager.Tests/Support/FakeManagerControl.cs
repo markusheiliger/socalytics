@@ -26,6 +26,8 @@ internal sealed class FakeManagerControl : IManagerControl
 
     public Task<ControlResult> SessionEndingAsync() => Task.FromResult(new ControlResult(true));
 
+    public Task<ControlResult> SetAutostartAsync(bool enabled) => Task.FromResult(new ControlResult(true));
+
     public void Raise() => StatusChanged?.Invoke(this, EventArgs.Empty);
 
     public void RaiseExit() => ExitCompleted?.Invoke(this, EventArgs.Empty);
