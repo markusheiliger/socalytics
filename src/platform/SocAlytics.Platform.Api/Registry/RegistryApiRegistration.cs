@@ -11,11 +11,13 @@ internal static class RegistryApiRegistration
 			new StampOptionsValidator(builder.Environment.IsDevelopment()));
 		builder.Services.AddOptions<StampOptions>().ValidateOnStart();
 		builder.Services.AddHostedService<RegistrationExpiryWorker>();
+		builder.Services.AddRegistryRateLimiting();
 		return builder;
 	}
 
 	public static WebApplication MapRegistryEndpoints(this WebApplication app)
 	{
+		app.UseRateLimiter();
 		app.MapAnalystManagerPairingEndpoints();
 		app.MapAnalystManagerRegistrationEndpoints();
 		return app;

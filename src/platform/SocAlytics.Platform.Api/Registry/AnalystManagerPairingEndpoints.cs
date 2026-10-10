@@ -37,18 +37,22 @@ internal static class AnalystManagerPairingEndpoints
 					tokenEndpoint = s.TokenUri,
 				});
 			})
+			.RequireRateLimiting(RegistryRateLimiting.Status)
 			.WithName("getAnalystManagerStampDiscovery");
 
 		group.MapPost("/pairings", CreatePairingAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
+			.RequireRateLimiting(RegistryRateLimiting.PairingCreation)
 			.WithName("createAnalystManagerPairing");
 
 		group.MapPost("/pairings/status", GetStatusAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
+			.RequireRateLimiting(RegistryRateLimiting.Status)
 			.WithName("getAnalystManagerPairingStatus");
 
 		group.MapPost("/pairings/activation", ActivateAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
+			.RequireRateLimiting(RegistryRateLimiting.Activation)
 			.WithName("activateAnalystManagerRegistration");
 		return routes;
 	}

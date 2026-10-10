@@ -9,7 +9,7 @@ namespace SocAlytics.Platform.Integration.Tests.Registry.Support;
 
 internal static class RegistryTestHost
 {
-    public static PlatformApiFactory Create(IsolatedDatabase db, bool allowSoftwareKeys = true) =>
+    public static PlatformApiFactory Create(IsolatedDatabase db, bool allowSoftwareKeys = true, Action<RegistryOptions.RateLimitOptions>? rateLimits = null) =>
         new(db, new Dictionary<string, string?>
         {
             ["ClubDisplayName"] = "Registry Club",
@@ -20,6 +20,9 @@ internal static class RegistryTestHost
             o.AllowSoftwareKeys = allowSoftwareKeys;
             o.RateLimits.PairingCreationPerMinute = 10_000;
             o.RateLimits.StatusPerMinute = 10_000;
+            o.RateLimits.ActivationPerMinute = 10_000;
+            o.RateLimits.CodeSubmissionPerMinute = 10_000;
+            rateLimits?.Invoke(o.RateLimits);
         }));
 
     public static object PairingBody(TestAnalystManager manager, string protection = "tpm", string stampId = "local-dev-stamp") => new

@@ -23,6 +23,7 @@ internal static class AnalystManagerRegistrationEndpoints
 		var group = routes.MapMemberApi().WithTags("Analyst Manager registrations");
 		group.MapPost("/analyst-manager-registrations", SubmitAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
+			.RequireRateLimiting(RegistryRateLimiting.CodeSubmission)
 			.WithName("submitAnalystManagerPairingCode");
 		group.MapGet("/analyst-manager-registrations", ListAsync)
 			.WithName("listAnalystManagerRegistrations");
