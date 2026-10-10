@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.AspNetCore.OpenApi;
 using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application.Abstractions;
@@ -11,6 +12,21 @@ internal static class RecordingEndpoints
 {
 	public const int MaxBodyBytes = 1024 * 1024;
 
+	private static TBuilder WithIdempotencyKeyParameter<TBuilder>(this TBuilder builder)
+		where TBuilder : IEndpointConventionBuilder =>
+		builder.AddOpenApiOperationTransformer((operation, _, _) =>
+		{
+			operation.Parameters ??= [];
+			operation.Parameters.Add(new Microsoft.OpenApi.OpenApiParameter
+			{
+				Name = "Idempotency-Key",
+				In = Microsoft.OpenApi.ParameterLocation.Header,
+				Required = true,
+				Schema = new Microsoft.OpenApi.OpenApiSchema { Type = Microsoft.OpenApi.JsonSchemaType.String, MinLength = 1, MaxLength = 255 },
+			});
+			return Task.CompletedTask;
+		});
+
 	private static readonly JsonSerializerOptions BodyOptions = new(JsonSerializerDefaults.Web);
 
 	public static IEndpointRouteBuilder MapRecordingEndpoints(this IEndpointRouteBuilder routes)
@@ -21,6 +37,7 @@ internal static class RecordingEndpoints
 			.AddEndpointFilter<JsonOnlyFilter>()
 			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
 			.WithName("startRecordingUpload")
+			.WithIdempotencyKeyParameter()
 			.WithTags("Recording uploads")
 			.Produces<UploadSessionWithGrantsDto>(StatusCodes.Status201Created)
 			.ProducesProblem(StatusCodes.Status400BadRequest)
@@ -58,6 +75,7 @@ internal static class RecordingEndpoints
 			.AddEndpointFilter<JsonOnlyFilter>()
 			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
 			.WithName("completeRecordingUpload")
+			.WithIdempotencyKeyParameter()
 			.WithTags("Recording uploads")
 			.Produces<CompletedUploadDto>(StatusCodes.Status201Created)
 			.ProducesProblem(StatusCodes.Status400BadRequest)
@@ -72,6 +90,7 @@ internal static class RecordingEndpoints
 			.AddEndpointFilter<RecordingBodyLimitFilter>()
 			.AddEndpointFilter<JsonOnlyFilter>()
 			.WithName("reviseRecordingTimelineMapping")
+			.WithIdempotencyKeyParameter()
 			.WithTags("Recording lineage")
 			.Produces<TimelineMappingDto>(StatusCodes.Status201Created)
 			.Produces<TimelineMappingDto>(StatusCodes.Status200OK)
@@ -86,6 +105,7 @@ internal static class RecordingEndpoints
 			.AddEndpointFilter<RecordingBodyLimitFilter>()
 			.AddEndpointFilter<JsonOnlyFilter>()
 			.WithName("finalizeRecordingSet")
+			.WithIdempotencyKeyParameter()
 			.WithTags("Recording lineage")
 			.Produces<RecordingSetVersionDto>(StatusCodes.Status201Created)
 			.ProducesProblem(StatusCodes.Status400BadRequest)
