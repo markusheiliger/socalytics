@@ -1,0 +1,28 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SocAlytics.Analysts.Manager.ViewModels"
+        x:Class="SocAlytics.Analysts.Manager.Views.RegisterWindow"
+        x:DataType="vm:RegisterViewModel"
+        Title="Register Analyst Manager" Width="520" SizeToContent="Height">
+  <StackPanel Margin="16" Spacing="8">
+    <TextBlock Text="Platform endpoint" />
+    <TextBox Name="EndpointBox" Text="{Binding PlatformEndpoint}" />
+    <Button Name="RegisterButton" Content="Register" IsEnabled="{Binding CanRegister}" />
+    <TextBlock Text="{Binding Progress}" />
+    <Grid ColumnDefinitions="*,*" ColumnSpacing="12">
+      <StackPanel Grid.Column="0">
+        <TextBlock Text="Verification address" FontWeight="Bold" />
+        <TextBlock Name="VerificationText" Text="{Binding VerificationUri}" TextWrapping="Wrap" />
+        <TextBlock Text="Pairing code" FontWeight="Bold" />
+        <TextBlock Name="CodeText" Text="{Binding PairingCode}" FontSize="20" />
+      </StackPanel>
+      <StackPanel Grid.Column="1">
+        <TextBlock Text="Device fingerprint" FontWeight="Bold" />
+        <TextBlock Name="FingerprintText" Text="{Binding DeviceFingerprint}" TextWrapping="Wrap" />
+      </StackPanel>
+    </Grid>
+    <TextBlock Text="{Binding InstructionText}" FontStyle="Italic" />
+    <TextBlock Name="OutcomeText" Text="{Binding Outcome}" />
+    <Button Name="CancelButton" Content="Cancel registration" />
+  </StackPanel>
+</Window>

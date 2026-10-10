@@ -1,0 +1,22 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:SocAlytics.Analysts.Manager.ViewModels"
+        x:Class="SocAlytics.Analysts.Manager.Views.StatusWindow"
+        x:DataType="vm:StatusWindowViewModel"
+        Title="Analyst Manager status" Width="520" SizeToContent="Height">
+  <StackPanel Margin="16" Spacing="6">
+    <TextBlock Text="Registration state" FontWeight="Bold" />
+    <TextBlock Name="StateText" Text="{Binding RegistrationState}" />
+    <TextBlock Text="Stamp" FontWeight="Bold" />
+    <TextBlock Name="StampText" Text="{Binding Stamp}" />
+    <TextBlock Text="Platform endpoint" FontWeight="Bold" />
+    <TextBlock Name="EndpointText" Text="{Binding PlatformEndpoint}" />
+    <TextBlock Text="Device fingerprint" FontWeight="Bold" />
+    <TextBlock Name="FingerprintText" Text="{Binding DeviceFingerprint}" TextWrapping="Wrap" />
+    <TextBlock Text="Key protection" FontWeight="Bold" />
+    <TextBlock Name="ProtectionText" Text="{Binding KeyProtection}" />
+    <TextBlock Text="Diagnostics" FontWeight="Bold" />
+    <TextBlock Name="DiagnosticsText" Text="{Binding Diagnostics}" TextWrapping="Wrap" />
+    <Button Name="RegisterButton" Content="Register…" HorizontalAlignment="Left" />
+  </StackPanel>
+</Window>

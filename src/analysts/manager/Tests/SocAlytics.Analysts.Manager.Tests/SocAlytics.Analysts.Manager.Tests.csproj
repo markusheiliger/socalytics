@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Avalonia.Headless.XUnit" />
     <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
@@ -22,5 +23,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\SocAlytics.Analysts.Manager.Core\SocAlytics.Analysts.Manager.Core.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Analysts.Manager\SocAlytics.Analysts.Manager.csproj" />
   </ItemGroup>
 </Project>
