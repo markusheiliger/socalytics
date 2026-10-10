@@ -433,6 +433,7 @@ Then you handle it like any pull request:
 | Comment, or submit a review with *Comment* or *Request changes* (line comments included) | a rework: the pull request goes back to draft, the diagnose workflow addresses all feedback since the last round, replies, pushes to the same pull request, and the consistency check runs again before it comes back to you |
 | Close without merging | the amendment is discarded; the implementation pull request lists what you can do next |
 | Push to the amendment branch yourself | the consistency check runs again, without correction rounds |
+| Change its base branch, or add it (or the implementation pull request) to a pull request stack | undone right away: the base goes back to `speckit/<folder>` and the stack is dissolved, with a comment. A stack would merge the unfinished implementation into `main` together with the amendment. Events reach the guard for a base changed to `main` and for the implementation pull request; the orchestrator checks the rest on every run. An amendment merged into another branch anyway does not resume the implementation; you are asked to revert it there. |
 
 Approving does not start anything; merge when you are satisfied. Feedback that
 arrives while a rework or check runs is handled when it ends (the comment's job

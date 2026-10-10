@@ -50,7 +50,38 @@ export class AmendUsageError extends Error {}
 
 export async function findAmendment(client, folder) {
   const pulls = await client.listPullRequestsForHead(amendmentBranch(folder));
-  return pulls.find((pull) => pull.state === 'open' && pull.base?.ref === implementationBranch(folder)) ?? null;
+  return pulls.find((pull) => pull.state === 'open') ?? null;
+}
+
+// Keeps Spec Kit pull requests out of pull request stacks, and amendments on their implementation branch. Merging a
+// stacked pull request also merges every pull request below it, so a stacked amendment would carry the unfinished
+// implementation into the default branch; an amendment with another base would land there instead of on the
+// implementation branch.
+export async function guardPullRequest(client, env, pull, { report = () => {} } = {}) {
+  const head = String(pull.head?.ref ?? '');
+  const folder = folderOfBranch(head);
+  if (!folder || pull.state !== 'open' || (env.GITHUB_REPOSITORY && pull.head?.repo?.full_name !== env.GITHUB_REPOSITORY)) return { actions: [] };
+  const isAmendment = head === amendmentBranch(folder);
+  const notes = [];
+  const actions = [];
+  if (pull.stack?.number) {
+    await client.unstackPullRequests(pull.stack.number);
+    actions.push('unstacked');
+    notes.push(isAmendment
+      ? 'This pull request was removed from its pull request stack. Merging a stacked pull request also merges the ones below it, so the unfinished implementation would reach the default branch with it.'
+      : 'This pull request was removed from its pull request stack. Spec Kit pull requests are not stacked: merging a stacked amendment would also merge this unfinished implementation into the default branch.');
+  }
+  const base = implementationBranch(folder);
+  if (isAmendment && pull.base?.ref !== base) {
+    await client.updatePullRequest(pull.number, { base });
+    actions.push(`retargeted from ${pull.base?.ref}`);
+    notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${base}\`: an amendment only merges into its implementation branch. The implementation reaches the default branch through its own pull request once it is complete.`);
+  }
+  if (actions.length > 0) {
+    await client.createComment(pull.number, notes.join('\n\n'));
+    report(`- Guarded #${pull.number}: ${actions.join(', ')}.`);
+  }
+  return { actions };
 }
 
 // Checks an amendment pull request against the hard rules for amendments (paths and task checks).
@@ -540,12 +571,23 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
   if (comments.some((comment) => isBot(comment.user) && String(comment.body ?? '').includes(marker))) return { outcome: 'handled' };
   const amendmentComments = await client.listIssueComments(amendment.number);
   if (!amendment.merged_at && amendmentComments.some((comment) => isBot(comment.user) && String(comment.body ?? '').startsWith('Superseded by a new diagnosis'))) return { outcome: 'superseded' };
+  const by = actor ? `@${actor}` : 'a person';
+  const base = implementationBranch(folder);
+  // Merged into another branch (its base was changed, or it was merged as part of a stack): the implementation did not
+  // get it.
+  if (amendment.merged_at && amendment.base?.ref !== base) {
+    await client.createComment(implementation.number, [
+      `${marker}\n**Amendment #${amendment.number} was merged into \`${amendment.base?.ref}\`** by ${by}, not into \`${base}\`. The implementation did not get it and stays stopped. Revert that merge on \`${amendment.base?.ref}\`.`,
+      '',
+      ...renderNextSteps({ diagnosed: true }),
+    ].join('\n'));
+    return { outcome: 'misdirected' };
+  }
   try {
     await client.deleteBranch(amendmentBranch(folder));
   } catch {
     // Already gone, or GitHub deleted it.
   }
-  const by = actor ? `@${actor}` : 'a person';
   if (amendment.merged_at) {
     await client.createComment(implementation.number, renderResumeComment(
       `${marker}\n**Amendment #${amendment.number} was merged** by ${by}. The implementation continues with a fresh attempt count, starting with the next unchecked task.`,
@@ -598,14 +640,17 @@ export async function runPushed({ client, env, log }) {
 // for an open one starts a rework for feedback no event delivered, checks a person's push no event reported, and
 // closes checks that never finished.
 export async function maintainAmendment(client, env, { folder, implementation, twin }, { now = Date.now(), report = () => {} } = {}) {
-  const latest = (await client.listPullRequestsForHead(amendmentBranch(folder))).find((pull) => pull.base?.ref === implementationBranch(folder));
+  await guardPullRequest(client, env, await client.getPullRequest(implementation.number), { report });
+  const pulls = await client.listPullRequestsForHead(amendmentBranch(folder));
+  const latest = pulls.find((pull) => pull.state === 'open') ?? pulls[0];
   if (!latest) return { outcome: 'none' };
   if (latest.state !== 'open') {
     const amendment = await client.getPullRequest(latest.number);
     const settled = await settleClosedAmendment(client, env, { amendment, folder, implementation, actor: amendment.merged_by?.login ?? null, dispatch: false });
-    if (['merged', 'discarded'].includes(settled.outcome)) report(`- Amendment #${amendment.number} was ${settled.outcome}.`);
+    if (['merged', 'discarded', 'misdirected'].includes(settled.outcome)) report(`- Amendment #${amendment.number} was ${settled.outcome}.`);
     return { outcome: settled.outcome };
   }
+  await guardPullRequest(client, env, await client.getPullRequest(latest.number), { report });
   const context = { amendment: await client.getPullRequest(latest.number), folder, implementation, twin };
   const state = await reworkRunning(client, context, now);
   if (state.running) return { outcome: 'running' };
@@ -627,6 +672,14 @@ export async function maintainAmendment(client, env, { folder, implementation, t
   }
   return { outcome: state.stale ? 'stale' : 'idle' };
 }
+
+// A Spec Kit pull request was opened, edited (for example its base branch), reopened, pushed, or marked ready.
+export async function runGuard({ client, env, log }) {
+  const pull = await client.getPullRequest(Number(env.SPECKIT_PULL));
+  const { actions } = await guardPullRequest(client, env, pull, { report: log });
+  return { exitCode: 0, outcome: actions.length > 0 ? 'guarded' : 'ok' };
+}
+
 function githubClient(env) {
   return new GitHubClient({
     token: env.GITHUB_TOKEN || env.GH_TOKEN,
@@ -639,7 +692,7 @@ function githubClient(env) {
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command] = argv;
   const run = { client: client ?? githubClient(env), env, log };
-  const handlers = { 'record-analysis': runRecordAnalysis, feedback: runFeedback, closed: runClosed, pushed: runPushed };
+  const handlers = { 'record-analysis': runRecordAnalysis, feedback: runFeedback, closed: runClosed, pushed: runPushed, guard: runGuard };
   if (!handlers[command]) throw new AmendUsageError(`Usage: speckit-amend.mjs <${Object.keys(handlers).join(' | ')}>`);
   const result = await handlers[command](run);
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `outcome=${result.outcome ?? ''}\n`);

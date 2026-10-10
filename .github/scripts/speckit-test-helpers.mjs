@@ -145,7 +145,15 @@ export class FakeGitHub {
   }
 
   async updatePullRequest(number, fields) {
-    Object.assign(this.repo.pulls.find((item) => item.number === number), fields);
+    const pull = this.repo.pulls.find((item) => item.number === number);
+    const { base, ...rest } = fields;
+    Object.assign(pull, rest);
+    if (typeof base === 'string') pull.base = { ...pull.base, ref: base };
+  }
+
+  async unstackPullRequests(stackNumber) {
+    (this.unstacked ??= []).push(stackNumber);
+    for (const pull of this.repo.pulls) if (pull.stack?.number === stackNumber) pull.stack = null;
   }
 
   async markReadyForReview(nodeId) {

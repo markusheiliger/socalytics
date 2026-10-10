@@ -10,6 +10,7 @@ import {
   pendingFeedback,
   runClosed,
   runFeedback,
+  runGuard,
   runPushed,
   runRecordAnalysis,
   validateAnalysis,
@@ -240,6 +241,44 @@ test('merging continues the implementation; closing discards; a person\'s push i
   assert.equal((await runPushed({ client: pushed, env: env({ SPECKIT_PULL: '11' }), log: silent })).outcome, 'checking');
   assert.deepEqual([pushed.repo.runs.at(-1).workflow, pushed.repo.runs.at(-1).inputs.mode, pushed.repo.runs.at(-1).inputs.round], ['speckit-analyze.lock.yml', 'check', '0']);
   await assert.rejects(() => main(['nope'], { env: {}, client: pushed }), /Usage/);
+});
+
+test('the guard removes Spec Kit pull requests from stacks and keeps amendments on their implementation branch', async () => {
+  const github = diagnosisRepo();
+  assert.equal((await main(['guard'], { env: env({ SPECKIT_PULL: '11' }), client: github, log: silent })), 0);
+  assert.deepEqual([github.unstacked, github.comments.length], [undefined, 0], 'a correct amendment is left alone');
+
+  amendmentPull(github).stack = { number: 4 };
+  github.repo.pulls[0].stack = { number: 4 };
+  amendmentPull(github).base = { ref: 'main', sha: 'sha-main' };
+  const guarded = await runGuard({ client: github, env: env({ SPECKIT_PULL: '11' }), log: silent });
+  assert.equal(guarded.outcome, 'guarded');
+  assert.deepEqual(github.unstacked, [4]);
+  assert.equal(amendmentPull(github).base.ref, 'speckit/f');
+  assert.match(github.comments.at(-1).body, /^This pull request was removed from its pull request stack\.[\s\S]*set back from `main` to `speckit\/f`/);
+  assert.equal(github.repo.pulls[0].stack, null, 'unstacking dissolves the whole stack');
+
+  // The orchestrator guards on every run, also when no event reached the guard job.
+  github.repo.pulls[0].stack = { number: 5 };
+  const lines = [];
+  await maintainAmendment(github, env(), { folder: 'f', implementation: github.repo.pulls[0], twin: 5 }, { now: github.clock, report: (line) => lines.push(line) });
+  assert.deepEqual(github.unstacked, [4, 5]);
+  assert.match(lines.join(), /Guarded #9: unstacked/);
+  assert.match(github.comments.find((comment) => comment.number === 9).body, /this unfinished implementation/);
+  assert.equal((await runGuard({ client: github, env: env({ SPECKIT_PULL: '9' }), log: silent })).outcome, 'ok');
+});
+
+test('an amendment merged into another branch does not resume the implementation', async () => {
+  const github = diagnosisRepo();
+  amendmentPull(github).base = { ref: 'main' };
+  github.closePull(11, { merged: true });
+  assert.equal((await runClosed({ client: github, env: env({ SPECKIT_PULL: '11', SPECKIT_ACTOR: 'dev' }), log: silent })).outcome, 'misdirected');
+  const note = github.comments.at(-1);
+  assert.equal(note.number, 9);
+  assert.match(note.body, /^<!-- speckit-amend:closed 11 -->\n\*\*Amendment #11 was merged into `main`\*\* by @dev, not into `speckit\/f`\.[\s\S]*Revert that merge/);
+  assert.doesNotMatch(note.body, /speckit-implement:resume/);
+  assert.deepEqual(github.repo.runs, []);
+  assert.equal((await runClosed({ client: github, env: env({ SPECKIT_PULL: '11' }), log: silent })).outcome, 'handled');
 });
 
 test('the orchestrator checks unreported pushes, picks up feedback that no event delivered, and closes stuck checks', async () => {

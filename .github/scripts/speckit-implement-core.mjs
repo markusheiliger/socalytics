@@ -589,6 +589,7 @@ export function renderAmendmentHowTo(implementationPull) {
     `- **Merge** this pull request to apply the amendment. It merges into the implementation branch, and the implementation continues on #${implementationPull} with a fresh attempt count, starting with the next unchecked task.`,
     '- **Comment**, or **submit a review** with *Comment* or *Request changes* (line comments included), to have the amendment reworked with your feedback. It returns here, checked again, for your review.',
     `- **Close** this pull request without merging to discard the amendment; #${implementationPull} stays stopped and lists what you can do next.`,
+    `- Do not change the base branch or add this pull request to a stack: an amendment only merges into its implementation branch, and merging a stack would also merge the unfinished #${implementationPull}. The automation undoes both.`,
   ];
 }
 

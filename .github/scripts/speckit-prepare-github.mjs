@@ -238,6 +238,11 @@ export class GitHubClient {
     return (await this.request('PATCH', this.repoPath(`/pulls/${number}`), fields)).data;
   }
 
+  // Removes the unmerged pull requests from a pull request stack (dissolving it).
+  async unstackPullRequests(stackNumber) {
+    await this.request('POST', this.repoPath(`/stacks/${stackNumber}/unstack`));
+  }
+
   // Merges a pull request; `sha` makes GitHub refuse the merge when the head moved. GitHub's refusals
   // (not mergeable, head moved) are returned as { merged: false, message } instead of thrown.
   async mergePullRequest(number, { sha, merge_method, commit_title, commit_message }) {

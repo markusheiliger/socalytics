@@ -6,6 +6,8 @@ name: Spec Kit commands
 #     changes, has the amendment reworked (Spec Kit diagnose, mode revise) and checked again (Spec Kit analyze).
 #   - Closing an amendment pull request: merged (the implementation continues) or discarded; a person's push to an
 #     amendment branch is checked again.
+#   - Guard: Spec Kit pull requests are removed from pull request stacks, and an amendment's base branch is set back to
+#     its implementation branch (the orchestrator does the same on every run, also for events this job cannot see).
 # Only people with write access are heard; comments and reviews by bots never trigger. Reviews arrive through a small
 # forwarder job, because GitHub runs pull_request_review workflows from the pull request's merge ref; it only
 # dispatches this workflow on the default branch, where everything else runs.
@@ -15,7 +17,7 @@ on:
   pull_request_review:
     types: [submitted]
   pull_request_target:
-    types: [closed, synchronize]
+    types: [opened, reopened, edited, synchronize, ready_for_review, closed]
   workflow_dispatch:
     inputs:
       pull:
@@ -139,6 +141,7 @@ jobs:
     # token raise no events.
     if: >-
       github.event_name == 'pull_request_target' &&
+      (github.event.action == 'closed' || github.event.action == 'synchronize') &&
       startsWith(github.event.pull_request.head.ref, 'speckit-amend/') &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.sender.type != 'Bot'
@@ -173,3 +176,40 @@ jobs:
           SPECKIT_ACTOR: ${{ github.event.sender.login }}
           EVENT_ACTION: ${{ github.event.action }}
         run: node .github/scripts/speckit-amend.mjs "$([ "$EVENT_ACTION" = closed ] && echo closed || echo pushed)"
+
+  guard:
+    name: Guard the pull request
+    # Runs from the pull request's base branch: a base changed to the default branch, and every event of an
+    # implementation pull request, use this job from the default branch.
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.action != 'closed' &&
+      (startsWith(github.event.pull_request.head.ref, 'speckit-amend/') ||
+      startsWith(github.event.pull_request.head.ref, 'speckit/')) &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: speckit-guard-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Guard the pull request
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_PULL: ${{ github.event.pull_request.number }}
+        run: node .github/scripts/speckit-amend.mjs guard

@@ -635,8 +635,10 @@ function mergeableGitHub() {
 
 test('merge-land squash-merges a verified implementation and completes the twin', async () => {
   const github = mergeableGitHub();
+  github.repo.pulls[0].stack = { number: 3 };
   const landed = await mergeLand(github, verifiedMerge);
   assert.equal(landed.exitCode, 0);
+  assert.deepEqual(github.unstacked, [3], 'a stacked implementation is unstacked before the merge');
   const [merge] = github.repo.merges;
   assert.deepEqual([merge.number, merge.sha, merge.merge_method, merge.commit_title], [9, 'sha-head', 'squash', 'F (#9)']);
   assert.match(merge.commit_message, /^- T001 Create docs\/x\.md\n- T002 Create docs\/y\.md\n\nImplemented with Spec Kit in #9\.\nCloses #5$/);

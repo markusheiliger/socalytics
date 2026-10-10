@@ -905,6 +905,14 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     return { exitCode: 0, moved: true };
   }
   const taskLines = listTasks(tasksMarkdown).map((task) => `- ${task.id} ${summarizeTask(task.text)}`);
+  // GitHub's merge endpoint cannot merge a stacked pull request; Spec Kit pull requests are never stacked.
+  if (pull.stack?.number) {
+    try {
+      await client.unstackPullRequests(pull.stack.number);
+    } catch {
+      // The merge reports the refusal.
+    }
+  }
   const merged = await client.mergePullRequest(inputs.pull, {
     sha: result.head,
     merge_method: 'squash',
