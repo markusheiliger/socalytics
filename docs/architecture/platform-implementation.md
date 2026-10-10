@@ -115,14 +115,14 @@ does not make Aspire a production dependency.
 
 The current control-plane evidence is an ASP.NET Core host that
 registers the Application and Infrastructure layers through their public
-composition methods. It exposes only `/alive`, `/health`, and the built-in `v1`
-OpenAPI document at `/openapi/v1.json`; it has no domain paths. The Aspire
+composition methods. It exposes `/alive`, `/health`, and the built-in `v1`
+OpenAPI document at `/openapi/v1.json`; its domain paths are limited to the
+club hierarchy, accounts, sessions, membership, and roles under `/api/v1`. The Aspire
 AppHost composes PostgreSQL, the one-off Migrator, and the API in that order;
 the API's `/health` readiness includes a `database` check that requires a
 reachable database with a current migration state.
 Architecture tests enforce the layer dependency direction and the intended
-public surface. This is development-host evidence, not an implemented domain
-API, infrastructure topology, deployment mechanism, security posture, or
+public surface. This is development-host evidence, not an infrastructure topology, deployment mechanism, security posture, or
 production ingress contract.
 
 The target control plane is one ASP.NET Core application deployed as a single
@@ -167,7 +167,7 @@ break-glass recovery ledger: the runtime role may only insert and read them. A
 trigger also rejects updates, deletes, and truncation of the audit table, so
 audit evidence is append-protected and kept apart from application logs, and
 because ledger entries cannot be changed or removed, a used recovery
-identifier can never be made reusable. The audit table will hold development
+identifier can never be made reusable. The audit table holds development
 audit evidence; the production audit store, integrity verification, and
 retention remain governed by POL-009 in
 [Security and Data Governance](security-and-data-governance.md#audit-events).
@@ -315,11 +315,14 @@ policy remain governed by
 
 ## API And Identity
 
-The current API implements only the operational and OpenAPI
-surface described under [Control Plane](#control-plane). It implements no
-accounts, authentication, authorization, BFF session, generated client, or
-domain API behavior. Exposure and access policy for operational endpoints in a
-production ingress remain unresolved.
+The current API implements local accounts, the server-validated BFF session,
+anti-forgery protection, membership, club and team roles, team-scoped
+authorization, security audit events, and the `Club > Season > Team > Match`
+hierarchy, as specified in
+`specs/20261005-130701-club-identity-foundation`. It implements no external
+OpenID Connect sign-in, MFA enforcement, generated client, or Analyst Manager
+identity. Exposure and access policy for operational endpoints in a production
+ingress remain unresolved.
 
 REST with JSON will be the primary platform protocol. ASP.NET Core will publish
 a versioned OpenAPI description, and Kiota will generate TypeScript, C#, and Python
@@ -341,7 +344,7 @@ does not store identity-provider bearer tokens. State-changing browser requests
 use CSRF protection. Club membership and team authorization remain platform
 data enforced by the API.
 
-The BFF session will be server-validated. The cookie carries only an opaque
+The BFF session is server-validated. The cookie carries only an opaque
 random session token, and the database stores its hash together with idle and
 absolute expiry and the account's security stamp at issue. Clients send a
 per-session anti-forgery token, derived from the session token with HMAC-SHA256
@@ -364,7 +367,7 @@ instances create exactly one club and administrator, and an instance reports
 not ready while no club is established or the configuration conflicts with it.
 The first Club Admin must change the configured initial password at the first
 sign-in, and bootstrap no longer needs that value once the club exists.
-A club whose only Club Admin can no longer sign in will recover through a
+A club whose only Club Admin can no longer sign in recovers through a
 break-glass directive in protected deployment configuration. The directive
 names an existing active account, a single-use recovery identifier, and an
 operator-supplied temporary credential. The API applies it at start under the
