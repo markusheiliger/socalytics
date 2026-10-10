@@ -209,8 +209,13 @@ their "blocked by" issues are closed.
       CLI only as `COPILOT_GITHUB_TOKEN` and is hidden from the agent's shells;
       `git push`, `gh`, `curl`, and `wget` are denied;
   3. verifies the change in that job with the optional
-      `.github/actions/environment-verify` action: the checks the changed paths
-      call for after a task, every check after a conflict resolution;
+      `.github/actions/environment-verify` action. After a task, mode `task`
+      runs the checks the changed paths call for with only the tests the task
+      touched (the agent is told to run only those as well, not the whole
+      suite); the last unchecked task of a `##` phase uses mode `phase`, which
+      runs those checks with all their tests. A conflict resolution and the
+      merge run every check with all tests (mode `finalize`), so a regression
+      that a task-level run misses fails at the end of the phase at the latest;
   4. lands it in a separate job that never runs agent-written code: it
       re-validates the change (a task may only add its own `tasks.md` tick;
       convergence may only append a convergence section to `tasks.md`; a
@@ -246,10 +251,14 @@ their "blocked by" issues are closed.
   `environment-verify` the pull request comments and check run say that no
   verification is configured. The workflow always loads them from the default
   branch, so an agent cannot change its own checks. In this repository:
-  - `environment-setup` installs .NET from `src/platform/global.json` and the
-      Markdown linters; Docker for Testcontainers is already on the runner;
-  - `environment-verify` runs the platform restore, build, and tests when
-      `src/platform/**` changed and the Markdown check when Markdown changed.
+  - `environment-setup` installs .NET from `src/platform/global.json`, the
+      Markdown linters, and SoftHSM2 (refreshing the package lists only when
+      the install fails); Docker for Testcontainers is already on the runner;
+  - `environment-verify` runs the platform restore and build when
+      `src/platform/**` changed, and the Markdown check when Markdown changed.
+      In mode `task` it runs the architecture tests, the test classes declared
+      in changed test files, and a whole test project when other files of it
+      changed; in modes `phase` and `finalize`, all tests.
       It lists the paths it covers in `COVERED`; changed files outside them
       are reported as not covered, including platform files when the platform
       solution is missing.
@@ -471,7 +480,7 @@ place. The workflows and scripts need no changes for any of it.
 | `SPECKIT_MAX_PARALLEL_TASKS` | repository variable | `3` | how many `[P]` tasks of one spec run at the same time; `1` runs one task at a time |
 | `SPECKIT_AUTO_DIAGNOSE` | repository variable | `true` | `false` stops starting a diagnosis automatically when an implementation stops; `/speckit diagnose` still works |
 | `.github/actions/environment-setup` | composite action, optional | not run | installs the SDKs and tools for building, testing, and verifying |
-| `.github/actions/environment-verify` | composite action, optional | no verification | runs the checks for changed paths and reports files no check covers |
+| `.github/actions/environment-verify` | composite action, optional | no verification | runs the checks for changed paths (modes `task`: only the touched tests; `phase` and `finalize`: all tests) and reports files no check covers |
 | `SPECKIT_IMPLEMENT_MODE` | local environment variable | ask | `local` or `remote` answers the `/speckit-implement` routing question |
 
 Set or remove repository variables in **Settings → Secrets and variables →

@@ -178,7 +178,7 @@ test('begin marks the attempt in progress when the step is next', async () => {
     assert.equal(result.proceed, true);
     const check = github.repo.checkRuns.at(-1);
     assert.deepEqual([check.status, check.external_id, check.head_sha, check.output.title], ['in_progress', CHECK_ATTEMPT, 'sha-head', 'T001 attempt 2 in progress']);
-    assert.match(readFileSync(outputFile, 'utf8'), /proceed=true\nfolder=f\nhead=sha-head\ncheck_run=\d+\nprompt=\/speckit-implement Implement only task T001\./);
+    assert.match(readFileSync(outputFile, 'utf8'), /proceed=true\nfolder=f\nhead=sha-head\ncheck_run=\d+\nverify_mode=task\nprompt=\/speckit-implement Implement only task T001\./, 'T002 is still open in the phase');
 
     const done = fakeGitHub();
     done.setFile('sha-head', 'specs/f/tasks.md', DONE_TASKS);

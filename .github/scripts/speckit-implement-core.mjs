@@ -215,6 +215,22 @@ export function parseMaxParallel(value) {
   return Number.isInteger(number) && number > 0 ? number : DEFAULT_MAX_PARALLEL_TASKS;
 }
 
+// Verification tier of a task: `phase` (the full tests of the affected checks) for the last unchecked task of its phase
+// (a `##` heading, so `###` sub-headings stay inside it), otherwise `task` (build plus the tests the task touched).
+// The merge always verifies everything; parallel tasks of a phase each see the others unchecked and stay at `task`.
+export function taskVerifyMode(tasksMarkdown, taskId) {
+  let phase = '';
+  const tasks = [];
+  for (const line of String(tasksMarkdown ?? '').split(/\r?\n/)) {
+    if (/^##\s/.test(line)) phase = line;
+    const task = line.match(TASK_PATTERN);
+    if (task) tasks.push({ id: task[2], done: task[1] !== ' ', phase });
+  }
+  const own = tasks.find((task) => task.id === taskId);
+  if (!own) return 'phase';
+  return tasks.some((task) => task.phase === own.phase && task.id !== taskId && !task.done) ? 'task' : 'phase';
+}
+
 // Checks `taskId` in a tasks.md; null when the task is missing or already checked.
 export function tickTask(tasksMarkdown, taskId) {
   const lines = String(tasksMarkdown ?? '').split('\n');
@@ -248,8 +264,11 @@ export function parseStepRunName(step, title) {
   return match ? { step, twin: Number(match[1]), task: match[2] || null, attempt: Number(match[3]) } : null;
 }
 
+// The verification after the agent runs the full test suite; the agent running it as well doubled the time of a task.
+export const TASK_TEST_SCOPE = 'Build what you change and run only the tests that cover this task (the tests you add or change, for example through a test filter). Do not run the whole test suite: the full verification runs automatically after you, and its failures come back to the next attempt.';
+
 export function renderTaskPrompt(taskId) {
-  return `/speckit-implement Implement only task ${taskId}. Do not implement any other task. Do not commit and do not push.`;
+  return `/speckit-implement Implement only task ${taskId}. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`;
 }
 
 export function renderConvergePrompt() {

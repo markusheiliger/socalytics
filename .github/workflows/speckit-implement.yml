@@ -74,6 +74,7 @@ jobs:
       head: ${{ steps.begin.outputs.head }}
       check_run: ${{ steps.begin.outputs.check_run }}
       prompt: ${{ steps.begin.outputs.prompt }}
+      verify_mode: ${{ steps.begin.outputs.verify_mode }}
     steps:
       - name: Check out the default branch
         uses: actions/checkout@v5
@@ -179,7 +180,8 @@ jobs:
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: task
+          # task: build and the tests the task touched; phase (the last task of a phase): the full tests.
+          mode: ${{ needs.begin.outputs.verify_mode || 'phase' }}
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
 

@@ -40,6 +40,8 @@ import {
   renderStartComment,
   renderStepRunName,
   renderTaskPrompt,
+  taskVerifyMode,
+  TASK_TEST_SCOPE,
   RESUME_COMMENT_MARKER,
   START_COMMENT_MARKER,
   setAmendmentStatus,
@@ -171,7 +173,8 @@ test('renders and parses worker run names and prompts', () => {
   assert.equal(parseStepRunName('task', 'Spec Kit implement task #38 T002 attempt 3'), null, 'old task run names are ignored');
   assert.equal(parseStepRunName('converge', 'Spec Kit implement #38 T002 attempt 3'), null);
   assert.equal(parseStepRunName('task', 'Spec Kit orchestrate #38 T002 attempt 3'), null);
-  assert.equal(renderTaskPrompt('T004'), '/speckit-implement Implement only task T004. Do not implement any other task. Do not commit and do not push.');
+  assert.equal(renderTaskPrompt('T004'), `/speckit-implement Implement only task T004. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`);
+  assert.match(TASK_TEST_SCOPE, /Do not run the whole test suite/);
   assert.match(renderConvergePrompt(), /^\/speckit-converge /);
   assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs', 'b.md'] }), /`specs\/f`[\s\S]*`a\.cs`, `b\.md`[\s\S]*Do not change any other file/);
   assert.equal(stepLabel({ step: 'task', task: 'T001' }), 'T001');
@@ -310,6 +313,21 @@ test('groups consecutive unticked [P] tasks under one heading', () => {
   assert.deepEqual(ids('- [ ] T001 Not [P] in the text\n- [ ] T002 [P] x\n', 3), ['T001'], 'only leading tags count');
   assert.deepEqual(ids('- [x] T001 done\n', 3), []);
   assert.deepEqual([parseMaxParallel(undefined), parseMaxParallel(''), parseMaxParallel('1'), parseMaxParallel(' 5 '), parseMaxParallel('0'), parseMaxParallel('x')], [3, 3, 1, 5, 3, 3]);
+});
+
+test('verifies all tests only for the last unchecked task of a phase', () => {
+  const tasks = [
+    '## Phase 1: Setup', '- [x] T001 a', '- [ ] T002 b',
+    '## Phase 2: Story', '### Tests', '- [ ] T003 c', '### Implementation', '- [ ] T004 [P] d', '- [ ] T005 [P] e',
+    '## Phase 3: Polish', '- [ ] T006 f', '',
+  ].join('\r\n');
+  assert.equal(taskVerifyMode(tasks, 'T002'), 'phase', 'the last open task of its phase');
+  assert.equal(taskVerifyMode(tasks, 'T003'), 'task', 'a ### sub-heading stays inside its phase');
+  assert.equal(taskVerifyMode(tasks.replace('- [ ] T003', '- [x] T003').replace('- [ ] T004', '- [x] T004'), 'T005'), 'phase');
+  assert.equal(taskVerifyMode(tasks.replace('- [ ] T003', '- [x] T003'), 'T004'), 'task', 'parallel siblings keep each other at task');
+  assert.equal(taskVerifyMode(tasks, 'T006'), 'phase');
+  assert.equal(taskVerifyMode(tasks, 'T999'), 'phase', 'an unknown task verifies everything');
+  assert.equal(taskVerifyMode('- [ ] T001 a\n- [ ] T002 b\n', 'T001'), 'task', 'no headings: one phase');
 });
 
 test('ticks a task in tasks.md and syncs the pull request body with it', () => {

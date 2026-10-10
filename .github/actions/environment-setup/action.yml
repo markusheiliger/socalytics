@@ -26,6 +26,7 @@ runs:
 
     # softhsm2 is the runner distribution's package and intentionally not version-pinned: the Manager tests depend only
     # on the stable PKCS#11 interface. No token is created here; each test run creates its own through SOFTHSM2_CONF.
+    # The runner image's package lists usually suffice; refreshing them (about 15 s) only happens when the install fails.
     - name: Install the SoftHSM2 PKCS#11 token
       shell: bash
-      run: sudo apt-get update && sudo apt-get install --yes softhsm2
+      run: sudo apt-get install --yes softhsm2 || { sudo apt-get update && sudo apt-get install --yes softhsm2; }

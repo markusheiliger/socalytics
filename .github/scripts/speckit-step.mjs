@@ -40,6 +40,7 @@ import {
   renderNextSteps,
   renderResolvePrompt,
   renderTaskPrompt,
+  taskVerifyMode,
   stepLabel,
   summarizeTask,
   syncPullRequestTaskList,
@@ -180,6 +181,7 @@ export async function runBegin({ client, env, inputs, log }) {
   setOutput(env, 'folder', folder);
   setOutput(env, 'head', pull.head.sha);
   setOutput(env, 'check_run', String(check.id));
+  setOutput(env, 'verify_mode', inputs.step === 'task' ? taskVerifyMode(tasksMarkdown, inputs.task) : 'phase');
   const prompt = inputs.step === 'task' ? renderTaskPrompt(inputs.task) : inputs.step === 'converge' ? renderConvergePrompt() : '';
   const guidance = prompt ? await currentGuidance(client, inputs) : null;
   // Step outputs are single lines; the guidance is flattened and clipped.

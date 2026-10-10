@@ -1,8 +1,10 @@
 name: Environment verify
 description: >-
   Verifies a change to this solution. Optional extension point of the Spec Kit workflows, which run it after the
-  agent implemented a task (mode task: only the checks the changed files call for), after a conflict resolution, and
-  before merging (mode finalize: every check); the workflows skip it when this file does not exist. It runs in a job
+  agent implemented a task (mode task: only the checks the changed files call for, each building its solution but
+  running only the always-run test projects and the tests the task touched; mode phase, for the last task of a phase:
+  those checks with all their tests), after a conflict resolution, and before merging (mode finalize: every check
+  with all tests); the workflows skip it when this file does not exist. It runs in a job
   with a read-only token and no token environment variables, because the checks execute agent-written code. The step
   fails when a check fails. Checks, in order: "platform build and tests" covers src/platform/ and the repository-root
   contracts/ folder and is active only while src/platform/SocAlytics.Platform.slnx exists; "Analyst Manager build and
@@ -13,8 +15,9 @@ description: >-
 # Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
 # is reviewed and merged before the specs that need it start. For a new framework or source area, add one block below
 # that (1) adds its scope to COVERED only when its project exists, (2) runs only when the scope changed or in finalize
-# mode, and (3) skips while its project does not exist yet, because the environment spec merges before the project is
-# created. Current coverage: the platform scope (src/platform/ and contracts/) is covered while the platform solution
+# mode, (3) skips while its project does not exist yet, because the environment spec merges before the project is
+# created, and (4) runs its tests through run_tests, so mode task runs only the tests the change touched. Current
+# coverage: the platform scope (src/platform/ and contracts/) is covered while the platform solution
 # exists; the Analyst Manager scope (src/analysts/manager/) is covered while the Manager solution exists, and its
 # check also runs for contracts/analyst-manager/ changes without covering those files.
 inputs:
@@ -22,7 +25,9 @@ inputs:
     description: Path of the code to verify
     required: true
   mode:
-    description: "task: run the checks that apply to the changed files; finalize: run every check"
+    description: >-
+      task: the checks that apply to the changed files, with only the tests the change touched; phase: those checks with
+      all their tests; finalize: every check with all tests
     required: true
   changed-files:
     description: Path of a file that lists the changed paths, one per line; it also decides which files no check covers
@@ -56,6 +61,8 @@ runs:
         set +e -uo pipefail
         PLATFORM_SOLUTION=src/platform/SocAlytics.Platform.slnx
         PLATFORM_SCOPE='^(src/platform|contracts)/'
+        # Test projects that every task runs in full (fast rule tests).
+        PLATFORM_ALWAYS='Architecture\.Tests\.csproj$'
         MANAGER_SOLUTION=src/analysts/manager/SocAlytics.Analysts.Manager.slnx
         MANAGER_SCOPE='^src/analysts/manager/'
         MANAGER_TRIGGER='^(src/analysts/manager|contracts/analyst-manager)/'
@@ -83,6 +90,7 @@ runs:
         applies() {
           [ "$MODE" = finalize ] || { [ -n "$changed" ] && grep -qE "$1" <<< "$changed"; }
         }
+        tests_label() { [ "$MODE" = task ] && echo "affected tests" || echo tests; }
         step() {
           echo "\$ $*" | tee -a "$LOG_FILE"
           "$@" 2>&1 | tee -a "$LOG_FILE"
@@ -92,16 +100,57 @@ runs:
         checks=()
         status=0
         pushd "$WORKSPACE" > /dev/null
+        ROOT="$PWD"
+
+        # run_tests <solution> <repo path prefix of the current directory> <always-run project regex>
+        # phase and finalize: every test. task: the always-run test projects; the test classes declared in the changed
+        # .cs files of a test project; the whole test project when other files of it changed (fixtures without a class,
+        # project files). A test project the task did not touch is skipped; the phase's last task and the merge run it.
+        run_tests() {
+          local solution="$1" prefix="$2" always="$3" result=0 project rel files file found classes whole filter
+          if [ "$MODE" != task ]; then
+            step dotnet test "$solution" --no-build
+            return
+          fi
+          while IFS= read -r project; do
+            [ -n "$project" ] || continue
+            if [ -n "$always" ] && grep -qE "$always" <<< "$project"; then
+              step dotnet test "$project" --no-build || result=1
+              continue
+            fi
+            rel="$prefix$(dirname "$project")/"
+            files="$(awk -v p="$rel" 'index($0, p) == 1' <<< "$changed")"
+            [ -n "$files" ] || continue
+            classes=""
+            whole=0
+            while IFS= read -r file; do
+              [ -f "$ROOT/$file" ] || continue
+              if [[ "$file" == *.cs ]]; then
+                found="$(grep -oP '^\s*(?:(?:public|internal|sealed|static|partial|abstract|file)\s+)*class\s+\K\w+' "$ROOT/$file")"
+                if [ -n "$found" ]; then classes+="$found"$'\n'; else whole=1; fi
+              else
+                whole=1
+              fi
+            done <<< "$files"
+            if [ "$whole" -eq 1 ]; then
+              step dotnet test "$project" --no-build || result=1
+            elif [ -n "$classes" ]; then
+              filter="$(grep -v '^$' <<< "$classes" | sort -u | sed 's/^/FullyQualifiedName~/' | paste -sd'|' -)"
+              step dotnet test "$project" --no-build --filter "$filter" || result=1
+            fi
+          done < <(find "$(dirname "$solution")" -name '*Tests.csproj' -not -path '*/bin/*' -not -path '*/obj/*' | sed 's|^\./||' | sort)
+          return "$result"
+        }
         if [ "$status" -eq 0 ] && applies "$PLATFORM_SCOPE" && [ -f "$PLATFORM_SOLUTION" ]; then
-          checks+=("platform build and tests")
+          checks+=("platform build and $(tests_label)")
           { step dotnet restore "$PLATFORM_SOLUTION" &&
             step dotnet build "$PLATFORM_SOLUTION" --no-restore &&
-            step dotnet test "$PLATFORM_SOLUTION" --no-build; } || status=1
+            run_tests "$PLATFORM_SOLUTION" '' "$PLATFORM_ALWAYS"; } || status=1
         fi
         # Active only once the Analyst Manager solution exists; it also runs for changes under contracts/analyst-manager/
         # because the Manager tests read the shared golden fixtures there.
         if [ "$status" -eq 0 ] && applies "$MANAGER_TRIGGER" && [ -f "$MANAGER_SOLUTION" ]; then
-          checks+=("Analyst Manager build and tests")
+          checks+=("Analyst Manager build and $(tests_label)")
           platform_pin="$(sdk_pin src/platform/global.json)"
           manager_pin="$(sdk_pin src/analysts/manager/global.json)"
           if [ -z "$manager_pin" ] || [ "$manager_pin" != "$platform_pin" ]; then
@@ -111,7 +160,7 @@ runs:
             pushd src/analysts/manager > /dev/null
             { step dotnet restore SocAlytics.Analysts.Manager.slnx &&
               step dotnet build SocAlytics.Analysts.Manager.slnx --no-restore &&
-              step dotnet test SocAlytics.Analysts.Manager.slnx --no-build; } || status=1
+              run_tests SocAlytics.Analysts.Manager.slnx src/analysts/manager/ ''; } || status=1
             popd > /dev/null
           fi
         fi
