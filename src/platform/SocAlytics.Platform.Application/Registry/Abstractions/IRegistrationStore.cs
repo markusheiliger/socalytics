@@ -21,6 +21,8 @@ public interface IRegistrationStore
 
     Task<AnalystManagerRegistration?> FindNonTerminalByThumbprintAsync(string thumbprint, CancellationToken cancellationToken);
 
+    Task<AnalystManagerRegistration?> FindLatestInactiveByThumbprintAsync(string thumbprint, CancellationToken cancellationToken);
+
     // Writes the mutable columns when the persisted state still equals expectedState.
     Task<VersionedWriteResult> UpdateAsync(
         AnalystManagerRegistration registration, RegistrationState expectedState, bool clearPairingCode,

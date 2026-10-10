@@ -10,7 +10,7 @@ namespace SocAlytics.Platform.Application.Registry.MachineAccess;
 public sealed record IssueManagerTokenCommand(
     string? GrantType, string? ClientAssertionType, string? ClientAssertion, string? ClientId, string? Scope, string? DPoPProof);
 
-public sealed record ManagerTokenResult(bool Succeeded, string? Error, string? AccessToken = null, int ExpiresIn = 0)
+public sealed record ManagerTokenResult(bool Succeeded, string? Error, string? AccessToken = null, int ExpiresIn = 0, string? RegistrationState = null)
 {
     public const string Scope = "analyst-manager";
 
@@ -102,7 +102,9 @@ public sealed class IssueManagerTokenHandler(
         {
             await audit.RecordAsync(RegistryAuditEvents.CredentialRefused(registration.Id, reason), cancellationToken);
             await scope.CommitAsync(cancellationToken);
-            return ManagerTokenResult.Failed(error);
+            return reason == "registration-inactive"
+                ? new ManagerTokenResult(false, error, RegistrationState: registration.State.ToApiName())
+                : ManagerTokenResult.Failed(error);
         }
 
         var lifetime = registry.Value.Tokens.Lifetime;

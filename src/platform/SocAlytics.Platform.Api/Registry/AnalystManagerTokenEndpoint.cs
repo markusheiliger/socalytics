@@ -39,7 +39,9 @@ internal static class AnalystManagerTokenEndpoint
 			cancellationToken);
 		if (!result.Succeeded)
 		{
-			return Error(result.Error!);
+			return result.RegistrationState is null
+			? Error(result.Error!)
+			: Results.Json(new { error = result.Error, registration_state = result.RegistrationState }, statusCode: StatusCodes.Status400BadRequest);
 		}
 
 		return Results.Json(new

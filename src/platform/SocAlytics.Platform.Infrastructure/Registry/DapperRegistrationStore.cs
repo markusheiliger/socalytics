@@ -75,6 +75,11 @@ internal sealed class DapperRegistrationStore(IDbSession session, IOptions<Regis
             "key_thumbprint = @key AND state IN ('pairing', 'pending_approval', 'approved', 'active', 'unregistering')",
             new { key = thumbprint }, cancellationToken);
 
+    public Task<AnalystManagerRegistration?> FindLatestInactiveByThumbprintAsync(string thumbprint, CancellationToken cancellationToken) =>
+        FindAsync(
+            "key_thumbprint = @key AND state IN ('revoked', 'unregistered') ORDER BY ended_at DESC NULLS LAST, created_at DESC LIMIT 1",
+            new { key = thumbprint }, cancellationToken);
+
     public Task<VersionedWriteResult> UpdateAsync(
         AnalystManagerRegistration r, RegistrationState expectedState, bool clearPairingCode, CancellationToken cancellationToken) =>
         GuardedAsync(

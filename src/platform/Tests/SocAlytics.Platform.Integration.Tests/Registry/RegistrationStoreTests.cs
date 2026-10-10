@@ -152,4 +152,46 @@ public sealed class RegistrationStoreTests(PostgresContainerFixture postgres)
         due.Select(x => x.Id).ShouldBe([regs[0].Id]);
         (await store.ListDueForExpiryAsync(Now, 10, ct)).ShouldBeEmpty();
     }
+
+    [Fact]
+    public async Task FindsNewestInactiveByThumbprintUnlessNonTerminalHolderExists()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, provider) = await CreateAsync(ct);
+        await using var _ = db;
+        await using var __ = provider;
+        await using var scope = provider.CreateAsyncScope();
+        var store = scope.ServiceProvider.GetRequiredService<IRegistrationStore>();
+        var older = NewRegistration(7, Now);
+        var newer = NewRegistration(7, Now.AddMinutes(1));
+        var rejected = NewRegistration(7, Now.AddMinutes(2));
+        async Task InsertAsync(AnalystManagerRegistration r, byte seed)
+        {
+            await using var uow = await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
+            await store.InsertAsync(r, null, Bytes(seed), ct);
+            await uow.CommitAsync(ct);
+        }
+
+        async Task SetAsync(Guid id, string state, DateTimeOffset ended)
+        {
+            await using var c = new Npgsql.NpgsqlConnection(db.AppConnectionString);
+            await c.OpenAsync(ct);
+            await using var cmd = new Npgsql.NpgsqlCommand(
+                "UPDATE socalytics.analyst_manager_registration SET state = @s, ended_at = @e WHERE id = @id", c);
+            cmd.Parameters.AddWithValue("s", state);
+            cmd.Parameters.AddWithValue("e", ended);
+            cmd.Parameters.AddWithValue("id", id);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        var thumbprint = older.KeyThumbprint;
+        await InsertAsync(older, 20);
+        await SetAsync(older.Id, "revoked", Now.AddHours(1));
+        await InsertAsync(newer, 21);
+        await SetAsync(newer.Id, "unregistered", Now.AddHours(2));
+        await InsertAsync(rejected, 22);
+        await SetAsync(rejected.Id, "rejected", Now.AddHours(3));
+        (await store.FindLatestInactiveByThumbprintAsync(thumbprint, ct))!.Id.ShouldBe(newer.Id);
+        (await store.FindLatestInactiveByThumbprintAsync("unknown", ct)).ShouldBeNull();
+    }
 }

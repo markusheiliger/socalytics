@@ -13,6 +13,7 @@ internal sealed class AnalystManagerDPoPAuthenticationHandler(
 	: AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
 	private const string Prefix = "DPoP ";
+	private const string InactiveKey = "analyst-manager-inactive-state";
 
 	protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
 	{
@@ -36,6 +37,11 @@ internal sealed class AnalystManagerDPoPAuthenticationHandler(
 			Context.RequestAborted);
 		if (!result.Succeeded)
 		{
+			if (result.InactiveState is not null)
+			{
+				Context.Items[InactiveKey] = result.InactiveState;
+			}
+
 			return Fail(result.Error!);
 		}
 
@@ -55,6 +61,19 @@ internal sealed class AnalystManagerDPoPAuthenticationHandler(
 			? s : ManagerAuthenticationResult.InvalidToken;
 		Response.StatusCode = StatusCodes.Status401Unauthorized;
 		Response.Headers.WWWAuthenticate = $"DPoP error=\"{error}\"";
+		if (Context.Items.TryGetValue(InactiveKey, out var state) && state is string inactive)
+		{
+			return Response.WriteAsJsonAsync(new Dictionary<string, object?>
+			{
+				["type"] = "urn:socalytics:problem:analyst-manager-registration-inactive",
+				["title"] = "Registration inactive",
+				["status"] = StatusCodes.Status401Unauthorized,
+				["code"] = "analyst-manager-registration-inactive",
+				["correlationId"] = (System.Diagnostics.Activity.Current?.TraceId ?? System.Diagnostics.ActivityTraceId.CreateRandom()).ToHexString(),
+				["registrationState"] = inactive,
+			}, (System.Text.Json.JsonSerializerOptions?)null, "application/problem+json");
+		}
+
 		return Task.CompletedTask;
 	}
 

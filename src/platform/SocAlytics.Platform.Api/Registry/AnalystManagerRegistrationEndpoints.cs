@@ -34,6 +34,9 @@ internal static class AnalystManagerRegistrationEndpoints
 		group.MapPost("/analyst-manager-registrations/{registrationId:guid}/rejection", RejectAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
 			.WithName("rejectAnalystManagerRegistration");
+		group.MapPost("/analyst-manager-registrations/{registrationId:guid}/revocation", RevokeAsync)
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("revokeAnalystManagerRegistration");
 		return routes;
 	}
 
@@ -132,6 +135,22 @@ internal static class AnalystManagerRegistrationEndpoints
 
 	private static async Task<IResult> RejectAsync(
 		Guid registrationId, HttpContext http, RejectRegistrationHandler handler, CancellationToken cancellationToken)
+	{
+		ReasonRequest? body;
+		try
+		{
+			body = await http.Request.ReadFromJsonAsync<ReasonRequest>(cancellationToken);
+		}
+		catch (JsonException)
+		{
+			body = null;
+		}
+
+		return Decided(http, await handler.HandleAsync(registrationId, body?.Reason, cancellationToken));
+	}
+
+	private static async Task<IResult> RevokeAsync(
+		Guid registrationId, HttpContext http, RevokeRegistrationHandler handler, CancellationToken cancellationToken)
 	{
 		ReasonRequest? body;
 		try

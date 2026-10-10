@@ -9,7 +9,7 @@ public sealed record AuthenticateManagerCommand(string? AccessToken, string? DPo
 
 public sealed record ManagerPrincipalData(Guid ManagerId, Guid RegistrationId);
 
-public sealed record ManagerAuthenticationResult(ManagerPrincipalData? Principal, string? Error)
+public sealed record ManagerAuthenticationResult(ManagerPrincipalData? Principal, string? Error, string? InactiveState = null)
 {
     public const string InvalidToken = "invalid_token";
     public const string InvalidProof = "invalid_dpop_proof";
@@ -17,11 +17,14 @@ public sealed record ManagerAuthenticationResult(ManagerPrincipalData? Principal
     public bool Succeeded => Principal is not null;
 
     public static ManagerAuthenticationResult Failed(string error) => new(null, error);
+
+    public static ManagerAuthenticationResult Inactive(string state) => new(null, InvalidToken, state);
 }
 
 public sealed class AuthenticateManagerRequestHandler(
     IUnitOfWork unitOfWork,
     IManagerAccessTokenStore tokens,
+    IRegistrationStore registrations,
     IRegistrySecretGenerator secrets,
     IManagerProofValidator validator,
     IOptions<StampOptions> stamp,
@@ -37,6 +40,16 @@ public sealed class AuthenticateManagerRequestHandler(
         await using var scope = await unitOfWork.BeginAsync(cancellationToken);
         var lookup = await tokens.FindByHashAsync(secrets.Hash(command.AccessToken), cancellationToken);
         var registration = lookup?.Registration;
+        if (lookup is null && !string.IsNullOrEmpty(command.DPoPProof))
+        {
+            var inactive = await FindInactiveAsync(command, cancellationToken);
+            await scope.CommitAsync(cancellationToken);
+            if (inactive is not null)
+            {
+                return inactive;
+            }
+        }
+
         if (lookup is null || registration?.ManagerId is null
             || lookup.Token.ExpiresAt <= time.GetUtcNow()
             || lookup.Token.Scope != ManagerTokenResult.Scope
@@ -58,5 +71,19 @@ public sealed class AuthenticateManagerRequestHandler(
         return proof.Succeeded && proof.KeyThumbprint == lookup.Token.Jkt
             ? new ManagerAuthenticationResult(new ManagerPrincipalData(registration.ManagerId.Value, registration.Id), null)
             : ManagerAuthenticationResult.Failed(ManagerAuthenticationResult.InvalidProof);
+    }
+
+    private async Task<ManagerAuthenticationResult?> FindInactiveAsync(AuthenticateManagerCommand command, CancellationToken cancellationToken)
+    {
+        var proof = await validator.ValidateDPoPProofAsync(
+            command.DPoPProof!, command.HttpMethod, command.RequestPath, command.AccessToken, true, cancellationToken);
+        if (!proof.Succeeded || proof.KeyThumbprint is null
+            || await registrations.FindNonTerminalByThumbprintAsync(proof.KeyThumbprint, cancellationToken) is not null)
+        {
+            return null;
+        }
+
+        var inactive = await registrations.FindLatestInactiveByThumbprintAsync(proof.KeyThumbprint, cancellationToken);
+        return inactive is null ? null : ManagerAuthenticationResult.Inactive(inactive.State.ToApiName());
     }
 }
