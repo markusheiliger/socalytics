@@ -25,7 +25,7 @@ public sealed class AnalystManagerRegistration
     private readonly RegistrationWindows _windows;
 
     private AnalystManagerRegistration(
-        Guid id, string stampId, string publicJwk, DeviceKeyThumbprint thumbprint,
+        Guid id, string stampId, string publicJwk, string thumbprint,
         DeviceFingerprint fingerprint, string pairingNonce, DeviceMetadata metadata,
         string? pairingSourceAddress, string correlationId, DateTimeOffset createdAt,
         RegistrationWindows windows)
@@ -33,7 +33,7 @@ public sealed class AnalystManagerRegistration
         Id = id;
         StampId = stampId;
         PublicJwk = publicJwk;
-        KeyThumbprint = thumbprint.Value;
+        KeyThumbprint = thumbprint;
         DeviceFingerprint = fingerprint;
         PairingNonce = pairingNonce;
         DeviceMetadata = metadata;
@@ -71,7 +71,7 @@ public sealed class AnalystManagerRegistration
 
     public DateTimeOffset? ChallengeExpiresAt { get; private set; }
 
-    public DateTimeOffset PairingExpiresAt { get; }
+    public DateTimeOffset PairingExpiresAt { get; private init; }
 
     public DateTimeOffset? ApprovalExpiresAt { get; private set; }
 
@@ -118,9 +118,41 @@ public sealed class AnalystManagerRegistration
         }
 
         return new AnalystManagerRegistration(
-            id, stampId, publicJwk, thumbprint, DeviceFingerprint.From(thumbprint), pairingNonce,
+            id, stampId, publicJwk, thumbprint.Value, DeviceFingerprint.From(thumbprint), pairingNonce,
             metadata, pairingSourceAddress, correlationId, now, windows);
     }
+
+    public static AnalystManagerRegistration Rehydrate(
+        Guid id, Guid? managerId, string stampId, RegistrationState state, string publicJwk, string keyThumbprint,
+        DeviceFingerprint fingerprint, int fingerprintMismatchCount, string? pairingSourceAddress, string pairingNonce,
+        DeviceMetadata metadata, byte[]? challengeHash, DateTimeOffset? challengeExpiresAt,
+        DateTimeOffset pairingExpiresAt, DateTimeOffset? approvalExpiresAt, DateTimeOffset? activationExpiresAt,
+        Guid? submittedBy, DateTimeOffset? submittedAt, Guid? decidedBy, DateTimeOffset? decidedAt,
+        string? decisionReason, DateTimeOffset? activatedAt, DateTimeOffset? unregistrationStartedAt,
+        DateTimeOffset? endedAt, Guid? revokedBy, string? endReason, string correlationId,
+        DateTimeOffset createdAt, RegistrationWindows windows) =>
+        new(id, stampId, publicJwk, keyThumbprint, fingerprint, pairingNonce, metadata, pairingSourceAddress,
+            correlationId, createdAt, windows)
+        {
+            ManagerId = managerId,
+            State = state,
+            FingerprintMismatchCount = fingerprintMismatchCount,
+            ChallengeHash = challengeHash,
+            ChallengeExpiresAt = challengeExpiresAt,
+            PairingExpiresAt = pairingExpiresAt,
+            ApprovalExpiresAt = approvalExpiresAt,
+            ActivationExpiresAt = activationExpiresAt,
+            SubmittedBy = submittedBy,
+            SubmittedAt = submittedAt,
+            DecidedBy = decidedBy,
+            DecidedAt = decidedAt,
+            DecisionReason = decisionReason,
+            ActivatedAt = activatedAt,
+            UnregistrationStartedAt = unregistrationStartedAt,
+            EndedAt = endedAt,
+            RevokedBy = revokedBy,
+            EndReason = endReason,
+        };
 
     public RegistrationTransitionResult Submit(Guid submittedBy, DateTimeOffset now)
     {
