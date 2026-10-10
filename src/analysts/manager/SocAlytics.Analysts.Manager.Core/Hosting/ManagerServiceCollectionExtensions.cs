@@ -25,6 +25,11 @@ public static class ManagerServiceCollectionExtensions
             AddWindowsCng(services);
         }
 
+        if (OperatingSystem.IsMacOS())
+        {
+            AddMacBridge(services);
+        }
+
         services.AddSingleton<DeviceKeyProviderSelector>();
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ProofFactory>();
@@ -35,6 +40,10 @@ public static class ManagerServiceCollectionExtensions
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static void AddWindowsCng(IServiceCollection services) =>
         services.AddSingleton<IDeviceKeyProvider, WindowsCngKeyProvider>();
+
+    [System.Runtime.Versioning.SupportedOSPlatform("macos")]
+    private static void AddMacBridge(IServiceCollection services) =>
+        services.AddSingleton<IDeviceKeyProvider, MacBridgeKeyProvider>();
 
     [System.Runtime.Versioning.SupportedOSPlatform("linux")]
     private static void AddPkcs11(IServiceCollection services) =>
