@@ -23,6 +23,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SignInHandler>();
         services.TryAddScoped<GetCurrentMemberHandler>();
         services.TryAddScoped<ChangeOwnPasswordHandler>();
+        services.TryAddScoped<CreateMemberHandler>();
+        services.TryAddScoped<RedeemCredentialHandler>();
 
         return services;
     }

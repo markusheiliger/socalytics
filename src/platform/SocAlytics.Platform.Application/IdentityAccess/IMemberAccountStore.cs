@@ -22,6 +22,8 @@ public interface IMemberAccountStore
 {
     Task<MemberProfile?> GetProfileAsync(Guid accountId, CancellationToken cancellationToken);
 
+    Task<MemberDetails?> GetMemberAsync(Guid id, CancellationToken cancellationToken);
+
     Task<MemberAccessSnapshot?> GetAccessSnapshotAsync(Guid accountId, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<Guid>> ListAllTeamIdsAsync(CancellationToken cancellationToken);

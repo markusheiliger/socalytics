@@ -55,6 +55,39 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
         return new MemberAccessSnapshot(status, account.PasswordChangeRequired, clubRoles, teamRoles);
     }
 
+    public async Task<MemberDetails?> GetMemberAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<MemberRow>(new CommandDefinition(
+            "SELECT account_name AS AccountName, membership_status AS Status, (password_hash IS NOT NULL) AS PasswordSet, " +
+            "lockout_end AS LockoutEnd, two_factor_enabled AS TwoFactorEnabled, created_at AS CreatedAt, version AS Version " +
+            "FROM socalytics.member_account WHERE id = @id",
+            new { id },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        var snapshot = await GetAccessSnapshotAsync(id, cancellationToken);
+        if (row is null || snapshot is null)
+        {
+            return null;
+        }
+
+        var now = time.GetUtcNow();
+        var lockoutEnd = row.LockoutEnd is { } le ? new DateTimeOffset(DateTime.SpecifyKind(le, DateTimeKind.Utc)) : (DateTimeOffset?)null;
+        var lockedOut = lockoutEnd is { } end && end > now;
+        return new MemberDetails(
+            id,
+            row.AccountName,
+            snapshot.Status,
+            row.PasswordSet,
+            lockedOut,
+            lockedOut ? lockoutEnd : null,
+            row.TwoFactorEnabled,
+            snapshot.ClubRoles,
+            [.. snapshot.TeamRoles.OrderBy(t => t.Key).Select(t => new MemberTeamAssignment(t.Key, t.Value))],
+            new DateTimeOffset(DateTime.SpecifyKind(row.CreatedAt, DateTimeKind.Utc)),
+            row.Version);
+    }
+
     public async Task<MemberProfile?> GetProfileAsync(Guid accountId, CancellationToken cancellationToken)
     {
         var snapshot = await GetAccessSnapshotAsync(accountId, cancellationToken);
@@ -120,6 +153,15 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
             session.Transaction,
             cancellationToken: cancellationToken));
     }
+
+    private sealed record MemberRow(
+        string AccountName,
+        string Status,
+        bool PasswordSet,
+        DateTime? LockoutEnd,
+        bool TwoFactorEnabled,
+        DateTime CreatedAt,
+        long Version);
 
     private sealed record AccountRow(string Status, bool PasswordChangeRequired);
 
