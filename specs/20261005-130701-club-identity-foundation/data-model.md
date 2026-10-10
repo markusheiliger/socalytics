@@ -99,8 +99,11 @@ Any other request is rejected with `409 invalid-state-transition`.
 Deactivating the last active Club Admin is rejected with
 `409 last-club-admin` (FR-034).
 
-Lockout fields (`lockout_end`, `access_failed_count`) are maintained by
-Identity. Unlock clears both and is allowed in any membership state.
+Lockout fields (`lockout_end`, `access_failed_count`) are maintained by the
+sign-in refusal statement (research R6): one `WITH … UPDATE … INSERT`
+statement per refused attempt updates the counter and `lockout_end` only for
+a wrong password outside lockout, and writes the `session.sign-in` audit row
+on every refusal path, so all paths cost the same database work. Unlock clears both and is allowed in any membership state.
 Break-glass recovery also clears both (see
 [recovery_directive_use](#recovery_directive_use)).
 
