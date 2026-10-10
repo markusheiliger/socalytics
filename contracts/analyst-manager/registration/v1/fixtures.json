@@ -20,6 +20,20 @@
     { "id": "submission-valid", "exchange": "submission", "file": "submission.request.json", "seedState": { "registration": "Pairing" }, "expected": { "status": 201 } },
     { "id": "submission-wrong-fingerprint", "exchange": "submission", "file": "submission.wrong-fingerprint.request.json", "seedState": { "registration": "Pairing" }, "expected": { "status": 400, "code": "analyst-manager-pairing-code-invalid" } },
     { "id": "fingerprint", "exchange": "fingerprint", "file": "fingerprint.json", "expected": { "status": 200 } },
-    { "id": "test-key", "exchange": "key", "file": "test-key.jwk.json", "expected": { "status": 200 } }
+    { "id": "test-key", "exchange": "key", "file": "test-key.jwk.json", "expected": { "status": 200 } },
+    { "id": "activation-request", "exchange": "activation", "file": "activation.request.json", "seedState": { "registration": "Approved", "challenge": "manifest" }, "expected": { "status": 200 } },
+    { "id": "activation-response", "exchange": "activation", "file": "activation.response.json", "seedState": { "registration": "Approved", "challenge": "manifest" }, "expected": { "status": 200 } },
+    { "id": "token-request", "exchange": "token", "file": "token.request.json", "seedState": { "registration": "Active", "managerId": "manifest" }, "expected": { "status": 200 } },
+    { "id": "token-response", "exchange": "token", "file": "token.response.json", "seedState": { "registration": "Active", "managerId": "manifest" }, "expected": { "status": 200 } },
+    { "id": "token-inactive", "exchange": "token", "file": "token.inactive.response.json", "seedState": { "registration": "Revoked" }, "expected": { "status": 400, "error": "invalid_client" } },
+    { "id": "self-registration-request", "exchange": "self", "file": "self-registration.request.json", "seedState": { "registration": "Active", "managerId": "manifest", "accessToken": "manifest" }, "expected": { "status": 200 } },
+    { "id": "self-registration-response", "exchange": "self", "file": "self-registration.response.json", "seedState": { "registration": "Active", "managerId": "manifest", "accessToken": "manifest" }, "expected": { "status": 200 } },
+    { "id": "self-registration-inactive", "exchange": "self", "file": "self-registration.inactive.response.json", "seedState": { "registration": "Revoked", "accessToken": "manifest" }, "expected": { "status": 401, "code": "analyst-manager-registration-inactive" } },
+    { "id": "negative-replayed-jti", "exchange": "negative", "file": "negative/replayed-jti.json", "seedState": { "registration": "Active", "managerId": "manifest" }, "expected": { "status": 400, "error": "invalid_dpop_proof" } },
+    { "id": "negative-wrong-aud", "exchange": "negative", "file": "negative/wrong-aud.json", "seedState": { "registration": "Active", "managerId": "manifest" }, "expected": { "status": 400, "error": "invalid_client" } },
+    { "id": "negative-wrong-key", "exchange": "negative", "file": "negative/wrong-key.json", "seedState": { "registration": "Active", "managerId": "manifest" }, "expected": { "status": 400, "error": "invalid_dpop_proof" } },
+    { "id": "negative-stale-iat", "exchange": "negative", "file": "negative/stale-iat.json", "seedState": { "registration": "Active", "managerId": "manifest" }, "expected": { "status": 400, "error": "invalid_dpop_proof" } },
+    { "id": "negative-wrong-htu", "exchange": "negative", "file": "negative/wrong-htu.json", "seedState": { "registration": "Active", "managerId": "manifest" }, "expected": { "status": 400, "error": "invalid_dpop_proof" } },
+    { "id": "negative-missing-ath", "exchange": "negative", "file": "negative/missing-ath.json", "seedState": { "registration": "Active", "managerId": "manifest", "accessToken": "manifest" }, "expected": { "status": 401 } }
   ]
 }

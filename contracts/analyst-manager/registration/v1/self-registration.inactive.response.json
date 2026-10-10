@@ -1,0 +1,14 @@
+{
+  "status": 401,
+  "headers": {
+    "WWW-Authenticate": "DPoP error=\u0022invalid_token\u0022"
+  },
+  "body": {
+    "type": "urn:socalytics:problem:analyst-manager-registration-inactive",
+    "title": "Registration inactive",
+    "status": 401,
+    "code": "analyst-manager-registration-inactive",
+    "correlationId": "fixture-correlation",
+    "registrationState": "revoked"
+  }
+}

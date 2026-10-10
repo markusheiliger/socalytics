@@ -1,0 +1,12 @@
+{
+  "form": {
+    "grant_type": "client_credentials",
+    "client_id": "fixture-manager-0001",
+    "client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+    "client_assertion": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJmaXh0dXJlLW1hbmFnZXItMDAwMSIsInN1YiI6ImZpeHR1cmUtbWFuYWdlci0wMDAxIiwiYXVkIjoiaHR0cHM6Ly9zdGFtcC5leGFtcGxlLnRlc3QvYXBpL3YxL290aGVyIiwiaWF0IjoxNzY3MjI1NjAwLCJleHAiOjE3NjcyMjU2NjAsImp0aSI6ImNkMTg4NzNkY2Y5ZjRiYzg5Zjk5YjQ0ZTIxMzg3ZWQyIn0.ApMHfRGVVBQhGkLjTG_tPgsIpw6n2YKUD8yipi6Fz9mfEu170ddPCgAfyzb01hxgKmD2c4eiGEBKoGEZWDQhHw",
+    "scope": "analyst-manager"
+  },
+  "headers": {
+    "DPoP": "eyJ0eXAiOiJkcG9wXHUwMDJCand0IiwiYWxnIjoiRVMyNTYiLCJqd2siOnsia3R5IjoiRUMiLCJjcnYiOiJQLTI1NiIsIngiOiJmODNPSjNEMnhGMUJnOHZ1Yjl0TGUxZ0hNelY3NmU4VHVzOXVQSHZSVkVVIiwieSI6InhfRkV6UnU5bTM2SExOX3R1ZTY1OUxOcFhXNnBDeVN0aWtZaktJV0k1YTAifX0.eyJodG0iOiJQT1NUIiwiaHR1IjoiaHR0cHM6Ly9zdGFtcC5leGFtcGxlLnRlc3QvYXBpL3YxL2FuYWx5c3QtbWFuYWdlcnMvdG9rZW4iLCJpYXQiOjE3NjcyMjU2MDAsImp0aSI6IjIwMDVhNmY2NDMwNTQxMWVhNmM0YmFjNGEzNzU1ZDMwIn0.XE0Mx2O-PU-CVkzfrKiJokp28w31ZxPXYyh8Q0DcMTn2E73YEo6pzewpYO2Z-p4SAPBfPFcdzpgXMdxOs5wFJg"
+  }
+}
