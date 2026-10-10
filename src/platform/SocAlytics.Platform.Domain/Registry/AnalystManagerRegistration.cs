@@ -101,6 +101,14 @@ public sealed class AnalystManagerRegistration
 
     public DateTimeOffset CreatedAt { get; }
 
+    public long Version { get; private set; }
+
+    public AnalystManagerRegistration WithVersion(long version)
+    {
+        Version = version;
+        return this;
+    }
+
     public static AnalystManagerRegistration Start(
         Guid id, string stampId, DeviceKeyThumbprint thumbprint, string publicJwk, string pairingNonce,
         DeviceMetadata metadata, string? pairingSourceAddress, string correlationId,

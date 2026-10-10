@@ -18,7 +18,7 @@ internal sealed class DapperRegistrationStore(IDbSession session, IOptions<Regis
         "fingerprint_mismatch_count, pairing_source_address, pairing_nonce, device_metadata::text AS device_metadata, " +
         "challenge_hash, challenge_expires_at, pairing_expires_at, approval_expires_at, activation_expires_at, " +
         "submitted_by, submitted_at, decided_by, decided_at, decision_reason, activated_at, unregistration_started_at, " +
-        "ended_at, revoked_by, end_reason, correlation_id, created_at";
+        "ended_at, revoked_by, end_reason, correlation_id, created_at, version";
 
     private sealed record Row(
         Guid Id, Guid? ManagerId, string StampId, string State, string PublicJwk, string KeyThumbprint,
@@ -27,7 +27,7 @@ internal sealed class DapperRegistrationStore(IDbSession session, IOptions<Regis
         DateTime? ApprovalExpiresAt, DateTime? ActivationExpiresAt, Guid? SubmittedBy, DateTime? SubmittedAt,
         Guid? DecidedBy, DateTime? DecidedAt, string? DecisionReason, DateTime? ActivatedAt,
         DateTime? UnregistrationStartedAt, DateTime? EndedAt, Guid? RevokedBy, string? EndReason,
-        string CorrelationId, DateTime CreatedAt);
+        string CorrelationId, DateTime CreatedAt, long Version);
 
     public async Task InsertAsync(
         AnalystManagerRegistration r, byte[]? pairingCodeHash, byte[] pollingHandleHash, CancellationToken cancellationToken)
@@ -195,7 +195,7 @@ internal sealed class DapperRegistrationStore(IDbSession session, IOptions<Regis
             Utc(r.PairingExpiresAt), Utc(r.ApprovalExpiresAt), Utc(r.ActivationExpiresAt), r.SubmittedBy,
             Utc(r.SubmittedAt), r.DecidedBy, Utc(r.DecidedAt), r.DecisionReason, Utc(r.ActivatedAt),
             Utc(r.UnregistrationStartedAt), Utc(r.EndedAt), r.RevokedBy, r.EndReason, r.CorrelationId,
-            Utc(r.CreatedAt), windows);
+            Utc(r.CreatedAt), windows).WithVersion(r.Version);
     }
 
     private static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc));

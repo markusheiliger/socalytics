@@ -71,6 +71,9 @@ public static class ApplicationServiceCollectionExtensions
 
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.StartPairingHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.GetPairingStatusHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.SubmitPairingCodeHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.GetRegistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.ListRegistrationsHandler>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.RegistryOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.RegistryOptions.SectionName);
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()

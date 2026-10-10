@@ -16,6 +16,7 @@ internal static class RegistryApiRegistration
 	public static WebApplication MapRegistryEndpoints(this WebApplication app)
 	{
 		app.MapAnalystManagerPairingEndpoints();
+		app.MapAnalystManagerRegistrationEndpoints();
 		return app;
 	}
 }
