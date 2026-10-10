@@ -8,7 +8,8 @@ name: Spec Kit implement spec
 #   phase:             one phase of tasks.md in Spec Kit implement phase, named "Spec Kit implement phase #<twin> ·
 #                      <phase heading>": its stages run one at a time in Spec Kit implement task
 #   step:              the convergence or a conflict resolution in Spec Kit implement task, named "Spec Kit implement
-#                      task #<twin> · Convergence" or "· Conflict resolution"
+#                      task #<twin> · Convergence" or "· Conflict resolution"; spec-level steps that belong to no phase,
+#                      shown as "Converge or resolve conflicts" when skipped
 #   merge-verify:      merges the default branch and runs the full verification (read-only token)
 #   merge-land:        squash-merges the pull request, or asks for review (never runs agent-written code)
 #   continue:          starts the next run of the chain
@@ -126,7 +127,7 @@ jobs:
 
   # The convergence or a conflict resolution: a single stage, whose attempt decide already started.
   step:
-    name: ${{ needs.decide.outputs.action == 'step' && needs.decide.outputs.title || 'Spec Kit implement task' }}
+    name: ${{ needs.decide.outputs.action == 'step' && needs.decide.outputs.title || 'Converge or resolve conflicts' }}
     needs: decide
     if: needs.decide.outputs.action == 'step'
     uses: ./.github/workflows/speckit-implement-task.yml
