@@ -1,3 +1,10 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Shouldly;
 using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
@@ -8,7 +15,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Recordings;
 
-public sealed class ImmutabilityTests(PostgresContainerFixture postgres)
+public sealed class ImmutabilityTests(PostgresContainerFixture postgres, RustFsContainerFixture rustFs)
 {
 	private static readonly Dictionary<string, string?> Config = new()
 	{
@@ -34,6 +41,120 @@ public sealed class ImmutabilityTests(PostgresContainerFixture postgres)
 		await using var cmd = new NpgsqlCommand(sql, c);
 		parameters?.Invoke(cmd.Parameters);
 		await cmd.ExecuteNonQueryAsync(ct);
+	}
+
+
+	private static Task<HttpResponseMessage> PostAsync(ApiSession session, string path, object body, CancellationToken ct)
+	{
+		var request = new HttpRequestMessage(HttpMethod.Post, path) { Content = JsonContent.Create(body) };
+		request.Headers.Add("X-CSRF-Token", session.AntiforgeryToken);
+		request.Headers.Add("Idempotency-Key", Guid.NewGuid().ToString());
+		return session.Client.SendAsync(request, ct);
+	}
+
+	private static async Task<(Guid Version, Guid Mapping)> UploadAsync(ApiSession session, Guid matchId, int seed, CancellationToken ct)
+	{
+		var recording = RecordingTestData.Generate(seed, 2048);
+		using var started = await PostAsync(session, $"/api/v1/matches/{matchId}/upload-sessions", recording.Declaration(), ct);
+		started.StatusCode.ShouldBe(HttpStatusCode.Created, await started.Content.ReadAsStringAsync(ct));
+		var body = await started.Content.ReadFromJsonAsync<JsonElement>(ct);
+		using var storage = new HttpClient();
+		using (var put = await RecordingTestData.PutPartAsync(storage, body.GetProperty("grants").GetProperty("parts")[0], recording.Parts[0], ct))
+		{
+			put.IsSuccessStatusCode.ShouldBeTrue();
+		}
+
+		var id = body.GetProperty("session").GetProperty("id").GetString();
+		var spans = new[] { new { mediaStartSeconds = 0, mediaEndSeconds = 10, matchStartSeconds = 0 } };
+		using var completed = await PostAsync(session, $"/api/v1/matches/{matchId}/upload-sessions/{id}/completion", new { timelineMapping = new { spans } }, ct);
+		completed.StatusCode.ShouldBe(HttpStatusCode.Created, await completed.Content.ReadAsStringAsync(ct));
+		var result = await completed.Content.ReadFromJsonAsync<JsonElement>(ct);
+		return (result.GetProperty("recordingVersion").GetProperty("id").GetGuid(), result.GetProperty("timelineMapping").GetProperty("id").GetGuid());
+	}
+
+	private static async Task<Guid> FinalizeAsync(ApiSession session, Guid matchId, IEnumerable<(Guid Version, Guid Mapping)> members, CancellationToken ct)
+	{
+		var body = new { members = members.Select(m => new { recordingVersionId = m.Version, timelineMappingId = m.Mapping }).ToArray() };
+		using var response = await PostAsync(session, $"/api/v1/matches/{matchId}/recording-set-versions", body, ct);
+		response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(ct));
+		return (await response.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("id").GetGuid();
+	}
+
+	private static async Task<string> SnapshotAsync(FinalizationSetup s, string sql, CancellationToken ct)
+	{
+		await using var connection = new NpgsqlConnection(s.Db.MigratorConnectionString);
+		await connection.OpenAsync(ct);
+		await using var command = new NpgsqlCommand($"SELECT coalesce(string_agg(r::text, E'\\n' ORDER BY r::text), '') FROM ({sql}) r", connection);
+		return (string)(await command.ExecuteScalarAsync(ct))!;
+	}
+
+	[Fact]
+	// US3 AS2-AS3, FR-015, FR-018, SC-005
+	public async Task CorrectionsOnlyAddVersionsAndLeaveEarlierOnesUnchanged()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct);
+		var match = s.Hierarchy.MatchId;
+		var a = await UploadAsync(s.Coach, match, 71, ct);
+		var versionBefore = await SnapshotAsync(s, $"SELECT * FROM socalytics.recording_versions WHERE id = '{a.Version}'", ct);
+		var mappingBefore = await SnapshotAsync(s, $"SELECT * FROM socalytics.recording_timeline_mappings WHERE id = '{a.Mapping}'", ct);
+
+		var corrected = await UploadAsync(s.Coach, match, 72, ct);
+		corrected.Version.ShouldNotBe(a.Version);
+		corrected.Mapping.ShouldNotBe(a.Mapping);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_versions", ct)).ShouldBe(2);
+		(await SnapshotAsync(s, $"SELECT * FROM socalytics.recording_versions WHERE id = '{a.Version}'", ct)).ShouldBe(versionBefore);
+		(await SnapshotAsync(s, $"SELECT * FROM socalytics.recording_timeline_mappings WHERE id = '{a.Mapping}'", ct)).ShouldBe(mappingBefore);
+
+		var set1 = await FinalizeAsync(s.Coach, match, [a, corrected], ct);
+		var setSql = (Guid id) =>
+			$"SELECT * FROM socalytics.recording_set_versions WHERE id = '{id}'";
+		var memberSql = (Guid id) =>
+			$"SELECT * FROM socalytics.recording_set_members WHERE recording_set_version_id = '{id}'";
+		var eventSql = (Guid id) =>
+			$"SELECT * FROM socalytics.recording_finalized_events WHERE recording_set_version_id = '{id}'";
+		var setBefore = await SnapshotAsync(s, setSql(set1), ct);
+		var membersBefore = await SnapshotAsync(s, memberSql(set1), ct);
+		var eventBefore = await SnapshotAsync(s, eventSql(set1), ct);
+
+		var set2 = await FinalizeAsync(s.Coach, match, [corrected, a], ct);
+		set2.ShouldNotBe(set1);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_set_versions", ct)).ShouldBe(2);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_finalized_events", ct)).ShouldBe(2);
+		(await s.ScalarAsync($"SELECT count(*) FROM socalytics.recording_finalized_events WHERE recording_set_version_id = '{set2}'", ct)).ShouldBe(1);
+		(await SnapshotAsync(s, setSql(set1), ct)).ShouldBe(setBefore);
+		(await SnapshotAsync(s, memberSql(set1), ct)).ShouldBe(membersBefore);
+		(await SnapshotAsync(s, eventSql(set1), ct)).ShouldBe(eventBefore);
+	}
+
+	[Fact]
+	// US3 AS4, FR-021: no modifying route exists, including for a Club Admin
+	public async Task NoPutPatchOrDeleteRouteExistsForRecordingResources()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct);
+		var endpoints = s.Factory.Services.GetServices<EndpointDataSource>().SelectMany(d => d.Endpoints).OfType<RouteEndpoint>()
+			.Where(e => (e.RoutePattern.RawText ?? string.Empty).Contains("/matches/{matchId", StringComparison.Ordinal))
+			.ToList();
+		endpoints.ShouldContain(e => e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.Contains("POST"));
+		string[] resources = ["recording-versions", "timeline-mappings", "recording-set-versions", "upload-sessions"];
+		string[] forbidden = ["PUT", "PATCH", "DELETE"];
+		var offending = endpoints
+			.Where(e => resources.Any(r => e.RoutePattern.RawText!.Contains(r, StringComparison.Ordinal)))
+			.Where(e => e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.Any(m => forbidden.Contains(m, StringComparer.OrdinalIgnoreCase)))
+			.Select(e => e.RoutePattern.RawText)
+			.ToList();
+		offending.ShouldBeEmpty();
+
+		var a = await UploadAsync(s.Coach, s.Hierarchy.MatchId, 81, ct);
+		foreach (var method in new[] { HttpMethod.Put, HttpMethod.Patch, HttpMethod.Delete })
+		{
+			foreach (var path in new[] { $"recording-versions/{a.Version}", $"recording-versions/{a.Version}/timeline-mappings", $"timeline-mappings/{a.Mapping}" })
+			{
+				using var response = await s.Admin.SendAsync(method, $"/api/v1/matches/{s.Hierarchy.MatchId}/{path}", null, ct);
+				response.StatusCode.ShouldBeOneOf(HttpStatusCode.NotFound, HttpStatusCode.MethodNotAllowed);
+			}
+		}
 	}
 
 	[Fact]
