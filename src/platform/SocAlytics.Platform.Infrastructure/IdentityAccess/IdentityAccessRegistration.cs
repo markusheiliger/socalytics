@@ -9,7 +9,10 @@ internal static class IdentityAccessRegistration
 {
     public static IServiceCollection AddIdentityAccess(this IServiceCollection services)
     {
-        services.AddIdentityCore<IdentityMemberAccount>().AddUserStore<DapperMemberAccountStore>();
+        services.AddIdentityCore<IdentityMemberAccount>()
+            .AddUserStore<DapperMemberAccountStore>()
+            .AddTokenProvider<OneTimeCredentialTokenProvider>(OneTimeCredentialTokenProvider.SetPasswordPurpose)
+            .AddTokenProvider<OneTimeCredentialTokenProvider>(OneTimeCredentialTokenProvider.PasswordResetPurpose);
         services.AddSingleton<IConfigureOptions<IdentityOptions>, ConfigureIdentityOptions>();
         return services;
     }
