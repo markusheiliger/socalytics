@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using Avalonia;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using SocAlytics.Analysts.Manager.Cli;
 using SocAlytics.Analysts.Manager.Hosting;
 using SocAlytics.Analysts.Manager.LocalControl;
 
@@ -12,6 +13,12 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (ManagerCli.IsCommand(args))
+        {
+            ManagerCli.AttachParentConsole();
+            return ManagerCli.RunAsync(args, LocalControlPaths.SocketPath(), Console.Out, Console.Error).GetAwaiter().GetResult();
+        }
+
         using var instance = SingleInstanceGuard.AcquireAsync(LocalControlPaths.SocketPath()).GetAwaiter().GetResult();
         if (instance is null)
         {

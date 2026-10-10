@@ -24,7 +24,9 @@ internal sealed class FakeManagerControl : IManagerControl
 
     public Task<ControlResult> PauseUntilAsync(DateTimeOffset endUtc) => Task.FromResult(new ControlResult(true));
 
-    public Task<ControlResult> ResumeAsync() => Task.FromResult(new ControlResult(true));
+    public bool RefuseResume { get; set; }
+
+    public Task<ControlResult> ResumeAsync() => Task.FromResult(RefuseResume ? new ControlResult(false, "invalid-registration-state") : new ControlResult(true));
 
     public Task<ControlResult> ExitAsync() => Task.FromResult(new ControlResult(true));
 
