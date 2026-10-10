@@ -15,12 +15,24 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 	private readonly IsolatedDatabase? _database;
 	private readonly IReadOnlyDictionary<string, string?>? _clubBootstrap;
 	private readonly IReadOnlyDictionary<string, string?>? _breakGlassRecovery;
+	private readonly IReadOnlyDictionary<string, string?>? _recordingUpload;
+	private readonly IReadOnlyDictionary<string, string?>? _recordingSets;
+	private readonly IReadOnlyDictionary<string, string?>? _objectStorage;
+	private readonly Action<IServiceCollection>? _configureServices;
 
 	public PlatformApiFactory(
 		IsolatedDatabase? database,
 		IReadOnlyDictionary<string, string?>? clubBootstrap = null,
-		IReadOnlyDictionary<string, string?>? breakGlassRecovery = null)
+		IReadOnlyDictionary<string, string?>? breakGlassRecovery = null,
+		IReadOnlyDictionary<string, string?>? recordingUpload = null,
+		IReadOnlyDictionary<string, string?>? recordingSets = null,
+		IReadOnlyDictionary<string, string?>? objectStorage = null,
+		Action<IServiceCollection>? configureServices = null)
 	{
+		_configureServices = configureServices;
+		_objectStorage = objectStorage;
+		_recordingUpload = recordingUpload;
+		_recordingSets = recordingSets;
 		_database = database;
 		_clubBootstrap = clubBootstrap;
 		_breakGlassRecovery = breakGlassRecovery;
@@ -43,10 +55,17 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 
 			AddSection(settings, "ClubBootstrap", _clubBootstrap);
 			AddSection(settings, "BreakGlassRecovery", _breakGlassRecovery);
+			AddSection(settings, "Recordings:Upload", _recordingUpload);
+			AddSection(settings, "Recordings:Sets", _recordingSets);
+			AddSection(settings, "ObjectStorage", _objectStorage);
 			configuration.AddInMemoryCollection(settings);
 		});
 		builder.ConfigureLogging(logging => logging.AddProvider(Logs));
-		builder.ConfigureServices(services => services.Replace(ServiceDescriptor.Singleton<TimeProvider>(Time)));
+		builder.ConfigureServices(services =>
+		{
+			services.Replace(ServiceDescriptor.Singleton<TimeProvider>(Time));
+			_configureServices?.Invoke(services);
+		});
 	}
 
 	protected override void ConfigureClient(HttpClient client)

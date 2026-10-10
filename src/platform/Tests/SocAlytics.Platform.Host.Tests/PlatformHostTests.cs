@@ -27,6 +27,7 @@ public sealed class PlatformHostTests
 
         await app.StartAsync(timeout.Token);
         await app.ResourceNotifications.WaitForResourceHealthyAsync("postgres", timeout.Token);
+        await app.ResourceNotifications.WaitForResourceHealthyAsync("rustfs", timeout.Token);
         await app.ResourceNotifications.WaitForResourceAsync(
             MigratorResourceName, KnownResourceStates.Finished, timeout.Token);
         app.ResourceNotifications.TryGetCurrentState(MigratorResourceName, out var migrator).ShouldBeTrue();
