@@ -9,6 +9,8 @@ namespace SocAlytics.Platform.Api.Registry;
 
 internal sealed record PairingCodeSubmissionBody(string? PairingCode, string? DeviceFingerprint);
 
+internal sealed record ReasonRequest(string? Reason);
+
 internal static class AnalystManagerRegistrationEndpoints
 {
 	public const string ApprovalNotice =
@@ -26,6 +28,11 @@ internal static class AnalystManagerRegistrationEndpoints
 			.WithName("listAnalystManagerRegistrations");
 		group.MapGet("/analyst-manager-registrations/{registrationId:guid}", GetAsync)
 			.WithName("getAnalystManagerRegistration");
+		group.MapPost("/analyst-manager-registrations/{registrationId:guid}/approval", ApproveAsync)
+			.WithName("approveAnalystManagerRegistration");
+		group.MapPost("/analyst-manager-registrations/{registrationId:guid}/rejection", RejectAsync)
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("rejectAnalystManagerRegistration");
 		return routes;
 	}
 
@@ -106,6 +113,40 @@ internal static class AnalystManagerRegistrationEndpoints
 		Guid registrationId, HttpContext http, GetRegistrationHandler handler, CancellationToken cancellationToken)
 	{
 		var result = await handler.HandleAsync(registrationId, cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = IfMatchHeader.Format(result.Value.Version);
+		return Results.Json(ToDto(result.Value));
+	}
+
+	private static async Task<IResult> ApproveAsync(
+		Guid registrationId, HttpContext http, ApproveRegistrationHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(registrationId, cancellationToken);
+		return Decided(http, result);
+	}
+
+	private static async Task<IResult> RejectAsync(
+		Guid registrationId, HttpContext http, RejectRegistrationHandler handler, CancellationToken cancellationToken)
+	{
+		ReasonRequest? body;
+		try
+		{
+			body = await http.Request.ReadFromJsonAsync<ReasonRequest>(cancellationToken);
+		}
+		catch (JsonException)
+		{
+			body = null;
+		}
+
+		return Decided(http, await handler.HandleAsync(registrationId, body?.Reason, cancellationToken));
+	}
+
+	private static IResult Decided(HttpContext http, OperationResult<AnalystManagerRegistration> result)
+	{
 		if (!result.IsSuccess)
 		{
 			return ProblemResults.From(result.Failure);
