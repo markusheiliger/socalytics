@@ -34,6 +34,9 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ProofFactory>();
         services.AddHttpClient<PlatformClient>();
+        services.AddSingleton<Registration.RegistrationCoordinator>();
+        services.AddSingleton<ManagerControl>();
+        services.AddSingleton<IManagerControl>(sp => sp.GetRequiredService<ManagerControl>());
         return services;
     }
 

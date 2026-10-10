@@ -17,6 +17,8 @@ internal sealed class InMemoryDeviceKeyProvider(KeyProtection protection = KeyPr
 
     public int CreatedCount { get; private set; }
 
+    public int LiveCount => _keys.Count;
+
     public static string FixtureDirectory { get; } =
         Path.Combine(AppContext.BaseDirectory, "contracts", "analyst-manager", "registration", "v1");
 
