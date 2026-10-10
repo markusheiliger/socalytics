@@ -21,13 +21,13 @@ internal sealed class RecordingStore(IDbSession session) : IRecordingStore
         string ObjectKey,
         string MultipartUploadId,
         Guid CreatedBy,
-        DateTimeOffset CreatedAt,
-        DateTimeOffset ExpiresAt,
-        DateTimeOffset? CompletedAt,
-        DateTimeOffset? ExpiredAt,
-        DateTimeOffset? StorageReleasedAt,
+        DateTime CreatedAt,
+        DateTime ExpiresAt,
+        DateTime? CompletedAt,
+        DateTime? ExpiredAt,
+        DateTime? StorageReleasedAt,
         long Version,
-        DateTimeOffset DatabaseNow);
+        DateTime DatabaseNow);
 
     public async Task InsertUploadSessionAsync(UploadSession upload, CancellationToken cancellationToken)
     {
@@ -83,7 +83,7 @@ internal sealed class RecordingStore(IDbSession session) : IRecordingStore
             new { uploadSessionId, matchId },
             session.Transaction,
             cancellationToken: cancellationToken));
-        return row is null ? null : new StoredUploadSession(Map(row), row.DatabaseNow);
+        return row is null ? null : new StoredUploadSession(Map(row), Utc(row.DatabaseNow));
     }
 
     private static UploadSession Map(SessionRow row)
@@ -111,6 +111,10 @@ internal sealed class RecordingStore(IDbSession session) : IRecordingStore
         };
         return UploadSession.Rehydrate(
             row.Id, row.MatchId, row.TeamId, descriptor!, declaration!, row.ObjectKey, row.MultipartUploadId, row.CreatedBy,
-            row.CreatedAt, row.ExpiresAt, state, row.CompletedAt, row.ExpiredAt, row.StorageReleasedAt, row.Version);
+            Utc(row.CreatedAt), Utc(row.ExpiresAt), state, Utc(row.CompletedAt), Utc(row.ExpiredAt), Utc(row.StorageReleasedAt), row.Version);
     }
+
+    private static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
+
+    private static DateTimeOffset? Utc(DateTime? value) => value is null ? null : Utc(value.Value);
 }

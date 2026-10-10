@@ -17,14 +17,17 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 	private readonly IReadOnlyDictionary<string, string?>? _breakGlassRecovery;
 	private readonly IReadOnlyDictionary<string, string?>? _recordingUpload;
 	private readonly IReadOnlyDictionary<string, string?>? _recordingSets;
+	private readonly IReadOnlyDictionary<string, string?>? _objectStorage;
 
 	public PlatformApiFactory(
 		IsolatedDatabase? database,
 		IReadOnlyDictionary<string, string?>? clubBootstrap = null,
 		IReadOnlyDictionary<string, string?>? breakGlassRecovery = null,
 		IReadOnlyDictionary<string, string?>? recordingUpload = null,
-		IReadOnlyDictionary<string, string?>? recordingSets = null)
+		IReadOnlyDictionary<string, string?>? recordingSets = null,
+		IReadOnlyDictionary<string, string?>? objectStorage = null)
 	{
+		_objectStorage = objectStorage;
 		_recordingUpload = recordingUpload;
 		_recordingSets = recordingSets;
 		_database = database;
@@ -51,6 +54,7 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 			AddSection(settings, "BreakGlassRecovery", _breakGlassRecovery);
 			AddSection(settings, "Recordings:Upload", _recordingUpload);
 			AddSection(settings, "Recordings:Sets", _recordingSets);
+			AddSection(settings, "ObjectStorage", _objectStorage);
 			configuration.AddInMemoryCollection(settings);
 		});
 		builder.ConfigureLogging(logging => logging.AddProvider(Logs));
