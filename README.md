@@ -226,8 +226,9 @@ their "blocked by" issues are closed.
   `Spec Kit implement` (`speckit-implement.yml`), one at a time per spec,
   each started by the previous one. A run that implements tasks tackles one
   phase of `tasks.md`, the phase of the first open task, and decides itself
-  which of its tasks are still open; it is named after the phase, for example
-  `Spec Kit implement #35 · Phase 3: User Story 1 - Upload a Source Recording for a Match`.
+  which of its tasks are still open; it is named after the phase's heading as
+  written, for example
+  `Spec Kit implement #35 · Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP`.
   Runs for the other segments are named `… · Convergence`,
   `… · Conflict resolution`, `… · Merge`, or, when the implementation stops,
   `… · Start a diagnosis`. The name is set when the run is started; the run

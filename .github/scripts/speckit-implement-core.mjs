@@ -281,7 +281,7 @@ export function taskProgress(tasksMarkdown) {
 }
 
 // Run name of the implementation chain of a twin, with what the run most likely does ("Spec Kit implement #35 · Phase
-// 3: User Story 1 - Upload a Source Recording for a Match", "Spec Kit implement #35 · Merge"). Runs of the per-task workflow before the chain existed were named
+// 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP", "Spec Kit implement #35 · Merge"). Runs of the per-task workflow before the chain existed were named
 // "Spec Kit implement #<twin> T001 attempt 1"; they count as runs of the twin as well.
 export function renderImplementRunName(twin, label = '') {
   return `${IMPLEMENT_RUN_PREFIX} #${twin}${label ? ` · ${label}` : ''}`;
@@ -297,14 +297,9 @@ export function isPerTaskRunOf(title, twin) {
   return new RegExp(`^${IMPLEMENT_RUN_PREFIX} #${twin} T\\d{3,} attempt \\d+$`).test(String(title ?? ''));
 }
 
-const clipLabel = (text, max) => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text);
-
-// The short phase name of a tasks.md heading: up to the first symbol (such as a marker emoji), without parentheses
-// (such as the priority).
+// The phase of a tasks.md heading exactly as written (planStages already removed the "## ").
 function phaseName(heading) {
-  const text = String(heading ?? '');
-  const symbol = text.search(/[^\p{L}\p{N}\s:,.'&/+()\-–]/u);
-  return clipLabel((symbol >= 0 ? text.slice(0, symbol) : text).replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim(), 100);
+  return String(heading ?? '').trim();
 }
 
 // What a run of the chain is going to tackle, for its run name, from the decision that starts it (decideNext). The

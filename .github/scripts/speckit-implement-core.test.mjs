@@ -503,8 +503,8 @@ test('the implementation workflow runs the planned stages as a matrix, one at a 
 test('labels the next run of the chain with what it tackles', () => {
   const tasks = '## Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP\n- [ ] T013 [P] a\n- [ ] T014 [P] b\n- [ ] T015 c\n';
   const decide = (fields) => decideNext({ tasksMarkdown: tasks, windowStart: '2026-10-06T10:00:00Z', ...fields });
-  assert.equal(segmentLabel(decide({})), 'Phase 3: User Story 1 - Upload a Source Recording for a Match', 'the phase, without priority and markers');
-  assert.equal(segmentLabel(decide({ attempts: [attempt('T014')] })), 'Phase 3: User Story 1 - Upload a Source Recording for a Match', 'a retry within the phase keeps its name');
+  assert.equal(segmentLabel(decide({})), 'Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP', 'the phase heading as written, without "## "');
+  assert.equal(segmentLabel(decide({ attempts: [attempt('T014')] })), 'Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP', 'a retry within the phase keeps its name');
   assert.equal(segmentLabel(decideNext({ tasksMarkdown: '- [ ] T001 a\n- [ ] T002 b\n', windowStart: '2026-10-06T10:00:00Z' })), 'T001–T002', 'no phase heading: the tasks');
   assert.equal(segmentLabel({ action: 'stages', step: 'converge', stages: [[{ task: null, attempt: 2 }]] }), 'Convergence (retry: convergence attempt 2)');
   assert.equal(segmentLabel({ action: 'stages', step: 'resolve', stages: [[{ task: null, attempt: 1 }]] }), 'Conflict resolution');
