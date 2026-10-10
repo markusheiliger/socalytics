@@ -47,6 +47,49 @@ public sealed class SecurityAuditTrailTests(PostgresContainerFixture postgres)
         return ex.SqlState;
     }
 
+    [Theory]
+    [InlineData("upload-session")]
+    [InlineData("recording-version")]
+    [InlineData("timeline-mapping")]
+    [InlineData("recording-set-version")]
+    public async Task RecordingResourceTypesAndDetailKeysArePersisted(string resourceType)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await MigratedAsync(ct);
+        await using var provider = PlatformServices.Build(db);
+        await using var scope = provider.CreateAsyncScope();
+        scope.ServiceProvider.GetRequiredService<TestRequestContext>().ActorKind = AuditActorKind.System;
+        var id = Guid.NewGuid().ToString();
+
+        await using (var work = await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().BeginAsync(ct))
+        {
+            await scope.ServiceProvider.GetRequiredService<IAuditTrail>().RecordAsync(new AuditEvent
+            {
+                EventType = "recording.upload.start",
+                Action = "start-upload",
+                Outcome = AuditOutcome.Succeeded,
+                Resource = new AuditResource(resourceType, id),
+                Details = new Dictionary<string, string>
+                {
+                    ["matchId"] = "m",
+                    ["partCount"] = "1",
+                    ["grantedPartCount"] = "1",
+                    ["grantExpiresAt"] = "t",
+                    ["memberCount"] = "2",
+                },
+            }, ct);
+            await work.CommitAsync(ct);
+        }
+
+        await using var c = new NpgsqlConnection(db.AppConnectionString);
+        await c.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(
+            "SELECT count(*) FROM socalytics.security_audit_event WHERE resource_type = @t AND resource_id = @i AND details->>'memberCount' = '2'", c);
+        cmd.Parameters.AddWithValue("t", resourceType);
+        cmd.Parameters.AddWithValue("i", id);
+        ((long)(await cmd.ExecuteScalarAsync(ct))!).ShouldBe(1);
+    }
+
     [Fact]
     public async Task CommittedEventPersistsWithAllFields()
     {

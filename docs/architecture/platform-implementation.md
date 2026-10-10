@@ -27,7 +27,7 @@ SocAlytics uses one `src` root with these first-level ownership areas:
   required runtimes
 
 The executable platform projects are peers under `src/platform`, except for the
-three test projects grouped under `src/platform/Tests`:
+test projects grouped under `src/platform/Tests`:
 
 - `SocAlytics.Platform.Api`
 - `SocAlytics.Platform.AppHost`
@@ -38,6 +38,7 @@ three test projects grouped under `src/platform/Tests`:
 - `SocAlytics.Platform.Infrastructure`
 - `Tests/SocAlytics.Platform.Host.Tests`
 - `Tests/SocAlytics.Platform.Architecture.Tests`
+- `Tests/SocAlytics.Platform.Contracts.Tests`
 - `Tests/SocAlytics.Platform.Integration.Tests`
 
 `src/platform/SocAlytics.Platform.slnx` is the .NET 10 solution. The platform is
@@ -183,7 +184,7 @@ deployment unless measured scaling later justifies extraction.
 
 The persistence foundation implements PostgreSQL access with Npgsql and Dapper,
 DbUp migrations applied by the Migrator, explicit units of work, and
-trigger-managed versions; NATS JetStream, S3-compatible storage, the
+trigger-managed versions; NATS JetStream, the
 transactional outbox, and all domain tables remain unimplemented.
 
 Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Dapper
@@ -295,17 +296,17 @@ and backups are governed by
 
 ### Object Storage
 
-The Recordings area will adopt S3-compatible object storage through the S3
-protocol only. Infrastructure will use `AWSSDK.S3` with path-style addressing
+The Recordings area adopts S3-compatible object storage through the S3
+protocol only. Infrastructure uses `AWSSDK.S3` with path-style addressing
 against a configured endpoint; Application and Domain depend only on a storage
-abstraction. Every upload will be a multipart upload with composite SHA-256
+abstraction. Every upload is a multipart upload with composite SHA-256
 checksums: the API issues presigned per-part grants that sign each part's
 length and checksum, assembles the declared parts itself, and verifies the
 storage-reported composite digest and size; it never receives media bytes. A
-hosted worker in the API host will expire abandoned upload sessions and abort
-their multipart uploads. Locally the Aspire AppHost will run a pinned RustFS
-container as a plain container resource, the API will create the development
-bucket, and integration tests will use the same image through Testcontainers
+hosted worker in the API host expires abandoned upload sessions and aborts
+their multipart uploads. Locally the Aspire AppHost runs a pinned RustFS
+container as a plain container resource, the API creates the development
+bucket, and integration tests use the same image through Testcontainers
 together with a store conformance probe that any production store must pass.
 Bucket provisioning, production storage selection, encryption, credentials,
 browser CORS, public endpoints, grant and session lifetimes, and lifecycle

@@ -55,7 +55,10 @@ public sealed class OpenApiContractTests
 
 		mismatches.ShouldBeEmpty();
 
-		var operationCount = paths.EnumerateObject().Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
+		// Recording operations are verified by RecordingsOpenApiTests, not against the Club contract.
+		var operationCount = paths.EnumerateObject()
+			.Where(p => !IsRecordingPath(p.Name))
+			.Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
 		operationCount.ShouldBe(ContractOperations.All.Count);
 
 		var schemes = root.GetProperty("components").GetProperty("securitySchemes");
@@ -70,5 +73,25 @@ public sealed class OpenApiContractTests
 
 		root.GetProperty("security").EnumerateArray()
 			.Any(r => r.TryGetProperty("sessionCookie", out _)).ShouldBeTrue();
+	}
+
+	private static bool IsRecordingPath(string path)
+	{
+		const string prefix = "/api/v1/matches/{matchId}/";
+		if (!path.StartsWith(prefix, StringComparison.Ordinal))
+		{
+			return false;
+		}
+
+		var rest = path[prefix.Length..];
+		foreach (var segment in new[] { "upload-sessions", "recording-versions", "timeline-mappings", "recording-set-versions" })
+		{
+			if (rest == segment || rest.StartsWith(segment + "/", StringComparison.Ordinal))
+			{
+				return true;
+			}
+		}
+
+		return rest == "recording-lineage";
 	}
 }

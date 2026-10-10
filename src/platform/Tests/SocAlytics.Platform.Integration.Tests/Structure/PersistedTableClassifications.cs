@@ -28,5 +28,11 @@ internal static class PersistedTableClassifications
             ["one_time_credential"] = TableClassification.Unversioned("single-use credential state; consumption is the guard"),
             ["recovery_directive_use"] = TableClassification.Immutable,
             ["security_audit_event"] = TableClassification.Immutable,
+            ["recording_versions"] = TableClassification.Immutable,
+            ["recording_timeline_mappings"] = TableClassification.Immutable,
+            ["recording_set_versions"] = TableClassification.Immutable,
+            ["recording_set_members"] = TableClassification.Immutable,
+            ["recording_retry_outcomes"] = TableClassification.Immutable,
+            ["recording_finalized_events"] = TableClassification.Immutable,
         };
 }

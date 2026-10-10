@@ -22,7 +22,7 @@ public static class AuditOutcomeExtensions
     };
 }
 
-/// <summary>Resource types: club, season, team, match, member, session, credential.</summary>
+/// <summary>Resource types: club, season, team, match, member, session, credential, upload-session, recording-version, timeline-mapping, recording-set-version.</summary>
 public sealed record AuditResource(string Type, string? Id);
 
 public sealed record AuditActorOverride(AuditActorKind Kind, Guid? AccountId);

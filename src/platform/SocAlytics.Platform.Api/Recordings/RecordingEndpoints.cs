@@ -1,0 +1,500 @@
+using System.Text.Json;
+using Microsoft.AspNetCore.OpenApi;
+using SocAlytics.Platform.Api.Http;
+using SocAlytics.Platform.Api.Security;
+using SocAlytics.Platform.Application.Abstractions;
+using SocAlytics.Platform.Application.Recordings.Commands;
+using SocAlytics.Platform.Application.Recordings.Queries;
+
+namespace SocAlytics.Platform.Api.Recordings;
+
+internal static class RecordingEndpoints
+{
+	public const int MaxBodyBytes = 1024 * 1024;
+
+	private static TBuilder WithIdempotencyKeyParameter<TBuilder>(this TBuilder builder)
+		where TBuilder : IEndpointConventionBuilder =>
+		builder.AddOpenApiOperationTransformer((operation, _, _) =>
+		{
+			operation.Parameters ??= [];
+			operation.Parameters.Add(new Microsoft.OpenApi.OpenApiParameter
+			{
+				Name = "Idempotency-Key",
+				In = Microsoft.OpenApi.ParameterLocation.Header,
+				Required = true,
+				Schema = new Microsoft.OpenApi.OpenApiSchema { Type = Microsoft.OpenApi.JsonSchemaType.String, MinLength = 1, MaxLength = 255 },
+			});
+			return Task.CompletedTask;
+		});
+
+	private static readonly JsonSerializerOptions BodyOptions = new(JsonSerializerDefaults.Web);
+
+	public static IEndpointRouteBuilder MapRecordingEndpoints(this IEndpointRouteBuilder routes)
+	{
+		var members = routes.MapMemberApi();
+		members.MapPost("/matches/{matchId:guid}/upload-sessions", StartAsync)
+			.AddEndpointFilter<RecordingBodyLimitFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
+			.WithName("startRecordingUpload")
+			.WithIdempotencyKeyParameter()
+			.WithTags("Recording uploads")
+			.Produces<UploadSessionWithGrantsDto>(StatusCodes.Status201Created)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+		members.MapGet("/matches/{matchId:guid}/upload-sessions/{uploadSessionId:guid}", GetAsync)
+			.WithName("getRecordingUploadSession")
+			.WithTags("Recording uploads")
+			.Produces<UploadSessionDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapPost("/matches/{matchId:guid}/upload-sessions/{uploadSessionId:guid}/grants", IssueGrantsAsync)
+			.AddEndpointFilter<RecordingBodyLimitFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
+			.WithName("issueRecordingUploadGrants")
+			.WithTags("Recording uploads")
+			.Produces<PartGrantBatchDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+		members.MapPost("/matches/{matchId:guid}/upload-sessions/{uploadSessionId:guid}/completion", CompleteAsync)
+			.AddEndpointFilter<RecordingBodyLimitFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
+			.WithName("completeRecordingUpload")
+			.WithIdempotencyKeyParameter()
+			.WithTags("Recording uploads")
+			.Produces<CompletedUploadDto>(StatusCodes.Status201Created)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+		members.MapPost("/matches/{matchId:guid}/recording-versions/{recordingVersionId:guid}/timeline-mappings", ReviseAsync)
+			.AddEndpointFilter<RecordingBodyLimitFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("reviseRecordingTimelineMapping")
+			.WithIdempotencyKeyParameter()
+			.WithTags("Recording lineage")
+			.Produces<TimelineMappingDto>(StatusCodes.Status201Created)
+			.Produces<TimelineMappingDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+		members.MapPost("/matches/{matchId:guid}/recording-set-versions", FinalizeAsync)
+			.AddEndpointFilter<RecordingBodyLimitFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("finalizeRecordingSet")
+			.WithIdempotencyKeyParameter()
+			.WithTags("Recording lineage")
+			.Produces<RecordingSetVersionDto>(StatusCodes.Status201Created)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+		members.MapGet("/matches/{matchId:guid}/recording-set-versions/{recordingSetVersionId:guid}", GetSetAsync)
+			.WithName("getRecordingSetVersion")
+			.WithTags("Recording lineage")
+			.Produces<RecordingSetVersionDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapGet("/matches/{matchId:guid}/recording-versions/{recordingVersionId:guid}", GetVersionAsync)
+			.WithName("getRecordingVersion")
+			.WithTags("Recording lineage")
+			.Produces<RecordingVersionDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapGet("/matches/{matchId:guid}/timeline-mappings/{timelineMappingId:guid}", GetMappingAsync)
+			.WithName("getRecordingTimelineMapping")
+			.WithTags("Recording lineage")
+			.Produces<TimelineMappingDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapGet("/matches/{matchId:guid}/recording-lineage", GetLineageAsync)
+			.WithName("getMatchRecordingLineage")
+			.WithTags("Recording lineage")
+			.Produces<RecordingLineageDto>()
+			.Produces(StatusCodes.Status304NotModified)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
+		return routes;
+	}
+
+	private static async Task<IResult> GetLineageAsync(Guid matchId, HttpContext http, GetMatchRecordingLineageHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetMatchRecordingLineageQuery(matchId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		var view = result.Value;
+		var identities = string.Join(
+			'|',
+			view.RecordingVersions.Select(v => $"v:{v.Id}")
+				.Concat(view.TimelineMappings.Select(m => $"m:{m.Id}"))
+				.Concat(view.RecordingSetVersions.Select(s => $"s:{s.Id}")));
+		var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identities)))[..32];
+		var etag = $"W/\"{hash}\"";
+		http.Response.Headers.ETag = etag;
+		var candidates = http.Request.Headers.IfNoneMatch.ToString()
+			.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+		if (candidates.Any(c => c == "*" || c == etag || c == etag[2..]))
+		{
+			return Results.StatusCode(StatusCodes.Status304NotModified);
+		}
+
+		return Results.Ok(RecordingLineageDto.From(view));
+	}
+
+	private static async Task<IResult> GetVersionAsync(Guid matchId, Guid recordingVersionId, HttpContext http, GetRecordingVersionHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetRecordingVersionQuery(matchId, recordingVersionId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = $"\"{result.Value.Id}\"";
+		return Results.Ok(RecordingVersionDto.From(result.Value));
+	}
+
+	private static async Task<IResult> GetMappingAsync(Guid matchId, Guid timelineMappingId, HttpContext http, GetTimelineMappingHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetTimelineMappingQuery(matchId, timelineMappingId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = $"\"{result.Value.Id}\"";
+		return Results.Ok(TimelineMappingDto.From(result.Value));
+	}
+
+	private static async Task<IResult> ReviseAsync(Guid matchId, Guid recordingVersionId, HttpContext http, ReviseTimelineMappingHandler handler, CancellationToken cancellationToken)
+	{
+		var keyHeader = http.Request.Headers["Idempotency-Key"];
+		if (keyHeader.Count == 0)
+		{
+			return ProblemResults.Problem(SharedProblemCodes.StatusOf(SharedProblemCodes.IdempotencyKeyMissing), SharedProblemCodes.IdempotencyKeyMissing);
+		}
+
+		TimelineMappingContentDto? body = null;
+		try
+		{
+			using var buffer = new MemoryStream();
+			var chunk = new byte[16 * 1024];
+			int read;
+			while ((read = await http.Request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+			{
+				buffer.Write(chunk, 0, read);
+				if (buffer.Length > MaxBodyBytes)
+				{
+					return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+				}
+			}
+
+			buffer.Position = 0;
+			body = await JsonSerializer.DeserializeAsync<TimelineMappingContentDto>(buffer, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+		}
+		catch (BadHttpRequestException)
+		{
+			return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+		}
+
+		var spans = body?.Spans?
+			.Select(s => new SocAlytics.Platform.Domain.Recordings.TimelineSpanSeconds(s.MediaStartSeconds, s.MediaEndSeconds, s.MatchStartSeconds))
+			.ToList();
+		var result = await handler.HandleAsync(
+			new ReviseTimelineMappingCommand(matchId, recordingVersionId, keyHeader.Count == 1 ? keyHeader[0] : null, spans), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return Failure(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		var dto = TimelineMappingDto.From(result.Value.Mapping);
+		var location = $"/api/v1/matches/{matchId}/timeline-mappings/{dto.Id}";
+		if (result.Value.Created)
+		{
+			return Results.Created(location, dto);
+		}
+
+		http.Response.Headers.Location = location;
+		return Results.Ok(dto);
+	}
+
+	private static async Task<IResult> FinalizeAsync(Guid matchId, HttpContext http, FinalizeRecordingSetHandler handler, CancellationToken cancellationToken)
+	{
+		var keyHeader = http.Request.Headers["Idempotency-Key"];
+		if (keyHeader.Count == 0)
+		{
+			return ProblemResults.Problem(SharedProblemCodes.StatusOf(SharedProblemCodes.IdempotencyKeyMissing), SharedProblemCodes.IdempotencyKeyMissing);
+		}
+
+		FinalizeRecordingSetRequest? body = null;
+		try
+		{
+			using var buffer = new MemoryStream();
+			var chunk = new byte[16 * 1024];
+			int read;
+			while ((read = await http.Request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+			{
+				buffer.Write(chunk, 0, read);
+				if (buffer.Length > MaxBodyBytes)
+				{
+					return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+				}
+			}
+
+			buffer.Position = 0;
+			body = await JsonSerializer.DeserializeAsync<FinalizeRecordingSetRequest>(buffer, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+		}
+		catch (BadHttpRequestException)
+		{
+			return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+		}
+
+		var members = body?.Members?
+			.Select(m => new FinalizeRecordingSetMember(m?.RecordingVersionId ?? Guid.Empty, m?.TimelineMappingId ?? Guid.Empty))
+			.ToList();
+		var result = await handler.HandleAsync(
+			new FinalizeRecordingSetCommand(matchId, keyHeader.Count == 1 ? keyHeader[0] : null, members), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return Failure(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Created(
+			$"/api/v1/matches/{matchId}/recording-set-versions/{result.Value.Set.Id}",
+			RecordingSetVersionDto.From(result.Value.Set));
+	}
+
+	private static async Task<IResult> GetSetAsync(Guid matchId, Guid recordingSetVersionId, HttpContext http, GetRecordingSetVersionHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetRecordingSetVersionQuery(matchId, recordingSetVersionId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = $"\"{result.Value.Id}\"";
+		return Results.Ok(RecordingSetVersionDto.From(result.Value));
+	}
+
+	private static async Task<IResult> CompleteAsync(Guid matchId, Guid uploadSessionId, HttpContext http, CompleteRecordingUploadHandler handler, CancellationToken cancellationToken)
+	{
+		var keyHeader = http.Request.Headers["Idempotency-Key"];
+		if (keyHeader.Count == 0)
+		{
+			return ProblemResults.Problem(SharedProblemCodes.StatusOf(SharedProblemCodes.IdempotencyKeyMissing), SharedProblemCodes.IdempotencyKeyMissing);
+		}
+
+		CompleteUploadRequest? body = null;
+		try
+		{
+			using var buffer = new MemoryStream();
+			var chunk = new byte[16 * 1024];
+			int read;
+			while ((read = await http.Request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+			{
+				buffer.Write(chunk, 0, read);
+				if (buffer.Length > MaxBodyBytes)
+				{
+					return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+				}
+			}
+
+			buffer.Position = 0;
+			body = await JsonSerializer.DeserializeAsync<CompleteUploadRequest>(buffer, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+		}
+		catch (BadHttpRequestException)
+		{
+			return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+		}
+
+		var spans = body?.TimelineMapping?.Spans?
+			.Select(s => new SocAlytics.Platform.Domain.Recordings.TimelineSpanSeconds(s.MediaStartSeconds, s.MediaEndSeconds, s.MatchStartSeconds))
+			.ToList();
+		var result = await handler.HandleAsync(
+			new CompleteRecordingUploadCommand(matchId, uploadSessionId, keyHeader.Count == 1 ? keyHeader[0] : null, spans), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return Failure(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Created(
+			$"/api/v1/matches/{matchId}/recording-versions/{result.Value.Version.Id}",
+			new CompletedUploadDto(RecordingVersionDto.From(result.Value.Version), TimelineMappingDto.From(result.Value.Mapping)));
+	}
+
+	private static async Task<IResult> IssueGrantsAsync(Guid matchId, Guid uploadSessionId, HttpContext http, IssueRecordingUploadGrantsHandler handler, CancellationToken cancellationToken)
+	{
+		PartGrantRequest? body = null;
+		try
+		{
+			using var buffer = new MemoryStream();
+			var chunk = new byte[16 * 1024];
+			int read;
+			while ((read = await http.Request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+			{
+				buffer.Write(chunk, 0, read);
+				if (buffer.Length > MaxBodyBytes)
+				{
+					return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+				}
+			}
+
+			buffer.Position = 0;
+			body = await JsonSerializer.DeserializeAsync<PartGrantRequest>(buffer, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+		}
+		catch (BadHttpRequestException)
+		{
+			return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+		}
+
+		var result = await handler.HandleAsync(new IssueRecordingUploadGrantsCommand(matchId, uploadSessionId, body?.PartNumbers), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Ok(PartGrantBatchDto.From(result.Value.Grants));
+	}
+
+	private static async Task<IResult> StartAsync(Guid matchId, HttpContext http, StartRecordingUploadHandler handler, CancellationToken cancellationToken)
+	{
+		var keyHeader = http.Request.Headers["Idempotency-Key"];
+		if (keyHeader.Count == 0)
+		{
+			return ProblemResults.Problem(SharedProblemCodes.StatusOf(SharedProblemCodes.IdempotencyKeyMissing), SharedProblemCodes.IdempotencyKeyMissing);
+		}
+
+		StartUploadRequest? body = null;
+		try
+		{
+			using var buffer = new MemoryStream();
+			var chunk = new byte[16 * 1024];
+			int read;
+			while ((read = await http.Request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+			{
+				buffer.Write(chunk, 0, read);
+				if (buffer.Length > MaxBodyBytes)
+				{
+					return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+				}
+			}
+
+			buffer.Position = 0;
+			body = await JsonSerializer.DeserializeAsync<StartUploadRequest>(buffer, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+		}
+		catch (BadHttpRequestException)
+		{
+			return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+		}
+
+		var command = new StartRecordingUploadCommand(
+			matchId,
+			keyHeader.Count == 1 ? keyHeader[0] : null,
+			body?.Recording?.DisplayName,
+			body?.Recording?.Description,
+			body?.Recording?.ContentType,
+			body?.TotalSizeBytes ?? 0,
+			body?.PartSizeBytes ?? 0,
+			body?.PartDigests);
+		var result = await handler.HandleAsync(command, cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return Failure(result.Failure);
+		}
+
+		var value = result.Value;
+		http.Response.Headers.CacheControl = "no-store";
+		http.Response.Headers.ETag = IfMatchHeader.Format(value.Session.Version);
+		return Results.Created(
+			$"/api/v1/matches/{matchId}/upload-sessions/{value.Session.Id}",
+			new UploadSessionWithGrantsDto(UploadSessionDto.From(value.Session, value.State), PartGrantBatchDto.From(value.Grants)));
+	}
+
+	private static async Task<IResult> GetAsync(Guid matchId, Guid uploadSessionId, HttpContext http, GetRecordingUploadSessionHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetRecordingUploadSessionQuery(matchId, uploadSessionId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = IfMatchHeader.Format(result.Value.Session.Version);
+		return Results.Ok(UploadSessionDto.From(result.Value.Session, result.Value.State));
+	}
+
+	private static IResult Failure(OperationFailure failure) =>
+		failure.Code == SharedProblemCodes.IdempotencyKeyReused
+			? ProblemResults.Problem(SharedProblemCodes.StatusOf(failure.Code), failure.Code)
+			: ProblemResults.From(failure);
+}
+
+internal sealed class RecordingBodyLimitFilter : IEndpointFilter
+{
+	public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+	{
+		var http = context.HttpContext;
+		if (http.Request.ContentLength > RecordingEndpoints.MaxBodyBytes)
+		{
+			return ValueTask.FromResult<object?>(ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large"));
+		}
+
+		var feature = http.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>();
+		if (feature is { IsReadOnly: false })
+		{
+			feature.MaxRequestBodySize = RecordingEndpoints.MaxBodyBytes;
+		}
+
+		return next(context);
+	}
+}
