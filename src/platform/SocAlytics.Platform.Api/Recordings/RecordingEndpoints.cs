@@ -102,7 +102,45 @@ internal static class RecordingEndpoints
 			.ProducesProblem(StatusCodes.Status401Unauthorized)
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapGet("/matches/{matchId:guid}/recording-versions/{recordingVersionId:guid}", GetVersionAsync)
+			.WithName("getRecordingVersion")
+			.WithTags("Recording lineage")
+			.Produces<RecordingVersionDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapGet("/matches/{matchId:guid}/timeline-mappings/{timelineMappingId:guid}", GetMappingAsync)
+			.WithName("getRecordingTimelineMapping")
+			.WithTags("Recording lineage")
+			.Produces<TimelineMappingDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		return routes;
+	}
+
+	private static async Task<IResult> GetVersionAsync(Guid matchId, Guid recordingVersionId, HttpContext http, GetRecordingVersionHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetRecordingVersionQuery(matchId, recordingVersionId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = $"\"{result.Value.Id}\"";
+		return Results.Ok(RecordingVersionDto.From(result.Value));
+	}
+
+	private static async Task<IResult> GetMappingAsync(Guid matchId, Guid timelineMappingId, HttpContext http, GetTimelineMappingHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetTimelineMappingQuery(matchId, timelineMappingId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = $"\"{result.Value.Id}\"";
+		return Results.Ok(TimelineMappingDto.From(result.Value));
 	}
 
 	private static async Task<IResult> ReviseAsync(Guid matchId, Guid recordingVersionId, HttpContext http, ReviseTimelineMappingHandler handler, CancellationToken cancellationToken)

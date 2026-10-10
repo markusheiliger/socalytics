@@ -60,6 +60,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Commands.ExpireUploadSessionsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Commands.FinalizeRecordingSetHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Queries.GetRecordingSetVersionHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Queries.GetRecordingVersionHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Queries.GetTimelineMappingHandler>();
 
         services.AddOptions<RecordingUploadOptions>().BindConfiguration(RecordingUploadOptions.SectionName).ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingUploadOptions>, RecordingUploadOptionsValidator>());
