@@ -18,6 +18,8 @@ public sealed record MemberProfile(
     IReadOnlySet<ClubRole> ClubRoles,
     IReadOnlyList<MemberTeamRole> TeamRoles);
 
+public sealed record LockedAccount(MembershipStatus Status, IReadOnlySet<ClubRole> ClubRoles);
+
 public sealed record MemberPageKey(string NormalizedAccountName, Guid Id);
 
 public sealed record MemberPageResult(IReadOnlyList<MemberDetails> Items, bool HasMore, MemberPageKey? LastKey);
@@ -35,6 +37,14 @@ public interface IMemberAccountStore
     Task<IReadOnlyList<Guid>> ListAllTeamIdsAsync(CancellationToken cancellationToken);
 
     Task AssignClubRoleAsync(Guid accountId, ClubRole role, Guid? assignedBy, CancellationToken cancellationToken);
+
+    Task<LockedAccount?> LockAccountAsync(Guid id, CancellationToken cancellationToken);
+
+    Task LockClubAdminInvariantAsync(CancellationToken cancellationToken);
+
+    Task<int> CountOtherActiveClubAdminsAsync(Guid exceptAccountId, CancellationToken cancellationToken);
+
+    Task RemoveClubRoleAsync(Guid accountId, ClubRole role, CancellationToken cancellationToken);
 
     Task<Guid?> FindAccountIdByNameAsync(AccountName name, CancellationToken cancellationToken);
 }

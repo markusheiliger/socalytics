@@ -1,5 +1,6 @@
 using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
+using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Domain.IdentityAccess;
 
@@ -57,7 +58,66 @@ internal static class MemberEndpoints
 			.ProducesProblem(StatusCodes.Status401Unauthorized)
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapPut("/members/{memberId:guid}/club-roles/{clubRole}", AssignClubRoleAsync)
+			.WithName("assignClubRole")
+			.WithTags("Members")
+			.Produces<MemberDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
+		members.MapDelete("/members/{memberId:guid}/club-roles/{clubRole}", RevokeClubRoleAsync)
+			.WithName("revokeClubRole")
+			.WithTags("Members")
+			.Produces<MemberDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
 		return routes;
+	}
+
+	private static IResult RoleResult(HttpContext http, OperationResult<MemberDetails> result)
+	{
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = IfMatchHeader.Format(result.Value.Version);
+		return Results.Ok(ToDto(result.Value));
+	}
+
+	private static async Task<IResult> AssignClubRoleAsync(
+		Guid memberId,
+		string clubRole,
+		HttpContext http,
+		AssignClubRoleHandler handler,
+		CancellationToken cancellationToken)
+	{
+		if (!ClubRoleRules.TryParse(clubRole, out var role))
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("clubRole", "invalid-value")));
+		}
+
+		return RoleResult(http, await handler.HandleAsync(new AssignClubRoleCommand(memberId, role), cancellationToken));
+	}
+
+	private static async Task<IResult> RevokeClubRoleAsync(
+		Guid memberId,
+		string clubRole,
+		HttpContext http,
+		RevokeClubRoleHandler handler,
+		CancellationToken cancellationToken)
+	{
+		if (!ClubRoleRules.TryParse(clubRole, out var role))
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("clubRole", "invalid-value")));
+		}
+
+		return RoleResult(http, await handler.HandleAsync(new RevokeClubRoleCommand(memberId, role), cancellationToken));
 	}
 
 	internal static MemberDto ToDto(MemberDetails m) => new(

@@ -176,6 +176,71 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
             cancellationToken: cancellationToken));
     }
 
+    public async Task<LockedAccount?> LockAccountAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var status = await connection.QuerySingleOrDefaultAsync<string>(new CommandDefinition(
+            "SELECT membership_status FROM socalytics.member_account WHERE id = @id FOR UPDATE",
+            new { id },
+            transaction,
+            cancellationToken: cancellationToken));
+        if (status is null || !MembershipStatusRules.TryParse(status, out var parsed))
+        {
+            return null;
+        }
+
+        var roles = new HashSet<ClubRole>();
+        var rows = await connection.QueryAsync<string>(new CommandDefinition(
+            "SELECT role FROM socalytics.club_role_assignment WHERE member_account_id = @id",
+            new { id },
+            transaction,
+            cancellationToken: cancellationToken));
+        foreach (var row in rows)
+        {
+            if (ClubRoleRules.TryParse(row, out var role))
+            {
+                roles.Add(role);
+            }
+        }
+
+        return new LockedAccount(parsed, roles);
+    }
+
+    public async Task LockClubAdminInvariantAsync(CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "SELECT pg_advisory_xact_lock(@key)",
+            new { key = AdvisoryLockKeys.ClubAdminInvariant },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<int> CountOtherActiveClubAdminsAsync(Guid exceptAccountId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.QuerySingleAsync<int>(new CommandDefinition(
+            "SELECT count(*)::int FROM socalytics.club_role_assignment r " +
+            "JOIN socalytics.member_account a ON a.id = r.member_account_id " +
+            "WHERE r.role = 'club-admin' AND a.membership_status = 'active' AND a.id <> @exceptAccountId",
+            new { exceptAccountId },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task RemoveClubRoleAsync(Guid accountId, ClubRole role, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "DELETE FROM socalytics.club_role_assignment WHERE member_account_id = @accountId AND role = @role",
+            new { accountId, role = role.ToWireValue() },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
     public async Task<Guid?> FindAccountIdByNameAsync(AccountName name, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);
