@@ -504,8 +504,8 @@ test('the implementation workflows nest spec, phase, and task; the phase runs it
   assert.match(phase, /^name: Spec Kit implement phase\n/);
   assert.match(task, /^name: Spec Kit implement task\n/);
   assert.match(spec, /^run-name: "Spec Kit implement spec #\$\{\{ inputs\.twin \}\}\$\{\{ inputs\.title && format\(' · \{0\}', inputs\.title\) \|\| '' \}\}"$/m);
-  assert.match(job(spec, 'phase'), /name: \$\{\{ needs\.decide\.outputs\.title[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-phase\.yml/);
-  assert.match(job(spec, 'step'), /name: \$\{\{ needs\.decide\.outputs\.title[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-task\.yml/);
+  assert.match(job(spec, 'phase'), /name: \$\{\{ needs\.decide\.outputs\.action == 'phase' && needs\.decide\.outputs\.title \|\| 'Spec Kit implement phase' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-phase\.yml/);
+  assert.match(job(spec, 'step'), /name: \$\{\{ needs\.decide\.outputs\.action == 'step' && needs\.decide\.outputs\.title \|\| 'Spec Kit implement task' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-task\.yml/);
   assert.match(spec, /continue:[\s\S]*?needs: \[decide, phase, step, merge-verify, merge-land\][\s\S]*SPECKIT_PHASE_CHECK: \$\{\{ needs\.phase\.outputs\.verified \}\}/);
   const stages = job(phase, 'stages');
   assert.match(stages, /name: \$\{\{ matrix\.title \}\}/);

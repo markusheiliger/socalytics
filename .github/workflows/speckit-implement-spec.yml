@@ -107,7 +107,7 @@ jobs:
         run: node .github/scripts/speckit-spec.mjs decide
   # The phase job's name is the title the phase workflow runs under; a reusable workflow has no run of its own.
   phase:
-    name: ${{ needs.decide.outputs.title || 'Spec Kit implement phase' }}
+    name: ${{ needs.decide.outputs.action == 'phase' && needs.decide.outputs.title || 'Spec Kit implement phase' }}
     needs: decide
     if: needs.decide.outputs.action == 'phase'
     uses: ./.github/workflows/speckit-implement-phase.yml
@@ -126,7 +126,7 @@ jobs:
 
   # The convergence or a conflict resolution: a single stage, whose attempt decide already started.
   step:
-    name: ${{ needs.decide.outputs.title || 'Spec Kit implement task' }}
+    name: ${{ needs.decide.outputs.action == 'step' && needs.decide.outputs.title || 'Spec Kit implement task' }}
     needs: decide
     if: needs.decide.outputs.action == 'step'
     uses: ./.github/workflows/speckit-implement-task.yml
