@@ -69,6 +69,19 @@ public sealed class ManagerControl : IManagerControl
 
     public Task<ControlResult> PauseAsync() => _coordinator.SetPausedAsync(true);
 
+    public Task<ControlResult> PauseAsync(TimeSpan duration) => PauseUntilAsync(_time.GetUtcNow() + duration);
+
+    public Task<ControlResult> PauseUntilAsync(DateTimeOffset endUtc)
+    {
+        var length = endUtc - _time.GetUtcNow();
+        if (length < TimeSpan.FromMinutes(1) || length > _operating.Value.MaxTimedPause)
+        {
+            return Task.FromResult(new ControlResult(false, "invalid-pause-duration"));
+        }
+
+        return _coordinator.SetIntentAsync(OperatingIntent.PausedUntil(endUtc));
+    }
+
     public Task<ControlResult> ResumeAsync() => _coordinator.SetPausedAsync(false);
 
     public Task<ControlResult> ExitAsync() => ExitAsync(DrainPurpose.SafeExit, null);

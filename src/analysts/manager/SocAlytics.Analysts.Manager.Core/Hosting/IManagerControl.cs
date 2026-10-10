@@ -14,6 +14,10 @@ public interface IManagerControl
 
     Task<ControlResult> PauseAsync();
 
+    Task<ControlResult> PauseAsync(TimeSpan duration);
+
+    Task<ControlResult> PauseUntilAsync(DateTimeOffset endUtc);
+
     Task<ControlResult> ResumeAsync();
 
     Task<ControlResult> ExitAsync();

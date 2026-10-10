@@ -16,6 +16,10 @@ internal sealed class FakeManagerControl : IManagerControl
 
     public Task<ControlResult> PauseAsync() => Task.FromResult(new ControlResult(true));
 
+    public Task<ControlResult> PauseAsync(TimeSpan duration) => Task.FromResult(new ControlResult(true));
+
+    public Task<ControlResult> PauseUntilAsync(DateTimeOffset endUtc) => Task.FromResult(new ControlResult(true));
+
     public Task<ControlResult> ResumeAsync() => Task.FromResult(new ControlResult(true));
 
     public Task<ControlResult> ExitAsync() => Task.FromResult(new ControlResult(true));

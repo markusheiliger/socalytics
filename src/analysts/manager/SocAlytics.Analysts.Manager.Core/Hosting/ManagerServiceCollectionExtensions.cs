@@ -53,6 +53,8 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Runtime.PreflightRunner>();
         services.AddSingleton<Runtime.PreflightScheduler>();
         services.AddHostedService(sp => sp.GetRequiredService<Runtime.PreflightScheduler>());
+        services.AddSingleton<Operating.TimedPauseScheduler>();
+        services.AddHostedService(sp => sp.GetRequiredService<Operating.TimedPauseScheduler>());
         services.AddSingleton<ManagerControl>();
         services.AddSingleton<IManagerControl>(sp => sp.GetRequiredService<ManagerControl>());
         return services;

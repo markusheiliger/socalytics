@@ -439,7 +439,10 @@ public sealed class RegistrationCoordinator(
     }
 
     /// <summary>Records the pause or resume intent in the re-signed state, then applies it to the state machine.</summary>
-    public async Task<ControlResult> SetPausedAsync(bool paused)
+    public Task<ControlResult> SetPausedAsync(bool paused) =>
+        SetIntentAsync(paused ? OperatingIntent.Paused : OperatingIntent.Running);
+
+    public async Task<ControlResult> SetIntentAsync(OperatingIntent intent)
     {
         ActiveRegistration? active;
         OperatingStateMachine? machine;
@@ -462,14 +465,20 @@ public sealed class RegistrationCoordinator(
 
         try
         {
-            WriteState(active, key, paused ? OperatingIntent.Paused : OperatingIntent.Running, false);
+            WriteState(active, key, intent, false);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             return new ControlResult(false, ManagerDiagnosticCodes.StateUnreadable);
         }
 
-        return (paused ? machine.Pause() : machine.Resume())
+        var applied = intent.Kind switch
+        {
+            OperatingIntentKind.Paused => machine.Pause(),
+            OperatingIntentKind.PausedUntil => machine.PauseUntil(intent.EndUtc!.Value),
+            _ => machine.Resume(),
+        };
+        return applied
             ? new ControlResult(true)
             : new ControlResult(false, "invalid-registration-state");
     }
