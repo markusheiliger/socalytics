@@ -20,6 +20,7 @@ internal static class RegistryApiRegistration
 		app.UseRateLimiter();
 		app.MapAnalystManagerPairingEndpoints();
 		app.MapAnalystManagerRegistrationEndpoints();
+		app.MapAnalystManagerTokenEndpoint();
 		return app;
 	}
 }

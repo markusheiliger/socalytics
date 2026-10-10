@@ -11,6 +11,7 @@ public sealed class ExpireDueRegistrationsHandler(
     IUnitOfWork unitOfWork,
     IRegistrationStore store,
     IProofReplayStore replay,
+    IManagerAccessTokenStore tokens,
     IAuditTrail audit,
     TimeProvider time)
 {
@@ -48,6 +49,7 @@ public sealed class ExpireDueRegistrationsHandler(
         await using (var scope = await unitOfWork.BeginAsync(cancellationToken))
         {
             purged = await replay.PurgeExpiredAsync(now, cancellationToken);
+            await tokens.PurgeExpiredAsync(now, cancellationToken);
             await scope.CommitAsync(cancellationToken);
         }
 
