@@ -15,6 +15,10 @@ public sealed record StoredTimelineMapping(
 
 public sealed record StoredCompletedUpload(RecordingVersion Version, StoredTimelineMapping Mapping);
 
+public sealed record ExpiredUploadSession(Guid Id, Guid MatchId, Guid TeamId);
+
+public sealed record UnreleasedUploadStorage(Guid Id, string ObjectKey, string MultipartUploadId);
+
 public interface IRecordingStore
 {
     /// <summary>Inserts the session in the active unit of work.</summary>
@@ -29,4 +33,14 @@ public interface IRecordingStore
     Task InsertCompletedUploadAsync(RecordingVersion version, StoredTimelineMapping mapping, string canonicalSpansJson, CancellationToken cancellationToken);
 
     Task<StoredCompletedUpload?> FindCompletedUploadAsync(Guid matchId, Guid recordingVersionId, Guid timelineMappingId, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<Guid>> ListDueUploadSessionIdsAsync(int limit, CancellationToken cancellationToken);
+
+    /// <summary>Guarded pending-to-expired transition in the active unit of work; null when the guard did not match.</summary>
+    Task<ExpiredUploadSession?> TryExpireUploadSessionAsync(Guid uploadSessionId, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<UnreleasedUploadStorage>> ListUnreleasedExpiredUploadsAsync(int limit, CancellationToken cancellationToken);
+
+    /// <summary>Guarded storage release marker in the active unit of work; false when already released or not expired.</summary>
+    Task<bool> TryMarkStorageReleasedAsync(Guid uploadSessionId, CancellationToken cancellationToken);
 }

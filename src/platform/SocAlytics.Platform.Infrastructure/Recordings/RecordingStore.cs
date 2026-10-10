@@ -99,6 +99,57 @@ internal sealed class RecordingStore(IDbSession session) : IRecordingStore
         return rows == 1;
     }
 
+    public async Task<IReadOnlyList<Guid>> ListDueUploadSessionIdsAsync(int limit, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var ids = await connection.QueryAsync<Guid>(new CommandDefinition(
+            "SELECT id FROM socalytics.recording_upload_sessions WHERE state = 'pending' AND expires_at <= now() " +
+            "ORDER BY expires_at LIMIT @limit",
+            new { limit },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        return ids.ToList();
+    }
+
+    public async Task<ExpiredUploadSession?> TryExpireUploadSessionAsync(Guid uploadSessionId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<ExpiredUploadSession>(new CommandDefinition(
+            "UPDATE socalytics.recording_upload_sessions SET state = 'expired', expired_at = now() " +
+            "WHERE id = @uploadSessionId AND state = 'pending' AND expires_at <= now() " +
+            "RETURNING id AS Id, match_id AS MatchId, team_id AS TeamId",
+            new { uploadSessionId },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<IReadOnlyList<UnreleasedUploadStorage>> ListUnreleasedExpiredUploadsAsync(int limit, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<UnreleasedUploadStorage>(new CommandDefinition(
+            "SELECT id AS Id, object_key AS ObjectKey, multipart_upload_id AS MultipartUploadId " +
+            "FROM socalytics.recording_upload_sessions WHERE state = 'expired' AND storage_released_at IS NULL " +
+            "ORDER BY expired_at LIMIT @limit",
+            new { limit },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        return rows.ToList();
+    }
+
+    public async Task<bool> TryMarkStorageReleasedAsync(Guid uploadSessionId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE socalytics.recording_upload_sessions SET storage_released_at = now() " +
+            "WHERE id = @uploadSessionId AND state = 'expired' AND storage_released_at IS NULL",
+            new { uploadSessionId },
+            transaction,
+            cancellationToken: cancellationToken));
+        return rows == 1;
+    }
+
     public async Task InsertCompletedUploadAsync(
         RecordingVersion version, StoredTimelineMapping mapping, string canonicalSpansJson, CancellationToken cancellationToken)
     {

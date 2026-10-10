@@ -42,6 +42,7 @@ public static class InfrastructureServiceCollectionExtensions
             .ValidateOnStart();
         services.TryAddSingleton<IObjectStorage, S3ObjectStorage>();
         services.AddHostedService<DevelopmentBucketInitializer>();
+        services.AddHostedService<UploadSessionExpiryWorker>();
 
         return services;
     }
