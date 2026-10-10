@@ -22,6 +22,10 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<ArchiveSeasonHandler>();
         services.TryAddScoped<GetSeasonHandler>();
         services.TryAddScoped<ListSeasonsHandler>();
+        services.TryAddScoped<CreateTeamHandler>();
+        services.TryAddScoped<UpdateTeamHandler>();
+        services.TryAddScoped<GetTeamHandler>();
+        services.TryAddScoped<ListTeamsHandler>();
         services.TryAddScoped<ValidateSessionHandler>();
         services.TryAddScoped<GetSessionHandler>();
         services.TryAddScoped<SignOutHandler>();
