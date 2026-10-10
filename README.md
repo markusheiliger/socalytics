@@ -67,12 +67,44 @@ dependencies.
 
 The persistence foundation (schema, migrations, Migrator, units of work,
 optimistic concurrency, and database-aware readiness) is implemented as
-development evidence. Domain data and behavior, NATS messaging, S3-compatible
-storage, the transactional outbox, identity and authentication, client
+development evidence. Further domain behavior, NATS messaging, S3-compatible
+storage, the transactional outbox, client
 applications, deployment images and configuration, production credentials, and
 production readiness remain deferred. "Docker support" still means deployment
 images and Compose files (deferred), not the local container runtime
 prerequisite above.
+
+The identity foundation is implemented as development evidence: local accounts,
+a server-validated BFF session with anti-forgery protection, membership, club
+and team roles, team-scoped authorization, security audit events, and the
+`Club > Season > Team > Match` hierarchy under `/api/v1`. OIDC, MFA
+enforcement, self-service recovery, clients, Analyst Manager identity,
+production values for POL-001, POL-002, and POL-009, deployment, and
+production readiness remain deferred.
+
+The AppHost bootstraps the first club with these parameters:
+
+- `first-club-admin-password`: generated and persisted in the AppHost user
+  secrets. Read it with
+  `dotnet user-secrets list --project src/platform/SocAlytics.Platform.AppHost`.
+- `first-club-admin-account-name`: defaults to `club-admin`.
+- `club-display-name`: defaults to `Development Club`.
+
+Interactive sign-in uses the API HTTPS endpoint, which needs the ASP.NET Core
+development certificate (`dotnet dev-certs https --trust`). The endpoint is
+omitted when the AppHost runs with `--SocAlytics:ApiHttpsEndpoint=false`, as
+the host smoke test does. The first club administrator must change the
+password at first sign-in; afterwards remove
+`ClubBootstrap__FirstClubAdmin__InitialPassword` from the configuration.
+Without a valid bootstrap configuration, `/health` stays unhealthy
+(`club-not-established` or `bootstrap-conflict`).
+
+Operator break-glass recovery: set `BreakGlassRecovery__AccountName`,
+`BreakGlassRecovery__RecoveryId`, and `BreakGlassRecovery__TemporaryCredential`
+(from the secret store), start the API, confirm the
+`break-glass-recovery.applied` audit event, then remove the directive.
+`IdentityAccess` settings exist only in `appsettings.Development.json` and
+test configuration.
 
 ### Spec Kit
 
