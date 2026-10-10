@@ -107,6 +107,41 @@ public sealed class SignInHandlerTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    public async Task EveryRefusalClassWritesOneAuditRowViaTheSharedStatementAndTouchesAccountsOnlyOnWrongPassword()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var f = await CreateAsync(ct);
+        await f.AddAccountAsync("alice", Password, "active", ct);
+        await f.AddAccountAsync("inactive", Password, "deactivated", ct);
+        await f.AddAccountAsync("nopass", null, "active", ct);
+        await f.AddAccountAsync("locked", Password, "active", ct);
+        for (var i = 0; i < 5; i++)
+        {
+            await f.SignInAsync("locked", "wrong-password-1", null, ct);
+        }
+
+        foreach (var (name, password, reason, touches) in new[]
+                 {
+                     ("ghost", Password, "unknown-account", false),
+                     ("alice", "wrong-password-1", "wrong-password", true),
+                     ("locked", Password, "locked-out", false),
+                     ("inactive", Password, "inactive-membership", false),
+                     ("nopass", Password, "no-password", false),
+                 })
+        {
+            var rowsBefore = await f.ScalarAsync<long>("SELECT count(*) FROM socalytics.security_audit_event WHERE reason_code = '" + reason + "'", ct);
+            var versionBefore = await f.ScalarAsync<string>("SELECT string_agg(version::text, ',' ORDER BY account_name) FROM socalytics.member_account", ct);
+            (await f.SignInAsync(name, password, null, ct)).IsSuccess.ShouldBeFalse();
+            (await f.ScalarAsync<long>("SELECT count(*) FROM socalytics.security_audit_event WHERE reason_code = '" + reason + "'", ct))
+                .ShouldBe(rowsBefore + 1, name);
+            var versionAfter = await f.ScalarAsync<string>("SELECT string_agg(version::text, ',' ORDER BY account_name) FROM socalytics.member_account", ct);
+            (versionAfter != versionBefore).ShouldBe(touches, name);
+        }
+
+        (await f.ScalarAsync<long>("SELECT count(*) FROM socalytics.security_audit_event WHERE resource_type = 'session' AND resource_id IS NOT NULL", ct)).ShouldBe(0);
+    }
+
+    [Fact]
     public async Task LockedAccountStaysUnchangedAndUnlocksAtOriginalTime()
     {
         var ct = TestContext.Current.CancellationToken;

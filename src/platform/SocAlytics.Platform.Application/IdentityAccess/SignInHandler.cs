@@ -59,24 +59,7 @@ public sealed class SignInHandler(
                 accountId);
         }
 
-        // The account is named only when it exists; an unknown name is never recorded.
-        var accountResource = verification.AccountId is { } id
-            ? new AuditResource("member", id.ToString())
-            : new AuditResource("session", null);
-        var actor = verification.AccountId is { } actorId
-            ? new AuditActorOverride(AuditActorKind.Member, actorId)
-            : new AuditActorOverride(AuditActorKind.Anonymous, null);
-        await audit.RecordAsync(
-            new AuditEvent
-            {
-                EventType = "session.sign-in",
-                Action = "sign-in",
-                Outcome = AuditOutcome.Failed,
-                Resource = accountResource,
-                ReasonCode = ReasonCodeFor(verification.Outcome),
-                ActorOverride = actor,
-            },
-            cancellationToken);
+        // The credential service already wrote the failed sign-in audit row in its single refusal statement.
         if (verification.LockoutTriggered)
         {
             await audit.RecordAsync(
@@ -85,7 +68,7 @@ public sealed class SignInHandler(
                     EventType = "account.locked-out",
                     Action = "lock-out",
                     Outcome = AuditOutcome.Succeeded,
-                    Resource = accountResource,
+                    Resource = new AuditResource("member", verification.AccountId!.Value.ToString()),
                     ActorOverride = new AuditActorOverride(AuditActorKind.System, null),
                 },
                 cancellationToken);
@@ -94,16 +77,6 @@ public sealed class SignInHandler(
         await scope.CommitAsync(cancellationToken);
         return OperationFailure.SignInFailed();
     }
-
-    private static string ReasonCodeFor(SignInOutcome outcome) => outcome switch
-    {
-        SignInOutcome.UnknownAccount => "unknown-account",
-        SignInOutcome.NoPassword => "no-password",
-        SignInOutcome.WrongPassword => "wrong-password",
-        SignInOutcome.LockedOut => "locked-out",
-        SignInOutcome.InactiveMembership => "inactive-membership",
-        _ => throw new ArgumentOutOfRangeException(nameof(outcome), outcome, null),
-    };
 
     private static string CreateToken() =>
         Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');

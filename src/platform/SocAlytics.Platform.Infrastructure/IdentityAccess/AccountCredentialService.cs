@@ -1,3 +1,4 @@
+using Dapper;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using Npgsql;
@@ -5,6 +6,7 @@ using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Domain.IdentityAccess;
+using SocAlytics.Platform.Infrastructure.Persistence;
 
 namespace SocAlytics.Platform.Infrastructure.IdentityAccess;
 
@@ -12,7 +14,9 @@ internal sealed class AccountCredentialService(
     UserManager<IdentityMemberAccount> users,
     IPasswordHasher<IdentityMemberAccount> hasher,
     IOptions<IdentityAccessOptions> accessOptions,
-    TimeProvider time) : IAccountCredentialService
+    TimeProvider time,
+    IDbSession dbSession,
+    IRequestContext requestContext) : IAccountCredentialService
 {
     // Same PBKDF2 format and iteration count as stored hashes; generated once per process.
     private static readonly Lazy<string> DummyHash =
@@ -27,54 +31,88 @@ internal sealed class AccountCredentialService(
         var verified = hasher.VerifyHashedPassword(account ?? new IdentityMemberAccount(), storedHash ?? DummyHash.Value, password ?? string.Empty)
             != PasswordVerificationResult.Failed;
 
-        if (account is null)
-        {
-            return new SignInVerification(SignInOutcome.UnknownAccount, null, null, false, false);
-        }
-
-        SignInVerification Refuse(SignInOutcome outcome, bool lockoutTriggered = false) =>
-            new(outcome, account.Id, account.SecurityStamp, account.PasswordChangeRequired, lockoutTriggered);
-
         var now = time.GetUtcNow();
-        if (account.LockoutEnd is { } lockoutEnd && lockoutEnd > now)
+        var lockout = accessOptions.Value.Lockout;
+        var outcome = account is null ? SignInOutcome.UnknownAccount
+            : account.LockoutEnd is { } lockoutEnd && lockoutEnd > now ? SignInOutcome.LockedOut
+            : account.MembershipStatus != "active" ? SignInOutcome.InactiveMembership
+            : storedHash is null ? SignInOutcome.NoPassword
+            : !verified ? SignInOutcome.WrongPassword
+            : SignInOutcome.Succeeded;
+
+        if (outcome != SignInOutcome.Succeeded)
         {
-            return Refuse(SignInOutcome.LockedOut);
+            var countsFailure = outcome == SignInOutcome.WrongPassword;
+            var triggered = countsFailure && account!.AccessFailedCount + 1 >= lockout.MaxFailedAccessAttempts;
+            await RecordRefusalAsync(account, outcome, countsFailure, now, lockout, cancellationToken);
+            return account is null
+                ? new SignInVerification(outcome, null, null, false, false)
+                : new SignInVerification(outcome, account.Id, account.SecurityStamp, account.PasswordChangeRequired, triggered);
         }
 
-        if (account.MembershipStatus != "active")
-        {
-            return Refuse(SignInOutcome.InactiveMembership);
-        }
-
-        if (storedHash is null)
-        {
-            return Refuse(SignInOutcome.NoPassword);
-        }
-
-        if (!verified)
-        {
-            var lockout = accessOptions.Value.Lockout;
-            var triggered = false;
-            account.AccessFailedCount++;
-            if (account.AccessFailedCount >= lockout.MaxFailedAccessAttempts)
-            {
-                account.LockoutEnd = now + lockout.LockoutDuration;
-                account.AccessFailedCount = 0;
-                triggered = true;
-            }
-
-            await users.UpdateAsync(account);
-            return Refuse(SignInOutcome.WrongPassword, triggered);
-        }
-
-        if (account.AccessFailedCount != 0 || account.LockoutEnd is not null)
+        if (account!.AccessFailedCount != 0 || account.LockoutEnd is not null)
         {
             account.AccessFailedCount = 0;
             account.LockoutEnd = null;
             await users.UpdateAsync(account);
         }
 
-        return Refuse(SignInOutcome.Succeeded);
+        return new SignInVerification(SignInOutcome.Succeeded, account.Id, account.SecurityStamp, account.PasswordChangeRequired, false);
+    }
+
+    // One statement on every refusal path: the UPDATE matches no row unless @CountsFailure, and the audit row is always written.
+    private const string RefusalSql =
+        """
+        WITH failed AS (
+            UPDATE socalytics.member_account
+            SET access_failed_count = CASE WHEN access_failed_count + 1 >= @MaxFailed THEN 0 ELSE access_failed_count + 1 END,
+                lockout_end = CASE WHEN access_failed_count + 1 >= @MaxFailed THEN @LockoutEnd ELSE lockout_end END
+            WHERE id = @AccountId AND @CountsFailure
+            RETURNING id)
+        INSERT INTO socalytics.security_audit_event
+            (id, occurred_at, event_type, action, outcome, actor_kind, actor_account_id, session_id,
+             resource_type, resource_id, team_id, reason_code, details, correlation_id)
+        VALUES
+            (@Id, @OccurredAt, 'session.sign-in', 'sign-in', 'failed', @ActorKind, @ActorAccountId, NULL,
+             @ResourceType, @ResourceId, NULL, @ReasonCode, '{}'::jsonb, @CorrelationId)
+        """;
+
+    private async Task RecordRefusalAsync(
+        IdentityMemberAccount? account,
+        SignInOutcome outcome,
+        bool countsFailure,
+        DateTimeOffset now,
+        IdentityAccessOptions.LockoutOptions lockout,
+        CancellationToken cancellationToken)
+    {
+        var transaction = dbSession.RequireTransaction();
+        var connection = await dbSession.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            RefusalSql,
+            new
+            {
+                AccountId = account?.Id ?? Guid.Empty,
+                CountsFailure = countsFailure,
+                MaxFailed = lockout.MaxFailedAccessAttempts,
+                LockoutEnd = now + lockout.LockoutDuration,
+                Id = Guid.CreateVersion7(),
+                OccurredAt = now.UtcDateTime,
+                ActorKind = account is null ? "anonymous" : "member",
+                ActorAccountId = account?.Id,
+                ResourceType = account is null ? "session" : "member",
+                ResourceId = account?.Id.ToString(),
+                ReasonCode = outcome switch
+                {
+                    SignInOutcome.UnknownAccount => "unknown-account",
+                    SignInOutcome.NoPassword => "no-password",
+                    SignInOutcome.WrongPassword => "wrong-password",
+                    SignInOutcome.LockedOut => "locked-out",
+                    _ => "inactive-membership",
+                },
+                requestContext.CorrelationId,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
     }
 
     public async Task<PasswordChangeResult> ChangePasswordAsync(
