@@ -1,9 +1,11 @@
-name: Spec Kit stage
+name: Spec Kit implement task
 
-# One stage of the implementation chain. Called only by Spec Kit implement (once per stage, from a matrix that runs one
-# stage at a time), never started on its own. A stage is one step of a phase in tasks.md: a single task, or a `[P]`group
-# whose tasks run in parallel; it is also used for the convergence and for a conflict resolution. It starts from the tip
-# of the implementation branch, which the chain alone writes while it runs.
+# One stage of the implementation of a spec, never started on its own: called by Spec Kit implement phase once per stage
+# of a phase (from a matrix that runs one stage at a time), and by Spec Kit implement spec for the convergence and a
+# conflict resolution. A stage is a single task of tasks.md, or a `[P]` group whose tasks run in parallel. It starts
+# from the tip of the implementation branch, which the chain alone writes while it runs. The calling job names the
+# stage: "Spec Kit implement task #<twin> · <task ID and title>", "· Multiple tasks", "· Convergence", or
+# "· Conflict resolution".
 #   work: one job per task (a matrix), with a read-only token: runs the agent and the verification
 #   land: re-validates, commits, pushes, and reports each result in task order; it never runs agent-written code.
 #         When every task landed, it shows the attempts of the next stage as in progress on the new head; otherwise it

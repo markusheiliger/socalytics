@@ -32,8 +32,10 @@ import {
   parseGuidance,
   parseMaxParallel,
   isImplementRunOf,
-  isPerTaskRunOf,
-  segmentLabel,
+  phaseSubject,
+  specTitleOfPull,
+  stageSubject,
+  renderImplementTitle,
   MAX_STAGES_PER_RUN,
   parseAttemptCheckId,
   parseAttempts,
@@ -171,10 +173,11 @@ test('lists tasks, the next task, and progress in file order', () => {
 });
 
 test('renders the chain run name, attempt markers, and prompts', () => {
-  assert.equal(renderImplementRunName(38), 'Spec Kit implement #38');
-  assert.equal(isImplementRunOf('Spec Kit implement #38', 38), true);
-  assert.equal(isImplementRunOf('Spec Kit implement #38 T002 attempt 3', 38), true, 'runs of the per-task workflow count');
-  assert.equal(isImplementRunOf('Spec Kit implement #381', 38), false);
+  assert.equal(renderImplementRunName(38), 'Spec Kit implement spec #38');
+  assert.equal(isImplementRunOf('Spec Kit implement spec #38', 38), true);
+  assert.equal(isImplementRunOf('Spec Kit implement spec #38 · Recording Lineage and Upload', 38), true);
+  assert.equal(isImplementRunOf('Spec Kit implement spec #381', 38), false);
+  assert.equal(isImplementRunOf('Spec Kit implement #38 T002 attempt 3', 38), false, 'runs of the earlier workflows are not runs of this one');
   assert.equal(isImplementRunOf('Spec Kit diagnose #38', 38), false);
   const comment = (body, login = 'github-actions[bot]', at = '2026-10-06T11:00:00Z') => ({ body, user: { login }, created_at: at });
   const marker = renderAttemptMarker({ step: 'task', task: 'T002', attempt: 2, outcome: 'failure' });
@@ -491,28 +494,46 @@ test('accepts only workflow-authored markers and neutralizes markers in untruste
   assert.equal(neutralizeMarkers(`x ${RESUME_COMMENT_MARKER} y`), 'x &lt;!-- speckit-implement:resume --> y');
 });
 
-test('the implementation workflow runs the planned stages as a matrix, one at a time, stopping at the first that fails', () => {
-  const workflow = readFileSync(new URL('../workflows/speckit-implement.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-  const stages = workflow.match(/^ {2}stages:\n[\s\S]*?(?=^ {2}\S|^ {2}#)/m)?.[0] ?? '';
-  assert.match(stages, /max-parallel: 1\n\s+fail-fast: true\n\s+matrix: \$\{\{ fromJSON\(needs\.decide\.outputs\.stage_matrix\) \}\}/);
-  assert.match(stages, /uses: \.\/\.github\/workflows\/speckit-stage\.yml/);
-  assert.match(workflow, /continue:[\s\S]*?needs: \[decide, stages, phase-check, merge-verify, merge-land\]/);
+test('the implementation workflows nest spec, phase, and task; the phase runs its stages one at a time', () => {
+  const read = (name) => readFileSync(new URL(`../workflows/${name}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const job = (workflow, name) => workflow.match(new RegExp(`^ {2}${name}:\\n[\\s\\S]*?(?=^ {2}\\S|^ {2}#|(?![\\s\\S]))`, 'm'))?.[0] ?? '';
+  const spec = read('speckit-implement-spec.yml');
+  const phase = read('speckit-implement-phase.yml');
+  const task = read('speckit-implement-task.yml');
+  assert.match(spec, /^name: Spec Kit implement spec\n/);
+  assert.match(phase, /^name: Spec Kit implement phase\n/);
+  assert.match(task, /^name: Spec Kit implement task\n/);
+  assert.match(spec, /^run-name: "Spec Kit implement spec #\$\{\{ inputs\.twin \}\}\$\{\{ inputs\.title && format\(' · \{0\}', inputs\.title\) \|\| '' \}\}"$/m);
+  assert.match(job(spec, 'phase'), /name: \$\{\{ needs\.decide\.outputs\.title[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-phase\.yml/);
+  assert.match(job(spec, 'step'), /name: \$\{\{ needs\.decide\.outputs\.title[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-task\.yml/);
+  assert.match(spec, /continue:[\s\S]*?needs: \[decide, phase, step, merge-verify, merge-land\][\s\S]*SPECKIT_PHASE_CHECK: \$\{\{ needs\.phase\.outputs\.verified \}\}/);
+  const stages = job(phase, 'stages');
+  assert.match(stages, /name: \$\{\{ matrix\.title \}\}/);
+  assert.match(stages, /max-parallel: 1\n\s+fail-fast: true\n\s+matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.stage_matrix\) \}\}/);
+  assert.match(stages, /uses: \.\/\.github\/workflows\/speckit-implement-task\.yml/);
+  assert.match(phase, /verified:[\s\S]*?value: \$\{\{ jobs\.verify\.result \}\}/);
+  // A called workflow cannot hold more permissions than the job that calls it.
+  const permissions = (text) => Object.fromEntries([...(text.match(/permissions:\n((?: {6}[\w-]+: \w+\n)+)/)?.[1] ?? '').matchAll(/([\w-]+): (\w+)/g)].map((match) => [match[1], match[2]]));
+  const rank = { none: 0, read: 1, write: 2 };
+  const covers = (caller, called, label) => {
+    for (const [scope, level] of Object.entries(called)) assert.ok(rank[caller[scope] ?? 'none'] >= rank[level], `${label}: ${scope}: ${level}`);
+  };
+  for (const name of ['work', 'land']) {
+    covers(permissions(job(phase, 'stages')), permissions(job(task, name)), `phase stages covers task ${name}`);
+    covers(permissions(job(spec, 'step')), permissions(job(task, name)), `spec step covers task ${name}`);
+  }
+  for (const name of ['plan', 'stages', 'verify']) covers(permissions(job(spec, 'phase')), permissions(job(phase, name)), `spec phase covers phase ${name}`);
   assert.equal(MAX_STAGES_PER_RUN, 256, 'GitHub runs at most 256 matrix jobs per run');
 });
 
-test('labels the next run of the chain with what it tackles', () => {
-  const tasks = '## Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP\n- [ ] T013 [P] a\n- [ ] T014 [P] b\n- [ ] T015 c\n';
-  const decide = (fields) => decideNext({ tasksMarkdown: tasks, windowStart: '2026-10-06T10:00:00Z', ...fields });
-  assert.equal(segmentLabel(decide({})), 'Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP', 'the phase heading as written, without "## "');
-  assert.equal(segmentLabel(decide({ attempts: [attempt('T014')] })), 'Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP', 'a retry within the phase keeps its name');
-  assert.equal(segmentLabel(decideNext({ tasksMarkdown: '- [ ] T001 a\n- [ ] T002 b\n', windowStart: '2026-10-06T10:00:00Z' })), 'T001–T002', 'no phase heading: the tasks');
-  assert.equal(segmentLabel({ action: 'stages', step: 'converge', stages: [[{ task: null, attempt: 2 }]] }), 'Convergence (retry: convergence attempt 2)');
-  assert.equal(segmentLabel({ action: 'stages', step: 'resolve', stages: [[{ task: null, attempt: 1 }]] }), 'Conflict resolution');
-  assert.deepEqual([segmentLabel({ action: 'merge', attempt: 1 }), segmentLabel({ action: 'merge', attempt: 2 })], ['Merge', 'Merge (attempt 2)']);
-  assert.equal(segmentLabel({ action: 'limit', step: 'task', task: 'T014' }), 'Stop: T014 reached the attempt limit');
-  assert.deepEqual([segmentLabel({ action: 'failed', diagnosis: { state: 'none' } }), segmentLabel({ action: 'failed', diagnosis: { state: 'stale' } })], ['Start a diagnosis', 'Close the unfinished diagnosis']);
-  assert.deepEqual([segmentLabel({ action: 'done' }), segmentLabel(null)], ['', '']);
-  assert.equal(renderImplementRunName(35, 'Merge'), 'Spec Kit implement #35 · Merge');
-  assert.equal(isImplementRunOf('Spec Kit implement #35 · Merge', 35), true);
-  assert.deepEqual([isPerTaskRunOf('Spec Kit implement #35 T002 attempt 1', 35), isPerTaskRunOf('Spec Kit implement #35 · Phase 1 · T002', 35)], [true, false]);
+test('titles every implementation run and job with its workflow, the twin, and its subject', () => {
+  assert.equal(specTitleOfPull({ title: 'Implement: Recording Lineage and Upload' }), 'Recording Lineage and Upload');
+  assert.equal(renderImplementRunName(35, 'Recording Lineage and Upload'), 'Spec Kit implement spec #35 · Recording Lineage and Upload');
+  const heading = 'Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP';
+  assert.equal(planStages(`## ${heading}\n- [ ] T013 a\n`).phase, heading, 'the phase heading as written, without "## "');
+  assert.equal(renderImplementTitle('phase', 35, phaseSubject(heading)), `Spec Kit implement phase #35 · ${heading}`);
+  assert.equal(phaseSubject(null), 'Tasks', 'a tasks.md without phase headings');
+  assert.equal(renderImplementTitle('task', 35, stageSubject('task', [{ task: 'T013', summary: '[P] [US1] Create the upload session state …' }])), 'Spec Kit implement task #35 · T013 [P] [US1] Create the upload session state …');
+  assert.equal(stageSubject('task', [{ task: 'T013', summary: 'a' }, { task: 'T014', summary: 'b' }]), 'Multiple tasks');
+  assert.deepEqual([stageSubject('converge', [{ task: '' }]), stageSubject('resolve', [{ task: '' }])], ['Convergence', 'Conflict resolution']);
 });

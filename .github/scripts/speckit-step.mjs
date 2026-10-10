@@ -198,7 +198,7 @@ function stagePatch(git, resultDir) {
 
 const isProtected = isProtectedPath;
 
-// Spec Kit stage (resolve) and Spec Kit implement (merge-verify), job "work": merges the default branch into the checked-out
+// Spec Kit implement task (resolve) and Spec Kit implement spec (merge-verify), job "work": merges the default branch into the checked-out
 // implementation branch without committing, records the default branch SHA and any conflicted files, and prepares
 // the agent prompt for conflict resolution. Conflicts in protected paths need a person. After a clean merge it
 // writes the paths the implementation changes compared to the default branch for the verification.
@@ -233,7 +233,7 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   return { exitCode: 0, result };
 }
 
-// Spec Kit stage, job "work" (read-only token): packages and validates the agent's change. It writes the changed
+// Spec Kit implement task, job "work" (read-only token): packages and validates the agent's change. It writes the changed
 // paths for the solution's optional environment-verify action and a preliminary result; "verdict" completes it.
 // The result is a quality report; the "land" job re-validates everything it relies on before pushing.
 export function runPackage({ git, env, inputs, folder, workspace, resultDir, log }) {
@@ -308,7 +308,7 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
   return { exitCode: 0, verify, result };
 }
 
-// Spec Kit stage and the merge verification, job "work": records the outcome of the optional environment-verify action in the result.
+// Spec Kit implement task and the merge verification, job "work": records the outcome of the optional environment-verify action in the result.
 // SPECKIT_VERIFY_CONFIGURED tells whether the action exists; SPECKIT_VERIFY_OUTCOME and SPECKIT_VERIFY_CHECKS are the
 // step's outcome and its "checks" output (comma-separated, in order; after a failure the last one failed);
 // SPECKIT_VERIFY_UNCOVERED lists changed files that no check covers. For a merge that changes the environment
@@ -592,7 +592,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   let body = pull.body;
   if (inputs.step === 'task') {
     const task = listTasks(tasksMarkdown).find((item) => item.id === inputs.task);
-    message = [`feat(${folder}): ${inputs.task} ${task?.text ?? ''}`.trimEnd(), `Implemented by the Spec Kit implement workflow (attempt ${inputs.attempt}).`];
+    message = [`feat(${folder}): ${inputs.task} ${task?.text ?? ''}`.trimEnd(), `Implemented by the Spec Kit implement task workflow (attempt ${inputs.attempt}).`];
     checkTitle = `${inputs.task} implemented`;
     const checks = (result.checks ?? []).map((check) => `${check.name} passed`);
     const verification = result.verification === 'not-configured'
@@ -724,7 +724,7 @@ async function attemptCheck(client, { head, step, entry }) {
   return (await startAttemptChecks(client, { head, step, entries: [entry] }))[entry.task || step];
 }
 
-// Spec Kit stage, job "land" (write token, never runs agent-written code): lands the results of stage SPECKIT_STAGE_INDEX
+// Spec Kit implement task, job "land" (write token, never runs agent-written code): lands the results of stage SPECKIT_STAGE_INDEX
 // of SPECKIT_STAGES in task order. Each task is landed from the commit its work job started from (recorded in its
 // result; it must be on the branch, otherwise the branch tip is used); a task whose siblings landed first is rebuilt on
 // the moved branch, or redone from the new head when they changed the same files (see pushTask). When every task
@@ -819,7 +819,7 @@ function replayResolution({ git, env, result, resultDir }) {
   return reasons;
 }
 
-// Spec Kit implement, job "merge-land" (write token, no checkout of workspace code): reports the verified integration
+// Spec Kit implement spec, job "merge-land" (write token, no checkout of workspace code): reports the verified integration
 // and squash-merges the implementation into the default branch, or asks for review when automatic merging is off.
 export async function runMergeLand({ client, env, inputs, resultDir, workResult, log }) {
   const report = createReporter(env, log);

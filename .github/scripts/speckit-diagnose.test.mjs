@@ -52,7 +52,7 @@ test('collects evidence: checks, comments, failed run logs, branch state, and no
     github.repo.branches.main = 'sha-main2';
     await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-impl', status: 'completed', conclusion: 'failure', external_id: 'speckit:limit', output: { title: 'T002 reached the attempt limit', summary: 'stopped' } });
     await github.createComment(9, '**T002 attempt 3 failed:** timing test');
-    await github.dispatchWorkflow('speckit-implement.yml', 'main', { twin: '5', pull: '9', task: 'T002', attempt: '3' });
+    await github.dispatchWorkflow('speckit-implement-spec.yml', 'main', { twin: '5', pull: '9', title: 'F' });
     github.completeRun(github.repo.runs.at(-1).id, 'failure');
     github.repo.jobs = { [github.repo.runs.at(-1).id]: [{ id: 77, name: 'Implement and verify', conclusion: 'failure' }, { id: 78, name: 'begin', conclusion: 'success' }] };
     github.repo.logs = { 77: '2026-10-08T19:11:13.1234567Z line one\n2026-10-08T19:11:14.1234567Z Failed! D=0.9' };

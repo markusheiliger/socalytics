@@ -12,11 +12,16 @@ export const DEFAULT_MAX_PARALLEL_TASKS = 3;
 export const MAX_CONVERGE_ROUNDS = 3;
 // A merge check run still in progress after this long belongs to a cancelled or crashed run.
 export const MERGE_STALE_MS = 2 * 60 * 60 * 1000;
-// The per-spec implementation chain: every run of this workflow decides the next segment of one spec (stages of a
-// phase, the convergence, a conflict resolution, or the merge), runs it, and starts the next run.
-export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement.yml';
-export const IMPLEMENT_RUN_PREFIX = 'Spec Kit implement';
-// Stages per run of speckit-implement.yml: its stages job is a matrix, and GitHub runs at most 256 matrix jobs per run.
+// The per-spec implementation chain: every run of this workflow decides the next segment of one spec (a phase, the
+// convergence, a conflict resolution, or the merge), runs it, and starts the next run. A phase runs in the reusable
+// phase workflow, which runs its stages (single tasks or `[P]` groups) in the reusable task workflow.
+export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement-spec.yml';
+export const IMPLEMENT_WORKFLOW_NAMES = Object.freeze({
+  spec: 'Spec Kit implement spec',
+  phase: 'Spec Kit implement phase',
+  task: 'Spec Kit implement task',
+});
+// Stages per phase run: the phase workflow's stages job is a matrix, and GitHub runs at most 256 matrix jobs per run.
 // A longer phase continues in the next run.
 export const MAX_STAGES_PER_RUN = 256;
 // Default number of specs the scheduler keeps implementing at the same time (repository variable SPECKIT_MAX_ACTIVE_SPECS).
@@ -280,11 +285,16 @@ export function taskProgress(tasksMarkdown) {
   return { done: tasks.filter((task) => task.done).length, total: tasks.length };
 }
 
-// Run name of the implementation chain of a twin, with what the run most likely does ("Spec Kit implement #35 · Phase
-// 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP", "Spec Kit implement #35 · Merge"). Runs of the per-task workflow before the chain existed were named
-// "Spec Kit implement #<twin> T001 attempt 1"; they count as runs of the twin as well.
-export function renderImplementRunName(twin, label = '') {
-  return `${IMPLEMENT_RUN_PREFIX} #${twin}${label ? ` · ${label}` : ''}`;
+// Title of a run or job of the implementation workflows: the workflow's name, the twin, and what it works on, for
+// example "Spec Kit implement spec #35 · Recording Lineage and Upload", "Spec Kit implement phase #35 · Phase 3: …",
+// or "Spec Kit implement task #35 · T013 [P] [US1] Create …".
+export function renderImplementTitle(workflow, twin, subject = '') {
+  return `${IMPLEMENT_WORKFLOW_NAMES[workflow]} #${twin}${subject ? ` · ${subject}` : ''}`;
+}
+
+// Run name of the implementation chain of a twin, with the spec title.
+export function renderImplementRunName(twin, specTitle = '') {
+  return renderImplementTitle('spec', twin, specTitle);
 }
 
 export function isImplementRunOf(title, twin) {
@@ -292,44 +302,39 @@ export function isImplementRunOf(title, twin) {
   return title === name || String(title ?? '').startsWith(`${name} `);
 }
 
-// A run of the per-task workflow from before the chain existed ("Spec Kit implement #<twin> T001 attempt 1").
-export function isPerTaskRunOf(title, twin) {
-  return new RegExp(`^${IMPLEMENT_RUN_PREFIX} #${twin} T\\d{3,} attempt \\d+$`).test(String(title ?? ''));
+// The spec title of an implementation pull request, whose title is "Implement: <spec title>" (renderPullRequestTitle).
+export function specTitleOfPull(pull) {
+  return String(pull?.title ?? '').replace(/^Implement:\s*/, '').trim();
 }
 
-// The phase of a tasks.md heading exactly as written (planStages already removed the "## ").
-function phaseName(heading) {
-  return String(heading ?? '').trim();
+// What the phase workflow works on: the phase heading of tasks.md exactly as written (planStages already removed the
+// "## "); a tasks.md without phase headings has a single unnamed phase.
+export function phaseSubject(phase) {
+  return String(phase ?? '').trim() || 'Tasks';
 }
 
-// What a run of the chain is going to tackle, for its run name, from the decision that starts it (decideNext). The
-// run decides again when it starts, so the label describes the expected segment.
-export function segmentLabel(decision) {
-  if (!decision) return '';
-  if (decision.action === 'stages') {
-    const first = decision.stages[0] ?? [];
-    const retries = first.filter((entry) => entry.attempt > 1).map((entry) => `${stepLabel({ step: decision.step, task: entry.task })} attempt ${entry.attempt}`);
-    const retry = retries.length > 0 ? ` (retry: ${retries.join(', ')})` : '';
-    if (decision.step === 'converge') return `Convergence${retry}`;
-    if (decision.step === 'resolve') return `Conflict resolution${retry}`;
-    // A run that implements tasks works on one phase, named after its heading; a tasks.md without phase headings
-    // falls back to the tasks.
-    const phase = phaseName(decision.phase);
-    if (phase) return phase;
-    const tasks = decision.stages.flat().map((entry) => entry.task);
-    return tasks.length > 1 ? `${tasks[0]}–${tasks.at(-1)}` : tasks[0];
-  }
-  if (decision.action === 'merge') return `Merge${decision.attempt > 1 ? ` (attempt ${decision.attempt})` : ''}`;
-  if (decision.action === 'limit') return `Stop: ${stepLabel(decision)} reached the attempt limit`;
-  if (decision.action === 'failed') return decision.diagnosis?.state === 'stale' ? 'Close the unfinished diagnosis' : 'Start a diagnosis';
-  return '';
+// What one stage in the task workflow works on: a single task by its ID and generated title (summarizeTask), a `[P]`
+// group as "Multiple tasks", or the convergence or a conflict resolution.
+export function stageSubject(step, entries) {
+  if (step === 'converge') return 'Convergence';
+  if (step === 'resolve') return 'Conflict resolution';
+  if (entries.length !== 1) return 'Multiple tasks';
+  return `${entries[0].task} ${entries[0].summary ?? ''}`.trim();
 }
 
 // Starts (or queues) the next run of the implementation chain of a twin. GitHub keeps one pending run per spec, and a
-// replaced pending run is harmless, because every run decides from the state on GitHub. `label` names what the run
-// most likely does, for its run name.
-export async function dispatchImplementation(client, env, { twin, pull, label = '' }) {
-  await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', { twin: String(twin), pull: String(pull), ...(label ? { label } : {}) });
+// replaced pending run is harmless, because every run decides from the state on GitHub. The run is named after the
+// spec title, which comes from the implementation pull request unless `title` is given.
+export async function dispatchImplementation(client, env, { twin, pull, title }) {
+  let specTitle = title;
+  if (!specTitle) {
+    try {
+      specTitle = specTitleOfPull(await client.getPullRequest(Number(pull)));
+    } catch {
+      specTitle = '';
+    }
+  }
+  await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', { twin: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}) });
 }
 
 // The attempt marker of an outcome comment. `outcome` is success, failure, requeue (redone from a newer head; not a
@@ -778,7 +783,7 @@ export function renderStartComment({ twinNumber, folder, taskCount }) {
     START_COMMENT_MARKER,
     `Implementation workspace prepared for #${twinNumber} (\`specs/${folder}\`): ${taskCount} task(s) queued.`,
     '',
-    'The `Spec Kit implement` workflow implements them phase by phase, in order; `[P]` tasks of a phase run in parallel. Each task is verified, committed, and reported here.',
+    'The `Spec Kit implement spec` workflow implements them phase by phase, in order; `[P]` tasks of a phase run in parallel. Each task is verified, committed, and reported here.',
     'Then a convergence checks the result against the spec, and the implementation is merged into the default branch once it converged and passed the full verification.',
   ].join('\n');
 }

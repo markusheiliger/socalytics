@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { renderImplementRunName } from './speckit-implement-core.mjs';
+import { IMPLEMENT_WORKFLOW_FILE, renderImplementRunName } from './speckit-implement-core.mjs';
 
 // In-memory stand-in for GitHubClient used by the speckit tooling tests.
 export class FakeGitHub {
@@ -181,8 +181,8 @@ export class FakeGitHub {
       workflow: workflowFile,
       ref,
       inputs: structuredClone(inputs),
-      display_title: workflowFile === 'speckit-implement.yml'
-        ? renderImplementRunName(inputs.twin, inputs.label)
+      display_title: workflowFile === IMPLEMENT_WORKFLOW_FILE
+        ? renderImplementRunName(inputs.twin, inputs.title)
         : { 'speckit-diagnose.lock.yml': `Spec Kit diagnose #${inputs.twin}`, 'speckit-analyze.lock.yml': `Spec Kit analyze #${inputs.twin}` }[workflowFile] ?? workflowFile,
       status: 'queued',
       conclusion: null,

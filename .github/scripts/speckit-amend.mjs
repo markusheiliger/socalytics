@@ -25,6 +25,7 @@ import {
   renderNextSteps,
   renderResumeComment,
   setAmendmentStatus,
+  specTitleOfPull,
   validateAmendment,
 } from './speckit-implement-core.mjs';
 
@@ -595,9 +596,7 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
     const twin = Number(String(implementation.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
     if (dispatch && Number.isInteger(twin)) {
       try {
-        const { labelForPull } = await import('./speckit-spec.mjs');
-        const label = await labelForPull(client, env, { twin, pull: implementation.number, folder });
-        await dispatchImplementation(client, env, { twin, pull: implementation.number, label });
+        await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
       } catch {
         // The resume comment persists the request; the next scheduler run continues the implementation.
       }

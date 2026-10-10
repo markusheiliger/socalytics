@@ -2,7 +2,7 @@ name: Spec Kit orchestrate
 
 # Schedules spec implementations. For spec twins with a validated speckit:stage:implement flag and no open blockers it
 # prepares the implementation workspace (linked speckit/<folder> branch, draft pull request, check run) and starts the
-# spec's implementation chain (Spec Kit implement), while fewer than SPECKIT_MAX_ACTIVE_SPECS (repository variable,
+# spec's implementation chain (Spec Kit implement spec), while fewer than SPECKIT_MAX_ACTIVE_SPECS (repository variable,
 # default 3) implementations are active. Each chain implements its spec phase by phase, converges, and merges on its
 # own; the scheduler never drives tasks. It also:
 #   - restarts the chain of an implementation in progress when no run of it is active but there is something to do
@@ -22,11 +22,6 @@ on:
     # Safety net: continues implementations whose chain broke.
     - cron: "17 * * * *"
   workflow_dispatch:
-    inputs:
-      after_run:
-        description: Run id that handed control back (set by implementation runs from before the chain; leave empty)
-        required: false
-        type: string
 
 permissions: {}
 
@@ -82,7 +77,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
-          SPECKIT_AFTER_RUN: ${{ inputs.after_run }}
           SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
           SPECKIT_MAX_ACTIVE_SPECS: ${{ vars.SPECKIT_MAX_ACTIVE_SPECS || '3' }}
         run: node .github/scripts/speckit-orchestrate.mjs orchestrate

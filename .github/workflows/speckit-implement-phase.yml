@@ -1,0 +1,162 @@
+name: Spec Kit implement phase
+
+# One phase of tasks.md (a `##` heading), never started on its own: called by Spec Kit implement spec, whose phase job
+# names it "Spec Kit implement phase #<twin> · <phase heading as written>". It implements the open tasks of the phase.
+#   plan:    decides again from the state on GitHub and, while the phase is still the next segment, plans its stages in
+#            task order (a single task, or a run of `[P]` tasks under one heading) and shows the first stage's attempts
+#            as in progress; it never runs agent-written code
+#   stages:  a matrix that runs Spec Kit implement task once per stage, one at a time: a stage lands before the next
+#            starts, and a stage that does not land cancels the stages after it
+#   verify:  the full verification of the phase, when its last stage was a `[P]` group (read-only token)
+# A phase longer than 256 stages continues in the next run of the spec.
+on:
+  workflow_call:
+    inputs:
+      twin:
+        description: Spec twin issue number
+        required: true
+        type: string
+      pull:
+        description: Implementation pull request number
+        required: true
+        type: string
+      folder:
+        description: Spec folder name under specs/
+        required: true
+        type: string
+      phase:
+        description: The phase heading of tasks.md as written, without "## " (empty for a tasks.md without phases)
+        required: false
+        type: string
+        default: ""
+    outputs:
+      verified:
+        description: Result of the phase verification (success, failure, or skipped)
+        value: ${{ jobs.verify.result }}
+
+permissions: {}
+
+jobs:
+  plan:
+    name: Plan the phase
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      checks: write
+      contents: read
+      issues: read
+      pull-requests: write
+    outputs:
+      head: ${{ steps.plan.outputs.head }}
+      count: ${{ steps.plan.outputs.count }}
+      stages: ${{ steps.plan.outputs.stages }}
+      stage_matrix: ${{ steps.plan.outputs.stage_matrix }}
+      phase_check: ${{ steps.plan.outputs.phase_check }}
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Plan the stages
+        id: plan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_TWIN: ${{ inputs.twin }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+          SPECKIT_FOLDER: ${{ inputs.folder }}
+          SPECKIT_PHASE: ${{ inputs.phase }}
+        run: node .github/scripts/speckit-spec.mjs plan-phase
+
+  # One matrix entry per stage, one at a time and in order; a stage that does not land fails its land job, and fail-fast
+  # cancels the stages after it. GitHub documents the order in which matrix jobs are created; with max-parallel 1 they
+  # run in that order. Each entry carries the title the stage runs under.
+  stages:
+    name: ${{ matrix.title }}
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    strategy:
+      max-parallel: 1
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.plan.outputs.stage_matrix) }}
+    uses: ./.github/workflows/speckit-implement-task.yml
+    permissions:
+      checks: write
+      contents: write
+      copilot-requests: write
+      issues: read
+      pull-requests: write
+    with:
+      step: task
+      twin: ${{ inputs.twin }}
+      pull: ${{ inputs.pull }}
+      folder: ${{ inputs.folder }}
+      stages: ${{ needs.plan.outputs.stages }}
+      index: ${{ matrix.index }}
+
+  # The phase's last stage was a `[P]` group: each task passed its own verification, so the combination gets the phase's
+  # full verification here (read-only token; it runs agent-written code).
+  verify:
+    name: Verify the phase
+    needs: [plan, stages]
+    if: >-
+      !cancelled() && needs.plan.outputs.phase_check == 'true' && needs.stages.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tooling
+          persist-credentials: false
+
+      # The chain is the only writer of the branch while it runs, so its tip is what the stages landed.
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: speckit/${{ inputs.folder }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: List the changes of the phase
+        working-directory: workspace
+        env:
+          PHASE_START: ${{ needs.plan.outputs.head }}
+        run: |
+          mkdir -p "$SPECKIT_RESULT_DIR"
+          git diff --name-only --no-renames "$PHASE_START" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
+
+      - name: Set up the solution environment
+        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Verify the phase
+        if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: phase
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log

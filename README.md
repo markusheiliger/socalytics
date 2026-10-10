@@ -223,25 +223,22 @@ their "blocked by" issues are closed.
   - a `Spec Kit implementation` check run on the pull request, which tracks the
       implementation status, and a start comment.
 - Then the spec's implementation chain takes over: runs of
-  `Spec Kit implement` (`speckit-implement.yml`), one at a time per spec,
-  each started by the previous one. A run that implements tasks tackles one
-  phase of `tasks.md`, the phase of the first open task, and decides itself
-  which of its tasks are still open; it is named after the phase's heading as
-  written, for example
-  `Spec Kit implement #35 · Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP`.
-  Runs for the other segments are named `… · Convergence`,
-  `… · Conflict resolution`, `… · Merge`, or, when the implementation stops,
-  `… · Start a diagnosis`. The name is set when the run is started; the run
-  decides again from the state on GitHub when it begins. Every run decides the next segment from the state on GitHub
-  (job `decide`), runs it, and starts the next run (job `continue`), until the
-  implementation is merged, waits for review, or needs a person:
+  `Spec Kit implement spec` (`speckit-implement-spec.yml`), one at a time per
+  spec, each started by the previous one and named after the spec, for example
+  `Spec Kit implement spec #35 · Recording Lineage and Upload` (the spec title
+  from the pull request title). Every run decides the next segment from the
+  state on GitHub (job `decide`), runs it, and starts the next run (job
+  `continue`), until the implementation is merged, waits for review, or needs
+  a person. A segment runs in two nested reusable workflows, which appear in
+  the run as job groups named after their workflow, the twin, and their
+  subject:
 
   | Segment | Runs in | What it does |
   | --- | --- | --- |
-  | A phase | job `stages`, a matrix that calls the reusable `Spec Kit stage` (`speckit-stage.yml`) once per stage, one stage at a time | the stages of the `## Phase` of the next unchecked task, in `tasks.md` order: each unchecked task is a stage; consecutive unchecked `[P]` tasks under the same heading form one stage whose tasks run in parallel (see below). Each stage lands before the next starts; a stage that does not land fails, and the matrix cancels the stages after it |
-  | Acceptance gate | one stage with `/speckit-converge` | once all tasks are checked; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
+  | A phase | job `phase`, which calls `Spec Kit implement phase` (`speckit-implement-phase.yml`), named after the phase heading of `tasks.md` as written, for example `Spec Kit implement phase #35 · Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP` | the phase of the first open task. Its job `plan` decides itself which of the phase's tasks are still open and plans them as stages in `tasks.md` order: each unchecked task is a stage; consecutive unchecked `[P]` tasks under the same heading form one stage whose tasks run in parallel (see below). Its job `stages` is a matrix that calls `Spec Kit implement task` (`speckit-implement-task.yml`) once per stage, one stage at a time, named `Spec Kit implement task #35 · T013 [P] [US1] Create …` (the task ID and its generated title) or `Spec Kit implement task #35 · Multiple tasks` for a `[P]` group. Each stage lands before the next starts; a stage that does not land fails, and the matrix cancels the stages after it |
+  | Acceptance gate | job `step`, which calls `Spec Kit implement task`, named `Spec Kit implement task #35 · Convergence` | once all tasks are checked, one stage with `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
   | Merge | jobs `merge-verify` and `merge-land` | merges `main` into the branch, runs the full verification on the result, and squash-merges the pull request into `main` |
-  | Conflicts | one stage that resolves them | resolves conflicts with `main` with Copilot CLI, verifies, and pushes the merge commit; then the merge runs again |
+  | Conflicts | job `step`, which calls `Spec Kit implement task`, named `Spec Kit implement task #35 · Conflict resolution` | one stage that resolves conflicts with `main` with Copilot CLI, verifies, and pushes the merge commit; then the merge runs again |
 
   Each job is short, so specs of any size never hit the 6-hour job limit.
   Every stage:
@@ -258,7 +255,8 @@ their "blocked by" issues are closed.
       touched (the agent is told to run only those as well, not the whole
       suite); the phase's last task uses mode `phase`, which runs those checks
       with all their tests. When the phase's last stage is a `[P]` group, the
-      job `phase-check` runs mode `phase` on the landed result instead; if it
+      phase workflow's job `verify` runs mode `phase` on the landed result
+      instead; if it
       fails, the implementation stops for a person (and a diagnosis). A
       conflict resolution and the merge run every check with all tests (mode
       `finalize`);

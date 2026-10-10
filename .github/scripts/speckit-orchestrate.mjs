@@ -19,7 +19,7 @@ import {
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment } from './speckit-amend.mjs';
-import { contextFromEnv, decideForPull, labelForPull, needsRun } from './speckit-spec.mjs';
+import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import {
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
@@ -35,7 +35,7 @@ import {
   renderPullRequestBody,
   renderPullRequestTitle,
   renderStartComment,
-  segmentLabel,
+  specTitleOfPull,
   stepLabel,
 } from './speckit-implement-core.mjs';
 export class UsageError extends Error {}
@@ -204,18 +204,6 @@ function describeDecision(twin) {
   }
 }
 
-const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Waits until a run that handed control back (an implementation run from before the chain) has completed.
-async function awaitHandBack(client, runId, { report, sleep }) {
-  for (let poll = 0; poll < 60; poll += 1) {
-    const run = await client.getWorkflowRun(runId);
-    if (!run || run.status === 'completed') return;
-    await sleep(5000);
-  }
-  report.line(`- Warning: run ${runId} was still active after 5 minutes.`);
-}
-
 // Whether a run of the twin's implementation chain is queued or running.
 async function chainActive(client, twin, since) {
   return (await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, since))
@@ -225,23 +213,19 @@ async function chainActive(client, twin, since) {
 // Scheduler: selects flagged twins, starts new implementations while fewer than SPECKIT_MAX_ACTIVE_SPECS are active,
 // and restarts the implementation chain of a twin in progress when no run of it is active although there is something
 // to do (the chain broke, a person pushed, or a merged amendment or a command asked to continue). Each implementation
-// is driven by its own chain of Spec Kit implement runs; the scheduler never drives tasks itself.
-export async function runOrchestrate({ client, rootDir, env, log, sleep = defaultSleep, now = Date.now }) {
-  const pending = [];
-  const afterRun = String(env.SPECKIT_AFTER_RUN ?? '').trim();
-  if (/^\d+$/.test(afterRun)) await awaitHandBack(client, afterRun, { report: { line: (text) => pending.push(text) }, sleep });
+// is driven by its own chain of Spec Kit implement spec runs; the scheduler never drives tasks itself.
+export async function runOrchestrate({ client, rootDir, env, log, now = Date.now }) {
   const selection = await runSelect({ client, rootDir, env, log, now });
   const report = createReporter(env, log);
   report.line();
   report.line('### Actions');
   report.line();
-  for (const line of pending) report.line(line);
   let actions = selection.amendmentActions ?? 0;
   const maxActive = parseMaxActiveSpecs(env.SPECKIT_MAX_ACTIVE_SPECS);
   let active = selection.inProgress.filter((twin) => twin.active || needsRun(twin.decision, env)).length;
   for (const twin of selection.inProgress) {
     if (twin.active || !needsRun(twin.decision, env)) continue;
-    await dispatchImplementation(client, env, { twin: twin.number, pull: twin.pull, label: segmentLabel(twin.decision) });
+    await dispatchImplementation(client, env, { twin: twin.number, pull: twin.pull });
     report.line(`- Continued #${twin.number} (pull request #${twin.pull}): ${describeDecision(twin)}.`);
     actions += 1;
   }
@@ -252,8 +236,7 @@ export async function runOrchestrate({ client, rootDir, env, log, sleep = defaul
     }
     const started = await runStart({ client, rootDir, env, issueNumber: twin.number, folder: twin.folder, requester: twin.requester, reset: twin.reset, log });
     if (!started.pull) continue;
-    const label = await labelForPull(client, env, { twin: twin.number, pull: started.pull.number, folder: twin.folder });
-    await dispatchImplementation(client, env, { twin: twin.number, pull: started.pull.number, label });
+    await dispatchImplementation(client, env, { twin: twin.number, pull: started.pull.number, title: specTitleOfPull(started.pull) });
     report.line(`- Started the implementation of #${twin.number} (pull request #${started.pull.number}).`);
     active += 1;
     actions += 1;

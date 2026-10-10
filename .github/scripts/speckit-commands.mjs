@@ -4,7 +4,6 @@ import { pathToFileURL } from 'node:url';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { canWrite } from './speckit-prepare.mjs';
 import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
-import { labelForPull } from './speckit-spec.mjs';
 import {
   BOT_LOGIN,
   CHECK_DIAGNOSING,
@@ -18,6 +17,7 @@ import {
   latestCheckRun,
   neutralizeMarkers,
   renderResumeComment,
+  specTitleOfPull,
 } from './speckit-implement-core.mjs';
 
 export class CommandUsageError extends Error {}
@@ -71,8 +71,7 @@ async function resolveTarget(client, env, number) {
 async function resumeImplementation(client, env, { implementation, twin, folder }, lead, guidance = '') {
   await client.createComment(implementation.number, renderResumeComment(lead, guidance));
   try {
-    const label = await labelForPull(client, env, { twin, pull: implementation.number, folder });
-    await dispatchImplementation(client, env, { twin, pull: implementation.number, label });
+    await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
   } catch {
     // The resume comment persists the request; the hourly scheduler run continues the implementation.
   }
