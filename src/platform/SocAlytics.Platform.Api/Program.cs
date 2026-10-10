@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authentication;
 using SocAlytics.Platform.Api.Bootstrap;
 using SocAlytics.Platform.Api.Endpoints.Club;
 using SocAlytics.Platform.Api.Endpoints.IdentityAccess;
+using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application;
 using SocAlytics.Platform.Application.Abstractions;
@@ -31,6 +32,7 @@ builder.Services.AddOpenApi("v1", options =>
 		document.Info.Version = "v1";
 		return Task.CompletedTask;
 	});
+	options.AddDocumentTransformer<OpenApiSecuritySchemesTransformer>();
 });
 
 builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
