@@ -58,7 +58,7 @@ internal sealed record PartGrantBatchDto(DateTimeOffset ExpiresAt, IReadOnlyList
 
 internal sealed record PartGrantRequest(int[]? PartNumbers);
 
-internal sealed record UploadSessionWithGrantsDto(UploadSessionDto Session, PartGrantBatchDto? Grants);
+internal sealed record UploadSessionWithGrantsDto(UploadSessionDto Session, [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] PartGrantBatchDto? Grants);
 
 internal sealed record TimelineSpanDto(decimal MediaStartSeconds, decimal MediaEndSeconds, decimal MatchStartSeconds);
 
