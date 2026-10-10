@@ -438,8 +438,10 @@ const MAX_LAND_TRIES = 5;
 
 // Pushes the committed task. When the branch moved (a parallel task or a person pushed first), the task is rebuilt
 // on the new head: its change without tasks.md is applied again and its tick is set in the new tasks.md, then
-// everything is validated again. A change that no longer applies, or touches files that changed on the branch since
-// the task started, has to be redone from the new head: that is a requeue, not a failed attempt.
+// everything is validated again. Files that also changed on the branch since the task started (a parallel task
+// edited them too) are merged three-way; the combination is verified after the stage (see runCombinedVerified). Only
+// a change that no longer applies, or conflicts with those edits, has to be redone from the new head: that is a
+// requeue, not a failed attempt.
 function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
   const branch = implementationBranch(folder);
   const tasksPath = `specs/${folder}/tasks.md`;
@@ -447,9 +449,10 @@ function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
   const base = gitOrThrow(git, ['rev-parse', 'HEAD~1']).trim();
   const ours = splitZ(gitOrThrow(git, ['diff', '--name-only', '--no-renames', '-z', base, 'HEAD'])).filter((file) => file !== tasksPath);
   let onto = base;
+  let combined = [];
   for (let tries = 0; tries < MAX_LAND_TRIES; tries += 1) {
     const pushed = git(pushArgs(env, branch));
-    if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim() };
+    if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim(), combined };
     const rejection = pushed.stderr.trim().split('\n').at(-1);
     const fetched = git(fetchArgs(env, branch));
     if (fetched.status !== 0) {
@@ -461,10 +464,15 @@ function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
     if (git(['merge-base', '--is-ancestor', base, newHead]).status !== 0) return { requeue: [`the branch \`${branch}\` was rewritten since the task started`] };
     const moved = new Set(splitZ(gitOrThrow(git, ['diff', '--name-only', '--no-renames', '-z', base, newHead])));
     const overlap = ours.filter((file) => moved.has(file));
-    if (overlap.length > 0) return { requeue: [`${overlap.map((file) => `\`${file}\``).join(', ')} changed on the branch since the task started`] };
     gitOrThrow(git, ['checkout', '-q', '--detach', newHead]);
-    const applied = git(['apply', '--index', '--whitespace=nowarn', `--exclude=${tasksPath}`, patchFile]);
-    if (applied.status !== 0) return { requeue: [`the change no longer applies to the branch (${applied.stderr.trim().split('\n').at(-1)})`] };
+    // --binary patches record full blob ids, so --3way can merge the overlapping files with the branch's versions.
+    const applied = git(['apply', ...(overlap.length > 0 ? ['--3way'] : []), '--index', '--whitespace=nowarn', `--exclude=${tasksPath}`, patchFile]);
+    if (applied.status !== 0) {
+      git(['reset', '-q', '--hard']);
+      if (overlap.length > 0) return { requeue: [`${overlap.map((file) => `\`${file}\``).join(', ')} changed on the branch since the task started, and the changes conflict`] };
+      return { requeue: [`the change no longer applies to the branch (${applied.stderr.trim().split('\n').at(-1)})`] };
+    }
+    combined = [...new Set([...combined, ...overlap])].sort();
     const tasksFile = path.join(workspace, tasksPath);
     const ticked = tickTask(readFileSync(tasksFile, 'utf8'), task);
     if (ticked === null) return { requeue: [`${task} is already checked on the branch`] };
@@ -472,7 +480,8 @@ function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
     gitOrThrow(git, ['add', '--', tasksPath]);
     const staged = checkStagedTask({ git, workspace, folder, task, patchBytes: statSync(patchFile).size, defaultBranch: env.SPECKIT_BRANCH || 'main' });
     if (staged.reasons.length > 0) return { reasons: staged.reasons };
-    gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
+    const note = combined.length > 0 ? [`Combined with parallel changes to ${combined.join(', ')}; verified together after the stage.`] : [];
+    gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...[...message, ...note].flatMap((part) => ['-m', part])]);
     onto = newHead;
   }
   return { requeue: [`the branch \`${branch}\` kept moving during ${MAX_LAND_TRIES} tries`] };
@@ -641,6 +650,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   }
   gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
   let head;
+  let combined = [];
   if (inputs.step === 'task') {
     const landed = pushTask({ git, env, folder, task: inputs.task, message, resultDir, workspace });
     if (landed.requeue) {
@@ -656,6 +666,10 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       return { exitCode: 1, reasons: landed.reasons };
     }
     head = landed.head;
+    combined = landed.combined;
+    if (combined.length > 0) {
+      comment.push(`- Combined with the parallel changes to ${combined.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}; the stage is verified together next`);
+    }
     // The branch may now hold the ticks of parallel tasks that landed first.
     const landedTasks = readFileSync(tasksPath, 'utf8');
     progress = taskProgress(landedTasks);
@@ -674,7 +688,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   await client.createComment(inputs.pull, [...markerLines(inputs, 'success'), ...comment].join('\n'));
   report.line(`${checkTitle}; pushed as ${head}.`);
   report.flush();
-  return { exitCode: 0, head };
+  return { exitCode: 0, head, combined };
 }
 
 const STEP_SUMMARIES = {
@@ -727,8 +741,10 @@ async function attemptCheck(client, { head, step, entry }) {
 // Spec Kit implement task, job "land" (write token, never runs agent-written code): lands the results of stage SPECKIT_STAGE_INDEX
 // of SPECKIT_STAGES in task order. Each task is landed from the commit its work job started from (recorded in its
 // result; it must be on the branch, otherwise the branch tip is used); a task whose siblings landed first is rebuilt on
-// the moved branch, or redone from the new head when they changed the same files (see pushTask). When every task
-// landed, the attempts of the next stage are shown as in progress on the new head. Otherwise the job fails on purpose,
+// the moved branch, with files they changed too merged three-way, or redone from the new head when those edits
+// conflict (see pushTask). A stage that combined such edits reports `combined`, and its verification follows
+// (runCombinedVerified). When every task landed without a combination, the attempts of the next stage are shown as in
+// progress on the new head. Otherwise the job fails on purpose,
 // so the matrix of stages (fail-fast, one stage at a time) cancels the stages after it, and the next run retries.
 export async function runLandStage({ client, git, env, folder, workspace, resultRoot, log }) {
   const step = String(env.SPECKIT_STEP || 'task');
@@ -755,17 +771,76 @@ export async function runLandStage({ client, git, env, folder, workspace, result
     const checkRun = await attemptCheck(client, { head: base, step, entry });
     const inputs = { step, twin, pull, task: entry.task || null, attempt: Number(entry.attempt), checkRun, folder };
     const landed = await runLand({ client, git, env, inputs, folder, workspace, resultDir, workResult: env.SPECKIT_WORK_RESULT, log });
-    outcomes.push({ key, landed: landed.exitCode === 0 && !landed.requeue });
+    outcomes.push({ key, landed: landed.exitCode === 0 && !landed.requeue, combined: landed.combined ?? [] });
   }
   const ok = outcomes.every((outcome) => outcome.landed);
+  const combined = [...new Set(outcomes.flatMap((outcome) => outcome.combined))].sort();
   const current = (await client.getBranchSha(implementationBranch(folder))) ?? tip;
   const next = stages[index + 1];
-  if (ok && Array.isArray(next?.include) && next.include.length > 0) await startAttemptChecks(client, { head: current, step, entries: next.include });
+  // A combination is verified first; the job that reports that verification shows the next stage (runCombinedVerified).
+  if (ok && combined.length === 0 && Array.isArray(next?.include) && next.include.length > 0) await startAttemptChecks(client, { head: current, step, entries: next.include });
   setOutput(env, 'ok', String(ok));
   setOutput(env, 'head', current);
-  log(`Stage ${index + 1} landed: ${outcomes.map((outcome) => `${outcome.key} ${outcome.landed ? 'landed' : 'not landed'}`).join(', ')}.`);
-  if (!ok) log('Not every task landed, so the stages after this one are cancelled; the next run continues from here.');
-  return { exitCode: ok ? 0 : 1, ok, head: current, outcomes };
+  setOutput(env, 'start', tip);
+  setOutput(env, 'combined', String(combined.length > 0));
+  log(`Stage ${index + 1}: ${outcomes.map((outcome) => `${outcome.key} ${outcome.landed ? 'pushed' : 'not pushed'}`).join(', ')}.`);
+  if (combined.length > 0) log(`Parallel changes to ${combined.join(', ')} were combined; the stage is verified together next.`);
+  if (!ok) log('Not every task was pushed, so the stages after this one are cancelled; the next run continues from here.');
+  return { exitCode: ok ? 0 : 1, ok, head: current, combined, outcomes };
+}
+
+// Spec Kit implement task, job "report" (write token, never runs agent-written code): after a stage combined parallel
+// changes to the same files, its verification decides how the phase continues. Verified: the next stage is shown as in
+// progress on the new head. Otherwise the implementation stops for a person, like a failed phase verification (the next
+// run diagnoses it), and the job fails, so the matrix cancels the stages after this one.
+export async function runCombinedVerified({ client, env, log }) {
+  const report = createReporter(env, log);
+  const twin = Number(env.SPECKIT_TWIN);
+  const pull = Number(env.SPECKIT_PULL);
+  const stages = parseJsonInput(env.SPECKIT_STAGES, 'SPECKIT_STAGES');
+  const index = Number(env.SPECKIT_STAGE_INDEX);
+  const head = String(env.SPECKIT_HEAD ?? '').trim();
+  const stage = Array.isArray(stages) && Number.isInteger(index) && index >= 0 ? stages[index] : null;
+  if (![twin, pull].every((value) => Number.isInteger(value) && value > 0) || !head || !Array.isArray(stage?.include)) {
+    throw new TaskInputError('Expected SPECKIT_TWIN, SPECKIT_PULL, SPECKIT_HEAD, and SPECKIT_STAGES with an entry at SPECKIT_STAGE_INDEX.');
+  }
+  const tasks = stage.include.map((entry) => entry.task).filter(Boolean).join(', ');
+  const verification = String(env.SPECKIT_VERIFY_RESULT ?? '');
+  if (verification === 'success') {
+    const next = stages[index + 1];
+    if (String(env.SPECKIT_LAND_OK) === 'true' && Array.isArray(next?.include) && next.include.length > 0) {
+      await startAttemptChecks(client, { head, step: 'task', entries: next.include });
+    }
+    report.line(`${tasks} verified together on ${head}.`);
+    report.flush();
+    return { exitCode: 0, verified: true };
+  }
+  const outcome = verification === 'failure' ? 'failed' : `did not finish (${verification || 'unknown'})`;
+  const server = (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '');
+  const run = env.GITHUB_RUN_ID && env.GITHUB_REPOSITORY ? ` (see the [run](${server}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}))` : '';
+  await client.createCheckRun({
+    name: CHECK_RUN_NAME,
+    head_sha: head,
+    status: 'completed',
+    conclusion: 'failure',
+    external_id: CHECK_LIMIT,
+    output: { title: 'The combined verification failed', summary: `The verification of ${tasks} together ${outcome}. Their changes to the same files merged cleanly, but the combination does not pass.` },
+  });
+  const { mention } = await requesterMention(client, twin);
+  let behindMain = false;
+  try {
+    behindMain = env.SPECKIT_FOLDER ? (await client.aheadBy(implementationBranch(env.SPECKIT_FOLDER), env.SPECKIT_BRANCH || 'main')) > 0 : false;
+  } catch {
+    // Only used to suggest /speckit sync.
+  }
+  await client.createComment(pull, [
+    `**Implementation needs attention**${mention ? ` ${mention}` : ''}: the verification of ${tasks} together ${outcome}${run}. Each task passed its own verification and their changes to the same files merged cleanly, so the combination breaks something.`,
+    '',
+    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', behindMain }),
+  ].join('\n'));
+  report.line(`The verification of ${tasks} together ${outcome}; the implementation stops for a person.`);
+  report.flush();
+  return { exitCode: 1, verified: false };
 }
 function applyPatch({ git, resultDir, check }) {
   const patchFile = path.join(resultDir, 'changes.patch');
@@ -971,13 +1046,14 @@ function githubClient(env) {
   });
 }
 
-const COMMANDS = 'integrate | package | verdict | land-stage | merge-land';
+const COMMANDS = 'integrate | package | verdict | land-stage | combined-verified | merge-land';
 
 export async function main(argv, { env = process.env, log = console.log, client, git } = {}) {
   const [command] = argv;
   const workspace = path.resolve(env.SPECKIT_WORKSPACE || 'workspace');
   const resultDir = path.resolve(env.SPECKIT_RESULT_DIR || 'result');
   const folder = env.SPECKIT_FOLDER;
+  if (command === 'combined-verified') return (await runCombinedVerified({ client: client ?? githubClient(env), env, log })).exitCode;
   if (command === 'land-stage') {
     return (await runLandStage({
       client: client ?? githubClient(env),

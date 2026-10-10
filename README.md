@@ -279,15 +279,19 @@ their "blocked by" issues are closed.
       fails, the implementation stops for a person (and a diagnosis). A
       conflict resolution and the merge run every check with all tests (mode
       `finalize`);
-  3. lands the results in one `land` job that never runs agent-written code:
+  3. pushes the results in one "Commit and push" job (`land`) that never runs
+      agent-written code:
       in task order, it re-validates each change (a task may only add its own
       `tasks.md` tick; convergence may only append a convergence section to
       `tasks.md`; a resolution may only change the conflicted files, none
       under `.github/`, `.specify/`, or `specs/`, and is replayed onto git's
       own merge), then commits, pushes, updates the pull request body and
-      check run, and comments the result. When every task landed, it shows the
-      next stage's attempts as in progress; otherwise the job fails on purpose,
-      the stages after it are cancelled, and the next run retries.
+      check run, and comments the result. When parallel tasks edited the same
+      files, it merges them three-way and the stage's "Verify … together" job
+      verifies the combination before the next stage starts. When every task
+      was pushed, it shows the next stage's attempts as in progress; otherwise
+      the job fails on purpose, the stages after it are cancelled, and the
+      next run retries.
 
   GitHub documents the order in which matrix jobs are created, not that they
   run in that order; with one stage at a time they run in order in practice.
@@ -349,13 +353,17 @@ their "blocked by" issues are closed.
   (default 3) at a time. Consecutive unchecked `[P]` tasks under the same
   heading form one stage; an unchecked task without `[P]` or a new heading
   ends it. Each task of the stage starts from the stage's head and is verified
-  on its own. The `land` job lands them in task order: a task whose siblings
-  landed first is rebuilt on the new head (its change without `tasks.md`,
-  plus its own tick) and validated again. If it touches a file that a sibling
-  (or a person) changed since the stage started, or no longer applies, it
-  runs again from the new head in the next run; that does not count as a
-  failed attempt, but every task has at most six attempts. A push that is
-  refused although the branch did not move counts as a failed attempt.
+  on its own. The "Commit and push" job pushes them in task order: a task
+  whose siblings landed first is rebuilt on the new head (its change without
+  `tasks.md`, plus its own tick) and validated again. Files that a sibling
+  (or a person) also changed since the task started are merged three-way;
+  the stage's "Verify … together" job then runs mode `phase` on the combined
+  result, and if that fails, the implementation stops for a person (and a
+  diagnosis). Only when those edits conflict, or the change no longer
+  applies, the task runs again from the new head in the next run; that does
+  not count as a failed attempt, but every task has at most six attempts. A
+  push that is refused although the branch did not move counts as a failed
+  attempt.
   `SPECKIT_MAX_PARALLEL_TASKS=1` runs the tasks of a stage one after another.
 - Every step gets at most three failed attempts. Every outcome of a task, a
   convergence, or a conflict resolution is commented on the pull request with

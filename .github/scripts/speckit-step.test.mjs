@@ -15,6 +15,7 @@ import {
   main,
   parseStepInputs,
   runLandStage,
+  runCombinedVerified,
   startAttemptChecks,
   runIntegrate,
   runLand,
@@ -257,7 +258,7 @@ test('task: land redoes a parallel task whose files a sibling changed, without c
   const github = fakeGitHub();
   const result = await land(repos, github);
   assert.equal(result.exitCode, 0);
-  assert.match(result.requeue.join(), /`docs\/x\.md` changed on the branch since the task started/);
+  assert.match(result.requeue.join(), /`docs\/x\.md` changed on the branch since the task started, and the changes conflict/);
   assert.equal(remoteSha(repos, 'speckit/f'), sibling);
   assert.deepEqual([result.check.status, result.check.conclusion, result.check.output.title], ['completed', 'neutral', 'T001 attempt 2 is redone from the new head']);
   assert.match(github.comments.at(-1).body, /\*\*T001 attempt 2 runs again\*\*[\s\S]*does not count as a failed attempt/);
@@ -320,7 +321,7 @@ test('stage: lands the tasks of a [P] group in order and shows the next stage as
   assert.deepEqual(reported.map((check) => [check.status, check.conclusion]), [['completed', 'success'], ['completed', 'success']], 'the stage reports through the check runs decide created');
   const next = github.repo.checkRuns.find((check) => check.external_id === 'speckit:attempt:task:T003:1');
   assert.deepEqual([next.status, next.output.title, next.output.summary], ['in_progress', 'T003 attempt 1 in progress', 'Create docs/z.md']);
-  assert.match(result.output, /^ok=true\nhead=sha-head\n$/);
+  assert.match(result.output, /^ok=true\nhead=sha-head\nstart=[0-9a-f]{40}\ncombined=false\n$/);
   assert.equal(result.exitCode, 0);
 }));
 
@@ -338,6 +339,80 @@ test('stage: a sibling that changed the same files is redone, and the chain stop
   assert.equal(result.exitCode, 1, 'the land job fails, so the matrix cancels the later stages');
   await assert.rejects(() => runLandStage({ client: github, git: defaultGit(repos.land), env: { SPECKIT_STEP: 'task' }, folder: 'f', workspace: repos.land, resultRoot: repos.base, log: silent }), /SPECKIT_STAGES/);
 }));
+
+// A file both parallel tasks edit: each edit lies in the context of the other's patch, so a plain apply fails and only a
+// three-way merge combines them.
+const LIST = 'one\ntwo\nthree\nfour\nfive\nsix\n';
+const withList = (tasks = PARALLEL_TASKS) => ({ tasks, branch: (dir) => write(dir, 'docs/list.md', LIST) });
+const listByT001 = { 'docs/list.md': LIST.replace('two', 'two (x)') };
+const listByT002 = { 'docs/list.md': LIST.replace('five', 'five (y)') };
+
+test('task: land merges edits a sibling made to the same file elsewhere, and says so', () => withRepos(withList(), async (repos) => {
+  work(repos, { agent: (r) => agentDoesT001(r.work, { extra: listByT001 }) });
+  siblingLands(repos, siblingDoesT002(listByT002));
+  const github = fakeGitHub();
+  const result = await land(repos, github);
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.requeue, undefined);
+  assert.deepEqual(result.combined, ['docs/list.md']);
+  assert.equal(remoteShow(repos, 'speckit/f:docs/list.md'), 'one\ntwo (x)\nthree\nfour\nfive (y)\nsix\n');
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001 [^\n]*\n- \[x\] T002/);
+  assert.match(git(repos.base, `--git-dir=${repos.bare}`, 'log', '-1', '--format=%B', 'speckit/f'), /Combined with parallel changes to docs\/list\.md; verified together after the stage\./);
+  assert.match(github.comments.at(-1).body, /\*\*T001 implemented\*\*[\s\S]*- Combined with the parallel changes to `docs\/list\.md`; the stage is verified together next/);
+}));
+
+test('stage: parallel edits to the same file are combined, and the next stage waits for their verification', () => withRepos(withList(`${PARALLEL_TASKS}- [ ] T003 Create docs/z.md\n`), async (repos) => {
+  workStageTask(repos, 'T001', (dir) => agentDoesT001(dir, { extra: listByT001 }));
+  workStageTask(repos, 'T002', siblingDoesT002(listByT002));
+  const github = fakeGitHub();
+  const result = await landStage(repos, github, [{ task: 'T001', attempt: 1 }, { task: 'T002', attempt: 1 }], { next: { include: [{ task: 'T003', attempt: 1 }] } });
+  assert.deepEqual([result.ok, result.exitCode, result.combined], [true, 0, ['docs/list.md']]);
+  assert.deepEqual(result.outcomes.map((outcome) => [outcome.key, outcome.landed, outcome.combined]), [['T001', true, []], ['T002', true, ['docs/list.md']]]);
+  assert.equal(remoteShow(repos, 'speckit/f:docs/list.md'), 'one\ntwo (x)\nthree\nfour\nfive (y)\nsix\n');
+  assert.match(result.output, /^ok=true\nhead=sha-head\nstart=[0-9a-f]{40}\ncombined=true\n$/);
+  assert.equal(github.repo.checkRuns.some((check) => String(check.external_id).includes('T003')), false, 'the next stage waits for the combined verification');
+}));
+
+function combinedEnv(extra = {}) {
+  return {
+    SPECKIT_TWIN: '5',
+    SPECKIT_PULL: '9',
+    SPECKIT_FOLDER: 'f',
+    SPECKIT_BRANCH: 'main',
+    SPECKIT_HEAD: 'sha-new',
+    SPECKIT_STAGES: JSON.stringify([
+      { include: [{ task: 'T001', attempt: 1 }, { task: 'T002', attempt: 1 }] },
+      { include: [{ task: 'T003', attempt: 1, summary: 'Create docs/z.md' }] },
+    ]),
+    SPECKIT_STAGE_INDEX: '0',
+    SPECKIT_LAND_OK: 'true',
+    ...extra,
+  };
+}
+
+test('combined verification: success shows the next stage, anything else stops the implementation for a person', async () => {
+  const verified = fakeGitHub();
+  assert.equal((await runCombinedVerified({ client: verified, env: combinedEnv({ SPECKIT_VERIFY_RESULT: 'success' }), log: silent })).exitCode, 0);
+  const next = verified.repo.checkRuns.find((check) => check.external_id === 'speckit:attempt:task:T003:1');
+  assert.deepEqual([next.status, next.head_sha, next.output.summary], ['in_progress', 'sha-new', 'Create docs/z.md']);
+  assert.equal(verified.comments.some((comment) => /needs attention/.test(comment.body)), false);
+
+  const partial = fakeGitHub();
+  await runCombinedVerified({ client: partial, env: combinedEnv({ SPECKIT_VERIFY_RESULT: 'success', SPECKIT_LAND_OK: 'false' }), log: silent });
+  assert.equal(partial.repo.checkRuns.some((check) => String(check.external_id).includes('T003')), false, 'no next stage after a task that was not pushed');
+
+  const broken = fakeGitHub();
+  const failed = await runCombinedVerified({ client: broken, env: { ...combinedEnv({ SPECKIT_VERIFY_RESULT: 'failure' }), GITHUB_REPOSITORY: 'octo/repo', GITHUB_RUN_ID: '77' }, log: silent });
+  assert.equal(failed.exitCode, 1);
+  const stop = broken.repo.checkRuns.at(-1);
+  assert.deepEqual([stop.head_sha, stop.status, stop.conclusion, stop.external_id, stop.output.title], ['sha-new', 'completed', 'failure', CHECK_LIMIT, 'The combined verification failed']);
+  assert.match(broken.comments.at(-1).body, /^\*\*Implementation needs attention\*\* @dev: the verification of T001, T002 together failed \(see the \[run\]\(https:\/\/github\.com\/octo\/repo\/actions\/runs\/77\)\)/);
+
+  const cancelled = fakeGitHub();
+  assert.equal((await runCombinedVerified({ client: cancelled, env: combinedEnv({ SPECKIT_VERIFY_RESULT: 'cancelled' }), log: silent })).exitCode, 1);
+  assert.match(cancelled.comments.at(-1).body, /T001, T002 together did not finish \(cancelled\)/);
+  await assert.rejects(() => runCombinedVerified({ client: broken, env: { SPECKIT_TWIN: '5', SPECKIT_PULL: '9' }, log: silent }), /SPECKIT_HEAD/);
+});
 test('stage: a single task finds its result where download-artifact puts a single artifact', () => withRepos({}, async (repos) => {
   workStageTask(repos, 'T001', (dir) => agentDoesT001(dir));
   const results = path.join(repos.base, 'results');
@@ -724,6 +799,6 @@ test('extracts the last agent message and validates commands', async () => {
   ].join('\n');
   assert.equal(lastAgentMessage(jsonl), 'last');
   const env = { SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_TASK: 'T001', SPECKIT_ATTEMPT: '1' };
-  await assert.rejects(() => main(['nope'], { env }), /integrate \| package \| verdict \| land-stage \| merge-land/);
+  await assert.rejects(() => main(['nope'], { env }), /integrate \| package \| verdict \| land-stage \| combined-verified \| merge-land/);
   await assert.rejects(() => main(['package'], { env: { ...env, SPECKIT_STEP: 'merge' } }), /merge step has no package command/);
 });

@@ -19,7 +19,7 @@ flowchart TD
     subgraph chain["Implementation chain · one per spec"]
         spec["<b>Spec Kit implement spec</b><br/>decide → phase | step | merge → continue"]
         phase["<b>Spec Kit implement phase</b><br/>plan → stages one at a time → verify"]
-        task["<b>Spec Kit implement task</b><br/>work: one agent per task → land"]
+        task["<b>Spec Kit implement task</b><br/>work: one agent per task → commit and push"]
     end
 
     subgraph amend["Amendment loop · spec artifact defects"]
@@ -44,7 +44,7 @@ flowchart TD
     phase == "once per stage" ==> task
     spec == "step: convergence, conflict resolution" ==> task
     spec -- "continue" --> spec
-    task -- "pushes landed tasks" --> implPr
+    task -- "pushes finished tasks" --> implPr
     spec -- "merge: squash-merge or request review" --> implPr
 
     spec -- "stopped" --> diagnose
@@ -73,7 +73,7 @@ pull request, and thick arrows are reusable workflow calls (`workflow_call`) tha
 | Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, hourly, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3), restarts broken chains, finalizes merged implementations, settles amendments. |
 | Spec Kit implement spec | [speckit-implement-spec.yml](speckit-implement-spec.yml) | Orchestrate, itself, commands | One segment per run: a phase, a convergence or conflict resolution step, or the merge; then dispatches its next run. |
 | Spec Kit implement phase | [speckit-implement-phase.yml](speckit-implement-phase.yml) | Implement spec (`workflow_call`) | Plans one phase of `tasks.md` into stages and runs them one at a time; verifies the phase after a final `[P]` group. |
-| Spec Kit implement task | [speckit-implement-task.yml](speckit-implement-task.yml) | Implement phase, implement spec (`workflow_call`) | One stage: a `work` job per task runs the agent and the verification, then `land` commits and pushes in task order. |
+| Spec Kit implement task | [speckit-implement-task.yml](speckit-implement-task.yml) | Implement phase, implement spec (`workflow_call`) | One stage: a `work` job per task runs the agent and the verification, then a "Commit and push" job commits and pushes them in task order. Parallel edits to the same file are merged and verified together; only conflicting edits are redone. |
 | Spec Kit commands | [speckit-commands.yml](speckit-commands.yml) | Pull request comments, reviews, and events | Handles `/speckit` commands and amendment feedback; keeps Spec Kit pull requests out of stacks. |
 | Spec Kit diagnose | [speckit-diagnose.md](speckit-diagnose.md) ([lock](speckit-diagnose.lock.yml)) | Implement spec, commands, analyze | Explains why an implementation stopped; for spec artifact defects opens and reworks an amendment pull request. |
 | Spec Kit analyze | [speckit-analyze.md](speckit-analyze.md) ([lock](speckit-analyze.lock.yml)) | Diagnose, commands | Runs a read-only `/speckit-analyze` of the amended spec folder and decides between a correction round, a rework, or human review. |
