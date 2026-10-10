@@ -72,5 +72,87 @@ internal sealed class ClubHierarchyStore(IDbSession session) : IClubHierarchySto
                 cancellationToken: cancellationToken));
     }
 
+    public async Task InsertSeasonAsync(Season season, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO socalytics.season (id, name, state, created_at) VALUES (@Id, @Name, @State, @CreatedAt)",
+            new { season.Id, Name = season.Name.Value, State = season.State.ToWire(), season.CreatedAt },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<Season?> GetSeasonAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<SeasonRow>(new CommandDefinition(
+            SeasonSelect + " WHERE id = @id",
+            new { id },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        return row is null ? null : ToSeason(row);
+    }
+
+    public async Task<SeasonPageResult> ListSeasonsAsync(SeasonPageKey? after, int pageSize, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = (await connection.QueryAsync<SeasonRow>(new CommandDefinition(
+            SeasonSelect + " WHERE @hasAfter = false OR (created_at, id) > (@afterAt, @afterId) ORDER BY created_at, id LIMIT @limit",
+            new
+            {
+                hasAfter = after is not null,
+                afterAt = after?.CreatedAt.UtcDateTime ?? DateTime.UnixEpoch,
+                afterId = after?.Id ?? Guid.Empty,
+                limit = pageSize + 1,
+            },
+            session.Transaction,
+            cancellationToken: cancellationToken))).ToList();
+
+        var items = rows.Take(pageSize).Select(ToSeason).ToList();
+        var last = items.Count > 0 ? new SeasonPageKey(items[^1].CreatedAt, items[^1].Id) : null;
+        return new SeasonPageResult(items, rows.Count > pageSize, last);
+    }
+
+    public async Task<VersionedWriteResult> TransitionSeasonAsync(Guid id, SeasonState expectedState, SeasonState newState, DateTimeOffset at, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var stamp = newState == SeasonState.Active ? "activated_at = @At" : "archived_at = @At";
+        try
+        {
+            return await VersionedWrites.ExecuteAsync(
+                session,
+                new CommandDefinition(
+                    $"UPDATE socalytics.season SET state = @NewState, {stamp} WHERE id = @Id AND state = @ExpectedState RETURNING version",
+                    new { Id = id, ExpectedState = expectedState.ToWire(), NewState = newState.ToWire(), At = at.UtcDateTime },
+                    transaction,
+                    cancellationToken: cancellationToken),
+                new CommandDefinition(
+                    "SELECT version FROM socalytics.season WHERE id = @Id",
+                    new { Id = id },
+                    transaction,
+                    cancellationToken: cancellationToken));
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+        {
+            throw new UniqueViolationException(ex.ConstraintName ?? "ux_season_single_active", ex);
+        }
+    }
+
+    private const string SeasonSelect =
+        "SELECT id AS Id, name AS Name, state AS State, created_at AS CreatedAt, activated_at AS ActivatedAt, " +
+        "archived_at AS ArchivedAt, version AS Version FROM socalytics.season";
+
+    private static Season ToSeason(SeasonRow row)
+    {
+        DisplayName.TryCreate(row.Name, out var name, out _);
+        SeasonStateWire.TryParse(row.State, out var state);
+        return new Season(row.Id, name, state, Utc(row.CreatedAt), row.ActivatedAt is { } a ? Utc(a) : null, row.ArchivedAt is { } r ? Utc(r) : null, row.Version);
+    }
+
+    private static DateTimeOffset Utc(DateTime value) => new(DateTime.SpecifyKind(value, DateTimeKind.Utc));
+
+    private sealed record SeasonRow(Guid Id, string Name, string State, DateTime CreatedAt, DateTime? ActivatedAt, DateTime? ArchivedAt, long Version);
+
     private sealed record ClubRow(Guid Id, string DisplayName, Guid BootstrapAdminAccountId, DateTime CreatedAt, long Version);
 }

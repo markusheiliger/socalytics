@@ -17,6 +17,11 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<BootstrapClubHandler>();
         services.TryAddScoped<GetClubHandler>();
         services.TryAddScoped<UpdateClubSettingsHandler>();
+        services.TryAddScoped<CreateSeasonHandler>();
+        services.TryAddScoped<ActivateSeasonHandler>();
+        services.TryAddScoped<ArchiveSeasonHandler>();
+        services.TryAddScoped<GetSeasonHandler>();
+        services.TryAddScoped<ListSeasonsHandler>();
         services.TryAddScoped<ValidateSessionHandler>();
         services.TryAddScoped<GetSessionHandler>();
         services.TryAddScoped<SignOutHandler>();

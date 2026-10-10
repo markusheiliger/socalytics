@@ -53,6 +53,7 @@ app.MapOpenApi();
 app.MapSessionEndpoints();
 app.MapSelfEndpoints();
 app.MapClubEndpoints();
+app.MapSeasonEndpoints();
 app.MapMemberEndpoints();
 app.MapCredentialEndpoints();
 
