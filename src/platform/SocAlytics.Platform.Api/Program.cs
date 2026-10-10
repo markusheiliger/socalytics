@@ -55,6 +55,7 @@ app.MapSelfEndpoints();
 app.MapClubEndpoints();
 app.MapSeasonEndpoints();
 app.MapTeamEndpoints();
+app.MapMatchEndpoints();
 app.MapMemberEndpoints();
 app.MapCredentialEndpoints();
 

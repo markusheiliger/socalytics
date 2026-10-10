@@ -200,6 +200,74 @@ internal sealed class ClubHierarchyStore(IDbSession session) : IClubHierarchySto
         return new TeamPageResult(items, rows.Count > pageSize, last);
     }
 
+    public async Task InsertMatchAsync(Match match, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO socalytics.match (id, team_id, opponent_name, kickoff_at, home_away, competition, created_at, created_by_account_id) " +
+            "VALUES (@Id, @TeamId, @OpponentName, @KickoffAt, @HomeAway, @Competition, @CreatedAt, @CreatedBy)",
+            new
+            {
+                match.Id,
+                match.TeamId,
+                OpponentName = match.Opponent.Name.Value,
+                match.Details.KickoffAt,
+                HomeAway = match.Details.HomeAway.ToWire(),
+                match.Details.Competition,
+                match.CreatedAt,
+                CreatedBy = match.CreatedByAccountId,
+            },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<Match?> GetMatchAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<MatchRow>(new CommandDefinition(
+            MatchSelect + " WHERE id = @id",
+            new { id },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        return row is null ? null : ToMatch(row);
+    }
+
+    public async Task<MatchPageResult> ListTeamMatchesAsync(Guid teamId, MatchPageKey? after, int pageSize, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = (await connection.QueryAsync<MatchRow>(new CommandDefinition(
+            MatchSelect + " WHERE team_id = @teamId AND (@hasAfter = false OR (kickoff_at, id) > (@afterAt, @afterId)) ORDER BY kickoff_at, id LIMIT @limit",
+            new
+            {
+                teamId,
+                hasAfter = after is not null,
+                afterAt = after?.KickoffAt.UtcDateTime ?? DateTime.UnixEpoch,
+                afterId = after?.Id ?? Guid.Empty,
+                limit = pageSize + 1,
+            },
+            session.Transaction,
+            cancellationToken: cancellationToken))).ToList();
+
+        var items = rows.Take(pageSize).Select(ToMatch).ToList();
+        var last = items.Count > 0 ? new MatchPageKey(items[^1].Details.KickoffAt, items[^1].Id) : null;
+        return new MatchPageResult(items, rows.Count > pageSize, last);
+    }
+
+    private const string MatchSelect =
+        "SELECT id AS Id, team_id AS TeamId, opponent_name AS OpponentName, kickoff_at AS KickoffAt, home_away AS HomeAway, " +
+        "competition AS Competition, created_at AS CreatedAt, created_by_account_id AS CreatedBy, version AS Version FROM socalytics.match";
+
+    private static Match ToMatch(MatchRow row)
+    {
+        DisplayName.TryCreate(row.OpponentName, out var opponent, out _);
+        HomeAwayWire.TryParse(row.HomeAway, out var homeAway);
+        MatchDetails.TryCreate(Utc(row.KickoffAt), homeAway, row.Competition, out var details, out _, out _);
+        return new Match(row.Id, row.TeamId, new MatchOpponent(opponent), details!, Utc(row.CreatedAt), row.CreatedBy, row.Version);
+    }
+
+    private sealed record MatchRow(Guid Id, Guid TeamId, string OpponentName, DateTime KickoffAt, string HomeAway, string? Competition, DateTime CreatedAt, Guid CreatedBy, long Version);
+
     public async Task<VersionedWriteResult> UpdateTeamNameAsync(Guid id, DisplayName name, long expectedVersion, CancellationToken cancellationToken)
     {
         var transaction = session.RequireTransaction();

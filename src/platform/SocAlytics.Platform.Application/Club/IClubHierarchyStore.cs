@@ -39,6 +39,12 @@ public interface IClubHierarchyStore
 
     Task<TeamPageResult> ListTeamsAsync(Guid? seasonId, TeamVisibility visibility, TeamPageKey? after, int pageSize, CancellationToken cancellationToken);
 
+    Task InsertMatchAsync(Match match, CancellationToken cancellationToken);
+
+    Task<Match?> GetMatchAsync(Guid id, CancellationToken cancellationToken);
+
+    Task<MatchPageResult> ListTeamMatchesAsync(Guid teamId, MatchPageKey? after, int pageSize, CancellationToken cancellationToken);
+
     Task<VersionedWriteResult> UpdateTeamNameAsync(Guid id, DisplayName name, long expectedVersion, CancellationToken cancellationToken);
 }
 
@@ -51,3 +57,7 @@ public sealed record TeamPageResult(IReadOnlyList<TeamView> Items, bool HasMore,
 public sealed record SeasonPageKey(DateTimeOffset CreatedAt, Guid Id);
 
 public sealed record SeasonPageResult(IReadOnlyList<Season> Items, bool HasMore, SeasonPageKey? LastKey);
+
+public sealed record MatchPageKey(DateTimeOffset KickoffAt, Guid Id);
+
+public sealed record MatchPageResult(IReadOnlyList<Match> Items, bool HasMore, MatchPageKey? LastKey);
