@@ -128,6 +128,8 @@ steps:
     with:
       workspace: .
 safe-outputs:
+  # Spec Kit reports failures through its check runs and pull request comments, and retries unfinished diagnoses.
+  report-failure-as-issue: false
   create-pull-request:
     title-prefix: "Amend: "
     draft: true

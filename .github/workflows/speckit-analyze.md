@@ -98,6 +98,8 @@ steps:
       printf '%s' "${SPECKIT_PREVIOUS:-[]}" > .speckit-analysis/previous.json
       printf '.speckit-tooling/\n.speckit-analysis/\n' >> .git/info/exclude
 safe-outputs:
+  # Spec Kit reports failures through its check runs and pull request comments.
+  report-failure-as-issue: false
   jobs:
     speckit-analysis:
       description: Report the consistency analysis of the amendment. Call it exactly once.
