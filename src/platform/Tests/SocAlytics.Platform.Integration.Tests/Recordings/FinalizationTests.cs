@@ -118,6 +118,118 @@ public sealed class FinalizationTests(PostgresContainerFixture postgres, RustFsC
 			traceId, new HashSet<string> { "matchId", "memberCount" }, ct, "recording-set-version");
 	}
 
+	private static async Task ExecuteAsync(FinalizationSetup s, string sql, CancellationToken ct)
+	{
+		await using var connection = new NpgsqlConnection(s.Db.MigratorConnectionString);
+		await connection.OpenAsync(ct);
+		await using var command = new NpgsqlCommand(sql, connection);
+		await command.ExecuteNonQueryAsync(ct);
+	}
+
+	private static async Task<HttpResponseMessage> FinalizeKeyedAsync(ApiSession session, Guid matchId, object body, string key, CancellationToken ct)
+	{
+		using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/matches/{matchId}/recording-set-versions") { Content = JsonContent.Create(body) };
+		request.Headers.Add("X-CSRF-Token", session.AntiforgeryToken);
+		request.Headers.Add("Idempotency-Key", key);
+		return await session.Client.SendAsync(request, ct);
+	}
+
+	[Fact]
+	// US2 AS5-AS7, FR-022, FR-025, SC-006, SC-007, Duplicate finalization
+	public async Task ConcurrentIdenticalFinalizationsYieldOneSetAndEvent()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct);
+		var a = await UploadAsync(s.Coach, s.Hierarchy.MatchId, 31, ct);
+		var b = await UploadAsync(s.Coach, s.Hierarchy.MatchId, 32, ct);
+		var body = Members([(a.Version, a.Mapping), (b.Version, b.Mapping)]);
+		var key = Guid.NewGuid().ToString();
+
+		var responses = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => FinalizeKeyedAsync(s.Coach, s.Hierarchy.MatchId, body, key, ct)));
+		var ids = new HashSet<Guid>();
+		foreach (var response in responses)
+		{
+			using (response)
+			{
+				response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(ct));
+				ids.Add((await response.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("id").GetGuid());
+			}
+		}
+
+		ids.Count.ShouldBe(1);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_set_versions", ct)).ShouldBe(1);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_finalized_events", ct)).ShouldBe(1);
+
+		using var replay = await FinalizeKeyedAsync(s.Coach, s.Hierarchy.MatchId, body, key, ct);
+		replay.StatusCode.ShouldBe(HttpStatusCode.Created);
+		(await replay.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("id").GetGuid().ShouldBe(ids.Single());
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_finalized_events", ct)).ShouldBe(1);
+
+		var different = Members([(a.Version, a.Mapping)]);
+		using var reused = await FinalizeKeyedAsync(s.Coach, s.Hierarchy.MatchId, different, key, ct);
+		reused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+		(await reused.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("code").GetString().ShouldBe("idempotency-key-reused");
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_set_versions", ct)).ShouldBe(1);
+	}
+
+	[Fact]
+	// US2 AS5: distinct keys create distinct set versions
+	public async Task DistinctKeysCreateDistinctSetsEachWithOwnEvent()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct);
+		var a = await UploadAsync(s.Coach, s.Hierarchy.MatchId, 41, ct);
+		var body = Members([(a.Version, a.Mapping)]);
+		var ids = new HashSet<Guid>();
+		for (var i = 0; i < 2; i++)
+		{
+			using var response = await FinalizeKeyedAsync(s.Coach, s.Hierarchy.MatchId, body, Guid.NewGuid().ToString(), ct);
+			response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(ct));
+			ids.Add((await response.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("id").GetGuid());
+		}
+
+		ids.Count.ShouldBe(2);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_set_versions", ct)).ShouldBe(2);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_finalized_events", ct)).ShouldBe(2);
+	}
+
+	[Fact]
+	// SC-007: atomicity under an injected failure
+	public async Task InjectedEventFailureLeavesNoRows()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct);
+		var a = await UploadAsync(s.Coach, s.Hierarchy.MatchId, 51, ct);
+		await ExecuteAsync(s, "CREATE FUNCTION socalytics.test_fail_event() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected failure'; END $$", ct);
+		await ExecuteAsync(s, "CREATE TRIGGER test_fail_event BEFORE INSERT ON socalytics.recording_finalized_events FOR EACH ROW EXECUTE FUNCTION socalytics.test_fail_event()", ct);
+
+		using var response = await FinalizeRawAsync(s.Coach, s.Hierarchy.MatchId, Members([(a.Version, a.Mapping)]), ct);
+		response.IsSuccessStatusCode.ShouldBeFalse();
+		foreach (var table in new[] { "recording_set_versions", "recording_set_members", "recording_finalized_events" })
+		{
+			(await s.ScalarAsync($"SELECT count(*) FROM socalytics.{table}", ct)).ShouldBe(0);
+		}
+
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_retry_outcomes WHERE operation = 'finalize-recording-set'", ct)).ShouldBe(0);
+	}
+
+	[Fact]
+	// US2 AS5, FR-004: role revoked after uploading
+	public async Task RevokedCoachCannotFinalize()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct);
+		var a = await UploadAsync(s.Coach, s.Hierarchy.MatchId, 61, ct);
+		await ExecuteAsync(s, $"DELETE FROM socalytics.team_role_assignment WHERE member_account_id = '{s.CoachId}'", ct);
+
+		using var response = await FinalizeRawAsync(s.Coach, s.Hierarchy.MatchId, Members([(a.Version, a.Mapping)]), ct);
+		response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+		foreach (var table in new[] { "recording_set_versions", "recording_set_members", "recording_finalized_events" })
+		{
+			(await s.ScalarAsync($"SELECT count(*) FROM socalytics.{table}", ct)).ShouldBe(0);
+		}
+	}
+
 	[Fact]
 	// US2 AS4
 	public async Task InvalidSetsAreRejectedWithoutRows()

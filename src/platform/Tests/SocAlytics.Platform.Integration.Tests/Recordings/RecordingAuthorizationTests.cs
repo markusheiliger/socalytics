@@ -254,4 +254,34 @@ public sealed class RecordingAuthorizationTests(PostgresContainerFixture postgre
 
 		(await InFlightUploadsAsync(ct)).ShouldBe(inFlight);
 	}
+
+	[Fact]
+	// US2 AS5-AS7, FR-004: finalization is denied without side effects
+	public async Task FinalizationIsDeniedWithoutRows()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var s = await StartAsync(ct);
+		await using var db0 = s.Db;
+		await using var fac0 = s.Factory;
+		var body = new { members = new[] { new { recordingVersionId = Guid.NewGuid(), timelineMappingId = Guid.NewGuid() } } };
+
+		async Task AssertAsync(string name, ApiSession session, Guid matchId, HttpStatusCode expected, string? code = null)
+		{
+			var rows = await SnapshotAsync(s.Db, ct);
+			using var response = await SendAsync(session.Client, session.AntiforgeryToken, HttpMethod.Post, $"/api/v1/matches/{matchId}/recording-set-versions", body, ct);
+			response.StatusCode.ShouldBe(expected, $"{name}: {await response.Content.ReadAsStringAsync(ct)}");
+			if (code is not null)
+			{
+				(await response.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("code").GetString().ShouldBe(code);
+			}
+
+			(await SnapshotAsync(s.Db, ct)).ShouldBe(rows, name);
+		}
+
+		await AssertAsync("other-team coach", s.Coach, s.OtherMatchId, HttpStatusCode.Forbidden);
+		await AssertAsync("viewer", s.Viewer, s.Hierarchy.MatchId, HttpStatusCode.Forbidden);
+		await AssertAsync("missing match", s.Coach, Guid.NewGuid(), HttpStatusCode.NotFound);
+		await s.Builder.ArchiveSeasonAsync(s.Hierarchy.SeasonId, ct);
+		await AssertAsync("archived", s.Coach, s.Hierarchy.MatchId, HttpStatusCode.Conflict, "season-archived");
+	}
 }
