@@ -53,6 +53,8 @@ public sealed class RegistrationCoordinator(
 
     public event EventHandler? Changed;
 
+    public void NotifyChanged() => Changed?.Invoke(this, EventArgs.Empty);
+
     /// <summary>Completes when the background retry of a pending unregister ended.</summary>
     public Task UnregisterCompletion { get; private set; } = Task.CompletedTask;
 

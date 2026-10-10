@@ -51,6 +51,8 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton(new Runtime.RuntimeAdapterCatalog([]));
         services.AddSingleton(_ => Runtime.RuntimeCompatibilityList.LoadEmbedded());
         services.AddSingleton<Runtime.PreflightRunner>();
+        services.AddSingleton<Runtime.PreflightScheduler>();
+        services.AddHostedService(sp => sp.GetRequiredService<Runtime.PreflightScheduler>());
         services.AddSingleton<ManagerControl>();
         services.AddSingleton<IManagerControl>(sp => sp.GetRequiredService<ManagerControl>());
         return services;

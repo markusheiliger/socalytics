@@ -12,9 +12,11 @@ public sealed class ManagerControl : IManagerControl
     private readonly DateTimeOffset _started;
 
     private readonly IManagerWorkTracker _work;
+    private readonly Runtime.PreflightScheduler _preflight;
 
-    public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work)
+    public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work, Runtime.PreflightScheduler preflight)
     {
+        _preflight = preflight;
         _work = work;
         _coordinator = coordinator;
         _time = time;
@@ -45,7 +47,7 @@ public sealed class ManagerControl : IManagerControl
                 ? new DrainStatus(PurposeWire(drain.Purpose), deadline, _work.ActiveCount)
                 : null,
             (_time.GetUtcNow() - _started).TotalSeconds,
-            null,
+            machine is null ? null : _preflight.Latest,
             _coordinator.Diagnostics,
             machine?.Intent.EndUtc,
             machine?.Intent.EndUtc is { } end ? Math.Max(0, (end - _time.GetUtcNow()).TotalSeconds) : null,
