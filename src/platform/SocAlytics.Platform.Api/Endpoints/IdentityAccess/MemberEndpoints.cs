@@ -92,8 +92,38 @@ internal static class MemberEndpoints
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict);
+		members.MapDelete("/members/{memberId:guid}/sessions", EndMemberSessionsAsync)
+			.WithName("endMemberSessions")
+			.WithTags("Members")
+			.Produces(StatusCodes.Status204NoContent)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapPost("/members/{memberId:guid}/unlock", UnlockMemberAsync)
+			.WithName("unlockMember")
+			.WithTags("Members")
+			.Produces<MemberDto>(StatusCodes.Status200OK)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		return routes;
 	}
+
+	private static async Task<IResult> EndMemberSessionsAsync(
+		Guid memberId,
+		EndMemberSessionsHandler handler,
+		CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new EndMemberSessionsCommand(memberId), cancellationToken);
+		return result.IsSuccess ? Results.NoContent() : ProblemResults.From(result.Failure);
+	}
+
+	private static async Task<IResult> UnlockMemberAsync(
+		Guid memberId,
+		HttpContext http,
+		UnlockMemberHandler handler,
+		CancellationToken cancellationToken) =>
+		RoleResult(http, await handler.HandleAsync(new UnlockMemberCommand(memberId), cancellationToken));
 
 	private static IResult RoleResult(HttpContext http, OperationResult<MemberDetails> result)
 	{

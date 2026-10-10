@@ -52,5 +52,10 @@ public interface IMemberAccountStore
     /// <summary>Sets the status to active and stamps <c>membership_changed_at</c>; restores nothing else.</summary>
     Task ReactivateAccountAsync(Guid accountId, CancellationToken cancellationToken);
 
+    Task RotateSecurityStampAsync(Guid accountId, CancellationToken cancellationToken);
+
+    /// <summary>Clears <c>lockout_end</c> and <c>access_failed_count</c>; returns whether a lockout was in effect.</summary>
+    Task<bool> UnlockAccountAsync(Guid accountId, CancellationToken cancellationToken);
+
     Task<Guid?> FindAccountIdByNameAsync(AccountName name, CancellationToken cancellationToken);
 }

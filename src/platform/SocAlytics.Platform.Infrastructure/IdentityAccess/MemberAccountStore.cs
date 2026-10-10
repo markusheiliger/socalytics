@@ -266,6 +266,34 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
             cancellationToken: cancellationToken));
     }
 
+    public async Task RotateSecurityStampAsync(Guid accountId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE socalytics.member_account SET security_stamp = @stamp WHERE id = @accountId",
+            new { accountId, stamp = Guid.NewGuid().ToString("N") },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<bool> UnlockAccountAsync(Guid accountId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var wasLocked = await connection.QuerySingleAsync<bool>(new CommandDefinition(
+            "SELECT COALESCE(lockout_end > @now, false) FROM socalytics.member_account WHERE id = @accountId",
+            new { accountId, now = time.GetUtcNow() },
+            transaction,
+            cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE socalytics.member_account SET lockout_end = NULL, access_failed_count = 0 WHERE id = @accountId",
+            new { accountId },
+            transaction,
+            cancellationToken: cancellationToken));
+        return wasLocked;
+    }
+
     public async Task<Guid?> FindAccountIdByNameAsync(AccountName name, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);

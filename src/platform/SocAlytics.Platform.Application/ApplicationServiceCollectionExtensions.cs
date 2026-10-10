@@ -31,6 +31,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<RevokeClubRoleHandler>();
         services.TryAddScoped<DeactivateMemberHandler>();
         services.TryAddScoped<ReactivateMemberHandler>();
+        services.TryAddScoped<EndMemberSessionsHandler>();
+        services.TryAddScoped<UnlockMemberHandler>();
 
         return services;
     }
