@@ -8,6 +8,8 @@ namespace SocAlytics.Platform.Api.Endpoints.IdentityAccess;
 
 internal sealed record MemberCreateRequest(string? AccountName);
 
+internal sealed record CredentialIssueRequest(string? Purpose);
+
 internal sealed record TeamRoleAssignmentRequest(string? Role);
 
 internal sealed record MemberTeamRoleDto(Guid TeamId, string Role);
@@ -126,7 +128,57 @@ internal static class MemberEndpoints
 			.ProducesProblem(StatusCodes.Status401Unauthorized)
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapPost("/members/{memberId:guid}/credentials", IssueCredentialAsync)
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("issueCredential")
+			.WithTags("Members")
+			.Produces<IssuedCredentialDto>(StatusCodes.Status201Created)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
 		return routes;
+	}
+
+	private static async Task<IResult> IssueCredentialAsync(
+		Guid memberId,
+		HttpContext http,
+		IssueCredentialHandler handler,
+		CancellationToken cancellationToken)
+	{
+		CredentialIssueRequest? body;
+		try
+		{
+			body = await http.Request.ReadFromJsonAsync<CredentialIssueRequest>(cancellationToken);
+		}
+		catch (System.Text.Json.JsonException)
+		{
+			body = null;
+		}
+
+		var purpose = body?.Purpose switch
+		{
+			"set-password" => CredentialPurpose.SetPassword,
+			"password-reset" => CredentialPurpose.PasswordReset,
+			_ => (CredentialPurpose?)null,
+		};
+		if (purpose is null)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("purpose", "invalid-value")));
+		}
+
+		var result = await handler.HandleAsync(new IssueCredentialCommand(memberId, purpose.Value), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Created(
+			$"{MemberApiRouteGroup.Prefix}/members/{memberId}",
+			new IssuedCredentialDto(memberId, purpose.Value.ToWireValue(), result.Value.RawCredential, result.Value.ExpiresAt));
 	}
 
 	private static async Task<IResult> EndMemberSessionsAsync(
