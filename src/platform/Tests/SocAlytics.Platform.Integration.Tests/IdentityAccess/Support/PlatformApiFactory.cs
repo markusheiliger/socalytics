@@ -18,6 +18,7 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 	private readonly IReadOnlyDictionary<string, string?>? _recordingUpload;
 	private readonly IReadOnlyDictionary<string, string?>? _recordingSets;
 	private readonly IReadOnlyDictionary<string, string?>? _objectStorage;
+	private readonly Action<IServiceCollection>? _configureServices;
 
 	public PlatformApiFactory(
 		IsolatedDatabase? database,
@@ -25,8 +26,10 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 		IReadOnlyDictionary<string, string?>? breakGlassRecovery = null,
 		IReadOnlyDictionary<string, string?>? recordingUpload = null,
 		IReadOnlyDictionary<string, string?>? recordingSets = null,
-		IReadOnlyDictionary<string, string?>? objectStorage = null)
+		IReadOnlyDictionary<string, string?>? objectStorage = null,
+		Action<IServiceCollection>? configureServices = null)
 	{
+		_configureServices = configureServices;
 		_objectStorage = objectStorage;
 		_recordingUpload = recordingUpload;
 		_recordingSets = recordingSets;
@@ -58,7 +61,11 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 			configuration.AddInMemoryCollection(settings);
 		});
 		builder.ConfigureLogging(logging => logging.AddProvider(Logs));
-		builder.ConfigureServices(services => services.Replace(ServiceDescriptor.Singleton<TimeProvider>(Time)));
+		builder.ConfigureServices(services =>
+		{
+			services.Replace(ServiceDescriptor.Singleton<TimeProvider>(Time));
+			_configureServices?.Invoke(services);
+		});
 	}
 
 	protected override void ConfigureClient(HttpClient client)
