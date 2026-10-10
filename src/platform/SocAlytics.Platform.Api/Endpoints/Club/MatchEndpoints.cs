@@ -42,6 +42,19 @@ internal static class MatchEndpoints
 			.Produces<MatchDto>()
 			.ProducesProblem(StatusCodes.Status401Unauthorized)
 			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapPut("/matches/{matchId:guid}", UpdateMatchAsync)
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("updateMatch")
+			.WithTags("Matches")
+			.Produces<MatchDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		return routes;
 	}
 
@@ -94,6 +107,57 @@ internal static class MatchEndpoints
 	private static async Task<IResult> GetMatchAsync(Guid matchId, HttpContext http, GetMatchHandler handler, CancellationToken cancellationToken)
 	{
 		var result = await handler.HandleAsync(new GetMatchQuery(matchId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = IfMatchHeader.Format(result.Value.Version);
+		return Results.Ok(ToDto(result.Value));
+	}
+
+	private static async Task<IResult> UpdateMatchAsync(Guid matchId, HttpContext http, UpdateMatchHandler handler, CancellationToken cancellationToken)
+	{
+		var version = IfMatchHeader.Parse(http.Request);
+		if (!version.IsSuccess)
+		{
+			return ProblemResults.From(version.Failure);
+		}
+
+		string? kickoff = null, homeAway = null, competition = null;
+		var immutable = new List<string>();
+		try
+		{
+			using var doc = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: cancellationToken);
+			if (doc.RootElement.ValueKind == JsonValueKind.Object)
+			{
+				foreach (var p in doc.RootElement.EnumerateObject())
+				{
+					var str = p.Value.ValueKind == JsonValueKind.String ? p.Value.GetString() : null;
+					if (p.Name.Equals("kickoffAt", StringComparison.Ordinal))
+					{
+						kickoff = str;
+					}
+					else if (p.Name.Equals("homeAway", StringComparison.Ordinal))
+					{
+						homeAway = str;
+					}
+					else if (p.Name.Equals("competition", StringComparison.Ordinal))
+					{
+						competition = str;
+					}
+					else if (p.Name.Equals("opponent", StringComparison.OrdinalIgnoreCase) || p.Name.Equals("teamId", StringComparison.OrdinalIgnoreCase))
+					{
+						immutable.Add(p.Name.Equals("teamId", StringComparison.OrdinalIgnoreCase) ? "teamId" : "opponent");
+					}
+				}
+			}
+		}
+		catch (JsonException)
+		{
+		}
+
+		var result = await handler.HandleAsync(new UpdateMatchCommand(matchId, kickoff, homeAway, competition, immutable, version.Value), cancellationToken);
 		if (!result.IsSuccess)
 		{
 			return ProblemResults.From(result.Failure);

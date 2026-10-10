@@ -45,6 +45,9 @@ public interface IClubHierarchyStore
 
     Task<MatchPageResult> ListTeamMatchesAsync(Guid teamId, MatchPageKey? after, int pageSize, CancellationToken cancellationToken);
 
+    /// <summary>Updates only kickoff, home/away and competition; the team and opponent snapshot never change.</summary>
+    Task<VersionedWriteResult> UpdateMatchDetailsAsync(Guid id, MatchDetails details, long expectedVersion, CancellationToken cancellationToken);
+
     Task<VersionedWriteResult> UpdateTeamNameAsync(Guid id, DisplayName name, long expectedVersion, CancellationToken cancellationToken);
 }
 

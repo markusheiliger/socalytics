@@ -27,6 +27,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<GetTeamHandler>();
         services.TryAddScoped<ListTeamsHandler>();
         services.TryAddScoped<CreateMatchHandler>();
+        services.TryAddScoped<UpdateMatchHandler>();
         services.TryAddScoped<GetMatchHandler>();
         services.TryAddScoped<ListTeamMatchesHandler>();
         services.TryAddScoped<ValidateSessionHandler>();

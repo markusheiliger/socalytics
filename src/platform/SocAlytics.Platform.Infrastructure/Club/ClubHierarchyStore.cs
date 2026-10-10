@@ -268,6 +268,23 @@ internal sealed class ClubHierarchyStore(IDbSession session) : IClubHierarchySto
 
     private sealed record MatchRow(Guid Id, Guid TeamId, string OpponentName, DateTime KickoffAt, string HomeAway, string? Competition, DateTime CreatedAt, Guid CreatedBy, long Version);
 
+    public async Task<VersionedWriteResult> UpdateMatchDetailsAsync(Guid id, MatchDetails details, long expectedVersion, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        return await VersionedWrites.ExecuteAsync(
+            session,
+            new CommandDefinition(
+                "UPDATE socalytics.match SET kickoff_at = @KickoffAt, home_away = @HomeAway, competition = @Competition WHERE id = @Id AND version = @ExpectedVersion RETURNING version",
+                new { Id = id, details.KickoffAt, HomeAway = details.HomeAway.ToWire(), details.Competition, ExpectedVersion = expectedVersion },
+                transaction,
+                cancellationToken: cancellationToken),
+            new CommandDefinition(
+                "SELECT version FROM socalytics.match WHERE id = @Id",
+                new { Id = id },
+                transaction,
+                cancellationToken: cancellationToken));
+    }
+
     public async Task<VersionedWriteResult> UpdateTeamNameAsync(Guid id, DisplayName name, long expectedVersion, CancellationToken cancellationToken)
     {
         var transaction = session.RequireTransaction();
