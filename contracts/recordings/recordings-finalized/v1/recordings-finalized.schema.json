@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/recordings/recordings-finalized/v1/recordings-finalized.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Recordings-finalized event",
+  "description": "Durable event record committed atomically with each finalized recording-set version (feature 20261005-130702-recording-lineage-upload, FR-022 to FR-024). Exactly one exists per recording-set version. It describes the same frozen lineage returned to the finalizing caller and contains no grants, credentials, storage keys, or media. Exact contract version in x-socalytics-version and in payload contractVersion; additive revisions keep this major-version $id. The socalytics.invalid domain is reserved and never dereferenced; references resolve offline.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "eventType",
+    "contractVersion",
+    "occurredAt",
+    "recordingSetVersionId",
+    "matchId",
+    "teamId",
+    "members"
+  ],
+  "properties": {
+    "eventId": {
+      "$ref": "#/$defs/identifier"
+    },
+    "eventType": {
+      "const": "matches.recordings-finalized"
+    },
+    "contractVersion": {
+      "type": "string",
+      "pattern": "^1\\.[0-9]+\\.[0-9]+$",
+      "description": "Semantic version of this event contract; major version 1."
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 UTC time at which the recording-set version was finalized."
+    },
+    "recordingSetVersionId": {
+      "$ref": "#/$defs/identifier"
+    },
+    "matchId": {
+      "$ref": "#/$defs/identifier"
+    },
+    "teamId": {
+      "$ref": "#/$defs/identifier"
+    },
+    "members": {
+      "type": "array",
+      "description": "Ordered memberships; array order equals position order. The platform limits a set to its configured maximum (100 by default), which is never above 1000.",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/member"
+      }
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Opaque domain identifier."
+    },
+    "sha256Digest": {
+      "type": "string",
+      "pattern": "^sha-256:[0-9a-f]{64}$",
+      "description": "Plain SHA-256 digest, used for timeline mappings."
+    },
+    "compositeDigest": {
+      "type": "string",
+      "description": "Composite multipart content digest sha-256-parts:<partSizeBytes>:<partCount>:<hex>; hex is SHA-256 over the concatenated raw SHA-256 digests of the parts in order. Never comparable with a plain sha-256 digest.",
+      "pattern": "^sha-256-parts:[1-9][0-9]{0,9}:[1-9][0-9]{0,4}:[0-9a-f]{64}$"
+    },
+    "member": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position",
+        "recordingVersionId",
+        "recordingContentDigest",
+        "timelineMappingId",
+        "timelineMappingDigest"
+      ],
+      "properties": {
+        "position": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based position in the finalized order."
+        },
+        "recordingVersionId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "recordingContentDigest": {
+          "$ref": "#/$defs/compositeDigest"
+        },
+        "timelineMappingId": {
+          "$ref": "#/$defs/identifier"
+        },
+        "timelineMappingDigest": {
+          "$ref": "#/$defs/sha256Digest"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "eventId": "0192f3a0-7c1e-7b2a-9d3e-5f6a7b8c9d01",
+      "eventType": "matches.recordings-finalized",
+      "contractVersion": "1.0.0",
+      "occurredAt": "2026-10-07T12:00:00Z",
+      "recordingSetVersionId": "0192f3a0-7c1e-7b2a-9d3e-5f6a7b8c9d02",
+      "matchId": "0192f3a0-7c1e-7b2a-9d3e-5f6a7b8c9d03",
+      "teamId": "0192f3a0-7c1e-7b2a-9d3e-5f6a7b8c9d04",
+      "members": [
+        {
+          "position": 1,
+          "recordingVersionId": "0192f3a0-7c1e-7b2a-9d3e-5f6a7b8c9d05",
+          "recordingContentDigest": "sha-256-parts:5242880:3:8e41531920a37a7ca28af60841220d3147df4c1c06170b60dfca248e6f662770",
+          "timelineMappingId": "0192f3a0-7c1e-7b2a-9d3e-5f6a7b8c9d06",
+          "timelineMappingDigest": "sha-256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae"
+        }
+      ]
+    }
+  ]
+}
