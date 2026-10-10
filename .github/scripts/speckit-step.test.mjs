@@ -14,7 +14,8 @@ import {
   lastAgentMessage,
   main,
   parseStepInputs,
-  runBegin,
+  runLandStage,
+  startAttemptChecks,
   runIntegrate,
   runLand,
   runMergeLand,
@@ -90,11 +91,11 @@ const appendConvergence = (work, tasks = '- [ ] T003 Add the missing guard (FR-0
 
 // Runs the work job of a step: integrate (resolve, merge), the simulated agent, package (task, converge, resolve),
 // and verdict with a simulated environment-verify outcome (`verify: null` means no verify action).
-function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { outcome: 'success', checks: 'Markdown check' } } = {}) {
+function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { outcome: 'success', checks: 'Markdown check' }, env: extraEnv = {} } = {}) {
   mkdirSync(repos.resultDir, { recursive: true });
   const outputFile = path.join(repos.resultDir, 'github-output.txt');
   writeFileSync(outputFile, '');
-  const env = { GITHUB_OUTPUT: outputFile, SPECKIT_BRANCH: 'main' };
+  const env = { GITHUB_OUTPUT: outputFile, SPECKIT_BRANCH: 'main', ...extraEnv };
   const run = { git: defaultGit(repos.work), env, inputs, folder: 'f', workspace: repos.work, resultDir: repos.resultDir, log: silent };
   const integrated = ['resolve', 'merge'].includes(inputs.step) ? runIntegrate(run) : null;
   agent?.(repos);
@@ -168,85 +169,6 @@ test('parses and validates step inputs', () => {
   }
 });
 
-test('begin marks the attempt in progress when the step is next', async () => {
-  const outputDir = mkdtempSync(path.join(tmpdir(), 'speckit-out-'));
-  try {
-    const github = fakeGitHub();
-    github.setFile('sha-head', 'specs/f/tasks.md', TASKS);
-    const outputFile = path.join(outputDir, 'out.txt');
-    const result = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo', GITHUB_OUTPUT: outputFile }, inputs: TASK_INPUTS, log: silent });
-    assert.equal(result.proceed, true);
-    const check = github.repo.checkRuns.at(-1);
-    assert.deepEqual([check.status, check.external_id, check.head_sha, check.output.title], ['in_progress', CHECK_ATTEMPT, 'sha-head', 'T001 attempt 2 in progress']);
-    assert.match(readFileSync(outputFile, 'utf8'), /proceed=true\nfolder=f\nhead=sha-head\ncheck_run=\d+\nverify_mode=task\nprompt=\/speckit-implement Implement only task T001\./, 'T002 is still open in the phase');
-
-    const done = fakeGitHub();
-    done.setFile('sha-head', 'specs/f/tasks.md', DONE_TASKS);
-    const convergeOutput = path.join(outputDir, 'converge.txt');
-    assert.equal((await runBegin({ client: done, env: { GITHUB_REPOSITORY: 'octo/repo', GITHUB_OUTPUT: convergeOutput }, inputs: CONVERGE_INPUTS, log: silent })).proceed, true);
-    assert.match(readFileSync(convergeOutput, 'utf8'), /prompt=\/speckit-converge /);
-    assert.equal(done.repo.checkRuns.at(-1).output.title, 'Convergence attempt 1 in progress');
-
-    await done.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-head', status: 'completed', conclusion: 'neutral', external_id: CHECK_CONFLICT });
-    assert.equal((await runBegin({ client: done, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: RESOLVE_INPUTS, log: silent })).proceed, true);
-  } finally {
-    rmSync(outputDir, { recursive: true, force: true });
-  }
-});
-
-test('begin takes over the queued progress check run of the head', async () => {
-  const github = fakeGitHub();
-  github.setFile('sha-head', 'specs/f/tasks.md', TASKS);
-  const progress = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-head', status: 'queued', external_id: CHECK_PROGRESS });
-  const result = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: TASK_INPUTS, log: silent });
-  assert.equal(result.check.id, progress.id);
-  assert.equal(github.repo.checkRuns.length, 1);
-  assert.deepEqual([github.repo.checkRuns[0].status, github.repo.checkRuns[0].external_id], ['in_progress', CHECK_ATTEMPT]);
-});
-
-test('begin adds the guidance of the latest resume to the prompt until a person pushes', async () => {
-  const outputDir = mkdtempSync(path.join(tmpdir(), 'speckit-out-'));
-  try {
-    const github = fakeGitHub();
-    github.setFile('sha-head', 'specs/f/tasks.md', TASKS);
-    await github.createComment(9, `${RESUME_COMMENT_MARKER}\n${renderGuidanceMarker('Use one statement\non every path')}\nImplementation resumed on request.`);
-    const outputFile = path.join(outputDir, 'out.txt');
-    const result = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo', GITHUB_OUTPUT: outputFile }, inputs: TASK_INPUTS, log: silent });
-    assert.equal(result.guidance, 'Use one statement\non every path');
-    assert.match(readFileSync(outputFile, 'utf8'), /prompt=\/speckit-implement Implement only task T001\.[^\n]* Guidance from the person who resumed this implementation: Use one statement on every path\n/);
-
-    github.repo.pullCommits[9] = [{ author: { login: 'dev' }, committer: { login: 'web-flow' }, commit: { committer: { date: new Date(github.clock + 1000).toISOString() } } }];
-    const pushed = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: TASK_INPUTS, log: silent });
-    assert.equal(pushed.guidance, null, 'a push by a person starts a window without the guidance');
-
-    github.repo.pullCommits[9] = [];
-    await github.dispatchWorkflow('speckit-implement.yml', 'main', { twin: '5', pull: '9', task: 'T001', attempt: '1' });
-    github.completeRun(github.repo.runs.at(-1).id, 'success');
-    const succeeded = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: { ...TASK_INPUTS, task: 'T001' }, log: silent });
-    assert.equal(succeeded.guidance, null, 'the guidance ends once a step after the resume succeeded');
-  } finally {
-    rmSync(outputDir, { recursive: true, force: true });
-  }
-});
-
-test('begin does nothing when the inputs no longer match the state', async () => {
-  const cases = [
-    { name: 'wrong task', setup: (github) => github.setFile('sha-head', 'specs/f/tasks.md', TASKS.replace('- [ ] T001', '- [x] T001')), reason: /next task is T002/ },
-    { name: 'not flagged', setup: (github) => { github.issues[0].labels = [{ name: TWIN_LABEL }]; github.setFile('sha-head', 'specs/f/tasks.md', TASKS); }, reason: /not open and flagged/ },
-    { name: 'closed pull', setup: (github) => { github.repo.pulls[0].state = 'closed'; github.setFile('sha-head', 'specs/f/tasks.md', TASKS); }, reason: /not the open implementation pull request/ },
-    { name: 'converge too early', inputs: CONVERGE_INPUTS, setup: (github) => github.setFile('sha-head', 'specs/f/tasks.md', TASKS), reason: /task T001 is not implemented yet/ },
-    { name: 'resolve without conflict', inputs: RESOLVE_INPUTS, setup: (github) => github.setFile('sha-head', 'specs/f/tasks.md', DONE_TASKS), reason: /no merge conflict is recorded/ },
-  ];
-  for (const testCase of cases) {
-    const github = fakeGitHub();
-    testCase.setup(github);
-    const result = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: testCase.inputs ?? TASK_INPUTS, log: silent });
-    assert.equal(result.proceed, false, testCase.name);
-    assert.match(result.reasons.join(), testCase.reason, testCase.name);
-    assert.equal(github.repo.checkRuns.length, 0, testCase.name);
-  }
-});
-
 test('task: package writes the change and the changed paths, and verdict records the verification', () => withRepos({}, (repos) => {
   const { packaged, result, output } = work(repos, { agent: (r) => agentDoesT001(r.work) });
   assert.equal(packaged.verify, true);
@@ -311,24 +233,6 @@ const siblingDoesT002 = (extra = {}) => (dir) => {
   for (const [file, content] of Object.entries(extra)) write(dir, file, content);
 };
 
-test('begin accepts any task of the next [P] group and leaves the progress check run to the first', async () => {
-  const github = fakeGitHub();
-  github.setFile('sha-head', 'specs/f/tasks.md', PARALLEL_TASKS);
-  const progress = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-head', status: 'queued', external_id: CHECK_PROGRESS });
-  const second = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: { ...TASK_INPUTS, task: 'T002' }, log: silent });
-  assert.equal(second.proceed, true);
-  assert.notEqual(second.check.id, progress.id);
-  assert.equal(github.repo.checkRuns.find((run) => run.id === progress.id).status, 'queued');
-  const first = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo' }, inputs: TASK_INPUTS, log: silent });
-  assert.equal(first.check.id, progress.id);
-
-  const sequential = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_MAX_PARALLEL_TASKS: '1' }, inputs: { ...TASK_INPUTS, task: 'T002' }, log: silent });
-  assert.deepEqual([sequential.proceed, sequential.reasons], [false, ['the next task is T001, not T002']]);
-  github.setFile('sha-head', 'specs/f/tasks.md', `${PARALLEL_TASKS}- [ ] T003 [P] Create docs/z.md\n`);
-  const outside = await runBegin({ client: github, env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_MAX_PARALLEL_TASKS: '2' }, inputs: { ...TASK_INPUTS, task: 'T003' }, log: silent });
-  assert.deepEqual(outside.reasons, ['the next tasks are T001, T002, not T003']);
-});
-
 test('task: land rebuilds a parallel task on a branch that a sibling moved', () => withRepos({ tasks: PARALLEL_TASKS }, async (repos) => {
   work(repos, { agent: (r) => agentDoesT001(r.work) });
   const sibling = siblingLands(repos, siblingDoesT002());
@@ -359,6 +263,81 @@ test('task: land redoes a parallel task whose files a sibling changed, without c
   assert.match(github.comments.at(-1).body, /\*\*T001 attempt 2 runs again\*\*[\s\S]*does not count as a failed attempt/);
 }));
 
+// Runs the work job of one task of a stage in its own clone, as the matrix does, into results/speckit-result-<task>.
+function workStageTask(repos, task, agent, { verify } = {}) {
+  const dir = path.join(repos.base, `work-${task}`);
+  git(repos.base, 'clone', '-q', '--branch', 'speckit/f', repos.bare, dir);
+  const env = { SPECKIT_HEAD: git(dir, 'rev-parse', 'HEAD').trim() };
+  return work({ ...repos, work: dir, resultDir: path.join(repos.base, 'results', `speckit-result-${task}`) }, { inputs: { ...TASK_INPUTS, task, attempt: 1 }, agent: () => agent(dir), verify, env });
+}
+
+// Lands the first of the given stages, as the land job of the stage matrix does; the decide job already showed its
+// attempts as in progress on the stage's start commit.
+async function landStage(repos, github, entries, { next = null } = {}) {
+  const checks = await startAttemptChecks(github, { head: remoteSha(repos, 'speckit/f'), step: 'task', entries });
+  const outputFile = path.join(repos.base, 'stage-output.txt');
+  writeFileSync(outputFile, '');
+  const result = await runLandStage({
+    client: github,
+    git: defaultGit(repos.land),
+    env: {
+      ...landEnv(repos),
+      GITHUB_OUTPUT: outputFile,
+      SPECKIT_STEP: 'task',
+      SPECKIT_TWIN: '5',
+      SPECKIT_PULL: '9',
+      SPECKIT_STAGES: JSON.stringify([{ include: entries }, ...(next ? [next] : [])]),
+      SPECKIT_STAGE_INDEX: '0',
+      SPECKIT_WORK_RESULT: 'success',
+    },
+    folder: 'f',
+    workspace: repos.land,
+    resultRoot: path.join(repos.base, 'results'),
+    log: silent,
+  });
+  return { ...result, checks, output: readFileSync(outputFile, 'utf8') };
+}
+
+test('stage: lands the tasks of a [P] group in order and shows the next stage as in progress', () => withRepos({ tasks: `${PARALLEL_TASKS}- [ ] T003 Create docs/z.md\n` }, async (repos) => {
+  workStageTask(repos, 'T001', (dir) => agentDoesT001(dir));
+  workStageTask(repos, 'T002', siblingDoesT002());
+  const github = fakeGitHub({ body: '## Tasks (3)\n\n- [ ] T001 [P] Create docs/x.md\n- [ ] T002 [P] Create docs/y.md\n- [ ] T003 Create docs/z.md\n' });
+  await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: remoteSha(repos, 'speckit/f'), status: 'queued', external_id: CHECK_PROGRESS });
+  const result = await landStage(repos, github, [{ task: 'T001', attempt: 1 }, { task: 'T002', attempt: 1 }], { next: { include: [{ task: 'T003', attempt: 1, summary: 'Create docs/z.md' }] } });
+  assert.equal(result.ok, true);
+  assert.deepEqual(result.outcomes.map((outcome) => [outcome.key, outcome.landed]), [['T001', true], ['T002', true]]);
+  assert.equal(remoteShow(repos, 'speckit/f:docs/x.md'), '# X\n');
+  assert.equal(remoteShow(repos, 'speckit/f:docs/y.md'), '# Y\n');
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[X\] T001 [^\n]*\n- \[x\] T002[^\n]*\n- \[ \] T003/);
+  assert.match(remoteHead(repos), /\|feat\(f\): T002 \[P\] Create docs\/y\.md$/, 'the later task is rebuilt on the earlier one');
+  const comments = github.comments.filter((comment) => /implemented\*\*/.test(comment.body));
+  assert.deepEqual(comments.map((comment) => comment.body.split('\n')[0]), [
+    '<!-- speckit-implement:attempt {"step":"task","task":"T001","attempt":1,"outcome":"success"} -->',
+    '<!-- speckit-implement:attempt {"step":"task","task":"T002","attempt":1,"outcome":"success"} -->',
+  ]);
+  assert.deepEqual(result.checks, { T001: 1, T002: 2 }, 'the first attempt took over the queued progress check run');
+  const reported = github.repo.checkRuns.filter((check) => [result.checks.T001, result.checks.T002].includes(check.id));
+  assert.deepEqual(reported.map((check) => [check.status, check.conclusion]), [['completed', 'success'], ['completed', 'success']], 'the stage reports through the check runs decide created');
+  const next = github.repo.checkRuns.find((check) => check.external_id === 'speckit:attempt:task:T003:1');
+  assert.deepEqual([next.status, next.output.title, next.output.summary], ['in_progress', 'T003 attempt 1 in progress', 'Create docs/z.md']);
+  assert.match(result.output, /^ok=true\nhead=sha-head\n$/);
+  assert.equal(result.exitCode, 0);
+}));
+
+test('stage: a sibling that changed the same files is redone, and the chain stops after the stage', () => withRepos({ tasks: PARALLEL_TASKS }, async (repos) => {
+  workStageTask(repos, 'T001', (dir) => agentDoesT001(dir));
+  workStageTask(repos, 'T002', siblingDoesT002({ 'docs/x.md': '# Sibling\n' }));
+  const github = fakeGitHub();
+  const result = await landStage(repos, github, [{ task: 'T001', attempt: 1 }, { task: 'T002', attempt: 1 }], { next: { include: [{ task: 'T003', attempt: 1 }] } });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.outcomes.map((outcome) => outcome.landed), [true, false]);
+  assert.equal(remoteShow(repos, 'speckit/f:docs/x.md'), '# X\n');
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt \{"step":"task","task":"T002","attempt":1,"outcome":"requeue"\} -->\n\*\*T002 attempt 1 runs again\*\*/);
+  assert.equal(github.repo.checkRuns.some((check) => String(check.external_id).includes('T003')), false, 'no next stage after a task that did not land');
+  assert.match(result.output, /^ok=false\n/);
+  assert.equal(result.exitCode, 1, 'the land job fails, so the matrix cancels the later stages');
+  await assert.rejects(() => runLandStage({ client: github, git: defaultGit(repos.land), env: { SPECKIT_STEP: 'task' }, folder: 'f', workspace: repos.land, resultRoot: repos.base, log: silent }), /SPECKIT_STAGES/);
+}));
 test('task: land reports a refused push as a failure instead of redoing the task', () => withRepos({ tasks: PARALLEL_TASKS }, async (repos) => {
   work(repos, { agent: (r) => agentDoesT001(r.work) });
   const hook = path.join(repos.bare, 'hooks', 'pre-receive');
@@ -421,7 +400,7 @@ test('converge: a converged implementation is reported without a commit', () => 
   assert.equal(landed.exitCode, 0);
   assert.equal(remoteHead(repos), before);
   assert.deepEqual([landed.check.conclusion, landed.check.output.title], ['success', 'Converged']);
-  assert.match(github.comments.at(-1).body, /^\*\*Converged\*\* \(attempt 1\)[\s\S]*Convergence report[\s\S]*Converged — the implementation satisfies/);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt \{"step":"converge","task":null,"attempt":1,"outcome":"success"\} -->\n\*\*Converged\*\* \(attempt 1\)[\s\S]*Convergence report[\s\S]*Converged — the implementation satisfies/);
 }));
 
 test('converge: appended tasks are committed and added to the pull request', () => withRepos({ tasks: DONE_TASKS }, async (repos) => {
@@ -454,7 +433,7 @@ test('converge: code changes are rejected, and the round limit asks the requeste
     const landed = await land(repos, github, { inputs: CONVERGE_INPUTS });
     assert.deepEqual([landed.exitCode, landed.check.conclusion, landed.check.external_id], [1, 'failure', CHECK_LIMIT]);
     assert.equal(remoteHead(repos), before);
-    assert.match(github.comments.at(-1).body, /^\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
+    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
     assert.match(github.comments.at(-1).body, /\*\*Next steps\*\*[\s\S]*A diagnosis starts automatically[\s\S]*\/speckit resume \[guidance\]/);
   });
 });
@@ -607,7 +586,7 @@ test('resolve: conflicts in protected paths ask the requester', () => withRepos(
   const github = fakeGitHub();
   const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
   assert.deepEqual([landed.exitCode, landed.check.external_id], [1, CHECK_LIMIT]);
-  assert.match(github.comments.at(-1).body, /^\*\*Implementation needs attention\*\* @dev: conflicts in protected paths need a person: specs\/f\/spec\.md/);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: conflicts in protected paths need a person: specs\/f\/spec\.md/);
   assert.doesNotMatch(github.comments.at(-1).body, /Spec Kit orchestrate` workflow manually/);
   assert.match(github.comments.at(-1).body, /\/speckit diagnose|A diagnosis starts automatically/);
 }));
@@ -660,7 +639,7 @@ test('merge-land waits when main moved, reports conflicts, and fails unverified 
   const conflicts = mergeableGitHub();
   const conflicted = await mergeLand(conflicts, { ...verifiedMerge, conflicts: ['docs/shared.md'], verified: false, checks: [] });
   assert.deepEqual([conflicted.exitCode, conflicted.check.conclusion, conflicted.check.external_id], [0, 'neutral', CHECK_CONFLICT]);
-  assert.match(conflicts.comments.at(-1).body, /Merge conflicts with `main`\*\* in `docs\/shared\.md`\. `Spec Kit resolve` resolves them next\./);
+  assert.match(conflicts.comments.at(-1).body, /Merge conflicts with `main`\*\* in `docs\/shared\.md`\. They are resolved next\./);
 
   for (const [name, result, reason] of [
     ['failed verification', { ...verifiedMerge, verified: false, reasons: ['Markdown check failed'] }, /Markdown check failed/],
@@ -733,6 +712,6 @@ test('extracts the last agent message and validates commands', async () => {
   ].join('\n');
   assert.equal(lastAgentMessage(jsonl), 'last');
   const env = { SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_TASK: 'T001', SPECKIT_ATTEMPT: '1' };
-  await assert.rejects(() => main(['nope'], { env }), /begin \| integrate \| package \| verdict \| land \| merge-land/);
+  await assert.rejects(() => main(['nope'], { env }), /integrate \| package \| verdict \| land-stage \| merge-land/);
   await assert.rejects(() => main(['package'], { env: { ...env, SPECKIT_STEP: 'merge' } }), /merge step has no package command/);
 });

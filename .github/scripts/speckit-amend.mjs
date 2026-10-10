@@ -15,8 +15,8 @@ import {
   DIAGNOSIS_STALE_MS,
   MAX_CORRECTION_ROUNDS,
   MAX_STALLED_ROUNDS,
-  ORCHESTRATE_WORKFLOW_FILE,
   amendmentBranch,
+  dispatchImplementation,
   folderOfBranch,
   implementationBranch,
   latestCheckRun,
@@ -554,7 +554,7 @@ export async function runFeedback({ client, env, log, now = Date.now, sleep = de
       return { exitCode: 0, outcome: 'rework' };
     }
     if (now() - started >= maxWaitMs) {
-      log(`Amendment #${number}: a check or rework is still running; the hourly orchestrator run picks up the feedback.`);
+      log(`Amendment #${number}: a check or rework is still running; the hourly scheduler run (Spec Kit orchestrate) picks up the feedback.`);
       return { exitCode: 0, outcome: 'queued' };
     }
     await sleep(30_000);
@@ -592,11 +592,12 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
     await client.createComment(implementation.number, renderResumeComment(
       `${marker}\n**Amendment #${amendment.number} was merged** by ${by}. The implementation continues with a fresh attempt count, starting with the next unchecked task.`,
     ));
-    if (dispatch) {
+    const twin = Number(String(implementation.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
+    if (dispatch && Number.isInteger(twin)) {
       try {
-        await client.dispatchWorkflow(ORCHESTRATE_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', {});
+        await dispatchImplementation(client, env, { twin, pull: implementation.number });
       } catch {
-        // The resume comment persists the request; the next orchestrator run picks it up.
+        // The resume comment persists the request; the next scheduler run continues the implementation.
       }
     }
     return { outcome: 'merged' };
@@ -635,7 +636,7 @@ export async function runPushed({ client, env, log }) {
   return { exitCode: 0, outcome: 'checking' };
 }
 
-// Orchestrator side, from the default branch for every implementation in progress, because the event jobs of Spec Kit
+// Scheduler side (Spec Kit orchestrate), from the default branch for every implementation in progress, because the event jobs of Spec Kit
 // commands run from the pull request's branches, which may not carry them: settles a merged or closed amendment, and
 // for an open one starts a rework for feedback no event delivered, checks a person's push no event reported, and
 // closes checks that never finished.

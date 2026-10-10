@@ -19,41 +19,24 @@ import {
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment } from './speckit-amend.mjs';
-import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
+import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import {
-  CHECK_DIAGNOSED,
-  CHECK_DIAGNOSING,
-  CHECK_LIMIT,
-  CHECK_MERGE,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
-  DONE_COMMENT_MARKER,
-  MAX_AUTO_DIAGNOSES,
-  MAX_TASK_ATTEMPTS,
-  RESUME_COMMENT_MARKER,
+  IMPLEMENT_WORKFLOW_FILE,
   START_COMMENT_MARKER,
-  STEPS,
   checkRunOutput,
-  decideContinuation,
   decideLifecycle,
+  dispatchImplementation,
   extractTasks,
   implementationBranch,
-  latestCheckRun,
-  latestHumanCommit,
-  markerTimes,
-  nextTaskGroup,
-  parseMaxParallel,
-  parseStepRunName,
-  renderNextSteps,
+  isImplementRunOf,
+  parseMaxActiveSpecs,
   renderPullRequestBody,
   renderPullRequestTitle,
-  renderResumeComment,
   renderStartComment,
-  renderStepRunName,
   stepLabel,
-  syncPullRequestTaskList,
 } from './speckit-implement-core.mjs';
-
 export class UsageError extends Error {}
 
 function createReporter(env, log) {
@@ -131,16 +114,9 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the amendment of #${issue.number}: ${error.message}`);
       }
-      const decision = await decideForPull(client, {
-        twin: issue.number,
-        folder,
-        pullNumber: lifecycle.pull.number,
-        resume: String(env.SPECKIT_RESUME_TWIN ?? '') === String(issue.number),
-        now: now(),
-        maxParallel: parseMaxParallel(env.SPECKIT_MAX_PARALLEL_TASKS),
-        context: contextFromEnv(env),
-      });
-      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision });
+      const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
+      const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
+      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active });
       continue;
     }
     if (lifecycle.state === 'fallback') {
@@ -163,7 +139,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   report.line();
   for (const twin of ready) report.line(`- Ready: #${twin.number} \`${twin.folder}\`${twin.reset ? ' (the branch is reset)' : ''}`);
   for (const twin of inProgress) {
-    report.line(`- In progress: #${twin.number} \`${twin.folder}\` in pull request #${twin.pull}: ${describeDecision(twin.decision)}`);
+    report.line(`- In progress: #${twin.number} \`${twin.folder}\` in pull request #${twin.pull}: ${describeDecision(twin)}`);
   }
   for (const twin of blocked) report.line(`- Blocked: #${twin.number} \`${twin.folder}\` by ${blockerList(twin.blockers)}`);
   for (const twin of fallback) {
@@ -210,88 +186,26 @@ async function finalizeMerged(client, issue, folder, pullNumber) {
   return { branchDeleted, note };
 }
 
-function describeDecision(decision) {
+function describeDecision(twin) {
+  const { decision } = twin;
+  if (twin.active) return 'its implementation run is active';
   switch (decision.action) {
-    case 'wait': return 'a step is running';
+    case 'wait': return 'a merge is running';
     case 'done': return 'implemented and waiting for review';
     case 'diagnosing': return 'stopped; a diagnosis is running';
     case 'failed': return decision.diagnosis?.state === 'reported'
       ? 'stopped; the diagnosis waits for a person\'s decision'
       : 'stopped and waiting for a person (comment `/speckit diagnose`, `/speckit resume`, or push a fix)';
-    case 'resume': return `resuming with ${stepLabel(decision)}`;
     case 'limit': return `${stepLabel(decision)} reached the attempt limit`;
-    case 'dispatch': return `next is ${stepLabel(decision)} attempt ${decision.attempt}`;
-    case 'dispatch-tasks': return `next are ${decision.tasks.map(({ task, attempt }) => `${task} attempt ${attempt}`).join(', ')} in parallel`;
-    case 'merge': return `merging, attempt ${decision.attempt}`;
+    case 'stages': return `next is ${decision.stages[0].map(({ task, attempt }) => `${stepLabel({ step: decision.step, task })} attempt ${attempt}`).join(', ')}`;
+    case 'merge': return `next is the merge, attempt ${decision.attempt}`;
     default: return decision.action;
   }
 }
 
-// Reads the state of an open implementation pull request and decides how to continue it. It also renders the task
-// list of the pull request body from the branch's tasks.md, because parallel tasks land concurrently and amendments
-// change tasks.
-async function decideForPull(client, { twin, folder, pullNumber, resume, now, maxParallel, context }) {
-  const pull = await client.getPullRequest(pullNumber);
-  const tasksMarkdown = await client.getFileContent(`specs/${folder}/tasks.md`, pull.head.sha);
-  if (tasksMarkdown === null) return { action: 'missing-tasks', pull };
-  const body = syncPullRequestTaskList(pull.body, { twinNumber: twin, folder, tasksMarkdown, context });
-  if (body !== String(pull.body ?? '')) {
-    try {
-      await client.updatePullRequest(pullNumber, { body });
-    } catch {
-      // The task list is a convenience; a failed update must not stop the orchestration.
-    }
-  }
-  const checks = await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME);
-  const comments = await client.listIssueComments(pullNumber);
-  const resumedAt = markerTimes(comments, RESUME_COMMENT_MARKER);
-  const pushedAt = latestHumanCommit(await client.listPullRequestCommits(pullNumber));
-  const done = markerTimes(comments, DONE_COMMENT_MARKER).length > 0;
-  const windowStart = [pull.created_at, ...resumedAt, ...(pushedAt ? [pushedAt] : [])].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
-  const latestResume = [...resumedAt].sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
-  const runs = {};
-  for (const [step, { file }] of Object.entries(STEPS)) {
-    runs[step] = (await client.listWorkflowRuns(file, pull.created_at))
-      .map((run) => ({ ...parseStepRunName(step, run.display_title), status: run.status, conclusion: run.conclusion, created_at: run.created_at }))
-      .filter((run) => run.twin === twin);
-  }
-  // Only a resume requested through this run (a manual run with `twin`) is announced; a command already commented.
-  const decision = decideContinuation({ tasksMarkdown, checks, runs, windowStart, done, resume, resumedAt: latestResume, now, maxParallel });
-  if (decision.action === 'diagnosing') {
-    const check = latestCheckRun(checks);
-    if (await diagnosisRunEnded(client, twin, check)) {
-      const count = checks.filter((item) => [CHECK_DIAGNOSING, CHECK_DIAGNOSED].includes(item.external_id)).length;
-      return { action: 'failed', diagnosis: { state: 'stale', check, count }, pull, announce: resume };
-    }
-  }
-  return { ...decision, pull, announce: resume };
-}
-
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Starts one worker run and waits until it is visible, so the next orchestrator run sees it as active.
-async function dispatchStep(client, env, { step, twin, pull, task, attempt }, { report, sleep, now }) {
-  const since = new Date(now() - 60_000).toISOString();
-  const title = renderStepRunName({ step, twin, task, attempt });
-  const { file } = STEPS[step];
-  await client.dispatchWorkflow(file, env.SPECKIT_BRANCH || 'main', {
-    twin: String(twin),
-    pull: String(pull),
-    ...(step === 'task' ? { task } : {}),
-    attempt: String(attempt),
-  });
-  for (let poll = 0; poll < 18; poll += 1) {
-    if ((await client.listWorkflowRuns(file, since, 1)).some((run) => run.display_title === title)) {
-      report.line(`- Started "${title}".`);
-      return;
-    }
-    await sleep(5000);
-  }
-  report.line(`- Warning: started "${title}", but the run was not visible after 90 seconds.`);
-}
-
-// Waits until the run that handed control back has completed, so its outcome counts and it no longer looks
-// active. The hand-back job is the run's last job, so this normally takes seconds.
+// Waits until a run that handed control back (an implementation run from before the chain) has completed.
 async function awaitHandBack(client, runId, { report, sleep }) {
   for (let poll = 0; poll < 60; poll += 1) {
     const run = await client.getWorkflowRun(runId);
@@ -301,68 +215,16 @@ async function awaitHandBack(client, runId, { report, sleep }) {
   report.line(`- Warning: run ${runId} was still active after 5 minutes.`);
 }
 
-// Opens the merge check run that marks a merge as running, taking over a queued progress check run of the head.
-async function startMerge(client, { pull, attempt }) {
-  const fields = {
-    status: 'in_progress',
-    external_id: CHECK_MERGE,
-    output: { title: `Merge attempt ${attempt} in progress`, summary: 'Merges the default branch, runs the full verification, and merges the implementation.' },
-  };
-  const latest = latestCheckRun(await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME));
-  if (latest?.status === 'queued' && latest.external_id === CHECK_PROGRESS) {
-    await client.updateCheckRun(latest.id, fields);
-    return latest.id;
-  }
-  return (await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: pull.head.sha, ...fields })).id;
+// Whether a run of the twin's implementation chain is queued or running.
+async function chainActive(client, twin, since) {
+  return (await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, since))
+    .some((run) => run.status !== 'completed' && isImplementRunOf(run.display_title, twin));
 }
 
-async function stopAtLimit(client, env, twin, decision) {
-  const label = stepLabel(decision);
-  await client.createCheckRun({
-    name: CHECK_RUN_NAME,
-    head_sha: decision.pull.head.sha,
-    status: 'completed',
-    conclusion: 'failure',
-    external_id: CHECK_LIMIT,
-    output: { title: `${label} reached the attempt limit`, summary: `The implementation stopped at ${label} after ${decision.attempts} attempts.` },
-  });
-  const behindMain = await isBehindDefaultBranch(client, env, twin.folder);
-  await client.createComment(twin.pull, [
-    `**Implementation needs attention**${twin.requester ? ` @${twin.requester}` : ''}: ${label} did not succeed in ${decision.attempts} attempts (at most ${MAX_TASK_ATTEMPTS} failed attempts are allowed).`,
-    '',
-    'See the comments above for the reasons.',
-    '',
-    ...renderNextSteps({ autoDiagnosis: autoDiagnosisEnabled(env), behindMain }),
-  ].join('\n'));
-}
-
-// Starts a diagnosis of a stopped implementation by itself, unless automatic diagnosis is off, a diagnosis already
-// reported for this stop, or the head already had the maximum number of diagnoses. A diagnosis that ended without a
-// report is closed with a comment first, so it never blocks the implementation.
-async function maybeDiagnose(client, env, twin, { head, diagnosis }, report) {
-  const allowed = autoDiagnosisEnabled(env) && diagnosis.count < MAX_AUTO_DIAGNOSES;
-  if (diagnosis.state === 'stale') {
-    await closeUnfinishedDiagnosis(client, diagnosis.check);
-    const runs = `${contextFromEnv(env).serverUrl}/${env.GITHUB_REPOSITORY}/actions/workflows/speckit-diagnose.lock.yml`;
-    await client.createComment(twin.pull, [
-      `**The diagnosis did not finish** (see the [diagnose runs](${runs})).`,
-      '',
-      ...(allowed ? ['A new diagnosis starts automatically.'] : renderNextSteps({ diagnosed: true, behindMain: await isBehindDefaultBranch(client, env, twin.folder) })),
-    ].join('\n'));
-    report.line(`- Closed the unfinished diagnosis of #${twin.number}.`);
-    if (!allowed) return true;
-  }
-  if (!allowed || diagnosis.state === 'reported') return diagnosis.state === 'stale';
-  const started = await startDiagnosis(client, env, { twin: twin.number, pull: twin.pull, folder: twin.folder, head, auto: true });
-  report.line(started.started
-    ? `- Started a diagnosis of #${twin.number} (pull request #${twin.pull}).`
-    : `- Warning: could not start a diagnosis of #${twin.number}: ${started.error}`);
-  return started.started;
-}
-
-// Orchestrator: selects flagged twins, prepares new implementation workspaces, starts, retries, resumes, or stops
-// worker runs, and lists the twins whose implementation is merged by the merge jobs of this workflow run. Worker
-// runs and merge jobs hand control back by dispatching this workflow with their run id.
+// Scheduler: selects flagged twins, starts new implementations while fewer than SPECKIT_MAX_ACTIVE_SPECS are active,
+// and restarts the implementation chain of a twin in progress when no run of it is active although there is something
+// to do (the chain broke, a person pushed, or a merged amendment or a command asked to continue). Each implementation
+// is driven by its own chain of Spec Kit implement runs; the scheduler never drives tasks itself.
 export async function runOrchestrate({ client, rootDir, env, log, sleep = defaultSleep, now = Date.now }) {
   const pending = [];
   const afterRun = String(env.SPECKIT_AFTER_RUN ?? '').trim();
@@ -374,58 +236,30 @@ export async function runOrchestrate({ client, rootDir, env, log, sleep = defaul
   report.line();
   for (const line of pending) report.line(line);
   let actions = selection.amendmentActions ?? 0;
-  const merges = [];
-  for (const twin of selection.ready) {
-    const started = await runStart({ client, rootDir, env, issueNumber: twin.number, folder: twin.folder, requester: twin.requester, reset: twin.reset, log });
-    if (!started.pull) continue;
-    const entry = readSpecFolder(rootDir, twin.folder);
-    const group = nextTaskGroup(entry?.tasks, parseMaxParallel(env.SPECKIT_MAX_PARALLEL_TASKS));
-    const steps = group.length > 0 ? group.map((task) => ({ step: 'task', task: task.id })) : [{ step: 'converge' }];
-    for (const first of steps) {
-      await dispatchStep(client, env, { ...first, twin: twin.number, pull: started.pull.number, attempt: 1 }, { report, sleep, now });
-    }
+  const maxActive = parseMaxActiveSpecs(env.SPECKIT_MAX_ACTIVE_SPECS);
+  let active = selection.inProgress.filter((twin) => twin.active || needsRun(twin.decision, env)).length;
+  for (const twin of selection.inProgress) {
+    if (twin.active || !needsRun(twin.decision, env)) continue;
+    await dispatchImplementation(client, env, { twin: twin.number, pull: twin.pull });
+    report.line(`- Continued #${twin.number} (pull request #${twin.pull}): ${describeDecision(twin)}.`);
     actions += 1;
   }
-  for (const twin of selection.inProgress) {
-    const { decision } = twin;
-    for (const stale of decision.stale ?? []) {
-      await client.updateCheckRun(stale.id, { status: 'completed', conclusion: 'failure', output: { title: 'Merge attempt abandoned', summary: 'The merge did not finish within 2 hours.' } });
-    }
-    if (decision.action === 'resume' && decision.announce) {
-      await client.createComment(twin.pull, renderResumeComment(
-        `Implementation resumed on request; the attempt count starts over with ${stepLabel(decision)}.`,
-        env.SPECKIT_RESUME_GUIDANCE,
-      ));
-    }
-    if (decision.action === 'dispatch-tasks') {
-      for (const { task, attempt } of decision.tasks) {
-        await dispatchStep(client, env, { step: 'task', task, twin: twin.number, pull: twin.pull, attempt }, { report, sleep, now });
-      }
-    } else if (decision.action === 'dispatch' || (decision.action === 'resume' && decision.step !== 'merge')) {
-      await dispatchStep(client, env, { step: decision.step, task: decision.task, twin: twin.number, pull: twin.pull, attempt: decision.attempt }, { report, sleep, now });
-    } else if (decision.action === 'merge' || (decision.action === 'resume' && decision.step === 'merge')) {
-      const checkRun = await startMerge(client, { pull: decision.pull, attempt: decision.attempt });
-      merges.push({ twin: twin.number, pull: twin.pull, folder: twin.folder, head: decision.pull.head.sha, attempt: decision.attempt, check_run: checkRun });
-      report.line(`- Merging #${twin.number} (pull request #${twin.pull}), attempt ${decision.attempt}.`);
-    } else if (decision.action === 'limit') {
-      await stopAtLimit(client, env, twin, decision);
-      report.line(`- Stopped #${twin.number}: ${stepLabel(decision)} reached the attempt limit.`);
-      await maybeDiagnose(client, env, twin, { head: decision.pull.head.sha, diagnosis: { state: 'none', count: 0 } }, report);
-    } else if (decision.action === 'failed') {
-      if (decision.diagnosis?.state === 'reported') continue;
-      if (!(await maybeDiagnose(client, env, twin, { head: decision.pull.head.sha, diagnosis: decision.diagnosis }, report))) continue;
-    } else {
+  for (const twin of selection.ready) {
+    if (active >= maxActive) {
+      report.line(`- Waiting: #${twin.number} \`${twin.folder}\` starts when fewer than ${maxActive} implementations are active.`);
       continue;
     }
+    const started = await runStart({ client, rootDir, env, issueNumber: twin.number, folder: twin.folder, requester: twin.requester, reset: twin.reset, log });
+    if (!started.pull) continue;
+    await dispatchImplementation(client, env, { twin: twin.number, pull: started.pull.number });
+    report.line(`- Started the implementation of #${twin.number} (pull request #${started.pull.number}).`);
+    active += 1;
     actions += 1;
   }
   if (actions === 0) report.line('- Nothing to do.');
   report.flush();
-  setOutput(env, 'merge_count', String(merges.length));
-  setOutput(env, 'merges', JSON.stringify({ include: merges }));
-  return { exitCode: 0, selection, merges };
+  return { exitCode: 0, selection };
 }
-
 // Server side: prepares the implementation workspace of one ready twin. Every step checks what already exists,
 // so a rerun after a partial failure completes the work instead of duplicating it.
 export async function runStart({ client, rootDir, env, issueNumber, folder, requester, reset, log }) {
@@ -501,26 +335,6 @@ export async function runStart({ client, rootDir, env, issueNumber, folder, requ
   }
   report.flush();
   return { exitCode: 0, pull };
-}
-
-function contextFromEnv(env) {
-  return {
-    serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, ''),
-    repository: env.GITHUB_REPOSITORY,
-    branch: env.SPECKIT_BRANCH || 'main',
-  };
-}
-
-function autoDiagnosisEnabled(env) {
-  return String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false';
-}
-
-async function isBehindDefaultBranch(client, env, folder) {
-  try {
-    return (await client.aheadBy(implementationBranch(folder), env.SPECKIT_BRANCH || 'main')) > 0;
-  } catch {
-    return false;
-  }
 }
 
 export function defaultGit(cwd) {

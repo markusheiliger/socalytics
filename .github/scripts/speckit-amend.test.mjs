@@ -228,7 +228,7 @@ test('merging continues the implementation; closing discards; a person\'s push i
   assert.equal(merged.repo.branches['speckit-amend/f'], undefined);
   assert.match(merged.comments.at(-1).body, /^<!-- speckit-implement:resume -->\n<!-- speckit-amend:closed 11 -->\n\*\*Amendment #11 was merged\*\* by @dev\. The implementation continues/);
   assert.equal(merged.comments.at(-1).number, 9);
-  assert.equal(merged.repo.runs.at(-1).workflow, 'speckit-orchestrate.yml');
+  assert.deepEqual([merged.repo.runs.at(-1).workflow, merged.repo.runs.at(-1).inputs], ['speckit-implement.yml', { twin: '5', pull: '9' }], 'the implementation chain continues');
   assert.equal((await runClosed({ client: merged, env: env({ SPECKIT_PULL: '11' }), log: silent })).outcome, 'handled', 'a merge is settled once');
 
   const discarded = diagnosisRepo();

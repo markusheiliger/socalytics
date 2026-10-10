@@ -1,13 +1,17 @@
 name: Spec Kit implement
 
-# Implements exactly one task of a spec on its speckit/<folder> branch with /speckit-implement. Started by the
-# Spec Kit orchestrate workflow, which may run several `[P]` tasks of one spec at the same time; the hand-back job
-# starts the orchestrator again when the run ends.
-#   begin:     checks that the inputs still match the state and marks the attempt as in progress
-#   work:      runs the agent and the verification with a read-only token
-#   land:      re-validates, commits, pushes, and reports; it never runs agent-written code
-#   hand-back: dispatches the orchestrator with this run id, whatever the outcome
-run-name: "Spec Kit implement #${{ inputs.twin }} ${{ inputs.task }} attempt ${{ inputs.attempt }}"
+# The implementation chain of one spec: every run decides the next segment of the spec from the state on GitHub, runs
+# it, and starts the next run, until the implementation is merged, waits for review, or needs a person. Started by the
+# scheduler (Spec Kit orchestrate), by itself, by `/speckit resume|sync` comments, and when an amendment is merged.
+#   decide:            validates the twin, decides the segment, and reports stops (attempt limit, diagnosis)
+#   stages:            the stages of one phase of tasks.md, a matrix that runs Spec Kit stage once per stage, one at a
+#                      time: each stage is a single task or a `[P]` group and lands before the next starts; also used for
+#                      the convergence and a conflict resolution
+#   phase-check:       the full verification of the phase, when its last stage was a `[P]` group
+#   merge-verify:      merges the default branch and runs the full verification (read-only token)
+#   merge-land:        squash-merges the pull request, or asks for review (never runs agent-written code)
+#   continue:          starts the next run of the chain
+run-name: "Spec Kit implement #${{ inputs.twin }}"
 
 on:
   workflow_dispatch:
@@ -20,31 +24,23 @@ on:
         description: Implementation pull request number
         required: true
         type: string
-      task:
-        description: Task ID (T###)
-        required: true
+      resume:
+        description: Resume a stopped implementation with a new attempt count (true or false)
+        required: false
         type: string
-      attempt:
-        description: Attempt number
-        required: true
+        default: "false"
+      guidance:
+        description: Guidance for the agent of the resumed step (optional, with resume)
+        required: false
         type: string
 
 permissions: {}
 
-# One run per task: parallel tasks of a spec must not share a group, because GitHub keeps only one pending run per
-# group and cancels the others. The orchestrator starts converge, resolve, and merge only when no task runs.
+# One chain per spec: GitHub keeps one pending run per group; a replaced pending run is harmless, because every run
+# decides from the state on GitHub.
 concurrency:
-  group: speckit-task-${{ inputs.twin }}-${{ inputs.task }}
+  group: speckit-implement-${{ inputs.twin }}
   cancel-in-progress: false
-
-env:
-  SPECKIT_STEP: task
-  SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
-  SPECKIT_TWIN: ${{ inputs.twin }}
-  SPECKIT_PULL: ${{ inputs.pull }}
-  SPECKIT_TASK: ${{ inputs.task }}
-  SPECKIT_ATTEMPT: ${{ inputs.attempt }}
-  SPECKIT_MAX_PARALLEL_TASKS: ${{ vars.SPECKIT_MAX_PARALLEL_TASKS || '3' }}
 
 jobs:
   refuse:
@@ -58,23 +54,29 @@ jobs:
           echo "::error::Spec Kit workflows only run from the default branch, not ${GITHUB_REF}."
           exit 1
 
-  begin:
-    name: Check the task and mark the attempt
+  decide:
+    name: Decide the next segment
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Never runs agent-written code. contents: write lets a diagnosis it starts delete a superseded amendment branch.
     permissions:
-      contents: read
-      issues: read
-      pull-requests: read
+      actions: write
       checks: write
+      contents: write
+      issues: write
+      pull-requests: write
     outputs:
-      proceed: ${{ steps.begin.outputs.proceed }}
-      folder: ${{ steps.begin.outputs.folder }}
-      head: ${{ steps.begin.outputs.head }}
-      check_run: ${{ steps.begin.outputs.check_run }}
-      prompt: ${{ steps.begin.outputs.prompt }}
-      verify_mode: ${{ steps.begin.outputs.verify_mode }}
+      action: ${{ steps.decide.outputs.action }}
+      continue: ${{ steps.decide.outputs.continue }}
+      folder: ${{ steps.decide.outputs.folder }}
+      head: ${{ steps.decide.outputs.head }}
+      step: ${{ steps.decide.outputs.step }}
+      stages: ${{ steps.decide.outputs.stages }}
+      stage_matrix: ${{ steps.decide.outputs.stage_matrix }}
+      phase_check: ${{ steps.decide.outputs.phase_check }}
+      attempt: ${{ steps.decide.outputs.attempt }}
+      check_run: ${{ steps.decide.outputs.check_run }}
     steps:
       - name: Check out the default branch
         uses: actions/checkout@v5
@@ -87,24 +89,117 @@ jobs:
         with:
           node-version: 24
 
-      - name: Check the inputs and mark the attempt
-        id: begin
+      - name: Decide the next segment
+        id: decide
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node .github/scripts/speckit-step.mjs begin
-
-  work:
-    name: Implement and verify
-    needs: begin
-    if: needs.begin.outputs.proceed == 'true'
+          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_TWIN: ${{ inputs.twin }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+          SPECKIT_RESUME: ${{ inputs.resume }}
+          SPECKIT_GUIDANCE: ${{ inputs.guidance }}
+          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
+        run: node .github/scripts/speckit-spec.mjs decide
+  # One matrix entry per stage of the phase, one at a time and in order; a stage that does not land fails its land job,
+  # and fail-fast cancels the stages after it. GitHub documents the order in which matrix jobs are created; with
+  # max-parallel 1 they run in that order.
+  stages:
+    name: Stage ${{ matrix.number }}
+    needs: decide
+    if: needs.decide.outputs.action == 'stages'
+    strategy:
+      max-parallel: 1
+      fail-fast: true
+      matrix: ${{ fromJSON(needs.decide.outputs.stage_matrix) }}
+    uses: ./.github/workflows/speckit-stage.yml
+    permissions:
+      checks: write
+      contents: write
+      copilot-requests: write
+      issues: read
+      pull-requests: write
+    with:
+      step: ${{ needs.decide.outputs.step }}
+      twin: ${{ inputs.twin }}
+      pull: ${{ inputs.pull }}
+      folder: ${{ needs.decide.outputs.folder }}
+      stages: ${{ needs.decide.outputs.stages }}
+      index: ${{ matrix.index }}
+  # The phase's last stage was a `[P]` group: each task passed its own verification, so the combination gets the phase's
+  # full verification here (read-only token; it runs agent-written code).
+  phase-check:
+    name: Verify the phase
+    needs: [decide, stages]
+    if: >-
+      !cancelled() && needs.decide.outputs.phase_check == 'true' && needs.stages.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
       contents: read
-      copilot-requests: write
     env:
-      SPECKIT_FOLDER: ${{ needs.begin.outputs.folder }}
-      SPECKIT_HEAD: ${{ needs.begin.outputs.head }}
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tooling
+          persist-credentials: false
+
+      # The chain is the only writer of the branch while it runs, so its tip is what the stages landed.
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: speckit/${{ needs.decide.outputs.folder }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: List the changes of the phase
+        working-directory: workspace
+        env:
+          PHASE_START: ${{ needs.decide.outputs.head }}
+        run: |
+          mkdir -p "$SPECKIT_RESULT_DIR"
+          git diff --name-only --no-renames "$PHASE_START" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
+
+      - name: Set up the solution environment
+        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Verify the phase
+        if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: phase
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+  # Runs agent-written code (the full verification), so it holds a read-only token.
+  merge-verify:
+    name: "Merge: integrate and verify"
+    needs: decide
+    if: needs.decide.outputs.action == 'merge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      SPECKIT_STEP: merge
+      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_TWIN: ${{ inputs.twin }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
+      SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_TOOLING: ${{ github.workspace }}/tooling
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
@@ -116,11 +211,11 @@ jobs:
           path: tooling
           persist-credentials: false
 
-      # Full history, so the change can be compared with the default branch.
+      # Full history, so the default branch can be merged locally.
       - name: Check out the implementation branch
         uses: actions/checkout@v5
         with:
-          ref: ${{ needs.begin.outputs.head }}
+          ref: ${{ needs.decide.outputs.head }}
           path: workspace
           fetch-depth: 0
           persist-credentials: false
@@ -129,14 +224,6 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
-
-      - name: Set up Python for the Spec Kit scripts
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
-      - name: Install Copilot CLI
-        run: npm install --global @github/copilot
 
       # Optional, solution-owned extension point; loaded from the trusted tooling checkout, never from the workspace.
       - name: Set up the solution environment
@@ -145,45 +232,49 @@ jobs:
         with:
           workspace: workspace
 
-      # The token reaches Copilot CLI only as COPILOT_GITHUB_TOKEN, which --secret-env-vars strips from the
-      # agent's shells. The job token is read-only, so even a leaked token cannot push.
-      - name: Implement the task with Copilot CLI
-        working-directory: workspace
-        env:
-          COPILOT_GITHUB_TOKEN: ${{ github.token }}
-          SPECIFY_FEATURE_DIRECTORY: specs/${{ needs.begin.outputs.folder }}
-          PROMPT: ${{ needs.begin.outputs.prompt }}
-          AI_CREDITS: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
-        run: |
-          mkdir -p "$SPECKIT_RESULT_DIR"
-          set +e
-          timeout --kill-after=60s 60m copilot -p "$PROMPT" \
-            --no-ask-user --no-auto-update --allow-all-tools --disable-builtin-mcps \
-            --deny-tool 'shell(git push:*)' --deny-tool 'shell(git commit:*)' --deny-tool 'shell(gh:*)' \
-            --deny-tool 'shell(curl:*)' --deny-tool 'shell(wget:*)' \
-            --secret-env-vars=COPILOT_GITHUB_TOKEN --max-ai-credits "$AI_CREDITS" \
-            --output-format json > "$SPECKIT_RESULT_DIR/agent.jsonl"
-          echo "$?" > "$SPECKIT_RESULT_DIR/agent-exit.txt"
+      - name: Merge the default branch
+        id: integrate
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" integrate
 
-      - name: Package the change
-        id: package
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" package
-
-      # Optional, solution-owned extension point; loaded from the trusted tooling checkout. The job env holds no
-      # tokens, so the agent-written code it runs cannot reach one.
-      - name: Verify the change
+      # Optional, solution-owned extension point; every check runs on the merged result.
+      - name: Verify the merged result
         id: verify
         if: >-
-          steps.package.outputs.verify == 'true' &&
+          steps.integrate.outputs.verify == 'true' &&
           hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
         continue-on-error: true
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
-          # task: build and the tests the task touched; phase (the last task of a phase): the full tests.
-          mode: ${{ needs.begin.outputs.verify_mode || 'phase' }}
+          mode: finalize
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      # An environment spec changes the actions above, which the workflows load from the default branch, so its own
+      # versions have not run yet. Run them once on the merged result before the merge. This job is read-only and
+      # already runs agent-written code, so loading the actions from the workspace grants nothing new.
+      - name: Self-test the changed environment setup
+        id: selftest-setup
+        if: >-
+          steps.integrate.outputs.environment == 'true' &&
+          hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
+        continue-on-error: true
+        uses: ./workspace/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Self-test the changed environment verification
+        id: selftest-verify
+        if: >-
+          steps.integrate.outputs.environment == 'true' &&
+          steps.selftest-setup.outcome != 'failure' &&
+          hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./workspace/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: finalize
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/selftest.log
 
       - name: Record the verdict
         env:
@@ -191,49 +282,47 @@ jobs:
           SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
           SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+          SPECKIT_SELFTEST_OUTCOME: >-
+            ${{ steps.selftest-setup.outcome == 'failure' && 'failure' || steps.selftest-verify.outcome }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" verdict
 
       - name: Upload the result
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: speckit-task-result
+          name: speckit-merge-result
           path: ${{ github.workspace }}/speckit-result
           retention-days: 7
           if-no-files-found: ignore
 
-  land:
-    name: Land the change and report
-    needs: [begin, work]
-    if: always() && needs.begin.outputs.proceed == 'true'
+  # Never checks out or runs workspace code; it only uses the GitHub API.
+  merge-land:
+    name: "Merge: merge and report"
+    needs: [decide, merge-verify]
+    if: always() && needs.decide.outputs.action == 'merge'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write
-      pull-requests: write
-      issues: read
+      actions: write
       checks: write
+      contents: write
+      issues: write
+      pull-requests: write
     env:
-      SPECKIT_FOLDER: ${{ needs.begin.outputs.folder }}
-      SPECKIT_CHECK_RUN: ${{ needs.begin.outputs.check_run }}
-      SPECKIT_WORK_RESULT: ${{ needs.work.result }}
-      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_STEP: merge
+      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_TWIN: ${{ inputs.twin }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
+      SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
+      SPECKIT_CHECK_RUN: ${{ needs.decide.outputs.check_run }}
+      SPECKIT_WORK_RESULT: ${{ needs.merge-verify.result }}
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
     steps:
-      - name: Check out the trusted tooling
+      - name: Check out the default branch
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.repository.default_branch }}
-          path: tooling
-          persist-credentials: false
-
-      # Full history, so the change can be compared with the default branch.
-      - name: Check out the implementation branch
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.begin.outputs.head }}
-          path: workspace
-          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Node.js
@@ -241,33 +330,53 @@ jobs:
         with:
           node-version: 24
 
-      - name: Download the work result
+      - name: Download the verification result
         continue-on-error: true
         uses: actions/download-artifact@v8
         with:
-          name: speckit-task-result
+          name: speckit-merge-result
           path: ${{ github.workspace }}/speckit-result
 
-      - name: Land the change and report
+      - name: Merge and report
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_AUTO_MERGE: ${{ vars.SPECKIT_AUTO_MERGE || 'true' }}
           SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
-        run: node tooling/.github/scripts/speckit-step.mjs land
+        run: node .github/scripts/speckit-step.mjs merge-land
 
-  # GitHub raises no workflow_run event for these runs, so the hand-back is an explicit dispatch.
-  hand-back:
-    name: Hand back to the orchestrator
-    needs: [begin, work, land]
-    if: always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+  # Starts the next run of the chain unless this run was cancelled; a stop (attempt limit, diagnosis, review) is decided
+  # by the next run's decide job. A failed phase verification is reported here as a stop.
+  continue:
+    name: Continue the implementation
+    needs: [decide, stages, phase-check, merge-verify, merge-land]
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.continue == 'true' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       actions: write
+      checks: write
+      contents: read
+      issues: write
+      pull-requests: read
     steps:
-      - name: Start the Spec Kit orchestrate workflow
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Start the next run
         env:
-          GH_TOKEN: ${{ github.token }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: >-
-          gh workflow run speckit-orchestrate.yml --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH"
-          -f after_run="$GITHUB_RUN_ID"
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_TWIN: ${{ inputs.twin }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+          SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
+          SPECKIT_PHASE_CHECK: ${{ needs.phase-check.result }}
+          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
+        run: node .github/scripts/speckit-spec.mjs continue

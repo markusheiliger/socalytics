@@ -3,23 +3,18 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, 
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { IMPLEMENT_STAGE, hasLabel, resolveTwins, stageLabel, stageLabelChange } from './speckit-prepare-core.mjs';
+import { stageLabelChange } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import {
-  BOT_LOGIN,
-  CHECK_ATTEMPT,
   CHECK_CONFLICT,
   CHECK_DONE,
   CHECK_LIMIT,
-  CHECK_MERGE,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
   DONE_COMMENT_MARKER,
   MAX_CONVERGE_ROUNDS,
   PREPARE_WORKFLOW_FILE,
-  RESUME_COMMENT_MARKER,
-  STEPS,
   appendPullRequestTasks,
   convergenceRounds,
   environmentExclusivityReasons,
@@ -27,20 +22,13 @@ import {
   implementationBranch,
   isEnvironmentPath,
   isProtectedPath,
-  latestCheckRun,
-  latestHumanCommit,
   listTasks,
   neutralizeMarkers,
-  nextTaskGroup,
-  parseGuidance,
-  parseMaxParallel,
-  parseStepRunName,
   progressOutput,
-  renderConvergePrompt,
+  attemptCheckId,
+  renderAttemptMarker,
   renderNextSteps,
   renderResolvePrompt,
-  renderTaskPrompt,
-  taskVerifyMode,
   stepLabel,
   summarizeTask,
   syncPullRequestTaskList,
@@ -99,6 +87,11 @@ function title(inputs) {
   return `${label.charAt(0).toUpperCase()}${label.slice(1)} attempt ${inputs.attempt}`;
 }
 
+// The attempt marker line of an outcome comment (see parseAttempts); merges are tracked by check runs instead.
+function markerLines(inputs, outcome) {
+  return inputs.step === 'merge' ? [] : [renderAttemptMarker({ step: inputs.step, task: inputs.task, attempt: inputs.attempt, outcome })];
+}
+
 function tail(text, lines = 60) {
   return String(text ?? '').trimEnd().split(/\r?\n/).slice(-lines).join('\n');
 }
@@ -122,88 +115,6 @@ function readOptional(file) {
 function writeResult(resultDir, result) {
   mkdirSync(resultDir, { recursive: true });
   writeFileSync(path.join(resultDir, 'result.json'), `${JSON.stringify(result, null, 2)}\n`);
-}
-
-const latestMergeState = (checks) => latestCheckRun(checks.filter((check) => [CHECK_MERGE, CHECK_CONFLICT].includes(check.external_id)));
-
-// Worker workflows, job "begin": checks that the requested step is still the next step of an open, flagged
-// implementation and marks the attempt as in progress. Mismatches end as a no-op.
-export async function runBegin({ client, env, inputs, log }) {
-  const report = createReporter(env, log);
-  report.line(`## ${title(inputs)} for #${inputs.twin}`);
-  report.line();
-  const reasons = [];
-  const issue = await client.getIssue(inputs.twin);
-  const folder = resolveTwins([issue]).byFolder.keys().next().value;
-  if (!folder) reasons.push(`#${inputs.twin} is not a spec twin`);
-  if (issue.state !== 'open' || !hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) reasons.push(`#${inputs.twin} is not open and flagged for implementation`);
-  const pull = await client.getPullRequest(inputs.pull);
-  if (folder && (pull.state !== 'open' || pull.head?.ref !== implementationBranch(folder) || pull.head?.repo?.full_name !== env.GITHUB_REPOSITORY)) {
-    reasons.push(`#${inputs.pull} is not the open implementation pull request of \`specs/${folder}\``);
-  }
-  let tasksMarkdown = null;
-  let checks = [];
-  let takeOver = true;
-  if (reasons.length === 0) {
-    tasksMarkdown = await client.getFileContent(`specs/${folder}/tasks.md`, pull.head.sha);
-    checks = await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME);
-    const group = nextTaskGroup(tasksMarkdown, parseMaxParallel(env.SPECKIT_MAX_PARALLEL_TASKS)).map((task) => task.id);
-    const next = group[0] ?? null;
-    if (tasksMarkdown === null) reasons.push(`\`specs/${folder}/tasks.md\` is missing on the branch`);
-    else if (inputs.step === 'task' && !group.includes(inputs.task)) reasons.push(`the next task${group.length > 1 ? 's are' : ' is'} ${group.join(', ') || 'none'}, not ${inputs.task}`);
-    else if (inputs.step !== 'task' && next) reasons.push(`task ${next} is not implemented yet`);
-    else if (inputs.step === 'resolve' && latestMergeState(checks)?.external_id !== CHECK_CONFLICT) reasons.push('no merge conflict is recorded for the current head');
-    // Only the first task of a group takes over the queued progress check run, so parallel tasks never share one.
-    takeOver = inputs.step !== 'task' || inputs.task === next;
-  }
-  if (reasons.length > 0) {
-    report.line(`Nothing to do: ${reasons.join('; ')}.`);
-    report.flush();
-    setOutput(env, 'proceed', 'false');
-    return { exitCode: 0, proceed: false, reasons };
-  }
-
-  const task = inputs.step === 'task' ? listTasks(tasksMarkdown).find((item) => item.id === inputs.task) : null;
-  const summary = {
-    task: () => `${task.id} ${task.text}`,
-    converge: () => 'Checks the implementation against the spec, plan, and tasks with /speckit-converge.',
-    resolve: () => 'Resolves the merge conflicts with the default branch.',
-  }[inputs.step]();
-  const attemptFields = { status: 'in_progress', external_id: CHECK_ATTEMPT, output: { title: `${title(inputs)} in progress`, summary } };
-  // Take over the queued progress check run of this head, so no check run stays queued forever.
-  const queued = latestCheckRun(checks.filter((item) => item.status === 'queued' && item.external_id === CHECK_PROGRESS));
-  const check = takeOver && queued
-    ? { ...queued, ...(await client.updateCheckRun(queued.id, attemptFields)), id: queued.id }
-    : await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: pull.head.sha, ...attemptFields });
-  report.line(`Working on ${stepLabel(inputs)} of \`specs/${folder}\` at ${pull.head.sha}.`);
-  report.flush();
-  setOutput(env, 'proceed', 'true');
-  setOutput(env, 'folder', folder);
-  setOutput(env, 'head', pull.head.sha);
-  setOutput(env, 'check_run', String(check.id));
-  setOutput(env, 'verify_mode', inputs.step === 'task' ? taskVerifyMode(tasksMarkdown, inputs.task) : 'phase');
-  const prompt = inputs.step === 'task' ? renderTaskPrompt(inputs.task) : inputs.step === 'converge' ? renderConvergePrompt() : '';
-  const guidance = prompt ? await currentGuidance(client, inputs) : null;
-  // Step outputs are single lines; the guidance is flattened and clipped.
-  setOutput(env, 'prompt', guidance ? `${prompt} Guidance from the person who resumed this implementation: ${guidance.replace(/\s+/g, ' ').slice(0, 1500)}` : prompt);
-  return { exitCode: 0, proceed: true, folder, check, guidance };
-}
-
-// Guidance from the latest resume (`/speckit resume <guidance>`). It applies to the stopped step only: it ends when a
-// worker run of this twin that started after the resume succeeded, or when a person pushed since.
-async function currentGuidance(client, { pull, twin }) {
-  const resume = (await client.listIssueComments(pull))
-    .filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(RESUME_COMMENT_MARKER))
-    .at(-1);
-  const guidance = resume ? parseGuidance(resume.body) : null;
-  if (!guidance) return null;
-  const pushedAt = latestHumanCommit(await client.listPullRequestCommits(pull));
-  if (pushedAt && Date.parse(pushedAt) > Date.parse(resume.created_at)) return null;
-  for (const [step, { file }] of Object.entries(STEPS)) {
-    const runs = await client.listWorkflowRuns(file, resume.created_at, 1);
-    if (runs.some((run) => run.status === 'completed' && run.conclusion === 'success' && parseStepRunName(step, run.display_title)?.twin === twin)) return null;
-  }
-  return guidance;
 }
 
 export function defaultGit(cwd) {
@@ -287,7 +198,7 @@ function stagePatch(git, resultDir) {
 
 const isProtected = isProtectedPath;
 
-// Worker workflows, job "work", resolve and merge steps: merges the default branch into the checked-out
+// Spec Kit stage (resolve) and Spec Kit implement (merge-verify), job "work": merges the default branch into the checked-out
 // implementation branch without committing, records the default branch SHA and any conflicted files, and prepares
 // the agent prompt for conflict resolution. Conflicts in protected paths need a person. After a clean merge it
 // writes the paths the implementation changes compared to the default branch for the verification.
@@ -322,7 +233,7 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   return { exitCode: 0, result };
 }
 
-// Worker workflows, job "work" (read-only token): packages and validates the agent's change. It writes the changed
+// Spec Kit stage, job "work" (read-only token): packages and validates the agent's change. It writes the changed
 // paths for the solution's optional environment-verify action and a preliminary result; "verdict" completes it.
 // The result is a quality report; the "land" job re-validates everything it relies on before pushing.
 export function runPackage({ git, env, inputs, folder, workspace, resultDir, log }) {
@@ -387,6 +298,8 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
     result.converged = false;
     result.verified = false;
   }
+  // The commit the work started from, so the land job can land the change from there.
+  result.base = env.SPECKIT_HEAD || result.head || null;
   writeFileSync(path.join(resultDir, 'changed-files.txt'), paths.map((file) => `${file}\n`).join(''));
   writeResult(resultDir, result);
   const verify = inputs.step !== 'converge' && result.reasons.length === 0;
@@ -395,7 +308,7 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
   return { exitCode: 0, verify, result };
 }
 
-// Worker workflows, job "work": records the outcome of the optional environment-verify action in the result.
+// Spec Kit stage and the merge verification, job "work": records the outcome of the optional environment-verify action in the result.
 // SPECKIT_VERIFY_CONFIGURED tells whether the action exists; SPECKIT_VERIFY_OUTCOME and SPECKIT_VERIFY_CHECKS are the
 // step's outcome and its "checks" output (comma-separated, in order; after a failure the last one failed);
 // SPECKIT_VERIFY_UNCOVERED lists changed files that no check covers. For a merge that changes the environment
@@ -464,13 +377,14 @@ async function reportFailure({ client, inputs, reasons, resultDir }) {
     output: { title: `${title(inputs)} failed`, summary: safeReasons.map((reason) => `- ${reason}`).join('\n') },
   });
   await client.createComment(inputs.pull, [
+    ...markerLines(inputs, 'failure'),
     `**${title(inputs)} failed:**`,
     '',
     ...safeReasons.map((reason) => `- ${reason}`),
     ...(verification.trim() ? ['', '<details><summary>Verification output (tail)</summary>', '', fence(verification), '', '</details>'] : []),
     ...agentDetails(resultDir),
     '',
-    'The orchestrator retries until the attempt limit is reached.',
+    'It is retried until the attempt limit is reached.',
   ].join('\n'));
 }
 
@@ -491,6 +405,7 @@ async function requestAttention({ client, env = {}, inputs, reason, next, result
     // Only used to suggest /speckit sync.
   }
   await client.createComment(inputs.pull, [
+    ...markerLines(inputs, 'attention'),
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: ${neutralizeMarkers(reason)}`,
     '',
     next.trim(),
@@ -571,6 +486,7 @@ async function reportRequeue({ client, inputs, reasons }) {
     output: { title: `${title(inputs)} is redone from the new head`, summary: safeReasons.map((reason) => `- ${reason}`).join('\n') },
   });
   await client.createComment(inputs.pull, [
+    ...markerLines(inputs, 'requeue'),
     `**${title(inputs)} runs again** from the new head of the implementation branch, because a parallel task or a person changed it first:`,
     '',
     ...safeReasons.map((reason) => `- ${reason}`),
@@ -601,7 +517,7 @@ async function push({ client, git, env, inputs, folder, resultDir, report }) {
 // The next-steps block of an attention comment lists the commands that continue from here.
 const RESUME_HINT = '';
 
-// Worker workflows, job "land" (write token, never runs agent-written code): re-validates the change, commits and
+// Lands one result of a stage (write token, never runs agent-written code): re-validates the change, commits and
 // pushes it, and reports progress.
 export async function runLand({ client, git, env, inputs, folder, workspace, resultDir, workResult, log }) {
   const report = createReporter(env, log);
@@ -658,6 +574,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       output: { title: 'Converged', summary: 'The implementation satisfies the spec, plan, and tasks. Next: merge into the default branch.' },
     });
     await client.createComment(inputs.pull, [
+      ...markerLines(inputs, 'success'),
       `**Converged** (attempt ${inputs.attempt}): the implementation satisfies the spec, plan, and tasks. Next: merge into the default branch.`,
       ...agentDetails(resultDir, 'Convergence report'),
     ].join('\n'));
@@ -754,12 +671,100 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   if (body !== pull.body) await client.updatePullRequest(inputs.pull, { body });
   await client.updateCheckRun(inputs.checkRun, { status: 'completed', conclusion: 'success', output: { title: checkTitle, summary: message.join('\n\n') } });
   await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'queued', external_id: CHECK_PROGRESS, output: progressOutput(progress) });
-  await client.createComment(inputs.pull, comment.join('\n'));
+  await client.createComment(inputs.pull, [...markerLines(inputs, 'success'), ...comment].join('\n'));
   report.line(`${checkTitle}; pushed as ${head}.`);
   report.flush();
   return { exitCode: 0, head };
 }
 
+const STEP_SUMMARIES = {
+  converge: 'Checks the implementation against the spec, plan, and tasks with /speckit-converge.',
+  resolve: 'Resolves the merge conflicts with the default branch.',
+};
+
+// Shows the attempts of a stage as in-progress check runs on `head`. The first one takes over the queued progress
+// check run of the head, so it does not stay queued forever. Returns the check run IDs by task (by step for a
+// convergence or a resolution).
+export async function startAttemptChecks(client, { head, step, entries }) {
+  const checks = {};
+  let queued = (await client.listCheckRuns(head, CHECK_RUN_NAME))
+    .filter((check) => check.status === 'queued' && check.external_id === CHECK_PROGRESS)
+    .sort((a, b) => b.id - a.id)[0] ?? null;
+  for (const entry of entries) {
+    const inputs = { step, task: entry.task || null, attempt: Number(entry.attempt) };
+    const fields = {
+      status: 'in_progress',
+      external_id: attemptCheckId(inputs),
+      output: { title: `${title(inputs)} in progress`, summary: entry.summary || STEP_SUMMARIES[step] || title(inputs) },
+    };
+    if (queued) {
+      await client.updateCheckRun(queued.id, fields);
+      checks[inputs.task ?? step] = queued.id;
+      queued = null;
+    } else {
+      checks[inputs.task ?? step] = (await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, ...fields })).id;
+    }
+  }
+  return checks;
+}
+
+function parseJsonInput(value, name) {
+  try {
+    return JSON.parse(String(value ?? '').trim() || 'null');
+  } catch {
+    throw new TaskInputError(`${name} is not valid JSON.`);
+  }
+}
+
+// The in-progress check run of an attempt on `head` (created by the decide job or by the previous stage), or a new one.
+async function attemptCheck(client, { head, step, entry }) {
+  const id = attemptCheckId({ step, task: entry.task || null, attempt: Number(entry.attempt) });
+  const existing = (await client.listCheckRuns(head, CHECK_RUN_NAME)).filter((check) => check.external_id === id && check.status !== 'completed');
+  if (existing.length > 0) return existing.sort((a, b) => b.id - a.id)[0].id;
+  return (await startAttemptChecks(client, { head, step, entries: [entry] }))[entry.task || step];
+}
+
+// Spec Kit stage, job "land" (write token, never runs agent-written code): lands the results of stage SPECKIT_STAGE_INDEX
+// of SPECKIT_STAGES in task order. Each task is landed from the commit its work job started from (recorded in its
+// result; it must be on the branch, otherwise the branch tip is used); a task whose siblings landed first is rebuilt on
+// the moved branch, or redone from the new head when they changed the same files (see pushTask). When every task
+// landed, the attempts of the next stage are shown as in progress on the new head. Otherwise the job fails on purpose,
+// so the matrix of stages (fail-fast, one stage at a time) cancels the stages after it, and the next run retries.
+export async function runLandStage({ client, git, env, folder, workspace, resultRoot, log }) {
+  const step = String(env.SPECKIT_STEP || 'task');
+  const twin = Number(env.SPECKIT_TWIN);
+  const pull = Number(env.SPECKIT_PULL);
+  const stages = parseJsonInput(env.SPECKIT_STAGES, 'SPECKIT_STAGES');
+  const index = Number(env.SPECKIT_STAGE_INDEX);
+  const stage = Array.isArray(stages) && Number.isInteger(index) && index >= 0 ? stages[index] : null;
+  if (!['task', 'converge', 'resolve'].includes(step) || ![twin, pull].every((value) => Number.isInteger(value) && value > 0) || !Array.isArray(stage?.include) || stage.include.length === 0) {
+    throw new TaskInputError('Expected SPECKIT_STEP, SPECKIT_TWIN, SPECKIT_PULL, and SPECKIT_STAGES with an entry at SPECKIT_STAGE_INDEX.');
+  }
+  const tip = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
+  const outcomes = [];
+  for (const entry of stage.include) {
+    const key = entry.task || step;
+    const resultDir = path.join(resultRoot, `speckit-result-${key}`);
+    const recorded = String(readJson(path.join(resultDir, 'result.json'))?.base ?? '');
+    const base = /^[0-9a-f]{40}$/.test(recorded) && git(['merge-base', '--is-ancestor', recorded, tip]).status === 0 ? recorded : tip;
+    git(['merge', '--abort']);
+    gitOrThrow(git, ['checkout', '-q', '--force', '--detach', base]);
+    gitOrThrow(git, ['clean', '-fdq']);
+    const checkRun = await attemptCheck(client, { head: base, step, entry });
+    const inputs = { step, twin, pull, task: entry.task || null, attempt: Number(entry.attempt), checkRun, folder };
+    const landed = await runLand({ client, git, env, inputs, folder, workspace, resultDir, workResult: env.SPECKIT_WORK_RESULT, log });
+    outcomes.push({ key, landed: landed.exitCode === 0 && !landed.requeue });
+  }
+  const ok = outcomes.every((outcome) => outcome.landed);
+  const current = (await client.getBranchSha(implementationBranch(folder))) ?? tip;
+  const next = stages[index + 1];
+  if (ok && Array.isArray(next?.include) && next.include.length > 0) await startAttemptChecks(client, { head: current, step, entries: next.include });
+  setOutput(env, 'ok', String(ok));
+  setOutput(env, 'head', current);
+  log(`Stage ${index + 1} landed: ${outcomes.map((outcome) => `${outcome.key} ${outcome.landed ? 'landed' : 'not landed'}`).join(', ')}.`);
+  if (!ok) log('Not every task landed, so the stages after this one are cancelled; the next run continues from here.');
+  return { exitCode: ok ? 0 : 1, ok, head: current, outcomes };
+}
 function applyPatch({ git, resultDir, check }) {
   const patchFile = path.join(resultDir, 'changes.patch');
   const patchBytes = existsSync(patchFile) ? statSync(patchFile).size : 0;
@@ -812,7 +817,7 @@ function replayResolution({ git, env, result, resultDir }) {
   return reasons;
 }
 
-// Orchestrator, job "merge-land" (write token, no checkout of workspace code): reports the verified integration
+// Spec Kit implement, job "merge-land" (write token, no checkout of workspace code): reports the verified integration
 // and squash-merges the implementation into the default branch, or asks for review when automatic merging is off.
 export async function runMergeLand({ client, env, inputs, resultDir, workResult, log }) {
   const report = createReporter(env, log);
@@ -833,7 +838,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
       external_id: CHECK_CONFLICT,
       output: { title: `Conflicts with ${defaultBranch}`, summary: `Merging ${defaultBranch} at ${result.mainSha} conflicts in ${files}.` },
     });
-    await client.createComment(inputs.pull, `**Merge conflicts with \`${defaultBranch}\`** in ${files}. \`Spec Kit resolve\` resolves them next.`);
+    await client.createComment(inputs.pull, `**Merge conflicts with \`${defaultBranch}\`** in ${files}. They are resolved next.`);
     report.line(`Conflicts with ${defaultBranch}: ${result.conflicts.join(', ')}`);
     report.flush();
     return { exitCode: 0, conflicts: result.conflicts };
@@ -964,38 +969,34 @@ function githubClient(env) {
   });
 }
 
-const COMMANDS = 'begin | integrate | package | verdict | land | merge-land';
+const COMMANDS = 'integrate | package | verdict | land-stage | merge-land';
 
 export async function main(argv, { env = process.env, log = console.log, client, git } = {}) {
   const [command] = argv;
-  const inputs = parseStepInputs(env);
   const workspace = path.resolve(env.SPECKIT_WORKSPACE || 'workspace');
   const resultDir = path.resolve(env.SPECKIT_RESULT_DIR || 'result');
   const folder = env.SPECKIT_FOLDER;
-  const withChecks = { ...inputs, checkRun: Number(env.SPECKIT_CHECK_RUN), folder };
-  if (command === 'begin') return (await runBegin({ client: client ?? githubClient(env), env, inputs, log })).exitCode;
-  if (command === 'integrate') return runIntegrate({ git: git ?? defaultGit(workspace), env, inputs, folder, resultDir, log }).exitCode;
-  if (command === 'package') return runPackage({ git: git ?? defaultGit(workspace), env, inputs, folder, workspace, resultDir, log }).exitCode;
-  if (command === 'verdict') return runVerdict({ env, inputs, resultDir, log }).exitCode;
-  if (command === 'land') {
-    return (await runLand({
+  if (command === 'land-stage') {
+    return (await runLandStage({
       client: client ?? githubClient(env),
       git: git ?? defaultGit(workspace),
       env,
-      inputs: withChecks,
       folder,
       workspace,
-      resultDir,
-      workResult: env.SPECKIT_WORK_RESULT,
+      resultRoot: path.resolve(env.SPECKIT_RESULT_ROOT || 'results'),
       log,
     })).exitCode;
   }
-  if (command === 'merge-land') {
-    return (await runMergeLand({ client: client ?? githubClient(env), env, inputs: withChecks, resultDir, workResult: env.SPECKIT_WORK_RESULT, log })).exitCode;
+  if (!['integrate', 'package', 'verdict', 'merge-land'].includes(command)) {
+    throw new TaskInputError(`Usage: speckit-step.mjs <${COMMANDS}> (inputs come from SPECKIT_* environment variables)`);
   }
-  throw new TaskInputError(`Usage: speckit-step.mjs <${COMMANDS}> (inputs come from SPECKIT_* environment variables)`);
+  const inputs = parseStepInputs(env);
+  if (command === 'integrate') return runIntegrate({ git: git ?? defaultGit(workspace), env, inputs, folder, resultDir, log }).exitCode;
+  if (command === 'package') return runPackage({ git: git ?? defaultGit(workspace), env, inputs, folder, workspace, resultDir, log }).exitCode;
+  if (command === 'verdict') return runVerdict({ env, inputs, resultDir, log }).exitCode;
+  const withChecks = { ...inputs, checkRun: Number(env.SPECKIT_CHECK_RUN), folder };
+  return (await runMergeLand({ client: client ?? githubClient(env), env, inputs: withChecks, resultDir, workResult: env.SPECKIT_WORK_RESULT, log })).exitCode;
 }
-
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main(process.argv.slice(2)).then(
     (code) => {

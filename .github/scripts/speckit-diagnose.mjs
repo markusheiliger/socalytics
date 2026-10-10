@@ -14,13 +14,13 @@ import {
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_COMMENT_MARKER,
   MAX_CORRECTION_ROUNDS,
+  IMPLEMENT_WORKFLOW_FILE,
   MAX_STALLED_ROUNDS,
-  STEPS,
   amendmentBranch,
   implementationBranch,
+  isImplementRunOf,
   neutralizeMarkers,
   nextTaskGroup,
-  parseStepRunName,
   renderNextSteps,
 } from './speckit-implement-core.mjs';
 
@@ -176,17 +176,19 @@ export async function runEvidence({ client, env, log }) {
   for (const comment of comments.slice(-15)) {
     sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 8000), '');
   }
-  sections.push('## Failed worker runs of this implementation', '');
-  for (const [step, { file }] of Object.entries(STEPS)) {
-    const runs = (await client.listWorkflowRuns(file, pull.created_at, 2))
-      .filter((run) => parseStepRunName(step, run.display_title)?.twin === twin && run.status === 'completed' && run.conclusion !== 'success')
-      .slice(0, 3);
-    for (const run of runs) {
-      sections.push(`### ${run.display_title} (${run.conclusion}) ${run.html_url ?? ''}`, '');
-      for (const job of (await client.listRunJobs(run.id)).filter((item) => item.conclusion === 'failure')) {
-        const logs = await client.getJobLogs(job.id);
-        sections.push(`#### Job "${job.name}"`, '', '```text', logs ? logTail(logs).replaceAll('```', "'''") : '(log not available)', '```', '');
-      }
+  // A task that fails its verification is reported in the pull request comments above; failed jobs are crashes,
+  // timeouts, and infrastructure problems.
+  sections.push('## Failed jobs of recent implementation runs', '');
+  const runs = (await client.listWorkflowRuns(IMPLEMENT_WORKFLOW_FILE, pull.created_at, 2))
+    .filter((run) => isImplementRunOf(run.display_title, twin) && run.status === 'completed')
+    .slice(0, 5);
+  for (const run of runs) {
+    const failedJobs = (await client.listRunJobs(run.id)).filter((item) => item.conclusion === 'failure');
+    if (failedJobs.length === 0) continue;
+    sections.push(`### ${run.display_title} (${run.conclusion}) ${run.html_url ?? ''}`, '');
+    for (const job of failedJobs) {
+      const logs = await client.getJobLogs(job.id);
+      sections.push(`#### Job "${job.name}"`, '', '```text', logs ? logTail(logs).replaceAll('```', "'''") : '(log not available)', '```', '');
     }
   }
   let evidence = sections.join('\n');

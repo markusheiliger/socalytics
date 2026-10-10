@@ -7,7 +7,7 @@ name: Spec Kit commands
 #   - Closing an amendment pull request: merged (the implementation continues) or discarded; a person's push to an
 #     amendment branch is checked again.
 #   - Guard: Spec Kit pull requests are removed from pull request stacks, and an amendment's base branch is set back to
-#     its implementation branch (the orchestrator does the same on every run, also for events this job cannot see).
+#     its implementation branch (the scheduler, Spec Kit orchestrate, does the same on every run, also for events this job cannot see).
 # Only people with write access are heard; comments and reviews by bots never trigger. Reviews arrive through a small
 # forwarder job, because GitHub runs pull_request_review workflows from the pull request's merge ref; it only
 # dispatches this workflow on the default branch, where everything else runs.

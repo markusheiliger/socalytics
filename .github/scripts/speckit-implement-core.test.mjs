@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -12,7 +13,8 @@ import {
   appendPullRequestTasks,
   checkRunOutput,
   convergenceRounds,
-  decideContinuation,
+  attemptCheckId,
+  decideNext,
   decideLifecycle,
   environmentExclusivityReasons,
   extractTasks,
@@ -29,7 +31,12 @@ import {
   nextTaskGroup,
   parseGuidance,
   parseMaxParallel,
-  parseStepRunName,
+  isImplementRunOf,
+  MAX_STAGES_PER_RUN,
+  parseAttemptCheckId,
+  parseAttempts,
+  parseMaxActiveSpecs,
+  planStages,
   renderConvergePrompt,
   renderGuidanceMarker,
   renderAmendmentHowTo,
@@ -38,9 +45,9 @@ import {
   renderPullRequestTitle,
   renderResolvePrompt,
   renderStartComment,
-  renderStepRunName,
+  renderAttemptMarker,
+  renderImplementRunName,
   renderTaskPrompt,
-  taskVerifyMode,
   TASK_TEST_SCOPE,
   RESUME_COMMENT_MARKER,
   START_COMMENT_MARKER,
@@ -161,18 +168,28 @@ test('lists tasks, the next task, and progress in file order', () => {
   assert.equal(nextTask('- [x] T001 done\n'), null);
 });
 
-test('renders and parses worker run names and prompts', () => {
-  assert.equal(renderStepRunName({ step: 'task', twin: 38, task: 'T002', attempt: 3 }), 'Spec Kit implement #38 T002 attempt 3');
-  assert.equal(renderStepRunName({ step: 'converge', twin: 38, attempt: 1 }), 'Spec Kit converge #38 attempt 1');
-  assert.equal(renderStepRunName({ step: 'resolve', twin: 38, attempt: 2 }), 'Spec Kit resolve #38 attempt 2');
-  assert.deepEqual(parseStepRunName('task', 'Spec Kit implement #38 T002 attempt 3'), { step: 'task', twin: 38, task: 'T002', attempt: 3 });
-  assert.deepEqual(parseStepRunName('converge', 'Spec Kit converge #7 attempt 1'), { step: 'converge', twin: 7, task: null, attempt: 1 });
-  assert.deepEqual(parseStepRunName('resolve', 'Spec Kit resolve #7 attempt 2'), { step: 'resolve', twin: 7, task: null, attempt: 2 });
-  assert.equal(parseStepRunName('task', 'Spec Kit implement #7 finalize attempt 1'), null);
-  assert.equal(parseStepRunName('task', 'Spec Kit implement'), null);
-  assert.equal(parseStepRunName('task', 'Spec Kit implement task #38 T002 attempt 3'), null, 'old task run names are ignored');
-  assert.equal(parseStepRunName('converge', 'Spec Kit implement #38 T002 attempt 3'), null);
-  assert.equal(parseStepRunName('task', 'Spec Kit orchestrate #38 T002 attempt 3'), null);
+test('renders the chain run name, attempt markers, and prompts', () => {
+  assert.equal(renderImplementRunName(38), 'Spec Kit implement #38');
+  assert.equal(isImplementRunOf('Spec Kit implement #38', 38), true);
+  assert.equal(isImplementRunOf('Spec Kit implement #38 T002 attempt 3', 38), true, 'runs of the per-task workflow count');
+  assert.equal(isImplementRunOf('Spec Kit implement #381', 38), false);
+  assert.equal(isImplementRunOf('Spec Kit diagnose #38', 38), false);
+  const comment = (body, login = 'github-actions[bot]', at = '2026-10-06T11:00:00Z') => ({ body, user: { login }, created_at: at });
+  const marker = renderAttemptMarker({ step: 'task', task: 'T002', attempt: 2, outcome: 'failure' });
+  assert.equal(marker, '<!-- speckit-implement:attempt {"step":"task","task":"T002","attempt":2,"outcome":"failure"} -->');
+  assert.deepEqual(parseAttempts([
+    comment(`${marker}\n**T002 attempt 2 failed**`),
+    comment(renderAttemptMarker({ step: 'converge', attempt: 1, outcome: 'success' }), undefined, '2026-10-06T10:00:00Z'),
+    comment(marker, 'mallory'),
+    comment('<!-- speckit-implement:attempt {"step":"merge","outcome":"failure"} -->'),
+    comment('<!-- speckit-implement:attempt {broken -->'),
+  ]), [
+    { step: 'converge', task: null, attempt: 1, outcome: 'success', at: '2026-10-06T10:00:00Z' },
+    { step: 'task', task: 'T002', attempt: 2, outcome: 'failure', at: '2026-10-06T11:00:00Z' },
+  ], 'only workflow-authored, valid markers count, oldest first');
+  assert.equal(attemptCheckId({ step: 'task', task: 'T002', attempt: 3 }), 'speckit:attempt:task:T002:3');
+  assert.deepEqual(parseAttemptCheckId('speckit:attempt:converge::1'), { step: 'converge', task: null, attempt: 1 });
+  assert.equal(parseAttemptCheckId(CHECK_ATTEMPT), null);
   assert.equal(renderTaskPrompt('T004'), `/speckit-implement Implement only task T004. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`);
   assert.match(TASK_TEST_SCOPE, /Do not run the whole test suite/);
   assert.match(renderConvergePrompt(), /^\/speckit-converge /);
@@ -186,34 +203,32 @@ test('picks the newest check run', () => {
   assert.equal(latestCheckRun([]), null);
 });
 
-test('decides how to continue the tasks of an implementation', () => {
+const attempt = (task, outcome = 'failure', at = '2026-10-06T11:00:00Z', step = 'task') => ({ step, task, attempt: 1, outcome, at });
+const stages = (...list) => ({ action: 'stages', step: 'task', stages: list, phaseEnd: true, lastIsGroup: false, stale: [] });
+
+test('decides the next stages of an implementation from the attempt ledger', () => {
   const windowStart = '2026-10-06T10:00:00Z';
-  const run = (task, status = 'completed', created = '2026-10-06T11:00:00Z', conclusion = 'failure') => ({ task, status, conclusion, created_at: created });
-  const decide = (fields) => decideContinuation({ tasksMarkdown: TASKS, windowStart, ...fields });
-  const tasks = (...runs) => ({ task: runs });
+  const decide = (fields) => decideNext({ tasksMarkdown: TASKS, windowStart, ...fields });
 
   assert.deepEqual(decide({ done: true }), { action: 'done' });
-  assert.deepEqual(decide({ runs: tasks(run('T002', 'completed', undefined, 'success')) }), { action: 'dispatch', step: 'task', task: 'T002', attempt: 2, stale: [] });
-  const noOps = Array.from({ length: 6 }, () => run('T002', 'completed', undefined, 'success'));
-  assert.deepEqual(decide({ runs: tasks(...noOps) }), { action: 'limit', step: 'task', task: 'T002', attempts: 6, stale: [] });
-  assert.deepEqual(decide({ runs: tasks(run('T002', 'completed', undefined, 'cancelled'), run('T002'), run('T002', 'completed', undefined, 'timed_out')) }), { action: 'limit', step: 'task', task: 'T002', attempts: 3, stale: [] });
-
-  assert.deepEqual(decide({}), { action: 'dispatch', step: 'task', task: 'T002', attempt: 1, stale: [] });
-  assert.deepEqual(decide({ runs: tasks(run('T001'), run('T002')) }), { action: 'dispatch', step: 'task', task: 'T002', attempt: 2, stale: [] });
-  assert.deepEqual(decide({ runs: tasks(run('T002', 'completed', '2026-10-06T09:00:00Z')) }), { action: 'dispatch', step: 'task', task: 'T002', attempt: 1, stale: [] });
-  assert.deepEqual(decide({ runs: tasks(run('T002', 'in_progress')) }), { action: 'wait' });
-  assert.deepEqual(decide({ runs: { converge: [run(null, 'queued')] } }), { action: 'wait' });
+  assert.deepEqual(decide({}), stages([{ task: 'T002', attempt: 1 }], [{ task: 'T003', attempt: 1 }]));
+  assert.deepEqual(decide({ attempts: [attempt('T001'), attempt('T002')] }), stages([{ task: 'T002', attempt: 2 }], [{ task: 'T003', attempt: 1 }]));
+  assert.deepEqual(decide({ attempts: [attempt('T002', 'failure', '2026-10-06T09:00:00Z')] }), stages([{ task: 'T002', attempt: 1 }], [{ task: 'T003', attempt: 1 }]), 'attempts before the window do not count');
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002')] }), stages([{ task: 'T002', attempt: 4 }], [{ task: 'T003', attempt: 1 }]), 'a redo is no failure');
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002'), attempt('T002')] }), { action: 'limit', step: 'task', task: 'T002', attempts: 3, stale: [] });
+  const noOps = Array.from({ length: 6 }, () => attempt('T002', 'requeue'));
+  assert.deepEqual(decide({ attempts: noOps }), { action: 'limit', step: 'task', task: 'T002', attempts: 6, stale: [] }, 'endless redos stop too');
   assert.deepEqual(decide({ checks: [{ id: 1, external_id: CHECK_DONE, conclusion: 'success' }] }), { action: 'done' });
-  const limited = { id: 1, external_id: CHECK_LIMIT, conclusion: 'failure' };
+  const limited = { id: 1, external_id: CHECK_LIMIT, conclusion: 'failure', started_at: '2026-10-06T11:30:00Z' };
   assert.deepEqual(decide({ checks: [limited] }), { action: 'failed', diagnosis: { state: 'none', check: limited, count: 0 } });
-  assert.deepEqual(decide({ checks: [limited], resume: true }), { action: 'resume', step: 'task', task: 'T002', attempt: 1, stale: [] });
-  assert.deepEqual(decide({ resume: true }), { action: 'resume', step: 'task', task: 'T002', attempt: 1, stale: [] }, 'a resume always starts a new attempt window');
-  assert.deepEqual(decide({ checks: [{ id: 1, external_id: CHECK_ATTEMPT, conclusion: 'failure' }] }), { action: 'dispatch', step: 'task', task: 'T002', attempt: 1, stale: [] });
+  assert.equal(decide({ checks: [limited], resumedAt: '2026-10-06T11:45:00Z' }).action, 'stages', 'a resume after the stop continues');
+  assert.equal(decide({ checks: [limited], resumedAt: '2026-10-06T11:15:00Z' }).action, 'failed', 'an older resume does not');
+  assert.deepEqual(decide({ maxStages: 1 }), { ...stages([{ task: 'T002', attempt: 1 }]), phaseEnd: false }, 'a long phase continues in the next run');
 });
 
 test('waits while a diagnosis runs, then for a decision, and gives up on a stale diagnosis', () => {
   const now = Date.parse('2026-10-06T12:00:00Z');
-  const decide = (fields) => decideContinuation({ tasksMarkdown: TASKS, windowStart: '2026-10-06T10:00:00Z', now, ...fields });
+  const decide = (fields) => decideNext({ tasksMarkdown: TASKS, windowStart: '2026-10-06T10:00:00Z', now, ...fields });
   const limited = { id: 1, external_id: CHECK_LIMIT, status: 'completed', conclusion: 'failure', started_at: '2026-10-06T11:00:00Z' };
   const running = { id: 2, external_id: CHECK_DIAGNOSING, status: 'in_progress', started_at: '2026-10-06T11:30:00Z' };
   assert.deepEqual(decide({ checks: [limited, running] }), { action: 'diagnosing' });
@@ -221,12 +236,9 @@ test('waits while a diagnosis runs, then for a decision, and gives up on a stale
   assert.deepEqual(decide({ checks: [limited, stale] }), { action: 'failed', diagnosis: { state: 'stale', check: stale, count: 1 } });
   const reported = { ...running, status: 'completed', conclusion: 'neutral', external_id: CHECK_DIAGNOSED };
   assert.deepEqual(decide({ checks: [limited, reported] }), { action: 'failed', diagnosis: { state: 'reported', check: reported, count: 1 } });
-  assert.deepEqual(decide({ checks: [limited, reported], resume: true }), { action: 'resume', step: 'task', task: 'T002', attempt: 1, stale: [] });
-  assert.deepEqual(decide({ checks: [limited, reported], resumedAt: '2026-10-06T11:45:00Z' }), { action: 'resume', step: 'task', task: 'T002', attempt: 1, stale: [] }, 'a resume comment after the stop resumes');
+  assert.equal(decide({ checks: [limited, reported], resumedAt: '2026-10-06T11:45:00Z' }).action, 'stages', 'a resume comment after the stop resumes');
   assert.equal(decide({ checks: [limited, reported], resumedAt: '2026-10-06T11:15:00Z' }).action, 'failed', 'an older resume comment does not');
-  assert.deepEqual(decide({ checks: [running], runs: { task: [{ task: 'T002', status: 'in_progress', created_at: '2026-10-06T11:00:00Z' }] } }), { action: 'wait' }, 'a diagnosis started while tasks run lets them finish');
 });
-
 test('renders the next steps a person can take', () => {
   const plain = renderNextSteps().join('\n');
   assert.match(plain, /\/speckit diagnose \[notes\][\s\S]*\/speckit resume \[guidance\]/);
@@ -315,21 +327,23 @@ test('groups consecutive unticked [P] tasks under one heading', () => {
   assert.deepEqual([parseMaxParallel(undefined), parseMaxParallel(''), parseMaxParallel('1'), parseMaxParallel(' 5 '), parseMaxParallel('0'), parseMaxParallel('x')], [3, 3, 1, 5, 3, 3]);
 });
 
-test('verifies all tests only for the last unchecked task of a phase', () => {
+test('plans the stages of a phase: single tasks, and [P] groups that run in parallel', () => {
   const tasks = [
     '## Phase 1: Setup', '- [x] T001 a', '- [ ] T002 b',
-    '## Phase 2: Story', '### Tests', '- [ ] T003 c', '### Implementation', '- [ ] T004 [P] d', '- [ ] T005 [P] e',
-    '## Phase 3: Polish', '- [ ] T006 f', '',
+    '## Phase 2: Story', '### Tests', '- [ ] T003 [P] c', '- [ ] T004 [P] d', '### Implementation', '- [ ] T005 [P] e', '- [ ] T006 f', '- [ ] T007 [P] g', '- [ ] T008 [P] h',
+    '## Phase 3: Polish', '- [ ] T009 i', '',
   ].join('\r\n');
-  assert.equal(taskVerifyMode(tasks, 'T002'), 'phase', 'the last open task of its phase');
-  assert.equal(taskVerifyMode(tasks, 'T003'), 'task', 'a ### sub-heading stays inside its phase');
-  assert.equal(taskVerifyMode(tasks.replace('- [ ] T003', '- [x] T003').replace('- [ ] T004', '- [x] T004'), 'T005'), 'phase');
-  assert.equal(taskVerifyMode(tasks.replace('- [ ] T003', '- [x] T003'), 'T004'), 'task', 'parallel siblings keep each other at task');
-  assert.equal(taskVerifyMode(tasks, 'T006'), 'phase');
-  assert.equal(taskVerifyMode(tasks, 'T999'), 'phase', 'an unknown task verifies everything');
-  assert.equal(taskVerifyMode('- [ ] T001 a\n- [ ] T002 b\n', 'T001'), 'task', 'no headings: one phase');
+  const tick = (markdown, ...ids) => ids.reduce((text, id) => text.replace(`- [ ] ${id}`, `- [x] ${id}`), markdown);
+  assert.deepEqual(planStages(tasks), { stages: [['T002']], phaseEnd: true, lastIsGroup: false }, 'a phase is planned on its own');
+  assert.deepEqual(planStages(tick(tasks, 'T002')), { stages: [['T003', 'T004'], ['T005'], ['T006'], ['T007', 'T008']], phaseEnd: true, lastIsGroup: true }, 'a ### heading ends a group, not the phase');
+  assert.deepEqual(planStages(tick(tasks, 'T002', 'T004')), { stages: [['T003'], ['T005'], ['T006'], ['T007', 'T008']], phaseEnd: true, lastIsGroup: true }, 'a landed sibling is skipped');
+  assert.deepEqual(planStages(tick(tasks, 'T002'), { maxStages: 2 }), { stages: [['T003', 'T004'], ['T005']], phaseEnd: false, lastIsGroup: false });
+  assert.deepEqual(planStages(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T006', 'T007', 'T008')), { stages: [['T009']], phaseEnd: true, lastIsGroup: false });
+  assert.deepEqual(planStages(tick(tasks, 'T002', 'T003', 'T004', 'T005', 'T007', 'T008')), { stages: [['T006']], phaseEnd: true, lastIsGroup: false }, 'an unchecked task between checked ones');
+  assert.deepEqual(planStages('- [ ] T001 a\n- [ ] T002 [P] b\n- [ ] T003 [P] c\n'), { stages: [['T001'], ['T002', 'T003']], phaseEnd: true, lastIsGroup: true }, 'no headings: one phase');
+  assert.deepEqual(planStages('- [x] T001 a\n'), { stages: [], phaseEnd: false, lastIsGroup: false });
+  assert.deepEqual([parseMaxActiveSpecs(undefined), parseMaxActiveSpecs('5'), parseMaxActiveSpecs('0'), parseMaxActiveSpecs('x')], [3, 5, 3, 3]);
 });
-
 test('ticks a task in tasks.md and syncs the pull request body with it', () => {
   const ticked = tickTask(PARALLEL_TASKS, 'T003');
   assert.match(ticked, /- \[x\] T003 \[P\] \[US1\] B\r\n/);
@@ -340,94 +354,52 @@ test('ticks a task in tasks.md and syncs the pull request body with it', () => {
   assert.equal(syncPullRequestTicks(body, ticked), '## Tasks\n\n- [x] T001 Setup\n- [ ] T002 A\n- [x] T003 B\n');
 });
 
-test('runs a [P] group in parallel, fills free slots, and stops at a limit after the siblings', () => {
+test('decides the stages of a [P] group and its limit', () => {
   const windowStart = '2026-10-06T10:00:00Z';
-  const run = (task, status = 'completed', conclusion = 'failure') => ({ task, status, conclusion, created_at: '2026-10-06T11:00:00Z' });
-  const decide = (fields) => decideContinuation({ tasksMarkdown: PARALLEL_TASKS, windowStart, maxParallel: 3, ...fields });
-  const tasks = (...runs) => ({ task: runs });
-
-  assert.deepEqual(decide({}), { action: 'dispatch-tasks', step: 'task', tasks: [{ task: 'T002', attempt: 1 }, { task: 'T003', attempt: 1 }, { task: 'T004', attempt: 1 }], stale: [] });
-  assert.deepEqual(decideContinuation({ tasksMarkdown: PARALLEL_TASKS, windowStart }), { action: 'dispatch', step: 'task', task: 'T002', attempt: 1, stale: [] }, 'one at a time by default');
-  assert.deepEqual(decide({ runs: tasks(run('T002', 'in_progress'), run('T003', 'in_progress'), run('T004', 'in_progress')) }), { action: 'wait' });
+  const decide = (fields) => decideNext({ tasksMarkdown: PARALLEL_TASKS, windowStart, ...fields });
+  const group = [{ task: 'T002', attempt: 1 }, { task: 'T003', attempt: 1 }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }];
+  assert.deepEqual(decide({}), { ...stages(group, [{ task: 'T006', attempt: 1 }], [{ task: 'T007', attempt: 1 }]) });
   const afterLand = PARALLEL_TASKS.replace('- [ ] T002', '- [x] T002');
-  assert.deepEqual(
-    decide({ tasksMarkdown: afterLand, runs: tasks(run('T002', 'completed', 'success'), run('T003', 'in_progress'), run('T004', 'in_progress')) }),
-    { action: 'dispatch', step: 'task', task: 'T005', attempt: 1, stale: [] },
-    'a landed task frees a slot for the next group member',
-  );
-  assert.deepEqual(
-    decide({ runs: tasks(run('T002'), run('T003', 'in_progress'), run('T004', 'in_progress')) }),
-    { action: 'dispatch', step: 'task', task: 'T002', attempt: 2, stale: [] },
-    'a failed task is retried while its siblings run',
-  );
-  assert.deepEqual(
-    decide({ runs: tasks(run('T002', 'completed', 'success'), run('T003'), run('T004')) }),
-    { action: 'dispatch', step: 'task', task: 'T002', attempt: 2, stale: [] },
-    'a redone task (successful run, still unticked) does not count as a failure and goes first',
-  );
-  assert.deepEqual(
-    decide({ runs: tasks(run('T002', 'completed', 'success'), run('T002', 'in_progress'), run('T003')) }),
-    { action: 'wait' },
-    'no sibling starts while a task is being redone',
-  );
-  const limited = tasks(run('T003'), run('T003'), run('T003'), run('T002', 'in_progress'));
-  assert.deepEqual(decide({ runs: limited }), { action: 'wait' }, 'the limit waits for running siblings');
-  assert.deepEqual(decide({ runs: tasks(run('T003'), run('T003'), run('T003')) }), { action: 'limit', step: 'task', task: 'T003', attempts: 3, stale: [] });
-  const sequentialNext = PARALLEL_TASKS.replace(/- \[ \] T00[2-5]/g, (line) => line.replace('[ ]', '[x]'));
-  assert.deepEqual(decide({ tasksMarkdown: sequentialNext, runs: tasks(run('T005', 'in_progress')) }), { action: 'wait' }, 'a sequential task waits for the group');
-  const allDone = PARALLEL_TASKS.replace(/- \[ \] T/g, '- [x] T');
-  assert.deepEqual(decide({ tasksMarkdown: allDone, runs: tasks(run('T008', 'in_progress')) }), { action: 'wait' }, 'convergence waits for running tasks');
-  assert.deepEqual(decide({ runs: { ...tasks(run('T002', 'in_progress')), converge: [run(null, 'queued')] } }), { action: 'wait' });
-  assert.deepEqual(decide({ runs: tasks(run('T002', 'in_progress')), checks: [{ id: 1, external_id: CHECK_LIMIT, conclusion: 'failure' }], resume: true }), { action: 'wait' });
+  assert.deepEqual(decide({ tasksMarkdown: afterLand, attempts: [attempt('T002', 'success'), attempt('T003')] }).stages[0], [{ task: 'T003', attempt: 2 }, { task: 'T004', attempt: 1 }, { task: 'T005', attempt: 1 }], 'landed siblings leave the group');
+  assert.deepEqual(decide({ attempts: [attempt('T003'), attempt('T003'), attempt('T003')] }), { action: 'limit', step: 'task', task: 'T003', attempts: 3, stale: [] }, 'a member at its limit stops the group');
 });
 
 test('decides convergence, conflict resolution, and merging after the last task', () => {
   const windowStart = '2026-10-06T10:00:00Z';
   const now = Date.parse('2026-10-06T20:00:00Z');
   const at = (hour) => `2026-10-06T${String(hour).padStart(2, '0')}:00:00Z`;
-  const run = (hour, conclusion = 'success', status = 'completed') => ({ task: null, status, conclusion, created_at: at(hour) });
+  const step = (name, hour, outcome = 'success') => attempt(null, outcome, at(hour), name);
   const check = (id, external_id, fields = {}) => ({ id, external_id, status: 'completed', conclusion: 'neutral', started_at: at(12), ...fields });
   const done = '- [x] T001 a\n';
-  const decide = (fields) => decideContinuation({ tasksMarkdown: done, windowStart, now, ...fields });
-  const taskDone = { task: [{ task: 'T001', status: 'completed', conclusion: 'success', created_at: at(11) }] };
+  const decide = (fields) => decideNext({ tasksMarkdown: done, windowStart, now, ...fields });
+  const taskDone = attempt('T001', 'success', at(11));
+  const single = (name, number) => ({ action: 'stages', step: name, stages: [[{ task: null, attempt: number }]], phaseEnd: false, lastIsGroup: false, stale: [] });
 
-  assert.deepEqual(decide({ runs: taskDone }), { action: 'dispatch', step: 'converge', attempt: 1, stale: [] });
-  assert.deepEqual(decide({ runs: { ...taskDone, converge: [run(10)] } }), { action: 'dispatch', step: 'converge', attempt: 1, stale: [] }, 'a convergence older than the last task does not count');
-  assert.deepEqual(decide({ runs: { ...taskDone, converge: [run(12, 'failure'), run(13, 'failure'), run(14, 'failure')] } }), { action: 'limit', step: 'converge', attempts: 3, stale: [] });
+  assert.deepEqual(decide({ attempts: [taskDone] }), single('converge', 1));
+  assert.deepEqual(decide({ attempts: [step('converge', 10), taskDone] }), single('converge', 1), 'a convergence older than the last task does not count');
+  assert.deepEqual(decide({ attempts: [taskDone, step('converge', 12, 'failure'), step('converge', 13, 'failure'), step('converge', 14, 'failure')] }), { action: 'limit', step: 'converge', attempts: 3, stale: [] });
 
-  const converged = { ...taskDone, converge: [run(12)] };
-  assert.deepEqual(decide({ runs: converged }), { action: 'merge', step: 'merge', attempt: 1, stale: [] });
+  const converged = [taskDone, step('converge', 12)];
+  assert.deepEqual(decide({ attempts: converged }), { action: 'merge', step: 'merge', attempt: 1, stale: [] });
   const merges = [check(1, CHECK_MERGE, { conclusion: 'failure' }), check(2, CHECK_MERGE, { conclusion: 'neutral' })];
-  assert.deepEqual(decide({ runs: converged, checks: merges }), { action: 'merge', step: 'merge', attempt: 3, stale: [] });
+  assert.deepEqual(decide({ attempts: converged, checks: merges }), { action: 'merge', step: 'merge', attempt: 3, stale: [] });
   const failedMerges = [1, 2, 3].map((id) => check(id, CHECK_MERGE, { conclusion: 'failure' }));
-  assert.deepEqual(decide({ runs: converged, checks: failedMerges }), { action: 'limit', step: 'merge', attempts: 3, stale: [] });
-  assert.deepEqual(decide({ runs: converged, checks: failedMerges, windowStart: at(13) }), { action: 'merge', step: 'merge', attempt: 1, stale: [] }, 'a person pushing starts a new window');
+  assert.deepEqual(decide({ attempts: converged, checks: failedMerges }), { action: 'limit', step: 'merge', attempts: 3, stale: [] });
+  assert.deepEqual(decide({ attempts: converged, checks: failedMerges, windowStart: at(13) }), { action: 'merge', step: 'merge', attempt: 1, stale: [] }, 'a person pushing starts a new window');
 
-  assert.deepEqual(decide({ runs: converged, checks: [check(1, CHECK_MERGE, { status: 'in_progress', started_at: at(19) })] }), { action: 'wait' });
+  assert.deepEqual(decide({ attempts: converged, checks: [check(1, CHECK_MERGE, { status: 'in_progress', started_at: at(19) })] }), { action: 'wait' });
   const stale = check(1, CHECK_MERGE, { status: 'in_progress', started_at: at(15) });
-  assert.deepEqual(decide({ runs: converged, checks: [stale] }), { action: 'merge', step: 'merge', attempt: 2, stale: [stale] });
+  assert.deepEqual(decide({ attempts: converged, checks: [stale] }), { action: 'merge', step: 'merge', attempt: 2, stale: [stale] });
 
   const conflict = check(5, CHECK_CONFLICT);
-  assert.deepEqual(decide({ runs: converged, checks: [check(4, CHECK_MERGE), conflict] }), { action: 'dispatch', step: 'resolve', attempt: 1, stale: [] });
-  const failedResolve = check(6, CHECK_ATTEMPT, { conclusion: 'failure' });
-  assert.deepEqual(
-    decide({ runs: { ...converged, resolve: [run(13, 'failure')] }, checks: [conflict, failedResolve] }),
-    { action: 'dispatch', step: 'resolve', attempt: 2, stale: [] },
-    'a failed resolve keeps the conflict state',
-  );
-  assert.deepEqual(decide({ runs: converged, checks: [conflict, check(7, CHECK_MERGE)] }), { action: 'merge', step: 'merge', attempt: 2, stale: [] });
-  const earlierResolves = [run(11, 'failure'), run(11, 'failure'), ...Array.from({ length: 4 }, () => run(11))];
-  assert.deepEqual(
-    decide({ runs: { ...converged, resolve: earlierResolves }, checks: [conflict] }),
-    { action: 'dispatch', step: 'resolve', attempt: 1, stale: [] },
-    'only attempts at the current conflict count',
-  );
-  assert.deepEqual(
-    decide({ runs: converged, checks: [check(8, CHECK_LIMIT, { conclusion: 'failure' })], resume: true }),
-    { action: 'resume', step: 'merge', attempt: 1, stale: [] },
-  );
+  assert.deepEqual(decide({ attempts: converged, checks: [check(4, CHECK_MERGE), conflict] }), single('resolve', 1));
+  assert.deepEqual(decide({ attempts: [...converged, step('resolve', 13, 'failure')], checks: [conflict] }), single('resolve', 2), 'a failed resolve keeps the conflict state');
+  assert.deepEqual(decide({ attempts: converged, checks: [conflict, check(7, CHECK_MERGE)] }), { action: 'merge', step: 'merge', attempt: 2, stale: [] });
+  const earlierResolves = [step('resolve', 11, 'failure'), step('resolve', 11, 'failure'), step('resolve', 11)];
+  assert.deepEqual(decide({ attempts: [...converged, ...earlierResolves], checks: [conflict] }), single('resolve', 1), 'only attempts at the current conflict count');
+  const limited = check(8, CHECK_LIMIT, { conclusion: 'failure' });
+  assert.deepEqual(decide({ attempts: converged, checks: [limited], resumedAt: at(13), windowStart: at(13) }), { action: 'merge', step: 'merge', attempt: 1, stale: [] });
 });
-
 test('environment specs: only the environment actions, and only without other changes on the branch', () => {
   assert.equal(isEnvironmentPath('.github/actions/environment-setup/action.yml'), true);
   assert.equal(isEnvironmentPath('.github/actions/other/action.yml'), false);
@@ -514,4 +486,13 @@ test('accepts only workflow-authored markers and neutralizes markers in untruste
   ];
   assert.deepEqual(markerTimes(comments, RESUME_COMMENT_MARKER), ['a']);
   assert.equal(neutralizeMarkers(`x ${RESUME_COMMENT_MARKER} y`), 'x &lt;!-- speckit-implement:resume --> y');
+});
+
+test('the implementation workflow runs the planned stages as a matrix, one at a time, stopping at the first that fails', () => {
+  const workflow = readFileSync(new URL('../workflows/speckit-implement.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const stages = workflow.match(/^ {2}stages:\n[\s\S]*?(?=^ {2}\S|^ {2}#)/m)?.[0] ?? '';
+  assert.match(stages, /max-parallel: 1\n\s+fail-fast: true\n\s+matrix: \$\{\{ fromJSON\(needs\.decide\.outputs\.stage_matrix\) \}\}/);
+  assert.match(stages, /uses: \.\/\.github\/workflows\/speckit-stage\.yml/);
+  assert.match(workflow, /continue:[\s\S]*?needs: \[decide, stages, phase-check, merge-verify, merge-land\]/);
+  assert.equal(MAX_STAGES_PER_RUN, 256, 'GitHub runs at most 256 matrix jobs per run');
 });

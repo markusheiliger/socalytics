@@ -3,7 +3,7 @@ name: Spec Kit diagnose
 description: >-
   Diagnoses why a Spec Kit implementation stopped and proposes how to continue; for spec artifact defects it proposes
   an amendment pull request and reworks it after consistency findings (fix) or a person's feedback (revise). Started
-  by the orchestrator, a `/speckit diagnose` comment, and the amendment lifecycle (Spec Kit commands, Spec Kit analyze).
+  by the implementation chain (Spec Kit implement), a `/speckit diagnose` comment, and the amendment lifecycle (Spec Kit commands, Spec Kit analyze).
 on:
   workflow_dispatch:
     inputs:

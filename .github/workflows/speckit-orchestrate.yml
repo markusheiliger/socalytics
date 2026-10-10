@@ -1,19 +1,15 @@
 name: Spec Kit orchestrate
 
-# Orchestrates spec implementations. For spec twins with a validated speckit:stage:implement flag it prepares the
-# implementation workspace (linked speckit/<folder> branch, draft pull request, check run) and then drives it:
-#   1. one Spec Kit implement run per task, in tasks.md order;
-#   2. Spec Kit converge (/speckit-converge) once all tasks are checked; appended convergence tasks go back to 1;
-#   3. the merge jobs below: merge the default branch, run the full verification, and squash-merge the pull request
-#      into the default branch (or ask for review when the repository variable SPECKIT_AUTO_MERGE is false);
-#      conflicts go to Spec Kit resolve and then back to 3.
-# Worker runs and the merge jobs hand control back by dispatching this workflow with their run id (after_run);
-# GitHub raises no workflow_run event for runs this workflow started. Each step gets at most three failed attempts;
-# then the person who requested the implementation is asked, and a diagnosis (Spec Kit diagnose) starts unless the
-# repository variable SPECKIT_AUTO_DIAGNOSE is false. A push by a person to an implementation branch, or a
-# `/speckit resume` or `/speckit sync` comment (Spec Kit commands), or merging an amendment pull request, continues the implementation
-# with a new attempt count. Implementation pull requests closed without merging send their twin back to its
-# computed stage.
+# Schedules spec implementations. For spec twins with a validated speckit:stage:implement flag and no open blockers it
+# prepares the implementation workspace (linked speckit/<folder> branch, draft pull request, check run) and starts the
+# spec's implementation chain (Spec Kit implement), while fewer than SPECKIT_MAX_ACTIVE_SPECS (repository variable,
+# default 3) implementations are active. Each chain implements its spec phase by phase, converges, and merges on its
+# own; the scheduler never drives tasks. It also:
+#   - restarts the chain of an implementation in progress when no run of it is active but there is something to do
+#     (the chain broke, a person pushed, or a diagnosis went stale);
+#   - finalizes implementations a person merged, and sends twins whose pull request was closed without merging back to
+#     their computed stage;
+#   - settles amendment pull requests and keeps Spec Kit pull requests out of pull request stacks.
 on:
   workflow_run:
     workflows: [Spec Kit prepare]
@@ -23,20 +19,12 @@ on:
   pull_request_target:
     types: [closed, synchronize]
   schedule:
-    # Safety net: continues implementations whose hand-back was lost.
+    # Safety net: continues implementations whose chain broke.
     - cron: "17 * * * *"
   workflow_dispatch:
     inputs:
-      twin:
-        description: Spec twin issue number to resume with a new attempt count (optional)
-        required: false
-        type: string
-      guidance:
-        description: Guidance for the resumed step's agent (optional, with twin)
-        required: false
-        type: string
       after_run:
-        description: Run id that handed control back (set by the Spec Kit workflows; leave empty)
+        description: Run id that handed control back (set by implementation runs from before the chain; leave empty)
         required: false
         type: string
 
@@ -57,7 +45,7 @@ jobs:
           exit 1
 
   orchestrate:
-    name: Orchestrate spec implementations
+    name: Schedule spec implementations
     # pull_request_target always uses this workflow from the default branch; no job checks out pull request code
     # with a write token.
     if: >-
@@ -67,8 +55,8 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    # Job-level so runs whose job is skipped never displace a pending orchestration; a replaced pending run is
-    # harmless because every run recomputes the complete state.
+    # Job-level so runs whose job is skipped never displace a pending run; a replaced pending run is harmless because
+    # every run recomputes the complete state.
     concurrency:
       group: speckit-orchestrate
       cancel-in-progress: false
@@ -78,9 +66,6 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
-    outputs:
-      merge_count: ${{ steps.orchestrate.outputs.merge_count }}
-      merges: ${{ steps.orchestrate.outputs.merges }}
     steps:
       - name: Check out the default branch
         uses: actions/checkout@v5
@@ -93,201 +78,11 @@ jobs:
         with:
           node-version: 24
 
-      - name: Orchestrate spec implementations
-        id: orchestrate
+      - name: Schedule spec implementations
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
-          SPECKIT_RESUME_TWIN: ${{ inputs.twin }}
           SPECKIT_AFTER_RUN: ${{ inputs.after_run }}
-          SPECKIT_RESUME_GUIDANCE: ${{ inputs.guidance }}
           SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
-          SPECKIT_MAX_PARALLEL_TASKS: ${{ vars.SPECKIT_MAX_PARALLEL_TASKS || '3' }}
+          SPECKIT_MAX_ACTIVE_SPECS: ${{ vars.SPECKIT_MAX_ACTIVE_SPECS || '3' }}
         run: node .github/scripts/speckit-orchestrate.mjs orchestrate
-
-  # Runs agent-written code (the full verification), so it holds a read-only token. It is outside the global
-  # orchestration concurrency group, so a long verification never delays decisions for other specs.
-  merge-verify:
-    name: "Merge: integrate and verify"
-    needs: orchestrate
-    if: needs.orchestrate.outputs.merge_count != '' && needs.orchestrate.outputs.merge_count != '0'
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.orchestrate.outputs.merges) }}
-    concurrency:
-      group: speckit-twin-${{ matrix.twin }}
-      cancel-in-progress: false
-    permissions:
-      contents: read
-    env:
-      SPECKIT_STEP: merge
-      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
-      SPECKIT_TWIN: ${{ matrix.twin }}
-      SPECKIT_PULL: ${{ matrix.pull }}
-      SPECKIT_ATTEMPT: ${{ matrix.attempt }}
-      SPECKIT_FOLDER: ${{ matrix.folder }}
-      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
-      SPECKIT_TOOLING: ${{ github.workspace }}/tooling
-      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
-    steps:
-      - name: Check out the trusted tooling
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: tooling
-          persist-credentials: false
-
-      # Full history, so the default branch can be merged locally.
-      - name: Check out the implementation branch
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ matrix.head }}
-          path: workspace
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-
-      # Optional, solution-owned extension point; loaded from the trusted tooling checkout, never from the workspace.
-      - name: Set up the solution environment
-        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
-        uses: ./tooling/.github/actions/environment-setup
-        with:
-          workspace: workspace
-
-      - name: Merge the default branch
-        id: integrate
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" integrate
-
-      # Optional, solution-owned extension point; every check runs on the merged result.
-      - name: Verify the merged result
-        id: verify
-        if: >-
-          steps.integrate.outputs.verify == 'true' &&
-          hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
-        continue-on-error: true
-        uses: ./tooling/.github/actions/environment-verify
-        with:
-          workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: finalize
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
-          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
-
-      # An environment spec changes the actions above, which the workflows load from the default branch, so its own
-      # versions have not run yet. Run them once on the merged result before the merge. This job is read-only and
-      # already runs agent-written code, so loading the actions from the workspace grants nothing new.
-      - name: Self-test the changed environment setup
-        id: selftest-setup
-        if: >-
-          steps.integrate.outputs.environment == 'true' &&
-          hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
-        continue-on-error: true
-        uses: ./workspace/.github/actions/environment-setup
-        with:
-          workspace: workspace
-
-      - name: Self-test the changed environment verification
-        id: selftest-verify
-        if: >-
-          steps.integrate.outputs.environment == 'true' &&
-          steps.selftest-setup.outcome != 'failure' &&
-          hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
-        continue-on-error: true
-        uses: ./workspace/.github/actions/environment-verify
-        with:
-          workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: finalize
-          log-file: ${{ env.SPECKIT_RESULT_DIR }}/selftest.log
-
-      - name: Record the verdict
-        env:
-          SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
-          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
-          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
-          SPECKIT_SELFTEST_OUTCOME: >-
-            ${{ steps.selftest-setup.outcome == 'failure' && 'failure' || steps.selftest-verify.outcome }}
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" verdict
-
-      - name: Upload the result
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: speckit-merge-result-${{ matrix.twin }}
-          path: ${{ github.workspace }}/speckit-result
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # Never checks out or runs workspace code; it only uses the GitHub API.
-  merge-land:
-    name: "Merge: merge and report"
-    needs: [orchestrate, merge-verify]
-    if: always() && needs.orchestrate.outputs.merge_count != '' && needs.orchestrate.outputs.merge_count != '0'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.orchestrate.outputs.merges) }}
-    permissions:
-      actions: write
-      checks: write
-      contents: write
-      issues: write
-      pull-requests: write
-    env:
-      SPECKIT_STEP: merge
-      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
-      SPECKIT_TWIN: ${{ matrix.twin }}
-      SPECKIT_PULL: ${{ matrix.pull }}
-      SPECKIT_ATTEMPT: ${{ matrix.attempt }}
-      SPECKIT_FOLDER: ${{ matrix.folder }}
-      SPECKIT_CHECK_RUN: ${{ matrix.check_run }}
-      SPECKIT_WORK_RESULT: ${{ needs.merge-verify.result }}
-      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
-    steps:
-      - name: Check out the default branch
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-
-      - name: Download the verification result
-        continue-on-error: true
-        uses: actions/download-artifact@v8
-        with:
-          name: speckit-merge-result-${{ matrix.twin }}
-          path: ${{ github.workspace }}/speckit-result
-
-      - name: Merge and report
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_AUTO_MERGE: ${{ vars.SPECKIT_AUTO_MERGE || 'true' }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
-        run: node .github/scripts/speckit-step.mjs merge-land
-
-  hand-back:
-    name: Hand back to the orchestrator
-    needs: [orchestrate, merge-land]
-    if: always() && needs.orchestrate.outputs.merge_count != '' && needs.orchestrate.outputs.merge_count != '0'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-    steps:
-      - name: Start the Spec Kit orchestrate workflow
-        env:
-          GH_TOKEN: ${{ github.token }}
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        run: >-
-          gh workflow run speckit-orchestrate.yml --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH"
-          -f after_run="$GITHUB_RUN_ID"

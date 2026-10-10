@@ -1,0 +1,258 @@
+name: Spec Kit stage
+
+# One stage of the implementation chain. Called only by Spec Kit implement (once per stage, from a matrix that runs one
+# stage at a time), never started on its own. A stage is one step of a phase in tasks.md: a single task, or a `[P]`group
+# whose tasks run in parallel; it is also used for the convergence and for a conflict resolution. It starts from the tip
+# of the implementation branch, which the chain alone writes while it runs.
+#   work: one job per task (a matrix), with a read-only token: runs the agent and the verification
+#   land: re-validates, commits, pushes, and reports each result in task order; it never runs agent-written code.
+#         When every task landed, it shows the attempts of the next stage as in progress on the new head; otherwise it
+#         fails, so the calling matrix cancels the stages after this one.
+on:
+  workflow_call:
+    inputs:
+      step:
+        description: task, converge, or resolve
+        required: true
+        type: string
+      twin:
+        description: Spec twin issue number
+        required: true
+        type: string
+      pull:
+        description: Implementation pull request number
+        required: true
+        type: string
+      folder:
+        description: Spec folder name under specs/
+        required: true
+        type: string
+      stages:
+        description: 'All stages of the run as JSON: [{"include": [{"task", "attempt", "prompt", "verify_mode", "summary"}]}]'
+        required: true
+        type: string
+      index:
+        description: Index of this stage in stages (0 for the first)
+        required: true
+        type: number
+    outputs:
+      ok:
+        description: Whether every task of the stage landed
+        value: ${{ jobs.land.outputs.ok }}
+      head:
+        description: Head of the implementation branch after the stage
+        value: ${{ jobs.land.outputs.head }}
+
+permissions: {}
+
+jobs:
+  work:
+    name: ${{ inputs.step == 'task' && format('Implement {0}', matrix.task) || inputs.step == 'converge' && 'Converge' || 'Resolve conflicts' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(vars.SPECKIT_MAX_PARALLEL_TASKS || '3') }}
+      matrix: ${{ fromJSON(inputs.stages)[inputs.index] }}
+    permissions:
+      contents: read
+      copilot-requests: write
+    env:
+      SPECKIT_STEP: ${{ inputs.step }}
+      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_TWIN: ${{ inputs.twin }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_TASK: ${{ matrix.task }}
+      SPECKIT_ATTEMPT: ${{ matrix.attempt }}
+      SPECKIT_FOLDER: ${{ inputs.folder }}
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_TOOLING: ${{ github.workspace }}/tooling
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tooling
+          persist-credentials: false
+
+      # Full history, so the change can be compared with (and a resolution can merge) the default branch.
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: speckit/${{ inputs.folder }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The commit this task starts from; the land job lands the change from there.
+      - name: Record the start commit
+        run: echo "SPECKIT_HEAD=$(git -C workspace rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Set up Python for the Spec Kit scripts
+        if: inputs.step != 'resolve'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install Copilot CLI
+        run: npm install --global @github/copilot
+
+      # Optional, solution-owned extension point; loaded from the trusted tooling checkout, never from the workspace.
+      - name: Set up the solution environment
+        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Merge the default branch
+        id: integrate
+        if: inputs.step == 'resolve'
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" integrate
+
+      # The token reaches Copilot CLI only as COPILOT_GITHUB_TOKEN, which --secret-env-vars strips from the
+      # agent's shells. The job token is read-only, so even a leaked token cannot push.
+      - name: Run Copilot CLI
+        if: inputs.step != 'resolve'
+        working-directory: workspace
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+          SPECIFY_FEATURE_DIRECTORY: specs/${{ inputs.folder }}
+          PROMPT: ${{ matrix.prompt }}
+          AI_CREDITS: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
+        run: |
+          mkdir -p "$SPECKIT_RESULT_DIR"
+          set +e
+          timeout --kill-after=60s 60m copilot -p "$PROMPT" \
+            --no-ask-user --no-auto-update --allow-all-tools --disable-builtin-mcps \
+            --deny-tool 'shell(git push:*)' --deny-tool 'shell(git commit:*)' --deny-tool 'shell(gh:*)' \
+            --deny-tool 'shell(curl:*)' --deny-tool 'shell(wget:*)' \
+            --secret-env-vars=COPILOT_GITHUB_TOKEN --max-ai-credits "$AI_CREDITS" \
+            --output-format json > "$SPECKIT_RESULT_DIR/agent.jsonl"
+          echo "$?" > "$SPECKIT_RESULT_DIR/agent-exit.txt"
+
+      - name: Resolve the conflicts with Copilot CLI
+        if: inputs.step == 'resolve' && steps.integrate.outputs.agent == 'true'
+        working-directory: workspace
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+          PROMPT: ${{ steps.integrate.outputs.prompt }}
+          AI_CREDITS: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
+        run: |
+          set +e
+          timeout --kill-after=60s 60m copilot -p "$PROMPT" \
+            --no-ask-user --no-auto-update --allow-all-tools --disable-builtin-mcps \
+            --deny-tool 'shell(git push:*)' --deny-tool 'shell(git commit:*)' --deny-tool 'shell(git merge:*)' \
+            --deny-tool 'shell(git checkout:*)' --deny-tool 'shell(git reset:*)' --deny-tool 'shell(git restore:*)' \
+            --deny-tool 'shell(git stash:*)' --deny-tool 'shell(git rebase:*)' --deny-tool 'shell(gh:*)' \
+            --deny-tool 'shell(curl:*)' --deny-tool 'shell(wget:*)' \
+            --secret-env-vars=COPILOT_GITHUB_TOKEN --max-ai-credits "$AI_CREDITS" \
+            --output-format json > "$SPECKIT_RESULT_DIR/agent.jsonl"
+          echo "$?" > "$SPECKIT_RESULT_DIR/agent-exit.txt"
+
+      - name: Package the result
+        id: package
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" package
+
+      # Optional, solution-owned extension point; loaded from the trusted tooling checkout. The job env holds no
+      # tokens, so the agent-written code it runs cannot reach one. A convergence changes no code.
+      - name: Verify the change
+        id: verify
+        if: >-
+          inputs.step != 'converge' &&
+          steps.package.outputs.verify == 'true' &&
+          hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          # task: build and the tests the task touched; phase (the last task of a phase): all tests of the affected
+          # checks; finalize (a conflict resolution): every check with all tests.
+          mode: ${{ matrix.verify_mode || 'phase' }}
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      - name: Record the verdict
+        if: inputs.step != 'converge'
+        env:
+          SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
+          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" verdict
+
+      - name: Upload the result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-result-${{ matrix.task || inputs.step }}
+          path: ${{ github.workspace }}/speckit-result
+          retention-days: 7
+          if-no-files-found: ignore
+
+  land:
+    name: Land the stage
+    needs: work
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      checks: write
+      contents: write
+      issues: read
+      pull-requests: write
+    outputs:
+      ok: ${{ steps.land.outputs.ok }}
+      head: ${{ steps.land.outputs.head }}
+    env:
+      SPECKIT_STEP: ${{ inputs.step }}
+      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_TWIN: ${{ inputs.twin }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_FOLDER: ${{ inputs.folder }}
+      SPECKIT_STAGES: ${{ inputs.stages }}
+      SPECKIT_STAGE_INDEX: ${{ inputs.index }}
+      SPECKIT_WORK_RESULT: ${{ needs.work.result }}
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_ROOT: ${{ github.workspace }}/results
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tooling
+          persist-credentials: false
+
+      # Full history, so each change can be compared with the default branch and rebuilt on a moved branch.
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: speckit/${{ inputs.folder }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # One folder per task (results/speckit-result-<task>); a missing one means its work job did not finish.
+      - name: Download the work results
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          pattern: speckit-result-*
+          path: ${{ github.workspace }}/results
+
+      - name: Land the results and report
+        id: land
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
+        run: node tooling/.github/scripts/speckit-step.mjs land-stage

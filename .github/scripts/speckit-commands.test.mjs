@@ -80,7 +80,7 @@ test('apply, revise, and discard are no commands: the amendment pull request is 
 test('resume passes guidance; sync merges the default branch', async () => {
   const github = diagnosisRepo();
   await run(github, '/speckit resume Use one statement on every refusal path');
-  assert.deepEqual(github.repo.runs.at(-1).inputs, {});
+  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement.yml', { twin: '5', pull: '9' }], 'the implementation chain continues');
   const resumed = github.comments.at(-1);
   assert.equal(parseGuidance(resumed.body), 'Use one statement on every refusal path');
   assert.match(resumed.body, /^<!-- speckit-implement:resume -->[\s\S]*Implementation resumed by @dev[\s\S]*> Use one statement on every refusal path/);

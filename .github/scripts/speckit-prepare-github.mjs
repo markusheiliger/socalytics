@@ -208,7 +208,7 @@ export class GitHubClient {
   }
 
   // All check runs with the name on the commit. filter=all matters: GitHub's default (latest) returns only the
-  // newest run per name, but the orchestrator counts attempts from the full history.
+  // newest run per name, but callers need the full history.
   async listCheckRuns(sha, name) {
     const runs = [];
     for (let page = 1; page <= 10; page += 1) {
