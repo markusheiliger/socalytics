@@ -37,8 +37,8 @@ implementation-type visibility.
 
 The persistence foundation (schema, migrations, Migrator, units of work,
 optimistic concurrency, database-aware readiness) is implemented as
-development evidence. Further domain behavior, NATS messaging, S3-compatible
-storage, the transactional outbox, client
+development evidence. Further domain behavior, NATS messaging, the
+transactional outbox, client
 applications, deployment images and configuration, production credentials, and
 production deployment remain deferred.
 
@@ -49,6 +49,14 @@ and team roles, team-scoped authorization, security audit events, and the
 enforcement, self-service recovery, clients, Analyst Manager identity,
 production values for POL-001, POL-002, and POL-009, deployment, and
 production readiness remain deferred.
+
+Recording upload and lineage are implemented as development evidence:
+multipart recording upload and recording lineage under `/api/v1`, stored in
+a local RustFS (S3-compatible) container that the AppHost starts as a
+resource, and a background expiry worker for abandoned uploads.
+`Tests/SocAlytics.Platform.Contracts.Tests` validates the machine-readable
+contracts under the repository-root `contracts/` folder. Run it with
+`dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`.
 
 The AppHost bootstraps the first club with these parameters:
 
@@ -89,10 +97,11 @@ dotnet test src/platform/SocAlytics.Platform.slnx --no-build
 dotnet run --project src/platform/SocAlytics.Platform.AppHost
 ```
 
-Run only the integration tests, or the Migrator on its own:
+Run only the integration tests, the contract tests, or the Migrator on its own:
 
 ```powershell
 dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build
+dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests
 ${env:ConnectionStrings__socalytics-migrator} = '<connection string>'
 dotnet run --project src/platform/SocAlytics.Platform.Migrator
 ```
