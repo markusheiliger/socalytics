@@ -49,4 +49,34 @@ public sealed class RecordingsArchitectureTests
 
         type.IsPublic.ShouldBeFalse();
     }
+
+    [Theory]
+    [InlineData("SocAlytics.Platform.Infrastructure.Recordings")]
+    [InlineData("SocAlytics.Platform.Infrastructure.ObjectStorage")]
+    public void Infrastructure_implementation_types_are_not_public(string namespacePrefix)
+    {
+        var result = Types.InAssembly(Assembly.Load(new AssemblyName(InfrastructureAssemblyName)))
+            .That()
+            .ResideInNamespaceStartingWith(namespacePrefix)
+            .Should()
+            .NotBePublic()
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue(
+            $"Public types in {namespacePrefix}: {string.Join(", ", result.FailingTypeNames ?? [])}");
+    }
+
+    [Theory]
+    [InlineData("SocAlytics.Platform.Domain")]
+    [InlineData("SocAlytics.Platform.Application")]
+    public void Domain_and_application_do_not_depend_on_npgsql(string assemblyName)
+    {
+        var result = Types.InAssembly(Assembly.Load(new AssemblyName(assemblyName)))
+            .ShouldNot()
+            .HaveDependencyOn("Npgsql")
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue(
+            $"{assemblyName} must not depend on Npgsql: {string.Join(", ", result.FailingTypeNames ?? [])}");
+    }
 }
