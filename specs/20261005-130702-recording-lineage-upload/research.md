@@ -432,6 +432,14 @@ summarized in the coordinator's risk brief.
   runner's disk and time budget. This feature owns the evidence: the task
   that adds the test and the final validation task run it explicitly with the
   variable set.
+- **Refined decision (T039)**: the RustFS container and bucket are shared by
+  all test classes, which xUnit v3 runs in parallel. Tests that assert "no
+  multipart upload was created" therefore scope the count to a per-test key
+  prefix (`Recordings:Upload:KeyPrefix` = `recordings/<guid>/`) instead of the
+  whole bucket. Evidence: `RecordingAuthorizationTests` saw bucket-wide counts
+  change by one in both directions (10 → 9, 12 → 13) in task attempts 1 and 2.
+  Rejected: disabling parallelization (slows the suite) and loosening the
+  assertions (weakens FR-002–FR-006 evidence).
 - **Rationale**: AWS documents composite SHA-256 for multipart uploads but not
   presigned `UploadPart` with a signed checksum explicitly; the probe turns the
   store contract into executable evidence for every store and catches
