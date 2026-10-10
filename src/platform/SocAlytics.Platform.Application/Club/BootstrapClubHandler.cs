@@ -22,26 +22,67 @@ public sealed record BootstrapStepResult(BootstrapOutcome Outcome, IUnitOfWorkSc
     public bool IsUnitOfWorkOpen => OpenScope is not null;
 }
 
+/// <param name="RecoveryRefusalReason">Null when no directive was given or it was applied.</param>
+public sealed record BootstrapRunResult(OperationResult<BootstrapOutcome> Outcome, string? RecoveryRefusalReason);
+
 public sealed class BootstrapClubHandler(
     IUnitOfWork unitOfWork,
     IClubHierarchyStore clubs,
     IMemberAccountStore members,
     IAccountCredentialService credentials,
     IAuditTrail audit,
+    ApplyBreakGlassRecoveryHandler recovery,
     TimeProvider time)
 {
     public async Task<OperationResult<BootstrapOutcome>> HandleAsync(BootstrapClubCommand command, CancellationToken cancellationToken)
     {
+        var run = await RunAsync(command, cancellationToken);
+        return run.Outcome;
+    }
+
+    /// <summary>Runs bootstrap and then the optional recovery step; the bootstrap outcome is unaffected by recovery.</summary>
+    public async Task<BootstrapRunResult> RunAsync(BootstrapClubCommand command, CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(command);
 
-        var step = await BootstrapAsync(command, cancellationToken);
-        if (step.OpenScope is not null)
+        for (var attempt = 0; ; attempt++)
         {
-            await using var scope = step.OpenScope;
-            await scope.CommitAsync(cancellationToken);
-        }
+            var step = await BootstrapAsync(command, cancellationToken);
+            BreakGlassRecoveryResult? recovered = null;
+            var scope = step.OpenScope;
+            try
+            {
+                if (command.Recovery is not null)
+                {
+                    if (scope is null)
+                    {
+                        scope = await unitOfWork.BeginAsync(cancellationToken);
+                        await clubs.LockBootstrapAsync(cancellationToken);
+                    }
 
-        return step.Outcome;
+                    recovered = await recovery.ApplyWithinCurrentUnitOfWorkAsync(command.Recovery, cancellationToken);
+                }
+
+                if (scope is not null)
+                {
+                    await scope.CommitAsync(cancellationToken);
+                }
+            }
+            catch (UniqueViolationException) when (attempt == 0 && command.Recovery is not null)
+            {
+                // Disposal below rolls back the whole unit of work; the second run finds the id used.
+                continue;
+            }
+            finally
+            {
+                if (scope is not null)
+                {
+                    await scope.DisposeAsync();
+                }
+            }
+
+            return new BootstrapRunResult(step.Outcome, recovered?.RefusalReason);
+        }
     }
 
     /// <summary>Runs the bootstrap step in its own unit of work and reports whether that unit of work is still open.</summary>

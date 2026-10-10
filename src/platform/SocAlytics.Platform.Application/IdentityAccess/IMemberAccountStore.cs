@@ -69,4 +69,9 @@ public interface IMemberAccountStore
     Task<bool> UnlockAccountAsync(Guid accountId, CancellationToken cancellationToken);
 
     Task<Guid?> FindAccountIdByNameAsync(AccountName name, CancellationToken cancellationToken);
+
+    Task<bool> RecoveryIdUsedAsync(string recoveryId, CancellationToken cancellationToken);
+
+    /// <exception cref="Abstractions.Persistence.UniqueViolationException">The recovery id was already recorded.</exception>
+    Task InsertRecoveryUseAsync(string recoveryId, Guid accountId, DateTimeOffset appliedAt, string correlationId, CancellationToken cancellationToken);
 }

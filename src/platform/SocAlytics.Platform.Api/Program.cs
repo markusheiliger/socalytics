@@ -20,6 +20,7 @@ builder.Services.AddOptions<IdentityAccessOptions>()
 	.ValidateDataAnnotations()
 	.ValidateOnStart();
 builder.Services.Configure<ClubBootstrapOptions>(builder.Configuration.GetSection(ClubBootstrapOptions.SectionName));
+builder.Services.Configure<BreakGlassRecoveryOptions>(builder.Configuration.GetSection(BreakGlassRecoveryOptions.SectionName));
 builder.Services.AddSingleton<ClubBootstrapState>();
 builder.Services.AddHostedService<ClubBootstrapHostedService>();
 builder.Services.AddHealthChecks().AddCheck<ClubBootstrapHealthCheck>(ClubBootstrapHealthCheck.Name);

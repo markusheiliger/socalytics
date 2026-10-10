@@ -352,6 +352,34 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
             cancellationToken: cancellationToken));
     }
 
+    public async Task<bool> RecoveryIdUsedAsync(string recoveryId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.QuerySingleAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS (SELECT 1 FROM socalytics.recovery_directive_use WHERE recovery_id = @recoveryId)",
+            new { recoveryId },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task InsertRecoveryUseAsync(string recoveryId, Guid accountId, DateTimeOffset appliedAt, string correlationId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        try
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "INSERT INTO socalytics.recovery_directive_use (recovery_id, member_account_id, applied_at, correlation_id) " +
+                "VALUES (@recoveryId, @accountId, @appliedAt, @correlationId)",
+                new { recoveryId, accountId, appliedAt = appliedAt.UtcDateTime, correlationId },
+                session.RequireTransaction(),
+                cancellationToken: cancellationToken));
+        }
+        catch (Npgsql.PostgresException ex) when (ex.SqlState == Npgsql.PostgresErrorCodes.UniqueViolation)
+        {
+            throw new SocAlytics.Platform.Application.Abstractions.Persistence.UniqueViolationException(ex.ConstraintName ?? "recovery_directive_use", ex);
+        }
+    }
+
     private sealed record MemberRow(
         string AccountName,
         string Status,

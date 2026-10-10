@@ -260,6 +260,27 @@ internal sealed class AccountCredentialService(
         return new CredentialRedemptionResult(CredentialRedemptionOutcome.Succeeded, account.Id, purpose);
     }
 
+    public async Task SetTemporaryPasswordAsync(Guid accountId, string password, CancellationToken cancellationToken)
+    {
+        var account = await users.FindByIdAsync(accountId.ToString())
+            ?? throw new InvalidOperationException("The account does not exist.");
+        account.PasswordChangeRequired = true;
+        if (account.PasswordHash is not null)
+        {
+            var removed = await users.RemovePasswordAsync(account);
+            if (!removed.Succeeded)
+            {
+                throw new InvalidOperationException("The password could not be removed.");
+            }
+        }
+
+        var added = await users.AddPasswordAsync(account, password);
+        if (!added.Succeeded)
+        {
+            throw new InvalidOperationException("The password could not be set: " + string.Join(", ", added.Errors.Select(e => e.Code)));
+        }
+    }
+
     public Task<IReadOnlyList<RevokedCredential>> RevokeOpenCredentialsIssuedByAsync(Guid issuerId, string reason, CancellationToken cancellationToken) =>
         RevokeAsync("issued_by_account_id", issuerId, reason, cancellationToken);
 

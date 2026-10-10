@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Club;
+using SocAlytics.Platform.Application.IdentityAccess;
 
 namespace SocAlytics.Platform.Api.Bootstrap;
 
@@ -7,6 +8,7 @@ public sealed partial class ClubBootstrapHostedService(
 	IServiceScopeFactory scopeFactory,
 	IConfiguration configuration,
 	IOptions<ClubBootstrapOptions> options,
+	IOptions<BreakGlassRecoveryOptions> recovery,
 	ClubBootstrapState state,
 	ILogger<ClubBootstrapHostedService> logger) : BackgroundService
 {
@@ -27,7 +29,10 @@ public sealed partial class ClubBootstrapHostedService(
 		var command = new BootstrapClubCommand(
 			settings.ClubDisplayName,
 			settings.FirstClubAdmin.AccountName,
-			settings.FirstClubAdmin.InitialPassword);
+			settings.FirstClubAdmin.InitialPassword,
+			recovery.Value.IsConfigured
+				? new ApplyBreakGlassRecoveryCommand(recovery.Value.AccountName, recovery.Value.RecoveryId, recovery.Value.TemporaryCredential)
+				: null);
 		var delay = InitialDelay;
 
 		while (!stoppingToken.IsCancellationRequested)
@@ -36,7 +41,13 @@ public sealed partial class ClubBootstrapHostedService(
 			{
 				await using var scope = scopeFactory.CreateAsyncScope();
 				var handler = scope.ServiceProvider.GetRequiredService<BootstrapClubHandler>();
-				var result = await handler.HandleAsync(command, stoppingToken);
+				var run = await handler.RunAsync(command, stoppingToken);
+				var result = run.Outcome;
+				if (run.RecoveryRefusalReason is { } reason)
+				{
+					LogRecoveryRefused(reason, BreakGlassRecoveryOptions.SectionName);
+				}
+
 				if (result.IsSuccess)
 				{
 					state.Record(result.Value);
@@ -82,4 +93,7 @@ public sealed partial class ClubBootstrapHostedService(
 
 	[LoggerMessage(EventId = 3003, Level = LogLevel.Warning, Message = "Club bootstrap attempt failed with {ExceptionType}; retrying in {DelaySeconds} s.")]
 	private partial void LogRetry(string exceptionType, double delaySeconds);
+
+	[LoggerMessage(EventId = 3004, Level = LogLevel.Warning, Message = "Break-glass recovery directive refused: {Reason} (configuration section {Section}).")]
+	private partial void LogRecoveryRefused(string reason, string section);
 }

@@ -14,6 +14,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddSingleton<ApplicationLayerMarker>();
         services.TryAddScoped<ITeamScopeResolver, TeamScopeResolver>();
         services.TryAddScoped<IAccessAuthorizer, AccessAuthorizer>();
+        services.TryAddScoped<ApplyBreakGlassRecoveryHandler>();
         services.TryAddScoped<BootstrapClubHandler>();
         services.TryAddScoped<GetClubHandler>();
         services.TryAddScoped<UpdateClubSettingsHandler>();

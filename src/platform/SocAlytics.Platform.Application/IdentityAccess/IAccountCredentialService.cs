@@ -63,6 +63,9 @@ public interface IAccountCredentialService
     /// <summary>Must run inside a unit of work; always performs exactly one password hash verification.</summary>
     Task<SignInVerification> VerifySignInAsync(string accountName, string password, CancellationToken cancellationToken);
 
+    /// <summary>Must run inside a unit of work; replaces the password and sets <c>password_change_required</c>, without touching sessions or lockout.</summary>
+    Task SetTemporaryPasswordAsync(Guid accountId, string password, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<FieldViolation>> ValidatePasswordAsync(string password, CancellationToken cancellationToken);
 
     /// <exception cref="Abstractions.Persistence.UniqueViolationException">The account name is taken.</exception>
