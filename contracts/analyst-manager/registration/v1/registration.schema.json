@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analyst-manager/registration/v1/registration.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analyst Manager registration fixture manifest",
+  "description": "Manifest of the shared golden fixtures for Analyst Manager registration (FR-039). The socalytics.invalid domain is reserved and never dereferenced.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "clock", "stampId", "baseUri", "registrationId", "managerId", "pairingCode", "pollingHandle", "challenge", "accessToken", "vectors"],
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "clock": { "type": "string", "format": "date-time" },
+    "stampId": { "type": "string", "minLength": 1 },
+    "baseUri": { "type": "string", "format": "uri" },
+    "registrationId": { "type": "string", "minLength": 1 },
+    "managerId": { "type": "string", "minLength": 1 },
+    "pairingCode": { "type": "string", "minLength": 1 },
+    "pollingHandle": { "type": "string", "minLength": 1 },
+    "challenge": { "type": "string", "minLength": 1 },
+    "accessToken": { "type": "string", "minLength": 1 },
+    "vectors": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/vector" } }
+  },
+  "$defs": {
+    "vector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "exchange", "file", "expected"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "exchange": { "type": "string", "minLength": 1 },
+        "file": { "type": "string", "minLength": 1 },
+        "seedState": { "type": "object", "additionalProperties": { "type": "string" } },
+        "expected": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status"],
+          "properties": {
+            "status": { "type": "integer", "minimum": 100, "maximum": 599 },
+            "code": { "type": "string" },
+            "error": { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "version": "1.0.0",
+      "clock": "2026-01-01T00:00:00Z",
+      "stampId": "fixture-stamp",
+      "baseUri": "https://stamp.example.test",
+      "registrationId": "00000000-0000-4000-8000-000000000001",
+      "managerId": "fixture-manager-0001",
+      "pairingCode": "BCDF-GHJK-LMNP",
+      "pollingHandle": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "challenge": "fixture-challenge-not-a-secret-0000000000000000",
+      "accessToken": "fixture-access-token-not-a-secret",
+      "vectors": [
+        { "id": "stamp-discovery", "exchange": "stamp-discovery", "file": "stamp-discovery.response.json", "expected": { "status": 200 } }
+      ]
+    }
+  ]
+}

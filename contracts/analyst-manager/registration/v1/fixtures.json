@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "clock": "2026-01-01T00:00:00Z",
+  "stampId": "fixture-stamp",
+  "baseUri": "https://stamp.example.test",
+  "registrationId": "00000000-0000-4000-8000-000000000001",
+  "managerId": "fixture-manager-0001",
+  "pairingCode": "BCDF-GHJK-LMNP",
+  "pollingHandle": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "challenge": "fixture-challenge-not-a-secret-0000000000000000",
+  "accessToken": "fixture-access-token-not-a-secret",
+  "vectors": [
+    { "id": "stamp-discovery", "exchange": "stamp-discovery", "file": "stamp-discovery.response.json", "expected": { "status": 200 } },
+    { "id": "pairing-request", "exchange": "pairing", "file": "pairing.request.json", "expected": { "status": 201 } },
+    { "id": "pairing-response", "exchange": "pairing", "file": "pairing.response.json", "expected": { "status": 201 } },
+    { "id": "pairing-status-awaiting", "exchange": "pairing-status", "file": "pairing-status.awaiting.response.json", "seedState": { "registration": "Pairing" }, "expected": { "status": 200 } },
+    { "id": "pairing-status-pending", "exchange": "pairing-status", "file": "pairing-status.pending.response.json", "seedState": { "registration": "PendingApproval" }, "expected": { "status": 200 } },
+    { "id": "pairing-status-approved", "exchange": "pairing-status", "file": "pairing-status.approved.response.json", "seedState": { "registration": "Approved" }, "expected": { "status": 200 } },
+    { "id": "pairing-status-rejected", "exchange": "pairing-status", "file": "pairing-status.rejected.response.json", "seedState": { "registration": "Rejected" }, "expected": { "status": 200 } },
+    { "id": "submission-valid", "exchange": "submission", "file": "submission.request.json", "seedState": { "registration": "Pairing" }, "expected": { "status": 201 } },
+    { "id": "submission-wrong-fingerprint", "exchange": "submission", "file": "submission.wrong-fingerprint.request.json", "seedState": { "registration": "Pairing" }, "expected": { "status": 400, "code": "analyst-manager-pairing-code-invalid" } },
+    { "id": "fingerprint", "exchange": "fingerprint", "file": "fingerprint.json", "expected": { "status": 200 } },
+    { "id": "test-key", "exchange": "key", "file": "test-key.jwk.json", "expected": { "status": 200 } }
+  ]
+}

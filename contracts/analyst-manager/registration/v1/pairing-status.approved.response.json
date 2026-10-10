@@ -1,0 +1,7 @@
+{
+  "status": "approved",
+  "pollingIntervalSeconds": 5,
+  "expiresAt": "2026-01-02T00:00:00Z",
+  "challenge": "fixture-challenge-not-a-secret-0000000000000000",
+  "challengeExpiresAt": "2026-01-01T00:02:00Z"
+}

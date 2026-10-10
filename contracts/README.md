@@ -16,3 +16,4 @@ This folder holds the canonical machine-readable contracts of SocAlytics. They a
 | Artifact | Owner | Version | Example | Validation command |
 | --- | --- | --- | --- | --- |
 | [recordings/recordings-finalized/v1/recordings-finalized.schema.json](recordings/recordings-finalized/v1/recordings-finalized.schema.json) | Recordings (control plane) | `1.0.0` | embedded `examples` | `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests` |
+| [analyst-manager/registration/v1/registration.schema.json](analyst-manager/registration/v1/registration.schema.json) | Registry (control plane) and Analyst Manager | `1.0.0` | the manifest `fixtures.json` and the fixture files it lists, plus the schema's embedded `examples` | `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests` and `dotnet test src/analysts/manager/SocAlytics.Analysts.Manager.slnx` |
