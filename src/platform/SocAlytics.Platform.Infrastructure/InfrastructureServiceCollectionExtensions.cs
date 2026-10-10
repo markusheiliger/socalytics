@@ -31,6 +31,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<IRecordingRetryOutcomeStore, RecordingRetryOutcomeStore>();
         services.TryAddScoped<IRecordingStore, RecordingStore>();
         services.TryAddScoped<IRecordingLineageQueries, RecordingLineageQueries>();
+        services.TryAddScoped<IRecordingSetLookup, RecordingSetLookup>();
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
 
