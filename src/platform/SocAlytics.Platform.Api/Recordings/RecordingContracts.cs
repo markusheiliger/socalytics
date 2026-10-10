@@ -56,4 +56,6 @@ internal sealed record PartGrantBatchDto(DateTimeOffset ExpiresAt, IReadOnlyList
 		grants.Count == 0 ? null : new(grants.Min(g => g.ExpiresAt), [.. grants.Select(PartGrantDto.From)]);
 }
 
+internal sealed record PartGrantRequest(int[]? PartNumbers);
+
 internal sealed record UploadSessionWithGrantsDto(UploadSessionDto Session, PartGrantBatchDto? Grants);

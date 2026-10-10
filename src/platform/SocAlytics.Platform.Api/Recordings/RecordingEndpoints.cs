@@ -38,7 +38,60 @@ internal static class RecordingEndpoints
 			.ProducesProblem(StatusCodes.Status401Unauthorized)
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapPost("/matches/{matchId:guid}/upload-sessions/{uploadSessionId:guid}/grants", IssueGrantsAsync)
+			.AddEndpointFilter<RecordingBodyLimitFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
+			.WithName("issueRecordingUploadGrants")
+			.WithTags("Recording uploads")
+			.Produces<PartGrantBatchDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 		return routes;
+	}
+
+	private static async Task<IResult> IssueGrantsAsync(Guid matchId, Guid uploadSessionId, HttpContext http, IssueRecordingUploadGrantsHandler handler, CancellationToken cancellationToken)
+	{
+		PartGrantRequest? body = null;
+		try
+		{
+			using var buffer = new MemoryStream();
+			var chunk = new byte[16 * 1024];
+			int read;
+			while ((read = await http.Request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+			{
+				buffer.Write(chunk, 0, read);
+				if (buffer.Length > MaxBodyBytes)
+				{
+					return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+				}
+			}
+
+			buffer.Position = 0;
+			body = await JsonSerializer.DeserializeAsync<PartGrantRequest>(buffer, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+		}
+		catch (BadHttpRequestException)
+		{
+			return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+		}
+
+		var result = await handler.HandleAsync(new IssueRecordingUploadGrantsCommand(matchId, uploadSessionId, body?.PartNumbers), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Ok(PartGrantBatchDto.From(result.Value.Grants));
 	}
 
 	private static async Task<IResult> StartAsync(Guid matchId, HttpContext http, StartRecordingUploadHandler handler, CancellationToken cancellationToken)
