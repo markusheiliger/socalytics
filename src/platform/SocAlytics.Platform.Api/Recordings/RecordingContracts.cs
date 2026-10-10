@@ -117,6 +117,21 @@ internal sealed record FinalizeRecordingSetRequest(RecordingSetMemberInput[]? Me
 internal sealed record RecordingSetMemberDto(
 	int Position, string RecordingVersionId, string RecordingContentDigest, string TimelineMappingId, string TimelineMappingDigest);
 
+internal sealed record RecordingLineageDto(
+	string MatchId,
+	string TeamId,
+	IReadOnlyList<RecordingVersionDto> RecordingVersions,
+	IReadOnlyList<TimelineMappingDto> TimelineMappings,
+	IReadOnlyList<RecordingSetVersionDto> RecordingSetVersions)
+{
+	public static RecordingLineageDto From(SocAlytics.Platform.Application.Recordings.MatchRecordingLineageView v) => new(
+		v.MatchId.ToString(),
+		v.TeamId.ToString(),
+		[.. v.RecordingVersions.Select(RecordingVersionDto.From)],
+		[.. v.TimelineMappings.Select(TimelineMappingDto.From)],
+		[.. v.RecordingSetVersions.Select(RecordingSetVersionDto.From)]);
+}
+
 internal sealed record RecordingSetVersionDto(
 	string Id, string MatchId, string TeamId, DateTimeOffset FinalizedAt, IReadOnlyList<RecordingSetMemberDto> Members)
 {

@@ -7,6 +7,39 @@ namespace SocAlytics.Platform.Infrastructure.Recordings;
 
 internal sealed class RecordingLineageQueries(IDbSession session) : IRecordingLineageQueries
 {
+    public async Task<MatchRecordingLineageView> GetMatchLineageAsync(
+        Guid matchId, Guid teamId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        async Task<List<Guid>> IdsAsync(string table, string order)
+        {
+            var ids = await connection.QueryAsync<Guid>(new CommandDefinition(
+                $"SELECT id FROM socalytics.{table} WHERE match_id = @matchId ORDER BY {order}, id",
+                new { matchId }, session.Transaction, cancellationToken: cancellationToken));
+            return [.. ids];
+        }
+
+        var versions = new List<RecordingVersion>();
+        foreach (var id in await IdsAsync("recording_versions", "created_at"))
+        {
+            versions.Add((await GetRecordingVersionAsync(matchId, id, cancellationToken))!);
+        }
+
+        var mappings = new List<StoredTimelineMapping>();
+        foreach (var id in await IdsAsync("recording_timeline_mappings", "created_at"))
+        {
+            mappings.Add((await GetTimelineMappingAsync(matchId, id, cancellationToken))!);
+        }
+
+        var sets = new List<RecordingSetVersionView>();
+        foreach (var id in await IdsAsync("recording_set_versions", "finalized_at"))
+        {
+            sets.Add((await GetSetVersionAsync(matchId, id, cancellationToken))!);
+        }
+
+        return new MatchRecordingLineageView(matchId, teamId, versions, mappings, sets);
+    }
+
     private sealed record Row(
         Guid Id, Guid MatchId, Guid TeamId, DateTime FinalizedAt, int Position, Guid RecordingVersionId,
         string RecordingContentDigest, Guid TimelineMappingId, string TimelineMappingDigest);

@@ -14,8 +14,18 @@ public sealed record RecordingSetVersionView(
     DateTimeOffset FinalizedAt,
     IReadOnlyList<RecordingSetMemberView> Members);
 
+public sealed record MatchRecordingLineageView(
+    Guid MatchId,
+    Guid TeamId,
+    IReadOnlyList<SocAlytics.Platform.Domain.Recordings.RecordingVersion> RecordingVersions,
+    IReadOnlyList<StoredTimelineMapping> TimelineMappings,
+    IReadOnlyList<RecordingSetVersionView> RecordingSetVersions);
+
 public interface IRecordingLineageQueries
 {
+    /// <summary>All recording versions, timeline mappings, and finalized set versions of the Match.</summary>
+    Task<MatchRecordingLineageView> GetMatchLineageAsync(Guid matchId, Guid teamId, CancellationToken cancellationToken);
+
     /// <summary>The set version of the Match with ordered members and digests; null when it does not exist in that Match.</summary>
     Task<RecordingSetVersionView?> GetSetVersionAsync(Guid matchId, Guid recordingSetVersionId, CancellationToken cancellationToken);
 

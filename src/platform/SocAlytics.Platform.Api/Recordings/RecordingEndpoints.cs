@@ -116,7 +116,42 @@ internal static class RecordingEndpoints
 			.ProducesProblem(StatusCodes.Status401Unauthorized)
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapGet("/matches/{matchId:guid}/recording-lineage", GetLineageAsync)
+			.WithName("getMatchRecordingLineage")
+			.WithTags("Recording lineage")
+			.Produces<RecordingLineageDto>()
+			.Produces(StatusCodes.Status304NotModified)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		return routes;
+	}
+
+	private static async Task<IResult> GetLineageAsync(Guid matchId, HttpContext http, GetMatchRecordingLineageHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetMatchRecordingLineageQuery(matchId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		var view = result.Value;
+		var identities = string.Join(
+			'|',
+			view.RecordingVersions.Select(v => $"v:{v.Id}")
+				.Concat(view.TimelineMappings.Select(m => $"m:{m.Id}"))
+				.Concat(view.RecordingSetVersions.Select(s => $"s:{s.Id}")));
+		var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identities)))[..32];
+		var etag = $"W/\"{hash}\"";
+		http.Response.Headers.ETag = etag;
+		var candidates = http.Request.Headers.IfNoneMatch.ToString()
+			.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+		if (candidates.Any(c => c == "*" || c == etag || c == etag[2..]))
+		{
+			return Results.StatusCode(StatusCodes.Status304NotModified);
+		}
+
+		return Results.Ok(RecordingLineageDto.From(view));
 	}
 
 	private static async Task<IResult> GetVersionAsync(Guid matchId, Guid recordingVersionId, HttpContext http, GetRecordingVersionHandler handler, CancellationToken cancellationToken)

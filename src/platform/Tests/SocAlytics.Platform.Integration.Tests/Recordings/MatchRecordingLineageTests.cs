@@ -131,6 +131,109 @@ public sealed class MatchRecordingLineageTests(PostgresContainerFixture postgres
 		}
 	}
 
+	private static async Task FinalizeAsync(ApiSession session, Guid matchId, (Guid Version, Guid Mapping)[] members, CancellationToken ct)
+	{
+		using var response = await PostAsync(
+			session,
+			$"/api/v1/matches/{matchId}/recording-set-versions",
+			new { members = members.Select(m => new { recordingVersionId = m.Version, timelineMappingId = m.Mapping }).ToArray() },
+			ct);
+		response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(ct));
+	}
+
+	[Fact]
+	// US4 AS1-AS2, FR-006, FR-027: lineage view, weak ETag, authorization, archived Season
+	public async Task MatchLineageListsEverythingWithWeakETag()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct);
+		var match = s.Hierarchy.MatchId;
+		var one = await UploadAsync(s.Coach, match, 11, ct);
+		var two = await UploadAsync(s.Coach, match, 12, ct);
+		using var revised = await PostAsync(s.Coach, $"/api/v1/matches/{match}/recording-versions/{one.Version}/timeline-mappings", Spans(7), ct);
+		revised.StatusCode.ShouldBe(HttpStatusCode.Created, await revised.Content.ReadAsStringAsync(ct));
+		await FinalizeAsync(s.Coach, match, [(one.Version, one.Mapping), (two.Version, two.Mapping)], ct);
+		await FinalizeAsync(s.Coach, match, [(two.Version, two.Mapping), (one.Version, one.Mapping)], ct);
+
+		// pending session must not appear as a recording version
+		var pending = RecordingTestData.Generate(13, 2048);
+		using (var started = await PostAsync(s.Coach, $"/api/v1/matches/{match}/upload-sessions", pending.Declaration(), ct))
+		{
+			started.StatusCode.ShouldBe(HttpStatusCode.Created);
+		}
+
+		var viewer = await MemberAsync(s, "viewer-2", "viewer", ct);
+		var path = $"/api/v1/matches/{match}/recording-lineage";
+		string etag;
+		foreach (var session in new[] { viewer, s.Coach, s.Admin })
+		{
+			using var response = await session.Client.GetAsync(path, ct);
+			response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(ct));
+			response.Headers.ETag!.IsWeak.ShouldBeTrue();
+			var text = await response.Content.ReadAsStringAsync(ct);
+			AssertNoStorageDetails(text);
+			var root = JsonDocument.Parse(text).RootElement;
+			root.GetProperty("recordingVersions").GetArrayLength().ShouldBe(2);
+			root.GetProperty("timelineMappings").GetArrayLength().ShouldBe(3);
+			var sets = root.GetProperty("recordingSetVersions");
+			sets.GetArrayLength().ShouldBe(2);
+			foreach (var set in sets.EnumerateArray())
+			{
+				var members = set.GetProperty("members");
+				members.GetArrayLength().ShouldBe(2);
+				members[0].GetProperty("position").GetInt32().ShouldBe(1);
+				members[0].GetProperty("recordingContentDigest").GetString().ShouldNotBeNullOrEmpty();
+				members[0].GetProperty("timelineMappingDigest").GetString().ShouldNotBeNullOrEmpty();
+			}
+		}
+
+		using (var first = await viewer.Client.GetAsync(path, ct))
+		{
+			etag = first.Headers.ETag!.ToString();
+		}
+
+		using (var cached = new HttpRequestMessage(HttpMethod.Get, path))
+		{
+			cached.Headers.TryAddWithoutValidation("If-None-Match", etag);
+			using var response = await viewer.Client.SendAsync(cached, ct);
+			response.StatusCode.ShouldBe(HttpStatusCode.NotModified);
+		}
+
+		await FinalizeAsync(s.Coach, match, [(one.Version, one.Mapping)], ct);
+		using (var stale = new HttpRequestMessage(HttpMethod.Get, path))
+		{
+			stale.Headers.TryAddWithoutValidation("If-None-Match", etag);
+			using var response = await viewer.Client.SendAsync(stale, ct);
+			response.StatusCode.ShouldBe(HttpStatusCode.OK);
+			response.Headers.ETag!.ToString().ShouldNotBe(etag);
+		}
+
+		var outsider = await MemberAsync(s, "outsider-2", null, ct);
+		using (var forbidden = await outsider.Client.GetAsync(path, ct))
+		{
+			forbidden.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+		}
+
+		using (var missing = await s.Coach.Client.GetAsync($"/api/v1/matches/{Guid.NewGuid()}/recording-lineage", ct))
+		{
+			missing.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+		}
+
+		await new ClubHierarchyBuilder(s.Factory, s.Admin).ArchiveSeasonAsync(s.Hierarchy.SeasonId, ct);
+		foreach (var session in new[] { viewer, s.Coach, s.Admin })
+		{
+			foreach (var read in new[] { path, one.VersionLocation, one.MappingLocation })
+			{
+				using var response = await session.Client.GetAsync(read, ct);
+				response.StatusCode.ShouldBe(HttpStatusCode.OK);
+			}
+		}
+
+		using var mutation = await PostAsync(s.Coach, $"/api/v1/matches/{match}/recording-versions/{one.Version}/timeline-mappings", Spans(9), ct);
+		mutation.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+		(await mutation.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("code").GetString().ShouldBe("season-archived");
+	}
+
 	private static void AssertNoStorageDetails(string text)
 	{
 		foreach (var forbidden in new[] { "objectKey", "object_key", "uploadId", "multipart", "http://", "https://", "grant", "storageETag" })
