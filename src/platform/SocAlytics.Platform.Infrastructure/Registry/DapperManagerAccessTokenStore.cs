@@ -30,7 +30,7 @@ internal sealed class DapperManagerAccessTokenStore(IDbSession session, IRegistr
         var registration = await registrations.FindByIdAsync(row.RegistrationId, cancellationToken);
         return registration is null
             ? null
-            : new ManagerAccessTokenLookup(new ManagerAccessToken(row.TokenHash, row.RegistrationId, row.Jkt, row.Scope, row.IssuedAt, row.ExpiresAt), registration);
+            : new ManagerAccessTokenLookup(new ManagerAccessToken(row.TokenHash, row.RegistrationId, row.Jkt, row.Scope, new DateTimeOffset(DateTime.SpecifyKind(row.IssuedAt, DateTimeKind.Utc)), new DateTimeOffset(DateTime.SpecifyKind(row.ExpiresAt, DateTimeKind.Utc))), registration);
     }
 
     public async Task<int> DeleteForRegistrationAsync(Guid registrationId, CancellationToken cancellationToken)
@@ -49,5 +49,5 @@ internal sealed class DapperManagerAccessTokenStore(IDbSession session, IRegistr
             new { now }, session.Transaction, cancellationToken: cancellationToken));
     }
 
-    private sealed record TokenRow(byte[] TokenHash, Guid RegistrationId, string Jkt, string Scope, DateTimeOffset IssuedAt, DateTimeOffset ExpiresAt);
+    private sealed record TokenRow(byte[] TokenHash, Guid RegistrationId, string Jkt, string Scope, DateTime IssuedAt, DateTime ExpiresAt);
 }

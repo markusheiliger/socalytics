@@ -1,4 +1,6 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
+using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application.Registry;
 
 namespace SocAlytics.Platform.Api.Registry;
@@ -12,6 +14,14 @@ internal static class RegistryApiRegistration
 		builder.Services.AddOptions<StampOptions>().ValidateOnStart();
 		builder.Services.AddHostedService<RegistrationExpiryWorker>();
 		builder.Services.AddRegistryRateLimiting();
+		builder.Services.AddAuthentication()
+			.AddScheme<AuthenticationSchemeOptions, AnalystManagerDPoPAuthenticationHandler>(
+				AnalystManagerDPoPDefaults.AuthenticationScheme, null);
+		builder.Services.AddAuthorizationBuilder()
+			.AddPolicy(AuthorizationPolicyNames.AnalystManager, policy => policy
+				.AddAuthenticationSchemes(AnalystManagerDPoPDefaults.AuthenticationScheme)
+				.RequireAuthenticatedUser()
+				.RequireClaim(AnalystManagerClaimTypes.Scope, AnalystManagerDPoPDefaults.ScopeValue));
 		return builder;
 	}
 
@@ -21,6 +31,7 @@ internal static class RegistryApiRegistration
 		app.MapAnalystManagerPairingEndpoints();
 		app.MapAnalystManagerRegistrationEndpoints();
 		app.MapAnalystManagerTokenEndpoint();
+		app.MapAnalystManagerSelfEndpoints();
 		return app;
 	}
 }

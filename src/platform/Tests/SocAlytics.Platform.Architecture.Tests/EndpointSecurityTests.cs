@@ -20,6 +20,8 @@ public sealed class EndpointSecurityTests
 
     private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken" };
 
+    private const string ManagerScheme = "AnalystManagerDPoP";
+
     private static readonly HashSet<string> SessionHolderOperations =
         new(StringComparer.Ordinal) { "getSession", "signOut", "getCurrentMember", "changeOwnPassword" };
 
@@ -67,6 +69,18 @@ public sealed class EndpointSecurityTests
             var policy = await AuthorizationPolicy.CombineAsync(policyProvider, authorizeData);
             policy.ShouldNotBeNull();
             policy.AuthenticationSchemes.ShouldNotBeEmpty($"{label} must name an authentication scheme.");
+
+            if (path.StartsWith(ApiPrefix + "/analyst-managers/self", StringComparison.OrdinalIgnoreCase))
+            {
+                authorizeData.Select(data => data.Policy).ShouldContain("AnalystManager", $"{label} must require AnalystManager.");
+            }
+
+            // Machine (proof-of-possession) authentication: no session cookie, so neither ActiveMember nor session anti-forgery applies.
+            if (authorizeData.Any(data => data.Policy == "AnalystManager"))
+            {
+                policy.AuthenticationSchemes.ShouldBe([ManagerScheme], $"{label} must use only the DPoP scheme.");
+                continue;
+            }
 
             if (!policy.AuthenticationSchemes.Contains(SessionScheme))
             {
