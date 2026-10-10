@@ -25,6 +25,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Include="..\..\SocAlytics.Platform.AppHost\SocAlytics.Platform.AppHost.csproj" Link="InspectedProjects\SocAlytics.Platform.AppHost.csproj" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" Link="InspectedProjects\SocAlytics.Platform.Api.csproj" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\SocAlytics.Platform.Application\SocAlytics.Platform.Application.csproj" Link="InspectedProjects\SocAlytics.Platform.Application.csproj" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\SocAlytics.Platform.Domain\SocAlytics.Platform.Domain.csproj" Link="InspectedProjects\SocAlytics.Platform.Domain.csproj" CopyToOutputDirectory="PreserveNewest" />
