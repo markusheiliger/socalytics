@@ -57,6 +57,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Commands.IssueRecordingUploadGrantsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Commands.CompleteRecordingUploadHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Commands.ExpireUploadSessionsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Commands.FinalizeRecordingSetHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Queries.GetRecordingSetVersionHandler>();
 
         services.AddOptions<RecordingUploadOptions>().BindConfiguration(RecordingUploadOptions.SectionName).ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingUploadOptions>, RecordingUploadOptionsValidator>());

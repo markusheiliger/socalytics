@@ -43,4 +43,16 @@ public interface IRecordingStore
 
     /// <summary>Guarded storage release marker in the active unit of work; false when already released or not expired.</summary>
     Task<bool> TryMarkStorageReleasedAsync(Guid uploadSessionId, CancellationToken cancellationToken);
+
+    /// <summary>Timeline mapping ids per requested recording version, restricted to recording versions of the Match.</summary>
+    Task<IReadOnlyDictionary<Guid, IReadOnlySet<Guid>>> GetMatchMappingsAsync(
+        Guid matchId, IReadOnlyCollection<Guid> recordingVersionIds, CancellationToken cancellationToken);
+
+    /// <summary>Inserts the set version and its ordered members in the active unit of work.</summary>
+    Task InsertRecordingSetAsync(RecordingSetVersion set, Guid teamId, Guid createdBy, CancellationToken cancellationToken);
+
+    /// <summary>Inserts the single recordings-finalized event record in the active unit of work.</summary>
+    Task InsertFinalizedEventAsync(
+        Guid eventId, Guid recordingSetVersionId, Guid matchId, Guid teamId, DateTimeOffset occurredAt, string payloadJson,
+        CancellationToken cancellationToken);
 }

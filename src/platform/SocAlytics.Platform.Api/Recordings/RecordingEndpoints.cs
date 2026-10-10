@@ -68,7 +68,89 @@ internal static class RecordingEndpoints
 			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
 			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
 			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+		members.MapPost("/matches/{matchId:guid}/recording-set-versions", FinalizeAsync)
+			.AddEndpointFilter<RecordingBodyLimitFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("finalizeRecordingSet")
+			.WithTags("Recording lineage")
+			.Produces<RecordingSetVersionDto>(StatusCodes.Status201Created)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status413PayloadTooLarge)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+		members.MapGet("/matches/{matchId:guid}/recording-set-versions/{recordingSetVersionId:guid}", GetSetAsync)
+			.WithName("getRecordingSetVersion")
+			.WithTags("Recording lineage")
+			.Produces<RecordingSetVersionDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		return routes;
+	}
+
+	private static async Task<IResult> FinalizeAsync(Guid matchId, HttpContext http, FinalizeRecordingSetHandler handler, CancellationToken cancellationToken)
+	{
+		var keyHeader = http.Request.Headers["Idempotency-Key"];
+		if (keyHeader.Count == 0)
+		{
+			return ProblemResults.Problem(SharedProblemCodes.StatusOf(SharedProblemCodes.IdempotencyKeyMissing), SharedProblemCodes.IdempotencyKeyMissing);
+		}
+
+		FinalizeRecordingSetRequest? body = null;
+		try
+		{
+			using var buffer = new MemoryStream();
+			var chunk = new byte[16 * 1024];
+			int read;
+			while ((read = await http.Request.Body.ReadAsync(chunk, cancellationToken)) > 0)
+			{
+				buffer.Write(chunk, 0, read);
+				if (buffer.Length > MaxBodyBytes)
+				{
+					return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+				}
+			}
+
+			buffer.Position = 0;
+			body = await JsonSerializer.DeserializeAsync<FinalizeRecordingSetRequest>(buffer, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+		}
+		catch (BadHttpRequestException)
+		{
+			return ProblemResults.Problem(StatusCodes.Status413PayloadTooLarge, "payload-too-large");
+		}
+
+		var members = body?.Members?
+			.Select(m => new FinalizeRecordingSetMember(m?.RecordingVersionId ?? Guid.Empty, m?.TimelineMappingId ?? Guid.Empty))
+			.ToList();
+		var result = await handler.HandleAsync(
+			new FinalizeRecordingSetCommand(matchId, keyHeader.Count == 1 ? keyHeader[0] : null, members), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return Failure(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Created(
+			$"/api/v1/matches/{matchId}/recording-set-versions/{result.Value.Set.Id}",
+			RecordingSetVersionDto.From(result.Value.Set));
+	}
+
+	private static async Task<IResult> GetSetAsync(Guid matchId, Guid recordingSetVersionId, HttpContext http, GetRecordingSetVersionHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetRecordingSetVersionQuery(matchId, recordingSetVersionId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = $"\"{result.Value.Id}\"";
+		return Results.Ok(RecordingSetVersionDto.From(result.Value));
 	}
 
 	private static async Task<IResult> CompleteAsync(Guid matchId, Guid uploadSessionId, HttpContext http, CompleteRecordingUploadHandler handler, CancellationToken cancellationToken)

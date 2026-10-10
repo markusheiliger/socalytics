@@ -253,6 +253,62 @@ internal sealed class RecordingStore(IDbSession session) : IRecordingStore
             version, new StoredTimelineMapping(row.MappingId, row.VersionId, row.MatchId, spans, row.MappingDigest, Utc(row.MappingCreatedAt)));
     }
 
+    public async Task<IReadOnlyDictionary<Guid, IReadOnlySet<Guid>>> GetMatchMappingsAsync(
+        Guid matchId, IReadOnlyCollection<Guid> recordingVersionIds, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<(Guid VersionId, Guid MappingId)>(new CommandDefinition(
+            "SELECT recording_version_id AS VersionId, id AS MappingId FROM socalytics.recording_timeline_mappings " +
+            "WHERE match_id = @matchId AND recording_version_id = ANY(@ids)",
+            new { matchId, ids = recordingVersionIds.ToArray() },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        return rows.GroupBy(r => r.VersionId)
+            .ToDictionary(g => g.Key, g => (IReadOnlySet<Guid>)g.Select(r => r.MappingId).ToHashSet());
+    }
+
+    public async Task InsertRecordingSetAsync(RecordingSetVersion set, Guid teamId, Guid createdBy, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(set);
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO socalytics.recording_set_versions (id, match_id, team_id, member_count, created_by, finalized_at) " +
+            "VALUES (@id, @matchId, @teamId, @count, @createdBy, @finalizedAt)",
+            new { id = set.Id, matchId = set.MatchId, teamId, count = set.MemberCount, createdBy, finalizedAt = set.FinalizedAt },
+            transaction,
+            cancellationToken: cancellationToken));
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO socalytics.recording_set_members " +
+            "(recording_set_version_id, position, match_id, recording_version_id, timeline_mapping_id) " +
+            "VALUES (@setId, @position, @matchId, @versionId, @mappingId)",
+            set.Members.Select(m => new
+            {
+                setId = set.Id,
+                position = m.Position,
+                matchId = set.MatchId,
+                versionId = m.RecordingVersionId,
+                mappingId = m.TimelineMappingId,
+            }).ToList(),
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task InsertFinalizedEventAsync(
+        Guid eventId, Guid recordingSetVersionId, Guid matchId, Guid teamId, DateTimeOffset occurredAt, string payloadJson,
+        CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "INSERT INTO socalytics.recording_finalized_events " +
+            "(event_id, event_type, contract_version, recording_set_version_id, match_id, team_id, occurred_at, payload) " +
+            "VALUES (@eventId, 'matches.recordings-finalized', '1.0.0', @recordingSetVersionId, @matchId, @teamId, @occurredAt, CAST(@payload AS jsonb))",
+            new { eventId, recordingSetVersionId, matchId, teamId, occurredAt, payload = payloadJson },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
     private static UploadSession Map(SessionRow row)
     {
         var digests = new List<string>(row.PartDigests.Length / Sha256Digest.ByteLength);

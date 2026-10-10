@@ -109,3 +109,22 @@ internal sealed record TimelineMappingDto(
 }
 
 internal sealed record CompletedUploadDto(RecordingVersionDto RecordingVersion, TimelineMappingDto TimelineMapping);
+
+internal sealed record RecordingSetMemberInput(Guid? RecordingVersionId, Guid? TimelineMappingId);
+
+internal sealed record FinalizeRecordingSetRequest(RecordingSetMemberInput[]? Members);
+
+internal sealed record RecordingSetMemberDto(
+	int Position, string RecordingVersionId, string RecordingContentDigest, string TimelineMappingId, string TimelineMappingDigest);
+
+internal sealed record RecordingSetVersionDto(
+	string Id, string MatchId, string TeamId, DateTimeOffset FinalizedAt, IReadOnlyList<RecordingSetMemberDto> Members)
+{
+	public static RecordingSetVersionDto From(SocAlytics.Platform.Application.Recordings.RecordingSetVersionView v) => new(
+		v.Id.ToString(),
+		v.MatchId.ToString(),
+		v.TeamId.ToString(),
+		v.FinalizedAt,
+		[.. v.Members.Select(m => new RecordingSetMemberDto(
+			m.Position, m.RecordingVersionId.ToString(), m.RecordingContentDigest, m.TimelineMappingId.ToString(), m.TimelineMappingDigest))]);
+}
