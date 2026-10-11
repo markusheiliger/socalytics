@@ -34,6 +34,8 @@ internal sealed class ManagerTestHost : IAsyncDisposable
         _host = builder.Build();
     }
 
+    public string StateDirectory => _stateDirectory;
+
     public FakeTimeProvider Time { get; }
 
     public FakePlatform Platform { get; }
