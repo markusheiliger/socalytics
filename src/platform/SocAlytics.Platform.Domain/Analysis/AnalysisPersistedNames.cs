@@ -47,4 +47,31 @@ public static class AnalysisPersistedNames
 				return false;
 		}
 	}
+
+	public static string ToPersistedName(DependencyKind kind) => kind switch
+	{
+		DependencyKind.Required => "required",
+		DependencyKind.Optional => "optional",
+		DependencyKind.Conditional => "conditional",
+		_ => throw new ArgumentOutOfRangeException(nameof(kind)),
+	};
+
+	public static bool TryParseDependencyKind(string? value, out DependencyKind kind)
+	{
+		switch (value)
+		{
+			case "required":
+				kind = DependencyKind.Required;
+				return true;
+			case "optional":
+				kind = DependencyKind.Optional;
+				return true;
+			case "conditional":
+				kind = DependencyKind.Conditional;
+				return true;
+			default:
+				kind = default;
+				return false;
+		}
+	}
 }
