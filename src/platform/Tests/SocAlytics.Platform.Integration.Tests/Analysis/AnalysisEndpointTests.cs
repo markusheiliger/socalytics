@@ -147,5 +147,76 @@ public sealed class AnalysisEndpointTests(PostgresContainerFixture postgres, Rus
 		var text = await anonymous.GetStringAsync("/openapi/v1.json", ct);
 		text.ShouldContain("\"getAnalysisRun\"");
 		text.ShouldContain("\"listMatchAnalysisRuns\"");
+		foreach (var operation in new[] { "listOutboxMessages", "getOutboxMessage", "getAnalysisOperationalSummary", "listNotificationReceipts", "reconcileAnalysisPublication" })
+		{
+			text.ShouldContain($"\"{operation}\"");
+		}
+	}
+
+	[Fact]
+	public async Task ClubAdminInspectsOutboxAndSummaryAndCoachIsForbidden()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct);
+		var id = Guid.NewGuid();
+		await ExecAsync(s,
+			"""
+			INSERT INTO socalytics.outbox_messages (id, message_type, contract_version, subject, payload, causation_id, state, attempt_count, publication_round, failure_category, created_at)
+			VALUES (@id, 'analysis.ready-work', '1.0.0', 'analysis.ready-work', '{"secret":"x"}'::jsonb, @id, 'failed', 3, 1, 'transport-unavailable', now() - interval '1 minute')
+			""", new { id }, ct);
+
+		using var list = await s.Admin.Client.GetAsync("/api/v1/operations/outbox-messages?state=failed", ct);
+		list.StatusCode.ShouldBe(HttpStatusCode.OK);
+		var text = await list.Content.ReadAsStringAsync(ct);
+		text.ShouldNotContain("secret");
+		var item = JsonDocument.Parse(text).RootElement.GetProperty("items")[0];
+		item.GetProperty("messageId").GetGuid().ShouldBe(id);
+		item.GetProperty("failureCategory").GetString().ShouldBe("transport-unavailable");
+		using var one = await s.Admin.Client.GetAsync($"/api/v1/operations/outbox-messages/{id}", ct);
+		one.StatusCode.ShouldBe(HttpStatusCode.OK);
+		using var summary = await s.Admin.Client.GetAsync("/api/v1/operations/analysis/summary", ct);
+		summary.StatusCode.ShouldBe(HttpStatusCode.OK);
+		(await summary.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("outboxFailed").GetInt32().ShouldBe(1);
+		using var receipts = await s.Admin.Client.GetAsync("/api/v1/operations/analysis/notification-receipts", ct);
+		receipts.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+		foreach (var path in new[] { "outbox-messages", $"outbox-messages/{id}", "analysis/summary", "analysis/notification-receipts" })
+		{
+			using var denied = await s.Coach.Client.GetAsync($"/api/v1/operations/{path}", ct);
+			denied.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+		}
+	}
+
+	[Fact]
+	public async Task ReconciliationRequiresAntiforgeryAndWritesOneAuditEvent()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct);
+		const string path = "/api/v1/operations/analysis/reconciliations";
+
+		using var missing = await s.Admin.Client.PostAsync(path, null, ct);
+		missing.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+		(await missing.Content.ReadAsStringAsync(ct)).ShouldContain("antiforgery-failed");
+		using var coach = new HttpRequestMessage(HttpMethod.Post, path);
+		coach.Headers.Add("X-CSRF-Token", s.Coach.AntiforgeryToken);
+		using var denied = await s.Coach.Client.SendAsync(coach, ct);
+		denied.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+
+		using var request = new HttpRequestMessage(HttpMethod.Post, path);
+		request.Headers.Add("X-CSRF-Token", s.Admin.AntiforgeryToken);
+		using var ok = await s.Admin.Client.SendAsync(request, ct);
+		ok.StatusCode.ShouldBe(HttpStatusCode.OK, await ok.Content.ReadAsStringAsync(ct));
+		(await ok.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("readyJobsRepublished").GetInt32().ShouldBe(0);
+
+		await using var c = new NpgsqlConnection(s.Db.MigratorConnectionString);
+		await c.OpenAsync(ct);
+		await using var cmd = new NpgsqlCommand(
+			"SELECT resource_type, details::text FROM socalytics.security_audit_event WHERE event_type = 'analysis.publication-reconciled'", c);
+		await using var reader = await cmd.ExecuteReaderAsync(ct);
+		(await reader.ReadAsync(ct)).ShouldBeTrue();
+		reader.GetString(0).ShouldBe("club");
+		var details = JsonDocument.Parse(reader.GetString(1)).RootElement;
+		details.EnumerateObject().Select(p => p.Name).Order().ToArray().ShouldBe(["notificationsRepublished", "readyJobsRepublished"]);
+		(await reader.ReadAsync(ct)).ShouldBeFalse();
 	}
 }

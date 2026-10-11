@@ -48,6 +48,11 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Messaging.PurgeOutboxMessagesHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListMatchAnalysisRunsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisOperationalSummaryHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListNotificationReceiptsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.RunAnalysisReconciliationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Messaging.ListOutboxMessagesHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Messaging.GetOutboxMessageHandler>();
         services.TryAddScoped<ValidateSessionHandler>();
         services.TryAddScoped<GetSessionHandler>();
         services.TryAddScoped<SignOutHandler>();

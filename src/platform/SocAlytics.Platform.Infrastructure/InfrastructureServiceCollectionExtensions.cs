@@ -53,6 +53,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
         services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.Analysis.AnalysisRunScopeSource>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisRunQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunQueries>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisOperationalQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisOperationalQueries>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Messaging.IOutboxMessageQueries, SocAlytics.Platform.Infrastructure.Persistence.Messaging.OutboxMessageQueries>();
 
         services.AddOptions<ObjectStorageOptions>()
             .BindConfiguration("ObjectStorage")
