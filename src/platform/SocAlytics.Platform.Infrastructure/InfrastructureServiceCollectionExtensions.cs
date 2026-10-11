@@ -10,6 +10,7 @@ using SocAlytics.Platform.Infrastructure.Club;
 using SocAlytics.Platform.Infrastructure.Recordings;
 using SocAlytics.Platform.Infrastructure.IdentityAccess;
 using SocAlytics.Platform.Infrastructure.ObjectStorage;
+using SocAlytics.Platform.Infrastructure.Messaging.Nats;
 using SocAlytics.Platform.Infrastructure.Persistence;
 
 namespace SocAlytics.Platform.Infrastructure;
@@ -54,6 +55,12 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton<IObjectStorage, S3ObjectStorage>();
         services.AddHostedService<DevelopmentBucketInitializer>();
         services.AddHostedService<UploadSessionExpiryWorker>();
+
+        services.AddOptions<NatsOptions>().BindConfiguration(NatsOptions.SectionName);
+        services.TryAddSingleton<NatsConnectionProvider>();
+        services.TryAddSingleton<NatsTopology>();
+        services.AddHostedService<NatsConnectionStarter>();
+        services.TryAddSingleton<IMessageTransport, NatsJetStreamTransport>();
 
         return services;
     }

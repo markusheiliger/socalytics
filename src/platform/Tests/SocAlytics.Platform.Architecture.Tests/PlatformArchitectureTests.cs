@@ -67,7 +67,8 @@ public sealed class PlatformArchitectureTests
                 "Npgsql",
                 "Dapper",
                 "Json.Schema",
-                "DbUp")
+                "DbUp",
+                "NATS")
             .GetResult();
 
         result.IsSuccessful.ShouldBeTrue("The Domain layer must not depend on other layers or on frameworks.");
@@ -85,7 +86,8 @@ public sealed class PlatformArchitectureTests
                 "Npgsql",
                 "Dapper",
                 "Json.Schema",
-                "DbUp")
+                "DbUp",
+                "NATS")
             .GetResult();
 
         result.IsSuccessful.ShouldBeTrue("The Application layer must not depend on Infrastructure, the API, or data-access libraries.");
