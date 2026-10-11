@@ -4,7 +4,11 @@ using Shouldly;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using SocAlytics.Platform.Integration.Tests.Recordings;
 using SocAlytics.Platform.Integration.Tests.Recordings.Support;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using SocAlytics.Platform.Application.Analysis.Commands;
+using SocAlytics.Platform.Application.Recordings;
 using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis;
@@ -64,5 +68,116 @@ public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsCo
 
 		(await s.ScalarAsync("SELECT count(*) FROM socalytics.outbox_messages", ct)).ShouldBe(2);
 		(await s.ScalarAsync("SELECT count(*) FROM socalytics.recording_finalized_events", ct)).ShouldBe(2);
+	}
+
+	private sealed class SwitchLookup(IRecordingSetLookup inner, SwitchLookup.Flag flag) : IRecordingSetLookup
+	{
+		public sealed class Flag { public volatile bool Throw; }
+
+		public Task<RecordingSetLineage?> GetAsync(Guid id, CancellationToken ct) =>
+			flag.Throw ? throw new InvalidOperationException("unavailable") : inner.GetAsync(id, ct);
+	}
+
+	private static Dictionary<string, string?> DevWorkflow()
+	{
+		var dir = new DirectoryInfo(AppContext.BaseDirectory);
+		while (!File.Exists(Path.Combine(dir!.FullName, "src", "platform", "SocAlytics.Platform.Api", "appsettings.Development.json")))
+		{
+			dir = dir.Parent;
+		}
+
+		var cfg = new ConfigurationBuilder().AddJsonFile(Path.Combine(dir.FullName, "src", "platform", "SocAlytics.Platform.Api", "appsettings.Development.json")).Build();
+		return cfg.GetSection("Analysis").AsEnumerable(true).ToDictionary(p => "Analysis:" + p.Key, p => p.Value);
+	}
+
+	private async Task<(RecordingsFinalizedNotification Notification, FinalizationSetup Setup)> StartAsync(
+		Dictionary<string, string?> workflow, CancellationToken ct, SwitchLookup.Flag? flag = null)
+	{
+		var setup = await FinalizationSetup.StartAsync(postgres, rustFs, ct, sets: null, configureServices: services =>
+		{
+			if (flag is null)
+			{
+				return;
+			}
+
+			var original = services.Last(d => d.ServiceType == typeof(IRecordingSetLookup));
+			services.Remove(original);
+			services.AddScoped<IRecordingSetLookup>(sp => new SwitchLookup(
+				(IRecordingSetLookup)ActivatorUtilities.CreateInstance(sp, original.ImplementationType!), flag));
+		}, extraSettings: workflow);
+		var set = await RecordingFinalizationHelper.FinalizeAsync(setup.Coach, setup.Hierarchy.MatchId, 1, ct);
+		await using var scope = setup.Factory.Services.CreateAsyncScope();
+		var lineage = (await scope.ServiceProvider.GetRequiredService<IRecordingSetLookup>().GetAsync(set.RecordingSetVersionId, ct))!;
+		return (new RecordingsFinalizedNotification(
+			Guid.NewGuid(), "1.0.0", DateTimeOffset.UtcNow, lineage.RecordingSetVersionId, lineage.MatchId, lineage.TeamId,
+			lineage.Members.Select(m => new FinalizedNotificationMember(m.Position, m.RecordingVersionId, m.RecordingContentDigest, m.TimelineMappingId, m.TimelineMappingDigest)).ToList()), setup);
+	}
+
+	private static async Task<NotificationOutcome> HandleAsync(FinalizationSetup s, RecordingsFinalizedNotification n, CancellationToken ct)
+	{
+		await using var scope = s.Factory.Services.CreateAsyncScope();
+		return await scope.ServiceProvider.GetRequiredService<HandleRecordingsFinalizedNotificationHandler>().HandleAsync(n, ct);
+	}
+
+	[Fact]
+	public async Task ConcurrentDuplicateDeliveriesCreateOneRun()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (n, s) = await StartAsync(DevWorkflow(), ct);
+		await using var _ = s;
+		var outcomes = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => Task.Run(() => HandleAsync(s, n, ct), ct)));
+		outcomes.ShouldAllBe(o => o is NotificationOutcome.RunCreated || o is NotificationOutcome.RunExists);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(1);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_logical_jobs", ct)).ShouldBe(2);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_logical_jobs WHERE segment_number = 1 AND recording_version_id IS NOT NULL", ct)).ShouldBe(1);
+	}
+
+	[Fact]
+	public async Task MismatchedNotificationsAreRejectedWithoutARun()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (n, s) = await StartAsync(DevWorkflow(), ct);
+		await using var _ = s;
+		(await HandleAsync(s, n with { EventId = Guid.NewGuid(), RecordingSetVersionId = Guid.NewGuid() }, ct))
+			.ShouldBeOfType<NotificationOutcome.Rejected>().Category.ShouldBe("lineage-not-found");
+		(await HandleAsync(s, n with { EventId = Guid.NewGuid(), TeamId = Guid.NewGuid() }, ct))
+			.ShouldBeOfType<NotificationOutcome.Rejected>().Category.ShouldBe("scope-mismatch");
+		var wrongVersion = n.Members.Select(m => m with { RecordingVersionId = Guid.NewGuid() }).ToList();
+		(await HandleAsync(s, n with { EventId = Guid.NewGuid(), Members = wrongVersion }, ct))
+			.ShouldBeOfType<NotificationOutcome.Rejected>().Category.ShouldBe("lineage-mismatch");
+		var wrongDigest = n.Members.Select(m => m with { TimelineMappingDigest = m.TimelineMappingDigest[..^1] + (m.TimelineMappingDigest.EndsWith('0') ? "1" : "0") }).ToList();
+		(await HandleAsync(s, n with { EventId = Guid.NewGuid(), Members = wrongDigest }, ct))
+			.ShouldBeOfType<NotificationOutcome.Rejected>().Category.ShouldBe("lineage-mismatch");
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts WHERE outcome = 'rejected'", ct)).ShouldBe(4);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(0);
+	}
+
+	[Fact]
+	public async Task ThrowingLookupLeavesNoReceipt()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var flag = new SwitchLookup.Flag();
+		var (n, s) = await StartAsync(DevWorkflow(), ct, flag);
+		await using var _ = s;
+		flag.Throw = true;
+		(await HandleAsync(s, n, ct)).ShouldBeOfType<NotificationOutcome.DependencyUnavailable>();
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct)).ShouldBe(0);
+	}
+
+	[Theory]
+	[InlineData("dev-match-node", "dev-segment-node")]
+	[InlineData("dev-segment-node", "dev-segment-node")]
+	public async Task InvalidGraphYieldsFailedRunWithoutChildren(string upstream, string dependent)
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var workflow = DevWorkflow();
+		workflow["Analysis:DefaultWorkflow:Edges:1:UpstreamNodeKey"] = upstream;
+		workflow["Analysis:DefaultWorkflow:Edges:1:DependentNodeKey"] = dependent;
+		workflow["Analysis:DefaultWorkflow:Edges:1:Kind"] = "required";
+		var (n, s) = await StartAsync(workflow, ct);
+		await using var _ = s;
+		(await HandleAsync(s, n, ct)).ShouldBeOfType<NotificationOutcome.RunCreated>();
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs WHERE state = 'Failed' AND failure_reason LIKE 'invalid-graph:%' AND terminated_at IS NOT NULL", ct)).ShouldBe(1);
+		(await s.ScalarAsync("SELECT (SELECT count(*) FROM socalytics.analysis_workflow_nodes) + (SELECT count(*) FROM socalytics.analysis_dependency_edges) + (SELECT count(*) FROM socalytics.analysis_logical_jobs) + (SELECT count(*) FROM socalytics.outbox_messages WHERE message_type = 'analysis.ready-work')", ct)).ShouldBe(0);
 	}
 }

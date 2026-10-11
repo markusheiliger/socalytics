@@ -61,6 +61,8 @@ public interface IAnalysisRunStore
     // Node ids are assigned by the caller (Guid.CreateVersion7) so edges can reference them; the run id is returned.
     Task<Guid> InsertAsync(NewAnalysisRun run, CancellationToken cancellationToken);
 
+    Task<Guid?> FindRunIdAsync(Guid recordingSetVersionId, string workflowId, string workflowVersion, CancellationToken cancellationToken);
+
     Task<AnalysisRunRecord?> LockRunAsync(Guid runId, CancellationToken cancellationToken);
 
     Task<bool> TryTransitionAsync(

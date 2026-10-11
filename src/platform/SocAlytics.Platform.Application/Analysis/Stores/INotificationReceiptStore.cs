@@ -15,5 +15,7 @@ public interface INotificationReceiptStore
 {
     Task<NotificationReceiptInsertResult> TryInsertAsync(NotificationReceiptRecord receipt, CancellationToken cancellationToken);
 
+    Task<NotificationReceiptRecord?> GetAsync(Guid messageId, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<NotificationReceiptRecord>> ListAsync(int skip, int take, CancellationToken cancellationToken);
 }

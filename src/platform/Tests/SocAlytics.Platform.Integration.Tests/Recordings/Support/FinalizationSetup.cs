@@ -11,7 +11,8 @@ internal sealed record FinalizationSetup(IsolatedDatabase Db, PlatformApiFactory
 {
 	public static async Task<FinalizationSetup> StartAsync(
 		PostgresContainerFixture postgres, RustFsContainerFixture rustFs, CancellationToken ct, Dictionary<string, string?>? sets = null,
-		Action<Microsoft.Extensions.DependencyInjection.IServiceCollection>? configureServices = null)
+		Action<Microsoft.Extensions.DependencyInjection.IServiceCollection>? configureServices = null,
+		Dictionary<string, string?>? extraSettings = null)
 	{
 		var db = await postgres.CreateDatabaseAsync(ct);
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
@@ -20,6 +21,7 @@ internal sealed record FinalizationSetup(IsolatedDatabase Db, PlatformApiFactory
 			recordingUpload: RecordingTestData.WithKeyPrefix(RecordingTestData.NewKeyPrefix()),
 			recordingSets: sets,
 			configureServices: configureServices,
+			extraSettings: extraSettings,
 			objectStorage: new Dictionary<string, string?>
 			{
 				["ServiceUrl"] = rustFs.ServiceUrl,

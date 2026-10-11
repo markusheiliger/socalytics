@@ -53,6 +53,14 @@ internal sealed class NotificationReceiptStore(IDbSession session) : INotificati
         return new NotificationReceiptInsertResult(false, ToRecord(row));
     }
 
+    public async Task<NotificationReceiptRecord?> GetAsync(Guid messageId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
+            Select + " WHERE message_id = @messageId", new { messageId }, session.Transaction, cancellationToken: cancellationToken));
+        return row is null ? null : ToRecord(row);
+    }
+
     public async Task<IReadOnlyList<NotificationReceiptRecord>> ListAsync(int skip, int take, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);

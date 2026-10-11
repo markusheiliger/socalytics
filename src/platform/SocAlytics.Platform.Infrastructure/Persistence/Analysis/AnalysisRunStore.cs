@@ -134,6 +134,14 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
         return id;
     }
 
+    public async Task<Guid?> FindRunIdAsync(Guid recordingSetVersionId, string workflowId, string workflowVersion, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<Guid?>(new CommandDefinition(
+            "SELECT id FROM socalytics.analysis_runs WHERE recording_set_version_id = @recordingSetVersionId AND workflow_id = @workflowId AND workflow_version = @workflowVersion",
+            new { recordingSetVersionId, workflowId, workflowVersion }, session.Transaction, cancellationToken: cancellationToken));
+    }
+
     public async Task<AnalysisRunRecord?> LockRunAsync(Guid runId, CancellationToken cancellationToken)
     {
         var transaction = session.RequireTransaction();
