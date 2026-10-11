@@ -173,6 +173,23 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
         return changed == 1;
     }
 
+    public async Task<bool> TryTransitionNodeAsync(
+        Guid nodeId, WorkflowNodeState expectedState, WorkflowNodeState newState, Guid? blockedByNodeId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var changed = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE socalytics.analysis_workflow_nodes
+            SET state = @newState, blocked_by_node_id = COALESCE(@blockedByNodeId, blocked_by_node_id), updated_at = @now
+            WHERE id = @nodeId AND state = @expectedState
+            """,
+            new { nodeId, expectedState = expectedState.ToString(), newState = newState.ToString(), blockedByNodeId, now = time.GetUtcNow() },
+            transaction,
+            cancellationToken: cancellationToken));
+        return changed == 1;
+    }
+
     public async Task<AnalysisRunHierarchy?> LoadAsync(Guid runId, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);

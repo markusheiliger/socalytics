@@ -70,5 +70,13 @@ public interface IAnalysisRunStore
         string? failureReason,
         CancellationToken cancellationToken);
 
+    // Updates the node only while it is in expectedState.
+    Task<bool> TryTransitionNodeAsync(
+        Guid nodeId,
+        WorkflowNodeState expectedState,
+        WorkflowNodeState newState,
+        Guid? blockedByNodeId,
+        CancellationToken cancellationToken);
+
     Task<AnalysisRunHierarchy?> LoadAsync(Guid runId, CancellationToken cancellationToken);
 }

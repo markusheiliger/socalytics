@@ -33,6 +33,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<UpdateMatchHandler>();
         services.TryAddScoped<GetMatchHandler>();
         services.TryAddScoped<ListTeamMatchesHandler>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Analysis.WorkflowSnapshotMapper>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.RunReadinessCoordinator>();
         services.TryAddScoped<ValidateSessionHandler>();
         services.TryAddScoped<GetSessionHandler>();
         services.TryAddScoped<SignOutHandler>();
