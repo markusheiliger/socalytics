@@ -83,6 +83,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddHostedService<NatsConnectionStarter>();
         services.TryAddSingleton<IMessageTransport, NatsJetStreamTransport>();
 
+        services.AddOptions<SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowOptions>()
+            .BindConfiguration(SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowOptions.SectionName);
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionResolver, SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowDefinitionResolver>();
         services.AddOptions<SocAlytics.Platform.Application.Messaging.OutboxPublicationOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Messaging.OutboxPublicationOptions.SectionName);
         services.AddOptions<SocAlytics.Platform.Infrastructure.Workers.AnalysisWorkerOptions>()
