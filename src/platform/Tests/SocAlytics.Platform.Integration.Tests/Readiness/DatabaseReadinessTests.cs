@@ -26,6 +26,11 @@ public sealed class DatabaseReadinessTests(PostgresContainerFixture postgres)
             {
                 configuration.Sources.Clear();
                 var settings = new Dictionary<string, string?>(TestIdentityAccessSettings.Values);
+                foreach (var (key, value) in TestWorkflowSettings.Values)
+                {
+                    settings[key] = value;
+                }
+
                 settings["ClubBootstrap:ClubDisplayName"] = "Readiness Club";
                 settings["ClubBootstrap:FirstClubAdmin:AccountName"] = "readiness-admin";
                 settings["ClubBootstrap:FirstClubAdmin:InitialPassword"] = "Readiness-Initial-Pass-1234";
