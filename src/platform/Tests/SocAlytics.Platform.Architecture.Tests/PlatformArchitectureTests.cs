@@ -66,6 +66,7 @@ public sealed class PlatformArchitectureTests
                 "Microsoft.Extensions",
                 "Npgsql",
                 "Dapper",
+                "Json.Schema",
                 "DbUp")
             .GetResult();
 
@@ -83,6 +84,7 @@ public sealed class PlatformArchitectureTests
                 "Microsoft.AspNetCore",
                 "Npgsql",
                 "Dapper",
+                "Json.Schema",
                 "DbUp")
             .GetResult();
 

@@ -22,6 +22,8 @@ public static class InfrastructureServiceCollectionExtensions
 
         PersistenceRegistration.AddPersistence(services);
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<IContractValidator, SocAlytics.Platform.Infrastructure.Contracts.JsonSchemaContractValidator>();
+        services.TryAddSingleton<ICanonicalJson, SocAlytics.Platform.Infrastructure.Contracts.JsonCanonicalizer>();
         services.TryAddScoped<IAuditTrail, PostgresAuditTrail>();
         services.AddIdentityAccess();
         services.TryAddScoped<IMemberAccountStore, MemberAccountStore>();
