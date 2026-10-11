@@ -58,6 +58,34 @@ resource, and a background expiry worker for abandoned uploads.
 contracts under the repository-root `contracts/` folder. Run it with
 `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`.
 
+Analyst Manager registration is implemented as development evidence (pairing,
+approval, activation, DPoP machine tokens, revocation, unregistration):
+
+- Anonymous Manager endpoints: `GET /api/v1/analyst-managers/stamp`,
+  `POST /api/v1/analyst-managers/pairings`, `.../pairings/status`,
+  `.../pairings/activation`, and `POST /api/v1/analyst-managers/token`.
+- Registrar endpoints (`MapMemberApi`): `POST`/`GET`
+  `/api/v1/analyst-manager-registrations`, `GET .../{registrationId}`, and
+  `POST .../{registrationId}/approval`, `/rejection`, and `/revocation`.
+- Manager `self` endpoints: `GET /api/v1/analyst-managers/self/registration`,
+  `POST .../self/unregistration`, and `POST .../self/unregistration/completion`;
+  they require the `AnalystManagerDPoP` authentication scheme and the
+  `AnalystManager` authorization policy. The principal carries the claims in
+  `AnalystManagerClaimTypes`: `client_id`, `socalytics:registration_id`, and
+  `scope` (`analyst-manager`).
+- `Stamp:Id` and `Stamp:PublicBaseUri` identify the stamp and build the
+  verification address (development values are in `appsettings.Development.json`).
+- `Registry` option defaults: `AllowSoftwareKeys` false (true only for
+  development and test), `Pairing:MaxFingerprintMismatches` 3,
+  `Pairing:Window` 10 minutes, `Pairing:ApprovalWindow` 24 hours,
+  `Pairing:ActivationWindow` 10 minutes, `Pairing:ChallengeLifetime` 60 seconds,
+  `Pairing:PollingInterval` 5 seconds, `Tokens:Lifetime` 5 minutes, and an
+  expiry worker interval of 30 seconds. These are development values, not
+  adopted production values.
+- The golden fixtures under `contracts/analyst-manager/` are exercised by the
+  fixture tests in `Tests/SocAlytics.Platform.Integration.Tests/Registry` and by
+  the Analyst Manager tests.
+
 The AppHost bootstraps the first club with these parameters:
 
 - `first-club-admin-password`: generated and persisted in the AppHost user

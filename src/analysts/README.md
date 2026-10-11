@@ -10,11 +10,11 @@ The planned boundary includes the future Analyst Manager at `analysts/manager`, 
 
 ## Exclusions
 
-Platform APIs, client applications, Hermes, Coach Agents, and Specialist Agents do not belong here. This scaffold does not create the planned `manager` path and contains no managers, SDKs, capabilities, projects, packages, tests, manifests, containers, or product code.
+Platform APIs, client applications, Hermes, Coach Agents, and Specialist Agents do not belong here. `manager/` contains the executable Analyst Manager (see [manager/README.md](manager/README.md)); no Analyst SDK or capabilities exist yet.
 
 ## Current Status
 
-This directory is non-executable. It currently records only a planned ownership boundary and does not provide build, test, package, runtime, or deployment support.
+`manager/` contains the executable Analyst Manager desktop app (tray app, Core worker, tests, and macOS Swift bridge source); see [manager/README.md](manager/README.md). No Analyst SDK or capabilities exist yet, and there is no package, runtime, or deployment support.
 
 ## Authoritative Architecture
 
