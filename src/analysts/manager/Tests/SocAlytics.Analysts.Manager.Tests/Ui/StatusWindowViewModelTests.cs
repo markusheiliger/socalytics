@@ -22,4 +22,21 @@ public class StatusWindowViewModelTests
         vm.RegistrationState.ShouldBe("active");
         raised.ShouldContain(nameof(StatusWindowViewModel.RegistrationState));
     }
+
+    [Fact]
+    public void Shows_preflight_failures_with_remediation_and_fields()
+    {
+        var pf = new SocAlytics.Analysts.Manager.Runtime.PreflightResult(
+            DateTimeOffset.UnixEpoch, null, null, null, null, false,
+            [new("gpu", false, "missing", "install driver"), new("disk", true, null, null)], []);
+        var vm = new StatusWindowViewModel(new FakeManagerControl { State = "active", OperatingState = "paused", Intent = "paused", PreflightValue = pf, PauseRemaining = 600 });
+        vm.Preflight.ShouldContain("gpu: missing — install driver");
+        vm.Preflight.ShouldNotContain("disk");
+        vm.OperatingState.ShouldBe("paused (intent: paused)");
+        vm.PauseRemaining.ShouldBe("10 min");
+        vm.Connectivity.ShouldBe("unknown");
+        vm.Club.ShouldBe("—");
+        vm.DrainDeadline.ShouldBe("—");
+        vm.Commands.PauseEnabled.ShouldBeTrue();
+    }
 }

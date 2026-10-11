@@ -20,6 +20,8 @@ public partial class App : Application
 
     public IManagerControl? Control { get; set; }
 
+    public TimeSpan MaxTimedPause { get; set; } = TimeSpan.FromDays(7);
+
     public bool Autostarted { get; set; }
 
     public TrayHostDetector Detector { get; set; } = new();
@@ -72,6 +74,9 @@ public partial class App : Application
             {
                 DataContext = new StatusWindowViewModel(Control!, a => Dispatcher.UIThread.Post(a)),
                 RegisterRequested = ShowRegister,
+                CustomPauseRequested = ShowCustomPause,
+                UnregisterRequested = ConfirmUnregister,
+                DiscardRequested = ConfirmDiscard,
             };
             _status.Closed += (_, _) => _status = null;
         }
@@ -96,12 +101,26 @@ public partial class App : Application
         _register.Activate();
     }
 
+    public void ShowCustomPause()
+    {
+        var model = new TrayMenuViewModel(Control!, a => Dispatcher.UIThread.Post(a)) { MaxTimedPause = MaxTimedPause };
+        var dialog = new CustomPauseDialog(model, d => _ = Control!.PauseAsync(d));
+        dialog.Closed += (_, _) => model.Dispose();
+        dialog.Show();
+    }
+
+    public void ConfirmUnregister() =>
+        new ConfirmDialog("Unregister", "Unregister this Analyst Manager? Running work drains first.", () => _ = Control!.UnregisterAsync()).Show();
+
+    public void ConfirmDiscard() =>
+        new ConfirmDialog("Discard local registration", "Discard the local registration? The platform record is not changed.", () => _ = Control!.DiscardLocalRegistrationAsync()).Show();
+
     private bool TryCreateTray(IClassicDesktopStyleApplicationLifetime desktop)
     {
         try
         {
             var menu = TrayMenuBuilder.Build(
-                new TrayMenuViewModel(Control!, a => Dispatcher.UIThread.Post(a)), ShowStatus, ShowRegister, () => _ = Control!.ExitAsync());
+                new TrayMenuViewModel(Control!, a => Dispatcher.UIThread.Post(a)), ShowStatus, ShowRegister, ShowCustomPause, ConfirmUnregister, ConfirmDiscard);
             var icon = new TrayIcon
             {
                 Icon = new WindowIcon(AssetLoader.Open(new Uri("avares://socalytics-manager/Assets/tray.png"))),

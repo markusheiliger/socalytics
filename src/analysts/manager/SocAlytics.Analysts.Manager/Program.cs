@@ -37,7 +37,7 @@ internal static class Program
                 _ = control.SessionEndingAsync();
             });
             // --autostart starts like any start; the tray-only behavior is in App.
-            return BuildAvaloniaApp(control).StartWithClassicDesktopLifetime(args, Avalonia.Controls.ShutdownMode.OnExplicitShutdown);
+            return BuildAvaloniaApp(control, host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<SocAlytics.Analysts.Manager.Hosting.OperatingOptions>>().Value.MaxTimedPause).StartWithClassicDesktopLifetime(args, Avalonia.Controls.ShutdownMode.OnExplicitShutdown);
         }
         finally
         {
@@ -45,6 +45,6 @@ internal static class Program
         }
     }
 
-    public static AppBuilder BuildAvaloniaApp(IManagerControl control) =>
-        AppBuilder.Configure(() => new App { Control = control, Autostarted = Environment.GetCommandLineArgs().Contains("--autostart") }).UsePlatformDetect();
+    public static AppBuilder BuildAvaloniaApp(IManagerControl control, TimeSpan? maxTimedPause = null) =>
+        AppBuilder.Configure(() => new App { Control = control, MaxTimedPause = maxTimedPause ?? TimeSpan.FromDays(7), Autostarted = Environment.GetCommandLineArgs().Contains("--autostart") }).UsePlatformDetect();
 }

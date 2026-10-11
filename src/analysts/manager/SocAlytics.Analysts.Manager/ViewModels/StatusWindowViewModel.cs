@@ -1,9 +1,17 @@
 using SocAlytics.Analysts.Manager.Hosting;
+using SocAlytics.Analysts.Manager.Runtime;
 
 namespace SocAlytics.Analysts.Manager.ViewModels;
 
 public sealed class StatusWindowViewModel : ObservableBase, IDisposable
 {
+    private static readonly string[] Names =
+    [
+        nameof(RegistrationState), nameof(Stamp), nameof(Club), nameof(PlatformEndpoint), nameof(Connectivity), nameof(OperatingState),
+        nameof(Uptime), nameof(Preflight), nameof(PauseRemaining), nameof(DrainDeadline), nameof(DeviceFingerprint),
+        nameof(KeyProtection), nameof(Diagnostics),
+    ];
+
     private readonly IManagerControl _control;
     private readonly Action<Action> _post;
 
@@ -11,14 +19,52 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
     {
         _control = control;
         _post = post ?? (a => a());
+        Commands = new TrayMenuViewModel(control, _post);
         _control.StatusChanged += OnChanged;
     }
+
+    /// <summary>The same commands and enabled rules as the tray menu.</summary>
+    public TrayMenuViewModel Commands { get; }
 
     public string RegistrationState => _control.GetStatus().RegistrationState;
 
     public string Stamp => _control.GetStatus().StampId ?? "—";
 
+    public string Club => _control.GetStatus().ClubName ?? "—";
+
     public string PlatformEndpoint => _control.GetStatus().PlatformEndpoint ?? "—";
+
+    public string Connectivity => _control.GetStatus().Connectivity.State;
+
+    public string OperatingState
+    {
+        get
+        {
+            var s = _control.GetStatus();
+            return s.OperatingState is null ? "—" : s.OperatingIntent is null ? s.OperatingState : $"{s.OperatingState} (intent: {s.OperatingIntent})";
+        }
+    }
+
+    public string Uptime => TimeSpan.FromSeconds(Math.Floor(_control.GetStatus().UptimeSeconds)).ToString();
+
+    public string Preflight
+    {
+        get
+        {
+            if (_control.GetStatus().Preflight is not PreflightResult p)
+            {
+                return "No preflight yet";
+            }
+
+            var lines = new List<string> { $"{(p.Passed ? "Passed" : "Failed")} at {p.RanAt:u}" };
+            lines.AddRange(p.Checks.Where(c => !c.Passed).Select(c => $"{c.Id}: {c.Detail}{(c.Remediation is null ? "" : $" — {c.Remediation}")}"));
+            return string.Join(Environment.NewLine, lines);
+        }
+    }
+
+    public string PauseRemaining => TrayMenuViewModel.FormatRemaining(_control.GetStatus().PauseRemainingSeconds) is { Length: > 0 } r ? r : "—";
+
+    public string DrainDeadline => _control.GetStatus().Drain is { } d ? $"{d.Purpose}: {d.Deadline:u} ({d.ActiveWork} active)" : "—";
 
     public string DeviceFingerprint => _control.GetStatus().DeviceFingerprint ?? "—";
 
@@ -33,11 +79,15 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
         }
     }
 
-    public void Dispose() => _control.StatusChanged -= OnChanged;
+    public void Dispose()
+    {
+        _control.StatusChanged -= OnChanged;
+        Commands.Dispose();
+    }
 
     private void OnChanged(object? sender, EventArgs e) => _post(() =>
     {
-        foreach (var name in new[] { nameof(RegistrationState), nameof(Stamp), nameof(PlatformEndpoint), nameof(DeviceFingerprint), nameof(KeyProtection), nameof(Diagnostics) })
+        foreach (var name in Names)
         {
             Raise(name);
         }

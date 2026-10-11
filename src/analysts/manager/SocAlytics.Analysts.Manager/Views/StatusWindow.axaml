@@ -3,20 +3,43 @@
         xmlns:vm="using:SocAlytics.Analysts.Manager.ViewModels"
         x:Class="SocAlytics.Analysts.Manager.Views.StatusWindow"
         x:DataType="vm:StatusWindowViewModel"
-        Title="Analyst Manager status" Width="520" SizeToContent="Height">
+        Title="Analyst Manager status" Width="560" SizeToContent="Height">
   <StackPanel Margin="16" Spacing="6">
     <TextBlock Text="Registration state" FontWeight="Bold" />
     <TextBlock Name="StateText" Text="{Binding RegistrationState}" />
     <TextBlock Text="Stamp" FontWeight="Bold" />
     <TextBlock Name="StampText" Text="{Binding Stamp}" />
+    <TextBlock Text="Club" FontWeight="Bold" />
+    <TextBlock Name="ClubText" Text="{Binding Club}" />
     <TextBlock Text="Platform endpoint" FontWeight="Bold" />
     <TextBlock Name="EndpointText" Text="{Binding PlatformEndpoint}" />
+    <TextBlock Text="Connectivity" FontWeight="Bold" />
+    <TextBlock Name="ConnectivityText" Text="{Binding Connectivity}" />
+    <TextBlock Text="Operating state" FontWeight="Bold" />
+    <TextBlock Name="OperatingText" Text="{Binding OperatingState}" />
+    <TextBlock Text="Uptime" FontWeight="Bold" />
+    <TextBlock Name="UptimeText" Text="{Binding Uptime}" />
+    <TextBlock Text="Latest preflight" FontWeight="Bold" />
+    <TextBlock Name="PreflightText" Text="{Binding Preflight}" TextWrapping="Wrap" />
+    <TextBlock Text="Pause remaining" FontWeight="Bold" />
+    <TextBlock Name="PauseText" Text="{Binding PauseRemaining}" />
+    <TextBlock Text="Drain deadline" FontWeight="Bold" />
+    <TextBlock Name="DrainText" Text="{Binding DrainDeadline}" TextWrapping="Wrap" />
     <TextBlock Text="Device fingerprint" FontWeight="Bold" />
     <TextBlock Name="FingerprintText" Text="{Binding DeviceFingerprint}" TextWrapping="Wrap" />
     <TextBlock Text="Key protection" FontWeight="Bold" />
     <TextBlock Name="ProtectionText" Text="{Binding KeyProtection}" />
     <TextBlock Text="Diagnostics" FontWeight="Bold" />
     <TextBlock Name="DiagnosticsText" Text="{Binding Diagnostics}" TextWrapping="Wrap" />
-    <Button Name="RegisterButton" Content="Register…" HorizontalAlignment="Left" />
+    <WrapPanel>
+      <Button Name="RegisterButton" Content="Register…" IsEnabled="{Binding Commands.RegisterEnabled}" Margin="0,0,6,6" />
+      <Button Name="PauseButton" Content="Pause" IsEnabled="{Binding Commands.PauseEnabled}" Margin="0,0,6,6" />
+      <Button Name="PauseForButton" Content="Pause for…" IsEnabled="{Binding Commands.PauseEnabled}" Margin="0,0,6,6" />
+      <Button Name="ResumeButton" Content="Resume" IsEnabled="{Binding Commands.ResumeEnabled}" Margin="0,0,6,6" />
+      <Button Name="ExitButton" Content="Safe exit" Margin="0,0,6,6" />
+      <Button Name="UnregisterButton" Content="Unregister…" IsEnabled="{Binding Commands.UnregisterEnabled}" Margin="0,0,6,6" />
+      <Button Name="DiscardButton" Content="Discard local registration…" IsEnabled="{Binding Commands.DiscardEnabled}" Margin="0,0,6,6" />
+      <CheckBox Name="AutostartBox" Content="Start at sign-in" IsChecked="{Binding Commands.AutostartChecked, Mode=OneWay}" />
+    </WrapPanel>
   </StackPanel>
 </Window>

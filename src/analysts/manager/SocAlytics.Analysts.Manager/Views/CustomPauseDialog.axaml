@@ -1,0 +1,14 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SocAlytics.Analysts.Manager.Views.CustomPauseDialog"
+        Title="Pause for…" Width="360" SizeToContent="Height">
+  <StackPanel Margin="16" Spacing="8">
+    <TextBlock Name="PromptText" TextWrapping="Wrap" />
+    <TextBox Name="MinutesBox" Watermark="Minutes" />
+    <TextBlock Name="ErrorText" Foreground="Firebrick" IsVisible="False" TextWrapping="Wrap" />
+    <StackPanel Orientation="Horizontal" Spacing="8">
+      <Button Name="OkButton" Content="Pause" />
+      <Button Name="CancelButton" Content="Cancel" />
+    </StackPanel>
+  </StackPanel>
+</Window>
