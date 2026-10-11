@@ -45,6 +45,9 @@ internal static class PersistedTableClassifications
             ["analysis_readiness_occurrences"] = TableClassification.ChildOf("analysis_logical_jobs", "logical_job_id"),
             ["analysis_execution_attempts"] = TableClassification.ChildOf("analysis_logical_jobs", "logical_job_id"),
             ["analysis_claim_keys"] = TableClassification.Immutable,
+            ["analysis_accepted_results"] = TableClassification.Immutable,
+            ["analysis_completion_outcomes"] = TableClassification.Immutable,
+            ["analysis_notification_receipts"] = TableClassification.Immutable,
             ["outbox_messages"] = TableClassification.Unversioned("operational publication record; transitions guarded by row lock and state"),
         };
 }

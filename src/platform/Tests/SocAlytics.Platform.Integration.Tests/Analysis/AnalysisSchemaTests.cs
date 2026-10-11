@@ -244,6 +244,110 @@ public sealed class AnalysisSchemaTests(PostgresContainerFixture postgres)
 		(await connection.ExecuteScalarAsync<long>(new CommandDefinition("SELECT nextval('socalytics.analysis_fencing_token_seq')", cancellationToken: ct))).ShouldBe(1);
 	}
 
+	private static AcceptedResultRecord Result(Guid runId, Guid nodeId, Guid jobId, Guid attemptId) => new(
+		Guid.NewGuid(), jobId, runId, nodeId, attemptId, "results/key", "sha-256:" + new string('e', 64), "cap.high", "1", "1",
+		"sha-256:" + new string('b', 64), "sha-256:" + new string('c', 64), null, "{}", "{}", [], DateTimeOffset.UtcNow);
+
+	private static async Task<Guid> InsertAttemptAsync(NpgsqlConnection connection, Guid jobId, int number, CancellationToken ct)
+	{
+		var occurrence = Guid.NewGuid();
+		var attempt = Guid.NewGuid();
+		await connection.ExecuteAsync(new CommandDefinition(
+			"INSERT INTO socalytics.analysis_readiness_occurrences (id, logical_job_id, sequence, cause, created_at) VALUES (@occurrence, @jobId, @number, 'initial', now())",
+			new { occurrence, jobId, number }, cancellationToken: ct));
+		await connection.ExecuteAsync(new CommandDefinition(
+			"""
+			INSERT INTO socalytics.analysis_execution_attempts
+				(id, logical_job_id, readiness_occurrence_id, attempt_number, manager_id, fencing_token, state, claimed_at, lease_expires_at, last_heartbeat_at)
+			VALUES (@attempt, @jobId, @occurrence, @number, gen_random_uuid(), nextval('socalytics.analysis_fencing_token_seq'), 'Stale', now(), now(), now())
+			""",
+			new { attempt, jobId, occurrence, number }, cancellationToken: ct));
+		return attempt;
+	}
+
+	[Fact]
+	public async Task SecondAcceptedResultForOneJobOrOneAttemptIsRejected()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var runId = await InsertAsync(provider, NewRun(Guid.NewGuid(), "1", out _, out var high), ct);
+		var job = MatchJob(runId, high);
+		await InsertJobsAsync(provider, ct, job);
+		await using var connection = new NpgsqlConnection(db.AppConnectionString);
+		await connection.OpenAsync(ct);
+		var first = await InsertAttemptAsync(connection, job.Id, 1, ct);
+		var second = await InsertAttemptAsync(connection, job.Id, 2, ct);
+
+		async Task Accept(AcceptedResultRecord result)
+		{
+			await using var scope = provider.CreateAsyncScope();
+			await using var uow = await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
+			await scope.ServiceProvider.GetRequiredService<IAcceptedResultStore>().InsertAsync(result, ct);
+			await uow.CommitAsync(ct);
+		}
+
+		await Accept(Result(runId, high, job.Id, first));
+		(await Should.ThrowAsync<PostgresException>(() => Accept(Result(runId, high, job.Id, second))))
+			.SqlState.ShouldBe(PostgresErrorCodes.UniqueViolation);
+		(await Should.ThrowAsync<PostgresException>(() => Accept(Result(runId, high, job.Id, first))))
+			.SqlState.ShouldBe(PostgresErrorCodes.UniqueViolation);
+
+		await using var read = provider.CreateAsyncScope();
+		var store = read.ServiceProvider.GetRequiredService<IAcceptedResultStore>();
+		(await store.GetByJobAsync(job.Id, ct))!.AttemptId.ShouldBe(first);
+		(await store.ListByRunAsync(runId, ct)).Count.ShouldBe(1);
+	}
+
+	[Fact]
+	public async Task ExistingNotificationMessageReturnsTheStoredOutcome()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var messageId = Guid.NewGuid();
+
+		async Task<NotificationReceiptInsertResult> Try(string outcome, string? category)
+		{
+			await using var scope = provider.CreateAsyncScope();
+			await using var uow = await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
+			var result = await scope.ServiceProvider.GetRequiredService<INotificationReceiptStore>().TryInsertAsync(
+				new NotificationReceiptRecord(messageId, "recordings-finalized", Guid.NewGuid(), outcome, category, null, DateTimeOffset.UtcNow), ct);
+			await uow.CommitAsync(ct);
+			return result;
+		}
+
+		(await Try("rejected", "schema-invalid")).Inserted.ShouldBeTrue();
+		var again = await Try("run-created", null);
+		again.Inserted.ShouldBeFalse();
+		again.Receipt.Outcome.ShouldBe("rejected");
+		again.Receipt.RejectionCategory.ShouldBe("schema-invalid");
+
+		await using var read = provider.CreateAsyncScope();
+		(await read.ServiceProvider.GetRequiredService<INotificationReceiptStore>().ListAsync(0, 10, ct)).Count.ShouldBe(1);
+	}
+
+	[Theory]
+	[InlineData("UPDATE socalytics.analysis_accepted_results SET manifest_reference = 'x'")]
+	[InlineData("DELETE FROM socalytics.analysis_accepted_results")]
+	[InlineData("UPDATE socalytics.analysis_completion_outcomes SET outcome = 'accepted'")]
+	[InlineData("DELETE FROM socalytics.analysis_completion_outcomes")]
+	[InlineData("UPDATE socalytics.analysis_notification_receipts SET outcome = 'run-exists'")]
+	[InlineData("DELETE FROM socalytics.analysis_notification_receipts")]
+	public async Task ResultTablesRejectUpdateAndDeleteForTheRuntimeRole(string sql)
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		await using var connection = new NpgsqlConnection(db.AppConnectionString);
+		await connection.OpenAsync(ct);
+		var ex = await Should.ThrowAsync<PostgresException>(() => connection.ExecuteAsync(new CommandDefinition(sql, cancellationToken: ct)));
+		ex.SqlState.ShouldBe(PostgresErrorCodes.InsufficientPrivilege);
+	}
+
 	[Theory]
 	[InlineData("analysis_run_snapshots", "UPDATE", "SET snapshot_digest = 'x'")]
 	[InlineData("analysis_run_snapshots", "DELETE", "")]
