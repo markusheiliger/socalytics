@@ -72,7 +72,7 @@ public sealed class CliTests : IDisposable
         Start(new FakeManagerControl { State = "active" });
         var r = await RunAsync("status", "--json");
         r.Code.ShouldBe(0);
-        var schema = JsonSchema.FromFile(Path.Combine(AppContext.BaseDirectory, "contracts", "local-control.schema.json"));
+        var schema = LocalControlSchema.Value;
         using var doc = JsonDocument.Parse(r.Out);
         doc.RootElement.GetProperty("kind").GetString().ShouldBe("status");
         var envelope = JsonSerializer.SerializeToElement(new { protocolVersion = 1, ok = true, result = doc.RootElement });

@@ -12,7 +12,7 @@ namespace SocAlytics.Analysts.Manager.Tests.LocalControl;
 
 public sealed class LocalControlTests : IDisposable
 {
-    private static readonly JsonSchema Schema = JsonSchema.FromFile(Path.Combine(AppContext.BaseDirectory, "contracts", "local-control.schema.json"));
+    private static JsonSchema Schema => LocalControlSchema.Value;
     private readonly string _dir = Path.Combine(Path.GetTempPath(), "sa-lc-" + Guid.NewGuid().ToString("N")[..8]);
     private readonly List<IDisposable> _disposables = [];
 
