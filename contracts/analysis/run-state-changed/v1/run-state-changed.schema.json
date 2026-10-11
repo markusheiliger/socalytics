@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/run-state-changed/v1/run-state-changed.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analysis run state changed v1",
+  "description": "Lifecycle notification published at least once through the transactional outbox whenever an Analysis Run changes state. Consumers de-duplicate by messageId and re-read durable run state through the API before acting; the notification is not workflow truth.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "messageId",
+    "occurredAt",
+    "runId",
+    "teamId",
+    "matchId",
+    "recordingSetVersionId",
+    "workflow",
+    "previousState",
+    "state",
+    "correlation"
+  ],
+  "properties": {
+    "contractVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1" },
+    "messageId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "occurredAt": { "$ref": "../../../common/v1/common.schema.json#/$defs/timestamp" },
+    "runId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "teamId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "matchId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "recordingSetVersionId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "version": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" }
+      }
+    },
+    "previousState": {
+      "description": "Null when the run is created directly in its first recorded state.",
+      "oneOf": [
+        { "$ref": "#/$defs/runState" },
+        { "type": "null" }
+      ]
+    },
+    "state": { "$ref": "#/$defs/runState" },
+    "failureReason": {
+      "description": "Sanitized category, present only when state is Failed.",
+      "enum": ["invalid-graph", "no-required-result"]
+    },
+    "correlation": { "$ref": "../../../common/v1/common.schema.json#/$defs/correlation" }
+  },
+  "$defs": {
+    "runState": {
+      "enum": ["Requested", "Running", "PartiallyCompleted", "Completed", "Failed", "Cancelled"]
+    }
+  }
+}
