@@ -17,6 +17,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis;
 
+[Collection("NatsFaultInjection")]
 public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresContainerFixture postgres, RustFsContainerFixture rustFs)
 {
     private async Task<(IsolatedDatabase Db, PlatformApiFactory Factory)> StartHostAsync(string? natsConnection, CancellationToken ct)

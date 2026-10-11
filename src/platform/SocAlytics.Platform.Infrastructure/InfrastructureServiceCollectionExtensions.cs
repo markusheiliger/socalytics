@@ -77,6 +77,14 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddHostedService<NatsConnectionStarter>();
         services.TryAddSingleton<IMessageTransport, NatsJetStreamTransport>();
 
+        services.AddOptions<SocAlytics.Platform.Application.Messaging.OutboxPublicationOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Messaging.OutboxPublicationOptions.SectionName);
+        services.AddOptions<SocAlytics.Platform.Infrastructure.Workers.AnalysisWorkerOptions>()
+            .BindConfiguration(SocAlytics.Platform.Infrastructure.Workers.AnalysisWorkerOptions.SectionName);
+        services.TryAddScoped<SocAlytics.Platform.Application.Messaging.IOutboxPublicationStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.OutboxPublicationStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Messaging.PublishOutboxBatch>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.OutboxPublisherWorker>();
+
         return services;
     }
 }
