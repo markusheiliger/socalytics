@@ -40,4 +40,18 @@ internal sealed class Outbox(IDbSession session, TimeProvider timeProvider) : IO
             cancellationToken: cancellationToken));
         return rows == 1;
     }
+
+    public async Task<int> DiscardUnpublishedReadyWorkAsync(Guid logicalJobId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE socalytics.outbox_messages SET state = 'discarded', next_attempt_at = NULL
+            WHERE logical_job_id = @logicalJobId AND message_type = 'analysis.ready-work' AND state IN ('pending', 'failed')
+            """,
+            new { logicalJobId },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
 }

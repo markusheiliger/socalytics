@@ -217,7 +217,8 @@ public static class ReadinessEvaluator
 			}
 			else
 			{
-				var failed = nodes[edge.UpstreamNodeKey].State is WorkflowNodeState.Failed or WorkflowNodeState.Blocked;
+				var failed = nodes[edge.UpstreamNodeKey].State is WorkflowNodeState.Failed or WorkflowNodeState.Blocked
+					|| relevant.Any(j => j.State is LogicalJobState.Failed or LogicalJobState.Blocked);
 				entries.Add(new InputSnapshotEntry(edge.UpstreamNodeKey, edge.Kind, failed ? SnapshotStatus.Failed : SnapshotStatus.Absent, []));
 			}
 		}

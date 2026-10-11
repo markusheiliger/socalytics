@@ -77,7 +77,12 @@ public sealed class RunReadinessCoordinator(
 
         foreach (var blocked in evaluation.BlockedJobs)
         {
-            await jobs.TryTransitionAsync(blocked.JobId, jobsById[blocked.JobId].State, LogicalJobState.Blocked, "blocked-upstream", null, cancellationToken);
+            var previous = jobsById[blocked.JobId].State;
+            if (await jobs.TryTransitionAsync(blocked.JobId, previous, LogicalJobState.Blocked, "upstream-required-failed", null, cancellationToken)
+                && previous == LogicalJobState.Ready)
+            {
+                await outbox.DiscardUnpublishedReadyWorkAsync(blocked.JobId, cancellationToken);
+            }
         }
 
         var ready = 0;
