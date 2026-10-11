@@ -14,6 +14,8 @@ internal sealed record ClaimGrantedDto(
 
 internal sealed record HeartbeatRequestDto(Guid LogicalJobId, long FencingToken, DateTimeOffset ObservedAt, string ExecutionState, int? ProgressPercent);
 
+internal sealed record CompletionOutcomeDto(Guid AttemptId, Guid LogicalJobId, string Outcome, Guid? AcceptedResultId, bool Replayed, string LogicalJobState);
+
 internal sealed record LeaseRenewedDto(Guid AttemptId, DateTimeOffset LeaseExpiresAt);
 
 internal static partial class AnalystManagerEndpoints
@@ -47,7 +49,45 @@ internal static partial class AnalystManagerEndpoints
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict);
+		routes.MapPost("/api/v1/analysis/attempts/{attemptId:guid}/completion", CompleteAsync)
+			.RequireAnalystManager()
+			.WithName("completeAttempt")
+			.WithTags("Analyst Manager attempts")
+			.Produces<CompletionOutcomeDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
 		return routes;
+	}
+
+	private static async Task<IResult> CompleteAsync(Guid attemptId, HttpContext http, CompleteAttemptHandler handler, CancellationToken cancellationToken)
+	{
+		JsonElement body;
+		try
+		{
+			using var doc = await JsonDocument.ParseAsync(http.Request.Body, cancellationToken: cancellationToken);
+			body = doc.RootElement.Clone();
+		}
+		catch (JsonException)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("body", "invalid")));
+		}
+
+		if (body.ValueKind != JsonValueKind.Object)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("", "type")));
+		}
+
+		var result = await handler.HandleAsync(new CompleteAttemptCommand(attemptId, body), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		var v = result.Value;
+		return Results.Ok(new CompletionOutcomeDto(v.AttemptId, v.LogicalJobId, v.Outcome, v.AcceptedResultId, v.Replayed, v.LogicalJobState));
 	}
 
 	private static async Task<IResult> HeartbeatAsync(Guid attemptId, HttpContext http, RenewAttemptLeaseHandler handler, CancellationToken cancellationToken)

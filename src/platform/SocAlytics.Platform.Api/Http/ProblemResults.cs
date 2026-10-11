@@ -56,6 +56,7 @@ internal static class ProblemResults
 		"forbidden" => "The caller is not allowed to perform this operation.",
 		"password-change-required" => "A password change is required.",
 		"not-found" => "The resource was not found.",
+		"completion-rejected" => "The completion does not match the pinned job snapshot.",
 		"version-required" => "A version precondition is required.",
 		"version-mismatch" => "The version precondition failed.",
 		_ => "The request could not be completed.",
