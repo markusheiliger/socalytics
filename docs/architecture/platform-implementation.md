@@ -21,10 +21,9 @@ SocAlytics uses one `src` root with these first-level ownership areas:
 - `src/clients` owns the future Web UI and Electron Coach Client source
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
-- `src/analysts` owns the future Analyst Manager, a per-user desktop
-  application whose first slice is planned under `src/analysts/manager`, and
-  the future Analyst SDK and Analyst capability implementations across their
-  required runtimes
+- `src/analysts` owns the Analyst Manager, whose first desktop slice is
+  executable under `src/analysts/manager`, and the future Analyst SDK and
+  Analyst capability implementations across their required runtimes
 
 The executable platform projects are peers under `src/platform`, except for the
 test projects grouped under `src/platform/Tests`:
@@ -321,9 +320,9 @@ anti-forgery protection, membership, club and team roles, team-scoped
 authorization, security audit events, and the `Club > Season > Team > Match`
 hierarchy, as specified in
 `specs/20261005-130701-club-identity-foundation`. It implements no external
-OpenID Connect sign-in, MFA enforcement, generated client, or Analyst Manager
-identity. Exposure and access policy for operational endpoints in a production
-ingress remain unresolved.
+OpenID Connect sign-in, MFA enforcement, or generated client. Exposure and
+access policy for operational endpoints in a production ingress remain
+unresolved.
 
 REST with JSON will be the primary platform protocol. ASP.NET Core will publish
 a versioned OpenAPI description, and Kiota will generate TypeScript, C#, and Python
@@ -392,7 +391,7 @@ Administrative revocation blocks API access and credential renewal immediately.
 The complete workflow is defined in the
 [Analyst Manager architecture](analyst-manager.md#registration-and-stamp-binding).
 
-The Analyst Manager token endpoint will be a minimal endpoint in the API's
+The Analyst Manager token endpoint is a minimal endpoint in the API's
 Registry functional area that supports only this grant; the platform does not
 run a general-purpose authorization server for machine clients.
 
@@ -453,7 +452,7 @@ OS-protected per-installation encryption keys.
 
 ## Analyst Technology
 
-The Analyst Manager will be a per-user desktop application in a separate .NET
+The Analyst Manager is a per-user desktop application in a separate .NET
 solution under `src/analysts/manager` with its own tests. A .NET 10 Generic
 Host worker in a library without UI dependencies owns lifecycle,
 registration, key providers, signed local state, queue, hardware, autostart,
