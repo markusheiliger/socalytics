@@ -64,9 +64,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton<NatsTopology>();
         services.AddSingleton<NatsHealthCheck>();
         services.AddOptions<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckServiceOptions>()
-            .Configure<Microsoft.Extensions.Configuration.IConfiguration>((options, configuration) =>
+            .Configure<IServiceProvider>((options, serviceProvider) =>
             {
-                if (!string.IsNullOrWhiteSpace(configuration["ConnectionStrings:nats"]))
+                var configuration = serviceProvider.GetService<Microsoft.Extensions.Configuration.IConfiguration>();
+                if (!string.IsNullOrWhiteSpace(configuration?["ConnectionStrings:nats"]))
                 {
                     options.Registrations.Add(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckRegistration(
                         NatsHealthCheck.Name,
