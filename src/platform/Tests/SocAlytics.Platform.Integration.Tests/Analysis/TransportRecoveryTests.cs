@@ -14,6 +14,10 @@ using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Infrastructure.Messaging.Nats;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using Xunit;
+using Npgsql;
+using SocAlytics.Platform.Application.Analysis.Commands;
+using SocAlytics.Platform.Application.Messaging;
+using SocAlytics.Platform.Integration.Tests.Analysis.Support;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis;
 
@@ -224,5 +228,136 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresCo
         {
             await nats.StartAsync();
         }
+    }
+
+    private static async Task<long> ScalarAsync(IsolatedDatabase db, string sql, CancellationToken ct)
+    {
+        await using var c = new NpgsqlConnection(db.MigratorConnectionString);
+        await c.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, c);
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
+    }
+
+    private static async Task ExecAsync(IsolatedDatabase db, string sql, CancellationToken ct)
+    {
+        await using var c = new NpgsqlConnection(db.MigratorConnectionString);
+        await c.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, c);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task<(Guid Job, Guid Occ, Guid Message)> SeedAsync(IsolatedDatabase db, string state, string messageState, CancellationToken ct)
+    {
+        Guid run = Guid.NewGuid(), node = Guid.NewGuid(), job = Guid.NewGuid(), occ = Guid.NewGuid(), msg = Guid.NewGuid(), g = Guid.NewGuid();
+        var digest = "sha-256:" + new string('a', 64);
+        await ExecAsync(db, $$"""
+            INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
+            VALUES ('{{run}}', '{{g}}', '{{g}}', '{{g}}', 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', 'Running', now(), now(), now());
+            INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
+            VALUES ('{{node}}', '{{run}}', 'm1', 'cap-a', '1.0.0', 'high-level', 'match', 0, 'Active', now());
+            INSERT INTO socalytics.analysis_run_snapshots (run_id, snapshot, snapshot_digest) VALUES ('{{run}}', '{}'::jsonb, 'sha-256:a');
+            INSERT INTO socalytics.analysis_node_snapshots (node_id, run_id, snapshot) VALUES ('{{node}}', '{{run}}', '{"analystProfileId":"profile","policyVersions":{ } }'::jsonb);
+            INSERT INTO socalytics.analysis_logical_jobs (id, run_id, node_id, execution_scope, state, updated_at) VALUES ('{{job}}', '{{run}}', '{{node}}', 'match', 'Waiting', now());
+            INSERT INTO socalytics.analysis_logical_job_snapshots (logical_job_id, max_attempts, lease_seconds, stale_timeout_seconds, execution_timeout_seconds, analyst_profile_digest, image_digest, model_digest, resources, schema_version)
+            VALUES ('{{job}}', 2, 30, 90, 600, '{{digest}}', '{{digest}}', '{{digest}}', '{}'::jsonb, '1.0.0');
+            INSERT INTO socalytics.analysis_readiness_occurrences (id, logical_job_id, sequence, cause, created_at) VALUES ('{{occ}}', '{{job}}', 1, 'initial', now());
+            UPDATE socalytics.analysis_logical_jobs SET state = '{{state}}', current_readiness_occurrence_id = '{{occ}}' WHERE id = '{{job}}';
+            INSERT INTO socalytics.outbox_messages (id, message_type, contract_version, subject, payload, causation_id, state, created_at, published_at)
+            VALUES ('{{msg}}', 'analysis.ready-work', '1.0.0', 'analysis.jobs.ready.cap-a', '{"a":1}'::jsonb, '{{occ}}', '{{messageState}}', now(), CASE WHEN '{{messageState}}' = 'published' THEN now() END);
+            """, ct);
+        return (job, occ, msg);
+    }
+
+    [Fact]
+    public async Task Reconciliation_republishes_only_ready_work_and_pending_notifications_idempotently()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var db = await postgres.CreateDatabaseAsync(ct);
+        await using var _ = db;
+        (await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
+        var host = new AnalysisTestHost(db, nats, rustFs);
+        await using var __ = host;
+        await host.StartAsync(ct);
+
+        var ready = await SeedAsync(db, "Ready", "published", ct);
+        var claimed = await SeedAsync(db, "Claimed", "published", ct);
+        var others = new List<(Guid Job, Guid Occ, Guid Message)>();
+        foreach (var state in new[] { "Completed", "Blocked", "Failed", "Waiting" })
+        {
+            others.Add(await SeedAsync(db, state, "published", ct));
+        }
+
+        var notification = Guid.NewGuid();
+        var failedNotification = Guid.NewGuid();
+        var unreceived = Guid.NewGuid();
+        await ExecAsync(db, $$"""
+            INSERT INTO socalytics.outbox_messages (id, message_type, contract_version, subject, payload, causation_id, state, created_at)
+            VALUES ('{{notification}}', 'analysis.run-state-changed', '1.0.0', 'analysis.events.run-state-changed', '{"a":1}'::jsonb, '{{notification}}', 'pending', now()),
+                   ('{{failedNotification}}', 'matches.recordings-finalized', '1.0.0', 'matches.recordings-finalized', '{"a":1}'::jsonb, '{{failedNotification}}', 'failed', now()),
+                   ('{{unreceived}}', 'matches.recordings-finalized', '1.0.0', 'matches.recordings-finalized', '{"a":1}'::jsonb, '{{unreceived}}', 'published', now());
+            """, ct);
+
+        await nats.ReplaceAsync();
+        async Task<ReconciliationResult> RunAsync()
+        {
+            await using var scope = host.Services.CreateAsyncScope();
+            return await scope.ServiceProvider.GetRequiredService<ReconcileAnalysisPublicationHandler>().HandleAsync(ct);
+        }
+
+        var result = await RunAsync();
+        result.ReadyJobsRepublished.ShouldBe(1);
+        result.NotificationsRepublished.ShouldBe(3);
+        (await ScalarAsync(db, $"SELECT publication_round FROM socalytics.outbox_messages WHERE id = '{ready.Message}'", ct)).ShouldBe(2);
+        (await ScalarAsync(db, $"SELECT count(*) FROM socalytics.outbox_messages WHERE id = '{ready.Message}' AND state = 'pending' AND attempt_count = 0 AND next_attempt_at IS NULL", ct)).ShouldBe(1);
+        foreach (var other in others.Append(claimed))
+        {
+            (await ScalarAsync(db, $"SELECT count(*) FROM socalytics.outbox_messages WHERE id = '{other.Message}' AND state = 'published' AND publication_round = 1", ct)).ShouldBe(1);
+        }
+
+        await RunAsync();
+        (await ScalarAsync(db, $"SELECT count(*) FROM socalytics.outbox_messages WHERE state = 'pending'", ct)).ShouldBe(4);
+
+        using var manager = new TestManagerClient(host.Factory);
+        using var stale = await manager.ClaimAsync(claimed.Job, claimed.Occ, "stale-key", ct: ct);
+        stale.StatusCode.ShouldBe(System.Net.HttpStatusCode.Conflict);
+        (await stale.Content.ReadAsStringAsync(ct)).ShouldContain("claim-obsolete");
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_execution_attempts", ct)).ShouldBe(0);
+
+        await using (var scope = host.Services.CreateAsyncScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<PublishOutboxBatch>().HandleAsync(ct);
+        }
+
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.outbox_messages WHERE state = 'pending'", ct)).ShouldBe(0);
+        var published = await host.ReadStreamAsync("SOCALYTICS_ANALYSIS_JOBS", ct);
+        published.Count(m => m.MessageId == $"{ready.Message}.r3").ShouldBe(1);
+        published.Count.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Reconnection_triggers_reconciliation_automatically()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var db = await postgres.CreateDatabaseAsync(ct);
+        await using var _ = db;
+        (await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
+        var host = new AnalysisTestHost(db, nats, rustFs, workersEnabled: true);
+        await using var __ = host;
+        await host.StartAsync(ct);
+        var ready = await SeedAsync(db, "Ready", "published", ct);
+        var signal = host.Services.GetRequiredService<TransportReconnectSignal>();
+        var before = signal.Count;
+
+        await nats.ReplaceAsync();
+        var deadline = DateTime.UtcNow.AddSeconds(90);
+        while (DateTime.UtcNow < deadline
+            && await ScalarAsync(db, $"SELECT count(*) FROM socalytics.outbox_messages WHERE id = '{ready.Message}' AND publication_round > 1 AND state = 'published'", ct) == 0)
+        {
+            host.Time.Advance(TimeSpan.FromSeconds(3));
+            await Task.Delay(500, ct);
+        }
+
+        signal.Count.ShouldBeGreaterThan(before);
+        (await ScalarAsync(db, $"SELECT count(*) FROM socalytics.outbox_messages WHERE id = '{ready.Message}' AND publication_round > 1 AND state = 'published'", ct)).ShouldBe(1);
     }
 }
