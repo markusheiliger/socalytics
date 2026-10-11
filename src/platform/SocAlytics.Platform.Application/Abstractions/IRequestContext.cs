@@ -5,6 +5,7 @@ public enum AuditActorKind
     Member,
     System,
     Anonymous,
+    AnalystManager,
 }
 
 public interface IRequestContext

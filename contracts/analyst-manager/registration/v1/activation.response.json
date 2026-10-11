@@ -1,0 +1,6 @@
+{
+  "managerId": "fixture-manager-0001",
+  "stampId": "fixture-stamp",
+  "tokenEndpoint": "https://stamp.example.test/api/v1/analyst-managers/token",
+  "keyThumbprint": "oKIywvGUpTVTyxMQ3bwIIeQUudfr_CkLMjCE19ECD-U"
+}

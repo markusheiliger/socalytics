@@ -10,6 +10,7 @@
     <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Npgsql" />
     <PackageReference Include="Shouldly" />
     <PackageReference Include="Testcontainers" />
@@ -34,5 +35,6 @@
   <ItemGroup>
     <None Include="..\..\SocAlytics.Platform.AppHost\PostgresInit\01-socalytics-roles.sh" Link="PostgresInit\01-socalytics-roles.sh" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\..\contracts\recordings\recordings-finalized\v1\recordings-finalized.schema.json" Link="contracts\recordings\recordings-finalized\v1\recordings-finalized.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\contracts\analyst-manager\registration\v1\**" Link="contracts\analyst-manager\registration\v1\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,6 @@
+{
+  "access_token": "fixture-access-token-not-a-secret",
+  "token_type": "DPoP",
+  "expires_in": 300,
+  "scope": "analyst-manager"
+}

@@ -69,6 +69,26 @@ public static class ApplicationServiceCollectionExtensions
         services.AddOptions<RecordingSetOptions>().BindConfiguration(RecordingSetOptions.SectionName).ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingSetOptions>, RecordingSetOptionsValidator>());
 
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.StartPairingHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.GetPairingStatusHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.ActivateRegistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.IssueManagerTokenHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.AuthenticateManagerRequestHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.GetOwnRegistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.BeginUnregistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.CompleteUnregistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Expiry.ExpireDueRegistrationsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.SubmitPairingCodeHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.GetRegistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.ListRegistrationsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.ApproveRegistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.RejectRegistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.RevokeRegistrationHandler>();
+        services.AddOptions<SocAlytics.Platform.Application.Registry.RegistryOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Registry.RegistryOptions.SectionName);
+        services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Registry.StampOptions.SectionName);
+
         return services;
     }
 }

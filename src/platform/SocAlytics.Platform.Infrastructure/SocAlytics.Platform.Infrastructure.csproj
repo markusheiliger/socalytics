@@ -9,6 +9,7 @@
 		<PackageReference Include="Microsoft.Extensions.Identity.Core" />
 		<PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+		<PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
 		<PackageReference Include="Npgsql" />
 	</ItemGroup>
 

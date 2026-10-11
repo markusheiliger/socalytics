@@ -1,0 +1,6 @@
+{
+  "headers": {
+    "Authorization": "DPoP fixture-access-token-not-a-secret",
+    "DPoP": "eyJ0eXAiOiJkcG9wXHUwMDJCand0IiwiYWxnIjoiRVMyNTYiLCJqd2siOnsia3R5IjoiRUMiLCJjcnYiOiJQLTI1NiIsIngiOiJmODNPSjNEMnhGMUJnOHZ1Yjl0TGUxZ0hNelY3NmU4VHVzOXVQSHZSVkVVIiwieSI6InhfRkV6UnU5bTM2SExOX3R1ZTY1OUxOcFhXNnBDeVN0aWtZaktJV0k1YTAifX0.eyJodG0iOiJHRVQiLCJodHUiOiJodHRwczovL3N0YW1wLmV4YW1wbGUudGVzdC9hcGkvdjEvYW5hbHlzdC1tYW5hZ2Vycy9zZWxmL3JlZ2lzdHJhdGlvbiIsImlhdCI6MTc2NzIyNTYwMCwianRpIjoiZjgzMzZiNmZhZGI2NDRmNTgwZDVhMzM2ZGI5ZjE0YzYifQ.0RcqXW8_HB4y5U0c8-Faht1jAjERKOs8-oxv6B-Rzff1vAK_u8qQMqg2r-8UQXhAVkrnRUdgRPkPEZzDFwShIA"
+  }
+}

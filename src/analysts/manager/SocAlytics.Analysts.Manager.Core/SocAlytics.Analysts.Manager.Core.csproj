@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Hosting" />
+    <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="Pkcs11Interop" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Runtime/runtime-compatibility.json" LogicalName="SocAlytics.Analysts.Manager.Runtime.runtime-compatibility.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SocAlytics.Analysts.Manager.Tests" />
+  </ItemGroup>
+</Project>

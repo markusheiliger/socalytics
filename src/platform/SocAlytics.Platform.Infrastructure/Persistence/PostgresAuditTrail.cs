@@ -27,6 +27,18 @@ internal sealed class PostgresAuditTrail(
         "grantedPartCount",
         "grantExpiresAt",
         "memberCount",
+        "managerId",
+        "stampId",
+        "keyThumbprint",
+        "windowExpiresAt",
+        "os",
+        "osVersion",
+        "architecture",
+        "managerVersion",
+        "claimedKeyProtection",
+        "deviceFingerprint",
+        "pairingSourceAddress",
+        "registrationCorrelationId",
     };
 
     private const string InsertSql =
@@ -120,6 +132,7 @@ internal sealed class PostgresAuditTrail(
         AuditActorKind.Member => "member",
         AuditActorKind.System => "system",
         AuditActorKind.Anonymous => "anonymous",
+        AuditActorKind.AnalystManager => "analyst-manager",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
 }

@@ -55,9 +55,10 @@ public sealed class OpenApiContractTests
 
 		mismatches.ShouldBeEmpty();
 
-		// Recording operations are verified by RecordingsOpenApiTests, not against the Club contract.
+		// Recording operations are verified by RecordingsOpenApiTests and Registry operations by
+		// RegistryOpenApiTests, not against the Club contract.
 		var operationCount = paths.EnumerateObject()
-			.Where(p => !IsRecordingPath(p.Name))
+			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name))
 			.Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
 		operationCount.ShouldBe(ContractOperations.All.Count);
 
@@ -93,5 +94,18 @@ public sealed class OpenApiContractTests
 		}
 
 		return rest == "recording-lineage";
+	}
+
+	private static bool IsRegistryPath(string path)
+	{
+		foreach (var prefix in new[] { "/api/v1/analyst-managers", "/api/v1/analyst-manager-registrations" })
+		{
+			if (path == prefix || path.StartsWith(prefix + "/", StringComparison.Ordinal))
+			{
+				return true;
+			}
+		}
+
+		return false;
 	}
 }
