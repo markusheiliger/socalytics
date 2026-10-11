@@ -321,7 +321,7 @@ test('stage: lands the tasks of a [P] group in order and shows the next stage as
   assert.deepEqual(reported.map((check) => [check.status, check.conclusion]), [['completed', 'success'], ['completed', 'success']], 'the stage reports through the check runs decide created');
   const next = github.repo.checkRuns.find((check) => check.external_id === 'speckit:attempt:task:T003:1');
   assert.deepEqual([next.status, next.output.title, next.output.summary], ['in_progress', 'T003 attempt 1 in progress', 'Create docs/z.md']);
-  assert.match(result.output, /^ok=true\nhead=sha-head\nstart=[0-9a-f]{40}\ncombined=false\n$/);
+  assert.match(result.output, /^ok=true\nhead=sha-head\nstart=[0-9a-f]{40}\ncombined=false\ntasks=T001, T002\n$/);
   assert.equal(result.exitCode, 0);
 }));
 
@@ -369,7 +369,7 @@ test('stage: parallel edits to the same file are combined, and the next stage wa
   assert.deepEqual([result.ok, result.exitCode, result.combined], [true, 0, ['docs/list.md']]);
   assert.deepEqual(result.outcomes.map((outcome) => [outcome.key, outcome.landed, outcome.combined]), [['T001', true, []], ['T002', true, ['docs/list.md']]]);
   assert.equal(remoteShow(repos, 'speckit/f:docs/list.md'), 'one\ntwo (x)\nthree\nfour\nfive (y)\nsix\n');
-  assert.match(result.output, /^ok=true\nhead=sha-head\nstart=[0-9a-f]{40}\ncombined=true\n$/);
+  assert.match(result.output, /^ok=true\nhead=sha-head\nstart=[0-9a-f]{40}\ncombined=true\ntasks=T001, T002\n$/);
   assert.equal(github.repo.checkRuns.some((check) => String(check.external_id).includes('T003')), false, 'the next stage waits for the combined verification');
 }));
 

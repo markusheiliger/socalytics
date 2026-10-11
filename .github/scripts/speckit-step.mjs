@@ -783,6 +783,8 @@ export async function runLandStage({ client, git, env, folder, workspace, result
   setOutput(env, 'head', current);
   setOutput(env, 'start', tip);
   setOutput(env, 'combined', String(combined.length > 0));
+  // Names the jobs after this one: a skipped job cannot evaluate its name from the inputs, only from needs.
+  setOutput(env, 'tasks', outcomes.map((outcome) => outcome.key).join(', '));
   log(`Stage ${index + 1}: ${outcomes.map((outcome) => `${outcome.key} ${outcome.landed ? 'pushed' : 'not pushed'}`).join(', ')}.`);
   if (combined.length > 0) log(`Parallel changes to ${combined.join(', ')} were combined; the stage is verified together next.`);
   if (!ok) log('Not every task was pushed, so the stages after this one are cancelled; the next run continues from here.');

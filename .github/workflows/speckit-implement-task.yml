@@ -220,6 +220,7 @@ jobs:
       head: ${{ steps.land.outputs.head }}
       start: ${{ steps.land.outputs.start }}
       combined: ${{ steps.land.outputs.combined }}
+      tasks: ${{ steps.land.outputs.tasks }}
     env:
       SPECKIT_STEP: ${{ inputs.step }}
       SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -269,9 +270,10 @@ jobs:
         run: node tooling/.github/scripts/speckit-step.mjs land-stage
 
   # Parallel tasks that edited the same files were merged three-way while pushing: each passed its own verification,
-  # so their combination gets the full verification here (read-only token; it runs agent-written code).
+  # so their combination gets the full verification here (read-only token; it runs agent-written code). Its name comes
+  # from needs, because GitHub cannot evaluate the inputs for the name of a skipped job.
   verify:
-    name: ${{ format('Verify {0} together', join(fromJSON(inputs.stages)[inputs.index].include.*.task, ', ')) }}
+    name: ${{ needs.land.outputs.tasks && format('Verify {0} together', needs.land.outputs.tasks) || 'Verify the combined changes' }}
     needs: land
     if: always() && needs.land.outputs.combined == 'true'
     runs-on: ubuntu-latest
