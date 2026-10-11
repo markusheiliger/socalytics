@@ -119,6 +119,131 @@ public sealed class AnalysisSchemaTests(PostgresContainerFixture postgres)
 		await uow.CommitAsync(ct);
 	}
 
+	private static readonly LogicalJobSnapshotRecord JobSnapshot =
+		new(3, 60, 120, 600, "sha-256:" + new string('b', 64), "sha-256:" + new string('c', 64), null, "{}", "1");
+
+	private static NewLogicalJob SegmentJob(Guid runId, Guid nodeId, Guid? version, string? mapping, string? policy, int? number) =>
+		new(Guid.CreateVersion7(), runId, nodeId, ExecutionScope.Segment, version, mapping, policy, number, LogicalJobState.Waiting, JobSnapshot);
+
+	private static NewLogicalJob MatchJob(Guid runId, Guid nodeId, int? number = null) =>
+		new(Guid.CreateVersion7(), runId, nodeId, ExecutionScope.Match, null, null, null, number, LogicalJobState.Waiting, JobSnapshot);
+
+	private static async Task InsertJobsAsync(IServiceProvider root, CancellationToken ct, params NewLogicalJob[] jobs)
+	{
+		await using var scope = root.CreateAsyncScope();
+		await using var uow = await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
+		await scope.ServiceProvider.GetRequiredService<ILogicalJobStore>().InsertAsync(jobs, ct);
+		await uow.CommitAsync(ct);
+	}
+
+	[Fact]
+	public async Task LogicalJobIdentityAndSegmentFieldRulesAreEnforced()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var run = NewRun(Guid.NewGuid(), "1", out var low, out var high);
+		var runId = await InsertAsync(provider, run, ct);
+		var version = Guid.NewGuid();
+		var digest = "sha-256:" + new string('d', 64);
+
+		await InsertJobsAsync(provider, ct, SegmentJob(runId, low, version, digest, digest, 1), MatchJob(runId, high));
+		await InsertJobsAsync(provider, ct, SegmentJob(runId, low, version, digest, digest, 2));
+
+		var dupSegment = await Should.ThrowAsync<PostgresException>(() => InsertJobsAsync(provider, ct, SegmentJob(runId, low, version, digest, digest, 1)));
+		dupSegment.SqlState.ShouldBe(PostgresErrorCodes.UniqueViolation);
+		var dupMatch = await Should.ThrowAsync<PostgresException>(() => InsertJobsAsync(provider, ct, MatchJob(runId, high)));
+		dupMatch.SqlState.ShouldBe(PostgresErrorCodes.UniqueViolation);
+		var missing = await Should.ThrowAsync<PostgresException>(() => InsertJobsAsync(provider, ct, SegmentJob(runId, low, version, digest, digest, null)));
+		missing.SqlState.ShouldBe(PostgresErrorCodes.CheckViolation);
+		var extra = await Should.ThrowAsync<PostgresException>(() => InsertJobsAsync(provider, ct, MatchJob(runId, high, 5)));
+		extra.SqlState.ShouldBe(PostgresErrorCodes.CheckViolation);
+	}
+
+	[Fact]
+	public async Task AttemptConstraintsAndFencingSequenceWork()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var runId = await InsertAsync(provider, NewRun(Guid.NewGuid(), "1", out _, out var high), ct);
+		var job = MatchJob(runId, high);
+		await InsertJobsAsync(provider, ct, job);
+
+		await using var connection = new NpgsqlConnection(db.AppConnectionString);
+		await connection.OpenAsync(ct);
+		var occurrences = new[] { Guid.NewGuid(), Guid.NewGuid() };
+		for (var i = 0; i < occurrences.Length; i++)
+		{
+			await connection.ExecuteAsync(new CommandDefinition(
+				"INSERT INTO socalytics.analysis_readiness_occurrences (id, logical_job_id, sequence, cause, created_at) VALUES (@id, @job, @seq, 'initial', now())",
+				new { id = occurrences[i], job = job.Id, seq = i + 1 }, cancellationToken: ct));
+		}
+
+		async Task InsertAttempt(Guid occurrence, int number, string state) => await connection.ExecuteAsync(new CommandDefinition(
+			"""
+			INSERT INTO socalytics.analysis_execution_attempts
+				(id, logical_job_id, readiness_occurrence_id, attempt_number, manager_id, fencing_token, state, claimed_at, lease_expires_at, last_heartbeat_at)
+			VALUES (gen_random_uuid(), @job, @occurrence, @number, gen_random_uuid(), nextval('socalytics.analysis_fencing_token_seq'), @state, now(), now(), now())
+			""",
+			new { job = job.Id, occurrence, number, state }, cancellationToken: ct));
+
+		await InsertAttempt(occurrences[0], 1, "Active");
+		var twoActive = await Should.ThrowAsync<PostgresException>(() => InsertAttempt(occurrences[1], 2, "Active"));
+		twoActive.SqlState.ShouldBe(PostgresErrorCodes.UniqueViolation);
+		var dupNumber = await Should.ThrowAsync<PostgresException>(() => InsertAttempt(occurrences[1], 1, "Stale"));
+		dupNumber.SqlState.ShouldBe(PostgresErrorCodes.UniqueViolation);
+		await InsertAttempt(occurrences[1], 2, "Stale");
+	}
+
+	[Theory]
+	[InlineData("analysis_logical_job_snapshots", "UPDATE", "SET max_attempts = 9")]
+	[InlineData("analysis_logical_job_snapshots", "DELETE", "")]
+	[InlineData("analysis_logical_job_inputs", "UPDATE", "SET inputs = '[]'::jsonb")]
+	[InlineData("analysis_logical_job_inputs", "DELETE", "")]
+	[InlineData("analysis_readiness_occurrences", "UPDATE", "SET cause = 'attempt-failed'")]
+	[InlineData("analysis_readiness_occurrences", "DELETE", "")]
+	public async Task LogicalJobImmutableTablesRejectUpdateAndDelete(string table, string verb, string set)
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var runId = await InsertAsync(provider, NewRun(Guid.NewGuid(), "1", out _, out var high), ct);
+		var job = MatchJob(runId, high);
+		await InsertJobsAsync(provider, ct, job);
+		await using var connection = new NpgsqlConnection(db.AppConnectionString);
+		await connection.OpenAsync(ct);
+		await connection.ExecuteAsync(new CommandDefinition(
+			"INSERT INTO socalytics.analysis_logical_job_inputs (logical_job_id, inputs, recorded_at) VALUES (@job, '{}'::jsonb, now())",
+			new { job = job.Id }, cancellationToken: ct));
+		await connection.ExecuteAsync(new CommandDefinition(
+			"INSERT INTO socalytics.analysis_readiness_occurrences (id, logical_job_id, sequence, cause, created_at) VALUES (gen_random_uuid(), @job, 1, 'initial', now())",
+			new { job = job.Id }, cancellationToken: ct));
+
+		var sql = verb == "UPDATE" ? $"UPDATE socalytics.{table} {set}" : $"DELETE FROM socalytics.{table}";
+		var ex = await Should.ThrowAsync<PostgresException>(() => connection.ExecuteAsync(new CommandDefinition(sql, cancellationToken: ct)));
+		ex.SqlState.ShouldBe(PostgresErrorCodes.InsufficientPrivilege);
+	}
+
+	[Theory]
+	[InlineData("UPDATE socalytics.analysis_claim_keys SET idempotency_key = 'x'")]
+	[InlineData("DELETE FROM socalytics.analysis_claim_keys")]
+	public async Task ClaimKeysRejectUpdateAndDeleteForTheRuntimeRole(string sql)
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		await using var connection = new NpgsqlConnection(db.AppConnectionString);
+		await connection.OpenAsync(ct);
+		var ex = await Should.ThrowAsync<PostgresException>(() => connection.ExecuteAsync(new CommandDefinition(sql, cancellationToken: ct)));
+		ex.SqlState.ShouldBe(PostgresErrorCodes.InsufficientPrivilege);
+		(await connection.ExecuteScalarAsync<long>(new CommandDefinition("SELECT nextval('socalytics.analysis_fencing_token_seq')", cancellationToken: ct))).ShouldBe(1);
+	}
+
 	[Theory]
 	[InlineData("analysis_run_snapshots", "UPDATE", "SET snapshot_digest = 'x'")]
 	[InlineData("analysis_run_snapshots", "DELETE", "")]

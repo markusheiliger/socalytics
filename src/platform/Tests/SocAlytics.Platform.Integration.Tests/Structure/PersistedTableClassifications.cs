@@ -40,6 +40,11 @@ internal static class PersistedTableClassifications
             ["analysis_workflow_nodes"] = TableClassification.ChildOf("analysis_runs", "run_id"),
             ["analysis_node_snapshots"] = TableClassification.ChildOf("analysis_runs", "run_id"),
             ["analysis_dependency_edges"] = TableClassification.ChildOf("analysis_runs", "run_id"),
+            ["analysis_logical_job_snapshots"] = TableClassification.ChildOf("analysis_logical_jobs", "logical_job_id"),
+            ["analysis_logical_job_inputs"] = TableClassification.ChildOf("analysis_logical_jobs", "logical_job_id"),
+            ["analysis_readiness_occurrences"] = TableClassification.ChildOf("analysis_logical_jobs", "logical_job_id"),
+            ["analysis_execution_attempts"] = TableClassification.ChildOf("analysis_logical_jobs", "logical_job_id"),
+            ["analysis_claim_keys"] = TableClassification.Immutable,
             ["outbox_messages"] = TableClassification.Unversioned("operational publication record; transitions guarded by row lock and state"),
         };
 }
