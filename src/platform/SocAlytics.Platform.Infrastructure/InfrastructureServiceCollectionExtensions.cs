@@ -94,6 +94,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Messaging.IOutboxPublicationStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.OutboxPublicationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Messaging.PublishOutboxBatch>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.OutboxPublisherWorker>();
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.AnalysisNotificationOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.AnalysisNotificationOptions.SectionName);
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.RecordingsFinalizedConsumerWorker>();
 
         return services;
     }

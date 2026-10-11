@@ -13,7 +13,8 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis;
 
-public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsContainerFixture rustFs)
+[Collection("NatsFaultInjection")]
+public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsContainerFixture rustFs, NatsContainerFixture nats)
 {
 	[Fact]
 	public async Task FinalizationEnqueuesOneOutboxRowEqualToTheEventRow()
@@ -179,5 +180,91 @@ public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsCo
 		(await HandleAsync(s, n, ct)).ShouldBeOfType<NotificationOutcome.RunCreated>();
 		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs WHERE state = 'Failed' AND failure_reason LIKE 'invalid-graph:%' AND terminated_at IS NOT NULL", ct)).ShouldBe(1);
 		(await s.ScalarAsync("SELECT (SELECT count(*) FROM socalytics.analysis_workflow_nodes) + (SELECT count(*) FROM socalytics.analysis_dependency_edges) + (SELECT count(*) FROM socalytics.analysis_logical_jobs) + (SELECT count(*) FROM socalytics.outbox_messages WHERE message_type = 'analysis.ready-work')", ct)).ShouldBe(0);
+	}
+
+	private Dictionary<string, string?> WorkerSettings()
+	{
+		var w = DevWorkflow();
+		w["ConnectionStrings:nats"] = nats.ConnectionString;
+		w["Messaging:Nats:ProvisionTopology"] = "true";
+		w["Analysis:Workers:Enabled"] = "true";
+		w["Analysis:Notifications:NakDelaySeconds"] = "1";
+		return w;
+	}
+
+	private static async Task<bool> WaitAsync(Func<Task<bool>> condition, CancellationToken ct)
+	{
+		for (var i = 0; i < 120; i++)
+		{
+			if (await condition())
+			{
+				return true;
+			}
+
+			await Task.Delay(500, ct);
+		}
+
+		return false;
+	}
+
+	private async Task PublishAsync(byte[] payload, CancellationToken ct)
+	{
+		await using var connection = new NATS.Client.Core.NatsConnection(NATS.Client.Core.NatsOpts.Default with { Url = nats.ConnectionString });
+		var js = new NATS.Client.JetStream.NatsJSContext(connection);
+		var ack = await js.PublishAsync("matches.recordings-finalized", payload,
+			serializer: NATS.Client.Core.NatsRawSerializer<byte[]>.Default,
+			headers: new NATS.Client.Core.NatsHeaders { ["Nats-Msg-Id"] = Guid.NewGuid().ToString() }, cancellationToken: ct);
+		ack.Error.ShouldBeNull();
+	}
+
+	[Fact]
+	public async Task FinalizedRecordingSetFlowsThroughNatsToExactlyOneRun()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct, sets: null, extraSettings: WorkerSettings());
+		await RecordingFinalizationHelper.FinalizeAsync(s.Coach, s.Hierarchy.MatchId, 1, ct);
+		(await WaitAsync(async () => await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct) == 1, ct)).ShouldBeTrue();
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.outbox_messages WHERE message_type = 'matches.recordings-finalized' AND state = 'published'", ct)).ShouldBe(1);
+
+		await using var connection = new NpgsqlConnection(s.Db.MigratorConnectionString);
+		await connection.OpenAsync(ct);
+		await using var cmd = new NpgsqlCommand("SELECT payload::text FROM socalytics.recording_finalized_events", connection);
+		var payload = System.Text.Encoding.UTF8.GetBytes((string)(await cmd.ExecuteScalarAsync(ct))!);
+		await PublishAsync(payload, ct);
+		await PublishAsync(payload, ct);
+		await Task.Delay(TimeSpan.FromSeconds(4), ct);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(1);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct)).ShouldBe(1);
+	}
+
+	[Fact]
+	public async Task UnavailableLookupNaksAndRunIsCreatedAfterRecovery()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var flag = new SwitchLookup.Flag { Throw = true };
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct, sets: null, configureServices: services =>
+		{
+			var original = services.Last(d => d.ServiceType == typeof(IRecordingSetLookup));
+			services.Remove(original);
+			services.AddScoped<IRecordingSetLookup>(sp => new SwitchLookup(
+				(IRecordingSetLookup)ActivatorUtilities.CreateInstance(sp, original.ImplementationType!), flag));
+		}, extraSettings: WorkerSettings());
+		await RecordingFinalizationHelper.FinalizeAsync(s.Coach, s.Hierarchy.MatchId, 1, ct);
+		(await WaitAsync(async () => await s.ScalarAsync("SELECT count(*) FROM socalytics.outbox_messages WHERE message_type = 'matches.recordings-finalized' AND state = 'published'", ct) == 1, ct)).ShouldBeTrue();
+		await Task.Delay(TimeSpan.FromSeconds(3), ct);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct)).ShouldBe(0);
+		flag.Throw = false;
+		(await WaitAsync(async () => await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct) == 1, ct)).ShouldBeTrue();
+	}
+
+	[Fact]
+	public async Task SchemaInvalidMessageIsRejectedAndAcknowledged()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct, sets: null, extraSettings: WorkerSettings());
+		var id = Guid.NewGuid();
+		await PublishAsync(System.Text.Encoding.UTF8.GetBytes($"{{\"eventId\":\"{id}\"}}"), ct);
+		(await WaitAsync(async () => await s.ScalarAsync($"SELECT count(*) FROM socalytics.analysis_notification_receipts WHERE message_id = '{id}' AND outcome = 'rejected' AND rejection_category = 'schema-invalid'", ct) == 1, ct)).ShouldBeTrue();
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(0);
 	}
 }
