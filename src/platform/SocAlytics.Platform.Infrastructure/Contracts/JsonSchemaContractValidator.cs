@@ -30,6 +30,13 @@ internal sealed class JsonSchemaContractValidator : IContractValidator
                 _schemas[id.AbsoluteUri] = schema;
             }
         }
+
+        // Reference resolution happens lazily on first evaluation and is not thread-safe, so resolve it up front.
+        using var probe = JsonDocument.Parse("null");
+        foreach (var schema in _schemas.Values)
+        {
+            schema.Evaluate(probe.RootElement, Options);
+        }
     }
 
     public ContractValidationResult Validate(string schemaId, JsonElement payload)
