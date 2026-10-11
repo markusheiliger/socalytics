@@ -87,6 +87,14 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddOptions<SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowOptions>()
             .BindConfiguration(SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowOptions.SectionName);
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionResolver, SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowDefinitionResolver>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionAvailability, SocAlytics.Platform.Infrastructure.Registry.WorkflowDefinitionAvailability>();
+        services.AddSingleton<SocAlytics.Platform.Infrastructure.Registry.AnalysisWorkflowHealthCheck>();
+        services.AddOptions<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckServiceOptions>()
+            .Configure(options => options.Registrations.Add(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckRegistration(
+                SocAlytics.Platform.Infrastructure.Registry.AnalysisWorkflowHealthCheck.Name,
+                sp => sp.GetRequiredService<SocAlytics.Platform.Infrastructure.Registry.AnalysisWorkflowHealthCheck>(),
+                Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy,
+                tags: [])));
         services.AddOptions<SocAlytics.Platform.Application.Messaging.OutboxPublicationOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Messaging.OutboxPublicationOptions.SectionName);
         services.AddOptions<SocAlytics.Platform.Infrastructure.Workers.AnalysisWorkerOptions>()

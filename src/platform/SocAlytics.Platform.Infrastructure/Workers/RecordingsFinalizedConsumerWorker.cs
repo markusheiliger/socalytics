@@ -21,6 +21,7 @@ internal sealed class RecordingsFinalizedConsumerWorker(
     NatsConnectionProvider nats,
     NatsTopology topology,
     IOptions<NatsOptions> natsOptions,
+    SocAlytics.Platform.Application.Registry.IWorkflowDefinitionAvailability availability,
     IOptions<AnalysisNotificationOptions> options,
     IOptions<AnalysisWorkerOptions> workerOptions,
     TimeProvider timeProvider,
@@ -62,6 +63,12 @@ internal sealed class RecordingsFinalizedConsumerWorker(
                     throw new MessageTransportException(TransportFailureCategories.TransportUnavailable);
                 }
 
+                if (!availability.Current.IsResolvable)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(500), ct).ConfigureAwait(false);
+                    return;
+                }
+
                 try
                 {
                     if (!ready)
@@ -99,6 +106,12 @@ internal sealed class RecordingsFinalizedConsumerWorker(
     private async Task ProcessAsync(INatsJSMsg<byte[]> msg, CancellationToken ct)
     {
         var nak = TimeSpan.FromSeconds(options.Value.NakDelaySeconds);
+        if (!availability.Current.IsResolvable)
+        {
+            await msg.NakAsync(nak, cancellationToken: ct).ConfigureAwait(false);
+            return;
+        }
+
         JsonDocument document;
         try
         {

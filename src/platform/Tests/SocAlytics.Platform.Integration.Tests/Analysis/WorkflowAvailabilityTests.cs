@@ -11,8 +11,97 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis;
 
-public sealed class WorkflowAvailabilityTests
+[Collection("NatsFaultInjection")]
+public sealed class WorkflowAvailabilityTests(
+    SocAlytics.Platform.Integration.Tests.Infrastructure.PostgresContainerFixture postgres,
+    SocAlytics.Platform.Integration.Tests.Recordings.RustFsContainerFixture rustFs,
+    SocAlytics.Platform.Integration.Tests.Infrastructure.NatsContainerFixture nats)
 {
+    private sealed class Switch
+    {
+        public volatile bool Down;
+    }
+
+    private sealed class SwitchResolver(IWorkflowDefinitionResolver inner, Switch flag) : IWorkflowDefinitionResolver
+    {
+        public Task<WorkflowResolution> ResolveDefaultAsync(CancellationToken cancellationToken) =>
+            flag.Down
+                ? Task.FromResult(WorkflowResolution.Unavailable(WorkflowResolution.NotConfigured))
+                : inner.ResolveDefaultAsync(cancellationToken);
+    }
+
+    private Dictionary<string, string?> Settings() => new()
+    {
+        ["ConnectionStrings:nats"] = nats.ConnectionString,
+        ["Messaging:Nats:ProvisionTopology"] = "true",
+        ["Analysis:Workers:Enabled"] = "true",
+        ["Analysis:Notifications:NakDelaySeconds"] = "1",
+        ["Analysis:Notifications:ResolveRecheckSeconds"] = "1",
+    };
+
+    private static async Task<bool> WaitAsync(Func<Task<bool>> condition, CancellationToken ct)
+    {
+        for (var i = 0; i < 120; i++)
+        {
+            if (await condition())
+            {
+                return true;
+            }
+
+            await Task.Delay(500, ct);
+        }
+
+        return false;
+    }
+
+    [Fact]
+    public async Task Missing_definition_reports_unhealthy_and_keeps_alive()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var s = await SocAlytics.Platform.Integration.Tests.Recordings.Support.FinalizationSetup.StartAsync(
+            postgres, rustFs, ct, extraSettings: Settings(), omitWorkflow: true);
+        using var client = s.Factory.CreateApiClient();
+        (await client.GetAsync("/health", ct)).StatusCode.ShouldBe(System.Net.HttpStatusCode.ServiceUnavailable);
+        (await client.GetAsync("/alive", ct)).StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+
+        var health = s.Factory.Services.GetRequiredService<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckService>();
+        var report = await health.CheckHealthAsync(r => r.Name == "analysis-workflow", ct);
+        var entry = report.Entries["analysis-workflow"];
+        entry.Status.ShouldBe(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy);
+        entry.Description.ShouldBe("not-configured");
+        entry.Data.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Pending_notifications_wait_while_unresolvable_and_produce_one_run_after_recovery()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var flag = new Switch { Down = true };
+        await using var s = await SocAlytics.Platform.Integration.Tests.Recordings.Support.FinalizationSetup.StartAsync(
+            postgres, rustFs, ct, extraSettings: Settings(), configureServices: services =>
+            {
+                var original = services.Last(d => d.ServiceType == typeof(IWorkflowDefinitionResolver));
+                services.Remove(original);
+                services.AddSingleton<IWorkflowDefinitionResolver>(sp => new SwitchResolver(
+                    (IWorkflowDefinitionResolver)ActivatorUtilities.CreateInstance(sp, original.ImplementationType!), flag));
+            });
+        await SocAlytics.Platform.Integration.Tests.Recordings.Support.RecordingFinalizationHelper.FinalizeAsync(s.Coach, s.Hierarchy.MatchId, 1, ct);
+        (await WaitAsync(async () => await s.ScalarAsync("SELECT count(*) FROM socalytics.outbox_messages WHERE message_type = 'matches.recordings-finalized' AND state = 'published'", ct) == 1, ct)).ShouldBeTrue();
+        await Task.Delay(TimeSpan.FromSeconds(4), ct);
+        (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct)).ShouldBe(0);
+        (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(0);
+
+        var health = s.Factory.Services.GetRequiredService<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckService>();
+        (await health.CheckHealthAsync(r => r.Name == "analysis-workflow", ct)).Status
+            .ShouldBe(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy);
+
+        flag.Down = false;
+        (await WaitAsync(async () => await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct) == 1, ct)).ShouldBeTrue();
+        (await health.CheckHealthAsync(r => r.Name == "analysis-workflow", ct)).Status
+            .ShouldBe(Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy);
+        (await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_notification_receipts", ct)).ShouldBe(1);
+    }
+
     private static string DevelopmentSettingsPath()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
