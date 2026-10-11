@@ -3,6 +3,7 @@ using SocAlytics.Platform.Api.Bootstrap;
 using SocAlytics.Platform.Api.Endpoints.Club;
 using SocAlytics.Platform.Api.Endpoints.IdentityAccess;
 using SocAlytics.Platform.Api.Http;
+using SocAlytics.Platform.Api.Analysis;
 using SocAlytics.Platform.Api.Recordings;
 using SocAlytics.Platform.Api.Registry;
 using SocAlytics.Platform.Api.Security;
@@ -65,6 +66,7 @@ app.MapMatchEndpoints();
 app.MapMemberEndpoints();
 app.MapCredentialEndpoints();
 app.MapRecordingEndpoints();
+app.MapAnalysisRunEndpoints();
 app.MapRegistryEndpoints();
 
 app.Run();
