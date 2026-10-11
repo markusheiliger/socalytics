@@ -13,11 +13,13 @@ through approved changes.
     Coach Client ownership boundary.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.
-- [`src/analysts/`](src/analysts/README.md) records the planned Analyst Manager,
-    Analyst SDK, and Analyst capability ownership boundary.
+- [`src/analysts/`](src/analysts/README.md) contains the executable Analyst
+    Manager desktop app under `src/analysts/manager/` and records the planned
+    Analyst SDK and Analyst capability ownership boundary.
 - [`docs/`](docs/README.md) indexes architecture, component, and operational documentation.
 - [`contracts/`](contracts/README.md) holds the canonical machine-readable
-    contracts (JSON Schema 2020-12) and their index.
+    contracts (JSON Schema 2020-12), the golden-fixture set shared by the
+    platform and Analyst Manager tests, and their index.
 - [`.specify/`](.specify/memory/constitution.md) holds the Spec Kit project
     constitution, templates, and helper scripts; `.github/skills/speckit-*`
     holds the generated Spec Kit skills for GitHub Copilot.
@@ -27,9 +29,9 @@ through approved changes.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
 
-The clients, agents, and analysts source areas remain non-executable ownership
-scaffolds. The platform area contains the repository's current application
-projects and tests. No deployment manifests or product automation exist yet.
+The clients and agents source areas remain non-executable ownership
+scaffolds. The platform and the Analyst Manager contain the repository's current
+application projects and tests. No deployment manifests or product automation exist yet.
 
 ## Development
 
@@ -84,9 +86,13 @@ The identity foundation is implemented as development evidence: local accounts,
 a server-validated BFF session with anti-forgery protection, membership, club
 and team roles, team-scoped authorization, security audit events, and the
 `Club > Season > Team > Match` hierarchy under `/api/v1`. OIDC, MFA
-enforcement, self-service recovery, clients, Analyst Manager identity,
+enforcement, self-service recovery, clients,
 production values for POL-001, POL-002, and POL-009, deployment, and
 production readiness remain deferred.
+
+Analyst Manager registration is implemented as development evidence: pairing,
+approval, activation, DPoP machine tokens, and revocation, with golden
+fixtures shared with the Analyst Manager tests.
 
 The AppHost bootstraps the first club with these parameters:
 
@@ -111,6 +117,34 @@ Operator break-glass recovery: set `BreakGlassRecovery__AccountName`,
 `break-glass-recovery.applied` audit event, then remove the directive.
 `IdentityAccess` settings exist only in `appsettings.Development.json` and
 test configuration.
+
+### Analyst Manager
+
+The Analyst Manager is a per-user desktop tray application for Windows,
+macOS, and Linux in a separate .NET 10 solution that pins the same SDK as
+the platform in its own `global.json`. Run these commands from the
+repository root:
+
+```powershell
+dotnet restore src/analysts/manager/SocAlytics.Analysts.Manager.slnx
+dotnet build src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-restore
+dotnet test src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-build
+dotnet run --project src/analysts/manager/SocAlytics.Analysts.Manager
+```
+
+The tray menu (or the status window where no tray area exists) offers
+status, pause, timed pause, resume, safe exit, register, unregister, and
+start at sign-in. `socalytics-manager status`, `pause`, `resume`, `exit`,
+`register`, `unregister`, and `autostart` script a running Manager.
+Device keys are non-exportable: Windows CNG (TPM), macOS Secure Enclave
+(requires the Swift bridge built on macOS), and Linux PKCS#11
+(tpm2-pkcs11); software-backed keys are used only where the stamp allows
+them (development and test). Registration shows a device fingerprint that
+the Registrar enters together with the pairing code. The Linux tests need
+SoftHSM2 (`softhsm2`); Windows and macOS key-store tests are skipped elsewhere
+and verified manually. No production container-runtime integration ships, so a
+Manager stays Runtime unavailable. This is development evidence, not production
+readiness.
 
 ### Contracts
 
@@ -319,7 +353,11 @@ their "blocked by" issues are closed.
   - `environment-verify` runs the platform restore, build, and tests when
       `src/platform/**` or the repository-root `contracts/**` changed (the
       contract coverage is active because the platform solution exists, and
-      the contract tests run as part of the platform tests) and the Markdown
+      the contract tests run as part of the platform tests), the Analyst
+      Manager restore, build, and tests
+      (`src/analysts/manager/SocAlytics.Analysts.Manager.slnx`) when
+      `src/analysts/manager/**` or the shared fixtures under
+      `contracts/analyst-manager/**` changed, and the Markdown
       check when Markdown changed.
       In mode `task` it runs the architecture tests, the test classes declared
       in changed test files, and a whole test project when other files of it
