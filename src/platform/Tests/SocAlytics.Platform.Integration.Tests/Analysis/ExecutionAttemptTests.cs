@@ -1,6 +1,8 @@
 using System.Net;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
+using SocAlytics.Platform.Application.Analysis.Commands;
 using Shouldly;
 using SocAlytics.Platform.Integration.Tests.Analysis.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
@@ -32,10 +34,14 @@ public sealed class ExecutionAttemptTests(PostgresContainerFixture postgres, Nat
             VALUES (@run, @g, @g, @g, 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', 'Running', @at, @at, @at);
             INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
             VALUES (@node, @run, 'm1', 'cap-a', '1.0.0', 'high-level', 'match', 0, 'Active', @at);
+            INSERT INTO socalytics.analysis_run_snapshots (run_id, snapshot, snapshot_digest)
+            VALUES (@run, '{}'::jsonb, 'sha-256:a');
+            INSERT INTO socalytics.analysis_node_snapshots (node_id, run_id, snapshot)
+            VALUES (@node, @run, '{"analystProfileId":"profile","policyVersions":{}}'::jsonb);
             INSERT INTO socalytics.analysis_logical_jobs (id, run_id, node_id, execution_scope, state, updated_at)
             VALUES (@job, @run, @node, 'match', 'Waiting', @at);
-            INSERT INTO socalytics.analysis_logical_job_snapshots (logical_job_id, max_attempts, lease_seconds, stale_timeout_seconds, execution_timeout_seconds, analyst_profile_digest, image_digest, resources, schema_version)
-            VALUES (@job, 2, 30, 90, 600, 'sha-256:a', 'sha-256:a', '{}'::jsonb, '1.0.0');
+            INSERT INTO socalytics.analysis_logical_job_snapshots (logical_job_id, max_attempts, lease_seconds, stale_timeout_seconds, execution_timeout_seconds, analyst_profile_digest, image_digest, model_digest, resources, schema_version)
+            VALUES (@job, 2, 30, 90, 600, 'sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '{}'::jsonb, '1.0.0');
             INSERT INTO socalytics.analysis_readiness_occurrences (id, logical_job_id, sequence, cause, created_at)
             VALUES (@occ, @job, 1, 'initial', @at);
             UPDATE socalytics.analysis_logical_jobs SET state = @state, current_readiness_occurrence_id = @occ WHERE id = @job;
@@ -224,5 +230,92 @@ public sealed class ExecutionAttemptTests(PostgresContainerFixture postgres, Nat
         await c.OpenAsync(ct);
         await using var cmd = new NpgsqlCommand("SELECT manager_id FROM socalytics.analysis_execution_attempts", c);
         ((Guid)(await cmd.ExecuteScalarAsync(ct))!).ShouldBe(manager.ManagerId);
+    }
+
+    private static async Task<int> ExpireAsync(AnalysisTestHost host, CancellationToken ct)
+    {
+        await using var scope = host.Services.CreateAsyncScope();
+        return await scope.ServiceProvider.GetRequiredService<ExpireStaleAttemptsHandler>().HandleAsync(ct);
+    }
+
+    [Fact]
+    public async Task ExpiredLeaseRequeuesJobAndFailsAfterLastAttempt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, host) = await StartAsync(ManagerAuthentication.Test, ct);
+        await using var _ = host;
+        var (job, occ) = await SeedJobAsync(db, "Ready", ct);
+        using var m = new TestManagerClient(host.Factory);
+
+        using var first = await m.ClaimAsync(job, occ, "k1", ct: ct);
+        first.StatusCode.ShouldBe(HttpStatusCode.Created);
+        (await ExpireAsync(host, ct)).ShouldBe(0);
+        host.Time.Advance(TimeSpan.FromMinutes(5));
+        (await ExpireAsync(host, ct)).ShouldBe(1);
+
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_execution_attempts WHERE state = 'Stale' AND close_reason = 'lease-expired'", ct)).ShouldBe(1);
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_readiness_occurrences WHERE cause = 'attempt-stale' AND sequence = 2", ct)).ShouldBe(1);
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_logical_jobs WHERE state = 'Ready' AND current_attempt_id IS NULL", ct)).ShouldBe(1);
+
+        var occ2 = Guid.Parse((await ScalarTextAsync(db, "SELECT current_readiness_occurrence_id::text FROM socalytics.analysis_logical_jobs", ct))!);
+        using var second = await m.ClaimAsync(job, occ2, "k2", ct: ct);
+        second.StatusCode.ShouldBe(HttpStatusCode.Created);
+        host.Time.Advance(TimeSpan.FromMinutes(5));
+        (await ExpireAsync(host, ct)).ShouldBe(1);
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_logical_jobs WHERE state = 'Failed' AND failure_reason = 'attempts-exhausted'", ct)).ShouldBe(1);
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_readiness_occurrences", ct)).ShouldBe(2);
+        (await ExpireAsync(host, ct)).ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task ExpiryWhileHostWasDisposedIsHandledAfterRecreation()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, host) = await StartAsync(ManagerAuthentication.Test, ct);
+        await using var _ = host;
+        var (job, occ) = await SeedJobAsync(db, "Ready", ct);
+        using (var m = new TestManagerClient(host.Factory))
+        {
+            using var claim = await m.ClaimAsync(job, occ, "k1", ct: ct);
+            claim.StatusCode.ShouldBe(HttpStatusCode.Created);
+        }
+
+        host.Time.Advance(TimeSpan.FromMinutes(5));
+        await host.RestartAsync(ct);
+        (await ExpireAsync(host, ct)).ShouldBe(1);
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_logical_jobs WHERE state = 'Ready'", ct)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task RevokedManagerIsRefusedAndAttemptRecoversThroughExpiry()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, host) = await StartAsync(ManagerAuthentication.Real, ct);
+        await using var _ = host;
+        var (job, occ) = await SeedJobAsync(db, "Ready", ct);
+        using var manager = await RegisteredAnalystManagerClient.RegisterAsync(host, db, ct);
+        using var claim = await manager.ClaimAsync(job, occ, "real-1", ct);
+        claim.StatusCode.ShouldBe(HttpStatusCode.Created);
+        var a = JsonDocument.Parse(await claim.Content.ReadAsStringAsync(ct)).RootElement;
+        var path = $"/api/v1/analysis/attempts/{a.GetProperty("attemptId").GetGuid()}/heartbeats";
+        var body = new { logicalJobId = job, fencingToken = a.GetProperty("fencingToken").GetInt64(), observedAt = host.Time.GetUtcNow(), executionState = "running" };
+
+        using var ok = await manager.SendAsync(HttpMethod.Post, path, body, null, ct);
+        ok.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await manager.RevokeAsync(ct);
+        using var refused = await manager.SendAsync(HttpMethod.Post, path, body, null, ct);
+        refused.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
+
+        host.Time.Advance(TimeSpan.FromMinutes(5));
+        (await ExpireAsync(host, ct)).ShouldBe(1);
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_logical_jobs WHERE state = 'Ready'", ct)).ShouldBe(1);
+    }
+
+    private static async Task<string?> ScalarTextAsync(IsolatedDatabase db, string sql, CancellationToken ct)
+    {
+        await using var c = new NpgsqlConnection(db.MigratorConnectionString);
+        await c.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(sql, c);
+        return (await cmd.ExecuteScalarAsync(ct))?.ToString();
     }
 }

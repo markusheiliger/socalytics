@@ -32,6 +32,8 @@ public sealed record ClaimKeyRecord(
     Guid ReadinessOccurrenceId,
     Guid AttemptId);
 
+public sealed record ExpiredAttemptRef(Guid AttemptId, Guid LogicalJobId, Guid RunId);
+
 public interface IExecutionAttemptStore
 {
     // Draws the fencing token from socalytics.analysis_fencing_token_seq.
@@ -50,4 +52,6 @@ public interface IExecutionAttemptStore
 
     // Extends the lease only while the attempt is Active.
     Task<bool> TryRenewLeaseAsync(Guid attemptId, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ExpiredAttemptRef>> ListExpiredAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken);
 }

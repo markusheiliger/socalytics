@@ -38,6 +38,9 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.HandleRecordingsFinalizedNotificationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.ClaimLogicalJobHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.RenewAttemptLeaseHandler>();
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.Commands.AnalysisLeaseOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.Commands.AnalysisLeaseOptions.SectionName);
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.ExpireStaleAttemptsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListMatchAnalysisRunsHandler>();
         services.TryAddScoped<ValidateSessionHandler>();

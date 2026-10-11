@@ -108,6 +108,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddOptions<SocAlytics.Platform.Application.Analysis.AnalysisNotificationOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.AnalysisNotificationOptions.SectionName);
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.RecordingsFinalizedConsumerWorker>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.LeaseExpiryWorker>();
 
         return services;
     }

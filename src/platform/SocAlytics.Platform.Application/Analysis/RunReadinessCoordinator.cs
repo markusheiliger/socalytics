@@ -9,6 +9,13 @@ namespace SocAlytics.Platform.Application.Analysis;
 
 public sealed record ReadinessApplication(int ReadyJobs, int RunTransitions);
 
+public enum ReadinessCause
+{
+    AttemptStale,
+    AttemptFailed,
+    AttemptRejected,
+}
+
 // Applies readiness inside the caller's unit of work; the caller has already locked the run row.
 public sealed class RunReadinessCoordinator(
     IAnalysisRunStore runs,
@@ -135,6 +142,74 @@ public sealed class RunReadinessCoordinator(
         }
 
         return new ReadinessApplication(ready, runTransitions);
+    }
+
+    // Called inside the caller's unit of work after the run and job rows are locked and the attempt was closed.
+    public async Task RequeueOrFailAsync(Guid logicalJobId, ReadinessCause cause, CancellationToken cancellationToken)
+    {
+        var job = await jobs.LockJobAsync(logicalJobId, cancellationToken)
+            ?? throw new InvalidOperationException("The logical job does not exist.");
+        if (job.State != LogicalJobState.Claimed)
+        {
+            return;
+        }
+
+        var snapshot = await jobs.LoadSnapshotAsync(job.Id, cancellationToken)
+            ?? throw new InvalidOperationException("The logical job snapshot is missing.");
+
+        if (job.AttemptsUsed >= snapshot.MaxAttempts)
+        {
+            await jobs.SetCurrentOccurrenceAsync(job.Id, job.CurrentReadinessOccurrenceId, null, cancellationToken);
+            if (!await jobs.TryTransitionAsync(job.Id, LogicalJobState.Claimed, LogicalJobState.Failed, "attempts-exhausted", null, cancellationToken))
+            {
+                throw new InvalidOperationException("The logical job changed state concurrently.");
+            }
+
+            await ApplyAsync(job.RunId, cancellationToken);
+            return;
+        }
+
+        var hierarchy = await runs.LoadAsync(job.RunId, cancellationToken)
+            ?? throw new InvalidOperationException("The analysis run does not exist.");
+        var nodesByKey = hierarchy.Nodes.ToDictionary(n => n.NodeKey, StringComparer.Ordinal);
+        var node = hierarchy.Nodes.Single(n => n.Id == job.NodeId);
+        var accepted = (await results.ListByRunAsync(job.RunId, cancellationToken)).ToDictionary(a => a.Id);
+
+        var inputs = new List<InputSnapshotEntry>();
+        if (await jobs.LoadInputsAsync(job.Id, cancellationToken) is { } inputsJson)
+        {
+            using var doc = JsonDocument.Parse(inputsJson);
+            foreach (var e in doc.RootElement.EnumerateArray())
+            {
+                AnalysisPersistedNames.TryParseDependencyKind(e.GetProperty("edgeKind").GetString(), out var kind);
+                inputs.Add(new InputSnapshotEntry(
+                    e.GetProperty("upstreamNodeKey").GetString()!,
+                    kind,
+                    e.GetProperty("status").GetString()!,
+                    e.GetProperty("acceptedResultIds").EnumerateArray().Select(x => x.GetGuid()).ToList()));
+            }
+        }
+
+        var persisted = cause switch
+        {
+            ReadinessCause.AttemptStale => "attempt-stale",
+            ReadinessCause.AttemptFailed => "attempt-failed",
+            _ => "attempt-rejected",
+        };
+        var occurrenceId = Guid.CreateVersion7();
+        var sequence = await jobs.InsertReadinessOccurrenceAsync(job.Id, occurrenceId, persisted, cancellationToken);
+        await jobs.SetCurrentOccurrenceAsync(job.Id, occurrenceId, null, cancellationToken);
+        if (!await jobs.TryTransitionAsync(job.Id, LogicalJobState.Claimed, LogicalJobState.Ready, null, null, cancellationToken))
+        {
+            throw new InvalidOperationException("The logical job changed state concurrently.");
+        }
+
+        var messageId = Guid.CreateVersion7();
+        var payload = BuildJobPayload(hierarchy.Run, node, job, snapshot, occurrenceId, sequence, messageId, inputs, nodesByKey, accepted);
+        Validate(ContractSchemaIds.AnalystJobV1, payload);
+        await outbox.EnqueueAsync(new OutboxMessageDraft(
+            messageId, OutboxMessageTypes.AnalysisReadyWork, ContractVersion,
+            $"analysis.jobs.ready.{node.CapabilityId}", payload, occurrenceId, hierarchy.Run.Id, job.Id, node.CapabilityId), cancellationToken);
     }
 
     private static AnalysisSegmentReference? ToSegment(LogicalJobRecord j) =>

@@ -134,4 +134,20 @@ internal sealed class ExecutionAttemptStore(IDbSession session, TimeProvider tim
             cancellationToken: cancellationToken));
         return changed == 1;
     }
+
+    public async Task<IReadOnlyList<ExpiredAttemptRef>> ListExpiredAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<ExpiredAttemptRef>(new CommandDefinition(
+            """
+            SELECT a.id AS AttemptId, a.logical_job_id AS LogicalJobId, j.run_id AS RunId
+            FROM socalytics.analysis_execution_attempts a
+            JOIN socalytics.analysis_logical_jobs j ON j.id = a.logical_job_id
+            WHERE a.state = 'Active' AND a.lease_expires_at <= @now
+            ORDER BY a.lease_expires_at
+            LIMIT @batchSize
+            """,
+            new { now, batchSize }, session.Transaction, cancellationToken: cancellationToken));
+        return rows.AsList();
+    }
 }
