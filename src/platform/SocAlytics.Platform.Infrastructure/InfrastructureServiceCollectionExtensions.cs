@@ -37,6 +37,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<IRecordingStore, RecordingStore>();
         services.TryAddScoped<IRecordingLineageQueries, RecordingLineageQueries>();
         services.TryAddScoped<IRecordingSetLookup, RecordingSetLookup>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IAnalysisRunStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunStore>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Abstractions.IRegistrySecretGenerator, SocAlytics.Platform.Infrastructure.Registry.RegistrySecretGenerator>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IRegistrationStore, SocAlytics.Platform.Infrastructure.Registry.DapperRegistrationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IProofReplayStore, SocAlytics.Platform.Infrastructure.Registry.DapperProofReplayStore>();
