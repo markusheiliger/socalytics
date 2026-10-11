@@ -36,5 +36,6 @@ internal static class PersistedTableClassifications
             ["recording_set_members"] = TableClassification.Immutable,
             ["recording_retry_outcomes"] = TableClassification.Immutable,
             ["recording_finalized_events"] = TableClassification.Immutable,
+            ["outbox_messages"] = TableClassification.Unversioned("operational publication record; transitions guarded by row lock and state"),
         };
 }

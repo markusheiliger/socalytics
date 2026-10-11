@@ -25,6 +25,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton<IContractValidator, SocAlytics.Platform.Infrastructure.Contracts.JsonSchemaContractValidator>();
         services.TryAddSingleton<ICanonicalJson, SocAlytics.Platform.Infrastructure.Contracts.JsonCanonicalizer>();
         services.TryAddScoped<IAuditTrail, PostgresAuditTrail>();
+        services.TryAddScoped<IOutbox, SocAlytics.Platform.Infrastructure.Persistence.Messaging.Outbox>();
+        services.TryAddScoped<SocAlytics.Platform.Infrastructure.Persistence.Messaging.OutboxStore>();
         services.AddIdentityAccess();
         services.TryAddScoped<IMemberAccountStore, MemberAccountStore>();
         services.TryAddScoped<IAccountCredentialService, AccountCredentialService>();
