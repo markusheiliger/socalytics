@@ -126,6 +126,69 @@ public sealed class ExecutionAttemptTests(PostgresContainerFixture postgres, Nat
     }
 
     [Fact]
+    public async Task HeartbeatRenewsOnlyMatchingCurrentAttempt()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, host) = await StartAsync(ManagerAuthentication.Test, ct);
+        await using var _ = host;
+        var (job, occ) = await SeedJobAsync(db, "Ready", ct);
+        var (otherJob, _) = await SeedJobAsync(db, "Ready", ct);
+        using var m = new TestManagerClient(host.Factory);
+        using var other = new TestManagerClient(host.Factory);
+
+        using var claim = await m.ClaimAsync(job, occ, "k1", ct: ct);
+        var a = JsonDocument.Parse(await claim.Content.ReadAsStringAsync(ct)).RootElement;
+        var attempt = a.GetProperty("attemptId").GetGuid();
+        var token = a.GetProperty("fencingToken").GetInt64();
+        var before = a.GetProperty("leaseExpiresAt").GetDateTimeOffset();
+
+        async Task<long> LeaseTicksAsync() => await ScalarAsync(db,
+            "SELECT (extract(epoch FROM lease_expires_at) * 1000000)::bigint FROM socalytics.analysis_execution_attempts", ct);
+        var unchanged = await LeaseTicksAsync();
+
+        foreach (var (c, id, j, t) in new[]
+        {
+            (other, attempt, job, token),
+            (m, attempt, job, token + 1),
+            (m, attempt, otherJob, token),
+        })
+        {
+            using var r = await c.HeartbeatAsync(id, j, t, ct);
+            r.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+            (await r.Content.ReadAsStringAsync(ct)).ShouldContain("attempt-obsolete");
+        }
+
+        using var fabricated = await m.HeartbeatAsync(Guid.NewGuid(), job, token, ct);
+        fabricated.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+        (await LeaseTicksAsync()).ShouldBe(unchanged);
+
+        using var ok = await m.HeartbeatAsync(attempt, job, token, ct);
+        ok.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var renewed = JsonDocument.Parse(await ok.Content.ReadAsStringAsync(ct)).RootElement;
+        renewed.GetProperty("leaseExpiresAt").GetDateTimeOffset().ShouldBeGreaterThanOrEqualTo(before);
+
+        host.Time.Advance(TimeSpan.FromMinutes(5));
+
+        var expired = await LeaseTicksAsync();
+        using var late = await m.HeartbeatAsync(attempt, job, token, ct);
+        late.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await LeaseTicksAsync()).ShouldBe(expired);
+
+        await using (var c = new NpgsqlConnection(db.MigratorConnectionString))
+        {
+            await c.OpenAsync(ct);
+            await using var cmd = new NpgsqlCommand(
+                "UPDATE socalytics.analysis_execution_attempts SET lease_expires_at = '2100-01-01'; " +
+                "UPDATE socalytics.analysis_execution_attempts SET state = 'Stale', closed_at = now(), close_reason = 'lease-expired'; " +
+                "UPDATE socalytics.analysis_logical_jobs SET current_attempt_id = NULL WHERE id = '" + job + "'", c);
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+
+        using var stale = await m.HeartbeatAsync(attempt, job, token, ct);
+        stale.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+    }
+
+    [Fact]
     public async Task MissingKeyAndPrincipalsAreRejected()
     {
         var ct = TestContext.Current.CancellationToken;

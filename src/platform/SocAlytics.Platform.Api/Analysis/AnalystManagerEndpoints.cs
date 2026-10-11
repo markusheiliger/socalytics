@@ -12,6 +12,10 @@ internal sealed record ClaimGrantedDto(
 	Guid AttemptId, Guid LogicalJobId, Guid ReadinessOccurrenceId, int AttemptNumber, long FencingToken,
 	DateTimeOffset LeaseExpiresAt, int LeaseSeconds, int StaleTimeoutSeconds, int ExecutionTimeoutSeconds, bool Replayed);
 
+internal sealed record HeartbeatRequestDto(Guid LogicalJobId, long FencingToken, DateTimeOffset ObservedAt, string ExecutionState, int? ProgressPercent);
+
+internal sealed record LeaseRenewedDto(Guid AttemptId, DateTimeOffset LeaseExpiresAt);
+
 internal static partial class AnalystManagerEndpoints
 {
 	private const string ClaimObsolete = "claim-obsolete";
@@ -33,7 +37,42 @@ internal static partial class AnalystManagerEndpoints
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict);
+		routes.MapPost("/api/v1/analysis/attempts/{attemptId:guid}/heartbeats", HeartbeatAsync)
+			.RequireAnalystManager()
+			.WithName("renewAttemptLease")
+			.WithTags("Analyst Manager attempts")
+			.Produces<LeaseRenewedDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
 		return routes;
+	}
+
+	private static async Task<IResult> HeartbeatAsync(Guid attemptId, HttpContext http, RenewAttemptLeaseHandler handler, CancellationToken cancellationToken)
+	{
+		HeartbeatRequestDto? body;
+		try
+		{
+			body = await JsonSerializer.DeserializeAsync<HeartbeatRequestDto>(http.Request.Body, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+			body = null;
+		}
+
+		if (body is null || body.LogicalJobId == Guid.Empty || body.FencingToken <= 0
+			|| body.ExecutionState is not ("preparing" or "running" or "finalizing")
+			|| body.ProgressPercent is < 0 or > 100)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("body", "invalid")));
+		}
+
+		var result = await handler.HandleAsync(new RenewAttemptLeaseCommand(attemptId, body.LogicalJobId, body.FencingToken), cancellationToken);
+		return result.IsSuccess
+			? Results.Ok(new LeaseRenewedDto(result.Value.AttemptId, result.Value.LeaseExpiresAt))
+			: ProblemResults.From(result.Failure);
 	}
 
 	private static async Task<IResult> ClaimAsync(Guid logicalJobId, HttpContext http, ClaimLogicalJobHandler handler, CancellationToken cancellationToken)

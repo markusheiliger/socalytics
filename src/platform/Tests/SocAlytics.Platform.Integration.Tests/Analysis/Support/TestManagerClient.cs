@@ -71,5 +71,21 @@ internal sealed class TestManagerClient : IDisposable
         return _client.SendAsync(request, ct);
     }
 
+    public Task<HttpResponseMessage> HeartbeatAsync(Guid attemptId, Guid jobId, long fencingToken, CancellationToken ct = default)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/analysis/attempts/{attemptId}/heartbeats")
+        {
+            Content = JsonContent.Create(new
+            {
+                logicalJobId = jobId,
+                fencingToken,
+                observedAt = DateTimeOffset.UtcNow,
+                executionState = "running",
+            }),
+        };
+        request.Headers.Add(TestManagerAuthenticationHandler.ManagerHeader, ManagerId.ToString());
+        return _client.SendAsync(request, ct);
+    }
+
     public void Dispose() => _client.Dispose();
 }
