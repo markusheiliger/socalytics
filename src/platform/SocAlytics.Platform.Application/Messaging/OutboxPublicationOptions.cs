@@ -13,4 +13,10 @@ public sealed class OutboxPublicationOptions
     public int BackoffBaseSeconds { get; set; } = 2;
 
     public int BackoffMaxSeconds { get; set; } = 300;
+
+    public int RetentionPeriodHours { get; set; } = 168;
+
+    public int RetentionIntervalMinutes { get; set; } = 60;
+
+    public int RetentionBatchSize { get; set; } = 500;
 }

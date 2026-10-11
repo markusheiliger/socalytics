@@ -111,6 +111,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.LeaseExpiryWorker>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IPublicationReconciliationStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.PublicationReconciliationStore>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.PublicationReconciliationWorker>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Messaging.IOutboxRetentionStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.OutboxRetentionStore>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.OutboxRetentionWorker>();
 
         return services;
     }
