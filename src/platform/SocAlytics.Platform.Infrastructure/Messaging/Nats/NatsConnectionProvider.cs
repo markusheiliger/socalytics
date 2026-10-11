@@ -9,11 +9,14 @@ internal sealed class NatsConnectionProvider : IAsyncDisposable
 {
     private readonly NatsConnection? _connection;
     private readonly ILogger<NatsConnectionProvider> _logger;
+    private readonly TransportReconnectSignal? _signal;
     private int _started;
+    private int _everOpened;
 
-    public NatsConnectionProvider(IConfiguration configuration, ILogger<NatsConnectionProvider> logger)
+    public NatsConnectionProvider(IConfiguration configuration, ILogger<NatsConnectionProvider> logger, TransportReconnectSignal? signal = null)
     {
         _logger = logger;
+        _signal = signal;
         var connectionString = configuration.GetConnectionString("nats");
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -39,11 +42,15 @@ internal sealed class NatsConnectionProvider : IAsyncDisposable
     public NatsConnection Connection =>
         _connection ?? throw new InvalidOperationException("NATS is not configured.");
 
+    public bool EverOpened => Volatile.Read(ref _everOpened) == 1;
+
     public event Action? Reconnected;
 
     private ValueTask OnOpened(object? sender, NatsEventArgs args)
     {
+        Interlocked.Exchange(ref _everOpened, 1);
         Reconnected?.Invoke();
+        _signal?.Raise();
         return ValueTask.CompletedTask;
     }
 

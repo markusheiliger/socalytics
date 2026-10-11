@@ -4,7 +4,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using NATS.Client.JetStream;
+using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
+using SocAlytics.Platform.Integration.Tests.Recordings;
+using SocAlytics.Platform.Migrator;
 using Shouldly;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Infrastructure.Messaging.Nats;
@@ -13,8 +17,38 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis;
 
-public sealed class TransportRecoveryTests(NatsContainerFixture nats)
+public sealed class TransportRecoveryTests(NatsContainerFixture nats, PostgresContainerFixture postgres, RustFsContainerFixture rustFs)
 {
+    private async Task<(IsolatedDatabase Db, PlatformApiFactory Factory)> StartHostAsync(string? natsConnection, CancellationToken ct)
+    {
+        var db = await postgres.CreateDatabaseAsync(ct);
+        (await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
+        var factory = new PlatformApiFactory(
+            db,
+            clubBootstrap: new Dictionary<string, string?>
+            {
+                ["ClubDisplayName"] = "Transport Club",
+                ["FirstClubAdmin:AccountName"] = "transport-admin",
+                ["FirstClubAdmin:InitialPassword"] = "Transport-Initial-Pass-1234",
+            },
+            recordingUpload: RecordingTestData.WithKeyPrefix(RecordingTestData.NewKeyPrefix()),
+            objectStorage: new Dictionary<string, string?>
+            {
+                ["ServiceUrl"] = rustFs.ServiceUrl,
+                ["Region"] = rustFs.Region,
+                ["AccessKey"] = rustFs.AccessKey,
+                ["SecretKey"] = rustFs.SecretKey,
+                ["Bucket"] = rustFs.Bucket,
+            },
+            extraSettings: natsConnection is null ? null : new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:nats"] = natsConnection,
+                ["Messaging:Nats:ProvisionTopology"] = "true",
+            });
+
+        return (db, factory);
+    }
+
     private static ServiceProvider Build(string? connectionString)
     {
         var settings = new Dictionary<string, string?> { ["Messaging:Nats:ProvisionTopology"] = "true" };
@@ -32,6 +66,72 @@ public sealed class TransportRecoveryTests(NatsContainerFixture nats)
         services.AddSingleton<IHostedService, NatsConnectionStarter>();
         services.AddSingleton<IMessageTransport, NatsJetStreamTransport>();
         return services.BuildServiceProvider();
+    }
+
+    private static async Task<HealthReportEntry> NatsEntryAsync(PlatformApiFactory factory, CancellationToken ct)
+    {
+        var report = await factory.Services.GetRequiredService<HealthCheckService>()
+            .CheckHealthAsync(r => r.Name == "nats", ct);
+        return report.Entries["nats"];
+    }
+
+    [Fact]
+    public async Task Without_connection_string_no_nats_check_is_registered()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, factory) = await StartHostAsync(null, ct);
+        await using var _ = db;
+        await using var __ = factory;
+        factory.Services.GetRequiredService<IOptions<HealthCheckServiceOptions>>().Value
+            .Registrations.ShouldNotContain(r => r.Name == "nats");
+        using var client = factory.CreateApiClient();
+        (await client.GetAsync("/health", ct)).StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+        (await client.GetStringAsync("/health", ct)).ShouldBe("Healthy");
+        (await client.GetAsync("/alive", ct)).StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Health_follows_the_connection_and_signals_reconnect()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, factory) = await StartHostAsync(nats.ConnectionString, ct);
+        await using var _ = db;
+        await using var __ = factory;
+        using var client = factory.CreateApiClient();
+        var signal = factory.Services.GetRequiredService<TransportReconnectSignal>();
+        (await NatsEntryAsync(factory, ct)).Status.ShouldBe(HealthStatus.Healthy);
+
+        var before = signal.Count;
+        await nats.StopAsync();
+        try
+        {
+            var entry = await NatsEntryAsync(factory, ct);
+            var deadline = DateTime.UtcNow.AddSeconds(30);
+            while (entry.Status != HealthStatus.Degraded && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(200, ct);
+                entry = await NatsEntryAsync(factory, ct);
+            }
+
+            entry.Status.ShouldBe(HealthStatus.Degraded);
+            entry.Description.ShouldBe("transport-unavailable");
+            using var response = await client.GetAsync("/health", ct);
+            response.StatusCode.ShouldBe(System.Net.HttpStatusCode.OK);
+            (await response.Content.ReadAsStringAsync(ct)).ShouldBe("Degraded");
+        }
+        finally
+        {
+            await nats.StartAsync();
+        }
+
+        var recovered = DateTime.UtcNow.AddSeconds(60);
+        while (signal.Count == before && DateTime.UtcNow < recovered)
+        {
+            await Task.Delay(200, ct);
+        }
+
+        signal.Count.ShouldBe(before + 1);
+        (await NatsEntryAsync(factory, ct)).Status.ShouldBe(HealthStatus.Healthy);
     }
 
     private static TransportMessage Message(string id) =>

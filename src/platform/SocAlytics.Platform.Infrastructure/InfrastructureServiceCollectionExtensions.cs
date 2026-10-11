@@ -58,7 +58,22 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddOptions<NatsOptions>().BindConfiguration(NatsOptions.SectionName);
         services.TryAddSingleton<NatsConnectionProvider>();
+        services.TryAddSingleton<TransportReconnectSignal>();
         services.TryAddSingleton<NatsTopology>();
+        services.AddSingleton<NatsHealthCheck>();
+        services.AddOptions<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckServiceOptions>()
+            .Configure<Microsoft.Extensions.Configuration.IConfiguration>((options, configuration) =>
+            {
+                if (!string.IsNullOrWhiteSpace(configuration["ConnectionStrings:nats"]))
+                {
+                    options.Registrations.Add(new Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckRegistration(
+                        NatsHealthCheck.Name,
+                        sp => sp.GetRequiredService<NatsHealthCheck>(),
+                        Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Degraded,
+                        tags: [],
+                        timeout: TimeSpan.FromSeconds(10)));
+                }
+            });
         services.AddHostedService<NatsConnectionStarter>();
         services.TryAddSingleton<IMessageTransport, NatsJetStreamTransport>();
 

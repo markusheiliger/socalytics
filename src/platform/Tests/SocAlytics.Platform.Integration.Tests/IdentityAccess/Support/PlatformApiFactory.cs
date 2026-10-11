@@ -19,6 +19,7 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 	private readonly IReadOnlyDictionary<string, string?>? _recordingSets;
 	private readonly IReadOnlyDictionary<string, string?>? _objectStorage;
 	private readonly Action<IServiceCollection>? _configureServices;
+	private readonly IReadOnlyDictionary<string, string?>? _extraSettings;
 
 	public PlatformApiFactory(
 		IsolatedDatabase? database,
@@ -27,8 +28,10 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 		IReadOnlyDictionary<string, string?>? recordingUpload = null,
 		IReadOnlyDictionary<string, string?>? recordingSets = null,
 		IReadOnlyDictionary<string, string?>? objectStorage = null,
-		Action<IServiceCollection>? configureServices = null)
+		Action<IServiceCollection>? configureServices = null,
+		IReadOnlyDictionary<string, string?>? extraSettings = null)
 	{
+		_extraSettings = extraSettings;
 		_configureServices = configureServices;
 		_objectStorage = objectStorage;
 		_recordingUpload = recordingUpload;
@@ -58,6 +61,7 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 			AddSection(settings, "Recordings:Upload", _recordingUpload);
 			AddSection(settings, "Recordings:Sets", _recordingSets);
 			AddSection(settings, "ObjectStorage", _objectStorage);
+			AddSection(settings, "", _extraSettings);
 			configuration.AddInMemoryCollection(settings);
 		});
 		builder.ConfigureLogging(logging => logging.AddProvider(Logs));
@@ -118,7 +122,7 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 
 		foreach (var (key, value) in values)
 		{
-			target[$"{section}:{key}"] = value;
+			target[section.Length == 0 ? key : $"{section}:{key}"] = value;
 		}
 	}
 }
