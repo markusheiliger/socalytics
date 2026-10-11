@@ -40,6 +40,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton<SocAlytics.Platform.Application.Analysis.IAnalysisSegmentSource, SocAlytics.Platform.Infrastructure.Analysis.LineageAnalysisSegmentSource>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IAnalysisRunStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.ILogicalJobStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.LogicalJobStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IExecutionAttemptStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.ExecutionAttemptStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IAcceptedResultStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AcceptedResultStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.ICompletionOutcomeStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.CompletionOutcomeStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.INotificationReceiptStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.NotificationReceiptStore>();

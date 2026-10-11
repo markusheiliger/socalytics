@@ -20,6 +20,8 @@ builder.Services.AddApplication();
 builder.Services.AddInfrastructure();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRequestContext, HttpRequestContext>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentAnalystManager, SocAlytics.Platform.Api.Analysis.HttpCurrentAnalystManager>();
 builder.Services.AddOptions<IdentityAccessOptions>()
 	.Bind(builder.Configuration.GetSection(IdentityAccessOptions.SectionName))
 	.ValidateDataAnnotations()
@@ -67,6 +69,7 @@ app.MapMemberEndpoints();
 app.MapCredentialEndpoints();
 app.MapRecordingEndpoints();
 app.MapAnalysisRunEndpoints();
+app.MapAnalystManagerEndpoints();
 app.MapRegistryEndpoints();
 
 app.Run();

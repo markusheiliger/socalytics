@@ -36,6 +36,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddSingleton<SocAlytics.Platform.Application.Analysis.WorkflowSnapshotMapper>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.RunReadinessCoordinator>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.HandleRecordingsFinalizedNotificationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.ClaimLogicalJobHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListMatchAnalysisRunsHandler>();
         services.TryAddScoped<ValidateSessionHandler>();

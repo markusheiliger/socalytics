@@ -4,11 +4,18 @@ using Microsoft.Extensions.Time.Testing;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
+using SocAlytics.Platform.Api.Registry;
 using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using SocAlytics.Platform.Integration.Tests.Recordings;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis.Support;
+
+internal enum ManagerAuthentication
+{
+    Test,
+    Real,
+}
 
 internal sealed class AnalysisTestHost : IAsyncDisposable
 {
@@ -25,8 +32,10 @@ internal sealed class AnalysisTestHost : IAsyncDisposable
         RustFsContainerFixture rustFs,
         bool workersEnabled = false,
         FakeTimeProvider? time = null,
-        Action<IServiceCollection>? configureServices = null)
+        Action<IServiceCollection>? configureServices = null,
+        ManagerAuthentication managerAuthentication = ManagerAuthentication.Test)
     {
+        ManagerAuthentication = managerAuthentication;
         _database = database;
         _nats = nats;
         _rustFs = rustFs;
@@ -34,6 +43,8 @@ internal sealed class AnalysisTestHost : IAsyncDisposable
         WorkersEnabled = workersEnabled;
         Time = time ?? new FakeTimeProvider(new DateTimeOffset(2026, 1, 1, 12, 0, 0, TimeSpan.Zero));
     }
+
+    public ManagerAuthentication ManagerAuthentication { get; }
 
     public bool WorkersEnabled { get; set; }
 
@@ -65,6 +76,26 @@ internal sealed class AnalysisTestHost : IAsyncDisposable
             configureServices: services =>
             {
                 services.Replace(ServiceDescriptor.Singleton<TimeProvider>(Time));
+                if (ManagerAuthentication == ManagerAuthentication.Test)
+                {
+                    services.Configure<Microsoft.AspNetCore.Authentication.AuthenticationOptions>(o =>
+                    {
+                        var scheme = o.Schemes.Single(x => x.Name == AnalystManagerDPoPDefaults.AuthenticationScheme);
+                        scheme.HandlerType = typeof(TestManagerAuthenticationHandler);
+                    });
+                }
+                else
+                {
+                    services.Configure<SocAlytics.Platform.Application.Registry.RegistryOptions>(o =>
+                    {
+                        o.AllowSoftwareKeys = true;
+                        o.RateLimits.PairingCreationPerMinute = 10_000;
+                        o.RateLimits.StatusPerMinute = 10_000;
+                        o.RateLimits.ActivationPerMinute = 10_000;
+                        o.RateLimits.CodeSubmissionPerMinute = 10_000;
+                    });
+                }
+
                 _configureServices?.Invoke(services);
             },
             extraSettings: new Dictionary<string, string?>
