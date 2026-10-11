@@ -12,3 +12,12 @@ hooks:
     prompt: Execute speckit.gha.route?
     description: Choose local implementation or request implementation on GitHub
     condition: null
+  after_tasks:
+  - extension: gha
+    command: speckit.gha.refine
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Execute speckit.gha.refine?
+    description: Refine the parallel task groups of the generated tasks.md
+    condition: null

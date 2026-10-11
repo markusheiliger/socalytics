@@ -154,8 +154,9 @@ Run the skills in GitHub Copilot Chat, one at a time, reviewing each result:
 2. `/speckit-clarify` (optional) resolves ambiguities before planning.
 3. `/speckit-plan <technical direction>` creates the plan and design artifacts
     and checks them against the constitution.
-4. `/speckit-tasks` creates `tasks.md`; `/speckit-analyze` (optional) checks
-    cross-artifact consistency.
+4. `/speckit-tasks` creates `tasks.md` and then runs `/speckit-gha-refine`, a
+    mandatory `after_tasks` hook that makes the `[P]` groups safe to run in
+    parallel; `/speckit-analyze` (optional) checks cross-artifact consistency.
 5. `/speckit-implement` executes the tasks; `/speckit-converge` reports
     remaining gaps. Repeat both until convergence reports completion.
 
@@ -365,6 +366,13 @@ their "blocked by" issues are closed.
   push that is refused although the branch did not move counts as a failed
   attempt.
   `SPECKIT_MAX_PARALLEL_TASKS=1` runs the tasks of a stage one after another.
+  `/speckit-tasks` sets `[P]` from the task texts alone, so its
+  `/speckit-gha-refine` hook checks each group against the files its tasks
+  will really change (including registrations, project files, and shared
+  configuration) and names the shared file, moves a shared edit into one task
+  after the group, or ends the group. Groups that follow each other are
+  separated with `###` headings. To see the stages exactly as the workflow
+  forms them, run `node .github/scripts/speckit-tasks-groups.mjs <folder>`.
 - Every step gets at most three failed attempts. Every outcome of a task, a
   convergence, or a conflict resolution is commented on the pull request with
   a hidden attempt marker, and the next run counts the attempts from these
@@ -416,8 +424,13 @@ makes this available from GitHub Copilot:
 - `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` walks you
     through a stopped implementation locally; see
     [When an implementation stops](#when-an-implementation-stops).
+- `/speckit-tasks` ends with `/speckit-gha-refine [folder]`, a mandatory
+    `after_tasks` hook that refines the `[P]` groups of the new `tasks.md` (see
+    the `[P]` paragraph under the implementation workflow). Run it on its own
+    for a spec that already has tasks; for one being implemented it only fixes
+    conflicting groups.
 
-Both run `node .github/scripts/speckit-orchestrate.mjs request [--folder <folder>]`,
+The route and request commands both run `node .github/scripts/speckit-orchestrate.mjs request [--folder <folder>]`,
 which checks the spec on `origin/main` with the same rules, finds its twin, and
 adds the label with your own `gh` token, so the request is validated on GitHub.
 Adding the label in the GitHub web interface or with

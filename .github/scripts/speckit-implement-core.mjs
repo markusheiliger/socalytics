@@ -188,21 +188,44 @@ export function nextTask(tasksMarkdown) {
 function tasksWithSections(tasksMarkdown) {
   const tasks = [];
   let section = '';
+  let sectionLine = 0;
   let phase = '';
-  for (const line of String(tasksMarkdown ?? '').split(/\r?\n/)) {
+  for (const [number, line] of String(tasksMarkdown ?? '').split(/\r?\n/).entries()) {
     const heading = line.match(HEADING_PATTERN);
     if (heading) {
       section = line;
+      sectionLine = number + 1;
       if (heading[1] === '##') phase = line;
       continue;
     }
     const task = line.match(TASK_PATTERN);
     if (!task) continue;
     const tags = task[3].match(/^(?:\[[^\]]+\]\s*)+/)?.[0] ?? '';
-    tasks.push({ id: task[2], text: task[3].trim(), done: task[1] !== ' ', parallel: /\[P\]/.test(tags), section, phase });
+    tasks.push({ id: task[2], text: task[3].trim(), done: task[1] !== ' ', parallel: /\[P\]/.test(tags), section, sectionLine, phase });
   }
   return tasks;
 }
+
+// Splits the unticked tasks of one phase into stages, in order: a run of consecutive `[P]` tasks under one heading
+// (compared by its text) is one stage, every other task is a stage of its own. Returns the stages (at most
+// `maxStages`) and how many tasks they cover.
+function groupStages(open, maxStages) {
+  const stages = [];
+  let index = 0;
+  while (index < open.length && stages.length < maxStages) {
+    const first = open[index];
+    const stage = [first];
+    index += 1;
+    while (first.parallel && index < open.length && open[index].parallel && open[index].section === first.section) {
+      stage.push(open[index]);
+      index += 1;
+    }
+    stages.push(stage);
+  }
+  return { stages, covered: index };
+}
+
+const headingText = (line) => line.replace(/^#+\s+/, '').trim() || null;
 
 // The tasks that may run now: the first unticked task, followed (only when it is marked `[P]`) by the next unticked
 // `[P]` tasks under the same heading, up to `max`. An unticked task without `[P]` or a new heading ends the group,
@@ -237,20 +260,38 @@ export function planStages(tasksMarkdown, { maxStages = MAX_STAGES_PER_RUN } = {
     if (task.phase !== phase) break;
     if (!task.done) open.push(task);
   }
-  const stages = [];
-  let index = 0;
-  while (index < open.length && stages.length < maxStages) {
-    const first = open[index];
-    const stage = [first.id];
-    index += 1;
-    while (first.parallel && index < open.length && open[index].parallel && open[index].section === first.section) {
-      stage.push(open[index].id);
-      index += 1;
-    }
-    stages.push(stage);
+  const grouped = groupStages(open, maxStages);
+  const stages = grouped.stages.map((stage) => stage.map((task) => task.id));
+  const phaseEnd = grouped.covered >= open.length;
+  return { stages, phaseEnd, lastIsGroup: phaseEnd && stages.at(-1).length > 1, phase: headingText(phase) };
+}
+
+// Every phase of tasks.md with the stages its unticked tasks will run in, grouped exactly as planStages groups them,
+// for reviewing `[P]` groups (speckit.gha.refine). Warnings name headings that do not separate groups: a heading deeper
+// than `####`, and a heading whose text repeats, so the `[P]` tasks under both copies form one group.
+export function describeParallelGroups(tasksMarkdown) {
+  const tasks = tasksWithSections(tasksMarkdown);
+  const phases = [];
+  for (const task of tasks) {
+    if (phases.at(-1)?.key !== task.phase) phases.push({ key: task.phase, tasks: [] });
+    phases.at(-1).tasks.push(task);
   }
-  const phaseEnd = index >= open.length;
-  return { stages, phaseEnd, lastIsGroup: phaseEnd && stages.at(-1).length > 1, phase: phase.replace(/^##\s+/, '').trim() || null };
+  const warnings = [];
+  for (const [number, line] of String(tasksMarkdown ?? '').split(/\r?\n/).entries()) {
+    if (/^#{5,}\s+\S/.test(line)) warnings.push(`line ${number + 1}: \`${line.trim()}\` is deeper than \`####\`, so it does not end a group`);
+  }
+  const result = phases.map(({ key, tasks: list }) => {
+    const open = list.filter((task) => !task.done);
+    const stages = groupStages(open, Number.POSITIVE_INFINITY).stages.map((stage) => {
+      const lines = [...new Set(stage.map((task) => task.sectionLine))];
+      if (lines.length > 1) {
+        warnings.push(`${stage.map((task) => task.id).join(', ')} form one group because the heading \`${stage[0].section.trim()}\` repeats (lines ${lines.join(', ')}); give each group its own heading text`);
+      }
+      return { parallel: stage.length > 1, heading: stage[0].section ? headingText(stage[0].section) : null, tasks: stage.map((task) => task.id) };
+    });
+    return { phase: headingText(key), done: list.length - open.length, open: open.length, stages };
+  });
+  return { phases: result, warnings };
 }
 
 // Parses SPECKIT_MAX_PARALLEL_TASKS; anything but a positive integer falls back to the default.

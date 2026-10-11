@@ -15,7 +15,7 @@ description: "Task list for the Club and Identity Foundation feature"
 
 ## Format: `[ID] [P?] [Story] Description`
 
-- **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks); informational only, because tasks run in file order
+- **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks); consecutive `[P]` tasks under one heading run in parallel, each from the same commit
 - **[Story]**: Which user story this task belongs to (US1 to US6)
 - Every task names its exact file paths, requirement IDs, and design sections
 

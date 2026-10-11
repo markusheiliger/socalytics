@@ -17,7 +17,7 @@ description: "Task list for Recording Lineage and Upload"
 
 ## Format: `[ID] [P?] [Story] Description`
 
-- **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks); informational only, because runs are sequential
+- **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks); consecutive `[P]` tasks under one heading run in parallel, each from the same commit
 - **[Story]**: Which user story this task belongs to (US1–US4)
 - Every task names its exact file paths
 

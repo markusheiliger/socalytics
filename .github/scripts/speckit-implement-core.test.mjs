@@ -41,6 +41,7 @@ import {
   parseAttempts,
   parseMaxActiveSpecs,
   planStages,
+  describeParallelGroups,
   renderConvergePrompt,
   renderGuidanceMarker,
   renderAmendmentHowTo,
@@ -349,6 +350,44 @@ test('plans the stages of a phase: single tasks, and [P] groups that run in para
   assert.deepEqual(planStages('- [ ] T001 a\n- [ ] T002 [P] b\n- [ ] T003 [P] c\n'), { stages: [['T001'], ['T002', 'T003']], phaseEnd: true, lastIsGroup: true, phase: null }, 'no headings: one phase');
   assert.deepEqual(planStages('- [x] T001 a\n'), { stages: [], phaseEnd: false, lastIsGroup: false, phase: null });
   assert.deepEqual([parseMaxActiveSpecs(undefined), parseMaxActiveSpecs('5'), parseMaxActiveSpecs('0'), parseMaxActiveSpecs('x')], [3, 5, 3, 3]);
+});
+
+test('describes the [P] groups of every phase as the phase workflow forms them', () => {
+  const tasks = [
+    '# Tasks', '',
+    '## Phase 1: Setup', '- [x] T001 a', '- [ ] T002 b',
+    '## Phase 2: Story',
+    '### Providers', '- [ ] T003 [P] c', '- [ ] T004 [P] d',
+    '### Registration', '- [ ] T005 [P] e', '- [ ] T006 [P] f',
+    '- [ ] T007 g', '',
+    '## Phase 3: Polish', '- [x] T008 h', '',
+  ].join('\r\n');
+  assert.deepEqual(describeParallelGroups(tasks), {
+    phases: [
+      { phase: 'Phase 1: Setup', done: 1, open: 1, stages: [{ parallel: false, heading: 'Phase 1: Setup', tasks: ['T002'] }] },
+      {
+        phase: 'Phase 2: Story',
+        done: 0,
+        open: 5,
+        stages: [
+          { parallel: true, heading: 'Providers', tasks: ['T003', 'T004'] },
+          { parallel: true, heading: 'Registration', tasks: ['T005', 'T006'] },
+          { parallel: false, heading: 'Registration', tasks: ['T007'] },
+        ],
+      },
+      { phase: 'Phase 3: Polish', done: 1, open: 0, stages: [] },
+    ],
+    warnings: [],
+  }, 'a ### heading separates two groups that follow each other');
+
+  const merged = describeParallelGroups(['## Phase 1', '### Work', '- [ ] T001 [P] a', '### Work', '- [ ] T002 [P] b', '##### Too deep', '- [ ] T003 [P] c', ''].join('\n'));
+  assert.deepEqual(merged.phases[0].stages.map((stage) => stage.tasks), [['T001', 'T002', 'T003']]);
+  assert.deepEqual(merged.warnings, [
+    'line 6: `##### Too deep` is deeper than `####`, so it does not end a group',
+    'T001, T002, T003 form one group because the heading `### Work` repeats (lines 2, 4); give each group its own heading text',
+  ]);
+  assert.deepEqual(describeParallelGroups('- [ ] T001 [P] a\n- [ ] T002 [P] b\n'), { phases: [{ phase: null, done: 0, open: 2, stages: [{ parallel: true, heading: null, tasks: ['T001', 'T002'] }] }], warnings: [] }, 'no headings: one phase');
+  assert.deepEqual(describeParallelGroups(''), { phases: [], warnings: [] });
 });
 test('ticks a task in tasks.md and syncs the pull request body with it', () => {
   const ticked = tickTask(PARALLEL_TASKS, 'T003');

@@ -2,18 +2,19 @@
   "schema_version": "1.0",
   "extensions": {
     "gha": {
-      "version": "1.0.0",
+      "version": "1.1.0",
       "source": "local",
-      "manifest_hash": "sha256:d1e6c9830c72cdae0de061ab3ff2b28dee95302e4c186b8139aa0b5bafef32af",
+      "manifest_hash": "sha256:aeb131b6ae5153765d16820d131057e2022aca878ccf909b6328d88dedd1ef70",
       "enabled": true,
       "priority": 10,
       "registered_commands": {},
       "registered_skills": [
         "speckit-gha-route",
         "speckit-gha-request",
-        "speckit-gha-diagnose"
+        "speckit-gha-diagnose",
+        "speckit-gha-refine"
       ],
-      "installed_at": "2026-10-09T13:11:34.802974+00:00"
+      "installed_at": "2026-10-11T09:42:39.019147+00:00"
     }
   }
 }
