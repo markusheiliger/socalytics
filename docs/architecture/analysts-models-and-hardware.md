@@ -235,9 +235,17 @@ evidence, retention, and deletion follow
 
 Implementation must verify stamp isolation, capability matching, lease and retry
 behavior, duplicate completion handling, result-manifest validation, and OCI
-digest capture. It must also compare the desktop technology alternatives on
-Windows, macOS, and Linux; validate registration bootstrap, protected credential
-storage, rotation, and revocation; and measure concurrency control, queue-depth
+digest capture. It must also validate the tray profile on Windows, macOS, and
+Linux and the headless server profile on Ubuntu Server 22.04 and 24.04 LTS,
+including the lingering check, rootless and rootful runtimes, and the account
+rule. The Velopack spike proves, unsigned first, per-user install, delta
+updates, forward-fix, uninstall that leaves the OCI runtime untouched, the FUSE
+and extract-and-run start modes on minimal server images, self-update in both,
+and the stamp-served update feed with attestation checks, minimum version, and
+drain before applying; a second round after the publisher decision proves
+signing, macOS notarization, SmartScreen, and Gatekeeper. Implementation must
+also validate
+registration bootstrap, protected credential storage, rotation, and revocation; and measure concurrency control, queue-depth
 reporting, heartbeat ingestion cost, and suitable interval and timeout values.
 
 Failure tests must cover pause with active jobs, local unregister after drain,

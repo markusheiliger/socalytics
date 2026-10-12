@@ -6,6 +6,8 @@ The Analyst Manager is a per-user desktop application (Avalonia tray app plus a 
 
 This is development evidence, not production readiness. Installers, signing, updates, accessibility, attestation, and production values remain open.
 
+Planned, not implemented: a headless server profile for Linux, in which the Core worker runs without Avalonia as a systemd user service with lingering and is controlled only by the CLI; installers and updates with Velopack (per-user, delta updates, one AppImage for both Linux profiles, signing after an unsigned spike), served by each stamp as an update feed; and a status report for the Web UI fleet view. See [Application Profiles](../../../docs/architecture/analyst-manager.md#application-profiles).
+
 ## Build, Run, And Test
 
 From the repository root:

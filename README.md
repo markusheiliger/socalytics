@@ -121,9 +121,11 @@ test configuration.
 
 ### Analyst Manager
 
-The Analyst Manager is a per-user desktop tray application for Windows,
-macOS, and Linux in a separate .NET 10 solution that pins the same SDK as
-the platform in its own `global.json`. Run these commands from the
+The Analyst Manager is a per-user tray application for Windows, macOS, and
+Linux in a separate .NET 10 solution that pins the same SDK as the platform in
+its own `global.json`. A headless profile for Linux servers (systemd user
+service controlled by the CLI) and Velopack installers and updates are planned,
+not implemented. Run these commands from the
 repository root:
 
 ```powershell

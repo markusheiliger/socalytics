@@ -446,19 +446,30 @@ key, and a supported-browser matrix proven by a prototype gate.
 
 ## Analyst Technology
 
-The Analyst Manager is a per-user desktop application in a separate .NET
-solution under `src/analysts/manager` with its own tests. A .NET 10 Generic
-Host worker in a library without UI dependencies owns lifecycle,
-registration, key providers, signed local state, queue, hardware, autostart,
-and OCI-runtime responsibilities; Avalonia supplies the cross-platform tray
-and status UI in the same process. Device keys use Windows CNG, a small Swift
+The Analyst Manager is a per-user application in a separate .NET solution
+under `src/analysts/manager` with its own tests. A .NET 10 Generic Host worker
+in a library without UI dependencies owns lifecycle, registration, key
+providers, signed local state, queue, hardware, autostart, and OCI-runtime
+responsibilities. In the tray profile, Avalonia supplies the cross-platform
+tray and status UI in the same process; in the planned headless server profile,
+the worker runs without Avalonia as a Linux systemd user service controlled by
+the local-control CLI. Device keys use Windows CNG, a small Swift
 bridge over CryptoKit and the Keychain on macOS, and PKCS#11 through
 Pkcs11Interop on Linux. The worker and UI are tested without a display using
 Avalonia headless tests; Linux CI uses a SoftHSM2 token, while the Windows and
 macOS key stores are verified on those systems. Shared golden fixtures under
 `contracts/analyst-manager/` are verified by both the platform and the Manager
 test suites so the two implementations of the registration exchanges cannot
-drift.
+drift. Installers and updates are planned with Velopack, pending a spike that
+runs unsigned first: per-user installers for Windows and macOS and one Linux
+AppImage for both profiles, mounted through FUSE when available and otherwise
+started in extract-and-run mode. Signing follows once the publisher is
+decided. Each stamp serves the update feed to its Managers as a proxy for the
+Manager's GitHub Releases, after verifying their build-provenance attestation;
+it offers the releases of its chosen channel, may pin a version, and declares a
+minimum Manager version. The planned fleet view adds a Manager status report,
+sent with the periodic registration check and stored as the latest snapshot
+only, and a fleet read operation for Club Admins.
 
 Analyst Containers use Python because PyTorch, ONNX Runtime, OpenCV, NumPy,
 SciPy, scikit-learn, SAHI, and accelerator-vendor tooling provide the paved

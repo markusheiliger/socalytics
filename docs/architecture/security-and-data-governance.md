@@ -667,7 +667,7 @@ must be rejected rather than recorded as a candidate approval.
 | Entry | Credential class | Required unresolved decisions |
 | --- | --- | --- |
 | `GOV-CRED-001` | Human sessions | Issuance, bounded lifetime, renewal, revocation, recovery |
-| `GOV-CRED-002` | Device keys | Protected issuance, non-exportability, rotation, revocation, replacement |
+| `GOV-CRED-002` | Device keys | Protected issuance, non-exportability, rotation, revocation, replacement, and the stamp exception for software-backed keys on headless Linux servers without a TPM |
 | `GOV-CRED-003` | Manager/workload tokens | Proof binding, bounded lifetime, renewal, immediate revocation, recovery |
 | `GOV-CRED-004` | NATS credentials | Stamp/subject scope, bounded lifetime, rotation, revocation, recovery |
 | `GOV-CRED-005` | Object grants | Object/action scope, bounded lifetime, one-time or replay rules, revocation |

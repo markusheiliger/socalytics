@@ -43,7 +43,11 @@ unauthenticated remote TCP runtime APIs are unsupported.
   only after validation through its compatible API and Podman Machine. Podman
   is not bundled with the AM.
 - **Future profiles:** Linux, macOS, and containerd support remain outside the
-  first-release execution scope.
+  first-release execution scope. The Linux profiles will prefer rootless Podman
+  or Docker and also accept a rootful Docker daemon reached through the
+  `docker` group; preflight reports which one is in use, and the rootful case
+  requires a dedicated non-login service account for the headless server
+  profile (see [Analyst Manager](analyst-manager.md#headless-server-profile)).
 
 Support is defined by a tested compatibility matrix containing the AM version,
 runtime product and version, backend or VM mode, Windows version, architecture,
@@ -55,8 +59,9 @@ share one runtime-neutral interface; installable plugins and arbitrary external
 adapter loading are unsupported.
 
 Users or IT install, configure, license, update, and start the runtime and its
-VM or backend. The AM installer does not install, upgrade, remove, or reconfigure
-Docker, Podman, or their virtual machines. The AM validates compatibility and
+VM or backend. No Analyst Manager installer or update installs, upgrades,
+removes, or reconfigures Docker, Podman, or their virtual
+machines. The AM validates compatibility and
 uses least-privilege local access. An upgrade outside the compatibility matrix
 moves the AM to `Runtime unavailable` until the profile is validated again.
 
