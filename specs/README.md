@@ -26,6 +26,7 @@ features it depends on are merged.
 | [Durable Analysis Workflow](archive/20261005-130703-durable-analysis-workflow/spec.md) | Durable analysis runs, readiness evaluation, fenced attempts, reliable work publication, and versioned job contracts | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation, Recording Lineage and Upload, Analyst Manager Registration |
 | [Analyst Manager Work Execution](20261012-141233-manager-work-execution/spec.md) | A registered Analyst Manager pulls, claims, heartbeats, and completes analysis work with a simulated Analyst; per-Manager short-lived queue credentials, concurrency limits, and revocation that fences active attempts | Analyst Manager Registration, Durable Analysis Workflow |
 | [Web UI Verification Environment](20261012-145505-web-ui-environment/spec.md) | Environment feature: automated verification sets up, builds, and tests the Web UI at `src/clients/web/` with pinned Kiota and Playwright Chromium | None |
+| [Web UI Foundation](20261012-150657-web-ui-foundation/spec.md) | The first Web UI slice: sign-in and session handling, role-based navigation, and Club Admin management of the club, seasons, teams, and members through a generated API client on one origin | Web UI Verification Environment, Club and Identity Foundation |
 
 Environment Verification Coverage and Platform Persistence Foundation can be
 developed in parallel. Analyst Manager Registration follows Recording Lineage
