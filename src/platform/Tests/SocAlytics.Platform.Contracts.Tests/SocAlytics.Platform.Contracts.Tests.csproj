@@ -17,5 +17,6 @@
 
   <ItemGroup>
     <None Include="..\..\..\..\contracts\**\*" LinkBase="contracts" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Compatibility\BreakingRevisions\*.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
