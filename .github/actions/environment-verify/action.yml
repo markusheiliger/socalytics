@@ -2,7 +2,7 @@ name: Environment verify
 description: >-
   Verifies a change to this solution. Optional extension point of the Spec Kit workflows, which run it after the
   agent implemented a task (mode task: only the checks the changed files call for, each building its solution but
-  running only the always-run test projects and the tests the task touched; mode phase, after the last stage of a phase:
+  running only the always-run test projects and the tests the task touched; mode phase, after the last task of a phase:
   those checks with all their tests), after a conflict resolution, and before merging (mode finalize: every check
   with all tests); the workflows skip it when this file does not exist. It runs in a job
   with a read-only token and no token environment variables, because the checks execute agent-written code. The step

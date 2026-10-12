@@ -52,7 +52,8 @@ workflow started you): never ask, and turn every open question into a report que
      check runs, recent comments with the failure reports and agent summaries, logs of failed runs, branch state,
      the person's notes, a previous diagnosis).
    - Interactive: with `gh`, read the pull request, its comments (the stop comment, the failure comments of the stuck
-     step, an earlier diagnosis starting with `<!-- speckit-implement:diagnosis -->`), the failed runs
+     task, convergence, or conflict resolution, an earlier diagnosis starting with
+     `<!-- speckit-implement:diagnosis -->`), the failed runs
      (`gh run list --workflow speckit-implement-spec.yml`, `gh run view <id> --log-failed`), and an open amendment pull
      request from `speckit-amend/<folder>` with its comments and reviews. Work in a worktree of the implementation
      branch (`git worktree add <temp-dir> origin/speckit/<folder>`), or of the amendment branch to rework it.

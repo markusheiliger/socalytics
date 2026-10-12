@@ -1,27 +1,25 @@
 name: Spec Kit implement task
 
-# One stage of the implementation of a spec, never started on its own: called by Spec Kit implement phase once per stage
-# of a phase (from a matrix that runs one stage at a time), and by Spec Kit implement spec for the convergence and a
-# conflict resolution. A stage is a single task of tasks.md, or a `[P]` group whose tasks run in parallel. It starts
-# from the tip of the implementation branch, which the chain alone writes while it runs. The calling job names the
-# stage: "Spec Kit implement task #<twin> · <task ID and title>", "· Multiple tasks", "· Convergence", or
-# "· Conflict resolution".
+# One task of a spec, or consecutive `[P]` tasks that run in parallel, never started on its own: called by Spec Kit
+# implement phase once per task (from a matrix that runs one job at a time), and by Spec Kit implement spec for the
+# convergence and a conflict resolution. It starts from the tip of the implementation branch, which the chain alone
+# writes while it runs. The calling job names it: "T013" or "T014, T015 in parallel" in a phase, or "2 · Convergence"
+# or "2 · Conflict resolution" in the spec run.
 #   work: one job per task (a matrix), named "Implement <task>", with a read-only token: runs the agent and the
 #         verification
 #   land: named "Commit and push <tasks>": re-validates, commits, pushes, and reports each result in task order; it
 #         never runs agent-written code. Parallel tasks that edited the same files are merged three-way; only
 #         conflicting edits are redone from the new head. When every task was pushed, it shows the attempts of the next
-#         stage as in progress on the new head; otherwise it fails, so the calling matrix cancels the stages after this
-#         one.
+#         tasks as in progress on the new head; otherwise it fails, so the calling matrix cancels the tasks after these.
 #   verify: named "Verify the parallel changes together", only after land combined edits to the same files: the full verification
 #         of the combination (read-only token)
-#   report: after that verification, shows the next stage as in progress, or stops the implementation for a person
-#         and fails, so the calling matrix cancels the stages after this one
+#   report: after that verification, shows the next tasks as in progress, or stops the implementation for a person
+#         and fails, so the calling matrix cancels the tasks after these
 on:
   workflow_call:
     inputs:
-      step:
-        description: task, converge, or resolve
+      kind:
+        description: What to implement - task (one task or consecutive [P] tasks), converge, or resolve
         required: true
         type: string
       twin:
@@ -36,38 +34,38 @@ on:
         description: Spec folder name under specs/
         required: true
         type: string
-      stages:
-        description: 'All stages of the run as JSON: [{"include": [{"task", "attempt", "prompt", "verify_mode", "summary"}]}]'
+      order:
+        description: 'The task order of the run as JSON, one entry per task or consecutive [P] tasks: [{"include": [{"task", "attempt", "prompt", "verify_mode", "summary"}]}]'
         required: true
         type: string
       index:
-        description: Index of this stage in stages (0 for the first)
+        description: Index of the tasks to implement in order (0 for the first)
         required: true
         type: number
     outputs:
       ok:
-        description: Whether every task of the stage landed
+        description: Whether every task landed
         value: ${{ jobs.land.outputs.ok }}
       head:
-        description: Head of the implementation branch after the stage
+        description: Head of the implementation branch after the tasks
         value: ${{ jobs.land.outputs.head }}
 
 permissions: {}
 
 jobs:
   work:
-    name: ${{ inputs.step == 'task' && format('Implement {0}', matrix.task) || inputs.step == 'converge' && 'Converge' || 'Resolve conflicts' }}
+    name: ${{ inputs.kind == 'task' && format('Implement {0}', matrix.task) || inputs.kind == 'converge' && 'Converge' || 'Resolve conflicts' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       max-parallel: ${{ fromJSON(vars.SPECKIT_MAX_PARALLEL_TASKS || '3') }}
-      matrix: ${{ fromJSON(inputs.stages)[inputs.index] }}
+      matrix: ${{ fromJSON(inputs.order)[inputs.index] }}
     permissions:
       contents: read
       copilot-requests: write
     env:
-      SPECKIT_STEP: ${{ inputs.step }}
+      SPECKIT_KIND: ${{ inputs.kind }}
       SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
       SPECKIT_TWIN: ${{ inputs.twin }}
       SPECKIT_PULL: ${{ inputs.pull }}
@@ -104,7 +102,7 @@ jobs:
           node-version: 24
 
       - name: Set up Python for the Spec Kit scripts
-        if: inputs.step != 'resolve'
+        if: inputs.kind != 'resolve'
         uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -121,13 +119,13 @@ jobs:
 
       - name: Merge the default branch
         id: integrate
-        if: inputs.step == 'resolve'
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" integrate
+        if: inputs.kind == 'resolve'
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-task.mjs" integrate
 
       # The token reaches Copilot CLI only as COPILOT_GITHUB_TOKEN, which --secret-env-vars strips from the
       # agent's shells. The job token is read-only, so even a leaked token cannot push.
       - name: Run Copilot CLI
-        if: inputs.step != 'resolve'
+        if: inputs.kind != 'resolve'
         working-directory: workspace
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
@@ -146,7 +144,7 @@ jobs:
           echo "$?" > "$SPECKIT_RESULT_DIR/agent-exit.txt"
 
       - name: Resolve the conflicts with Copilot CLI
-        if: inputs.step == 'resolve' && steps.integrate.outputs.agent == 'true'
+        if: inputs.kind == 'resolve' && steps.integrate.outputs.agent == 'true'
         working-directory: workspace
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
@@ -166,14 +164,14 @@ jobs:
 
       - name: Package the result
         id: package
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" package
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-task.mjs" package
 
       # Optional, solution-owned extension point; loaded from the trusted tooling checkout. The job env holds no
       # tokens, so the agent-written code it runs cannot reach one. A convergence changes no code.
       - name: Verify the change
         id: verify
         if: >-
-          inputs.step != 'converge' &&
+          inputs.kind != 'converge' &&
           steps.package.outputs.verify == 'true' &&
           hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
         continue-on-error: true
@@ -181,7 +179,7 @@ jobs:
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           # task: build and the tests the task touched; finalize (a conflict resolution): every check with all tests.
-          # The phase gets its full verification in the phase workflow after its last stage.
+          # The phase gets its full verification in the phase workflow after its last task.
           mode: ${{ matrix.verify_mode || 'phase' }}
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
@@ -199,26 +197,26 @@ jobs:
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
 
       - name: Record the verdict
-        if: inputs.step != 'converge'
+        if: inputs.kind != 'converge'
         env:
           SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
           SPECKIT_VERIFY_OUTCOME: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outcome || steps.verify-again.outcome }}
           SPECKIT_VERIFY_CHECKS: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outputs.checks || steps.verify-again.outputs.checks }}
           SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outputs.uncovered || steps.verify-again.outputs.uncovered }}
           SPECKIT_VERIFY_RETRIED: ${{ steps.verify-again.outcome != 'skipped' }}
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" verdict
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-task.mjs" verdict
 
       - name: Upload the result
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: speckit-result-${{ matrix.task || inputs.step }}
+          name: speckit-result-${{ matrix.task || inputs.kind }}
           path: ${{ github.workspace }}/speckit-result
           retention-days: 7
           if-no-files-found: ignore
 
   land:
-    name: ${{ inputs.step == 'task' && format('Commit and push {0}', join(fromJSON(inputs.stages)[inputs.index].include.*.task, ', ')) || inputs.step == 'converge' && 'Commit and push the convergence' || 'Commit and push the conflict resolution' }}
+    name: ${{ inputs.kind == 'task' && format('Commit and push {0}', join(fromJSON(inputs.order)[inputs.index].include.*.task, ', ')) || inputs.kind == 'converge' && 'Commit and push the convergence' || 'Commit and push the conflict resolution' }}
     needs: work
     if: always()
     runs-on: ubuntu-latest
@@ -234,13 +232,13 @@ jobs:
       start: ${{ steps.land.outputs.start }}
       combined: ${{ steps.land.outputs.combined }}
     env:
-      SPECKIT_STEP: ${{ inputs.step }}
+      SPECKIT_KIND: ${{ inputs.kind }}
       SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
       SPECKIT_TWIN: ${{ inputs.twin }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_FOLDER: ${{ inputs.folder }}
-      SPECKIT_STAGES: ${{ inputs.stages }}
-      SPECKIT_STAGE_INDEX: ${{ inputs.index }}
+      SPECKIT_ORDER: ${{ inputs.order }}
+      SPECKIT_ORDER_INDEX: ${{ inputs.index }}
       SPECKIT_WORK_RESULT: ${{ needs.work.result }}
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_RESULT_ROOT: ${{ github.workspace }}/results
@@ -279,7 +277,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
-        run: node tooling/.github/scripts/speckit-step.mjs land-stage
+        run: node tooling/.github/scripts/speckit-task.mjs land-tasks
 
   # Parallel tasks that edited the same files were merged three-way while pushing: each passed its own verification,
   # so their combination gets the full verification here (read-only token; it runs agent-written code). The name is
@@ -311,13 +309,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: List the changes of the stage
+      - name: List the changes of the parallel tasks
         working-directory: workspace
         env:
-          STAGE_START: ${{ needs.land.outputs.start }}
+          TASKS_START: ${{ needs.land.outputs.start }}
         run: |
           mkdir -p "$SPECKIT_RESULT_DIR"
-          git diff --name-only --no-renames "$STAGE_START" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
+          git diff --name-only --no-renames "$TASKS_START" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
 
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
@@ -378,10 +376,10 @@ jobs:
           SPECKIT_TWIN: ${{ inputs.twin }}
           SPECKIT_PULL: ${{ inputs.pull }}
           SPECKIT_FOLDER: ${{ inputs.folder }}
-          SPECKIT_STAGES: ${{ inputs.stages }}
-          SPECKIT_STAGE_INDEX: ${{ inputs.index }}
+          SPECKIT_ORDER: ${{ inputs.order }}
+          SPECKIT_ORDER_INDEX: ${{ inputs.index }}
           SPECKIT_HEAD: ${{ needs.land.outputs.head }}
           SPECKIT_LAND_OK: ${{ needs.land.outputs.ok }}
           SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
           SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
-        run: node .github/scripts/speckit-step.mjs combined-verified
+        run: node .github/scripts/speckit-task.mjs combined-verified

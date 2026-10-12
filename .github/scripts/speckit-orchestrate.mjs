@@ -31,12 +31,12 @@ import {
   extractTasks,
   implementationBranch,
   isImplementRunOf,
+  kindLabel,
   parseMaxActiveSpecs,
   renderPullRequestBody,
   renderPullRequestTitle,
   renderStartComment,
   specTitleOfPull,
-  stepLabel,
 } from './speckit-implement-core.mjs';
 export class UsageError extends Error {}
 
@@ -165,7 +165,7 @@ async function findOpenPull(client, branch) {
   return (await client.listPullRequestsForHead(branch)).find((pull) => pull.state === 'open') ?? null;
 }
 
-// Completes what the merge step does after an automatic merge for a pull request that a person merged:
+// Completes what the merge does after an automatic merge for a pull request that a person merged:
 // marks the twin implemented (closing it if needed) and deletes the implementation branch.
 async function finalizeMerged(client, issue, folder, pullNumber) {
   await updateIssueWithLabels(client, issue, stageLabelChange(issue, 'implemented'), issue.state === 'open' ? { state: 'closed', state_reason: 'completed' } : {});
@@ -197,8 +197,8 @@ function describeDecision(twin) {
     case 'failed': return decision.diagnosis?.state === 'reported'
       ? 'stopped; the diagnosis waits for a person\'s decision'
       : 'stopped and waiting for a person (comment `/speckit diagnose`, `/speckit resume`, or push a fix)';
-    case 'limit': return `${stepLabel(decision)} reached the attempt limit`;
-    case 'stages': return `next is ${decision.stages[0].map(({ task, attempt }) => `${stepLabel({ step: decision.step, task })} attempt ${attempt}`).join(', ')}`;
+    case 'limit': return `${kindLabel(decision)} reached the attempt limit`;
+    case 'tasks': return `next is ${decision.order[0].map(({ task, attempt }) => `${kindLabel({ kind: decision.kind, task })} attempt ${attempt}`).join(', ')}`;
     case 'merge': return `next is the merge, attempt ${decision.attempt}`;
     default: return decision.action;
   }
@@ -245,7 +245,7 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
   report.flush();
   return { exitCode: 0, selection };
 }
-// Server side: prepares the implementation workspace of one ready twin. Every step checks what already exists,
+// Server side: prepares the implementation workspace of one ready twin. Each part checks what already exists,
 // so a rerun after a partial failure completes the work instead of duplicating it.
 export async function runStart({ client, rootDir, env, issueNumber, folder, requester, reset, log }) {
   const report = createReporter(env, log);

@@ -12,18 +12,20 @@ export const DEFAULT_MAX_PARALLEL_TASKS = 3;
 export const MAX_CONVERGE_ROUNDS = 3;
 // A merge check run still in progress after this long belongs to a cancelled or crashed run.
 export const MERGE_STALE_MS = 2 * 60 * 60 * 1000;
-// The per-spec implementation chain: every run of this workflow decides the next segment of one spec (a phase, the
+// The per-spec implementation chain: every run of this workflow decides what comes next for one spec (a phase, the
 // convergence, a conflict resolution, or the merge), runs it, and starts the next run. A phase runs in the reusable
-// phase workflow, which runs its stages (single tasks or `[P]` groups) in the reusable task workflow.
+// phase workflow, which runs the phase's tasks in order (consecutive `[P]` tasks in parallel) in the reusable task
+// workflow.
 export const IMPLEMENT_WORKFLOW_FILE = 'speckit-implement-spec.yml';
 export const IMPLEMENT_WORKFLOW_NAMES = Object.freeze({
   spec: 'Spec Kit implement spec',
   phase: 'Spec Kit implement phase',
   task: 'Spec Kit implement task',
 });
-// Stages per phase run: the phase workflow's stages job is a matrix, and GitHub runs at most 256 matrix jobs per run.
-// A longer phase continues in the next run.
-export const MAX_STAGES_PER_RUN = 256;
+// Entries of the task order per phase run: the phase workflow's tasks job is a matrix with one job per entry (a task, or
+// consecutive `[P]` tasks in parallel), and GitHub runs at most 256 matrix jobs per run. A longer phase continues in
+// the next run.
+export const MAX_MATRIX_JOBS_PER_RUN = 256;
 // Default number of specs the scheduler keeps implementing at the same time (repository variable SPECKIT_MAX_ACTIVE_SPECS).
 export const DEFAULT_MAX_ACTIVE_SPECS = 3;
 // Every reported outcome of an attempt carries this marker in its pull request comment; the comments are the attempt
@@ -132,14 +134,14 @@ export function parseGuidance(body) {
 }
 
 // The comment that starts a new attempt window; it persists the resume, so a replaced run cannot lose
-// it. Guidance applies to the stopped step until it succeeds.
+// it. Guidance applies to the stopped task, convergence, or conflict resolution until it succeeds.
 export function renderResumeComment(lead, guidance = '') {
   const value = String(guidance ?? '').trim();
   return [
     RESUME_COMMENT_MARKER,
     ...(value ? [renderGuidanceMarker(value)] : []),
     lead,
-    ...(value ? ['', 'Guidance for the next attempts of the stopped step:', '', ...neutralizeMarkers(value).split('\n').map((line) => `> ${line}`)] : []),
+    ...(value ? ['', 'Guidance for the next attempts:', '', ...neutralizeMarkers(value).split('\n').map((line) => `> ${line}`)] : []),
   ].join('\n');
 }
 
@@ -206,23 +208,23 @@ function tasksWithSections(tasksMarkdown) {
   return tasks;
 }
 
-// Splits the unticked tasks of one phase into stages, in order: a run of consecutive `[P]` tasks under one heading
-// (compared by its text) is one stage, every other task is a stage of its own. Returns the stages (at most
-// `maxStages`) and how many tasks they cover.
-function groupStages(open, maxStages) {
-  const stages = [];
+// Orders the unticked tasks of one phase: consecutive `[P]` tasks under one heading (compared by its text) form one
+// entry and run in parallel, every other task is an entry of its own. Returns the entries in task order (at most
+// `maxEntries`) and how many tasks they cover.
+function orderTasks(open, maxEntries) {
+  const order = [];
   let index = 0;
-  while (index < open.length && stages.length < maxStages) {
+  while (index < open.length && order.length < maxEntries) {
     const first = open[index];
-    const stage = [first];
+    const entry = [first];
     index += 1;
     while (first.parallel && index < open.length && open[index].parallel && open[index].section === first.section) {
-      stage.push(open[index]);
+      entry.push(open[index]);
       index += 1;
     }
-    stages.push(stage);
+    order.push(entry);
   }
-  return { stages, covered: index };
+  return { order, covered: index };
 }
 
 const headingText = (line) => line.replace(/^#+\s+/, '').trim() || null;
@@ -246,28 +248,28 @@ export function nextTaskGroup(tasksMarkdown, max = 1) {
   return group;
 }
 
-// The stages of the phase of the first unticked task, in task order: a run of consecutive unticked `[P]` tasks under
-// one heading is one stage (its tasks run in parallel), every other unticked task is a stage of its own. At most
-// `maxStages` stages are planned; `phaseEnd` tells whether they finish the phase, `lastIsGroup` whether the phase's
-// last stage is a `[P]` group, whose combined result then gets the phase's full verification after it landed.
-export function planStages(tasksMarkdown, { maxStages = MAX_STAGES_PER_RUN } = {}) {
+// The task order of the phase of the first unticked task: consecutive unticked `[P]` tasks under one heading form one
+// entry (they run in parallel), every other unticked task is an entry of its own. At most `maxEntries` entries are
+// planned; `phaseEnd` tells whether they finish the phase, `lastIsParallel` whether the phase ends with `[P]` tasks,
+// whose combined result then gets the phase's full verification after it landed.
+export function planTasks(tasksMarkdown, { maxEntries = MAX_MATRIX_JOBS_PER_RUN } = {}) {
   const tasks = tasksWithSections(tasksMarkdown);
   const start = tasks.findIndex((task) => !task.done);
-  if (start < 0) return { stages: [], phaseEnd: false, lastIsGroup: false, phase: null };
+  if (start < 0) return { order: [], phaseEnd: false, lastIsParallel: false, phase: null };
   const phase = tasks[start].phase;
   const open = [];
   for (const task of tasks.slice(start)) {
     if (task.phase !== phase) break;
     if (!task.done) open.push(task);
   }
-  const grouped = groupStages(open, maxStages);
-  const stages = grouped.stages.map((stage) => stage.map((task) => task.id));
-  const phaseEnd = grouped.covered >= open.length;
-  return { stages, phaseEnd, lastIsGroup: phaseEnd && stages.at(-1).length > 1, phase: headingText(phase) };
+  const ordered = orderTasks(open, maxEntries);
+  const order = ordered.order.map((entry) => entry.map((task) => task.id));
+  const phaseEnd = ordered.covered >= open.length;
+  return { order, phaseEnd, lastIsParallel: phaseEnd && order.at(-1).length > 1, phase: headingText(phase) };
 }
 
-// Every phase of tasks.md with the stages its unticked tasks will run in, grouped exactly as planStages groups them,
-// for reviewing `[P]` groups (speckit.gha.refine). Warnings name headings that do not separate groups: a heading deeper
+// Every phase of tasks.md with the order its unticked tasks will run in, exactly as planTasks orders them, for
+// reviewing `[P]` groups (speckit.gha.refine). Warnings name headings that do not separate groups: a heading deeper
 // than `####`, and a heading whose text repeats, so the `[P]` tasks under both copies form one group.
 export function describeParallelGroups(tasksMarkdown) {
   const tasks = tasksWithSections(tasksMarkdown);
@@ -282,14 +284,14 @@ export function describeParallelGroups(tasksMarkdown) {
   }
   const result = phases.map(({ key, tasks: list }) => {
     const open = list.filter((task) => !task.done);
-    const stages = groupStages(open, Number.POSITIVE_INFINITY).stages.map((stage) => {
-      const lines = [...new Set(stage.map((task) => task.sectionLine))];
+    const order = orderTasks(open, Number.POSITIVE_INFINITY).order.map((entry) => {
+      const lines = [...new Set(entry.map((task) => task.sectionLine))];
       if (lines.length > 1) {
-        warnings.push(`${stage.map((task) => task.id).join(', ')} form one group because the heading \`${stage[0].section.trim()}\` repeats (lines ${lines.join(', ')}); give each group its own heading text`);
+        warnings.push(`${entry.map((task) => task.id).join(', ')} form one group because the heading \`${entry[0].section.trim()}\` repeats (lines ${lines.join(', ')}); give each group its own heading text`);
       }
-      return { parallel: stage.length > 1, heading: stage[0].section ? headingText(stage[0].section) : null, tasks: stage.map((task) => task.id) };
+      return { parallel: entry.length > 1, heading: entry[0].section ? headingText(entry[0].section) : null, tasks: entry.map((task) => task.id) };
     });
-    return { phase: headingText(key), done: list.length - open.length, open: open.length, stages };
+    return { phase: headingText(key), done: list.length - open.length, open: open.length, order };
   });
   return { phases: result, warnings };
 }
@@ -326,9 +328,9 @@ export function taskProgress(tasksMarkdown) {
   return { done: tasks.filter((task) => task.done).length, total: tasks.length };
 }
 
-// Title of a run or job of the implementation workflows: the workflow's name, the twin, and what it works on, for
-// example "Spec Kit implement spec #35 · Recording Lineage and Upload", "Spec Kit implement phase #35 · Phase 3: …",
-// or "Spec Kit implement task #35 · T013 [P] [US1] Create …".
+// Title of a run or job summary of the implementation workflows: the workflow's name, the twin, and what it works on,
+// for example "Spec Kit implement spec #35 · Recording Lineage and Upload", "Spec Kit implement phase #35 · Phase 3: …",
+// or "Spec Kit implement task #35 · T013 [P] [US1] Create …". Job names stay shorter (see taskJobName).
 export function renderImplementTitle(workflow, twin, subject = '') {
   return `${IMPLEMENT_WORKFLOW_NAMES[workflow]} #${twin}${subject ? ` · ${subject}` : ''}`;
 }
@@ -348,19 +350,28 @@ export function specTitleOfPull(pull) {
   return String(pull?.title ?? '').replace(/^Implement:\s*/, '').trim();
 }
 
-// What the phase workflow works on: the phase heading of tasks.md exactly as written (planStages already removed the
+// What the phase workflow works on: the phase heading of tasks.md exactly as written (planTasks already removed the
 // "## "); a tasks.md without phase headings has a single unnamed phase.
 export function phaseSubject(phase) {
   return String(phase ?? '').trim() || 'Tasks';
 }
 
-// What one stage in the task workflow works on: a single task by its ID and generated title (summarizeTask), a `[P]`
-// group as "Multiple tasks", or the convergence or a conflict resolution.
-export function stageSubject(step, entries) {
-  if (step === 'converge') return 'Convergence';
-  if (step === 'resolve') return 'Conflict resolution';
-  if (entries.length !== 1) return 'Multiple tasks';
+// What one call of the task workflow works on: a single task by its ID and generated title (summarizeTask), `[P]`
+// tasks by their IDs, or the convergence or a conflict resolution.
+export function taskSubject(kind, entries) {
+  if (kind === 'converge') return 'Convergence';
+  if (kind === 'resolve') return 'Conflict resolution';
+  if (entries.length !== 1) return taskJobName(entries);
   return `${entries[0].task} ${entries[0].summary ?? ''}`.trim();
+}
+
+// Name of the job that implements one entry of the task order in the run graph, which joins the names of nested jobs
+// ("2 · Phase 3: … / T013 / Implement T013") and truncates long ones, so it shows only the task IDs; the job summaries
+// carry the full titles.
+export function taskJobName(entries) {
+  const ids = entries.map((entry) => entry.task).filter(Boolean);
+  const tasks = ids.length <= 3 ? ids.join(', ') : `${ids[0]} … ${ids.at(-1)}`;
+  return `${tasks}${ids.length > 1 ? ' in parallel' : ''}${ids.length > 3 ? ` (${ids.length} tasks)` : ''}`;
 }
 
 // Starts (or queues) the next run of the implementation chain of a twin. GitHub keeps one pending run per spec, and a
@@ -378,14 +389,14 @@ export async function dispatchImplementation(client, env, { twin, pull, title })
   await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', { twin: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}) });
 }
 
-// The attempt marker of an outcome comment. `outcome` is success, failure, requeue (redone from a newer head; not a
-// failure), or attention (a person is needed).
-export function renderAttemptMarker({ step, task = null, attempt, outcome }) {
-  return `<!-- speckit-implement:attempt ${JSON.stringify({ step, task: task || null, attempt: Number(attempt), outcome })} -->`;
+// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, converge, or resolve. `outcome`
+// is success, failure, requeue (redone from a newer head; not a failure), or attention (a person is needed).
+export function renderAttemptMarker({ kind, task = null, attempt, outcome }) {
+  return `<!-- speckit-implement:attempt ${JSON.stringify({ kind, task: task || null, attempt: Number(attempt), outcome })} -->`;
 }
 
 // The attempt ledger of a pull request: the outcomes the workflow reported, oldest first. Only comments by the
-// workflow count, so text in other comments cannot forge outcomes.
+// workflow count, so text in other comments cannot forge outcomes. Markers written before `kind` carry it as `step`.
 export function parseAttempts(comments) {
   const attempts = [];
   for (const comment of comments) {
@@ -394,8 +405,9 @@ export function parseAttempts(comments) {
     if (!match) continue;
     try {
       const value = JSON.parse(match[1]);
-      if (!['task', 'converge', 'resolve'].includes(value.step) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
-      attempts.push({ step: value.step, task: value.task ?? null, attempt: Number(value.attempt) || 0, outcome: value.outcome, at: comment.created_at });
+      const kind = value.kind ?? value.step;
+      if (!['task', 'converge', 'resolve'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
+      attempts.push({ kind, task: value.task ?? null, attempt: Number(value.attempt) || 0, outcome: value.outcome, at: comment.created_at });
     } catch {
       // A malformed marker is ignored.
     }
@@ -403,14 +415,14 @@ export function parseAttempts(comments) {
   return attempts.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
 }
 
-// External ID of the check run that shows one attempt: speckit:attempt:<step>:<task>:<attempt>.
-export function attemptCheckId({ step, task = null, attempt }) {
-  return `${CHECK_ATTEMPT}:${step}:${task ?? ''}:${attempt}`;
+// External ID of the check run that shows one attempt: speckit:attempt:<kind>:<task>:<attempt>.
+export function attemptCheckId({ kind, task = null, attempt }) {
+  return `${CHECK_ATTEMPT}:${kind}:${task ?? ''}:${attempt}`;
 }
 
 export function parseAttemptCheckId(externalId) {
   const match = String(externalId ?? '').match(/^speckit:attempt:(task|converge|resolve):(T\d{3,})?:(\d+)$/);
-  return match ? { step: match[1], task: match[2] ?? null, attempt: Number(match[3]) } : null;
+  return match ? { kind: match[1], task: match[2] ?? null, attempt: Number(match[3]) } : null;
 }
 
 // The verification after the agent runs the full test suite; the agent running it as well doubled the time of a task.
@@ -470,12 +482,12 @@ const checkTime = (check) => Date.parse(check.started_at ?? check.created_at ?? 
 // `Spec Kit implementation` check runs of the current head; `attempts` the attempt ledger (parseAttempts);
 // `windowStart` starts the current attempt window (pull request, resume, or a person's push); `done` tells whether
 // the implementation was finalized for review; `resumedAt` is the latest resume.
-// Order: the stages of the phase of the next unticked task (planStages) → converge (until a successful convergence is
+// Order: the tasks of the phase of the next unticked task (planTasks) → converge (until a successful convergence is
 // newer than the last successful task) → merge, or resolve after a merge found conflicts on this head. Only failures
 // count against the attempt limit; all outcomes (including redos from a newer head) are capped separately so no-op
 // attempts cannot loop forever. A stop that needs a person (attempt limit, attention, or a diagnosis that runs or waits
 // for a decision) holds everything until a person pushes or resumes.
-export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowStart, done = false, resumedAt = null, now = Date.now(), maxStages = MAX_STAGES_PER_RUN }) {
+export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowStart, done = false, resumedAt = null, now = Date.now(), maxEntries = MAX_MATRIX_JOBS_PER_RUN }) {
   const mergeChecks = checks.filter((check) => check.external_id === CHECK_MERGE);
   const stale = mergeChecks.filter((check) => check.status !== 'completed' && now - checkTime(check) >= MERGE_STALE_MS);
   if (mergeChecks.some((check) => check.status !== 'completed' && !stale.includes(check))) return { action: 'wait' };
@@ -505,51 +517,51 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   };
   const exceeded = ({ failures, total }) => failures >= MAX_TASK_ATTEMPTS || total >= MAX_TASK_ATTEMPTS * 2;
 
-  const plan = planStages(tasksMarkdown, { maxStages });
-  if (plan.stages.length > 0) {
-    const ofTask = (id) => tally((attempt) => attempt.step === 'task' && attempt.task === id);
-    // Earlier attempts can only belong to the first stage: a run stops at the first stage that did not land.
-    for (const id of plan.stages[0]) {
+  const plan = planTasks(tasksMarkdown, { maxEntries });
+  if (plan.order.length > 0) {
+    const ofTask = (id) => tally((attempt) => attempt.kind === 'task' && attempt.task === id);
+    // Earlier attempts can only belong to the first entry: a run stops at the first entry that did not land.
+    for (const id of plan.order[0]) {
       const count = ofTask(id);
-      if (exceeded(count)) return { action: 'limit', step: 'task', task: id, attempts: count.total, stale };
+      if (exceeded(count)) return { action: 'limit', kind: 'task', task: id, attempts: count.total, stale };
     }
     return {
-      action: 'stages',
-      step: 'task',
-      stages: plan.stages.map((stage) => stage.map((id) => ({ task: id, attempt: ofTask(id).total + 1 }))),
+      action: 'tasks',
+      kind: 'task',
+      order: plan.order.map((entry) => entry.map((id) => ({ task: id, attempt: ofTask(id).total + 1 }))),
       phaseEnd: plan.phaseEnd,
-      lastIsGroup: plan.lastIsGroup,
+      lastIsParallel: plan.lastIsParallel,
       phase: plan.phase,
       stale,
     };
   }
 
   const atOf = (attempt) => Date.parse(attempt.at);
-  const lastTask = Math.max(0, ...attempts.filter((attempt) => attempt.step === 'task' && attempt.outcome === 'success').map(atOf));
-  const converged = attempts.some((attempt) => attempt.step === 'converge' && attempt.outcome === 'success' && atOf(attempt) > lastTask);
-  let step;
+  const lastTask = Math.max(0, ...attempts.filter((attempt) => attempt.kind === 'task' && attempt.outcome === 'success').map(atOf));
+  const converged = attempts.some((attempt) => attempt.kind === 'converge' && attempt.outcome === 'success' && atOf(attempt) > lastTask);
+  let kind;
   let count;
   if (!converged) {
-    step = 'converge';
-    count = tally((attempt) => attempt.step === 'converge' && atOf(attempt) > lastTask);
+    kind = 'converge';
+    count = tally((attempt) => attempt.kind === 'converge' && atOf(attempt) > lastTask);
   } else if (latestCheckRun(checks.filter((check) => [CHECK_MERGE, CHECK_CONFLICT].includes(check.external_id)))?.external_id === CHECK_CONFLICT) {
-    step = 'resolve';
+    kind = 'resolve';
     // Only attempts at the current conflict count; earlier, already resolved conflicts do not.
     const conflictAt = checkTime(latestCheckRun(checks.filter((check) => check.external_id === CHECK_CONFLICT)));
-    count = tally((attempt) => attempt.step === 'resolve' && atOf(attempt) >= conflictAt);
+    count = tally((attempt) => attempt.kind === 'resolve' && atOf(attempt) >= conflictAt);
   } else {
     const merges = mergeChecks.filter((check) => checkTime(check) >= since);
     const merge = { failures: merges.filter((check) => stale.includes(check) || check.conclusion === 'failure').length, total: merges.length };
-    if (exceeded(merge)) return { action: 'limit', step: 'merge', attempts: merge.total, stale };
-    return { action: 'merge', step: 'merge', attempt: merge.total + 1, stale };
+    if (exceeded(merge)) return { action: 'limit', kind: 'merge', attempts: merge.total, stale };
+    return { action: 'merge', kind: 'merge', attempt: merge.total + 1, stale };
   }
-  if (exceeded(count)) return { action: 'limit', step, attempts: count.total, stale };
-  return { action: 'stages', step, stages: [[{ task: null, attempt: count.total + 1 }]], phaseEnd: false, lastIsGroup: false, stale };
+  if (exceeded(count)) return { action: 'limit', kind, attempts: count.total, stale };
+  return { action: 'tasks', kind, order: [[{ task: null, attempt: count.total + 1 }]], phaseEnd: false, lastIsParallel: false, stale };
 }
-// Human-readable name of a step for comments and summaries.
-export function stepLabel({ step, task }) {
-  if (step === 'task') return task;
-  return { converge: 'convergence', resolve: 'conflict resolution', merge: 'merge' }[step] ?? step;
+// Human-readable name of what an attempt works on, for comments and summaries.
+export function kindLabel({ kind, task }) {
+  if (kind === 'task') return task;
+  return { converge: 'convergence', resolve: 'conflict resolution', merge: 'merge' }[kind] ?? kind;
 }
 
 // Reasons why a /speckit-converge change cannot be accepted. It may only append a convergence phase with new,
@@ -722,7 +734,7 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
 // it applies the amendment, closing it discards it, and a comment or review asks for a rework.
 export const PR_COMMANDS = [
   { name: 'diagnose', usage: '/speckit diagnose [notes]', help: 'diagnose why the implementation stopped; notes steer the analysis or answer its questions' },
-  { name: 'resume', usage: '/speckit resume [guidance]', help: 'retry the stopped step with a fresh attempt count; guidance goes into the next attempt\'s prompt' },
+  { name: 'resume', usage: '/speckit resume [guidance]', help: 'retry what stopped with a fresh attempt count; guidance goes into the next attempt\'s prompt' },
   { name: 'sync', usage: '/speckit sync', help: 'merge the default branch into the implementation branch and retry' },
   { name: 'help', usage: '/speckit help', help: 'list these commands' },
 ];

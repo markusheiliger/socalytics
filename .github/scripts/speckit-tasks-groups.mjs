@@ -4,8 +4,8 @@ import { pathToFileURL } from 'node:url';
 
 import { describeParallelGroups } from './speckit-implement-core.mjs';
 
-// Prints the phases of a spec's tasks.md with the stages its unticked tasks will run in, grouped exactly as Spec Kit
-// implement phase groups them, so `[P]` groups can be reviewed (speckit.gha.refine). Read-only.
+// Prints the phases of a spec's tasks.md with the order its unticked tasks will run in, exactly as Spec Kit implement
+// phase orders them, so `[P]` groups can be reviewed (speckit.gha.refine). Read-only.
 
 export class GroupsUsageError extends Error {}
 
@@ -13,11 +13,11 @@ export function renderGroups({ phases, warnings }) {
   const lines = [];
   for (const phase of phases) {
     lines.push(`## ${phase.phase ?? 'Tasks'} (${phase.open} open, ${phase.done} done)`);
-    for (const [index, stage] of phase.stages.entries()) {
-      const under = stage.heading && stage.heading !== phase.phase ? ` (under "${stage.heading}")` : '';
-      lines.push(`- Stage ${index + 1}: ${stage.tasks.join(', ')}${stage.parallel ? ' in parallel' : ''}${under}`);
+    for (const entry of phase.order) {
+      const under = entry.heading && entry.heading !== phase.phase ? ` (under "${entry.heading}")` : '';
+      lines.push(`- ${entry.tasks.join(', ')}${entry.parallel ? ' in parallel' : ''}${under}`);
     }
-    if (phase.stages.length === 0) lines.push('- Nothing open');
+    if (phase.order.length === 0) lines.push('- Nothing open');
     lines.push('');
   }
   lines.push(warnings.length > 0 ? 'Warnings:' : 'Warnings: none');

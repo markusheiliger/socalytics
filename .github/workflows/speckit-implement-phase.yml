@@ -1,16 +1,18 @@
 name: Spec Kit implement phase
 
 # One phase of tasks.md (a `##` heading), never started on its own: called by Spec Kit implement spec, whose phase job
-# names it "Spec Kit implement phase #<twin> · <phase heading as written>". It implements the open tasks of the phase.
-#   plan:    decides again from the state on GitHub and, while the phase is still the next segment, plans its stages in
-#            task order (a single task, or a run of `[P]` tasks under one heading) and shows the first stage's attempts
-#            as in progress; it never runs agent-written code
-#   stages:  a matrix that runs Spec Kit implement task once per stage, one at a time: a stage lands before the next
-#            starts, and a stage that does not land cancels the stages after it
-#   verify:  the full verification of the phase after its last stage (read-only token); each task is verified only with
+# names it "2 · <phase heading as written>". It implements the open tasks of the phase, one after another in task
+# order; consecutive `[P]` tasks under one heading run in parallel.
+#   plan:    "Plan the tasks": decides again from the state on GitHub and, while the phase still comes next,
+#            plans the order of its open tasks and shows the attempts of the first task (or first `[P]` tasks) as in
+#            progress; it never runs agent-written code
+#   tasks:   a matrix that runs Spec Kit implement task once per task (or once for consecutive `[P]` tasks), one job at a
+#            time, named after the task IDs ("T013", "T014, T015 in parallel"): tasks land before the next start, and
+#            tasks that do not land cancel the tasks after them
+#   verify:  the full verification of the phase after its last task (read-only token); each task is verified only with
 #            the tests it touched, so a failure here stops the implementation for a diagnosis without using up the
 #            attempts of a task. A failed verification runs once more before it counts.
-# A phase longer than 256 stages continues in the next run of the spec.
+# A phase whose order needs more than 256 matrix jobs continues in the next run of the spec.
 on:
   workflow_call:
     inputs:
@@ -40,7 +42,7 @@ permissions: {}
 
 jobs:
   plan:
-    name: Plan the phase
+    name: Plan the tasks
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -52,8 +54,8 @@ jobs:
     outputs:
       head: ${{ steps.plan.outputs.head }}
       count: ${{ steps.plan.outputs.count }}
-      stages: ${{ steps.plan.outputs.stages }}
-      stage_matrix: ${{ steps.plan.outputs.stage_matrix }}
+      order: ${{ steps.plan.outputs.order }}
+      task_matrix: ${{ steps.plan.outputs.task_matrix }}
       phase_check: ${{ steps.plan.outputs.phase_check }}
     steps:
       - name: Check out the default branch
@@ -67,7 +69,7 @@ jobs:
         with:
           node-version: 24
 
-      - name: Plan the stages
+      - name: Plan the tasks
         id: plan
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -78,17 +80,17 @@ jobs:
           SPECKIT_PHASE: ${{ inputs.phase }}
         run: node .github/scripts/speckit-spec.mjs plan-phase
 
-  # One matrix entry per stage, one at a time and in order; a stage that does not land fails its land job, and fail-fast
-  # cancels the stages after it. GitHub documents the order in which matrix jobs are created; with max-parallel 1 they
-  # run in that order. Each entry carries the title the stage runs under.
-  stages:
-    name: ${{ matrix.title }}
+  # One matrix job per task (or per consecutive `[P]` tasks), one at a time and in order; tasks that do not land fail
+  # their land job, and fail-fast cancels the tasks after them. GitHub documents the order in which matrix jobs are
+  # created; with max-parallel 1 they run in that order. Each entry carries the job name it runs under.
+  tasks:
+    name: ${{ matrix.name }}
     needs: plan
     if: needs.plan.outputs.count != '0'
     strategy:
       max-parallel: 1
       fail-fast: true
-      matrix: ${{ fromJSON(needs.plan.outputs.stage_matrix) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.task_matrix) }}
     uses: ./.github/workflows/speckit-implement-task.yml
     permissions:
       checks: write
@@ -97,21 +99,21 @@ jobs:
       issues: read
       pull-requests: write
     with:
-      step: task
+      kind: task
       twin: ${{ inputs.twin }}
       pull: ${{ inputs.pull }}
       folder: ${{ inputs.folder }}
-      stages: ${{ needs.plan.outputs.stages }}
+      order: ${{ needs.plan.outputs.order }}
       index: ${{ matrix.index }}
 
-  # The phase's full verification after its last stage, in its own job (read-only token; it runs agent-written code):
+  # The phase's full verification after its last task, in its own job (read-only token; it runs agent-written code):
   # each task was verified only with the tests it touched, so a change that breaks other tests shows here, and a
   # failure stops the implementation for a diagnosis instead of using up the attempts of the task that came last.
   verify:
     name: Verify the phase
-    needs: [plan, stages]
+    needs: [plan, tasks]
     if: >-
-      !cancelled() && needs.plan.outputs.phase_check == 'true' && needs.stages.result == 'success'
+      !cancelled() && needs.plan.outputs.phase_check == 'true' && needs.tasks.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -127,7 +129,7 @@ jobs:
           path: tooling
           persist-credentials: false
 
-      # The chain is the only writer of the branch while it runs, so its tip is what the stages landed.
+      # The chain is the only writer of the branch while it runs, so its tip is what the tasks landed.
       - name: Check out the implementation branch
         uses: actions/checkout@v5
         with:

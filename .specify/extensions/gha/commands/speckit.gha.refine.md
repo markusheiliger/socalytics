@@ -11,9 +11,9 @@ $ARGUMENTS
 This command runs as a mandatory `after_tasks` hook of `/speckit-tasks`, right after `tasks.md` was generated. It can
 also be run on its own; the input may then name the spec folder.
 
-The implementation workflow (Spec Kit implement phase) runs the tasks of each phase in stages: a run of consecutive
-unchecked `[P]` tasks under one heading is one stage whose tasks run in parallel, each from the same commit; every
-other task is a stage of its own. Parallel tasks that change the same file are merged afterwards and verified
+The implementation workflow (Spec Kit implement phase) runs the tasks of each phase one after another in task order,
+except that consecutive unchecked `[P]` tasks under one heading run in parallel, each from the same commit. Parallel
+tasks that change the same file are merged afterwards and verified
 together, and redone when their edits conflict, which costs whole runs. This command makes the groups safe and, for a
 fresh `tasks.md`, uses the parallelism the plan allows.
 
@@ -46,7 +46,7 @@ fresh `tasks.md`, uses the parallelism the plan allows.
 
 3. **List the groups.** Run `node .github/scripts/speckit-tasks-groups.mjs <path to tasks.md>` from the repository
    root. It prints
-   every phase with the stages its unchecked tasks will run in, exactly as the workflow forms them, and warnings for
+   every phase with the order its unchecked tasks will run in, exactly as the workflow plans it, and warnings for
    headings that do not separate groups. Treat its output as the truth about grouping; fix every warning.
 
 4. **Predict each task's footprint**: the files it creates or changes and the symbols it introduces or uses. Start
@@ -85,7 +85,7 @@ fresh `tasks.md`, uses the parallelism the plan allows.
    parallel, each from the same commit (replace wording such as "informational only"). Update the dependency notes and
    the parallel examples to match the new groups.
 
-8. **Check the result.** Run the helper again: no warnings, and every parallel stage is one you judged safe. Re-read
+8. **Check the result.** Run the helper again: no warnings, and every set of `[P]` tasks that run in parallel is one you judged safe. Re-read
    each changed task against its requirements.
 
 9. **Report.** List each group of the final `tasks.md` per phase as `kept`, `new`, `split` (with the follow-up task), or
@@ -98,6 +98,6 @@ fresh `tasks.md`, uses the parallelism the plan allows.
 ## Done When
 
 - [ ] The helper reports no warnings for `tasks.md`.
-- [ ] Every parallel stage consists of tasks with disjoint footprints and no dependencies on each other.
+- [ ] Consecutive `[P]` tasks that run in parallel have disjoint footprints and no dependencies on each other.
 - [ ] No requirement, scope, or checked task changed; only `tasks.md` changed.
 - [ ] The legend, dependency notes, and parallel examples match the groups.

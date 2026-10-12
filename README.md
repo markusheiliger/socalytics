@@ -280,22 +280,29 @@ their "blocked by" issues are closed.
   `Spec Kit implement spec` (`speckit-implement-spec.yml`), one at a time per
   spec, each started by the previous one and named after the spec, for example
   `Spec Kit implement spec #35 · Recording Lineage and Upload` (the spec title
-  from the pull request title). Every run decides the next segment from the
-  state on GitHub (job `decide`), runs it, and starts the next run (job
-  `continue`), until the implementation is merged, waits for review, or needs
-  a person. A segment runs in two nested reusable workflows, which appear in
-  the run as job groups named after their workflow, the twin, and their
-  subject:
+  from the pull request title). Every run decides what comes next from the
+  state on GitHub (job `decide`, shown as `1 · Decide what comes next`),
+  runs it, and starts the next run (job `continue`, shown as
+  `3 · Start the next run`), until the implementation is merged, waits for
+  review, or needs a person. What a run can do next (a phase, the
+  convergence, a conflict resolution, or the merge) is numbered `2 ·`; only
+  one of them runs, and the others show as skipped. Phases, the convergence,
+  and conflict resolutions run in two nested reusable workflows, which appear
+  in the run as job groups. The run
+  graph joins the names of nested jobs, for example
+  `2 · Phase 3: … / T013 / Implement T013`, so job names stay
+  short; the job summaries carry the full titles, such as
+  `Spec Kit implement task #35 · T013 [P] [US1] Create …`:
 
-  | Segment | Runs in | What it does |
+  | Next | Runs in | What it does |
   | --- | --- | --- |
-  | A phase | job `phase`, which calls `Spec Kit implement phase` (`speckit-implement-phase.yml`), named after the phase heading of `tasks.md` as written, for example `Spec Kit implement phase #35 · Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP` | the phase of the first open task. Its job `plan` decides itself which of the phase's tasks are still open and plans them as stages in `tasks.md` order: each unchecked task is a stage; consecutive unchecked `[P]` tasks under the same heading form one stage whose tasks run in parallel (see below). Its job `stages` is a matrix that calls `Spec Kit implement task` (`speckit-implement-task.yml`) once per stage, one stage at a time, named `Spec Kit implement task #35 · T013 [P] [US1] Create …` (the task ID and its generated title) or `Spec Kit implement task #35 · Multiple tasks` for a `[P]` group. Each stage lands before the next starts; a stage that does not land fails, and the matrix cancels the stages after it |
-  | Acceptance gate | job `step`, which calls `Spec Kit implement task`, named `Spec Kit implement task #35 · Convergence` | once all tasks are checked, one stage with `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
-  | Merge | jobs `merge-verify` and `merge-land` | merges `main` into the branch, runs the full verification on the result, and squash-merges the pull request into `main` |
-  | Conflicts | job `step`, which calls `Spec Kit implement task`, named `Spec Kit implement task #35 · Conflict resolution` | one stage that resolves conflicts with `main` with Copilot CLI, verifies, and pushes the merge commit; then the merge runs again |
+  | A phase | job `phase`, which calls `Spec Kit implement phase` (`speckit-implement-phase.yml`), named after the phase heading of `tasks.md` as written, for example `2 · Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP` | the phase of the first open task. Its job `plan` (`Plan the tasks`) decides itself which of the phase's tasks are still open and plans them in `tasks.md` order: the tasks run one after another, except that consecutive unchecked `[P]` tasks under the same heading run in parallel (see below). Its job `tasks` is a matrix that calls `Spec Kit implement task` (`speckit-implement-task.yml`) once per task, or once for consecutive `[P]` tasks, one job at a time, named `T013` for a single task or `T014, T015 in parallel` for `[P]` tasks. Tasks land before the next start; tasks that do not land fail, and the matrix cancels the tasks after them |
+  | Acceptance gate | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `2 · Convergence` | once all tasks are checked, `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
+  | Merge | jobs `merge-verify` (`2 · Merge: integrate and verify`) and `merge-land` (`2 · Merge: merge and report`) | merges `main` into the branch, runs the full verification on the result, and squash-merges the pull request into `main` |
+  | Conflicts | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `2 · Conflict resolution` | resolves conflicts with `main` with Copilot CLI, verifies, and pushes the merge commit; then the merge runs again |
 
   Each job is short, so specs of any size never hit the 6-hour job limit.
-  Every stage:
+  Every call of `Spec Kit implement task`:
   1. runs one `work` job per task (a matrix, at most
       `SPECKIT_MAX_PARALLEL_TASKS` at a time); each sets up the solution
       environment with the optional `.github/actions/environment-setup`
@@ -307,7 +314,7 @@ their "blocked by" issues are closed.
       `.github/actions/environment-verify` action. After a task, mode `task`
       runs the checks the changed paths call for with only the tests the task
       touched (the agent is told to run only those as well, not the whole
-      suite). After the phase's last stage, the phase workflow's job "Verify
+      suite). After the phase's last task, the phase workflow's job "Verify
       the phase" runs mode `phase` (those checks with all their tests) for all
       changes of the implementation branch; if it fails, the implementation
       stops for a person (and a diagnosis) without using up the attempts of
@@ -324,16 +331,16 @@ their "blocked by" issues are closed.
       under `.github/`, `.specify/`, or `specs/`, and is replayed onto git's
       own merge), then commits, pushes, updates the pull request body and
       check run, and comments the result. When parallel tasks edited the same
-      files, it merges them three-way and the stage's "Verify the parallel
-      changes together" job verifies the combination before the next stage
-      starts. When every task
-      was pushed, it shows the next stage's attempts as in progress; otherwise
-      the job fails on purpose, the stages after it are cancelled, and the
+      files, it merges them three-way and the "Verify the parallel changes
+      together" job verifies the combination before the next task starts.
+      When every task
+      was pushed, it shows the next task's attempts as in progress; otherwise
+      the job fails on purpose, the tasks after it are cancelled, and the
       next run retries.
 
   GitHub documents the order in which matrix jobs are created, not that they
-  run in that order; with one stage at a time they run in order in practice.
-  Each stage starts from the tip of the implementation branch, which the chain
+  run in that order; with one job at a time they run in order in practice.
+  Every call starts from the tip of the implementation branch, which the chain
   alone writes while it runs.
 
   `merge-verify` (read-only token) merges `main` and runs every check of
@@ -393,28 +400,29 @@ their "blocked by" issues are closed.
       is merged (or add the "blocked by" link on GitHub).
 - Tasks marked `[P]` run in parallel, up to `SPECKIT_MAX_PARALLEL_TASKS`
   (default 3) at a time. Consecutive unchecked `[P]` tasks under the same
-  heading form one stage; an unchecked task without `[P]` or a new heading
-  ends it. Each task of the stage starts from the stage's head and is verified
+  heading run together; an unchecked task without `[P]` or a new heading
+  ends them. Each of these tasks starts from the same head and is verified
   on its own. The "Commit and push" job pushes them in task order: a task
   whose siblings landed first is rebuilt on the new head (its change without
   `tasks.md`, plus its own tick) and validated again. Files that a sibling
   (or a person) also changed since the task started are merged three-way;
-  the stage's "Verify the parallel changes together" job then runs mode
+  the "Verify the parallel changes together" job then runs mode
   `phase` on the combined result, and if that fails, the implementation stops for a person (and a
   diagnosis). Only when those edits conflict, or the change no longer
   applies, the task runs again from the new head in the next run; that does
   not count as a failed attempt, but every task has at most six attempts. A
   push that is refused although the branch did not move counts as a failed
   attempt.
-  `SPECKIT_MAX_PARALLEL_TASKS=1` runs the tasks of a stage one after another.
+  `SPECKIT_MAX_PARALLEL_TASKS=1` runs `[P]` tasks one after another.
   `/speckit-tasks` sets `[P]` from the task texts alone, so its
   `/speckit-gha-refine` hook checks each group against the files its tasks
   will really change (including registrations, project files, and shared
   configuration) and names the shared file, moves a shared edit into one task
   after the group, or ends the group. Groups that follow each other are
-  separated with `###` headings. To see the stages exactly as the workflow
-  forms them, run `node .github/scripts/speckit-tasks-groups.mjs <folder>`.
-- Every step gets at most three failed attempts. Every outcome of a task, a
+  separated with `###` headings. To see the task order exactly as the workflow
+  plans it, run `node .github/scripts/speckit-tasks-groups.mjs <folder>`.
+- Every task, convergence, conflict resolution, and merge gets at most three
+  failed attempts. Every outcome of a task, a
   convergence, or a conflict resolution is commented on the pull request with
   a hidden attempt marker, and the next run counts the attempts from these
   comments (only those the workflow wrote); merges are counted from their
@@ -427,7 +435,7 @@ their "blocked by" issues are closed.
 
   | Case | What the person does |
   | --- | --- |
-  | A step reached its attempt limit | read the automatic diagnosis and choose one of its options, or push a fix to the implementation branch |
+  | A task, the convergence, a conflict resolution, or the merge reached its attempt limit | read the automatic diagnosis and choose one of its options, or push a fix to the implementation branch |
   | Convergence still finds gaps after 3 rounds | implement the gaps on the branch, or adjust the spec and tasks (`/speckit diagnose` proposes how) |
   | Conflicts the agent could not resolve, or conflicts in protected paths | resolve them (GitHub's "Resolve conflicts" or locally) and push |
 
@@ -435,7 +443,7 @@ their "blocked by" issues are closed.
   which continues the implementation with a new attempt count, so it merges
   without further approval.
 - An open implementation pull request marks the twin as in progress, so it is
-    never started twice. Every step checks what already exists, so reruns after
+    never started twice. Preparing the implementation checks what already exists, so reruns after
     partial failures complete the work.
 - Closing the pull request without merging removes the flag, and the twin
     falls back to its computed stage with a comment. GitHub keeps the closed
@@ -492,7 +500,8 @@ node .github/scripts/speckit-prepare.mjs sync --dry-run
 
 ### When an Implementation Stops
 
-An implementation stops for a person when a step reaches its attempt limit,
+An implementation stops for a person when a task, the convergence, a conflict
+resolution, or the merge reaches its attempt limit,
 convergence keeps finding gaps, conflicts need a person, or a merge fails. Not
 every stop is a spec problem, so the next step starts with a diagnosis:
 
@@ -526,7 +535,7 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     | Command | Effect |
     | --- | --- |
     | `/speckit diagnose [notes]` | start a diagnosis; notes steer it or answer its questions (also while the implementation runs; it then waits) |
-    | `/speckit resume [guidance]` | restart the stopped step with a fresh attempt count; the guidance goes into the stopped step's prompt |
+    | `/speckit resume [guidance]` | restart what stopped with a fresh attempt count; the guidance goes into its prompt |
     | `/speckit sync` | merge `main` into the implementation branch (for a fix that landed there) and continue |
     | `/speckit help` | list the commands |
 
@@ -601,7 +610,7 @@ place. The workflows and scripts need no changes for any of it.
 | --- | --- | --- | --- |
 | `SPECKIT_AUTO_MERGE` | repository variable | `true` | `false` holds every implementation for review instead of merging it automatically |
 | `SPECKIT_TASK_AI_CREDITS` | repository variable | `1000` | Copilot CLI credit cap per agent run (tasks, convergence, conflict resolution) |
-| `SPECKIT_MAX_PARALLEL_TASKS` | repository variable | `3` | how many `[P]` tasks of one stage run at the same time; `1` runs them one after another |
+| `SPECKIT_MAX_PARALLEL_TASKS` | repository variable | `3` | how many consecutive `[P]` tasks run at the same time; `1` runs them one after another |
 | `SPECKIT_MAX_ACTIVE_SPECS` | repository variable | `3` | how many specs the scheduler implements at the same time; a spec waiting for review or for a person does not count |
 | `SPECKIT_AUTO_DIAGNOSE` | repository variable | `true` | `false` stops starting a diagnosis automatically when an implementation stops; `/speckit diagnose` still works |
 | `.github/actions/environment-setup` | composite action, optional | not run | installs the SDKs and tools for building, testing, and verifying |

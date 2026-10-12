@@ -17,7 +17,7 @@ because Spec Kit already bundles an extension with the ID `github`.
 
 `/speckit-tasks` sets `[P]` from the task texts alone, which miss shared edits
 such as service registrations or project files. The implementation workflow runs
-consecutive `[P]` tasks under one heading as one parallel stage, so
+consecutive `[P]` tasks under one heading in parallel, so
 `/speckit-gha-refine` checks each group against the files its tasks will really
 change and fixes overlaps: it names the shared file, moves a small shared edit
 into one task after the group, or ends the group. For a fresh `tasks.md` it also
@@ -26,7 +26,7 @@ and renumbers the tasks. For a spec already being implemented it only fixes
 conflicting groups, without moving or renumbering tasks.
 
 `node .github/scripts/speckit-tasks-groups.mjs <folder | tasks.md> [--json]`
-prints the stages exactly as the workflow forms them, with warnings for headings
+prints the task order exactly as the workflow plans it, with warnings for headings
 that do not separate groups. It is read-only.
 
 `/speckit-gha-diagnose` is also the method of the `Spec Kit diagnose` agentic

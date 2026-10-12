@@ -481,11 +481,11 @@ async function decide(github, root, twin, env = {}, run = runDecide) {
   return { ...result, outputs, text: lines.join('\n') };
 }
 
-const attemptComment = (github, pull, task, outcome, step = 'task') => github.createComment(pull, `${renderAttemptMarker({ step, task, attempt: 1, outcome })}\n**${task ?? step}** ${outcome}`);
+const attemptComment = (github, pull, task, outcome, kind = 'task') => github.createComment(pull, `${renderAttemptMarker({ kind, task, attempt: 1, outcome })}\n**${task ?? kind}** ${outcome}`);
 
 const planPhase = (github, root, twin, phase, env = {}) => decide(github, root, twin, { SPECKIT_FOLDER: 'a', SPECKIT_PHASE: phase, ...env }, runPlanPhase);
 
-test('chain: decide picks the phase, and plan-phase plans its stages with prompts, verify modes, titles, and the first stage\'s check runs', async () => {
+test('chain: decide picks the phase, and plan-phase plans its task order with prompts, verify modes, job names, and the first tasks\' check runs', async () => {
   const { root, github, twin } = await flaggedRepo();
   try {
     await start(github, root, twin);
@@ -493,40 +493,41 @@ test('chain: decide picks the phase, and plan-phase plans its stages with prompt
     github.setFile('speckit/a', 'specs/a/tasks.md', '## Phase 1: Setup\n\n- [ ] T001 [P] Create project\n- [ ] T002 [P] Add docs\n\n### Implementation\n\n- [ ] T003 [US1] Build it\n\n## Phase 2\n\n- [ ] T004 Later\n');
     const progress = github.repo.checkRuns.at(-1);
     const chosen = await decide(github, root, twin);
-    assert.deepEqual([chosen.outputs.action, chosen.outputs.continue, chosen.outputs.phase, chosen.outputs.title], ['phase', 'true', 'Phase 1: Setup', `Spec Kit implement phase #${twin.number} · Phase 1: Setup`]);
+    assert.deepEqual([chosen.outputs.action, chosen.outputs.continue, chosen.outputs.phase, chosen.outputs.job_name], ['phase', 'true', 'Phase 1: Setup', 'Phase 1: Setup']);
+    assert.match(chosen.text, new RegExp(`^Next: Spec Kit implement phase #${twin.number} · Phase 1: Setup\\.$`, 'm'));
     assert.match(chosen.text, new RegExp(`^## Spec Kit implement spec #${twin.number} · a title$`, 'm'));
     assert.equal(progress.external_id, CHECK_PROGRESS, 'decide starts no attempts for a phase');
 
     const stale = await planPhase(github, root, twin, 'Phase 2');
-    assert.deepEqual([stale.outputs.count, stale.outputs.stages], ['0', '[]'], 'a phase that is no longer next plans nothing');
+    assert.deepEqual([stale.outputs.count, stale.outputs.order], ['0', '[]'], 'a phase that is no longer next plans nothing');
     assert.match(stale.text, /Nothing to plan/);
 
     const decided = await planPhase(github, root, twin, chosen.outputs.phase);
     assert.deepEqual([decided.outputs.count, decided.outputs.phase_check], ['2', 'true'], 'a run that finishes the phase verifies it in its own job');
-    assert.deepEqual(JSON.parse(decided.outputs.stage_matrix), { include: [
-      { number: 1, index: 0, title: `Spec Kit implement task #${twin.number} · Multiple tasks` },
-      { number: 2, index: 1, title: `Spec Kit implement task #${twin.number} · T003 [US1] Build it` },
+    assert.deepEqual(JSON.parse(decided.outputs.task_matrix), { include: [
+      { index: 0, name: 'T001, T002 in parallel' },
+      { index: 1, name: 'T003' },
     ] });
-    const stages = JSON.parse(decided.outputs.stages);
-    assert.deepEqual(stages.map((stage) => stage.include.map((entry) => [entry.task, entry.attempt, entry.verify_mode])), [[['T001', 1, 'task'], ['T002', 1, 'task']], [['T003', 1, 'task']]], 'the last task is verified like every other; the phase is verified on its own');
+    const order = JSON.parse(decided.outputs.order);
+    assert.deepEqual(order.map((entry) => entry.include.map((entry) => [entry.task, entry.attempt, entry.verify_mode])), [[['T001', 1, 'task'], ['T002', 1, 'task']], [['T003', 1, 'task']]], 'the last task is verified like every other; the phase is verified on its own');
     assert.match(decided.text, /- Then the full verification of the phase\./);
-    assert.match(stages[0].include[0].prompt, /^\/speckit-implement Implement only task T001 of the spec in `specs\/a\/` \(its `tasks\.md`\); ignore the other specs\./);
-    assert.equal(stages[1].include[0].summary, '[US1] Build it');
+    assert.match(order[0].include[0].prompt, /^\/speckit-implement Implement only task T001 of the spec in `specs\/a\/` \(its `tasks\.md`\); ignore the other specs\./);
+    assert.equal(order[1].include[0].summary, '[US1] Build it');
     assert.equal(progress.external_id, 'speckit:attempt:task:T001:1', 'the first attempt takes over the queued progress check run');
     assert.deepEqual(github.repo.checkRuns.filter((check) => String(check.external_id).startsWith('speckit:attempt:')).map((check) => [check.external_id, check.status]), [['speckit:attempt:task:T001:1', 'in_progress'], ['speckit:attempt:task:T002:1', 'in_progress']]);
     assert.equal(decided.outputs.head, github.repo.branches['speckit/a']);
-    assert.match(decided.text, /Stage 1: T001 attempt 1, T002 attempt 1\n- Stage 2: T003 attempt 1/);
+    assert.match(decided.text, /- T001 attempt 1, T002 attempt 1 in parallel\n- T003 attempt 1\n/);
 
     // The run ended without reporting its attempts: they count as failed, and the next run retries them.
     const retried = await decide(github, root, twin);
     assert.match(retried.text, /Recorded 2 attempt\(s\) of an earlier run that ended without reporting as failed/);
     assert.match(github.comments.find((comment) => comment.body.includes('"task":"T001","attempt":1,"outcome":"failure"')).body, /T001 attempt 1 did not finish/);
-    assert.deepEqual(JSON.parse((await planPhase(github, root, twin, 'Phase 1: Setup')).outputs.stages)[0].include.map((entry) => entry.attempt), [2, 2]);
+    assert.deepEqual(JSON.parse((await planPhase(github, root, twin, 'Phase 1: Setup')).outputs.order)[0].include.map((entry) => entry.attempt), [2, 2]);
 
     github.setFile('speckit/a', 'specs/a/tasks.md', '## Phase 1: Setup\n\n- [x] T001 a\n- [ ] T002 [P] b\n- [ ] T003 [P] c\n');
     for (const check of github.repo.checkRuns) check.status = 'completed';
     const group = await planPhase(github, root, twin, 'Phase 1: Setup');
-    assert.deepEqual([JSON.parse(group.outputs.stage_matrix).include.length, group.outputs.phase_check], [1, 'true'], 'a phase that ends with a [P] group gets the phase verification');
+    assert.deepEqual([JSON.parse(group.outputs.task_matrix).include.length, group.outputs.phase_check], [1, 'true'], 'a phase that ends with [P] tasks gets the phase verification');
     assert.equal(pull.number, github.repo.pulls[0].number);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -554,10 +555,10 @@ test('chain: decide stops at the attempt limit, resumes on request with guidance
     assert.equal(resumed.outputs.action, 'phase');
     const comment = github.comments.find((item) => item.body.startsWith(RESUME_COMMENT_MARKER));
     assert.equal(parseGuidance(comment.body), 'Use the existing helper.');
-    const [first, second] = JSON.parse((await planPhase(github, root, twin, resumed.outputs.phase)).outputs.stages);
+    const [first, second] = JSON.parse((await planPhase(github, root, twin, resumed.outputs.phase)).outputs.order);
     assert.deepEqual([first.include[0].task, first.include[0].attempt], ['T001', 1], 'a resume starts a new attempt window');
     assert.match(first.include[0].prompt, /Guidance from the person who resumed this implementation: Use the existing helper\.$/);
-    assert.doesNotMatch(second.include[0].prompt, /Guidance/, 'guidance applies to the stopped step only');
+    assert.doesNotMatch(second.include[0].prompt, /Guidance/, 'guidance applies to the stopped task only');
 
     github.mergeBranchOutcome = null;
     twin.labels = twin.labels.filter((label) => label.name !== IMPLEMENT);
@@ -577,9 +578,10 @@ test('chain: decide converges, merges, and resolves conflicts', async () => {
     github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', 'x'));
     await attemptComment(github, pull.number, 'T002', 'success');
     const converge = await decide(github, root, twin);
-    assert.deepEqual([converge.outputs.action, converge.outputs.step, converge.outputs.title], ['step', 'converge', `Spec Kit implement task #${twin.number} · Convergence`]);
-    const [stage] = JSON.parse(converge.outputs.stages);
-    assert.deepEqual([stage.include[0].task, stage.include[0].attempt, stage.include[0].prompt.startsWith('/speckit-converge')], ['', 1, true]);
+    assert.deepEqual([converge.outputs.action, converge.outputs.job_name], ['converge', 'Convergence']);
+    assert.match(converge.text, new RegExp(`^Next: Spec Kit implement task #${twin.number} · Convergence\\.$`, 'm'));
+    const [entry] = JSON.parse(converge.outputs.order);
+    assert.deepEqual([entry.include[0].task, entry.include[0].attempt, entry.include[0].prompt.startsWith('/speckit-converge')], ['', 1, true]);
     assert.ok(github.repo.checkRuns.some((check) => check.external_id === 'speckit:attempt:converge::1' && check.status === 'in_progress'));
 
     for (const check of github.repo.checkRuns) check.status = 'completed';
@@ -591,7 +593,7 @@ test('chain: decide converges, merges, and resolves conflicts', async () => {
 
     Object.assign(mergeCheck, { status: 'completed', conclusion: 'neutral', external_id: CHECK_CONFLICT });
     const resolve = await decide(github, root, twin);
-    assert.deepEqual([resolve.outputs.action, resolve.outputs.step, resolve.outputs.title, JSON.parse(resolve.outputs.stages)[0].include[0].verify_mode], ['step', 'resolve', `Spec Kit implement task #${twin.number} · Conflict resolution`, 'finalize']);
+    assert.deepEqual([resolve.outputs.action, resolve.outputs.job_name, JSON.parse(resolve.outputs.order)[0].include[0].verify_mode], ['resolve', 'Conflict resolution', 'finalize']);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

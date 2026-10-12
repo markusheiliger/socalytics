@@ -5,7 +5,7 @@ import { IMPLEMENT_STAGE, hasLabel, resolveTwins, stageLabel } from './speckit-p
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { resolveImplementRequester } from './speckit-prepare.mjs';
 import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
-import { startAttemptChecks } from './speckit-step.mjs';
+import { startAttemptChecks } from './speckit-task.mjs';
 import {
   BOT_LOGIN,
   CHECK_DIAGNOSED,
@@ -21,6 +21,7 @@ import {
   decideNext,
   dispatchImplementation,
   implementationBranch,
+  kindLabel,
   latestCheckRun,
   latestHumanCommit,
   listTasks,
@@ -38,13 +39,13 @@ import {
   renderResumeComment,
   renderTaskPrompt,
   specTitleOfPull,
-  stageSubject,
-  stepLabel,
   summarizeTask,
   syncPullRequestTaskList,
+  taskJobName,
+  taskSubject,
 } from './speckit-implement-core.mjs';
 
-// The implementation chain of one spec (workflow Spec Kit implement spec): every run decides the next segment from the
+// The implementation chain of one spec (workflow Spec Kit implement spec): every run decides what comes next from the
 // state on GitHub (job "decide"), runs it (a phase in Spec Kit implement phase, the convergence or a conflict
 // resolution in Spec Kit implement task, or the merge), and starts the next run (job "continue"), until the
 // implementation is merged, waits for review, or needs a person.
@@ -122,12 +123,12 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
 
 // Whether a decision needs a run of the chain: work to do, a stop to report, or a diagnosis to start.
 export function needsRun(decision, env) {
-  if (['stages', 'merge', 'limit'].includes(decision.action)) return true;
+  if (['tasks', 'merge', 'limit'].includes(decision.action)) return true;
   if (decision.action !== 'failed' || decision.diagnosis?.state === 'reported') return false;
   return decision.diagnosis?.state === 'stale' || (autoDiagnosisEnabled(env) && (decision.diagnosis?.count ?? 0) < MAX_AUTO_DIAGNOSES);
 }
 
-// Guidance from the latest resume (`/speckit resume <guidance>`). It applies to the stopped step only: it ends when an
+// Guidance from the latest resume (`/speckit resume <guidance>`). It applies to the stopped task, convergence, or conflict resolution only: it ends when an
 // attempt reported success after the resume, or when a person pushed since.
 function currentGuidance({ comments, ledger, pushedAt }) {
   const resume = comments
@@ -147,7 +148,7 @@ async function closeOrphanedAttempts(client, pull) {
     .filter((check) => check.status !== 'completed' && parseAttemptCheckId(check.external_id));
   for (const check of orphans) {
     const attempt = parseAttemptCheckId(check.external_id);
-    const label = stepLabel(attempt);
+    const label = kindLabel(attempt);
     await client.updateCheckRun(check.id, {
       status: 'completed',
       conclusion: 'failure',
@@ -177,7 +178,7 @@ async function startMerge(client, { pull, attempt }) {
 }
 
 async function stopAtLimit(client, env, { pull, folder, requester }, decision) {
-  const label = stepLabel(decision);
+  const label = kindLabel(decision);
   await client.createCheckRun({
     name: CHECK_RUN_NAME,
     head_sha: pull.head.sha,
@@ -223,38 +224,39 @@ function readSpecInputs(env) {
   return { twin, pull };
 }
 
-// The matrix entries of each stage of a decision (decideNext, action "stages"): prompts, verify modes, and task
-// summaries. Guidance from a resume applies to the stopped step, which is always the first stage. Every task is verified
-// on its own (mode `task`); the phase gets its full verification in its own job after its last stage, so a failure
-// there is never charged to the task that happens to come last.
-function prepareStages(decision, folder) {
+// The matrix entries of each entry of a decision's task order (decideNext, action "tasks"): prompts, verify modes, and
+// task summaries. Guidance from a resume applies to the stopped task, convergence, or conflict resolution, which is always the first entry. Every task is
+// verified on its own (mode `task`); the phase gets its full verification in its own job after its last task, so a
+// failure there is never charged to the task that happens to come last.
+function prepareOrder(decision, folder) {
   const guidance = currentGuidance(decision);
   const withGuidance = (prompt) => (guidance ? `${prompt} Guidance from the person who resumed this implementation: ${guidance.replace(/\s+/g, ' ').slice(0, 1500)}` : prompt);
   const texts = new Map(listTasks(decision.tasksMarkdown).map((task) => [task.id, task.text]));
-  return decision.stages.map((stage, index) => ({
-    include: stage.map(({ task, attempt }) => {
-      const prompt = decision.step === 'task' ? renderTaskPrompt(task, folder) : decision.step === 'converge' ? renderConvergePrompt() : '';
+  return decision.order.map((entry, index) => ({
+    include: entry.map(({ task, attempt }) => {
+      const prompt = decision.kind === 'task' ? renderTaskPrompt(task, folder) : decision.kind === 'converge' ? renderConvergePrompt() : '';
       return {
         task: task ?? '',
         attempt,
         prompt: index === 0 && prompt ? withGuidance(prompt) : prompt,
-        verify_mode: decision.step === 'resolve' ? 'finalize' : 'task',
+        verify_mode: decision.kind === 'resolve' ? 'finalize' : 'task',
         summary: task ? neutralizeMarkers(summarizeTask(texts.get(task) ?? '')).slice(0, 300) : '',
       };
     }),
   }));
 }
 
-function reportStages(report, step, stages) {
-  for (const [index, stage] of stages.entries()) {
-    report.line(`- Stage ${index + 1}: ${stage.include.map((entry) => `${stepLabel({ step, task: entry.task || null })} attempt ${entry.attempt}`).join(', ')}`);
+function reportOrder(report, kind, order) {
+  for (const entry of order) {
+    const attempts = entry.include.map((item) => `${kindLabel({ kind, task: item.task || null })} attempt ${item.attempt}`);
+    report.line(`- ${attempts.join(', ')}${attempts.length > 1 ? ' in parallel' : ''}`);
   }
 }
 
 // Spec Kit implement spec, job "decide" (write access to check runs, issues, and pull requests; never runs agent
-// code): validates the twin and its pull request, reports orphaned attempts, decides the next segment, reports stops
-// (attempt limit, diagnosis), and prepares the segment: the phase to run (Spec Kit implement phase plans its stages),
-// the stage of the convergence or a conflict resolution with its check run, or the merge check run. The outputs drive
+// code): validates the twin and its pull request, reports orphaned attempts, decides what comes next, reports stops
+// (attempt limit, diagnosis), and prepares it: the phase to run (Spec Kit implement phase plans its tasks),
+// the convergence or a conflict resolution with its check run, or the merge check run. The outputs drive
 // the jobs of the run; `continue` tells whether the run starts its successor.
 export async function runDecide({ client, env, log, now = Date.now }) {
   const report = createReporter(env, log);
@@ -262,7 +264,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   const finish = (action, outputs = {}) => {
     report.flush();
     setOutput(env, 'action', action);
-    setOutput(env, 'continue', String(['phase', 'step', 'merge'].includes(action)));
+    setOutput(env, 'continue', String(['phase', 'converge', 'resolve', 'merge'].includes(action)));
     for (const [name, value] of Object.entries(outputs)) setOutput(env, name, value);
     return { exitCode: 0, action, ...outputs };
   };
@@ -298,7 +300,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   if (decision.action === 'limit') {
     const requester = (await resolveImplementRequester(client, twin))?.login ?? null;
     await stopAtLimit(client, env, { pull, folder, requester }, decision);
-    report.line(`Stopped: ${stepLabel(decision)} reached the attempt limit.`);
+    report.line(`Stopped: ${kindLabel(decision)} reached the attempt limit.`);
     await maybeDiagnose(client, env, { twin, pull, folder }, { state: 'none', count: 0 }, report);
     return finish('stop', base);
   }
@@ -312,7 +314,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     report.line(`Merging, attempt ${decision.attempt}.`);
     return finish('merge', { ...base, attempt: String(decision.attempt), check_run: String(checkRun) });
   }
-  if (decision.action !== 'stages') {
+  if (decision.action !== 'tasks') {
     report.line({
       wait: 'Waiting: a merge is running.',
       done: 'Implemented and waiting for review.',
@@ -321,26 +323,25 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     }[decision.action] ?? decision.action);
     return finish(decision.action === 'done' ? 'done' : 'none', base);
   }
-  if (decision.step === 'task') {
-    const title = renderImplementTitle('phase', twin, phaseSubject(decision.phase));
-    report.line(`Next: ${title}.`);
-    return finish('phase', { ...base, phase: decision.phase ?? '', title });
+  if (decision.kind === 'task') {
+    report.line(`Next: ${renderImplementTitle('phase', twin, phaseSubject(decision.phase))}.`);
+    return finish('phase', { ...base, phase: decision.phase ?? '', job_name: phaseSubject(decision.phase) });
   }
 
-  const stages = prepareStages(decision, folder);
-  await startAttemptChecks(client, { head: pull.head.sha, step: decision.step, entries: stages[0].include });
-  const title = renderImplementTitle('task', twin, stageSubject(decision.step, stages[0].include));
-  report.line(`Next: ${title}.`);
-  reportStages(report, decision.step, stages);
-  return finish('step', { ...base, step: decision.step, stages: JSON.stringify(stages), title });
+  const order = prepareOrder(decision, folder);
+  await startAttemptChecks(client, { head: pull.head.sha, kind: decision.kind, entries: order[0].include });
+  const subject = taskSubject(decision.kind, order[0].include);
+  report.line(`Next: ${renderImplementTitle('task', twin, subject)}.`);
+  reportOrder(report, decision.kind, order);
+  return finish(decision.kind, { ...base, order: JSON.stringify(order), job_name: subject });
 }
 
 // Spec Kit implement phase, job "plan" (write access to check runs and pull requests; never runs agent code): decides
-// again from the state on GitHub and, while the phase is still the next segment, plans its stages in task order: the
-// stages with their prompts, verify modes, and summaries; the matrix of the stages job, one entry per stage with the
-// title it runs under; and the check runs of the first stage. It plans nothing when the state changed since the spec
-// run decided. `phase_check` tells whether this run finishes the phase, whose result then gets the phase's full
-// verification in the phase workflow's verify job.
+// again from the state on GitHub and, while the phase still comes next, plans the order of its tasks: each
+// entry is a task, or consecutive `[P]` tasks in parallel, with their prompts, verify modes, and summaries; the matrix
+// of the tasks job, one entry each with the job name it runs under; and the check runs of the first entry. It plans
+// nothing when the state changed since the spec run decided. `phase_check` tells whether this run finishes the phase,
+// whose result then gets the phase's full verification in the phase workflow's verify job.
 export async function runPlanPhase({ client, env, log, now = Date.now }) {
   const report = createReporter(env, log);
   const { twin, pull: pullNumber } = readSpecInputs(env);
@@ -357,22 +358,22 @@ export async function runPlanPhase({ client, env, log, now = Date.now }) {
 
   const decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env) });
   const head = decision.pull.head.sha;
-  if (decision.action !== 'stages' || decision.step !== 'task' || (decision.phase ?? '') !== phase) {
-    report.line('Nothing to plan: the phase is no longer the next segment.');
-    return finish({ count: '0', head, stages: '[]', stage_matrix: JSON.stringify({ include: [] }), phase_check: 'false' });
+  if (decision.action !== 'tasks' || decision.kind !== 'task' || (decision.phase ?? '') !== phase) {
+    report.line('Nothing to plan: the phase no longer comes next.');
+    return finish({ count: '0', head, order: '[]', task_matrix: JSON.stringify({ include: [] }), phase_check: 'false' });
   }
-  const stages = prepareStages(decision, folder);
-  await startAttemptChecks(client, { head, step: 'task', entries: stages[0].include });
+  const order = prepareOrder(decision, folder);
+  await startAttemptChecks(client, { head, kind: 'task', entries: order[0].include });
   const phaseCheck = decision.phaseEnd;
-  reportStages(report, 'task', stages);
+  reportOrder(report, 'task', order);
   if (phaseCheck) report.line('- Then the full verification of the phase.');
   else report.line('- The rest of the phase continues in the next run.');
   return finish({
-    count: String(stages.length),
+    count: String(order.length),
     head,
-    stages: JSON.stringify(stages),
-    // The matrix of the stages job: one entry per stage, run one at a time in this order.
-    stage_matrix: JSON.stringify({ include: stages.map((stage, index) => ({ number: index + 1, index, title: renderImplementTitle('task', twin, stageSubject('task', stage.include)) })) }),
+    order: JSON.stringify(order),
+    // The matrix of the tasks job: one job per entry of the order, run one at a time.
+    task_matrix: JSON.stringify({ include: order.map((entry, index) => ({ index, name: taskJobName(entry.include) })) }),
     phase_check: String(phaseCheck),
   });
 }

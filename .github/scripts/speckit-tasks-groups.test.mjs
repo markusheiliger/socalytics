@@ -22,7 +22,7 @@ function withSpec(body) {
   }
 }
 
-test('prints the stages of every phase for a spec folder', () => withSpec((root) => {
+test('prints the task order of every phase for a spec folder', () => withSpec((root) => {
   let output = '';
   assert.equal(main(['f'], { cwd: root, log: (text) => { output += text; } }), 0);
   assert.equal(output, [
@@ -30,8 +30,8 @@ test('prints the stages of every phase for a spec folder', () => withSpec((root)
     '- Nothing open',
     '',
     '## Phase 2: Story (3 open, 0 done)',
-    '- Stage 1: T002, T003 in parallel (under "Providers")',
-    '- Stage 2: T004 (under "Providers")',
+    '- T002, T003 in parallel (under "Providers")',
+    '- T004 (under "Providers")',
     '',
     'Warnings: none',
     '',
@@ -43,7 +43,7 @@ test('accepts a folder path or a tasks.md path and prints JSON', () => withSpec(
     let output = '';
     main([target, '--json'], { cwd: root, log: (text) => { output += text; } });
     const groups = JSON.parse(output);
-    assert.deepEqual(groups.phases[1].stages[0], { parallel: true, heading: 'Providers', tasks: ['T002', 'T003'] });
+    assert.deepEqual(groups.phases[1].order[0], { parallel: true, heading: 'Providers', tasks: ['T002', 'T003'] });
   }
   assert.throws(() => main(['missing'], { cwd: root }), GroupsUsageError);
   assert.throws(() => main([], { cwd: root }), /Usage/);

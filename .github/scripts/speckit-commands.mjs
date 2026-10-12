@@ -152,7 +152,7 @@ async function handleDiagnose({ client, env, actor, number, argument, now, folde
 
 async function handleResume({ client, env, actor, number, argument, folder, implementation, twin }) {
   const guidance = argument.slice(0, 4000);
-  await resumeImplementation(client, env, { implementation, twin, folder }, `Implementation resumed by @${actor}; the stopped step restarts with a fresh attempt count.`, guidance);
+  await resumeImplementation(client, env, { implementation, twin, folder }, `Implementation resumed by @${actor}; what stopped restarts with a fresh attempt count.`, guidance);
   if (number !== implementation.number) await reply(client, number, `Resumed; the implementation continues on #${implementation.number}.`);
   return { outcome: 'resumed' };
 }
@@ -181,7 +181,7 @@ async function handleSync({ client, env, actor, number, folder, implementation, 
   }
   await resumeImplementation(client, env, { implementation, twin, folder }, result === 'up-to-date'
     ? `\`${branch}\` already contains \`${defaultBranch}\`; resumed by @${actor} with a fresh attempt count.`
-    : `@${actor} merged \`${defaultBranch}\` into \`${branch}\`; the stopped step restarts with a fresh attempt count.`);
+    : `@${actor} merged \`${defaultBranch}\` into \`${branch}\`; what stopped restarts with a fresh attempt count.`);
   if (number !== implementation.number) await reply(client, number, `Synced; the implementation continues on #${implementation.number}.`);
   return { outcome: result };
 }
