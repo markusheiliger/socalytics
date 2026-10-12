@@ -2,6 +2,7 @@ using System.Text.Json;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Analysis.Stores;
+using SocAlytics.Platform.Application.Telemetry;
 using SocAlytics.Platform.Domain.Analysis;
 
 namespace SocAlytics.Platform.Application.Analysis.Commands;
@@ -78,6 +79,7 @@ public sealed class CompleteAttemptHandler(
             || attempt.AttemptNumber != body.GetProperty("attemptNumber").GetInt32()
             || await results.GetByJobAsync(job.Id, cancellationToken) is not null)
         {
+            AnalysisMetrics.CompletionRejected(AttemptObsoleteCode);
             return OperationFailure.Conflict(AttemptObsoleteCode);
         }
 
@@ -102,8 +104,10 @@ public sealed class CompleteAttemptHandler(
             && claimedUpstream.Order().SequenceEqual(recordedUpstream.Order());
 
         var succeeded = body.GetProperty("outcome").GetString() == "succeeded";
+        AnalysisMetrics.TagActivity(run.Id, job.Id, attempt.Id, attempt.ManagerId, node.CapabilityId);
         if (!matches)
         {
+            AnalysisMetrics.CompletionRejected(CompletionRejectedCode);
             await CloseAsync(attempt, ExecutionAttemptState.Rejected, "completion-rejected", job.Id, ReadinessCause.AttemptRejected, cancellationToken);
             await scope.CommitAsync(cancellationToken);
             return OperationFailure.Conflict(CompletionRejectedCode);

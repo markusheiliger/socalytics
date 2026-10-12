@@ -12,7 +12,7 @@ internal sealed class OutboxPublicationStore(IDbSession session) : IOutboxPublic
         var rows = await connection.QueryAsync<OutboxPublicationRow>(new CommandDefinition(
             """
             SELECT id AS Id, subject AS Subject, payload::text AS Payload, attempt_count AS AttemptCount,
-                   publication_round AS PublicationRound
+                   publication_round AS PublicationRound, created_at AS CreatedAt
             FROM socalytics.outbox_messages
             WHERE state = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= @now)
             ORDER BY created_at, id
@@ -23,6 +23,22 @@ internal sealed class OutboxPublicationStore(IDbSession session) : IOutboxPublic
             transaction,
             cancellationToken: cancellationToken));
         return rows.AsList();
+    }
+
+    public async Task<SocAlytics.Platform.Application.Telemetry.OutboxBacklog> GetBacklogAsync(DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleAsync<(long Pending, long Failed, DateTimeOffset? Oldest)>(new CommandDefinition(
+            """
+            SELECT count(*) FILTER (WHERE state = 'pending') AS Pending,
+                   count(*) FILTER (WHERE state = 'failed') AS Failed,
+                   min(created_at) FILTER (WHERE state = 'pending') AS Oldest
+            FROM socalytics.outbox_messages
+            """,
+            transaction: transaction,
+            cancellationToken: cancellationToken));
+        return new(row.Pending, row.Failed, row.Oldest is { } o ? Math.Max(0, (now - o).TotalSeconds) : 0);
     }
 
     public async Task MarkPublishedAsync(Guid id, DateTimeOffset now, CancellationToken cancellationToken)

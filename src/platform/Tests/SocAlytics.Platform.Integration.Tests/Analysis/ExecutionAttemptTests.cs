@@ -22,7 +22,7 @@ public sealed class ExecutionAttemptTests(PostgresContainerFixture postgres, Nat
         return Convert.ToInt64(await cmd.ExecuteScalarAsync(ct));
     }
 
-    private static async Task<(Guid Job, Guid Occurrence)> SeedJobAsync(IsolatedDatabase db, string state, CancellationToken ct)
+    internal static async Task<(Guid Job, Guid Occurrence)> SeedJobAsync(IsolatedDatabase db, string state, CancellationToken ct)
     {
         Guid run = Guid.NewGuid(), node = Guid.NewGuid(), job = Guid.NewGuid(), occ = Guid.NewGuid();
         var at = DateTimeOffset.UtcNow;

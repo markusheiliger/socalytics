@@ -1,5 +1,6 @@
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Analysis.Stores;
+using SocAlytics.Platform.Application.Telemetry;
 using SocAlytics.Platform.Domain.Analysis;
 
 namespace SocAlytics.Platform.Application.Analysis.Commands;
@@ -52,6 +53,8 @@ public sealed class ExpireStaleAttemptsHandler(
                 continue;
             }
 
+            AnalysisMetrics.LeaseExpired(null);
+            AnalysisMetrics.TagActivity(item.RunId, item.LogicalJobId, attempt.Id, attempt.ManagerId);
             if (job.CurrentAttemptId == attempt.Id && job.State == LogicalJobState.Claimed)
             {
                 await coordinator.RequeueOrFailAsync(job.Id, ReadinessCause.AttemptStale, cancellationToken);

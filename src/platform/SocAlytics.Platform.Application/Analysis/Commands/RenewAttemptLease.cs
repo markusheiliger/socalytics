@@ -1,6 +1,7 @@
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Analysis.Stores;
+using SocAlytics.Platform.Application.Telemetry;
 using SocAlytics.Platform.Domain.Analysis;
 
 namespace SocAlytics.Platform.Application.Analysis.Commands;
@@ -39,6 +40,7 @@ public sealed class RenewAttemptLeaseHandler(
             || attempt.ManagerId != manager.ManagerId
             || job.CurrentAttemptId != attempt.Id)
         {
+            AnalysisMetrics.HeartbeatRejected(AttemptObsoleteCode);
             return OperationFailure.Conflict(AttemptObsoleteCode);
         }
 

@@ -2,6 +2,7 @@ using System.Text.Json;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Analysis.Stores;
 using SocAlytics.Platform.Application.Recordings;
+using SocAlytics.Platform.Application.Telemetry;
 using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Domain.Analysis;
 using SocAlytics.Platform.Domain.Recordings;
@@ -93,6 +94,11 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
 
         async Task<NotificationOutcome> Record(string outcome, string? category, Guid? runId)
         {
+            if (outcome == "rejected")
+            {
+                AnalysisMetrics.NotificationRejected(category ?? "unknown");
+            }
+
             var result = await receipts.TryInsertAsync(
                 new NotificationReceiptRecord(n.EventId, MessageType, n.RecordingSetVersionId, outcome, category, runId, now), ct);
             if (!result.Inserted)

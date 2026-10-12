@@ -85,6 +85,7 @@ public sealed class RunReadinessCoordinator(
         foreach (var blocked in evaluation.BlockedJobs)
         {
             var previous = jobsById[blocked.JobId].State;
+            Telemetry.AnalysisMetrics.RunBlocked(null);
             if (await jobs.TryTransitionAsync(blocked.JobId, previous, LogicalJobState.Blocked, "upstream-required-failed", null, cancellationToken)
                 && previous == LogicalJobState.Ready)
             {

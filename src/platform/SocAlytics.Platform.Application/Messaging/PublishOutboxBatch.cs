@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.Telemetry;
 
 namespace SocAlytics.Platform.Application.Messaging;
 
@@ -25,7 +26,9 @@ public sealed class PublishOutboxBatch(
             {
                 await transport.PublishAsync(
                     new TransportMessage(row.Subject, messageId, Encoding.UTF8.GetBytes(row.Payload)), cancellationToken);
-                await store.MarkPublishedAsync(row.Id, timeProvider.GetUtcNow(), cancellationToken);
+                var publishedAt = timeProvider.GetUtcNow();
+                await store.MarkPublishedAsync(row.Id, publishedAt, cancellationToken);
+                MessagingMetrics.RecordPublished(row.Subject, (publishedAt - new DateTimeOffset(DateTime.SpecifyKind(row.CreatedAt, DateTimeKind.Utc))).TotalSeconds);
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
@@ -34,6 +37,7 @@ public sealed class PublishOutboxBatch(
                     : ex is OperationCanceledException ? TransportFailureCategories.PublishTimeout
                     : TransportFailureCategories.PublishRejected;
                 var now = timeProvider.GetUtcNow();
+                MessagingMetrics.RecordFailed(row.Subject, category);
                 var attempt = row.AttemptCount + 1;
                 var failed = attempt >= settings.MaxAttempts;
                 await store.MarkAttemptFailedAsync(
@@ -41,6 +45,7 @@ public sealed class PublishOutboxBatch(
             }
         }
 
+        MessagingMetrics.SetBacklog(await store.GetBacklogAsync(timeProvider.GetUtcNow(), cancellationToken));
         await scope.CommitAsync(cancellationToken);
         return rows.Count;
     }
