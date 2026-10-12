@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Npgsql;
 using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
@@ -55,18 +56,30 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
         return setup;
     }
 
-    private async Task<List<(string Subject, JsonElement Payload)>> ReadMessagesAsync(CancellationToken ct)
+    private async Task<List<(string Subject, JsonElement Payload)>> ReadMessagesAsync(FinalizationSetup s, CancellationToken ct)
     {
+        var own = new HashSet<string>();
+        await using (var c = new NpgsqlConnection(s.Db.MigratorConnectionString))
+        {
+            await c.OpenAsync(ct);
+            await using var cmd = new NpgsqlCommand("SELECT id FROM socalytics.outbox_messages", c);
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                own.Add(reader.GetGuid(0).ToString());
+            }
+        }
+
         var all = new List<(string, JsonElement)>();
         foreach (var name in new[] { "SOCALYTICS_ANALYSIS_JOBS", "SOCALYTICS_EVENTS" })
         {
-            all.AddRange(await ReadStreamAsync(name, ct));
+            all.AddRange(await ReadStreamAsync(name, own, ct));
         }
 
         return all;
     }
 
-    private async Task<List<(string Subject, JsonElement Payload)>> ReadStreamAsync(string name, CancellationToken ct)
+    private async Task<List<(string Subject, JsonElement Payload)>> ReadStreamAsync(string name, HashSet<string> own, CancellationToken ct)
     {
         await using var connection = new NatsConnection(NatsOpts.Default with { Url = nats.ConnectionString });
         var stream = await new NatsJSContext(connection).GetStreamAsync(name, cancellationToken: ct);
@@ -77,6 +90,13 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
             try
             {
                 var raw = await stream.GetAsync(new StreamMsgGetRequest { Seq = seq }, ct);
+                var text = string.IsNullOrEmpty(raw.Message.Hdrs) ? "" : Encoding.UTF8.GetString(Convert.FromBase64String(raw.Message.Hdrs));
+                var line = text.Split("\r\n").FirstOrDefault(l => l.StartsWith("Nats-Msg-Id:", StringComparison.OrdinalIgnoreCase));
+                if (line is null || !own.Contains(line["Nats-Msg-Id:".Length..].Trim()))
+                {
+                    continue;
+                }
+
                 result.Add((raw.Message.Subject, JsonDocument.Parse(raw.Message.Data.ToArray()).RootElement.Clone()));
             }
             catch (NatsJSApiException)
@@ -91,7 +111,7 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
     {
         for (var i = 0; i < 120; i++)
         {
-            var messages = await ReadMessagesAsync(ct);
+            var messages = await ReadMessagesAsync(s, ct);
             if (messages.Any(m => m.Subject.StartsWith("analysis.jobs.ready.")))
             {
                 return messages;
