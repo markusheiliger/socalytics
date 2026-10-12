@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
@@ -298,6 +298,30 @@ test('closes twins of removed folders and reopens them when the folder returns',
     assert.equal(github.issues.length, 1);
     assert.deepEqual(github.issues[0].labels.map((label) => label.name), [TWIN_LABEL, 'speckit:stage:specified']);
     rmSync(restored, { recursive: true, force: true });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('archiving a spec closes its twin as completed with links to the archive, and dependency inference skips it', async () => {
+  const root = makeRepo([{ folder: '20261005-130700-a', plan: true, tasks: '- [x] T001 one\n' }, '20261005-130701-b']);
+  try {
+    const github = new FakeGitHub();
+    await syncRepo(github, root);
+    const [twin] = github.issues;
+    mkdirSync(path.join(root, 'specs', 'archive'));
+    renameSync(path.join(root, 'specs', '20261005-130700-a'), path.join(root, 'specs', 'archive', '20261005-130700-a'));
+    assert.equal(discoverSpecs(root).get('20261005-130700-a').archived, true);
+    assert.equal(discoverSpecs(root).has('archive'), false);
+    const comments = github.comments.length;
+    const result = await syncRepo(github, root);
+    assert.deepEqual([twin.state, twin.state_reason, stageLabels(twin)], ['closed', 'completed', ['speckit:stage:implemented']]);
+    assert.equal(twin.labels.some((label) => label.name === PENDING_LABEL), false);
+    assert.match(twin.body, /^\*\*Spec\*\*: \[`specs\/archive\/20261005-130700-a`\]\([^)]*\/specs\/archive\/20261005-130700-a\)$/m);
+    assert.equal(parseTwinFolder(twin.body), '20261005-130700-a');
+    assert.equal(github.comments.length, comments, 'no discard comment');
+    assert.deepEqual(result.pending, ['20261005-130701-b']);
+    assert.equal((await syncRepo(github, root)).plan.archive.length, 0, 'nothing changes once the twin points to the archive');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

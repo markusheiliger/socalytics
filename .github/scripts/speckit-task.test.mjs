@@ -7,13 +7,14 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
-import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, RESUME_COMMENT_MARKER, renderGuidanceMarker } from './speckit-implement-core.mjs';
+import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, RESUME_COMMENT_MARKER, pointSpecLinks, renderGuidanceMarker } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
   defaultGit,
   lastAgentMessage,
   main,
   parseTaskInputs,
+  runArchive,
   runLandTasks,
   runCombinedVerified,
   startAttemptChecks,
@@ -96,7 +97,7 @@ function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { 
   mkdirSync(repos.resultDir, { recursive: true });
   const outputFile = path.join(repos.resultDir, 'github-output.txt');
   writeFileSync(outputFile, '');
-  const env = { GITHUB_OUTPUT: outputFile, SPECKIT_BRANCH: 'main', ...extraEnv };
+  const env = { GITHUB_OUTPUT: outputFile, SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_BASE_BRANCH: 'main', ...extraEnv };
   const run = { git: defaultGit(repos.work), env, inputs, folder: 'f', workspace: repos.work, resultDir: repos.resultDir, log: silent };
   const integrated = ['resolve', 'merge'].includes(inputs.kind) ? runIntegrate(run) : null;
   agent?.(repos);
@@ -127,12 +128,12 @@ function fakeGitHub({ body = '## Tasks (2)\n\n- [ ] T001 Create docs/x.md\n- [ ]
   github.humanLabel(5, IMPLEMENT, 'dev');
   github.permissions.dev = 'write';
   github.repo.branches['speckit/f'] = 'sha-head';
-  github.repo.pulls.push({ number: 9, node_id: 'PR_9', title: 'Implement: F', body, draft: true, state: 'open', head: { ref: 'speckit/f', sha: 'sha-head', repo: { full_name: 'octo/repo' } }, created_at: github.tick() });
+  github.repo.pulls.push({ number: 9, node_id: 'PR_9', title: 'Implement: F', body, draft: true, state: 'open', base: { ref: 'main' }, head: { ref: 'speckit/f', sha: 'sha-head', repo: { full_name: 'octo/repo' } }, created_at: github.tick() });
   return github;
 }
 
 function landEnv(repos) {
-  return { GITHUB_SERVER_URL: pathToFileURL(repos.remoteRoot).href, GITHUB_REPOSITORY: 'octo/repo', GITHUB_TOKEN: 'token', SPECKIT_BRANCH: 'main' };
+  return { GITHUB_SERVER_URL: pathToFileURL(repos.remoteRoot).href, GITHUB_REPOSITORY: 'octo/repo', GITHUB_TOKEN: 'token', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_BASE_BRANCH: 'main' };
 }
 
 async function land(repos, github, { inputs = TASK_INPUTS, workResult = 'success' } = {}) {
@@ -393,7 +394,7 @@ function combinedEnv(extra = {}) {
     SPECKIT_TWIN: '5',
     SPECKIT_PULL: '9',
     SPECKIT_FOLDER: 'f',
-    SPECKIT_BRANCH: 'main',
+    SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_BASE_BRANCH: 'main',
     SPECKIT_HEAD: 'sha-new',
     SPECKIT_ORDER: JSON.stringify([
       { include: [{ task: 'T001', attempt: 1 }, { task: 'T002', attempt: 1 }] },
@@ -547,11 +548,11 @@ const conflicting = {
 };
 const resolveShared = (r) => write(r.work, 'docs/shared.md', '# Shared\n\nbranch line\nmain line\n');
 
-test('merge: integrate merges the default branch and reports conflicts', async () => {
+test('merge: integrate merges the base branch and reports conflicts', async () => {
   await withRepos({ tasks: DONE_TASKS, main: (dir) => write(dir, 'docs/other.md', '# Other\n') }, (repos) => {
     const { integrated, result, output } = work(repos, { inputs: MERGE_INPUTS, verify: { outcome: 'success', checks: 'platform build and tests,Markdown check' } });
     assert.deepEqual(integrated.result.conflicts, []);
-    assert.equal(integrated.result.mainSha, remoteSha(repos, 'main'));
+    assert.equal(integrated.result.baseSha, remoteSha(repos, 'main'));
     assert.equal(integrated.result.head, remoteSha(repos, 'speckit/f'));
     assert.match(output, /conflicts=false\nagent=false\nverify=true\nenvironment=false\nprompt=\n/);
     assert.equal(readFileSync(path.join(repos.work, 'docs/other.md'), 'utf8').replaceAll('\r\n', '\n'), '# Other\n', 'the verification sees the merged tree');
@@ -570,14 +571,14 @@ test('resolve: the agent resolution is verified, replayed, and pushed as a merge
   assert.deepEqual(integrated.result.conflicts, ['docs/shared.md']);
   assert.deepEqual([result.verified, result.resolutions], [true, [{ path: 'docs/shared.md', deleted: false, blob: '0' }]]);
 
-  const mainSha = remoteSha(repos, 'main');
+  const baseSha = remoteSha(repos, 'main');
   const branchSha = remoteSha(repos, 'speckit/f');
   const github = fakeGitHub();
   const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
   assert.equal(landed.exitCode, 0);
   const [head, parents] = remoteHead(repos).split('|')[0].split(/ (.*)/);
   assert.equal(head, landed.head);
-  assert.equal(parents, `${branchSha} ${mainSha}`);
+  assert.equal(parents, `${branchSha} ${baseSha}`);
   assert.match(remoteHead(repos), /\|Merge main into speckit\/f$/);
   assert.equal(remoteShow(repos, 'speckit/f:docs/shared.md'), '# Shared\n\nbranch line\nmain line\n');
   assert.deepEqual([landed.check.conclusion, landed.check.output.title], ['success', 'Merge conflicts resolved']);
@@ -611,11 +612,11 @@ test('resolve: markers, changes outside the conflicts, and forged resolutions ar
     git(seed, 'push', '-q', repos.bare, 'HEAD:refs/heads/other');
     git(repos.land, 'fetch', '-q', 'origin');
     const resultFile = path.join(repos.resultDir, 'result.json');
-    writeFileSync(resultFile, JSON.stringify({ ...JSON.parse(readFileSync(resultFile, 'utf8')), mainSha: remoteSha(repos, 'other') }));
+    writeFileSync(resultFile, JSON.stringify({ ...JSON.parse(readFileSync(resultFile, 'utf8')), baseSha: remoteSha(repos, 'other') }));
     const before = remoteHead(repos);
     const landed = await land(repos, fakeGitHub(), { inputs: RESOLVE_INPUTS });
     assert.equal(landed.exitCode, 1);
-    assert.match(landed.reasons.join(), /is not on the default branch main/);
+    assert.match(landed.reasons.join(), /is not on the base branch main/);
     assert.equal(remoteHead(repos), before);
   });
 });
@@ -699,14 +700,14 @@ async function mergeLand(github, result, { env = {}, workResult = 'success' } = 
   try {
     if (result) writeFileSync(path.join(resultDir, 'result.json'), JSON.stringify(result));
     const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-head', status: 'in_progress', external_id: CHECK_MERGE });
-    const landed = await runMergeLand({ client: github, env: { SPECKIT_BRANCH: 'main', ...env }, inputs: { ...MERGE_INPUTS, checkRun: check.id, folder: 'f' }, resultDir, workResult, log: silent });
+    const landed = await runMergeLand({ client: github, env: { SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_BASE_BRANCH: 'main', ...env }, inputs: { ...MERGE_INPUTS, checkRun: check.id, folder: 'f' }, resultDir, workResult, log: silent });
     return { ...landed, check: github.repo.checkRuns.find((run) => run.id === check.id) };
   } finally {
     rmSync(resultDir, { recursive: true, force: true });
   }
 }
 
-const verifiedMerge = { kind: 'merge', mainSha: 'sha-main', head: 'sha-head', conflicts: [], reasons: [], checks: [{ name: 'platform build and tests', passed: true }, { name: 'Markdown check', passed: true }], verification: 'configured', verified: true };
+const verifiedMerge = { kind: 'merge', baseSha: 'sha-main', head: 'sha-head', conflicts: [], reasons: [], checks: [{ name: 'platform build and tests', passed: true }, { name: 'Markdown check', passed: true }], verification: 'configured', verified: true };
 
 function mergeableGitHub() {
   const github = fakeGitHub({ body: '## Tasks (2)\n\n- [x] T001 Create docs/x.md\n- [x] T002 Create docs/y.md\n\nCloses #5\n' });
@@ -731,7 +732,26 @@ test('merge-land squash-merges a verified implementation and completes the twin'
   assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:done -->\n\*\*Merged into `main`\*\* as sha-\d+ @dev: all 2 tasks are implemented, the implementation converged, and the full verification passed \(platform build and tests, Markdown check\)\.$/);
 });
 
-test('merge-land waits when main moved, reports conflicts, and fails unverified or moved heads', async () => {
+test('merge-land merges into the pull request base, not the default branch, and dispatches tooling on the default branch', async () => {
+  const github = mergeableGitHub();
+  github.repo.pulls[0].base = { ref: 'release' };
+  github.repo.branches.release = 'sha-main';
+  github.repo.branches.main = 'sha-elsewhere';
+  const landed = await mergeLand(github, verifiedMerge, { env: { SPECKIT_BASE_BRANCH: 'ignored' } });
+  assert.equal(landed.exitCode, 0, 'the default branch moving does not matter; the base branch did not move');
+  assert.equal(github.repo.merges.length, 1);
+  assert.deepEqual(github.repo.runs.map((run) => [run.workflow, run.ref]), [['speckit-prepare.yml', 'main']]);
+  assert.match(github.comments.at(-1).body, /\*\*Merged into `release`\*\*/);
+
+  const moved = mergeableGitHub();
+  moved.repo.pulls[0].base = { ref: 'release' };
+  moved.repo.branches.release = 'sha-newer';
+  const waited = await mergeLand(moved, verifiedMerge);
+  assert.deepEqual([waited.moved, moved.repo.merges.length], [true, 0], 'a moved base branch is verified again');
+  assert.match(waited.check.output.summary, /but release is now sha-newer/);
+});
+
+test('merge-land waits when the base branch moved, reports conflicts, and fails unverified or moved heads', async () => {
   const moved = mergeableGitHub();
   moved.repo.branches.main = 'sha-newer';
   const movedResult = await mergeLand(moved, verifiedMerge);
@@ -802,7 +822,7 @@ test('merge-land holds environment changes and uncovered files for review, whate
 test('task checks fail closed when the default branch is not in the checkout', () => withRepos({}, (repos) => {
   git(repos.work, 'update-ref', '-d', 'refs/remotes/origin/main');
   const { result } = work(repos, { agent: (r) => agentDoesT001(r.work) });
-  assert.match(result.reasons.join(), /cannot be compared with main, because main is not in the checkout/);
+  assert.match(result.reasons.join(), /cannot be compared with its base branch main, because main is not in the checkout/);
 }));
 
 test('extracts the last agent message and validates commands', async () => {
@@ -814,6 +834,127 @@ test('extracts the last agent message and validates commands', async () => {
   ].join('\n');
   assert.equal(lastAgentMessage(jsonl), 'last');
   const env = { SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_TASK: 'T001', SPECKIT_ATTEMPT: '1' };
-  await assert.rejects(() => main(['nope'], { env }), /integrate \| package \| verdict \| land-tasks \| combined-verified \| merge-land/);
+  await assert.rejects(() => main(['nope'], { env }), /integrate \| package \| verdict \| land-tasks \| combined-verified \| archive \| merge-land/);
   await assert.rejects(() => main(['package'], { env: { ...env, SPECKIT_KIND: 'merge' } }), /The merge has no package command/);
 });
+
+// The merge-archive job: archives the spec on the implementation branch, merged with its base branch.
+async function archive(repos, github, { head = remoteSha(repos, 'speckit/f'), checkRun } = {}) {
+  const outputFile = path.join(repos.base, 'archive-output.txt');
+  writeFileSync(outputFile, '');
+  const check = checkRun ?? (await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'in_progress', external_id: CHECK_MERGE })).id;
+  const env = { ...landEnv(repos), GITHUB_OUTPUT: outputFile, SPECKIT_PULL: '9', SPECKIT_HEAD: head, SPECKIT_ATTEMPT: '1', SPECKIT_CHECK_RUN: String(check) };
+  const result = await runArchive({ client: github, git: defaultGit(repos.land), env, folder: 'f', log: silent });
+  return { ...result, check, output: readFileSync(outputFile, 'utf8') };
+}
+
+test('archive: moves the spec on the branch merged with its base, rewrites references, and moves the merge check run', () => withRepos({
+  tasks: DONE_TASKS,
+  main: (dir) => write(dir, 'docs/later.md', 'Merged later: [f](../specs/f/spec.md) and specs/f/tasks.md.\n'),
+}, async (repos) => {
+  const github = fakeGitHub();
+  const before = remoteSha(repos, 'speckit/f');
+  const archived = await archive(repos, github);
+  assert.equal(archived.exitCode, 0);
+  const head = remoteSha(repos, 'speckit/f');
+  assert.notEqual(head, before);
+  assert.equal(archived.head, head);
+  assert.match(archived.output, new RegExp(`head=${head}\ncheck_run=\\d+\n`));
+  assert.equal(remoteShow(repos, 'speckit/f:specs/archive/f/spec.md'), '# Spec\n');
+  assert.throws(() => remoteShow(repos, 'speckit/f:specs/f/spec.md'), 'the active folder is gone');
+  assert.equal(remoteShow(repos, 'speckit/f:docs/later.md'), 'Merged later: [f](../specs/archive/f/spec.md) and specs/archive/f/tasks.md.\n', 'references that arrived on the base branch are rewritten too');
+  const [, parents] = remoteHead(repos).split('|')[0].split(/ (.*)/);
+  assert.equal(parents, `${before} ${remoteSha(repos, 'main')}`, 'the base branch is merged in the same commit');
+  assert.match(remoteHead(repos), /\|Archive specs\/f to specs\/archive\/f$/);
+  const moved = github.repo.checkRuns.find((check) => check.id === Number(archived.checkRun));
+  assert.deepEqual([moved.head_sha, moved.external_id, moved.status], [head, CHECK_MERGE, 'in_progress']);
+  assert.deepEqual(github.repo.checkRuns.find((check) => check.id === archived.check).conclusion, 'neutral');
+  assert.match(github.comments.at(-1).body, /^\*\*Archived\*\* `specs\/f` → `specs\/archive\/f` for the merge \(merged `main` first\)\.\n\nReferences rewritten in `docs\/later\.md`\./);
+
+  const again = await archive(repos, github, { head });
+  assert.deepEqual([again.exitCode, again.head, remoteSha(repos, 'speckit/f')], [0, head, head], 'an archived branch is left as it is');
+}));
+
+test('archive: changes nothing on conflicts with the base branch, and stops when the branch moved', async () => {
+  await withRepos({ ...conflicting, tasks: DONE_TASKS }, async (repos) => {
+    const github = fakeGitHub();
+    const before = remoteSha(repos, 'speckit/f');
+    const result = await archive(repos, github);
+    assert.deepEqual([result.exitCode, result.head, remoteSha(repos, 'speckit/f')], [0, before, before]);
+    assert.equal(github.comments.length, 0);
+  });
+  await withRepos({ tasks: DONE_TASKS }, async (repos) => {
+    const result = await archive(repos, fakeGitHub(), { head: 'f'.repeat(40) });
+    assert.equal(result.exitCode, 1);
+  });
+});
+
+test('after the merge, twin and pull request links point to the archived spec on the base branch', async () => {
+  const body = renderTwinBody({ folder: 'f', title: 'F', summary: 's', dependencyNotes: [] }, ['spec.md', 'tasks.md'], context);
+  const archivedBody = pointSpecLinks(body, 'f', { branch: 'main', archived: true });
+  assert.match(archivedBody, /^\*\*Spec\*\*: \[`specs\/archive\/f`\]\(https:\/\/github\.com\/octo\/repo\/tree\/main\/specs\/archive\/f\)$/m);
+  assert.match(archivedBody, /blob\/main\/specs\/archive\/f\/tasks\.md/);
+  assert.equal(pointSpecLinks(archivedBody, 'f', { branch: 'main', archived: true }), archivedBody, 'idempotent');
+  assert.equal(pointSpecLinks('[t](https://github.com/octo/repo/blob/speckit/f/specs/f/tasks.md) `specs/f`', 'f', { branch: 'release', archived: false }),
+    '[t](https://github.com/octo/repo/blob/release/specs/f/tasks.md) `specs/f`', 'links to the deleted implementation branch move to the base branch');
+
+  const github = mergeableGitHub();
+  github.setFile('sha-head', 'specs/f/tasks.md', null);
+  github.setFile('sha-head', 'specs/archive/f/tasks.md', DONE_TASKS);
+  github.repo.pulls[0].body = `**Spec**: [\`specs/f\`](https://github.com/octo/repo/tree/main/specs/f)\n\nSee [tasks.md](https://github.com/octo/repo/blob/speckit/f/specs/f/tasks.md).\n\nCloses #5\n`;
+  const landed = await mergeLand(github, verifiedMerge);
+  assert.equal(landed.exitCode, 0);
+  assert.match(github.issues[0].body, /^\*\*Spec\*\*: \[`specs\/archive\/f`\]\([^)]*\/tree\/main\/specs\/archive\/f\)$/m, 'the twin links to the archive right away');
+  assert.match(github.repo.pulls[0].body, /\[`specs\/archive\/f`\]\(https:\/\/github\.com\/octo\/repo\/tree\/main\/specs\/archive\/f\)[\s\S]*blob\/main\/specs\/archive\/f\/tasks\.md/);
+
+  const release = mergeableGitHub();
+  release.repo.pulls[0].base = { ref: 'release' };
+  release.repo.branches.release = 'sha-main';
+  release.setFile('sha-head', 'specs/f/tasks.md', null);
+  release.setFile('sha-head', 'specs/archive/f/tasks.md', DONE_TASKS);
+  const twinBefore = release.issues[0].body;
+  await mergeLand(release, verifiedMerge);
+  assert.equal(release.issues[0].body, twinBefore, 'a twin follows the default branch, which a merge into another base does not change');
+});
+
+test('archive: a base branch that only moved creates no new head, and workflow changes on it are not merged', async () => {
+  await withRepos({ tasks: DONE_TASKS }, async (repos) => {
+    const github = fakeGitHub();
+    const first = await archive(repos, github);
+    const seed = path.join(repos.base, 'seed');
+    git(seed, 'fetch', '-q', repos.bare, 'main');
+    git(seed, 'reset', '-q', '--hard', 'FETCH_HEAD');
+    write(seed, 'docs/unrelated.md', '# Unrelated\n');
+    git(seed, 'add', '-A');
+    git(seed, 'commit', '-q', '-m', 'unrelated change on main');
+    git(seed, 'push', '-q', repos.bare, 'HEAD:refs/heads/main');
+    git(repos.land, 'fetch', '-q', 'origin');
+    const again = await archive(repos, github, { head: first.head });
+    assert.deepEqual([again.exitCode, again.head, remoteSha(repos, 'speckit/f')], [0, first.head, first.head], 'no new head, so merge attempts keep counting on one head');
+  });
+  await withRepos({ tasks: DONE_TASKS, main: (dir) => write(dir, '.github/workflows/ci.yml', 'name: ci # specs/f\n') }, async (repos) => {
+    const github = fakeGitHub();
+    const before = remoteSha(repos, 'speckit/f');
+    const archived = await archive(repos, github);
+    assert.equal(archived.exitCode, 0);
+    const [, parents] = remoteHead(repos).split('|')[0].split(/ (.*)/);
+    assert.equal(parents, before, 'archived without merging the base branch, whose workflow changes the token cannot push');
+    assert.equal(remoteShow(repos, 'speckit/f:specs/archive/f/spec.md'), '# Spec\n');
+    assert.match(github.comments.at(-1).body, /changed workflow files, which the workflow token cannot push/);
+  });
+});
+
+test('archive: references to specs that the base branch archived meanwhile are pointed to the archive too', () => withRepos({
+  tasks: DONE_TASKS,
+  branch: (dir) => write(dir, 'docs/uses-g.md', 'See [g](../specs/g/spec.md) and specs/g/contracts/api.yaml.\n'),
+  main: (dir) => {
+    write(dir, 'specs/archive/g/spec.md', '# G\n');
+    write(dir, 'specs/archive/g/tasks.md', '- [x] T001 Done\n');
+  },
+}, async (repos) => {
+  const github = fakeGitHub();
+  const archived = await archive(repos, github);
+  assert.equal(archived.exitCode, 0);
+  assert.equal(remoteShow(repos, 'speckit/f:docs/uses-g.md'), 'See [g](../specs/archive/g/spec.md) and specs/archive/g/contracts/api.yaml.\n');
+  assert.match(github.comments.at(-1).body, /`docs\/uses-g\.md`/);
+}));

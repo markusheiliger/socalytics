@@ -108,7 +108,7 @@ steps:
   - name: Collect the evidence
     env:
       GITHUB_TOKEN: ${{ github.token }}
-      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       SPECKIT_TWIN: ${{ inputs.twin }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_FOLDER: ${{ inputs.folder }}
@@ -150,7 +150,7 @@ safe-outputs:
   push-to-pull-request-branch:
     # Only the amendment pull request of this run; in diagnose mode there is none, so nothing can be pushed.
     target: ${{ inputs.amendment }}
-    # The amendment's base: the allowed-files check covers the commits since it (the amendment's own), not since main.
+    # The amendment's base: the allowed-files check covers the commits since it (the amendment's own), not since the base branch.
     base-branch: speckit/${{ inputs.folder }}
     required-title-prefix: "Amend: "
     allowed-files: ["specs/**"]
@@ -192,7 +192,7 @@ safe-outputs:
         - name: Record the result
           env:
             GITHUB_TOKEN: ${{ github.token }}
-            SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+            SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
             SPECKIT_TWIN: ${{ inputs.twin }}
             SPECKIT_PULL: ${{ inputs.pull }}
             SPECKIT_FOLDER: ${{ inputs.folder }}
@@ -220,7 +220,9 @@ Follow the skill `.speckit-tooling/.github/skills/speckit-gha-diagnose/SKILL.md`
 defines the method, the categories, the modes, the rules for amendments, and the report formats.
 
 - The evidence is in `.speckit-diagnosis/evidence.md`, the identifiers in `.speckit-diagnosis/context.json`. Use the
-  GitHub tools for anything else you need to read. The spec artifacts are in `specs/${{ inputs.folder }}/`.
+  GitHub tools for anything else you need to read. The spec artifacts are in the folder `specDir` of
+  `context.json`: `specs/${{ inputs.folder }}/`, or `specs/archive/${{ inputs.folder }}/` once the implementation
+  archived it right before its merge (set `SPECIFY_FEATURE_DIRECTORY` to it for the Spec Kit scripts).
 - **`diagnose`**: the workspace is the implementation branch `speckit/${{ inputs.folder }}`. Diagnose why the
   implementation stopped. Only an amendment of the spec artifacts may leave this run, as a pull request through
   `create_pull_request` with branch `speckit-amend/${{ inputs.folder }}` and base `speckit/${{ inputs.folder }}`.
@@ -230,6 +232,6 @@ defines the method, the categories, the modes, the rules for amendments, and the
 - **`revise`**: the workspace is the amendment branch of pull request #${{ inputs.amendment }}. Address every piece
   of feedback listed in the evidence, commit, and push with `push_to_pull_request_branch` for pull request
   #${{ inputs.amendment }}.
-- Changes outside `specs/${{ inputs.folder }}/` are scratch work for experiments and are discarded; revert them before
+- Changes outside that spec folder are scratch work for experiments and are discarded; revert them before
   you create or push anything.
 - Finish by calling `speckit_diagnosis` exactly once with the report.

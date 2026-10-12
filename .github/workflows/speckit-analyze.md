@@ -63,8 +63,6 @@ permissions:
   copilot-requests: write
 engine: copilot
 timeout-minutes: 20
-env:
-  SPECIFY_FEATURE_DIRECTORY: specs/${{ inputs.folder }}
 network:
   allowed:
     - defaults
@@ -97,6 +95,14 @@ steps:
       mkdir -p .speckit-analysis
       printf '%s' "${SPECKIT_PREVIOUS:-[]}" > .speckit-analysis/previous.json
       printf '.speckit-tooling/\n.speckit-analysis/\n' >> .git/info/exclude
+  # The spec folder moves to specs/archive/<folder> when the implementation archives it right before its merge.
+  - name: Locate the spec folder
+    env:
+      FOLDER: ${{ inputs.folder }}
+    run: |
+      if [ -d "specs/$FOLDER" ]; then dir="specs/$FOLDER"; else dir="specs/archive/$FOLDER"; fi
+      printf '%s' "$dir" > .speckit-analysis/spec-dir
+      echo "SPECIFY_FEATURE_DIRECTORY=$dir" >> "$GITHUB_ENV"
 safe-outputs:
   # Spec Kit reports failures through its check runs and pull request comments.
   report-failure-as-issue: false
@@ -131,7 +137,7 @@ safe-outputs:
         - name: Record the analysis
           env:
             GITHUB_TOKEN: ${{ github.token }}
-            SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+            SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
             SPECKIT_AMENDMENT: ${{ inputs.amendment }}
             SPECKIT_ROUND: ${{ inputs.round }}
             SPECKIT_STALLS: ${{ inputs.stalls }}
@@ -145,13 +151,15 @@ safe-outputs:
 
 # Check an amendment of Spec Kit artifacts for consistency
 
-Pull request #${{ inputs.amendment }} amends the Spec Kit artifacts of the spec folder
-`specs/${{ inputs.folder }}/`; the workspace is the amendment branch. Check the **whole** spec folder for consistency,
+Pull request #${{ inputs.amendment }} amends the Spec Kit artifacts of the spec folder named in
+`.speckit-analysis/spec-dir`. It is `specs/${{ inputs.folder }}/` until the implementation archives it right before its
+merge, and `specs/archive/${{ inputs.folder }}/` after that.
+The workspace is the amendment branch. Check the **whole** spec folder for consistency,
 not only the changed files: an amendment must leave the spec, the plan and its design artifacts, and the tasks
 consistent with each other and with the constitution.
 
-1. Follow `.speckit-tooling/.github/skills/speckit-analyze/SKILL.md` for `specs/${{ inputs.folder }}/` (the
-   environment variable `SPECIFY_FEATURE_DIRECTORY` selects it). It is strictly read-only: do not change any file.
+1. Follow `.speckit-tooling/.github/skills/speckit-analyze/SKILL.md` for that spec folder (set the environment
+   variable `SPECIFY_FEATURE_DIRECTORY` to the content of `.speckit-analysis/spec-dir` to select it). It is strictly read-only: do not change any file.
    Skip its extension hooks and its offer of a remediation plan.
 2. Also read the amendment's own changes (`git diff origin/speckit/${{ inputs.folder }}...HEAD -- specs/`, or the
    pull request with the GitHub tools) and check in particular that every changed decision is reflected everywhere it

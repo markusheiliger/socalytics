@@ -64,7 +64,7 @@ jobs:
       - name: Run the command
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_PULL: ${{ github.event.issue.number }}
           SPECKIT_COMMENT_ID: ${{ github.event.comment.id }}
           SPECKIT_ACTOR: ${{ github.event.comment.user.login }}
@@ -108,7 +108,7 @@ jobs:
       - name: Handle the feedback
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_PULL: ${{ github.event.issue.number || inputs.pull }}
           SPECKIT_COMMENT_ID: ${{ github.event.comment.id }}
           SPECKIT_ACTOR: ${{ github.event.comment.user.login }}
@@ -171,7 +171,7 @@ jobs:
       - name: Handle the change
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_PULL: ${{ github.event.pull_request.number }}
           SPECKIT_ACTOR: ${{ github.event.sender.login }}
           EVENT_ACTION: ${{ github.event.action }}

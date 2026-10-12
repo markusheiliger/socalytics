@@ -3,10 +3,12 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
+  ARCHIVE_DIR,
   DISCARDED_STAGE,
   IMPLEMENT_STAGE,
   LABELS,
   PENDING_LABEL,
+  SPECS_DIR,
   TWIN_LABEL,
   buildPrompt,
   buildSpecEntry,
@@ -16,6 +18,7 @@ import {
   planImplementRequest,
   planSync,
   resolveTwins,
+  specDir,
   stageLabel,
   validateLinks,
 } from './speckit-prepare-core.mjs';
@@ -25,8 +28,8 @@ function readOptional(filePath) {
   return existsSync(filePath) ? readFileSync(filePath, 'utf8') : null;
 }
 
-export function readSpecFolder(rootDir, name) {
-  const folderPath = path.join(rootDir, 'specs', name);
+export function readSpecFolder(rootDir, name, { archived = false } = {}) {
+  const folderPath = path.join(rootDir, ...specDir(name, { archived }).split('/'));
   if (!isValidFolderName(name) || !existsSync(folderPath) || !statSync(folderPath).isDirectory()) return null;
   const specMarkdown = readOptional(path.join(folderPath, 'spec.md'));
   if (specMarkdown === null) return null;
@@ -39,16 +42,22 @@ export function readSpecFolder(rootDir, name) {
     hasPlan: existsSync(path.join(folderPath, 'plan.md')),
     tasksMarkdown: readOptional(path.join(folderPath, 'tasks.md')),
     checklistMarkdowns,
+    archived,
   });
 }
 
+// Every spec folder: active ones in specs/, implemented ones in specs/archive/. An active folder wins over an archived
+// one of the same name.
 export function discoverSpecs(rootDir) {
-  const specsDir = path.join(rootDir, 'specs');
   const specs = new Map();
-  if (!existsSync(specsDir)) return specs;
-  for (const name of readdirSync(specsDir).sort()) {
-    const entry = readSpecFolder(rootDir, name);
-    if (entry) specs.set(name, entry);
+  for (const archived of [true, false]) {
+    const dir = path.join(rootDir, ...(archived ? ARCHIVE_DIR : SPECS_DIR).split('/'));
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir).sort()) {
+      if (!archived && `${SPECS_DIR}/${name}` === ARCHIVE_DIR) continue;
+      const entry = readSpecFolder(rootDir, name, { archived });
+      if (entry) specs.set(name, entry);
+    }
   }
   return specs;
 }
@@ -74,11 +83,14 @@ function issueRef(issue) {
   return `#${issue.number}`;
 }
 
+// Twins mirror the specs of the repository's default branch, so their links point there.
 function contextFromEnv(env) {
+  const branch = String(env.SPECKIT_DEFAULT_BRANCH ?? '').trim();
+  if (!branch) throw new Error('Expected SPECKIT_DEFAULT_BRANCH (the repository default branch).');
   return {
     serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, ''),
     repository: env.GITHUB_REPOSITORY,
-    branch: env.SPECKIT_BRANCH || 'main',
+    branch,
   };
 }
 
@@ -92,6 +104,8 @@ function reportPlan(report, plan, dryRun) {
     ...plan.reopen.map((item) => `- ${verb} reopen ${issueRef(item.issue)} for \`${item.folder}\` (stage \`${item.stage}\`)`),
     ...plan.close.map((item) => `- ${verb} close ${issueRef(item.issue)} as not planned and mark it \`discarded\` (\`${item.folder}\` no longer exists)`),
     ...plan.relabel.map((item) => `- ${verb} set stage \`${item.stage}\` on ${issueRef(item.issue)} for \`${item.folder}\``),
+    ...plan.archive.map((item) => `- ${verb} point ${issueRef(item.issue)} to the archived \`${item.folder}\` (closed as completed, \`implemented\`)`),
+    ...plan.archivedWithoutTwin.map((item) => `- Note: the archived \`${item.folder}\` has no twin; archived specs get none`),
   ];
   for (const row of rows.length > 0 ? rows : ['- No twin changes needed']) report.line(row);
   for (const item of [...plan.update, ...plan.relabel].filter((entry) => entry.revoked)) {
@@ -176,12 +190,15 @@ async function applyPlan(client, plan, issues) {
     await updateIssueWithLabels(client, item.issue, item.labels);
     if (item.revoked) await client.createComment(item.issue.number, revocationComment(item));
   }
+  for (const item of plan.archive) {
+    await updateIssueWithLabels(client, item.issue, { add: item.labels.add, remove: [...item.labels.remove, PENDING_LABEL] }, { ...item.fields, title: item.title, body: item.body });
+  }
 }
 
 function openTwinsWithSpecs(issues, specs) {
   const { byFolder } = resolveTwins(issues);
   return [...byFolder.entries()]
-    .filter(([folder, issue]) => issue.state === 'open' && specs.has(folder))
+    .filter(([folder, issue]) => issue.state === 'open' && specs.has(folder) && !specs.get(folder).archived)
     .map(([folder, issue]) => ({ folder, issue, pending: hasLabel(issue, PENDING_LABEL) }));
 }
 

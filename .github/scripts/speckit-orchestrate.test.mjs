@@ -45,11 +45,28 @@ test('start prepares the linked branch, draft pull request, assignee, check run,
     const comments = github.comments.filter((comment) => comment.number === pull.number);
     assert.equal(comments.length, 1);
     assert.match(comments[0].body, /2 task\(s\) queued/);
+    assert.match(comments[0].body, /merged into its base branch `main` once it converged/);
 
     await start(github, root, twin);
     assert.equal(github.repo.pulls.length, 1);
     assert.equal(github.repo.checkRuns.length, 1);
     assert.equal(github.comments.filter((comment) => comment.body.includes(START_COMMENT_MARKER)).length, 1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('start bases the implementation on the default branch GitHub reports, whatever its name', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    github.repo.branches.trunk = github.repo.branches.main;
+    delete github.repo.branches.main;
+    await runStart({ client: github, rootDir: root, env: { ...envFor(root), SPECKIT_DEFAULT_BRANCH: 'trunk' }, issueNumber: twin.number, folder: 'a', requester: 'dev', reset: false, log: silent });
+    const pull = github.repo.pulls[0];
+    assert.equal(pull.base.ref, 'trunk');
+    assert.equal(await github.aheadBy('trunk', 'speckit/a'), 1);
+    assert.match(pull.body, /^\*\*Spec\*\*: \[`specs\/a`\]\([^)]*\/tree\/trunk\/specs\/a\)$/m);
+    assert.match(github.comments.at(-1).body, /merged into its base branch `trunk`/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -160,7 +177,7 @@ test('select finalizes a twin that GitHub closed when a person merged its held p
     assert.equal(github.repo.branches['speckit/a'], undefined);
     const comments = github.comments.filter((comment) => comment.number === twin.number);
     assert.equal(comments.length, 1);
-    assert.match(comments[0].body, new RegExp(`#${pull.number} was merged, so the twin is now \`speckit:stage:implemented\` and the branch \`speckit/a\` was deleted`));
+    assert.match(comments[0].body, new RegExp(`#${pull.number} was merged into \`main\`, so the twin is now \`speckit:stage:implemented\` and the branch \`speckit/a\` was deleted`));
     assert.match(lines.join('\n'), new RegExp(`Finalized: #${twin.number} \`a\` merged in pull request #${pull.number}`));
 
     const updates = github.updates.length;
@@ -211,8 +228,8 @@ function fakeGit(files, { fetchStatus = 0 } = {}) {
   const git = (args) => {
     calls.push(args);
     if (args[0] === 'fetch') return { status: fetchStatus, stdout: '', stderr: fetchStatus ? 'network down' : '' };
-    if (args[0] === 'show') {
-      const file = args[1].replace(/^origin\/main:/, '');
+    if (args[0] === 'show' || args[0] === 'cat-file') {
+      const file = args.at(-1).replace(/^origin\/main:/, '');
       return file in files ? { status: 0, stdout: files[file], stderr: '' } : { status: 128, stdout: '', stderr: 'missing' };
     }
     if (args[0] === 'ls-tree') {
@@ -334,6 +351,10 @@ test('request reports blockers, already flagged twins, and failed pre-checks', a
     const notMerged = await run({});
     assert.equal(notMerged.code, 1);
     assert.match(notMerged.text, /not merged to main/);
+
+    const archived = await run({ 'specs/archive/a/spec.md': SPEC_TEMPLATE('a') });
+    assert.equal(archived.code, 1);
+    assert.match(archived.text, /specs\/a is already implemented and archived in specs\/archive\/a/);
 
     const noTwin = await run(remoteFiles('zz'), 'zz');
     assert.equal(noTwin.code, 1);
@@ -493,7 +514,7 @@ test('chain: decide picks the phase, and plan-phase plans its task order with pr
     github.setFile('speckit/a', 'specs/a/tasks.md', '## Phase 1: Setup\n\n- [ ] T001 [P] Create project\n- [ ] T002 [P] Add docs\n\n### Implementation\n\n- [ ] T003 [US1] Build it\n\n## Phase 2\n\n- [ ] T004 Later\n');
     const progress = github.repo.checkRuns.at(-1);
     const chosen = await decide(github, root, twin);
-    assert.deepEqual([chosen.outputs.action, chosen.outputs.continue, chosen.outputs.phase, chosen.outputs.job_name], ['phase', 'true', 'Phase 1: Setup', 'Phase 1: Setup']);
+    assert.deepEqual([chosen.outputs.action, chosen.outputs.continue, chosen.outputs.phase, chosen.outputs.job_name, chosen.outputs.base_branch], ['phase', 'true', 'Phase 1: Setup', 'Phase 1: Setup', 'main']);
     assert.match(chosen.text, new RegExp(`^Next: Spec Kit implement phase #${twin.number} · Phase 1: Setup\\.$`, 'm'));
     assert.match(chosen.text, new RegExp(`^## Spec Kit implement spec #${twin.number} · a title$`, 'm'));
     assert.equal(progress.external_id, CHECK_PROGRESS, 'decide starts no attempts for a phase');

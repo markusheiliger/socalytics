@@ -11,6 +11,7 @@ import {
   DIAGNOSIS_COMMENT_MARKER,
   DIAGNOSIS_STALE_MS,
   PR_COMMANDS,
+  baseBranchOf,
   dispatchImplementation,
   folderOfBranch,
   implementationBranch,
@@ -158,14 +159,14 @@ async function handleResume({ client, env, actor, number, argument, folder, impl
 }
 
 async function handleSync({ client, env, actor, number, folder, implementation, twin }) {
-  const defaultBranch = env.SPECKIT_BRANCH || 'main';
+  const baseBranch = baseBranchOf(implementation);
   const branch = implementationBranch(folder);
   let result;
   try {
-    result = await client.mergeBranch(branch, defaultBranch, `Merge ${defaultBranch} into ${branch} (/speckit sync by @${actor})`);
+    result = await client.mergeBranch(branch, baseBranch, `Merge ${baseBranch} into ${branch} (/speckit sync by @${actor})`);
   } catch (error) {
     await reply(client, number, [
-      `\`${defaultBranch}\` could not be merged into \`${branch}\`: ${neutralizeMarkers(error.message.slice(0, 500))}`,
+      `\`${baseBranch}\` could not be merged into \`${branch}\`: ${neutralizeMarkers(error.message.slice(0, 500))}`,
       '',
       'Merge it locally and push (the implementation continues automatically). GitHub refuses merges that bring in workflow changes for the workflow token.',
     ]);
@@ -173,15 +174,15 @@ async function handleSync({ client, env, actor, number, folder, implementation, 
   }
   if (result === 'conflict') {
     await reply(client, number, [
-      `\`${defaultBranch}\` conflicts with \`${branch}\`, so it was not merged.`,
+      `\`${baseBranch}\` conflicts with \`${branch}\`, so it was not merged.`,
       '',
       'Merge it locally, resolve the conflicts, and push (the implementation continues automatically), or walk through it with the skill `/speckit-gha-diagnose`.',
     ]);
     return { outcome: 'conflict' };
   }
   await resumeImplementation(client, env, { implementation, twin, folder }, result === 'up-to-date'
-    ? `\`${branch}\` already contains \`${defaultBranch}\`; resumed by @${actor} with a fresh attempt count.`
-    : `@${actor} merged \`${defaultBranch}\` into \`${branch}\`; what stopped restarts with a fresh attempt count.`);
+    ? `\`${branch}\` already contains \`${baseBranch}\`; resumed by @${actor} with a fresh attempt count.`
+    : `@${actor} merged \`${baseBranch}\` into \`${branch}\`; what stopped restarts with a fresh attempt count.`);
   if (number !== implementation.number) await reply(client, number, `Synced; the implementation continues on #${implementation.number}.`);
   return { outcome: result };
 }

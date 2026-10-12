@@ -1,4 +1,4 @@
-import { artifactUrl, renderSpecLine } from './speckit-prepare-core.mjs';
+import { artifactUrl, renderSpecLine, specDir } from './speckit-prepare-core.mjs';
 
 export const BRANCH_PREFIX = 'speckit/';
 export const CHECK_RUN_NAME = 'Spec Kit implementation';
@@ -77,11 +77,11 @@ export const isEnvironmentPath = (file) => ENVIRONMENT_PREFIXES.some((prefix) =>
 export const isProtectedPath = (file) => !isEnvironmentPath(file) && PROTECTED_PREFIXES.some((prefix) => file.startsWith(prefix));
 
 // Reasons why a branch mixes changes to the environment actions with other changes. `branchPaths` are all paths
-// the implementation branch changes compared to the default branch.
+// the implementation branch changes compared to its base branch.
 export function environmentExclusivityReasons({ folder, branchPaths }) {
   if (!branchPaths.some(isEnvironmentPath)) return [];
-  const tasksPath = `specs/${folder}/tasks.md`;
-  const others = branchPaths.filter((file) => !isEnvironmentPath(file) && file !== tasksPath);
+  const tasksPaths = [tasksPathOf(folder), tasksPathOf(folder, { archived: true })];
+  const others = branchPaths.filter((file) => !isEnvironmentPath(file) && !tasksPaths.includes(file));
   return others.length > 0
     ? [`changes to the environment actions must come from a standalone environment spec, but the branch also changes ${others.join(', ')}`]
     : [];
@@ -93,6 +93,66 @@ const CONVERGENCE_HEADING_PATTERN = /^##\s+Phase\s+\d+\s*:\s*Convergence\b/i;
 
 export function implementationBranch(folder) {
   return `${BRANCH_PREFIX}${folder}`;
+}
+
+// tasks.md of a spec: specs/<folder>/tasks.md, or specs/archive/<folder>/tasks.md once the implementation archived it
+// (on its branch, right before the merge).
+export function tasksPathOf(folder, { archived = false } = {}) {
+  return `${specDir(folder, { archived })}/tasks.md`;
+}
+
+// Reads tasks.md of a spec at a ref, wherever the spec folder is; null when it is in neither place.
+export async function readSpecTasks(client, folder, ref) {
+  const active = await client.getFileContent(tasksPathOf(folder), ref);
+  if (active !== null) return { tasksMarkdown: active, archived: false };
+  const archived = await client.getFileContent(tasksPathOf(folder, { archived: true }), ref);
+  return { tasksMarkdown: archived, archived: archived !== null };
+}
+
+// Points the spec links of a twin or implementation pull request body to the spec folder on `branch` (archived or
+// not): the `**Spec**` line and artifact links, including links to the implementation branch, which is deleted after
+// the merge. Applying it again changes nothing.
+export function pointSpecLinks(body, folder, { branch, archived }) {
+  const escaped = folder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const target = specDir(folder, { archived });
+  return String(body ?? '')
+    .replace(new RegExp(`/(tree|blob)/[^\\s()]+?/specs/(?:archive/)?${escaped}(?=[/)\\s#]|$)`, 'g'), (match, kind) => `/${kind}/${branch}/${target}`)
+    .replace(new RegExp(`\`specs/(?:archive/)?${escaped}\``, 'g'), `\`${target}\``);
+}
+
+// Two different branches matter. The repository's default branch (SPECKIT_DEFAULT_BRANCH) holds the trusted tooling:
+// workflows run and are dispatched there, and its specs are mirrored as twins and may be requested for implementation.
+// The base branch of an implementation is the branch its implementation branch was created from and merges back into;
+// the implementation pull request's base records it. Merges, comparisons, and links of an implementation use the base
+// branch, never the default branch.
+export function defaultBranchOf(env) {
+  const branch = String(env?.SPECKIT_DEFAULT_BRANCH ?? '').trim();
+  if (!branch) throw new Error('Expected SPECKIT_DEFAULT_BRANCH (the repository default branch).');
+  return branch;
+}
+
+export function baseBranchOf(pull) {
+  const branch = String(pull?.base?.ref ?? '').trim();
+  if (!branch) throw new Error(`Implementation pull request #${pull?.number ?? '?'} has no base branch.`);
+  return branch;
+}
+
+// The base branch handed to a job that works with git (SPECKIT_BASE_BRANCH, from the decide job).
+export function baseBranchFromEnv(env) {
+  const branch = String(env?.SPECKIT_BASE_BRANCH ?? '').trim();
+  if (!branch) throw new Error('Expected SPECKIT_BASE_BRANCH (the base branch of the implementation pull request).');
+  return branch;
+}
+
+// The base branch of an implementation pull request when it has commits the implementation branch lacks, else null.
+// Only used to suggest /speckit sync, so errors count as not behind.
+export async function behindBaseOf(client, pull, folder) {
+  try {
+    const base = baseBranchOf(pull);
+    return (await client.aheadBy(implementationBranch(folder), base)) > 0 ? base : null;
+  } catch {
+    return null;
+  }
 }
 
 export function amendmentBranch(folder) {
@@ -386,7 +446,7 @@ export async function dispatchImplementation(client, env, { twin, pull, title })
       specTitle = '';
     }
   }
-  await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', { twin: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}) });
+  await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, defaultBranchOf(env), { twin: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}) });
 }
 
 // The attempt marker of an outcome comment. `kind` is what the attempt works on: task, converge, or resolve. `outcome`
@@ -430,8 +490,8 @@ export const TASK_TEST_SCOPE = 'Build what you change and run only the tests tha
 
 // The task is named together with its spec folder: task IDs repeat across specs, and an agent that searched the whole
 // repository for one picked another spec's task.
-export function renderTaskPrompt(taskId, folder) {
-  const where = folder ? ` of the spec in \`specs/${folder}/\` (its \`tasks.md\`); ignore the other specs` : '';
+export function renderTaskPrompt(taskId, folder, { archived = false } = {}) {
+  const where = folder ? ` of the spec in \`${specDir(folder, { archived })}/\` (its \`tasks.md\`); ignore the other specs` : '';
   return `/speckit-implement Implement only task ${taskId}${where}. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`;
 }
 
@@ -439,13 +499,13 @@ export function renderConvergePrompt() {
   return '/speckit-converge Assess the implementation and append remaining work as new tasks if needed. Do not commit and do not push.';
 }
 
-export function renderResolvePrompt({ folder, files }) {
+export function renderResolvePrompt({ folder, files, base, archived = false }) {
   return [
-    `The working tree is in the middle of merging the default branch into the implementation branch of the spec \`specs/${folder}\`.`,
+    `The working tree is in the middle of merging the base branch \`${base}\` into the implementation branch of the spec \`${specDir(folder, { archived })}\`.`,
     `Git reported merge conflicts in these files: ${files.map((file) => `\`${file}\``).join(', ')}.`,
     'Resolve every conflict: edit only these files, remove all conflict markers, and combine both sides so that the',
-    'intent of the spec and the changes from the default branch are both kept. Use the spec, plan, and tasks in',
-    `\`specs/${folder}\` to understand the implementation side. Do not change any other file, and do not run git`,
+    `intent of the spec and the changes from \`${base}\` are both kept. Use the spec, plan, and tasks in`,
+    `\`${specDir(folder, { archived })}\` to understand the implementation side. Do not change any other file, and do not run git`,
     'commit, merge, checkout, reset, restore, stash, rebase, or push.',
   ].join(' ');
 }
@@ -566,9 +626,9 @@ export function kindLabel({ kind, task }) {
 
 // Reasons why a /speckit-converge change cannot be accepted. It may only append a convergence phase with new,
 // unchecked tasks to specs/<folder>/tasks.md. `limit` is true when the append would exceed the round limit.
-export function validateConvergeChange({ folder, before, after, changedPaths }) {
+export function validateConvergeChange({ folder, archived = false, before, after, changedPaths }) {
   const reasons = [];
-  const tasksPath = `specs/${folder}/tasks.md`;
+  const tasksPath = tasksPathOf(folder, { archived });
   const others = changedPaths.filter((file) => file !== tasksPath);
   if (others.length > 0) reasons.push(`convergence may only change \`${tasksPath}\`, but it changed ${others.join(', ')}`);
   const normalize = (text) => String(text ?? '').replaceAll('\r\n', '\n').replace(/\n+$/, '');
@@ -636,9 +696,9 @@ export function appendPullRequestTasks(body, tasks, heading) {
 
 // Reasons why the agent's change for `taskId` cannot be accepted. `before` and `after` are the contents of
 // specs/<folder>/tasks.md; `changedPaths` are all changed repository paths.
-export function validateTaskChange({ folder, taskId, before, after, changedPaths }) {
+export function validateTaskChange({ folder, archived = false, taskId, before, after, changedPaths }) {
   const reasons = [];
-  const tasksPath = `specs/${folder}/tasks.md`;
+  const tasksPath = tasksPathOf(folder, { archived });
   const protectedPaths = changedPaths.filter((file) => file !== tasksPath && isProtectedPath(file));
   if (protectedPaths.length > 0) reasons.push(`changed protected paths: ${protectedPaths.join(', ')}`);
 
@@ -693,7 +753,7 @@ export function renderPullRequestBody({ twinNumber, folder, tasks, context, tick
       '',
       `## Tasks (${tasks.count})`,
       '',
-      `Short form; the full task texts are in [\`tasks.md\`](${artifactUrl({ ...context, branch: implementationBranch(folder) }, folder, 'tasks.md')}).`,
+      `Short form; the full task texts are in [\`tasks.md\`](${artifactUrl({ ...context, branch: implementationBranch(folder) }, folder, 'tasks.md', { archived: Boolean(context.archived) })}).`,
       ...(lines.length > 0 ? lines : ['', '_No tasks were found in `tasks.md`._']),
       ...(hidden > 0 ? ['', `_${hidden} more task(s) are not listed because the description would be too long._`] : []),
       '',
@@ -735,7 +795,7 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
 export const PR_COMMANDS = [
   { name: 'diagnose', usage: '/speckit diagnose [notes]', help: 'diagnose why the implementation stopped; notes steer the analysis or answer its questions' },
   { name: 'resume', usage: '/speckit resume [guidance]', help: 'retry what stopped with a fresh attempt count; guidance goes into the next attempt\'s prompt' },
-  { name: 'sync', usage: '/speckit sync', help: 'merge the default branch into the implementation branch and retry' },
+  { name: 'sync', usage: '/speckit sync', help: 'merge the base branch into the implementation branch and retry' },
   { name: 'help', usage: '/speckit help', help: 'list these commands' },
 ];
 
@@ -765,9 +825,10 @@ export function setAmendmentStatus(body, lines) {
 
 // The "Next steps" block of a comment where the implementation waits for a person. Only commands that are valid in
 // the given state are suggested, the recommended one first. `options` are a diagnosis' options
-// ({ title, command }), `amendmentPull` an open amendment pull request, `behindMain` whether the default branch has
-// commits the implementation branch lacks, and `autoDiagnosis` whether a diagnosis starts automatically.
-export function renderNextSteps({ options = null, amendmentPull = null, behindMain = false, autoDiagnosis = false, diagnosed = false } = {}) {
+// ({ title, command }), `amendmentPull` an open amendment pull request, `behindBase` the name of the base branch when
+// it has commits the implementation branch lacks (otherwise null), and `autoDiagnosis` whether a diagnosis starts
+// automatically.
+export function renderNextSteps({ options = null, amendmentPull = null, behindBase = null, autoDiagnosis = false, diagnosed = false } = {}) {
   const lines = [];
   if (amendmentPull) {
     lines.push(
@@ -790,7 +851,7 @@ export function renderNextSteps({ options = null, amendmentPull = null, behindMa
     entries.push(commandEntry(diagnosed ? 'Diagnose again, optionally with your notes or answers' : 'Diagnose why the implementation stopped (notes steer the analysis)', '/speckit diagnose [notes]'));
   }
   if (!used.has('resume')) entries.push(commandEntry('Retry with a fresh attempt count, optionally with guidance for the agent', '/speckit resume [guidance]'));
-  if (behindMain && !used.has('sync')) entries.push(commandEntry('Merge the default branch (for example a fix that landed there) and retry', '/speckit sync'));
+  if (behindBase && !used.has('sync')) entries.push(commandEntry(`Merge the base branch \`${behindBase}\` (for example a fix that landed there) and retry`, '/speckit sync'));
   for (const entry of entries) lines.push(...entry);
   lines.push(
     '',
@@ -802,10 +863,10 @@ export function renderNextSteps({ options = null, amendmentPull = null, behindMa
 // Reasons why a proposed amendment of the spec artifacts cannot be applied, and notes a person should see. It may
 // only change files in specs/<folder>/; in tasks.md it may edit, add, or remove unchecked tasks and uncheck a task
 // to redo it, but never check a task or drop a completed one.
-export function validateAmendment({ folder, changedPaths, beforeTasks, afterTasks }) {
+export function validateAmendment({ folder, archived = false, changedPaths, beforeTasks, afterTasks }) {
   const reasons = [];
   const notes = [];
-  const prefix = `specs/${folder}/`;
+  const prefix = `${specDir(folder, { archived })}/`;
   const outside = changedPaths.filter((file) => !file.startsWith(prefix));
   if (outside.length > 0) reasons.push(`an amendment may only change files in \`${prefix}\`, but it changes ${outside.map((file) => `\`${file}\``).join(', ')}`);
   if (changedPaths.includes(`${prefix}spec.md`)) notes.push('it changes the requirements in `spec.md`');
@@ -831,13 +892,13 @@ export function validateAmendment({ folder, changedPaths, beforeTasks, afterTask
   return { reasons, notes };
 }
 
-export function renderStartComment({ twinNumber, folder, taskCount }) {
+export function renderStartComment({ twinNumber, folder, taskCount, base }) {
   return [
     START_COMMENT_MARKER,
     `Implementation workspace prepared for #${twinNumber} (\`specs/${folder}\`): ${taskCount} task(s) queued.`,
     '',
     'The `Spec Kit implement spec` workflow implements them phase by phase, in order; `[P]` tasks of a phase run in parallel. Each task is verified, committed, and reported here.',
-    'Then a convergence checks the result against the spec, and the implementation is merged into the default branch once it converged and passed the full verification.',
+    `Then a convergence checks the result against the spec, and the implementation is merged into its base branch \`${base}\` once it converged and passed the full verification.`,
   ].join('\n');
 }
 

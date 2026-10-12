@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import { specDir } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
 import {
@@ -17,10 +18,14 @@ import {
   IMPLEMENT_WORKFLOW_FILE,
   MAX_STALLED_ROUNDS,
   amendmentBranch,
+  baseBranchOf,
+  behindBaseOf,
+  defaultBranchOf,
   implementationBranch,
   isImplementRunOf,
   neutralizeMarkers,
   nextTaskGroup,
+  readSpecTasks,
   renderNextSteps,
 } from './speckit-implement-core.mjs';
 
@@ -67,7 +72,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, no
     output: { title: 'Diagnosis in progress', summary },
   });
   try {
-    await client.dispatchWorkflow(DIAGNOSE_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', {
+    await client.dispatchWorkflow(DIAGNOSE_WORKFLOW_FILE, defaultBranchOf(env), {
       twin: String(twin),
       pull: String(pull),
       folder,
@@ -126,10 +131,10 @@ export async function runEvidence({ client, env, log }) {
   const { twin, pull: pullNumber, folder, mode, amendment: amendmentNumber, round, stalls } = inputsFrom(env);
   const outDir = path.resolve(env.SPECKIT_EVIDENCE_DIR || 'evidence');
   mkdirSync(outDir, { recursive: true });
-  const defaultBranch = env.SPECKIT_BRANCH || 'main';
   const branch = implementationBranch(folder);
   const pull = await client.getPullRequest(pullNumber);
-  const tasksMarkdown = await client.getFileContent(`specs/${folder}/tasks.md`, pull.head.sha);
+  const baseBranch = baseBranchOf(pull);
+  const { tasksMarkdown, archived } = await readSpecTasks(client, folder, pull.head.sha);
   const next = nextTaskGroup(tasksMarkdown, 1)[0] ?? null;
   const checks = [...await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME)].sort((a, b) => a.id - b.id);
   const comments = await client.listIssueComments(pullNumber);
@@ -138,8 +143,8 @@ export async function runEvidence({ client, env, log }) {
   let behind = null;
   let ahead = null;
   try {
-    behind = await client.aheadBy(branch, defaultBranch);
-    ahead = await client.aheadBy(defaultBranch, branch);
+    behind = await client.aheadBy(branch, baseBranch);
+    ahead = await client.aheadBy(baseBranch, branch);
   } catch {
     // The comparison is only context.
   }
@@ -148,9 +153,9 @@ export async function runEvidence({ client, env, log }) {
     `# Evidence for the diagnosis of #${twin} (pull request #${pullNumber})`,
     '',
     `- Mode: \`${mode}\`${mode === 'fix' ? ` (correction round ${round}; rounds without progress so far: ${stalls} of ${MAX_STALLED_ROUNDS})` : ''}${amendmentNumber ? `; amendment pull request #${amendmentNumber} on \`${amendmentBranch(folder)}\`` : ''}`,
-    `- Spec folder: \`specs/${folder}\``,
+    `- Spec folder: \`${specDir(folder, { archived })}\`${archived ? ' (archived on the implementation branch for the merge)' : ''}`,
     `- Implementation branch: \`${branch}\` at ${pull.head.sha}`,
-    `- Default branch \`${defaultBranch}\`: ${behind ?? '?'} commit(s) the implementation branch lacks; the branch is ${ahead ?? '?'} commit(s) ahead`,
+    `- Base branch \`${baseBranch}\` (the pull request's base, which the implementation merges into): ${behind ?? '?'} commit(s) the implementation branch lacks; the branch is ${ahead ?? '?'} commit(s) ahead`,
     `- Next unchecked task: ${next ? `${next.id} ${next.text}` : 'none (all tasks are checked)'}`,
     '',
   ];
@@ -205,7 +210,8 @@ export async function runEvidence({ client, env, log }) {
     round,
     maxCorrectionRounds: MAX_CORRECTION_ROUNDS,
     maxStalledRounds: MAX_STALLED_ROUNDS,
-    defaultBranch,
+    baseBranch,
+    specDir: specDir(folder, { archived }),
     head: pull.head.sha,
     nextTask: next?.id ?? null,
     previousDiagnosis: previous ? true : false,
@@ -323,14 +329,14 @@ const CATEGORY_TEXT = {
   unknown: 'the cause is not clear yet',
 };
 
-export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindMain = false }) {
+export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null }) {
   const lines = [DIAGNOSIS_COMMENT_MARKER];
   if (!report) {
     lines.push(
       `**Diagnosis${round > 1 ? ` (round ${round})` : ''} did not produce a usable report**: ${reasons.map(neutralizeMarkers).join('; ') || 'no report'}.`,
       '',
       ...(runUrl ? [`See the [diagnosis run](${runUrl}).`, ''] : []),
-      ...renderNextSteps({ behindMain, diagnosed: true }),
+      ...renderNextSteps({ behindBase, diagnosed: true }),
     );
     return lines.join('\n');
   }
@@ -368,7 +374,7 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
   const commandOptions = report.options
     .filter((option) => option.command)
     .map((option) => ({ title: `${option.recommended ? '**Recommended:** ' : ''}${safe(option.title)}`, command: option.command }));
-  lines.push('', ...renderNextSteps({ options: commandOptions, amendmentPull: amendment?.number ?? null, behindMain, diagnosed: true }));
+  lines.push('', ...renderNextSteps({ options: commandOptions, amendmentPull: amendment?.number ?? null, behindBase, diagnosed: true }));
   if (reasons.length > 0) lines.push('', `_Parts of the report were dropped: ${reasons.map(safe).join('; ')}._`);
   if (runUrl) lines.push('', `<sub>[Diagnosis run](${runUrl})</sub>`);
   return lines.join('\n');
@@ -391,14 +397,9 @@ export async function runRecord({ client, env, log }) {
   const comments = await client.listIssueComments(pullNumber);
   const round = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).length + 1;
   const amendment = usable ? await createdAmendment(client, env, folder, reasons) : null;
-  let behindMain = false;
-  try {
-    behindMain = (await client.aheadBy(implementationBranch(folder), env.SPECKIT_BRANCH || 'main')) > 0;
-  } catch {
-    // Only used to suggest /speckit sync.
-  }
+  const behindBase = await behindBaseOf(client, await client.getPullRequest(pullNumber), folder);
   const runUrl = env.GITHUB_RUN_ID ? `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
-  await client.createComment(pullNumber, renderDiagnosisComment({ report: usable, reasons, round, runUrl, amendment, behindMain }));
+  await client.createComment(pullNumber, renderDiagnosisComment({ report: usable, reasons, round, runUrl, amendment, behindBase }));
   const checkRun = Number(env.SPECKIT_CHECK_RUN);
   if (Number.isInteger(checkRun) && checkRun > 0) {
     await client.updateCheckRun(checkRun, {

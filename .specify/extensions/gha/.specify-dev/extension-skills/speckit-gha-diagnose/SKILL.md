@@ -68,7 +68,7 @@ workflow started you): never ask, and turn every open question into a report que
    | --- | --- | --- |
    | `artifacts` | The task cannot be done as written, or doing it as written cannot meet the spec: a missing, ambiguous, or contradictory design decision; a wrong assumption in research; a task too vague to diagnose its failure; a missing prerequisite task; a wrong task order; or a code fix inside this feature needed first (a **corrective task**) | an amendment pull request (step 5) that the person reviews and merges |
    | `retry` | Transient infrastructure (timeouts, rate limits, runner or network failures, Copilot errors, a flaky test with evidence), or the agent took a poor approach although the artifacts are adequate | `/speckit resume <concrete guidance>` |
-   | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the default branch, permissions, quotas, external services | name what must change where (a fix on the default branch, an environment spec, a tooling fix); when the fix is already on the default branch, `/speckit sync` |
+   | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | name what must change where (a fix on the base branch, an environment spec, a tooling fix); when the fix is already on the base branch, `/speckit sync` |
    | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered options with questions; the person answers with `/speckit diagnose <answers>` |
    | `unknown` | Not enough evidence | what was checked and ruled out, and what to look at next |
 
@@ -126,7 +126,7 @@ workflow started you): never ask, and turn every open question into a report que
 
 - Mark exactly one option as recommended. A `command` is one line: `/speckit resume <guidance>`, `/speckit sync`, or
   `/speckit diagnose <notes>`. Reviewing and merging the amendment pull request, and actions a person takes outside
-  these commands (for example "fix the trigger test on the default branch"), have `"command": null`.
+  these commands (for example "fix the trigger test on the base branch"), have `"command": null`.
 - `artifacts` lists the changed files of the amendment; leave it empty otherwise. Ask at most three questions.
 
 ## Rework report (modes `fix` and `revise`)

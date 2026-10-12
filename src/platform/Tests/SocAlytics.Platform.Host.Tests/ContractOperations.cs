@@ -1,6 +1,6 @@
 namespace SocAlytics.Platform.Host.Tests;
 
-// Copied from specs/20261005-130701-club-identity-foundation/contracts/openapi.yaml.
+// Copied from specs/archive/20261005-130701-club-identity-foundation/contracts/openapi.yaml.
 internal sealed record ContractOperation(string OperationId, string Path, string Method, params string[] StatusCodes);
 
 internal static class ContractOperations

@@ -226,6 +226,10 @@ export class FakeGitHub {
     return this.repo.branches[branch] ?? null;
   }
 
+  async getDefaultBranch() {
+    return this.repo.defaultBranch ?? 'main';
+  }
+
   async createBranch(branch, sha) {
     this.repo.branches[branch] = sha;
   }
@@ -354,7 +358,7 @@ export function makeRepo(folders) {
 }
 
 export function envFor(root) {
-  return { GITHUB_REPOSITORY: 'octo/repo', GITHUB_STEP_SUMMARY: path.join(root, 'summary.md'), GITHUB_OUTPUT: path.join(root, 'output.txt') };
+  return { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', GITHUB_STEP_SUMMARY: path.join(root, 'summary.md'), GITHUB_OUTPUT: path.join(root, 'output.txt') };
 }
 
 const DIAGNOSIS_BEFORE = '## P\n- [x] T001 Done\n- [ ] T002 Next\n';

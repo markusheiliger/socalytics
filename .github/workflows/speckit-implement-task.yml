@@ -34,6 +34,10 @@ on:
         description: Spec folder name under specs/
         required: true
         type: string
+      base:
+        description: Base branch of the implementation pull request, which the implementation merges into and is compared with
+        required: true
+        type: string
       order:
         description: 'The task order of the run as JSON, one entry per task or consecutive [P] tasks: [{"include": [{"task", "attempt", "prompt", "verify_mode", "summary"}]}]'
         required: true
@@ -66,7 +70,8 @@ jobs:
       copilot-requests: write
     env:
       SPECKIT_KIND: ${{ inputs.kind }}
-      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_BASE_BRANCH: ${{ inputs.base }}
       SPECKIT_TWIN: ${{ inputs.twin }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_TASK: ${{ matrix.task }}
@@ -83,7 +88,7 @@ jobs:
           path: tooling
           persist-credentials: false
 
-      # Full history, so the change can be compared with (and a resolution can merge) the default branch.
+      # Full history, so the change can be compared with (and a resolution can merge) the base branch.
       - name: Check out the implementation branch
         uses: actions/checkout@v5
         with:
@@ -117,10 +122,18 @@ jobs:
         with:
           workspace: workspace
 
-      - name: Merge the default branch
+      - name: Merge the base branch
         id: integrate
         if: inputs.kind == 'resolve'
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-task.mjs" integrate
+
+      # The spec folder moves to specs/archive/<folder> when the implementation archives it right before its merge.
+      - name: Locate the spec folder
+        env:
+          FOLDER: ${{ inputs.folder }}
+        run: |
+          if [ -d "workspace/specs/$FOLDER" ]; then dir="specs/$FOLDER"; else dir="specs/archive/$FOLDER"; fi
+          echo "SPECIFY_FEATURE_DIRECTORY=$dir" >> "$GITHUB_ENV"
 
       # The token reaches Copilot CLI only as COPILOT_GITHUB_TOKEN, which --secret-env-vars strips from the
       # agent's shells. The job token is read-only, so even a leaked token cannot push.
@@ -129,7 +142,6 @@ jobs:
         working-directory: workspace
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
-          SPECIFY_FEATURE_DIRECTORY: specs/${{ inputs.folder }}
           PROMPT: ${{ matrix.prompt }}
           AI_CREDITS: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
         run: |
@@ -233,7 +245,8 @@ jobs:
       combined: ${{ steps.land.outputs.combined }}
     env:
       SPECKIT_KIND: ${{ inputs.kind }}
-      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_BASE_BRANCH: ${{ inputs.base }}
       SPECKIT_TWIN: ${{ inputs.twin }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_FOLDER: ${{ inputs.folder }}
@@ -250,7 +263,7 @@ jobs:
           path: tooling
           persist-credentials: false
 
-      # Full history, so each change can be compared with the default branch and rebuilt on a moved branch.
+      # Full history, so each change can be compared with the base branch and rebuilt on a moved branch.
       - name: Check out the implementation branch
         uses: actions/checkout@v5
         with:
@@ -372,7 +385,8 @@ jobs:
       - name: Report the verification
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_BASE_BRANCH: ${{ inputs.base }}
           SPECKIT_TWIN: ${{ inputs.twin }}
           SPECKIT_PULL: ${{ inputs.pull }}
           SPECKIT_FOLDER: ${{ inputs.folder }}

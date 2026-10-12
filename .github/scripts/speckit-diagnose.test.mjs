@@ -9,7 +9,7 @@ import { CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MA
 import { main, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
-const env = (extra = {}) => ({ GITHUB_REPOSITORY: 'octo/repo', SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_FOLDER: 'f', ...extra });
+const env = (extra = {}) => ({ GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_FOLDER: 'f', ...extra });
 
 const REPORT = {
   category: 'artifacts',
@@ -28,7 +28,7 @@ const REPORT = {
 
 test('starts a diagnosis with a check run and a dispatch, and records a dispatch failure as a reported stop', async () => {
   const github = diagnosisRepo();
-  const started = await startDiagnosis(github, {}, { twin: 5, pull: 9, folder: 'f', head: 'sha-impl', notes: 'look at R6', actor: 'dev' });
+  const started = await startDiagnosis(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, pull: 9, folder: 'f', head: 'sha-impl', notes: 'look at R6', actor: 'dev' });
   assert.equal(started.started, true);
   assert.equal(github.repo.pulls.find((pull) => pull.number === 11).state, 'closed', 'the previous amendment is superseded');
   const check = github.repo.checkRuns.at(-1);
@@ -38,7 +38,7 @@ test('starts a diagnosis with a check run and a dispatch, and records a dispatch
   assert.equal(github.repo.runs.at(-1).workflow, 'speckit-diagnose.lock.yml');
 
   github.dispatchWorkflow = async () => { throw new Error('workflow not found'); };
-  const failed = await startDiagnosis(github, {}, { twin: 5, pull: 9, folder: 'f', head: 'sha-impl', auto: true });
+  const failed = await startDiagnosis(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, pull: 9, folder: 'f', head: 'sha-impl', auto: true });
   assert.deepEqual([failed.started, failed.error], [false, 'workflow not found']);
   const failedCheck = github.repo.checkRuns.at(-1);
   assert.deepEqual([failedCheck.external_id, failedCheck.status, failedCheck.conclusion, failedCheck.output.title], [CHECK_DIAGNOSED, 'completed', 'failure', 'Diagnosis could not start']);
@@ -59,7 +59,7 @@ test('collects evidence: checks, comments, failed run logs, branch state, and no
     await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir, SPECKIT_NOTES: 'see research R6' }), log: silent });
     const evidence = readFileSync(path.join(dir, 'evidence.md'), 'utf8');
     assert.match(evidence, /Next unchecked task: T002 Next/);
-    assert.match(evidence, /Default branch `main`: 1 commit\(s\) the implementation branch lacks; the branch is 1 commit\(s\) ahead/);
+    assert.match(evidence, /Base branch `main` \(the pull request's base, which the implementation merges into\): 1 commit\(s\) the implementation branch lacks; the branch is 1 commit\(s\) ahead/);
     assert.match(evidence, /see research R6/);
     assert.match(evidence, /speckit:limit completed\/failure: T002 reached the attempt limit — stopped/);
     assert.match(evidence, /T002 attempt 3 failed/);

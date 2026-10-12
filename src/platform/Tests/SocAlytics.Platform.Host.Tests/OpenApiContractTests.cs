@@ -76,7 +76,7 @@ public sealed class OpenApiContractTests
 			.Any(r => r.TryGetProperty("sessionCookie", out _)).ShouldBeTrue();
 	}
 
-	// Analysis operations are verified against specs/20261005-130703-durable-analysis-workflow/contracts/openapi.yaml
+	// Analysis operations are verified against specs/archive/20261005-130703-durable-analysis-workflow/contracts/openapi.yaml
 	// by the Analysis tests and T039, not against the Club contract.
 	private static bool IsAnalysisPath(string path) =>
 		path.StartsWith("/api/v1/analysis/", StringComparison.Ordinal)

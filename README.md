@@ -24,7 +24,8 @@ through approved changes.
     constitution, templates, and helper scripts; `.github/skills/speckit-*`
     holds the generated Spec Kit skills for GitHub Copilot.
 - [`specs/`](specs/README.md) holds one UTC-timestamped folder per Spec Kit
-    feature and an index of feature dependency order.
+    feature, implemented features under `specs/archive/`, and an index of
+    feature dependency order.
 - [`AGENTS.md`](AGENTS.md) defines repository guidance for coding agents.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
@@ -207,9 +208,11 @@ refresh them.
 ### Spec Twins
 
 The `Spec Kit prepare` workflow (`.github/workflows/speckit-prepare.yml`) keeps
-one GitHub issue, a spec twin, per feature folder under `specs/` on `main`. It
-runs on every push to `main` that changes `specs/**` and can be started
-manually; manual runs are dry runs unless `dry_run` is unchecked.
+one GitHub issue, a spec twin, per feature folder under `specs/` (or, once
+implemented, `specs/archive/`) on the repository's default branch (`main` in this repository; the tooling reads the
+name from GitHub and never assumes it). It runs on every push to the default
+branch that changes `specs/**` and can be started manually; manual runs are
+dry runs unless `dry_run` is unchecked.
 
 - A twin is labelled `speckit:spec` and starts with a generated, clickable
     `**Spec**` line linking its folder. That line identifies the twin. The title
@@ -219,9 +222,17 @@ manually; manual runs are dry runs unless `dry_run` is unchecked.
     a feature specifies.
 - When a folder disappears, its twin is closed as not planned and labelled
     `speckit:stage:discarded`; it is reopened if the folder returns. Twins closed
-    as completed are never changed.
+    as completed are not changed, except that twins of archived specs follow
+    their folder.
+- Implemented specs are archived: `specs/<folder>` moves to
+    `specs/archive/<folder>` in the commit that merges the implementation (see
+    below). An archived spec's twin is closed as completed, labelled
+    `speckit:stage:implemented`, and its `**Spec**` line and links point to the
+    archive; the folder name stays its identity. Archived specs get no new
+    twins, take no part in dependency inference, and cannot be requested for
+    implementation.
 - Every twin carries exactly one generated stage label, derived from the files
-    in its folder on `main`: `speckit:stage:specified` (only `spec.md`),
+    in its folder on the default branch: `speckit:stage:specified` (only `spec.md`),
     `speckit:stage:planned` (`plan.md`), `speckit:stage:tasked` (`tasks.md`, no
     task checked), `speckit:stage:implementing` (some tasks checked), or
     `speckit:stage:implemented` (all tasks checked), or the human-requested
@@ -251,9 +262,9 @@ their "blocked by" issues are closed.
 
 - When someone adds the label, the `validate-implement` job of
     `Spec Kit prepare` accepts it only if the person has at least write access,
-    the twin is open and its folder exists on `main`, the computed stage is
-    `tasked`, and every checkbox in `specs/<folder>/checklists/*.md` on `main`
-    is checked. Otherwise the twin falls back to its computed stage, which may
+    the twin is open and its folder exists on the default branch, the computed
+    stage is `tasked`, and every checkbox in `specs/<folder>/checklists/*.md`
+    there is checked. Otherwise the twin falls back to its computed stage, which may
     come before or after `implement`, and gets a comment with the reasons.
 - Later syncs keep a valid flag and revoke it, with a comment, once the stage
     or checklist conditions no longer hold, for example when all tasks are
@@ -267,15 +278,23 @@ their "blocked by" issues are closed.
     implementation whose chain broke (no run active, but something to do). It
     never drives tasks itself.
 - For every ready twin it prepares an implementation workspace:
-  - the branch `speckit/<folder>`, created as a linked branch so it appears in
-      the twin's Development section, with an empty start commit;
-  - a draft pull request `Implement: <spec title>` whose body contains
+  - the branch `speckit/<folder>`, created from the default branch as a linked
+      branch so it appears in the twin's Development section, with an empty
+      start commit;
+  - a draft pull request `Implement: <spec title>` against the default branch
+      whose body contains
       `Closes #<twin>`, the spec link, and the tasks from `tasks.md` as
       checkboxes in short form (tags and first sentence, linked to the full
       `tasks.md`, so the body stays under GitHub's 65,536-character limit),
       assigned to the person who set the flag;
   - a `Spec Kit implementation` check run on the pull request, which tracks the
       implementation status, and a start comment.
+
+  The pull request's base is the implementation's **base branch**: the branch
+  it was created from and merges back into. From here on, every merge,
+  comparison, conflict check, and link of the implementation uses the base
+  branch named on the pull request, never an assumed `main`. The default
+  branch only provides the trusted workflows and scripts.
 - Then the spec's implementation chain takes over: runs of
   `Spec Kit implement spec` (`speckit-implement-spec.yml`), one at a time per
   spec, each started by the previous one and named after the spec, for example
@@ -298,8 +317,8 @@ their "blocked by" issues are closed.
   | --- | --- | --- |
   | A phase | job `phase`, which calls `Spec Kit implement phase` (`speckit-implement-phase.yml`), named after the phase heading of `tasks.md` as written, for example `2 · Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP` | the phase of the first open task. Its job `plan` (`Plan the tasks`) decides itself which of the phase's tasks are still open and plans them in `tasks.md` order: the tasks run one after another, except that consecutive unchecked `[P]` tasks under the same heading run in parallel (see below). Its job `tasks` is a matrix that calls `Spec Kit implement task` (`speckit-implement-task.yml`) once per task, or once for consecutive `[P]` tasks, one job at a time, named `T013` for a single task or `T014, T015 in parallel` for `[P]` tasks. Tasks land before the next start; tasks that do not land fail, and the matrix cancels the tasks after them |
   | Acceptance gate | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `2 · Convergence` | once all tasks are checked, `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
-  | Merge | jobs `merge-verify` (`2 · Merge: integrate and verify`) and `merge-land` (`2 · Merge: merge and report`) | merges `main` into the branch, runs the full verification on the result, and squash-merges the pull request into `main` |
-  | Conflicts | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `2 · Conflict resolution` | resolves conflicts with `main` with Copilot CLI, verifies, and pushes the merge commit; then the merge runs again |
+  | Merge | jobs `merge-archive` (`2 · Merge: archive the spec`), `merge-verify` (`2 · Merge: integrate and verify`), and `merge-land` (`2 · Merge: merge and report`) | archives the spec on the branch, merges the base branch into the branch, runs the full verification on the result, and squash-merges the pull request into the base branch |
+  | Conflicts | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `2 · Conflict resolution` | resolves conflicts with the base branch with Copilot CLI, verifies, and pushes the merge commit; then the merge runs again |
 
   Each job is short, so specs of any size never hit the 6-hour job limit.
   Every call of `Spec Kit implement task`:
@@ -343,12 +362,24 @@ their "blocked by" issues are closed.
   Every call starts from the tip of the implementation branch, which the chain
   alone writes while it runs.
 
-  `merge-verify` (read-only token) merges `main` and runs every check of
-  `environment-verify`; `merge-land` (write token, API only) squash-merges the
-  pull request only if `main` still is the commit that was verified, sets the
-  twin to `implemented` and closes it, deletes the branch, starts
-  `Spec Kit prepare`, and comments "Merged into `main`" with an @mention of the
-  person who set the flag. If `main` moved, the merge simply runs again.
+  `merge-archive` (write token, trusted tooling, never runs agent-written code)
+  merges the base branch into the implementation branch, moves the spec folder
+  to `specs/archive/<folder>`, rewrites every reference to it in the repository
+  (relative Markdown links into and out of the folder, and plain-text
+  `specs/<folder>` mentions such as code comments), commits, pushes, and moves
+  the merge check run to the new head; on conflicts with the base branch it
+  changes nothing, so the conflict resolution runs first. The archive thus
+  lands in the merge commit itself, verified with everything else, and the base
+  branch never has a broken link.
+  `merge-verify` (read-only token) merges the base branch and runs every check
+  of `environment-verify`; `merge-land` (write token, API only) squash-merges
+  the pull request into its base branch only if the base branch still is the
+  commit that was verified, sets the twin to `implemented` and closes it,
+  points the twin's links to the archive (when the base branch is the default
+  branch, which the twin mirrors) and the pull request's links from the deleted
+  implementation branch to the base branch, deletes the branch, starts
+  `Spec Kit prepare` on the default branch, and comments "Merged into `<base branch>`" with an @mention of the person who set
+  the flag. If the base branch moved, the merge simply runs again.
   Instead of merging, the pull request is marked ready for review and a review
   is requested when automatic merging is off, when it changes the environment
   actions, or when the verification reports changed files that no check
@@ -450,10 +481,11 @@ their "blocked by" issues are closed.
     pull request and its branch; flagging the twin again deletes and recreates
     the branch and opens a new draft pull request. Merging the pull request,
     automatically or by a person, closes the twin as completed.
-- All Spec Kit workflows only run from `main`: manual runs started on another
-    branch are refused, implementation-PR events use `pull_request_target`
-    (always `main`'s workflow), the workflow token cannot push workflow files,
-    and scripts always run from a `main` checkout. Pull requests and commits
+- All Spec Kit workflows only run from the default branch: manual runs started
+    on another branch are refused, implementation-PR events use
+    `pull_request_target` (always the default branch's workflow), the workflow
+    token cannot push workflow files, and scripts always run from a checkout of
+    the default branch. Pull requests and commits
     created with the workflow's `GITHUB_TOKEN` do not start other workflows, so
     CI on these pull requests needs a GitHub App or token later. Creating pull
     requests requires the repository setting "Allow GitHub Actions to create and
@@ -478,9 +510,15 @@ makes this available from GitHub Copilot:
     the `[P]` paragraph under the implementation workflow). Run it on its own
     for a spec that already has tasks; for one being implemented it only fixes
     conflicting groups.
+- `/speckit-gha-archive [folder]` archives an implemented spec before a local
+    or manual merge (`/speckit-converge` suggests it as an optional
+    `after_converge` hook): `node .github/scripts/speckit-archive.mjs <folder>
+    [--check]` moves the folder and rewrites the references; commit the result
+    with the implementation.
 
 The route and request commands both run `node .github/scripts/speckit-orchestrate.mjs request [--folder <folder>]`,
-which checks the spec on `origin/main` with the same rules, finds its twin, and
+which checks the spec on the remote default branch (asked from GitHub) with the
+same rules, finds its twin, and
 adds the label with your own `gh` token, so the request is validated on GitHub.
 Adding the label in the GitHub web interface or with
 `gh issue edit <number> --add-label speckit:stage:implement` works the same way.
@@ -521,7 +559,7 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     | --- | --- | --- |
     | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | an **amendment pull request** (below) that you review and merge |
     | `retry` | a transient failure, or the agent took a poor approach | `/speckit resume <guidance>` |
-    | `outside` | environment or tooling, another feature's code or tests on `main`, permissions, quotas | fix it where it belongs, then `/speckit sync` or `/speckit resume` |
+    | `outside` | environment or tooling, another feature's code or tests on the base branch, permissions, quotas | fix it where it belongs, then `/speckit sync` or `/speckit resume` |
     | `decision` | a trade-off only a person can make | answer its questions with `/speckit diagnose <answers>` |
     | `unknown` | not enough evidence | what was ruled out and what to check next |
 
@@ -536,7 +574,7 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     | --- | --- |
     | `/speckit diagnose [notes]` | start a diagnosis; notes steer it or answer its questions (also while the implementation runs; it then waits) |
     | `/speckit resume [guidance]` | restart what stopped with a fresh attempt count; the guidance goes into its prompt |
-    | `/speckit sync` | merge `main` into the implementation branch (for a fix that landed there) and continue |
+    | `/speckit sync` | merge the base branch (the pull request's base) into the implementation branch (for a fix that landed there) and continue |
     | `/speckit help` | list the commands |
 
     Pushing a fix to the implementation branch continues the implementation as
@@ -575,7 +613,7 @@ Then you handle it like any pull request:
 | Comment, or submit a review with *Comment* or *Request changes* (line comments included) | a rework: the pull request goes back to draft, the diagnose workflow addresses all feedback since the last round, replies, pushes to the same pull request, and the consistency check runs again before it comes back to you |
 | Close without merging | the amendment is discarded; the implementation pull request lists what you can do next |
 | Push to the amendment branch yourself | the consistency check runs again, without correction rounds |
-| Change its base branch, or add it (or the implementation pull request) to a pull request stack | undone right away: the base goes back to `speckit/<folder>` and the stack is dissolved, with a comment. A stack would merge the unfinished implementation into `main` together with the amendment. Events reach the guard for a base changed to `main` and for the implementation pull request; the scheduler (`Spec Kit orchestrate`) checks the rest on every run. An amendment merged into another branch anyway does not resume the implementation; you are asked to revert it there. |
+| Change its base branch, or add it (or the implementation pull request) to a pull request stack | undone right away: the base goes back to `speckit/<folder>` and the stack is dissolved, with a comment. A stack would merge the unfinished implementation into its base branch together with the amendment. Events reach the guard for a base changed to the default branch and for the implementation pull request; the scheduler (`Spec Kit orchestrate`) checks the rest on every run. An amendment merged into another branch anyway does not resume the implementation; you are asked to revert it there. |
 
 Approving does not start anything; merge when you are satisfied. Feedback that
 arrives while a rework or check runs is handled when it ends (the comment's job
@@ -587,7 +625,7 @@ feedback starts a fresh budget.
 Reviews reach the automation through a small forwarder job that runs from the
 pull request's merge ref, and merges and closes through a job that runs from the
 implementation branch, so both need the current `speckit-commands.yml` there.
-The hourly `Spec Kit orchestrate` run, which always runs from `main`, settles
+The hourly `Spec Kit orchestrate` run, which always runs from the default branch, settles
 merges and closes that no event reported, picks up feedback that no event
 delivered, checks pushes that no event reported, and closes checks that never
 finished.

@@ -15,17 +15,17 @@ features it depends on are merged.
 
 | Feature | Purpose | Depends on |
 | --- | --- | --- |
-| [Environment Verification Coverage](20261007-115855-environment-verification-coverage/spec.md) | Environment feature: automated verification also covers the repository-root `contracts/` folder and the Analyst Manager solution | None |
-| [Platform Persistence Foundation](20261005-130700-platform-persistence-foundation/spec.md) | Shared durable storage, one ordered platform-wide migration sequence, transactions and optimistic concurrency, and database-aware readiness | None |
-| [Club and Identity Foundation](20261005-130701-club-identity-foundation/spec.md) | Club, season, team, and match hierarchy with authenticated sessions and role-based access | Platform Persistence Foundation |
-| [Recording Lineage and Upload](20261005-130702-recording-lineage-upload/spec.md) | Direct-to-storage recording upload, immutable lineage, and authorized finalization | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation |
-| [Analyst Manager Registration](20261005-130704-analyst-manager-registration/spec.md) | Device-bound Analyst Manager registration, safe restore, revocation, runtime preflight, and local operating controls | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation, Recording Lineage and Upload |
-| [Durable Analysis Workflow](20261005-130703-durable-analysis-workflow/spec.md) | Durable analysis runs, readiness evaluation, fenced attempts, reliable work publication, and versioned job contracts | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation, Recording Lineage and Upload, Analyst Manager Registration |
+| [Environment Verification Coverage](archive/20261007-115855-environment-verification-coverage/spec.md) | Environment feature: automated verification also covers the repository-root `contracts/` folder and the Analyst Manager solution | None |
+| [Platform Persistence Foundation](archive/20261005-130700-platform-persistence-foundation/spec.md) | Shared durable storage, one ordered platform-wide migration sequence, transactions and optimistic concurrency, and database-aware readiness | None |
+| [Club and Identity Foundation](archive/20261005-130701-club-identity-foundation/spec.md) | Club, season, team, and match hierarchy with authenticated sessions and role-based access | Platform Persistence Foundation |
+| [Recording Lineage and Upload](archive/20261005-130702-recording-lineage-upload/spec.md) | Direct-to-storage recording upload, immutable lineage, and authorized finalization | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation |
+| [Analyst Manager Registration](archive/20261005-130704-analyst-manager-registration/spec.md) | Device-bound Analyst Manager registration, safe restore, revocation, runtime preflight, and local operating controls | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation, Recording Lineage and Upload |
+| [Durable Analysis Workflow](archive/20261005-130703-durable-analysis-workflow/spec.md) | Durable analysis runs, readiness evaluation, fenced attempts, reliable work publication, and versioned job contracts | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation, Recording Lineage and Upload, Analyst Manager Registration |
 
 Environment Verification Coverage and Platform Persistence Foundation can be
 developed in parallel. Analyst Manager Registration follows Recording Lineage
 and Upload, so each takes the next free migration number on an up-to-date
-`main` and extends the `contracts/` folder that Recording creates. Durable
+default branch and extends the `contracts/` folder that Recording creates. Durable
 Analysis Workflow starts after both are merged, because its Manager operations
 use the Analyst Manager authentication.
 
@@ -46,8 +46,18 @@ This table is a human-readable overview. The order that GitHub automation uses
 lives in the native "blocked by" dependencies of each feature's spec twin issue
 (label `speckit:spec`), which the `Spec Kit prepare` workflow infers once when
 it creates the twin. Each twin also carries a generated `speckit:stage:*` label
-showing how far the feature has progressed on `main`; see the repository
+showing how far the feature has progressed on the default branch; see the repository
 [README](../README.md#spec-twins).
+
+## Archive
+
+Implemented features move to [`archive/`](archive/) under the same folder
+name, in the commit that merges their implementation: the implementation
+automation does it in its merge, and a local or manual merge runs
+`/speckit-gha-archive` first. The move rewrites every reference to the folder
+(Markdown links and plain-text paths such as code comments), and the spec twin
+follows to the archive after the merge. Archived features stay in the tables
+above with links into the archive.
 
 ## Folder Naming
 
@@ -71,7 +81,7 @@ in GitHub Copilot from the repository root:
 2. `/speckit-plan` selects the technical approach from the architecture and
     checks it against the constitution.
 3. `/speckit-tasks`, then optionally `/speckit-analyze`.
-4. Merge the spec, plan, and tasks to `main`, then either implement locally or
+4. Merge the spec, plan, and tasks to the default branch, then either implement locally or
     request implementation on GitHub. `/speckit-implement` asks which one you
     want; `/speckit-gha-request` requests it directly (see the repository
     [README](../README.md#requesting-implementation-on-github)). A GitHub
@@ -83,5 +93,5 @@ in GitHub Copilot from the repository root:
 
 The skills locate the active feature through the machine-local
 `.specify/feature.json`. Point it at the folder you are working on, for example
-`{ "feature_directory": "specs/20261005-130700-platform-persistence-foundation" }`, or set
+`{ "feature_directory": "specs/archive/20261005-130700-platform-persistence-foundation" }`, or set
 the `SPECIFY_FEATURE_DIRECTORY` environment variable.

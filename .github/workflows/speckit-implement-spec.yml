@@ -13,7 +13,10 @@ name: Spec Kit implement spec
 #                        "2 · Phase" when skipped
 #   converge-or-resolve: "2 · Convergence" or "2 · Conflict resolution" in Spec Kit implement task, which belong to no
 #                        phase; "2 · Convergence or conflict resolution" when skipped
-#   merge-verify:        "2 · Merge: integrate and verify": merges the default branch and runs the full verification
+#   merge-archive:       "2 · Merge: archive the spec": moves the spec folder to specs/archive/<folder> on the
+#                        implementation branch and rewrites the references to it (write token, never runs agent-written
+#                        code)
+#   merge-verify:        "2 · Merge: integrate and verify": merges the base branch and runs the full verification
 #                        (read-only token)
 #   merge-land:          "2 · Merge: merge and report": squash-merges the pull request, or asks for review (never runs
 #                        agent-written code)
@@ -84,6 +87,7 @@ jobs:
       head: ${{ steps.decide.outputs.head }}
       phase: ${{ steps.decide.outputs.phase }}
       job_name: ${{ steps.decide.outputs.job_name }}
+      base_branch: ${{ steps.decide.outputs.base_branch }}
       order: ${{ steps.decide.outputs.order }}
       attempt: ${{ steps.decide.outputs.attempt }}
       check_run: ${{ steps.decide.outputs.check_run }}
@@ -103,7 +107,7 @@ jobs:
         id: decide
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_TWIN: ${{ inputs.twin }}
           SPECKIT_PULL: ${{ inputs.pull }}
           SPECKIT_RESUME: ${{ inputs.resume }}
@@ -127,6 +131,7 @@ jobs:
       twin: ${{ inputs.twin }}
       pull: ${{ inputs.pull }}
       folder: ${{ needs.decide.outputs.folder }}
+      base: ${{ needs.decide.outputs.base_branch }}
       phase: ${{ needs.decide.outputs.phase }}
 
   # The convergence or a conflict resolution, whose attempt decide already started.
@@ -146,13 +151,68 @@ jobs:
       twin: ${{ inputs.twin }}
       pull: ${{ inputs.pull }}
       folder: ${{ needs.decide.outputs.folder }}
+      base: ${{ needs.decide.outputs.base_branch }}
       order: ${{ needs.decide.outputs.order }}
       index: 0
+
+  # Archives the implemented spec on the implementation branch right before the merge (write token, trusted tooling; it
+  # never runs agent-written code): merges the base branch, moves specs/<folder> to specs/archive/<folder>, rewrites the
+  # references, and pushes. The verification and the merge then work on that head, so the base branch never has broken
+  # links. On conflicts with the base branch it changes nothing, and the conflict resolution runs first.
+  merge-archive:
+    name: "2 · Merge: archive the spec"
+    needs: decide
+    if: needs.decide.outputs.action == 'merge'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      checks: write
+      contents: write
+      issues: read
+      pull-requests: write
+    outputs:
+      head: ${{ steps.archive.outputs.head }}
+      check_run: ${{ steps.archive.outputs.check_run }}
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tooling
+          persist-credentials: false
+
+      # Full history, so the base branch can be merged locally.
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: speckit/${{ needs.decide.outputs.folder }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Archive the spec
+        id: archive
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_BASE_BRANCH: ${{ needs.decide.outputs.base_branch }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+          SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
+          SPECKIT_HEAD: ${{ needs.decide.outputs.head }}
+          SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
+          SPECKIT_CHECK_RUN: ${{ needs.decide.outputs.check_run }}
+          SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+        run: node tooling/.github/scripts/speckit-task.mjs archive
 
   # Runs agent-written code (the full verification), so it holds a read-only token.
   merge-verify:
     name: "2 · Merge: integrate and verify"
-    needs: decide
+    needs: [decide, merge-archive]
     if: needs.decide.outputs.action == 'merge'
     runs-on: ubuntu-latest
     timeout-minutes: 90
@@ -160,7 +220,8 @@ jobs:
       contents: read
     env:
       SPECKIT_KIND: merge
-      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_BASE_BRANCH: ${{ needs.decide.outputs.base_branch }}
       SPECKIT_TWIN: ${{ inputs.twin }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
@@ -176,11 +237,11 @@ jobs:
           path: tooling
           persist-credentials: false
 
-      # Full history, so the default branch can be merged locally.
+      # Full history, so the base branch can be merged locally. The head the archive job pushed (or left unchanged).
       - name: Check out the implementation branch
         uses: actions/checkout@v5
         with:
-          ref: ${{ needs.decide.outputs.head }}
+          ref: ${{ needs.merge-archive.outputs.head }}
           path: workspace
           fetch-depth: 0
           persist-credentials: false
@@ -276,7 +337,7 @@ jobs:
   # Never checks out or runs workspace code; it only uses the GitHub API.
   merge-land:
     name: "2 · Merge: merge and report"
-    needs: [decide, merge-verify]
+    needs: [decide, merge-archive, merge-verify]
     if: always() && needs.decide.outputs.action == 'merge'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -288,13 +349,14 @@ jobs:
       pull-requests: write
     env:
       SPECKIT_KIND: merge
-      SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       SPECKIT_TWIN: ${{ inputs.twin }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
       SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
-      SPECKIT_CHECK_RUN: ${{ needs.decide.outputs.check_run }}
-      SPECKIT_WORK_RESULT: ${{ needs.merge-verify.result }}
+      # The archive job moves the merge check run to the head it pushed.
+      SPECKIT_CHECK_RUN: ${{ needs.merge-archive.outputs.check_run || needs.decide.outputs.check_run }}
+      SPECKIT_WORK_RESULT: ${{ needs.merge-archive.result != 'success' && format('archive {0}', needs.merge-archive.result) || needs.merge-verify.result }}
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
     steps:
       - name: Check out the default branch
@@ -326,7 +388,7 @@ jobs:
   # by the next run's decide job. A failed phase verification is reported here as a stop.
   continue:
     name: 3 · Start the next run
-    needs: [decide, phase, converge-or-resolve, merge-verify, merge-land]
+    needs: [decide, phase, converge-or-resolve, merge-archive, merge-verify, merge-land]
     if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.continue == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -351,7 +413,7 @@ jobs:
       - name: Start the next run
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_TWIN: ${{ inputs.twin }}
           SPECKIT_PULL: ${{ inputs.pull }}
           SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}

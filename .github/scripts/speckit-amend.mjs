@@ -16,6 +16,8 @@ import {
   MAX_CORRECTION_ROUNDS,
   MAX_STALLED_ROUNDS,
   amendmentBranch,
+  behindBaseOf,
+  defaultBranchOf,
   dispatchImplementation,
   folderOfBranch,
   implementationBranch,
@@ -24,8 +26,10 @@ import {
   renderAmendmentHowTo,
   renderNextSteps,
   renderResumeComment,
+  readSpecTasks,
   setAmendmentStatus,
   specTitleOfPull,
+  tasksPathOf,
   validateAmendment,
 } from './speckit-implement-core.mjs';
 
@@ -56,7 +60,7 @@ export async function findAmendment(client, folder) {
 
 // Keeps Spec Kit pull requests out of pull request stacks, and amendments on their implementation branch. Merging a
 // stacked pull request also merges every pull request below it, so a stacked amendment would carry the unfinished
-// implementation into the default branch; an amendment with another base would land there instead of on the
+// implementation into its base branch; an amendment with another base would land there instead of on the
 // implementation branch.
 export async function guardPullRequest(client, env, pull, { report = () => {} } = {}) {
   const head = String(pull.head?.ref ?? '');
@@ -69,14 +73,14 @@ export async function guardPullRequest(client, env, pull, { report = () => {} } 
     await client.unstackPullRequests(pull.stack.number);
     actions.push('unstacked');
     notes.push(isAmendment
-      ? 'This pull request was removed from its pull request stack. Merging a stacked pull request also merges the ones below it, so the unfinished implementation would reach the default branch with it.'
-      : 'This pull request was removed from its pull request stack. Spec Kit pull requests are not stacked: merging a stacked amendment would also merge this unfinished implementation into the default branch.');
+      ? 'This pull request was removed from its pull request stack. Merging a stacked pull request also merges the ones below it, so the unfinished implementation would reach its base branch with it.'
+      : 'This pull request was removed from its pull request stack. Spec Kit pull requests are not stacked: merging a stacked amendment would also merge this unfinished implementation into its base branch.');
   }
   const base = implementationBranch(folder);
   if (isAmendment && pull.base?.ref !== base) {
     await client.updatePullRequest(pull.number, { base });
     actions.push(`retargeted from ${pull.base?.ref}`);
-    notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${base}\`: an amendment only merges into its implementation branch. The implementation reaches the default branch through its own pull request once it is complete.`);
+    notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${base}\`: an amendment only merges into its implementation branch. The implementation reaches its base branch through its own pull request once it is complete.`);
   }
   if (actions.length > 0) {
     await client.createComment(pull.number, notes.join('\n\n'));
@@ -85,15 +89,17 @@ export async function guardPullRequest(client, env, pull, { report = () => {} } 
   return { actions };
 }
 
-// Checks an amendment pull request against the hard rules for amendments (paths and task checks).
+// Checks an amendment pull request against the hard rules for amendments (paths and task checks). The spec folder is
+// wherever the amendment's base (the implementation branch) has it, archived or not.
 export async function checkAmendment(client, { folder, amendment }) {
   const files = await client.listPullRequestFiles(amendment.number);
   const changedPaths = [...new Set(files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean))];
-  const tasksPath = `specs/${folder}/tasks.md`;
+  const { archived } = await readSpecTasks(client, folder, amendment.base.sha);
+  const tasksPath = tasksPathOf(folder, { archived });
   const changesTasks = changedPaths.includes(tasksPath);
   const beforeTasks = changesTasks ? await client.getFileContent(tasksPath, amendment.base.sha) : null;
   const afterTasks = changesTasks ? await client.getFileContent(tasksPath, amendment.head.sha) : null;
-  return { changedPaths, ...validateAmendment({ folder, changedPaths, beforeTasks, afterTasks }) };
+  return { changedPaths, ...validateAmendment({ folder, archived, changedPaths, beforeTasks, afterTasks }) };
 }
 
 // Resolves an amendment pull request (head speckit-amend/<folder>) to its open implementation pull request and twin.
@@ -138,7 +144,7 @@ export async function startAnalysis(client, env, { amendment, folder, implementa
     },
   });
   try {
-    await client.dispatchWorkflow(ANALYZE_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', {
+    await client.dispatchWorkflow(ANALYZE_WORKFLOW_FILE, defaultBranchOf(env), {
       twin: String(twin),
       pull: String(implementation.number),
       folder,
@@ -198,7 +204,7 @@ export async function startRework(client, env, context, { mode, round = 0, notes
     output: { title: mode === 'revise' ? 'Rework in progress' : `Correction round ${round} in progress`, summary: clip(notes, 2000) || 'Reworking the amendment.' },
   });
   try {
-    await client.dispatchWorkflow(DIAGNOSE_WORKFLOW_FILE, env.SPECKIT_BRANCH || 'main', {
+    await client.dispatchWorkflow(DIAGNOSE_WORKFLOW_FILE, defaultBranchOf(env), {
       twin: String(twin),
       pull: String(implementation.number),
       folder,
@@ -603,13 +609,8 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
     }
     return { outcome: 'merged' };
   }
-  let behindMain = false;
-  try {
-    behindMain = (await client.aheadBy(implementationBranch(folder), env.SPECKIT_BRANCH || 'main')) > 0;
-  } catch {
-    // Only used to suggest /speckit sync.
-  }
-  await client.createComment(implementation.number, [`${marker}\nAmendment #${amendment.number} was closed without merging by ${by}.`, '', ...renderNextSteps({ diagnosed: true, behindMain })].join('\n'));
+  const behindBase = await behindBaseOf(client, implementation, folder);
+  await client.createComment(implementation.number, [`${marker}\nAmendment #${amendment.number} was closed without merging by ${by}.`, '', ...renderNextSteps({ diagnosed: true, behindBase })].join('\n'));
   return { outcome: 'discarded' };
 }
 

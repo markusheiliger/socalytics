@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
+  readSpecTasks,
+  tasksPathOf,
+  baseBranchFromEnv,
+  baseBranchOf,
+  defaultBranchOf,
   CHECK_ATTEMPT,
   CHECK_CONFLICT,
   CHECK_DIAGNOSED,
@@ -254,10 +259,10 @@ test('renders the next steps a person can take', () => {
   assert.match(plain, /\/speckit diagnose \[notes\][\s\S]*\/speckit resume \[guidance\]/);
   assert.doesNotMatch(plain, /\/speckit (sync|apply)/);
   assert.match(plain, /push a fix to the implementation branch/);
-  const auto = renderNextSteps({ autoDiagnosis: true, behindMain: true }).join('\n');
+  const auto = renderNextSteps({ autoDiagnosis: true, behindBase: 'release' }).join('\n');
   assert.match(auto, /A diagnosis starts automatically/);
   assert.doesNotMatch(auto, /\/speckit diagnose/);
-  assert.match(auto, /```text\n {3}\/speckit sync\n {3}```/);
+  assert.match(auto, /Merge the base branch `release` \(for example a fix that landed there\) and retry:\n\n {3}```text\n {3}\/speckit sync\n {3}```/);
   const diagnosed = renderNextSteps({ options: [{ title: 'Retry with guidance', command: '/speckit resume Use the helper' }], amendmentPull: 7, diagnosed: true }).join('\n');
   assert.match(diagnosed, /^\*\*Review the amendment #7\*\*: merge it to apply it[\s\S]*Instead of the amendment[\s\S]*\/speckit resume Use the helper[\s\S]*Diagnose again/);
   assert.doesNotMatch(diagnosed, /\/speckit (apply|revise|discard)/);
@@ -550,18 +555,36 @@ test('the implementation workflows nest spec, phase, and task; the phase runs it
   assert.match(job(spec, 'converge-or-resolve'), /name: \$\{\{ \(needs\.decide\.outputs\.action == 'converge' \|\| needs\.decide\.outputs\.action == 'resolve'\) && format\('2 · \{0\}', needs\.decide\.outputs\.job_name\) \|\| '2 · Convergence or conflict resolution' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-task\.yml[\s\S]*kind: \$\{\{ needs\.decide\.outputs\.action \}\}/);
   // The job names number the flow: one decision, exactly one of the alternatives, and the next run.
   assert.deepEqual([...spec.matchAll(/^ {2}([\w-]+):\n {4}name: [^\n]*?(\d) · /gm)].map((match) => `${match[2]} ${match[1]}`),
-    ['1 decide', '2 phase', '2 converge-or-resolve', '2 merge-verify', '2 merge-land', '3 continue']);
-  assert.match(spec, /continue:[\s\S]*?needs: \[decide, phase, converge-or-resolve, merge-verify, merge-land\][\s\S]*SPECKIT_PHASE_CHECK: \$\{\{ needs\.phase\.outputs\.verified \}\}/);
+    ['1 decide', '2 phase', '2 converge-or-resolve', '2 merge-archive', '2 merge-verify', '2 merge-land', '3 continue']);
+  assert.match(spec, /continue:[\s\S]*?needs: \[decide, phase, converge-or-resolve, merge-archive, merge-verify, merge-land\][\s\S]*SPECKIT_PHASE_CHECK: \$\{\{ needs\.phase\.outputs\.verified \}\}/);
   const tasks = job(phase, 'tasks');
   assert.match(tasks, /name: \$\{\{ matrix\.name \}\}/);
   assert.match(tasks, /max-parallel: 1\n\s+fail-fast: true\n\s+matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.task_matrix\) \}\}/);
   assert.match(tasks, /uses: \.\/\.github\/workflows\/speckit-implement-task\.yml/);
   assert.match(phase, /verified:[\s\S]*?value: \$\{\{ jobs\.verify\.result \}\}/);
+  // The pull request's base branch flows from decide to every job that merges or compares with git; the default
+  // branch only selects the trusted tooling.
+  assert.match(job(spec, 'decide'), /base_branch: \$\{\{ steps\.decide\.outputs\.base_branch \}\}/);
+  for (const name of ['phase', 'converge-or-resolve']) assert.match(job(spec, name), /base: \$\{\{ needs\.decide\.outputs\.base_branch \}\}/, name);
+  assert.match(job(spec, 'merge-verify'), /SPECKIT_BASE_BRANCH: \$\{\{ needs\.decide\.outputs\.base_branch \}\}/);
+  // The spec is archived on the implementation branch before the verification, which verifies and merges that head.
+  const archive = job(spec, 'merge-archive');
+  assert.match(archive, /needs: decide\n\s+if: needs\.decide\.outputs\.action == 'merge'/);
+  assert.match(archive, /SPECKIT_BASE_BRANCH: \$\{\{ needs\.decide\.outputs\.base_branch \}\}[\s\S]*run: node tooling\/\.github\/scripts\/speckit-task\.mjs archive/);
+  assert.doesNotMatch(archive, /environment-setup|environment-verify/, 'the archive job never runs agent-written code');
+  assert.match(job(spec, 'merge-verify'), /needs: \[decide, merge-archive\][\s\S]*ref: \$\{\{ needs\.merge-archive\.outputs\.head \}\}/);
+  assert.match(job(spec, 'merge-land'), /SPECKIT_CHECK_RUN: \$\{\{ needs\.merge-archive\.outputs\.check_run \|\| needs\.decide\.outputs\.check_run \}\}/);
+  assert.match(tasks, /base: \$\{\{ inputs\.base \}\}/);
+  for (const workflow of [phase, task]) assert.match(workflow, /^ {6}base:\n {8}description: [^\n]+\n {8}required: true/m);
+  for (const name of ['work', 'land', 'report']) assert.match(job(task, name), /SPECKIT_BASE_BRANCH: \$\{\{ inputs\.base \}\}/, name);
+  for (const [label, workflow] of [['spec', spec], ['phase', phase], ['task', task]]) {
+    assert.doesNotMatch(workflow, /SPECKIT_BRANCH:|\bmain\b/, `${label}: no SPECKIT_BRANCH and no assumed main`);
+  }
   // Every verification runs once more after a failure, so a flaky test does not count; the re-run decides.
   const phaseVerify = job(phase, 'verify');
   assert.match(phaseVerify, /if: >-\n\s+!cancelled\(\) && needs\.plan\.outputs\.phase_check == 'true' && needs\.tasks\.result == 'success'/);
   assert.match(phaseVerify, /- name: Verify the phase\n\s+id: verify\n[\s\S]*?continue-on-error: true[\s\S]*- name: Verify the phase again\n\s+if: steps\.verify\.outcome == 'failure'\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify/);
-  assert.match(phaseVerify, /git merge-base HEAD "origin\/\$DEFAULT_BRANCH"/, 'the phase verification covers all changes of the branch');
+  assert.match(phaseVerify, /BASE_BRANCH: \$\{\{ inputs\.base \}\}[\s\S]*git merge-base HEAD "origin\/\$BASE_BRANCH"/, 'the phase verification covers all changes of the branch');
   assert.match(job(task, 'verify'), /- name: Verify the combined changes again\n\s+if: steps\.verify\.outcome == 'failure'/);
   for (const [workflow, name, kind] of [[task, 'work', 'Verify the change again'], [spec, 'merge-verify', 'Verify the merged result again']]) {
     const text = job(workflow, name);
@@ -606,4 +629,37 @@ test('titles every implementation run and job with its workflow, the twin, and i
   const ids = (...tasks) => tasks.map((task) => ({ task, summary: 'long title' }));
   assert.deepEqual([taskJobName(ids('T013')), taskJobName(ids('T014', 'T015')), taskJobName(ids('T016', 'T017', 'T018', 'T019'))],
     ['T013', 'T014, T015 in parallel', 'T016 … T019 in parallel (4 tasks)'], 'task job names stay short in the run graph');
+});
+
+test('the tooling never assumes a branch named main: the default branch comes from GitHub, the base from the pull request', () => {
+  const dir = new URL('./', import.meta.url);
+  const scripts = readdirSync(dir).filter((file) => /^speckit-.*\.mjs$/.test(file) && !file.endsWith('.test.mjs') && file !== 'speckit-test-helpers.mjs');
+  for (const file of scripts) {
+    const text = readFileSync(new URL(file, dir), 'utf8');
+    assert.doesNotMatch(text, /SPECKIT_BRANCH\b/, `${file}: SPECKIT_BRANCH is split into SPECKIT_DEFAULT_BRANCH and the pull request base`);
+    assert.doesNotMatch(text, /\|\| 'main'|'main'\s*[,)]|"main"/, `${file}: no fallback to a branch named main`);
+  }
+  assert.throws(() => defaultBranchOf({}), /SPECKIT_DEFAULT_BRANCH/);
+  assert.equal(defaultBranchOf({ SPECKIT_DEFAULT_BRANCH: 'trunk' }), 'trunk');
+  assert.throws(() => baseBranchOf({ number: 9, base: {} }), /#9 has no base branch/);
+  assert.equal(baseBranchOf({ base: { ref: 'release/2026' } }), 'release/2026');
+  assert.throws(() => baseBranchFromEnv({}), /SPECKIT_BASE_BRANCH/);
+  assert.equal(baseBranchFromEnv({ SPECKIT_BASE_BRANCH: 'release/2026' }), 'release/2026');
+});
+
+test('finds the spec of an implementation branch in specs/ or, once archived for the merge, in specs/archive/', async () => {
+  const files = new Map([['specs/archive/f/tasks.md@sha-arch', '- [x] T001 a\n'], ['specs/f/tasks.md@sha-live', '- [ ] T001 a\n']]);
+  const client = { getFileContent: async (file, ref) => files.get(`${file}@${ref}`) ?? null };
+  assert.deepEqual(await readSpecTasks(client, 'f', 'sha-live'), { tasksMarkdown: '- [ ] T001 a\n', archived: false });
+  assert.deepEqual(await readSpecTasks(client, 'f', 'sha-arch'), { tasksMarkdown: '- [x] T001 a\n', archived: true });
+  assert.deepEqual(await readSpecTasks(client, 'f', 'sha-none'), { tasksMarkdown: null, archived: false });
+  assert.equal(tasksPathOf('f', { archived: true }), 'specs/archive/f/tasks.md');
+  const before = '- [ ] T001 One\n';
+  const after = '- [x] T001 One\n';
+  assert.deepEqual(validateTaskChange({ folder: 'f', archived: true, taskId: 'T001', before, after, changedPaths: ['src/a.cs', 'specs/archive/f/tasks.md'] }), []);
+  assert.match(validateTaskChange({ folder: 'f', archived: true, taskId: 'T001', before, after, changedPaths: ['specs/f/tasks.md'] }).join(), /changed protected paths: specs\/f\/tasks\.md/);
+  assert.match(validateAmendment({ folder: 'f', archived: true, changedPaths: ['specs/f/plan.md'], beforeTasks: before, afterTasks: before }).reasons.join(), /may only change files in `specs\/archive\/f\/`/);
+  assert.deepEqual(environmentExclusivityReasons({ folder: 'f', branchPaths: ['.github/actions/environment-verify/action.yml', 'specs/archive/f/tasks.md'] }), []);
+  assert.match(renderTaskPrompt('T001', 'f', { archived: true }), /of the spec in `specs\/archive\/f\/`/);
+  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs'], base: 'release', archived: true }), /base branch `release` into the implementation branch of the spec `specs\/archive\/f`/);
 });

@@ -158,6 +158,10 @@ export class GitHubClient {
     return status === 404 ? null : data.object.sha;
   }
 
+  async getDefaultBranch() {
+    return (await this.request('GET', this.repoPath(''))).data.default_branch;
+  }
+
   async createBranch(branch, sha) {
     await this.request('POST', this.repoPath('/git/refs'), { ref: `refs/heads/${branch}`, sha });
   }

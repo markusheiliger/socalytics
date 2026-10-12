@@ -33,7 +33,7 @@ The operator uses the tray menu, or the status window where the desktop has no t
 | `unregister [--discard-local]` | Unregister, or discard unusable local state |
 | `autostart [on \| off]` | Per-user autostart |
 
-Exit codes: `0` success, `1` refused by the Manager (error code printed), `2` usage error, `3` Manager not running or socket not accessible. Message shapes are defined by [contracts/local-control.schema.json](contracts/local-control.schema.json); the behavior is described in the feature's `contracts/local-control.md` under `specs/20261005-130704-analyst-manager-registration/`.
+Exit codes: `0` success, `1` refused by the Manager (error code printed), `2` usage error, `3` Manager not running or socket not accessible. Message shapes are defined by [contracts/local-control.schema.json](contracts/local-control.schema.json); the behavior is described in the feature's `contracts/local-control.md` under `specs/archive/20261005-130704-analyst-manager-registration/`.
 
 ## Device Key Providers
 

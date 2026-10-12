@@ -319,7 +319,7 @@ The current API implements local accounts, the server-validated BFF session,
 anti-forgery protection, membership, club and team roles, team-scoped
 authorization, security audit events, and the `Club > Season > Team > Match`
 hierarchy, as specified in
-`specs/20261005-130701-club-identity-foundation`. It implements no external
+`specs/archive/20261005-130701-club-identity-foundation`. It implements no external
 OpenID Connect sign-in, MFA enforcement, or generated client. Exposure and
 access policy for operational endpoints in a production ingress remain
 unresolved.

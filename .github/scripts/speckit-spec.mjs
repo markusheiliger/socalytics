@@ -18,6 +18,8 @@ import {
   MAX_AUTO_DIAGNOSES,
   MAX_TASK_ATTEMPTS,
   RESUME_COMMENT_MARKER,
+  baseBranchOf,
+  behindBaseOf,
   decideNext,
   dispatchImplementation,
   implementationBranch,
@@ -31,6 +33,7 @@ import {
   parseAttempts,
   parseGuidance,
   phaseSubject,
+  readSpecTasks,
   renderAttemptMarker,
   renderConvergePrompt,
   renderImplementRunName,
@@ -69,11 +72,12 @@ function setOutput(env, name, value) {
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
+// Server and repository for links; the branch of a link is chosen where it is built (the base branch of an
+// implementation, or the default branch for twins).
 export function contextFromEnv(env) {
   return {
     serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, ''),
     repository: env.GITHUB_REPOSITORY,
-    branch: env.SPECKIT_BRANCH || 'main',
   };
 }
 
@@ -81,21 +85,14 @@ export function autoDiagnosisEnabled(env) {
   return String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false';
 }
 
-async function isBehindDefaultBranch(client, env, folder) {
-  try {
-    return (await client.aheadBy(implementationBranch(folder), env.SPECKIT_BRANCH || 'main')) > 0;
-  } catch {
-    return false;
-  }
-}
-
 // Reads the state of an open implementation pull request and decides how to continue it (decideNext). It also renders
 // the task list of the pull request body from the branch's tasks.md, because amendments and convergence change tasks.
 export async function decideForPull(client, { twin, folder, pullNumber, now = Date.now(), context }) {
   const pull = await client.getPullRequest(pullNumber);
-  const tasksMarkdown = await client.getFileContent(`specs/${folder}/tasks.md`, pull.head.sha);
+  // The branch archives the spec folder right before the merge, so it may be in either place.
+  const { tasksMarkdown, archived } = await readSpecTasks(client, folder, pull.head.sha);
   if (tasksMarkdown === null) return { action: 'missing-tasks', pull };
-  const body = syncPullRequestTaskList(pull.body, { twinNumber: twin, folder, tasksMarkdown, context });
+  const body = syncPullRequestTaskList(pull.body, { twinNumber: twin, folder, tasksMarkdown, context: { ...context, branch: baseBranchOf(pull), archived } });
   if (body !== String(pull.body ?? '')) {
     try {
       await client.updatePullRequest(pullNumber, { body });
@@ -113,7 +110,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   const latestResume = [...resumedAt].sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
   const decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestResume, now });
   // The ledger is not called attempts, which a limit decision uses for its count.
-  const state = { pull, tasksMarkdown, checks, comments, ledger: attempts, pushedAt };
+  const state = { pull, tasksMarkdown, archived, checks, comments, ledger: attempts, pushedAt };
   if (decision.action === 'diagnosing' && (await diagnosisRunEnded(client, twin, latestCheckRun(checks)))) {
     const count = checks.filter((item) => [CHECK_DIAGNOSING, CHECK_DIAGNOSED].includes(item.external_id)).length;
     return { action: 'failed', diagnosis: { state: 'stale', check: latestCheckRun(checks), count }, ...state };
@@ -167,7 +164,7 @@ async function startMerge(client, { pull, attempt }) {
   const fields = {
     status: 'in_progress',
     external_id: CHECK_MERGE,
-    output: { title: `Merge attempt ${attempt} in progress`, summary: 'Merges the default branch, runs the full verification, and merges the implementation.' },
+    output: { title: `Merge attempt ${attempt} in progress`, summary: `Merges the base branch \`${baseBranchOf(pull)}\`, runs the full verification, and merges the implementation into it.` },
   };
   const latest = latestCheckRun(await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME));
   if (latest?.status === 'queued' && latest.external_id === CHECK_PROGRESS) {
@@ -192,7 +189,7 @@ async function stopAtLimit(client, env, { pull, folder, requester }, decision) {
     '',
     'See the comments above for the reasons.',
     '',
-    ...renderNextSteps({ autoDiagnosis: autoDiagnosisEnabled(env), behindMain: await isBehindDefaultBranch(client, env, folder) }),
+    ...renderNextSteps({ autoDiagnosis: autoDiagnosisEnabled(env), behindBase: await behindBaseOf(client, pull, folder) }),
   ].join('\n'));
 }
 
@@ -207,7 +204,7 @@ async function maybeDiagnose(client, env, { twin, pull, folder }, diagnosis, rep
     await client.createComment(pull.number, [
       `**The diagnosis did not finish** (see the [diagnose runs](${runs})).`,
       '',
-      ...(allowed ? ['A new diagnosis starts automatically.'] : renderNextSteps({ diagnosed: true, behindMain: await isBehindDefaultBranch(client, env, folder) })),
+      ...(allowed ? ['A new diagnosis starts automatically.'] : renderNextSteps({ diagnosed: true, behindBase: await behindBaseOf(client, pull, folder) })),
     ].join('\n'));
     report.line('Closed the unfinished diagnosis.');
     if (!allowed) return;
@@ -234,7 +231,7 @@ function prepareOrder(decision, folder) {
   const texts = new Map(listTasks(decision.tasksMarkdown).map((task) => [task.id, task.text]));
   return decision.order.map((entry, index) => ({
     include: entry.map(({ task, attempt }) => {
-      const prompt = decision.kind === 'task' ? renderTaskPrompt(task, folder) : decision.kind === 'converge' ? renderConvergePrompt() : '';
+      const prompt = decision.kind === 'task' ? renderTaskPrompt(task, folder, { archived: decision.archived }) : decision.kind === 'converge' ? renderConvergePrompt() : '';
       return {
         task: task ?? '',
         attempt,
@@ -296,36 +293,36 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   for (const stale of decision.stale ?? []) {
     await client.updateCheckRun(stale.id, { status: 'completed', conclusion: 'failure', output: { title: 'Merge attempt abandoned', summary: 'The merge did not finish within 2 hours.' } });
   }
-  const base = { folder, head: pull.head.sha };
+  const common = { folder, head: pull.head.sha, base_branch: baseBranchOf(pull) };
   if (decision.action === 'limit') {
     const requester = (await resolveImplementRequester(client, twin))?.login ?? null;
     await stopAtLimit(client, env, { pull, folder, requester }, decision);
     report.line(`Stopped: ${kindLabel(decision)} reached the attempt limit.`);
     await maybeDiagnose(client, env, { twin, pull, folder }, { state: 'none', count: 0 }, report);
-    return finish('stop', base);
+    return finish('stop', common);
   }
   if (decision.action === 'failed') {
     if (decision.diagnosis?.state !== 'reported') await maybeDiagnose(client, env, { twin, pull, folder }, decision.diagnosis, report);
     report.line(decision.diagnosis?.state === 'reported' ? 'Stopped; the diagnosis waits for a person\'s decision.' : 'Stopped and waiting for a person.');
-    return finish('stop', base);
+    return finish('stop', common);
   }
   if (decision.action === 'merge') {
     const checkRun = await startMerge(client, { pull, attempt: decision.attempt });
-    report.line(`Merging, attempt ${decision.attempt}.`);
-    return finish('merge', { ...base, attempt: String(decision.attempt), check_run: String(checkRun) });
+    report.line(`Merging into \`${common.base_branch}\`, attempt ${decision.attempt}.`);
+    return finish('merge', { ...common, attempt: String(decision.attempt), check_run: String(checkRun) });
   }
   if (decision.action !== 'tasks') {
     report.line({
       wait: 'Waiting: a merge is running.',
       done: 'Implemented and waiting for review.',
       diagnosing: 'Stopped; a diagnosis is running.',
-      'missing-tasks': `\`specs/${folder}/tasks.md\` is missing on the branch.`,
+      'missing-tasks': `\`tasks.md\` of \`${folder}\` is missing on the branch (neither in \`specs/\` nor in \`specs/archive/\`).`,
     }[decision.action] ?? decision.action);
-    return finish(decision.action === 'done' ? 'done' : 'none', base);
+    return finish(decision.action === 'done' ? 'done' : 'none', common);
   }
   if (decision.kind === 'task') {
     report.line(`Next: ${renderImplementTitle('phase', twin, phaseSubject(decision.phase))}.`);
-    return finish('phase', { ...base, phase: decision.phase ?? '', job_name: phaseSubject(decision.phase) });
+    return finish('phase', { ...common, phase: decision.phase ?? '', job_name: phaseSubject(decision.phase) });
   }
 
   const order = prepareOrder(decision, folder);
@@ -333,7 +330,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   const subject = taskSubject(decision.kind, order[0].include);
   report.line(`Next: ${renderImplementTitle('task', twin, subject)}.`);
   reportOrder(report, decision.kind, order);
-  return finish(decision.kind, { ...base, order: JSON.stringify(order), job_name: subject });
+  return finish(decision.kind, { ...common, order: JSON.stringify(order), job_name: subject });
 }
 
 // Spec Kit implement phase, job "plan" (write access to check runs and pull requests; never runs agent code): decides
@@ -399,7 +396,7 @@ export async function runContinue({ client, env, log }) {
     await client.createComment(pullNumber, [
       `**Implementation needs attention**${requester ? ` @${requester}` : ''}: the full verification at the end of the phase failed${run ? ` (see the [run](${run}))` : ''}. Each task passed its own verification, which covers only the tests it touched, so a change of the phase breaks tests elsewhere, or the tasks break something together.`,
       '',
-      ...renderNextSteps({ autoDiagnosis: autoDiagnosisEnabled(env), behindMain: folder ? await isBehindDefaultBranch(client, env, folder) : false }),
+      ...renderNextSteps({ autoDiagnosis: autoDiagnosisEnabled(env), behindBase: folder ? await behindBaseOf(client, pull, folder) : null }),
     ].join('\n'));
     report.line('The phase verification failed; the implementation stops for a person.');
   }

@@ -29,7 +29,7 @@ export function main(argv, { cwd = process.cwd(), log = (text) => process.stdout
   const json = argv.includes('--json');
   const target = argv.filter((arg) => arg !== '--json');
   if (target.length !== 1) throw new GroupsUsageError('Usage: speckit-tasks-groups.mjs <spec folder | path to tasks.md> [--json]');
-  const candidates = [path.resolve(cwd, target[0]), path.resolve(cwd, target[0], 'tasks.md'), path.resolve(cwd, 'specs', target[0], 'tasks.md')];
+  const candidates = [path.resolve(cwd, target[0]), path.resolve(cwd, target[0], 'tasks.md'), path.resolve(cwd, 'specs', target[0], 'tasks.md'), path.resolve(cwd, 'specs', 'archive', target[0], 'tasks.md')];
   const file = candidates.find((candidate) => candidate.endsWith('.md') && existsSync(candidate));
   if (!file) throw new GroupsUsageError(`No tasks.md found for ${target[0]}`);
   const groups = describeParallelGroups(readFileSync(file, 'utf8'));

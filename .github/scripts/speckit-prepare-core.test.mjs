@@ -128,6 +128,29 @@ test('closes open twins whose folder disappeared', () => {
   assert.deepEqual(plan.close.map((item) => item.issue.number), [1]);
 });
 
+test('points twins of archived specs to the archive, closed as completed and implemented, never discarded', () => {
+  const archivedEntry = (folder) => [folder, { ...specEntry(folder)[1], tasks: '- [x] T001 a\n', archived: true }];
+  const body = renderTwinBody({ folder: 'a', title: 'Title a', summary: 'Summary a', dependencyNotes: [] }, ['spec.md'], context, { archived: true });
+  assert.match(body, /^\*\*Spec\*\*: \[`specs\/archive\/a`\]\(https:\/\/github\.com\/octo\/repo\/tree\/main\/specs\/archive\/a\)$/m);
+  assert.match(body, /- \[spec\.md\]\(https:\/\/github\.com\/octo\/repo\/blob\/main\/specs\/archive\/a\/spec\.md\)/);
+  assert.equal(parseTwinFolder(body), 'a', 'the archived spec line keeps the twin identity');
+
+  const merged = twin(1, 'a', { state: 'closed', stateReason: 'completed', labels: [TWIN_LABEL, 'speckit:stage:implemented'] });
+  const open = twin(2, 'b', { labels: [TWIN_LABEL, 'speckit:stage:implement'] });
+  const done = { ...twin(3, 'c', { state: 'closed', stateReason: 'completed', labels: [TWIN_LABEL, 'speckit:stage:implemented'] }) };
+  done.body = renderTwinBody({ folder: 'c', title: 'Title c', summary: 'Summary c', dependencyNotes: [] }, ['spec.md'], context, { archived: true });
+  const plan = planSync({ specs: new Map([archivedEntry('a'), archivedEntry('b'), archivedEntry('c'), archivedEntry('orphan')]), issues: [merged, open, done], context });
+  assert.deepEqual(plan.archive.map((item) => [item.issue.number, item.fields, item.labels]), [
+    [1, {}, { add: [], remove: [] }],
+    [2, { state: 'closed', state_reason: 'completed' }, { add: ['speckit:stage:implemented'], remove: ['speckit:stage:implement'] }],
+  ], 'a closed twin only gets the archive links; an open one is closed; an up-to-date one is left alone');
+  assert.match(plan.archive[0].body, /specs\/archive\/a/);
+  assert.deepEqual(plan.archivedWithoutTwin, [{ folder: 'orphan' }]);
+  assert.deepEqual([plan.create, plan.close, plan.reopen, plan.update, plan.relabel].map((list) => list.length), [0, 0, 0, 0, 0]);
+  assert.equal(planImplementRequest({ issue: open, entry: archivedEntry('b')[1], requester: { login: 'dev', canWrite: true } }).action, 'reject');
+  assert.match(planImplementRequest({ issue: open, entry: archivedEntry('b')[1], requester: { login: 'dev', canWrite: true } }).reasons.join(), /already implemented and archived in `specs\/archive\/b`/);
+});
+
 test('keeps the oldest twin and reports duplicates', () => {
   const plan = planSync({ specs: new Map([specEntry('a')]), issues: [twin(5, 'a'), twin(3, 'a')], context });
   assert.equal(plan.duplicates.length, 1);

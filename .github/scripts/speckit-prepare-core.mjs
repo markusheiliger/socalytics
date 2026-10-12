@@ -22,11 +22,20 @@ export const LABELS = [
 export const ARTIFACTS = ['spec.md', 'plan.md', 'tasks.md'];
 export const MAX_PROMPT_BYTES = 100_000;
 export const MAX_REASON_LENGTH = 500;
+// Feature folders live in specs/<folder>; implemented ones are archived to specs/archive/<folder> with the same name,
+// which stays the twin's identity.
+export const SPECS_DIR = 'specs';
+export const ARCHIVE_DIR = `${SPECS_DIR}/archive`;
+
+export function specDir(folder, { archived = false } = {}) {
+  return `${archived ? ARCHIVE_DIR : SPECS_DIR}/${folder}`;
+}
 
 const FOLDER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const TASK_LINE_PATTERN = /^\s*[-*] \[( |x|X)\]\s+T\d{3,}\b/;
 const OPEN_CHECKBOX_PATTERN = /^\s*[-*] \[ \]/;
-const SPEC_LINE_PATTERN = /^\*\*Spec\*\*:\s*\[`specs\/([^`/\s]+)`\]\([^)\s]+\)\s*$/gm;
+// The twin's identity: its spec folder, whether active (specs/<folder>) or archived (specs/archive/<folder>).
+const SPEC_LINE_PATTERN = /^\*\*Spec\*\*:\s*\[`specs\/(?:archive\/)?([^`/\s]+)`\]\([^)\s]+\)\s*$/gm;
 const TITLE_PREFIX = /^Feature Specification:\s*/i;
 const MAX_SUMMARY_LENGTH = 1000;
 const DEPENDENCY_HINT = /depend|relationship|builds on|prerequisite|consumes|requires|sibling/i;
@@ -35,14 +44,16 @@ export function isValidFolderName(folder) {
   return typeof folder === 'string' && FOLDER_PATTERN.test(folder) && folder !== '.' && folder !== '..';
 }
 
-// Builds the spec entry used by sync and request checks from raw file contents of one spec folder.
-export function buildSpecEntry(folder, { specMarkdown, hasPlan, tasksMarkdown, checklistMarkdowns }) {
+// Builds the spec entry used by sync and request checks from raw file contents of one spec folder. `archived` marks a
+// spec in specs/archive/, which is implemented.
+export function buildSpecEntry(folder, { specMarkdown, hasPlan, tasksMarkdown, checklistMarkdowns, archived = false }) {
   const artifacts = ['spec.md', ...(hasPlan ? ['plan.md'] : []), ...(tasksMarkdown === null ? [] : ['tasks.md'])];
   return {
     spec: parseSpec(folder, specMarkdown),
     artifacts,
     tasks: tasksMarkdown,
     openChecklistItems: countOpenChecklistItems(checklistMarkdowns),
+    archived,
   };
 }
 
@@ -89,29 +100,29 @@ export function parseSpec(folder, markdown) {
   };
 }
 
-export function folderUrl({ serverUrl, repository, branch }, folder) {
-  return `${serverUrl}/${repository}/tree/${branch}/specs/${folder}`;
+export function folderUrl({ serverUrl, repository, branch }, folder, { archived = false } = {}) {
+  return `${serverUrl}/${repository}/tree/${branch}/${specDir(folder, { archived })}`;
 }
 
-export function artifactUrl({ serverUrl, repository, branch }, folder, artifact) {
-  return `${serverUrl}/${repository}/blob/${branch}/specs/${folder}/${artifact}`;
+export function artifactUrl({ serverUrl, repository, branch }, folder, artifact, { archived = false } = {}) {
+  return `${serverUrl}/${repository}/blob/${branch}/${specDir(folder, { archived })}/${artifact}`;
 }
 
-export function renderSpecLine(context, folder) {
-  return `**Spec**: [\`specs/${folder}\`](${folderUrl(context, folder)})`;
+export function renderSpecLine(context, folder, { archived = false } = {}) {
+  return `**Spec**: [\`${specDir(folder, { archived })}\`](${folderUrl(context, folder, { archived })})`;
 }
 
 export function renderTwinTitle(spec) {
   return spec.title;
 }
 
-export function renderTwinBody(spec, artifacts, context) {
+export function renderTwinBody(spec, artifacts, context, { archived = false } = {}) {
   const summary = spec.summary || '_No summary available in the specification._';
   const links = ARTIFACTS
     .filter((artifact) => artifacts.includes(artifact))
-    .map((artifact) => `- [${artifact}](${artifactUrl(context, spec.folder, artifact)})`);
+    .map((artifact) => `- [${artifact}](${artifactUrl(context, spec.folder, artifact, { archived })})`);
   return [
-    renderSpecLine(context, spec.folder),
+    renderSpecLine(context, spec.folder, { archived }),
     '',
     '> [!NOTE]',
     '> Generated twin of a Spec Kit feature. The spec folder in the repository is authoritative.',
@@ -226,6 +237,9 @@ export function planImplementRequest({ issue, entry, requester }) {
   if (!entry) {
     return { action: 'reject', labels: onlyRemoveFlag, reasons: [`\`specs/${folder}\` does not exist on the default branch`] };
   }
+  if (entry.archived) {
+    return { action: 'reject', folder, labels: onlyRemoveFlag, reasons: [`the spec is already implemented and archived in \`${specDir(folder, { archived: true })}\``] };
+  }
 
   const computed = deriveStage(entry.artifacts, entry.tasks);
   const reasons = [
@@ -263,6 +277,8 @@ export function planSync({ specs, issues, context }) {
     reopen: [],
     close: [],
     relabel: [],
+    archive: [],
+    archivedWithoutTwin: [],
     skippedCreates: [],
     unreadable,
     duplicates,
@@ -271,8 +287,23 @@ export function planSync({ specs, issues, context }) {
   for (const [folder, entry] of [...specs.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const { spec, artifacts, tasks } = entry;
     const title = renderTwinTitle(spec);
-    const body = renderTwinBody(spec, artifacts, context);
+    const body = renderTwinBody(spec, artifacts, context, { archived: entry.archived });
     const twin = byFolder.get(folder);
+    // An archived spec is implemented: its twin is closed as completed, labelled implemented, and points to the archive
+    // (also when it was already closed, which is how its links follow the archive after the merge). It never gets a
+    // new twin and is never discarded.
+    if (entry.archived) {
+      if (!twin) {
+        plan.archivedWithoutTwin.push({ folder });
+        continue;
+      }
+      const labels = stageLabelChange(twin, 'implemented');
+      const fields = twin.state === 'closed' && twin.state_reason === 'completed' ? {} : { state: 'closed', state_reason: 'completed' };
+      if (twin.title !== title || normalizeBody(twin.body) !== normalizeBody(body) || hasLabelChange(labels) || Object.keys(fields).length > 0) {
+        plan.archive.push({ folder, issue: twin, title, body, stage: 'implemented', labels, fields });
+      }
+      continue;
+    }
     if (!twin) {
       if (unreadable.length > 0) plan.skippedCreates.push({ folder, title });
       else plan.create.push({ folder, title, body, stage: deriveStage(artifacts, tasks) });
@@ -311,7 +342,7 @@ function normalizeBody(body) {
 }
 
 export function hasPlannedChanges(plan) {
-  return ['create', 'update', 'reopen', 'close', 'relabel'].some((key) => plan[key].length > 0);
+  return ['create', 'update', 'reopen', 'close', 'relabel', 'archive'].some((key) => plan[key].length > 0);
 }
 
 function byteLength(text) {

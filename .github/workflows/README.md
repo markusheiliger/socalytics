@@ -9,7 +9,7 @@ so a run can be repeated or replaced safely.
 ```mermaid
 flowchart TD
     person(["Person"])
-    specs[("specs/** on main")]
+    specs[("specs/** on the default branch")]
     cron(["Hourly schedule"])
 
     prepare["<b>Spec Kit prepare</b><br/>Syncs one twin issue per spec folder,<br/>infers blocked-by dependencies,<br/>validates implement requests"]
@@ -17,7 +17,7 @@ flowchart TD
     commands["<b>Spec Kit commands</b><br/>/speckit comments and<br/>amendment feedback"]
 
     subgraph chain["Implementation chain · one per spec"]
-        spec["<b>Spec Kit implement spec</b><br/>decide → phase | convergence or conflict resolution | merge → continue"]
+        spec["<b>Spec Kit implement spec</b><br/>decide → phase | convergence or conflict resolution | archive, verify, merge → continue"]
         phase["<b>Spec Kit implement phase</b><br/>plan → tasks one at a time<br/>(consecutive [P] tasks in parallel) → verify"]
         task["<b>Spec Kit implement task</b><br/>work: one agent per task → commit and push"]
     end
@@ -87,7 +87,8 @@ pull request, and thick arrows are reusable workflow calls (`workflow_call`) tha
   `[P]` tasks under one heading run in parallel.
 
 Each run of Spec Kit implement spec does one of these: a phase, the convergence (`/speckit-converge`), a conflict
-resolution, or the merge. It runs only one of its `phase`, `converge-or-resolve`, or `merge-*` jobs, so the others
+resolution, or the merge. The merge first archives the spec to `specs/archive/<folder>` on the implementation branch
+(job `merge-archive`), so the archive lands with the implementation. It runs only one of its `phase`, `converge-or-resolve`, or `merge-*` jobs, so the others
 always show as skipped. Prepare, orchestrate, and implement spec also have a `refuse` job that only runs, and fails, when
 started from a branch other than the default branch.
 

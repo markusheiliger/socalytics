@@ -28,6 +28,10 @@ on:
         description: Spec folder name under specs/
         required: true
         type: string
+      base:
+        description: Base branch of the implementation pull request, which the implementation merges into and is compared with
+        required: true
+        type: string
       phase:
         description: The phase heading of tasks.md as written, without "## " (empty for a tasks.md without phases)
         required: false
@@ -73,7 +77,7 @@ jobs:
         id: plan
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_TWIN: ${{ inputs.twin }}
           SPECKIT_PULL: ${{ inputs.pull }}
           SPECKIT_FOLDER: ${{ inputs.folder }}
@@ -103,6 +107,7 @@ jobs:
       twin: ${{ inputs.twin }}
       pull: ${{ inputs.pull }}
       folder: ${{ inputs.folder }}
+      base: ${{ inputs.base }}
       order: ${{ needs.plan.outputs.order }}
       index: ${{ matrix.index }}
 
@@ -143,14 +148,15 @@ jobs:
         with:
           node-version: 24
 
-      # All changes of the implementation branch, so tasks of the phase that earlier runs implemented are covered too.
+      # All changes of the implementation branch since its base branch, so tasks of the phase that earlier runs
+      # implemented are covered too.
       - name: List the changes of the implementation
         working-directory: workspace
         env:
-          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BASE_BRANCH: ${{ inputs.base }}
         run: |
           mkdir -p "$SPECKIT_RESULT_DIR"
-          git diff --name-only --no-renames "$(git merge-base HEAD "origin/$DEFAULT_BRANCH")" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
+          git diff --name-only --no-renames "$(git merge-base HEAD "origin/$BASE_BRANCH")" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
 
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''

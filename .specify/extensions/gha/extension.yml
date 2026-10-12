@@ -3,8 +3,8 @@ schema_version: "1.0"
 extension:
   id: gha
   name: "GitHub Actions implementation routing"
-  version: "1.1.0"
-  description: "Route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow, refine the parallel task groups after /speckit-tasks, and diagnose implementations that stopped"
+  version: "1.2.0"
+  description: "Route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow, refine the parallel task groups after /speckit-tasks, diagnose implementations that stopped, and archive implemented specs"
   author: socalytics
   repository: https://github.com/markusheiliger/socalytics
   license: MIT
@@ -17,7 +17,7 @@ requires:
       description: "Reads the spec folder from the remote default branch"
     - name: node
       required: true
-      description: "Runs .github/scripts/speckit-orchestrate.mjs and .github/scripts/speckit-tasks-groups.mjs"
+      description: "Runs .github/scripts/speckit-orchestrate.mjs, speckit-tasks-groups.mjs, and speckit-archive.mjs"
     - name: gh
       required: true
       description: "Provides the user's GitHub token for the implementation request"
@@ -36,6 +36,9 @@ provides:
     - name: speckit.gha.refine
       file: commands/speckit.gha.refine.md
       description: "Refine the parallel task groups of tasks.md so [P] tasks of one group never change the same files"
+    - name: speckit.gha.archive
+      file: commands/speckit.gha.archive.md
+      description: "Archive an implemented spec to specs/archive/<folder> and rewrite every reference to it, for a local or manual merge"
 
 hooks:
   before_implement:
@@ -46,6 +49,10 @@ hooks:
     command: speckit.gha.refine
     optional: false
     description: "Refine the parallel task groups of the generated tasks.md"
+  after_converge:
+    command: speckit.gha.archive
+    optional: true
+    description: "Archive the converged spec before merging it locally (implementations on GitHub archive in their merge)"
 
 tags:
   - "github-actions"

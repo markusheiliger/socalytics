@@ -21,3 +21,13 @@ hooks:
     prompt: Execute speckit.gha.refine?
     description: Refine the parallel task groups of the generated tasks.md
     condition: null
+  after_converge:
+  - extension: gha
+    command: speckit.gha.archive
+    enabled: true
+    optional: true
+    priority: 10
+    prompt: Execute speckit.gha.archive?
+    description: Archive the converged spec before merging it locally (implementations
+      on GitHub archive in their merge)
+    condition: null

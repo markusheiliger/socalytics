@@ -8,7 +8,7 @@ namespace SocAlytics.Platform.Host.Tests;
 
 public sealed class RegistryOpenApiTests
 {
-	// operationIds of specs/20261005-130704-analyst-manager-registration/contracts/openapi.yaml
+	// operationIds of specs/archive/20261005-130704-analyst-manager-registration/contracts/openapi.yaml
 	private static readonly string[] OperationIds =
 	[
 		"getAnalystManagerStampDiscovery",

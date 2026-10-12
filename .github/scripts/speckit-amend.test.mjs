@@ -17,7 +17,7 @@ import {
 } from './speckit-amend.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
-const env = (extra = {}) => ({ GITHUB_REPOSITORY: 'octo/repo', ...extra });
+const env = (extra = {}) => ({ GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', ...extra });
 const amendmentPull = (github) => github.repo.pulls.find((pull) => pull.number === 11);
 const later = (github, ms = 1000) => new Date(github.clock + ms).toISOString();
 

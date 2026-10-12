@@ -7,7 +7,7 @@ import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
 const run = (github, body, { pull = 9, actor = 'dev' } = {}) => runCommand({
   client: github,
-  env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_PULL: String(pull), SPECKIT_COMMENT_ID: '501', SPECKIT_ACTOR: actor, SPECKIT_COMMENT_BODY: body },
+  env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_PULL: String(pull), SPECKIT_COMMENT_ID: '501', SPECKIT_ACTOR: actor, SPECKIT_COMMENT_BODY: body },
   log: silent,
   now: () => github.clock,
 });
@@ -77,7 +77,7 @@ test('apply, revise, and discard are no commands: the amendment pull request is 
   assert.equal(github.repo.merges.length, 0);
 });
 
-test('resume passes guidance; sync merges the default branch', async () => {
+test('resume passes guidance; sync merges the base branch', async () => {
   const github = diagnosisRepo();
   await run(github, '/speckit resume Use one statement on every refusal path');
   assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }], 'the implementation chain continues, named after the spec');
@@ -98,6 +98,16 @@ test('resume passes guidance; sync merges the default branch', async () => {
   assert.equal((await run(github, '/speckit sync')).outcome, 'failed');
   assert.match(github.comments.at(-1).body, /could not be merged into `speckit\/f`: [\s\S]*HTTP 403[\s\S]*Merge it locally and push/);
   await assert.rejects(() => main(['other'], { env: {}, client: github }), /Usage/);
+
+  const release = diagnosisRepo();
+  release.repo.pulls.find((pull) => pull.number === 9).base = { ref: 'release' };
+  release.repo.commits['sha-release'] = { tree: 't', parents: ['sha-main'] };
+  release.repo.branches.release = 'sha-release';
+  release.repo.commits['sha-main3'] = { tree: 't', parents: ['sha-main'] };
+  release.repo.branches.main = 'sha-main3';
+  assert.equal((await run(release, '/speckit sync')).outcome, 'merged');
+  assert.deepEqual(release.repo.commits[release.repo.branches['speckit/f']].parents, ['sha-impl', 'sha-release'], 'sync merges the pull request base, not the default branch');
+  assert.match(release.comments.at(-1).body, /@dev merged `release` into `speckit\/f`/);
 });
 test('commands need an open implementation pull request with a twin', async () => {
   const github = diagnosisRepo();

@@ -15,18 +15,22 @@ import {
   resolveTwins,
   stageLabel,
   stageLabelChange,
+  specDir,
 } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment } from './speckit-amend.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
+import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-task.mjs';
 import {
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
   IMPLEMENT_WORKFLOW_FILE,
   START_COMMENT_MARKER,
+  baseBranchOf,
   checkRunOutput,
   decideLifecycle,
+  defaultBranchOf,
   dispatchImplementation,
   extractTasks,
   implementationBranch,
@@ -35,6 +39,7 @@ import {
   parseMaxActiveSpecs,
   renderPullRequestBody,
   renderPullRequestTitle,
+  readSpecTasks,
   renderStartComment,
   specTitleOfPull,
 } from './speckit-implement-core.mjs';
@@ -91,7 +96,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       ? decideLifecycle({ pulls: await client.listPullRequestsForHead(implementationBranch(folder)), flaggedAt: requester.labeledAt })
       : null;
     if (lifecycle?.state === 'merged') {
-      merged.push({ number: issue.number, folder, pull: lifecycle.pull.number, ...(await finalizeMerged(client, issue, folder, lifecycle.pull.number)) });
+      merged.push({ number: issue.number, folder, pull: lifecycle.pull.number, ...(await finalizeMerged(client, env, issue, folder, lifecycle.pull)) });
       continue;
     }
     if (!open) continue;
@@ -167,8 +172,15 @@ async function findOpenPull(client, branch) {
 
 // Completes what the merge does after an automatic merge for a pull request that a person merged:
 // marks the twin implemented (closing it if needed) and deletes the implementation branch.
-async function finalizeMerged(client, issue, folder, pullNumber) {
-  await updateIssueWithLabels(client, issue, stageLabelChange(issue, 'implemented'), issue.state === 'open' ? { state: 'closed', state_reason: 'completed' } : {});
+async function finalizeMerged(client, env, issue, folder, pull) {
+  const pullNumber = pull.number;
+  const baseBranch = baseBranchOf(pull);
+  const { archived } = await readSpecTasks(client, folder, pull.merge_commit_sha || baseBranch);
+  await updateIssueWithLabels(client, issue, stageLabelChange(issue, 'implemented'), {
+    ...(issue.state === 'open' ? { state: 'closed', state_reason: 'completed' } : {}),
+    ...twinLinksAfterMerge(issue, folder, { baseBranch, defaultBranch: defaultBranchOf(env), archived }),
+  });
+  await pointPullRequestLinks(client, pull, folder, { baseBranch, archived });
   const branch = implementationBranch(folder);
   let branchDeleted = false;
   let note = null;
@@ -181,7 +193,7 @@ async function finalizeMerged(client, issue, folder, pullNumber) {
     note = `the branch \`${branch}\` could not be deleted: ${error.message}`;
   }
   await client.createComment(issue.number, [
-    `Implementation pull request #${pullNumber} was merged, so the twin is now \`${stageLabel('implemented')}\`${branchDeleted ? ` and the branch \`${branch}\` was deleted` : ''}.`,
+    `Implementation pull request #${pullNumber} was merged into \`${baseBranchOf(pull)}\`, so the twin is now \`${stageLabel('implemented')}\`${branchDeleted ? ` and the branch \`${branch}\` was deleted` : ''}.`,
     ...(note ? ['', `Note: ${note}.`] : []),
   ].join('\n'));
   return { branchDeleted, note };
@@ -252,7 +264,9 @@ export async function runStart({ client, rootDir, env, issueNumber, folder, requ
   report.line(`## Implementation workspace for #${issueNumber}`);
   report.line();
   const branch = implementationBranch(folder);
-  const defaultBranch = env.SPECKIT_BRANCH || 'main';
+  // Implementations start from the default branch, whose specs are mirrored as twins; it becomes the pull request's
+  // base, which every later merge and comparison of this implementation uses.
+  const baseBranch = defaultBranchOf(env);
   const issue = await client.getIssue(issueNumber);
   if (issue.state !== 'open' || !hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) {
     report.line(`#${issueNumber} is no longer open and flagged; nothing to start.`);
@@ -267,7 +281,7 @@ export async function runStart({ client, rootDir, env, issueNumber, folder, requ
   if (pull) {
     report.line(`- Pull request #${pull.number} is already open for \`${branch}\`.`);
   } else {
-    const baseSha = await client.getBranchSha(defaultBranch);
+    const baseSha = await client.getBranchSha(baseBranch);
     if (reset && (await client.getBranchSha(branch))) {
       await client.deleteBranch(branch);
       report.line(`- Deleted the stale branch \`${branch}\`.`);
@@ -281,7 +295,7 @@ export async function runStart({ client, rootDir, env, issueNumber, folder, requ
         report.line(`- Created \`${branch}\` without an issue link (${error.message}).`);
       }
     }
-    if ((await client.aheadBy(defaultBranch, branch)) === 0) {
+    if ((await client.aheadBy(baseBranch, branch)) === 0) {
       const head = await client.getBranchSha(branch);
       const commit = await client.createEmptyCommit(head, `chore(speckit): start implementation of ${folder}`);
       await client.updateBranch(branch, commit);
@@ -292,8 +306,8 @@ export async function runStart({ client, rootDir, env, issueNumber, folder, requ
       pull = await client.createPullRequest({
         title: renderPullRequestTitle(entry.spec),
         head: branch,
-        base: defaultBranch,
-        body: renderPullRequestBody({ twinNumber: issueNumber, folder, tasks, context: contextFromEnv(env) }),
+        base: baseBranch,
+        body: renderPullRequestBody({ twinNumber: issueNumber, folder, tasks, context: { ...contextFromEnv(env), branch: baseBranch } }),
         draft: true,
       });
     } catch (error) {
@@ -315,7 +329,7 @@ export async function runStart({ client, rootDir, env, issueNumber, folder, requ
   }
   const comments = await client.listIssueComments(pull.number);
   if (!comments.some((comment) => comment.body?.includes(START_COMMENT_MARKER))) {
-    await client.createComment(pull.number, renderStartComment({ twinNumber: issueNumber, folder, taskCount: tasks.count }));
+    await client.createComment(pull.number, renderStartComment({ twinNumber: issueNumber, folder, taskCount: tasks.count, base: baseBranchOf(pull) }));
     report.line('- Posted the start comment.');
   }
   report.flush();
@@ -348,7 +362,7 @@ export function resolveFolder({ folder, env, rootDir }) {
   return name;
 }
 
-// Reads one spec folder from the remote default branch, or returns null when it is not merged there.
+// Reads one spec folder from a remote branch, or returns null when it is not merged there.
 export function readSpecFromRef(git, ref, folder) {
   const show = (file) => {
     const result = git(['show', `${ref}:specs/${folder}/${file}`]);
@@ -374,7 +388,8 @@ export function readSpecFromRef(git, ref, folder) {
 // Client side: checks a spec against the remote default branch and flags its twin for implementation.
 export async function runRequest({ client, git, rootDir, env, folder, log }) {
   const name = resolveFolder({ folder, env, rootDir });
-  const branch = env.SPECKIT_BRANCH || 'main';
+  // Implementation is requested for specs on the repository's default branch, which GitHub defines.
+  const branch = env.SPECKIT_DEFAULT_BRANCH || await client.getDefaultBranch();
   const fetch = git(['fetch', '--quiet', 'origin', branch]);
   if (fetch.status !== 0) throw new UsageError(`git fetch origin ${branch} failed: ${fetch.stderr.trim()}`);
   const ref = `origin/${branch}`;
@@ -382,6 +397,10 @@ export async function runRequest({ client, git, rootDir, env, folder, log }) {
 
   const entry = readSpecFromRef(git, ref, name);
   if (!entry) {
+    if (git(['cat-file', '-e', `${ref}:${specDir(name, { archived: true })}/spec.md`]).status === 0) {
+      log(`Not requested: ${specDir(name)} is already implemented and archived in ${specDir(name, { archived: true })}.`);
+      return { exitCode: 1 };
+    }
     log(`Not requested: specs/${name} is not merged to ${branch} yet. Merge the spec, plan, and tasks first.`);
     return { exitCode: 1 };
   }

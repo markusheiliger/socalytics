@@ -12,6 +12,7 @@ because Spec Kit already bundles an extension with the ID `github`.
 | `speckit.gha.request` | `/speckit-gha-request [folder]` | Request implementation on GitHub directly |
 | `speckit.gha.diagnose` | `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` | Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause |
 | `speckit.gha.refine` | `/speckit-gha-refine [folder]` | Mandatory `after_tasks` hook: refine the `[P]` groups of the generated `tasks.md` so parallel tasks never change the same files |
+| `speckit.gha.archive` | `/speckit-gha-archive [folder]` | Optional `after_converge` hook: archive an implemented spec to `specs/archive/<folder>` and rewrite every reference to it before a local or manual merge |
 
 ## Refining Parallel Groups
 
@@ -28,6 +29,17 @@ conflicting groups, without moving or renumbering tasks.
 `node .github/scripts/speckit-tasks-groups.mjs <folder | tasks.md> [--json]`
 prints the task order exactly as the workflow plans it, with warnings for headings
 that do not separate groups. It is read-only.
+
+## Archiving Implemented Specs
+
+Implemented specs move to `specs/archive/<folder>` in the commit that merges
+their implementation. Implementations on GitHub do it in their merge;
+`/speckit-gha-archive` does it for a local or manual merge with
+`node .github/scripts/speckit-archive.mjs <folder> [--check]`, which refuses
+unchecked tasks, moves the folder (staged as a rename), and rewrites relative
+Markdown links into and out of the folder and plain-text `specs/<folder>`
+mentions such as code comments. Running it again only rewrites references that
+appeared since.
 
 `/speckit-gha-diagnose` is also the method of the `Spec Kit diagnose` agentic
 workflow, which runs it non-interactively when an implementation stops or a
@@ -69,7 +81,7 @@ without symlink support (the Git default on Windows), so commit them as regular
 files:
 
 ```powershell
-foreach ($name in 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose', 'speckit-gha-refine') {
+foreach ($name in 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose', 'speckit-gha-refine', 'speckit-gha-archive') {
     $skill = ".github/skills/$name/SKILL.md"
     $content = Get-Content -Raw ".specify/extensions/gha/.specify-dev/extension-skills/$name/SKILL.md"
     Remove-Item $skill -Force

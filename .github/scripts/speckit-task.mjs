@@ -3,20 +3,26 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, 
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { stageLabelChange } from './speckit-prepare-core.mjs';
+import { specDir, stageLabelChange } from './speckit-prepare-core.mjs';
+import { archiveSpec, refreshArchivedReferences } from './speckit-archive.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import {
   CHECK_CONFLICT,
   CHECK_DONE,
   CHECK_LIMIT,
+  CHECK_MERGE,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
   DONE_COMMENT_MARKER,
   MAX_CONVERGE_ROUNDS,
   PREPARE_WORKFLOW_FILE,
   appendPullRequestTasks,
+  baseBranchFromEnv,
+  baseBranchOf,
+  behindBaseOf,
   convergenceRounds,
+  defaultBranchOf,
   environmentExclusivityReasons,
   hasConflictMarkers,
   implementationBranch,
@@ -25,7 +31,9 @@ import {
   kindLabel,
   listTasks,
   neutralizeMarkers,
+  pointSpecLinks,
   progressOutput,
+  readSpecTasks,
   attemptCheckId,
   renderAttemptMarker,
   renderNextSteps,
@@ -33,6 +41,7 @@ import {
   summarizeTask,
   syncPullRequestTaskList,
   syncPullRequestTicks,
+  tasksPathOf,
   taskProgress,
   tickTask,
   validateConvergeChange,
@@ -148,28 +157,34 @@ function sizeReasons(patchBytes, paths) {
   ];
 }
 
-function tasksFiles(git, workspace, folder) {
-  const tasksPath = `specs/${folder}/tasks.md`;
-  const before = git(['show', `HEAD:${tasksPath}`]);
-  const afterFile = path.join(workspace, tasksPath);
-  return { before: before.status === 0 ? before.stdout : '', after: existsSync(afterFile) ? readFileSync(afterFile, 'utf8') : '' };
+// Whether the implementation archived the spec folder in this checkout (it does so right before the merge).
+function isArchivedIn(workspace, folder) {
+  return !existsSync(path.join(workspace, specDir(folder))) && existsSync(path.join(workspace, specDir(folder, { archived: true })));
 }
 
-// Paths the implementation branch changes compared to the default branch, including the staged change, or null when
-// the default branch is not in the checkout.
-function branchPaths(git, defaultBranch) {
-  const base = git(['merge-base', 'HEAD', `refs/remotes/origin/${defaultBranch}`]);
+function tasksFiles(git, workspace, folder) {
+  const archived = isArchivedIn(workspace, folder);
+  const tasksPath = tasksPathOf(folder, { archived });
+  const before = git(['show', `HEAD:${tasksPath}`]);
+  const afterFile = path.join(workspace, tasksPath);
+  return { archived, before: before.status === 0 ? before.stdout : '', after: existsSync(afterFile) ? readFileSync(afterFile, 'utf8') : '' };
+}
+
+// Paths the implementation branch changes compared to its base branch, including the staged change, or null when
+// the base branch is not in the checkout.
+function branchPaths(git, baseBranch) {
+  const base = git(['merge-base', 'HEAD', `refs/remotes/origin/${baseBranch}`]);
   if (base.status !== 0) return null;
   return splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', base.stdout.trim()]));
 }
 
 // Validates the staged change of one task and returns the reasons it cannot be accepted.
-export function checkStagedTask({ git, workspace, folder, task, patchBytes, defaultBranch = 'main' }) {
+export function checkStagedTask({ git, workspace, folder, task, patchBytes, baseBranch }) {
   const paths = changedPaths(git);
   const reasons = sizeReasons(patchBytes, paths);
   reasons.push(...validateTaskChange({ folder, taskId: task, ...tasksFiles(git, workspace, folder), changedPaths: paths }));
-  const branch = branchPaths(git, defaultBranch);
-  if (branch === null) reasons.push(`the branch cannot be compared with ${defaultBranch}, because ${defaultBranch} is not in the checkout`);
+  const branch = branchPaths(git, baseBranch);
+  if (branch === null) reasons.push(`the branch cannot be compared with its base branch ${baseBranch}, because ${baseBranch} is not in the checkout`);
   else reasons.push(...environmentExclusivityReasons({ folder, branchPaths: branch }));
   return { reasons, paths };
 }
@@ -198,26 +213,27 @@ function stagePatch(git, resultDir) {
 
 const isProtected = isProtectedPath;
 
-// Spec Kit implement task (resolve) and Spec Kit implement spec (merge-verify), job "work": merges the default branch into the checked-out
-// implementation branch without committing, records the default branch SHA and any conflicted files, and prepares
-// the agent prompt for conflict resolution. Conflicts in protected paths need a person. After a clean merge it
-// writes the paths the implementation changes compared to the default branch for the verification.
+// Spec Kit implement task (resolve) and Spec Kit implement spec (merge-verify), job "work": merges the base branch
+// (SPECKIT_BASE_BRANCH) into the checked-out implementation branch without committing, records the base branch SHA and
+// any conflicted files, and prepares the agent prompt for conflict resolution. Conflicts in protected paths need a
+// person. After a clean merge it writes the paths the implementation changes compared to the base branch for the
+// verification.
 export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   mkdirSync(resultDir, { recursive: true });
-  const defaultBranch = env.SPECKIT_BRANCH || 'main';
-  const mainSha = gitOrThrow(git, ['rev-parse', `refs/remotes/origin/${defaultBranch}`]).trim();
+  const baseBranch = baseBranchFromEnv(env);
+  const baseSha = gitOrThrow(git, ['rev-parse', `refs/remotes/origin/${baseBranch}`]).trim();
   const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
-  const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', mainSha]);
+  const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', baseSha]);
   const conflicts = unmergedPaths(git);
-  const result = { kind: inputs.kind, mainSha, head, conflicts, reasons: [], checks: [], verified: false };
-  if (merge.status !== 0 && conflicts.length === 0) result.reasons.push(`merging ${defaultBranch} failed: ${merge.stderr.trim() || merge.stdout.trim()}`);
+  const result = { kind: inputs.kind, baseSha, head, conflicts, reasons: [], checks: [], verified: false };
+  if (merge.status !== 0 && conflicts.length === 0) result.reasons.push(`merging ${baseBranch} failed: ${merge.stderr.trim() || merge.stdout.trim()}`);
   const protectedConflicts = conflicts.filter(isProtected);
   if (protectedConflicts.length > 0) {
     result.reasons.push(`conflicts in protected paths need a person: ${protectedConflicts.join(', ')}`);
     result.attention = true;
   }
   const paths = conflicts.length === 0 && result.reasons.length === 0
-    ? splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', mainSha]))
+    ? splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', baseSha]))
     : [];
   result.changedFiles = paths;
   result.environment = paths.some(isEnvironmentPath);
@@ -228,8 +244,8 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   setOutput(env, 'agent', String(agent));
   setOutput(env, 'verify', String(inputs.kind === 'merge' && conflicts.length === 0 && result.reasons.length === 0));
   setOutput(env, 'environment', String(inputs.kind === 'merge' && result.environment));
-  setOutput(env, 'prompt', agent ? renderResolvePrompt({ folder, files: conflicts }) : '');
-  log(conflicts.length > 0 ? `Conflicts with ${defaultBranch} (${mainSha}): ${conflicts.join(', ')}` : `Merged ${defaultBranch} (${mainSha}) cleanly.`);
+  setOutput(env, 'prompt', agent ? renderResolvePrompt({ folder, files: conflicts, base: baseBranch, archived: isArchivedIn(gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim(), folder) }) : '');
+  log(conflicts.length > 0 ? `Conflicts with ${baseBranch} (${baseSha}): ${conflicts.join(', ')}` : `Merged ${baseBranch} (${baseSha}) cleanly.`);
   return { exitCode: 0, result };
 }
 
@@ -244,7 +260,7 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
     const agent = agentReasons(resultDir);
     result = { kind: 'task', task: inputs.task, agentExit: agent.agentExit, reasons: [...agent.reasons], checks: [], verified: false };
     result.patchBytes = stagePatch(git, resultDir);
-    const staged = checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes: result.patchBytes, defaultBranch: env.SPECKIT_BRANCH || 'main' });
+    const staged = checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes: result.patchBytes, baseBranch: baseBranchFromEnv(env) });
     paths = staged.paths;
     result.changedFiles = paths;
     result.reasons.push(...staged.reasons);
@@ -340,7 +356,7 @@ export function runVerdict({ env, inputs, resultDir, log }) {
   }
   result.verified = result.reasons.length === 0 && !pendingConflicts;
   writeFileSync(resultFile, `${JSON.stringify(result, null, 2)}\n`);
-  if (pendingConflicts) log(`Conflicts with the default branch: ${result.conflicts.join(', ')}`);
+  if (pendingConflicts) log(`Conflicts with the base branch: ${result.conflicts.join(', ')}`);
   else if (!result.verified) log(`Not verified: ${result.reasons.join('; ')}`);
   else log(configured ? `Verified ${kindLabel(inputs)}.` : `${kindLabel(inputs)} is not verified: no environment-verify action is configured.`);
   return { exitCode: 0, result };
@@ -400,12 +416,7 @@ async function requestAttention({ client, env = {}, inputs, reason, next, result
     external_id: CHECK_LIMIT,
     output: { title: `${title(inputs)} needs a person`, summary: neutralizeMarkers(reason) },
   });
-  let behindMain = false;
-  try {
-    behindMain = inputs.folder ? (await client.aheadBy(implementationBranch(inputs.folder), env.SPECKIT_BRANCH || 'main')) > 0 : false;
-  } catch {
-    // Only used to suggest /speckit sync.
-  }
+  const behindBase = inputs.folder ? await behindBaseOf(client, await client.getPullRequest(inputs.pull), inputs.folder) : null;
   await client.createComment(inputs.pull, [
     ...markerLines(inputs, 'attention'),
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: ${neutralizeMarkers(reason)}`,
@@ -413,7 +424,7 @@ async function requestAttention({ client, env = {}, inputs, reason, next, result
     next.trim(),
     ...(resultDir ? agentDetails(resultDir) : []),
     '',
-    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', behindMain }),
+    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', behindBase }),
   ].join('\n'));
 }
 
@@ -447,7 +458,7 @@ const MAX_LAND_TRIES = 5;
 // requeue, not a failed attempt.
 function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
   const branch = implementationBranch(folder);
-  const tasksPath = `specs/${folder}/tasks.md`;
+  const tasksPath = tasksPathOf(folder, { archived: isArchivedIn(workspace, folder) });
   const patchFile = path.join(resultDir, 'changes.patch');
   const base = gitOrThrow(git, ['rev-parse', 'HEAD~1']).trim();
   const ours = splitZ(gitOrThrow(git, ['diff', '--name-only', '--no-renames', '-z', base, 'HEAD'])).filter((file) => file !== tasksPath);
@@ -481,7 +492,7 @@ function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
     if (ticked === null) return { requeue: [`${task} is already checked on the branch`] };
     writeFileSync(tasksFile, ticked);
     gitOrThrow(git, ['add', '--', tasksPath]);
-    const staged = checkStagedTask({ git, workspace, folder, task, patchBytes: statSync(patchFile).size, defaultBranch: env.SPECKIT_BRANCH || 'main' });
+    const staged = checkStagedTask({ git, workspace, folder, task, patchBytes: statSync(patchFile).size, baseBranch: baseBranchFromEnv(env) });
     if (staged.reasons.length > 0) return { reasons: staged.reasons };
     const note = combined.length > 0 ? [`Combined with parallel changes to ${combined.join(', ')}; verified together after the parallel tasks.`] : [];
     gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...[...message, ...note].flatMap((part) => ['-m', part])]);
@@ -549,7 +560,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     return { exitCode: 1, reasons };
   }
   if (reasons.length === 0 && inputs.kind === 'task') {
-    reasons.push(...applyPatch({ git, resultDir, check: (patchBytes) => checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes, defaultBranch: env.SPECKIT_BRANCH || 'main' }).reasons }));
+    reasons.push(...applyPatch({ git, resultDir, check: (patchBytes) => checkStagedTask({ git, workspace, folder, task: inputs.task, patchBytes, baseBranch: baseBranchFromEnv(env) }).reasons }));
   }
   let appendedTasks = [];
   if (reasons.length === 0 && inputs.kind === 'converge' && !result.converged) {
@@ -583,11 +594,11 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     await client.updateCheckRun(inputs.checkRun, {
       status: 'completed',
       conclusion: 'success',
-      output: { title: 'Converged', summary: 'The implementation satisfies the spec, plan, and tasks. Next: merge into the default branch.' },
+      output: { title: 'Converged', summary: `The implementation satisfies the spec, plan, and tasks. Next: merge into the base branch ${baseBranchOf(pull)}.` },
     });
     await client.createComment(inputs.pull, [
       ...markerLines(inputs, 'success'),
-      `**Converged** (attempt ${inputs.attempt}): the implementation satisfies the spec, plan, and tasks. Next: merge into the default branch.`,
+      `**Converged** (attempt ${inputs.attempt}): the implementation satisfies the spec, plan, and tasks. Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
       ...agentDetails(resultDir, 'Convergence report'),
     ].join('\n'));
     report.line('Converged.');
@@ -595,7 +606,8 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     return { exitCode: 0 };
   }
 
-  const tasksPath = path.join(workspace, 'specs', folder, 'tasks.md');
+  const archived = isArchivedIn(workspace, folder);
+  const tasksPath = path.join(workspace, tasksPathOf(folder, { archived }));
   const tasksMarkdown = readFileSync(tasksPath, 'utf8');
   let progress = taskProgress(tasksMarkdown);
   let message;
@@ -628,7 +640,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       twinNumber: inputs.twin,
       folder,
       tasksMarkdown,
-      context: { serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, ''), repository: env.GITHUB_REPOSITORY, branch: env.SPECKIT_BRANCH || 'main' },
+      context: { serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, ''), repository: env.GITHUB_REPOSITORY, branch: baseBranchOf(pull), archived },
     });
     body = synced !== String(pull.body ?? '') ? synced : appendPullRequestTasks(pull.body, appended, heading);
     comment = [
@@ -640,16 +652,16 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   } else {
     const files = result.conflicts ?? [];
     message = [
-      `Merge ${env.SPECKIT_BRANCH || 'main'} into ${implementationBranch(folder)}`,
+      `Merge ${baseBranchOf(pull)} into ${implementationBranch(folder)}`,
       files.length > 0 ? `Conflicts in ${files.join(', ')} resolved by Copilot (attempt ${inputs.attempt}).` : 'No conflicts remained.',
     ];
-    checkTitle = files.length > 0 ? 'Merge conflicts resolved' : 'Default branch merged';
+    checkTitle = files.length > 0 ? 'Merge conflicts resolved' : 'Base branch merged';
     const checks = (result.checks ?? []).map((check) => `${check.name} passed`);
     comment = [
       `**Conflicts resolved** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
       '',
       `- Verification: ${result.verification === 'not-configured' ? 'no verification configured (no environment-verify action)' : checks.join(', ') || 'no checks'}`,
-      '- Next: merge into the default branch.',
+      `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
     ];
   }
   gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
@@ -697,7 +709,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
 
 const KIND_SUMMARIES = {
   converge: 'Checks the implementation against the spec, plan, and tasks with /speckit-converge.',
-  resolve: 'Resolves the merge conflicts with the default branch.',
+  resolve: 'Resolves the merge conflicts with the base branch.',
 };
 
 // Shows the attempts of the next tasks as in-progress check runs on `head`. The first one takes over the queued progress
@@ -832,16 +844,11 @@ export async function runCombinedVerified({ client, env, log }) {
     output: { title: 'The combined verification failed', summary: `The verification of ${tasks} together ${outcome}. Their changes to the same files merged cleanly, but the combination does not pass.` },
   });
   const { mention } = await requesterMention(client, twin);
-  let behindMain = false;
-  try {
-    behindMain = env.SPECKIT_FOLDER ? (await client.aheadBy(implementationBranch(env.SPECKIT_FOLDER), env.SPECKIT_BRANCH || 'main')) > 0 : false;
-  } catch {
-    // Only used to suggest /speckit sync.
-  }
+  const behindBase = env.SPECKIT_FOLDER ? await behindBaseOf(client, await client.getPullRequest(pull), env.SPECKIT_FOLDER) : null;
   await client.createComment(pull, [
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: the verification of ${tasks} together ${outcome}${run}. Each task passed its own verification and their changes to the same files merged cleanly, so the combination breaks something.`,
     '',
-    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', behindMain }),
+    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', behindBase }),
   ].join('\n'));
   report.line(`The verification of ${tasks} together ${outcome}; the implementation stops for a person.`);
   report.flush();
@@ -857,15 +864,15 @@ function applyPatch({ git, resultDir, check }) {
 }
 
 // Re-creates the merge in the land job and applies the agent's versions of the conflicted files only. The merged
-// commit must be on the default branch, because the work result that names it is not trusted.
+// commit must be on the base branch, because the work result that names it is not trusted.
 function replayResolution({ git, env, result, resultDir }) {
-  if (!/^[0-9a-f]{40}$/.test(String(result.mainSha ?? ''))) return ['the default branch SHA is missing'];
-  if (git(['cat-file', '-e', `${result.mainSha}^{commit}`]).status !== 0) return [`commit ${result.mainSha} is not available`];
-  const defaultBranch = env.SPECKIT_BRANCH || 'main';
-  if (git(['merge-base', '--is-ancestor', result.mainSha, `refs/remotes/origin/${defaultBranch}`]).status !== 0) {
-    return [`commit ${result.mainSha} is not on the default branch ${defaultBranch}`];
+  if (!/^[0-9a-f]{40}$/.test(String(result.baseSha ?? ''))) return ['the base branch SHA is missing'];
+  if (git(['cat-file', '-e', `${result.baseSha}^{commit}`]).status !== 0) return [`commit ${result.baseSha} is not available`];
+  const baseBranch = baseBranchFromEnv(env);
+  if (git(['merge-base', '--is-ancestor', result.baseSha, `refs/remotes/origin/${baseBranch}`]).status !== 0) {
+    return [`commit ${result.baseSha} is not on the base branch ${baseBranch}`];
   }
-  git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', result.mainSha]);
+  git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', result.baseSha]);
   const conflicts = unmergedPaths(git);
   const expected = [...(result.conflicts ?? [])].sort();
   if (conflicts.join('\0') !== expected.join('\0')) return [`the merge conflicts changed: expected ${expected.join(', ') || 'none'}, found ${conflicts.join(', ') || 'none'}`];
@@ -895,17 +902,18 @@ function replayResolution({ git, env, result, resultDir }) {
     }
   }
   if (reasons.length === 0 && unmergedPaths(git).length > 0) reasons.push('unresolved conflicts remain');
-  if (reasons.length === 0 && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0) reasons.push('there is nothing to merge from the default branch');
+  if (reasons.length === 0 && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0) reasons.push('there is nothing to merge from the base branch');
   return reasons;
 }
 
 // Spec Kit implement spec, job "merge-land" (write token, no checkout of workspace code): reports the verified integration
-// and squash-merges the implementation into the default branch, or asks for review when automatic merging is off.
+// and squash-merges the implementation into its base branch (the pull request's base), or asks for review when
+// automatic merging is off.
 export async function runMergeLand({ client, env, inputs, resultDir, workResult, log }) {
   const report = createReporter(env, log);
   const result = readJson(path.join(resultDir, 'result.json'));
-  const defaultBranch = env.SPECKIT_BRANCH || 'main';
   const pull = await client.getPullRequest(inputs.pull);
+  const baseBranch = baseBranchOf(pull);
   const reasons = result ? [...result.reasons] : [`the merge verification did not finish (result: ${workResult || 'unknown'})`];
   if (result?.attention) {
     await requestAttention({ client, env, inputs, reason: reasons.join('; '), next: `Resolve the conflicts on the implementation branch and push. ${RESUME_HINT}` });
@@ -918,10 +926,10 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
       status: 'completed',
       conclusion: 'neutral',
       external_id: CHECK_CONFLICT,
-      output: { title: `Conflicts with ${defaultBranch}`, summary: `Merging ${defaultBranch} at ${result.mainSha} conflicts in ${files}.` },
+      output: { title: `Conflicts with ${baseBranch}`, summary: `Merging ${baseBranch} at ${result.baseSha} conflicts in ${files}.` },
     });
-    await client.createComment(inputs.pull, `**Merge conflicts with \`${defaultBranch}\`** in ${files}. They are resolved next.`);
-    report.line(`Conflicts with ${defaultBranch}: ${result.conflicts.join(', ')}`);
+    await client.createComment(inputs.pull, `**Merge conflicts with \`${baseBranch}\`** in ${files}. They are resolved next.`);
+    report.line(`Conflicts with ${baseBranch}: ${result.conflicts.join(', ')}`);
     report.flush();
     return { exitCode: 0, conflicts: result.conflicts };
   }
@@ -934,7 +942,8 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     return { exitCode: 1, reasons };
   }
 
-  const tasksMarkdown = await client.getFileContent(`specs/${inputs.folder}/tasks.md`, result.head) ?? '';
+  const { tasksMarkdown: specTasks, archived } = await readSpecTasks(client, inputs.folder, result.head);
+  const tasksMarkdown = specTasks ?? '';
   const progress = taskProgress(tasksMarkdown);
   const checkNames = (result.checks ?? []).map((check) => check.name).join(', ');
   const verification = result.verification === 'not-configured' ? 'no verification is configured (no environment-verify action)' : `the full verification passed (${checkNames || 'no checks'})`;
@@ -982,14 +991,14 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     return { exitCode: 0, review: reviewReasons };
   }
 
-  const mainNow = await client.getBranchSha(defaultBranch);
-  if (mainNow !== result.mainSha) {
+  const baseNow = await client.getBranchSha(baseBranch);
+  if (baseNow !== result.baseSha) {
     await client.updateCheckRun(inputs.checkRun, {
       status: 'completed',
       conclusion: 'neutral',
-      output: { title: `${defaultBranch} moved during verification`, summary: `Verified against ${result.mainSha}, but ${defaultBranch} is now ${mainNow}. The merge is verified again.` },
+      output: { title: `${baseBranch} moved during verification`, summary: `Verified against ${result.baseSha}, but ${baseBranch} is now ${baseNow}. The merge is verified again.` },
     });
-    report.line(`${defaultBranch} moved from ${result.mainSha} to ${mainNow}; the merge is verified again.`);
+    report.line(`${baseBranch} moved from ${result.baseSha} to ${baseNow}; the merge is verified again.`);
     report.flush();
     return { exitCode: 0, moved: true };
   }
@@ -1017,27 +1026,31 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     status: 'completed',
     conclusion: 'success',
     external_id: CHECK_DONE,
-    output: progressOutput(progress, `Merged into ${defaultBranch} as ${merged.sha}.`),
+    output: progressOutput(progress, `Merged into ${baseBranch} as ${merged.sha}.`),
   });
   const twin = await client.getIssue(inputs.twin);
-  await updateIssueWithLabels(client, twin, stageLabelChange(twin, 'implemented'), twin.state === 'open' ? { state: 'closed', state_reason: 'completed' } : {});
   const notes = [];
+  await updateIssueWithLabels(client, twin, stageLabelChange(twin, 'implemented'), {
+    ...(twin.state === 'open' ? { state: 'closed', state_reason: 'completed' } : {}),
+    ...twinLinksAfterMerge(twin, inputs.folder, { baseBranch, defaultBranch: defaultBranchOf(env), archived }),
+  });
+  await pointPullRequestLinks(client, pull, inputs.folder, { baseBranch, archived }, notes);
   try {
     await client.deleteBranch(implementationBranch(inputs.folder));
   } catch (error) {
     notes.push(`The branch could not be deleted: ${error.message}`);
   }
   try {
-    await client.dispatchWorkflow(PREPARE_WORKFLOW_FILE, defaultBranch, { dry_run: 'false' });
+    await client.dispatchWorkflow(PREPARE_WORKFLOW_FILE, defaultBranchOf(env), { dry_run: 'false' });
   } catch (error) {
     notes.push(`Spec Kit prepare could not be started: ${error.message}`);
   }
   await client.createComment(inputs.pull, [
     DONE_COMMENT_MARKER,
-    `**Merged into \`${defaultBranch}\`** as ${merged.sha}${mention ? ` ${mention}` : ''}: all ${progress.total} tasks are implemented, the implementation converged, and ${verification}.`,
+    `**Merged into \`${baseBranch}\`** as ${merged.sha}${mention ? ` ${mention}` : ''}: all ${progress.total} tasks are implemented, the implementation converged, and ${verification}.`,
     ...(notes.length > 0 ? ['', ...notes.map((note) => `- ${note}`)] : []),
   ].join('\n'));
-  report.line(`Merged #${inputs.pull} into ${defaultBranch} as ${merged.sha}.`);
+  report.line(`Merged #${inputs.pull} into ${baseBranch} as ${merged.sha}.`);
   report.flush();
   return { exitCode: 0, merged: merged.sha };
 }
@@ -1051,7 +1064,117 @@ function githubClient(env) {
   });
 }
 
-const COMMANDS = 'integrate | package | verdict | land-tasks | combined-verified | merge-land';
+// After the merge the twin's links follow the spec: its links point to the default branch, so they are rewritten right
+// away when the implementation merged there (Spec Kit prepare regenerates them as well); otherwise prepare updates them
+// once the spec reaches the default branch.
+export function twinLinksAfterMerge(twin, folder, { baseBranch, defaultBranch, archived }) {
+  if (!archived || baseBranch !== defaultBranch) return {};
+  const body = pointSpecLinks(twin.body, folder, { branch: defaultBranch, archived: true });
+  return body === String(twin.body ?? '') ? {} : { body };
+}
+
+// After the merge the implementation pull request's links point to the spec on the base branch (archived or not)
+// instead of the deleted implementation branch.
+export async function pointPullRequestLinks(client, pull, folder, { baseBranch, archived }, notes = []) {
+  const body = pointSpecLinks(pull.body, folder, { branch: baseBranch, archived });
+  if (body === String(pull.body ?? '')) return;
+  try {
+    await client.updatePullRequest(pull.number, { body });
+  } catch (error) {
+    notes.push(`The pull request links could not be updated: ${error.message}`);
+  }
+}
+
+// Spec Kit implement spec, job "merge-archive" (write token, trusted tooling; it never runs agent-written code): archives
+// the implemented spec on the implementation branch right before the merge, so the move to specs/archive/<folder> and
+// every rewritten reference land with the implementation. It works on the branch merged with the base branch, because
+// specs merged there since may link to this one, and it also points references to specs archived there since to the
+// archive. When that merge conflicts, it changes nothing: the merge verification reports the conflicts, and the spec is
+// archived once they are resolved. When the base branch changed workflow files, which the workflow token cannot push,
+// it archives without merging it. It pushes only when the archive itself changes something, so a moving base branch
+// does not create new heads (each would restart the count of merge attempts); after a push the merge check run moves
+// to the new head, which the verification and the merge then use.
+export async function runArchive({ client, git, env, folder, log }) {
+  const report = createReporter(env, log);
+  const baseBranch = baseBranchFromEnv(env);
+  const pullNumber = Number(env.SPECKIT_PULL);
+  const checkRun = Number(env.SPECKIT_CHECK_RUN);
+  const expected = String(env.SPECKIT_HEAD ?? '').trim();
+  const finish = (exitCode, head, check, line) => {
+    report.line(line);
+    report.flush();
+    setOutput(env, 'head', head);
+    setOutput(env, 'check_run', String(check));
+    return { exitCode, head, checkRun: check };
+  };
+  const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
+  if (expected && head !== expected) return finish(1, head, checkRun, `The implementation branch moved during the merge (${expected} → ${head}); the merge runs again.`);
+  const workspace = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
+  const undo = () => {
+    git(['merge', '--abort']);
+    git(['reset', '-q', '--hard', head]);
+    git(['clean', '-fdq']);
+  };
+  const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', `refs/remotes/origin/${baseBranch}`]);
+  if (unmergedPaths(git).length > 0) {
+    undo();
+    return finish(0, head, checkRun, `\`${baseBranch}\` conflicts with the implementation branch; the spec is archived once the conflicts are resolved.`);
+  }
+  if (merge.status !== 0) {
+    undo();
+    return finish(1, head, checkRun, `Merging \`${baseBranch}\` failed: ${merge.stderr.trim() || merge.stdout.trim()}`);
+  }
+  let merging = git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status === 0;
+  const notes = [];
+  if (merging) {
+    const workflows = splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', 'HEAD'])).filter((file) => file.startsWith('.github/workflows/'));
+    if (workflows.length > 0) {
+      undo();
+      merging = false;
+      notes.push(`\`${baseBranch}\` changed workflow files, which the workflow token cannot push, so the spec was archived without merging it; the merge verification checks the links after merging it.`);
+    }
+  }
+  const before = gitOrThrow(git, ['write-tree']).trim();
+  const archived = archiveSpec({ root: workspace, folder, git });
+  if (archived.exitCode !== 0) {
+    undo();
+    return finish(1, head, checkRun, `The spec could not be archived: ${archived.reasons.join('; ')}.`);
+  }
+  const refreshed = refreshArchivedReferences({ root: workspace, git, except: folder });
+  gitOrThrow(git, ['add', '-A']);
+  if (gitOrThrow(git, ['write-tree']).trim() === before) {
+    undo();
+    return finish(0, head, checkRun, `\`${specDir(folder, { archived: true })}\` is already archived and every reference points there.`);
+  }
+  const edited = [...new Set([...archived.changes.filter((change) => change.edited && change.file === change.from).map((change) => change.file), ...refreshed])].sort();
+  gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify',
+    '-m', archived.moved ? `Archive ${specDir(folder)} to ${specDir(folder, { archived: true })}` : `Point new references to ${specDir(folder, { archived: true })}`,
+    '-m', `${merging ? `Merges ${baseBranch} first, so references that arrived there are rewritten too. ` : ''}Rewrites the references in ${edited.length} file(s).`]);
+  const branch = implementationBranch(folder);
+  const pushed = git(pushArgs(env, branch));
+  if (pushed.status !== 0) return finish(1, head, checkRun, `The archived spec could not be pushed to \`${branch}\`: ${pushed.stderr.trim().split('\n').at(-1)}`);
+  const newHead = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
+  let movedCheck = checkRun;
+  if (Number.isInteger(checkRun) && checkRun > 0) {
+    movedCheck = (await client.createCheckRun({
+      name: CHECK_RUN_NAME,
+      head_sha: newHead,
+      status: 'in_progress',
+      external_id: CHECK_MERGE,
+      output: { title: `Merge attempt ${Number(env.SPECKIT_ATTEMPT) || 1} in progress`, summary: `Archived the spec; merges \`${baseBranch}\`, runs the full verification, and merges the implementation into it.` },
+    })).id;
+    await client.updateCheckRun(checkRun, { status: 'completed', conclusion: 'neutral', output: { title: 'Continued after archiving the spec', summary: `The spec was archived in ${newHead}; the merge continues there.` } });
+  }
+  await client.createComment(pullNumber, [
+    `**Archived** \`${specDir(folder)}\` → \`${specDir(folder, { archived: true })}\` for the merge${merging ? ` (merged \`${baseBranch}\` first)` : ''}.`,
+    '',
+    edited.length > 0 ? `References rewritten in ${edited.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}.` : 'No other file referenced the spec.',
+    ...notes.flatMap((note) => ['', note]),
+  ].join('\n'));
+  return finish(0, newHead, movedCheck, `Archived ${specDir(folder)} in ${newHead}${merging ? ` (merged ${baseBranch} first)` : ''}; rewrote ${edited.length} file(s).`);
+}
+
+const COMMANDS = 'integrate | package | verdict | land-tasks | combined-verified | archive | merge-land';
 
 export async function main(argv, { env = process.env, log = console.log, client, git } = {}) {
   const [command] = argv;
@@ -1059,6 +1182,7 @@ export async function main(argv, { env = process.env, log = console.log, client,
   const resultDir = path.resolve(env.SPECKIT_RESULT_DIR || 'result');
   const folder = env.SPECKIT_FOLDER;
   if (command === 'combined-verified') return (await runCombinedVerified({ client: client ?? githubClient(env), env, log })).exitCode;
+  if (command === 'archive') return (await runArchive({ client: client ?? githubClient(env), git: git ?? defaultGit(workspace), env, folder, log })).exitCode;
   if (command === 'land-tasks') {
     return (await runLandTasks({
       client: client ?? githubClient(env),
