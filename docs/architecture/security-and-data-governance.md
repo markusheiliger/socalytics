@@ -14,7 +14,7 @@ unset policy values are production-blocking gaps, not implied defaults.
 
 This policy covers server-managed data, credentials, execution artifacts,
 agent lineage, logs, telemetry, caches, indexes, replicas, and backups. The
-Coach Client local-store and disconnected boundaries are accepted in
+Web UI offline-mode local-store and disconnected boundaries are accepted in
 [Client Applications](client-applications.md). This topic
 continues to govern their encryption, authorization, copy lifecycle, deletion,
 hold, telemetry, and audit obligations; the ADRs do not resolve deployment-
@@ -897,7 +897,7 @@ Manual security and architecture review MUST confirm that:
 - existing point controls retain their documented decision status
 - [Production Deployment and Operations](production-operations.md), agent
   persistence from [Intelligence and Agents](intelligence-and-agents.md),
-  and the accepted Coach Client local-data decisions are referenced without
+  and the accepted Web UI offline local-data decisions are referenced without
   resolving deployment-specific production values implicitly
 
 Production acceptance requires named accountable owners, approved policy
@@ -913,24 +913,36 @@ Automated structural and fixture validation passed. Named owners, approved
 policy values, implementation evidence, operational exercises, and residual-
 risk acceptance remain outstanding and continue to block production.
 
-## Accepted Coach Client Local-Data Boundary
+## Accepted Web UI Offline Local-Data Boundary
 
-The accepted desktop boundary adds a user-scoped encrypted local replica; it
-does not change the server-side authority or production readiness status above.
-Electron main owns encrypted SQLite and the per-installation key protected by
-the OS credential store. Renderer code uses narrow typed IPC and receives no
-database path, SQL capability, or key.
+The Web UI's offline mode adds a user-scoped encrypted local replica in the
+browser; it does not change the server-side authority or production readiness
+status above. A dedicated worker owns the encrypted replica. Screens use
+application-owned repositories backed by worker messages and receive no storage
+handle, query capability, or key. The store key is wrapped by a key derived
+through the WebAuthn PRF extension from a platform passkey or, where PRF is
+unavailable, by a non-exportable WebCrypto key in the browser profile.
+
+The PWA runs on one origin together with administration screens. That origin
+uses a strict Content Security Policy with Trusted Types, Subresource
+Integrity, and no third-party scripts. The residual risk is that a script
+compromise on the origin can read the unlocked replica as the active user, as
+it can already read everything that user sees online.
 
 REST delta synchronization and offline entitlement are bound to the current
 user, one club stamp, authorized teams and matches, roles, policy version, and
-compatible contract version. Reconciliation hides unauthorized or deleted data
-before purging database, WAL/temp, media, thumbnail, index, and key copies.
+compatible contract version. The entitlement is bound to a non-exportable
+WebCrypto key generated on the device, never to a synced passkey.
+Reconciliation hides unauthorized or deleted data, then destroys the key
+(crypto-erasure) and purges the replica, temporary files, IndexedDB, Origin
+Private File System, Cache Storage, media, thumbnail, and index copies.
+Browser eviction is a fail-safe cache loss that never grants access.
 Complete recordings are excluded; local media is limited to explicitly
 downloaded clips.
 
 Every local data class requires a versioned bounded retention value before it
 is enabled. Sign-out policy, entitlement/policy expiry, authorization loss,
-source deletion, quota, device reset, and explicit removal trigger
+source deletion, quota, browser-data reset, and explicit removal trigger
 inaccessible-first lifecycle handling and verifiable purge. Holds are narrow,
 approved, expiring, and never restore access or preserve secret keys.
 Diagnostics exclude tokens, keys, entitlement payloads, database/media

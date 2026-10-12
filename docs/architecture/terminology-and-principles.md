@@ -63,7 +63,7 @@ the [architecture overview](overview.md) for the system topology.
   soccer coach's documented public philosophy. It applies that perspective when
   prioritizing SocAlytics facts without impersonating the person, fabricating
   quotations or private knowledge, or implying endorsement. A Coach Agent is
-  distinct from the **Coach Client**, which is a human-facing application.
+  an agent, not a human-facing application; coaches use the Web UI.
 - **Philosophy dimension set:** the semantically versioned shared dimensions
   against which every CA expresses its relative priorities. Structural changes
   require a major version and migration review for all active CA profiles.
@@ -114,8 +114,7 @@ client without coupling business logic to that client.
 ```mermaid
 flowchart TB
 
-    WebUI[React Web UI]
-    CoachClient[React / Electron Coach Client]
+    WebUI[React Web UI - PWA]
     CoachAgent[Coach Agent]
     SpecialistAgent[Specialist Agent]
     ExternalSystems[External Systems]
@@ -123,7 +122,6 @@ flowchart TB
     API[SocAlytics API]
 
     WebUI --> API
-    CoachClient --> API
     CoachAgent --> MCP
     SpecialistAgent --> MCP
     MCP --> API

@@ -9,8 +9,8 @@ through approved changes.
 
 - [`src/platform/`](src/platform/README.md) contains the executable control-plane
     platform host and its ownership guidance.
-- [`src/clients/`](src/clients/README.md) records the planned Web UI and Electron
-    Coach Client ownership boundary.
+- [`src/clients/`](src/clients/README.md) records the planned ownership boundary
+    of the Web UI, a Progressive Web App with an offline mode for coaches.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.
 - [`src/analysts/`](src/analysts/README.md) contains the executable Analyst

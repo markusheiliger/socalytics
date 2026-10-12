@@ -39,7 +39,7 @@ accepted as the implementation target; it does not imply that code exists.
 
 | Architecture group | Status |
 | --- | --- |
-| Client application boundary and offline-ready coach client | Accepted ([decision evidence](client-decision-evidence.md)) |
+| Web UI as an offline-capable PWA | Accepted ([decision evidence](client-decision-evidence.md)) |
 | Detailed client architecture gate | Accepted ([decision evidence](client-decision-evidence.md)) |
 | API-first interfaces and plane boundaries | Provisional |
 | S3-compatible data plane and control-plane video isolation | Provisional |
@@ -103,11 +103,10 @@ flowchart TB
 
     User[Coach / Club User]
 
-    subgraph Clients[Client Applications]
-        WEB[React Web UI]
-        COACH[React / Electron Coach Client]
-        LOCAL[(Local Coach Data)]
-        COACH <--> LOCAL
+    subgraph Clients[Client Application]
+        WEB[React Web UI - PWA]
+        LOCAL[(Offline Mode Data)]
+        WEB <-->|Offline mode| LOCAL
     end
 
     subgraph ControlPlane["Control Plane"]
@@ -149,10 +148,8 @@ flowchart TB
     end
 
     User --> WEB
-    User --> COACH
 
-    WEB --> API
-    COACH <-->|Online API / Future Sync| API
+    WEB <-->|Online API / Future Sync| API
 
     API --> DB
     API --> AGENTS
@@ -223,10 +220,9 @@ flowchart TB
     User[Coach / Club User]
 
     subgraph Clients
-        WebUI[React Web UI]
-        CoachClient[React / Electron Coach Client]
-        LocalData[(User-Scoped Local Data)]
-        CoachClient <--> LocalData
+        WebUI[React Web UI - PWA]
+        LocalData[(User-Scoped Offline Data)]
+        WebUI <-->|Offline mode| LocalData
     end
 
     subgraph ControlPlane
@@ -262,8 +258,7 @@ flowchart TB
         SpecialistAgents
     end
 
-    WebUI --> API
-    CoachClient <-->|Online API / Future Sync| API
+    WebUI <-->|Online API / Future Sync| API
 
     API --> PostgreSQL
     API --> AgentOrchestration

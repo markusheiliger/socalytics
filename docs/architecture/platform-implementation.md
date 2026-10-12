@@ -18,7 +18,7 @@ SocAlytics uses one `src` root with these first-level ownership areas:
 
 - `src/platform` owns the platform API, control plane, and supporting platform
   services; its initial executable host scaffold is implemented
-- `src/clients` owns the future Web UI and Electron Coach Client source
+- `src/clients` owns the future Web UI, a Progressive Web App
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
 - `src/analysts` owns the Analyst Manager, whose first desktop slice is
@@ -417,38 +417,32 @@ migration readiness, and bounded recovery/reconciliation.
 Hermes is a planned separate Python OCI deployment with no direct database
 access. It uses Microsoft Agent Framework behind local adapters, authenticates
 as a stamp-local workload, and uses versioned REST
-operations to claim, renew, checkpoint, delegate, and complete work. Connected
-Web UI and Coach Client applications use the API/BFF for asynchronous
-submission and conditional status, result, and lineage polling; they never call
+operations to claim, renew, checkpoint, delegate, and complete work. The
+connected Web UI uses the API/BFF for asynchronous
+submission and conditional status, result, and lineage polling; it never calls
 Hermes directly. The complete persistence, transport, authorization, fencing,
 and recovery contract is defined by
 [Intelligence and Agents](intelligence-and-agents.md#agent-orchestration-authority).
-MCP tools, prompt/profile resolution, model execution, and Web UI/Coach Client
-agent workflows remain future implementation work.
+MCP tools, prompt/profile resolution, model execution, and Web UI agent
+workflows remain future implementation work.
 
 ## Client Technology
 
-The connected Web UI is an independent React and TypeScript application built
-with Vite. React Router handles navigation, TanStack Query manages remote server
-state, and MUI supplies accessible components under a SocAlytics theme.
-
-The Web UI and Electron Coach Client keep separate application shells,
-packages, and builds. The Web UI release is coordinated with the platform API
-and remains a separately containerized deployment unit built from
-`src/clients`; the Coach Client retains an independent release lifecycle. A
-future `pnpm` workspace may allow generated API clients, domain-neutral
-validation, design tokens, and selected MUI components to be shared while
-workflow-specific screens and security-sensitive shell integrations remain
-application-owned. Shared packages cannot import Electron, Node built-ins,
-preload/main modules, local-store adapters, shell routing, or privileged IPC
-implementations. See
+The Web UI is one React and TypeScript Progressive Web App built with Vite.
+React Router handles navigation, TanStack Query manages remote server state, and
+MUI supplies accessible components under a SocAlytics theme. A service worker
+caches the application shell and is versioned with each release. The Web UI
+release is coordinated with the platform API and remains a separately
+containerized deployment unit built from `src/clients`, served from one origin.
+There is no second client application. See
 [Client Applications](client-applications.md).
 
-Future offline Coach Client implementation follows the decisions in
-[Client Applications](client-applications.md):
-main-process encrypted SQLite, opaque-cursor REST deltas, explicit clips,
-read-only first offline delivery, bounded device-bound entitlement, and
-OS-protected per-installation encryption keys.
+Future offline-mode implementation follows the decisions in
+[Client Applications](client-applications.md): an encrypted replica owned by a
+dedicated worker, opaque-cursor REST deltas, explicit clips, read-only first
+offline delivery, a short-lived entitlement bound to a non-exportable device
+key, a store key wrapped through WebAuthn PRF or a non-exportable WebCrypto
+key, and a supported-browser matrix proven by a prototype gate.
 
 ## Analyst Technology
 
@@ -557,8 +551,8 @@ choice or reveals a material operational tradeoff:
   partially met.** The .NET 10 host, Aspire local composition, operational
   API surface, layer composition methods, structural tests, and the persistence
   foundation (migrations, Migrator, units of work, version triggers) are
-  implemented. Domain persistence, publication, secure BFF identity, both client
-  shells, cross-runtime schema agreement, reproducible Analyst images, and the
+  implemented. Domain persistence, publication, secure BFF identity, the Web UI
+  and its offline mode, cross-runtime schema agreement, reproducible Analyst images, and the
   Avalonia/OCI platform matrix remain unsupported by implementation evidence.
 - **Mature enough to govern subsequent implementation — not met for
   promotion.** The foundation can guide further reversible implementation, but
@@ -577,7 +571,8 @@ choices as implementation-proven, evidence must demonstrate:
   reset, lockout, MFA, logout, and authorization tests
 - Kiota-generated TypeScript, C#, and Python clients compile and pass contract
   compatibility tests
-- shared React packages operate correctly in the Vite and Electron shells
+- the Web UI PWA installs, updates through its service worker, and meets the
+  supported-browser evidence for offline mode
 - JSON Schema validation agrees at .NET and Python boundaries
 - locked Analyst images rebuild reproducibly and emit valid manifests
 - Avalonia and OCI-runtime spikes satisfy the platform matrix in the

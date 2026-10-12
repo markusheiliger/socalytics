@@ -4,7 +4,7 @@
 
 The Analyst Manager is cross-platform operator software installed on hardware
 that participates in a SocAlytics deployment stamp. It is distinct from the
-web and coach client applications. Its role resembles the participation model
+Web UI. Its role resembles the participation model
 of the SETI project: an installed client contributes available compute capacity
 to a distributed workload. Here, that capacity analyzes match recording video
 segments rather than searching radio data for extraterrestrial signals.

@@ -1,9 +1,16 @@
 # Client Architecture Decision Evidence
 
 This dossier records the evidence and approvals for the client architecture
-summarized by [Client Applications](client-applications.md).
-The evidence is architecture-only: it does not scaffold either client or add a
+summarized by [Client Applications](client-applications.md): one React Web UI,
+delivered as a Progressive Web App (PWA) with an offline mode for coaches.
+The evidence is architecture-only: it does not scaffold the client or add a
 client-facing API.
+
+The 2026-10-12 revision replaces the earlier plan for a separate Electron Coach
+Client with the offline-capable PWA. No client code existed, so the decisions
+are revised in place: D-01 and D-04 to D-06 keep their outcomes, and D-02,
+D-03, D-07, D-08, and D-09 record the PWA outcomes with their evidence and
+residual risks.
 
 ## Decision Owners And Approvers
 
@@ -12,9 +19,9 @@ client-facing API.
 | Architecture Owner | Markus Heiliger | Architectural consistency, established invariants, and final gate release | `APR-ARCH-2026-09-21` |
 | Product Owner | Markus Heiliger | First-release workflows, offline/media scope, and write behavior | `APR-PROD-2026-09-21` |
 | Security and Data-Governance Owner | Markus Heiliger | Persistence, disconnected authorization, encryption, retention, deletion, privacy, and residual risk | `APR-SECGOV-2026-09-21` |
-| Desktop Release Owner | Markus Heiliger | Initial operating systems, signing, packaging, updates, recovery, and support | `APR-DESKTOP-2026-09-21` |
+| Web Release Owner | Markus Heiliger | Supported browsers, installation, service-worker updates, recovery, and support | `APR-WEB-2026-10-12` |
 
-One named assignee fills all four roles for this architecture decision. The
+One named assignee fills all four roles for these architecture decisions. The
 review found no separation-of-duties requirement for approving a documentation
 boundary that creates no runtime authority, credential, production release, or
 data-processing mechanism. Later implementation and production-readiness
@@ -32,7 +39,7 @@ architecture documents and future validation can refer to them.
 
 ## Decision Evidence Index
 
-### D-01 First Coach Client Release Scope
+### D-01 First Release Scope
 
 - **Alternatives:** online-only; read-only offline; offline reads and queued
   writes.
@@ -47,45 +54,52 @@ architecture documents and future validation can refer to them.
 - **Migration effects:** application-owned repositories and explicit
   connectivity state must allow later local reads without rewriting screens.
 - **Residual-risk disposition:** accepted for the first release by Product and
-  Architecture review; offline capability remains a separately gated delivery.
+  Architecture review; offline mode remains a separately gated delivery.
 
-### D-02 Client Code Sharing
+### D-02 Client Application Shape
 
-- **Alternatives:** independent applications; separate shells with selected
-  shared packages; one React application hosted in web and Electron.
+- **Alternatives:** a Web UI plus a separate Electron Coach Client with selected
+  shared packages; one Web UI delivered as a PWA with an offline mode; two PWA
+  builds from one codebase on separate origins.
 - **Owner approvals:** Architecture Owner, Product Owner, Security and
-  Data-Governance Owner, and Desktop Release Owner.
-- **Evaluation method:** disposable workspace/build and dependency-boundary
-  analysis without production client scaffolding.
-- **Required evidence:** separate builds and releases, generated-client reuse,
-  environment-neutral package boundaries, and Electron privilege isolation.
-- **Result:** separate application shells with selected shared packages is
-  supported.
-- **Risks:** shared UI or utilities can accidentally import Electron or
-  workflow-specific dependencies.
-- **Migration effects:** version shared packages independently enough to
-  preserve shell release autonomy and generated-client compatibility.
-- **Residual-risk disposition:** accepted with automated dependency-boundary
-  tests required before shared production packages are introduced.
+  Data-Governance Owner, and Web Release Owner.
+- **Evaluation method:** delivery-cost, workflow-duplication, release-coupling,
+  and trust-boundary analysis without production client scaffolding.
+- **Required evidence:** every workflow is built once, releases stay
+  coordinated with the API, and the offline replica has a defined boundary on
+  the shared origin.
+- **Result:** one React Web UI on a single origin, delivered as a PWA, is
+  supported. Coach workflows are part of the general Web UI; offline mode is a
+  capability of it, not a separate module, build, or origin.
+- **Risks:** administration screens share the origin with the offline replica,
+  so a script compromise on the origin reaches both.
+- **Migration effects:** the Web UI owns all client code; repositories and
+  connectivity state stay application-owned; the origin is hardened before
+  offline mode ships.
+- **Residual-risk disposition:** accepted with the origin hardening in
+  `EV-SPR-01` and the prototype gate before offline release.
 
 ### D-03 Local Persistence Technology
 
-- **Alternatives:** SQLite in Electron main; renderer IndexedDB;
-  application-managed encrypted files.
+- **Alternatives:** an encrypted replica owned by a dedicated worker (for
+  example SQLite compiled to WebAssembly on the Origin Private File System);
+  IndexedDB accessed from the UI thread; application-managed encrypted records
+  in browser storage.
 - **Owner approvals:** Architecture Owner and Security and Data-Governance
   Owner.
-- **Evaluation method:** process-boundary, threat, lifecycle, migration, and
+- **Evaluation method:** isolation, threat, lifecycle, migration, eviction, and
   recovery comparison.
-- **Required evidence:** renderer isolation, encryption/key custody, schema
-  migration, corruption recovery, and verifiable purge.
-- **Result:** SQLite owned by Electron main behind narrow IPC and repository
-  interfaces is supported.
-- **Risks:** IPC overexposure or key mishandling could reveal the user-scoped
-  replica.
+- **Required evidence:** no storage access from screens, encryption and key
+  custody, schema migration, corruption and eviction recovery, and verifiable
+  purge.
+- **Result:** an encrypted replica owned by a dedicated worker behind
+  application-owned repositories is supported.
+- **Risks:** the browser may evict the replica, and a script compromise on the
+  origin can message the worker while an offline session is unlocked.
 - **Migration effects:** local schemas need versioned forward migrations,
-  recovery or rebuild, and purge receipts.
-- **Residual-risk disposition:** accepted subject to implementation threat
-  tests and OS-keystore evidence before offline release.
+  rebuild after eviction or corruption, and purge receipts.
+- **Residual-risk disposition:** accepted subject to the prototype gate and
+  implementation threat tests before offline release.
 
 ### D-04 Synchronization Contract
 
@@ -151,9 +165,13 @@ architecture documents and future validation can refer to them.
   reconciliation, and key-rotation threat scenarios.
 - **Required evidence:** bounded authority identifying user, teams, matches,
   roles, issue/expiry, device binding, and policy version.
-- **Result:** a short-lived signed, device-bound offline entitlement is
-  supported; indefinite disconnected authority is rejected.
-- **Risks:** revocation cannot be observed until reconnect or local expiry.
+- **Result:** a short-lived signed entitlement bound to a non-exportable
+  WebCrypto key generated on the device is supported; the session cookie never
+  unlocks offline data, and indefinite disconnected authority is rejected. The
+  binding never uses a passkey, because synced passkeys exist on all of a
+  user's devices.
+- **Risks:** revocation cannot be observed until reconnect or local expiry; the
+  device key lives in the browser profile rather than an OS credential store.
 - **Migration effects:** entitlement signing keys, policy versions, clock
   tolerance, rollover, and reconnect reconciliation require contracts.
 - **Residual-risk disposition:** accepted with short expiry, failure-closed
@@ -161,41 +179,47 @@ architecture documents and future validation can refer to them.
 
 ### D-08 Local Data Protection And Retention
 
-- **Alternatives:** OS full-disk encryption only; app-encrypted store with
-  OS-protected per-installation key; user-managed application password.
+- **Alternatives:** browser and OS disk encryption only; a store key wrapped by
+  a key derived through the WebAuthn PRF extension from a platform passkey; a
+  store key wrapped by a non-exportable WebCrypto key in the browser profile;
+  a user-managed application password.
 - **Owner approvals:** Architecture Owner and Security and Data-Governance
   Owner.
 - **Evaluation method:** key custody and lifecycle review covering sign-out,
-  expiry, authorization loss, deletion, holds, removal, diagnostics, and device
-  loss.
+  expiry, authorization loss, deletion, holds, removal, diagnostics, eviction,
+  and device loss.
 - **Required evidence:** per-class retention, inaccessible-first purge,
-  minimized logs, key destruction, and purge verification.
-- **Result:** an app-encrypted store with a per-installation key protected by
-  the OS credential store is supported.
-- **Risks:** a compromised unlocked device can access locally authorized data.
-- **Migration effects:** key rotation/recovery, policy-versioned retention,
+  crypto-erasure, minimized logs, and purge verification through browser APIs.
+- **Result:** a store key wrapped by a PRF-derived key (one platform
+  authenticator gesture per offline session) is preferred; where PRF is
+  unavailable, a non-exportable WebCrypto key in the browser profile wraps it,
+  or offline mode is not offered on that device.
+- **Risks:** a compromised unlocked session can access locally authorized data;
+  PRF availability depends on operating-system and browser versions.
+- **Migration effects:** key rotation and recovery, policy-versioned retention,
   deletion tombstones, hold handling, and explicit cache removal are required.
 - **Residual-risk disposition:** accepted with bounded offline entitlement,
-  OS-keystore protection, and implementation evidence before offline release.
+  crypto-erasure, and the prototype gate before offline release.
 
-### D-09 Desktop Platforms And Distribution
+### D-09 Platforms And Distribution
 
-- **Alternatives:** Windows only; Windows and macOS; Windows, macOS, and Linux.
-- **Owner approvals:** Architecture Owner, Product Owner, and Desktop Release
+- **Alternatives:** Electron packages for Windows only, or for Windows, macOS,
+  and Linux; an installable PWA with a supported-browser matrix.
+- **Owner approvals:** Architecture Owner, Product Owner, and Web Release
   Owner.
-- **Evaluation method:** validated initial coach-demand review plus per-platform
-  install, signature, update, recovery, uninstall, local-data, and support
-  obligations.
-- **Required evidence:** demand traceability and a supportable signed release
-  lifecycle for every selected OS.
-- **Result:** Windows 11 on x64 is the initial supported platform; macOS and
-  Linux are deferred pending validated demand and release-operation evidence.
-- **Risks:** coaches using deferred platforms cannot run the packaged client.
-- **Migration effects:** keep shared/application code platform-neutral and
-  require a packaging evidence matrix before adding an OS.
-- **Residual-risk disposition:** accepted by Product and Desktop Release review
-  with forward-fix as the default recovery policy and controlled downgrade only
-  for explicitly compatible data schemas.
+- **Evaluation method:** coach-demand review plus install, update, recovery,
+  local-data, and support obligations per platform.
+- **Required evidence:** demand traceability and a supportable release and
+  support path for every supported browser.
+- **Result:** an installable PWA with a supported-browser matrix is supported.
+  Offline mode starts with Chromium-based browsers on Windows; other browsers
+  and operating systems follow once their storage, eviction, and PRF evidence
+  exists. Connected use needs only a supported current browser.
+- **Risks:** offline mode is unavailable on browsers outside the matrix.
+- **Migration effects:** keep application code browser-neutral and require an
+  evidence row before adding a browser to the offline matrix.
+- **Residual-risk disposition:** accepted by Product and Web Release review
+  with forward-fix through service-worker updates as the default recovery.
 
 ## Delivery And Workspace Evidence
 
@@ -208,119 +232,91 @@ architecture documents and future validation can refer to them.
 | Fully disconnected meeting | Deferred; no local data is presented as available | Supported after persistence, sync, entitlement, retention, and purge controls exist | Supported only after read controls plus conflict-safe write evidence exist |
 | Agent submission and refresh | Connected-only, preserving current API/BFF authority | Connected-only | Connected-only unless a later accepted contract changes it |
 
-**Supported candidate:** online-only for the first Coach Client release.
+**Supported candidate:** online-only for the first release.
 
 **Deferred behavior:** offline reads, local media, disconnected sessions, and
 queued writes are not first-release behavior. The UI must expose connectivity
 and retry state rather than presenting stale or fabricated success.
 
-**Migration consequences:** coach screens obtain data through
-application-owned repositories; transport adapters remain replaceable; server
-contracts retain stable IDs and versions; connectivity state is explicit; no
-component may assume that a remote API call is the only possible future read
-source.
+**Migration consequences:** screens obtain data through application-owned
+repositories; transport adapters remain replaceable; server contracts retain
+stable IDs and versions; connectivity state is explicit; no component may
+assume that a remote API call is the only possible future read source.
 
 **Evidence result:** `EV-D01` supports D-01. The Product and Architecture
 Owners accepted the usability limitation because it avoids introducing
 unproven local authority while retaining a reversible path to offline reads.
 
-### EV-D02 Disposable Workspace And Dependency Proof
+### EV-D02 Application Shape Comparison
 
-The proof is an architecture-level workspace graph, not a production scaffold.
-It models two independently buildable shell roots and environment-neutral
-package edges:
+| Criterion | Web UI plus Electron Coach Client | One Web UI as a PWA with offline mode | Two PWA builds on separate origins |
+| --- | --- | --- | --- |
+| Workflow duplication | Coach workflows exist in both applications or in shared packages with strict boundaries | Every workflow is built once | Built once, but routing, authentication, and release are split |
+| Release and installation | Independent signed installer, update channel, and support matrix per operating system | Released with the API; the service worker updates installed PWAs | Two coordinated web releases |
+| Privilege isolation of the replica | Main process owns database and key behind typed IPC | A dedicated worker owns the replica on the shared origin | Separate origin isolates the replica from administration screens |
+| Key custody | OS credential store | PRF-derived key, else a non-exportable WebCrypto key | Same as the single PWA |
+| Offline-capable platforms | Windows first; each added OS needs packaging evidence | Supported-browser matrix; Chromium-based browsers on Windows first | Same as the single PWA |
+| Result | Superseded | Supported | Rejected because the isolation gain does not justify a second build and origin |
 
-```text
-apps/web -----------------> packages/api-client
-    |---------------------> packages/validation
-    |---------------------> packages/design-tokens
-    `---------------------> packages/ui-components
+The single PWA accepts that administration screens and the offline replica share
+one origin. The origin hardening in `EV-SPR-01` limits that exposure; a script
+compromise could already read every piece of data the user sees online.
 
-apps/coach-renderer ------> packages/api-client
-    |---------------------> packages/validation
-    |---------------------> packages/design-tokens
-    `---------------------> packages/ui-components
-
-apps/coach-main ----------> coach-owned privileged adapters
-apps/coach-preload -------> narrow typed IPC contract
-```
-
-| Alternative | Separate builds and releases | Generated-client reuse | Environment-neutral package boundary | Electron privilege isolation | Result |
-| --- | --- | --- | --- | --- | --- |
-| Independent applications | Strong | Duplicated or externally published | Strong through duplication | Strong | Rejected because stable contract, validation, and design logic would drift |
-| Separate shells with selected shared packages | Strong; each shell owns entry points, packaging, version, and release | Direct workspace consumption behind application adapters | Shared packages may depend on browser-neutral TypeScript/React only and must not import Electron, Node, shell routes, storage, IPC, or workflow modules | Main/preload remain Coach-owned; renderer receives only a typed allowlisted IPC facade | Supported |
-| One React application in both environments | Coupled build and release pressure | Direct | Weak because environment branches enter shared workflows | Weak; privileged concerns are more likely to leak into common code | Rejected |
-
-**Dependency assertions required before production packages exist:**
-
-- `packages/*` cannot depend on either `apps/*`.
-- shared packages cannot import `electron`, Node built-ins, preload/main modules,
-  local-store adapters, shell routing, or privileged IPC implementations.
-- the Web UI and Coach Client compile, test, package, and release independently.
-- generated API clients remain behind shell-owned adapters so generator changes
-  do not define domain or presentation models.
-- selected UI sharing is optional; a component stays shell-owned when its
-  workflow, authorization context, or platform behavior differs.
-
-**Evidence result:** `EV-D02` supports D-02 without creating directories,
-manifests, or source files for either production client.
+**Evidence result:** `EV-D02` supports D-02.
 
 ### EV-D09 Platform Demand And Distribution Review
 
 The 2026-09-21 owner review recorded one validated initial demand signal:
 Windows 11 x64 for the project sponsor's current coach deployment environment.
-No named first-release coach or support owner confirmed macOS or Linux demand.
-Absence of evidence is not evidence against those platforms; it means they
-remain deferred rather than silently accepted.
+An installable PWA serves that environment through Chromium-based browsers and
+removes operating-system packaging from the release path; other platforms
+depend on browser evidence instead of installers.
 
 | Candidate set | Demand evidence | Release-operation burden | Result |
 | --- | --- | --- | --- |
-| Windows 11 x64 | Confirmed current environment | One signed packaging/update path | Supported initial set |
-| Windows 11 x64 and current macOS | Windows confirmed; macOS unconfirmed | Adds Apple signing, notarization, hardware, update, and support obligations | Deferred |
-| Windows 11 x64, current macOS, and supported Linux distributions | Windows confirmed; macOS/Linux unconfirmed | Adds divergent package formats, signatures, desktop integration, update, and support matrices | Deferred |
+| Electron package for Windows 11 x64 | Confirmed current environment | Signed installer, update channel, uninstall, and support for one OS | Superseded |
+| Electron packages for Windows, macOS, and Linux | Windows confirmed; others unconfirmed | Adds Apple signing and notarization, Linux package formats, and per-OS update and support | Superseded |
+| Installable PWA; offline mode for Chromium-based browsers on Windows first | Confirmed environment covered | Service-worker updates with the API release; a supported-browser matrix | Supported |
 
-#### Windows 11 x64 Release Evidence Contract
+#### Supported-Browser Evidence Contract
 
-| Obligation | Accepted evidence before release |
+| Obligation | Accepted evidence before offline mode is enabled on a browser |
 | --- | --- |
-| Install and launch | Clean-user and upgrade installation launches the signed application without administrator rights unless a documented packaging constraint requires elevation |
-| Signature | Installer and application artifacts validate against the approved publisher identity; invalid or revoked signatures fail closed |
-| Update | Controlled channel verifies signed update metadata and payloads before applying an update |
-| Recovery | Forward-fix is the default; controlled downgrade is allowed only when the installed local schema and entitlement policy remain compatible |
-| Uninstall | Removes application binaries and offers an explicit, separately confirmed removal of user-scoped local data |
-| Local data | Upgrade preserves compatible encrypted data; uninstall, sign-out, expiry, revocation, and explicit removal follow the accepted lifecycle policy |
-| Support | Desktop Release Owner owns the minimum supported Windows 11 release, packaging channel, signing identity, update response, and end-of-support notice |
+| Install and launch | The PWA installs from the browser and starts offline from the cached application shell |
+| Persistent storage | The browser grants persistent storage to the installed PWA; eviction is detected and shown as missing or stale data |
+| Key custody | PRF-derived key wrapping works with the platform authenticator, or the non-exportable WebCrypto fallback is accepted for that browser |
+| Device-bound entitlement | A non-exportable WebCrypto key is generated, used for binding, and cannot be exported |
+| Update | The service worker updates before synchronization when the API requires a newer client |
+| Recovery | Forward-fix is the default; a corrupt or incompatible replica is rebuilt from the server |
+| Removal | Explicit removal and sign-out destroy the key and delete IndexedDB, Origin Private File System, and Cache Storage copies, confirmed through browser APIs |
+| Quota | Explicitly downloaded clips fit the granted quota, with eviction of clips before metadata |
+| Support | Web Release Owner owns the supported-browser matrix, minimum versions, and end-of-support notice |
 
-Adding macOS or Linux requires a new evidence row with validated coach demand,
-supported OS versions, signing/notarization or package-signature proof, update
-authority, recovery, uninstall/local-data semantics, and an assigned support
-owner. Platform-neutral application and shared-package boundaries must prevent
-Windows-only dependencies from becoming domain dependencies.
+Adding a browser or operating system to the offline matrix requires an evidence
+row covering these obligations and validated coach demand.
 
-**Evidence result:** `EV-D09` supports D-09 and the Windows 11 x64 initial
-candidate.
+**Evidence result:** `EV-D09` supports D-09.
 
 ## Offline Data And Synchronization Evidence
 
 ### EV-D03 Local Persistence Comparison
 
-| Criterion | SQLite in Electron main | Renderer IndexedDB | Application-managed encrypted files |
+| Criterion | Worker-owned encrypted replica | IndexedDB from the UI thread | Application-managed encrypted records |
 | --- | --- | --- | --- |
-| Process isolation | Database connection and encryption key stay in main; renderer uses allowlisted typed IPC | Renderer owns direct data access; a renderer compromise reaches the store | Main can own files, but every query/update path becomes custom privileged code |
-| Renderer access | No path, SQL, key, or generic database execution crosses IPC | Direct browser API access | Must expose custom commands; generic file access is forbidden |
-| Encryption and key custody | SQLCipher-equivalent encrypted database; per-installation key retrieved only in main from OS credential store | Browser storage encryption and key isolation are inconsistent across Electron/platform versions | Application must correctly design record/file encryption, nonces, indexes, and atomic replacement |
-| Schema migration | Transactional numbered migrations with recorded schema version | Version-change callbacks, but recovery and large migrations are renderer-lifecycle-sensitive | Entire custom format and migration engine required |
-| Corruption recovery | Integrity check; restore last safe local snapshot or purge/rebuild from server; never treat replica as authority | Browser quota/eviction and partial upgrade recovery are less controllable | Custom journal, integrity, and repair behavior required |
-| Purge behavior | Close handles, destroy key material, remove database/WAL/temp copies, verify absence, retain minimized receipt | Delete database and verify object stores, subject to browser/runtime behavior | Enumerate, delete, and verify every data/index/temp file |
+| Isolation | Only the worker opens the store; screens use repositories backed by worker messages | Every screen and script on the origin reaches the store directly | Possible, but every query and index is custom code |
+| Screen access | No storage handle, SQL, or key crosses the worker boundary | Direct browser API access | Must expose custom commands |
+| Encryption and key custody | Store encrypted with a key wrapped by a PRF-derived or non-exportable WebCrypto key; the unwrapped key stays in the worker | Encryption must be added per record in the UI thread | Application designs record encryption, nonces, indexes, and atomic replacement |
+| Schema migration | Transactional numbered migrations with recorded schema version | Version-change callbacks tied to the page lifecycle | Entire custom format and migration engine |
+| Eviction and corruption recovery | Integrity check; rebuild from the server after eviction or corruption; never treat the replica as authority | Same rebuild, but partial upgrades are harder to detect | Custom journal, integrity, and repair behavior |
+| Purge behavior | Destroy the key (crypto-erasure), then delete the store, temporary files, and cached media; confirm through browser APIs | Delete databases and verify object stores | Enumerate and delete every record and index |
 | Result | Supported | Rejected | Rejected |
 
-The IPC contract is entity- and use-case-specific. It validates the current
-user/team/match scope in main, rejects arbitrary SQL and paths, returns
+The worker's message contract is entity- and use-case-specific. It validates
+the current user, team, and match scope, rejects arbitrary queries, returns
 minimized typed results, and records no sensitive payload in diagnostics.
 
-**Evidence result:** `EV-D03` supports D-03. SQLite is a replaceable local
-replica implementation behind application repositories, not a source of
-authority.
+**Evidence result:** `EV-D03` supports D-03. The replica is a replaceable
+local cache behind application repositories, not a source of authority.
 
 ### EV-D04 Synchronization Failure Simulation
 
@@ -407,15 +403,16 @@ capability.
 | --- | --- | --- | --- |
 | Access-token/authority expiry | Denies disconnected session immediately | Denies a new offline session after entitlement expiry; never self-extends | Continues authority without a bound |
 | Clock skew | Server time controls access | Signed issue/expiry plus narrow configured skew; rollback beyond tolerance fails closed | Local clock manipulation can extend access indefinitely |
-| Entitlement tampering | No offline artifact | Signature, audience, device binding, policy version, and claims validation fail closed | Cached flags/state are easier to alter and lack bounded issuer proof |
-| Device loss | Server revocation prevents next online login | Exposure lasts no longer than entitlement/local-key protections; reconnect reconciles revocation and purges | Lost device can retain continuing authority |
+| Entitlement tampering | No offline artifact | Signature, audience, device-key binding, policy version, and claims validation fail closed | Cached flags/state are easier to alter and lack bounded issuer proof |
+| Device loss | Server revocation prevents next online login | Exposure lasts no longer than entitlement and key protections (PRF requires the platform authenticator); reconnect reconciles revocation and purges | Lost device can retain continuing authority |
 | Mid-outage revocation | Access ends at the next online check | Cannot be learned while offline; bounded expiry limits exposure and reconnect purges | Cannot be learned and has no expiry bound |
 | Signing-key rotation | Not applicable | Entitlement carries key ID; client accepts only approved current/grace verification keys and policy versions | No reliable issuer/key lifecycle |
 | Result | Secure but no disconnected use | Supported | Rejected |
 
 The entitlement identifies issuer, audience, subject user, club stamp, permitted
-teams and matches, roles, issue time, not-before time, expiry, device public-key
-binding, policy version, and unique identifier. It authorizes only reading data
+teams and matches, roles, issue time, not-before time, expiry, the public key of
+the non-exportable device key, policy version, and unique identifier. The
+binding never uses a passkey: synced passkeys exist on all of a user's devices. It authorizes only reading data
 already present and permitted by D-05/D-06; it cannot authorize administration,
 recording upload, new agent submission, refresh, sync, or queued writes.
 
@@ -431,9 +428,10 @@ disconnected authority.
 
 | Alternative | Key custody and device loss | Sign-out/expiry/access loss/deletion | Holds and explicit removal | Diagnostics | Result |
 | --- | --- | --- | --- | --- | --- |
-| OS full-disk encryption only | Protects a powered-off disk but not application-scoped access on an unlocked device | No application key boundary for prompt inaccessibility or crypto-erasure | File deletion only; hold behavior is application-defined anyway | Does not prevent payload logging | Rejected as insufficient alone |
-| App-encrypted store with OS-protected per-installation key | Non-exportable where the platform permits; main process retrieves it; device loss exposure is bounded by OS login, entitlement expiry, and revocation reconciliation | Content becomes inaccessible first; key/store/media copies are then purged according to trigger and policy | Holds preserve only specifically approved content while removing ordinary access; explicit removal covers database, media, indexes, temp files, and key material | Structured allowlist excludes secrets and payloads; purge evidence is minimized | Supported |
-| User-managed application password | User supplies/recovers key material; weak/reused/lost passwords add support and recovery risk | Can support encryption but complicates unattended expiry/purge and recovery | Explicit removal possible; holds still require policy machinery | Does not inherently prevent payload logging | Rejected |
+| Browser and OS disk encryption only | Protects a powered-off disk but not data in an unlocked browser profile | No application key boundary for prompt inaccessibility or crypto-erasure | Deletion only; hold behavior is application-defined anyway | Does not prevent payload logging | Rejected as insufficient alone |
+| Store key wrapped by a PRF-derived key | Unwrapping needs the platform authenticator (one gesture per offline session); a copied profile alone cannot open the store | Destroying the wrapped key makes content unreadable at once; storage deletion follows | Holds preserve only approved content while removing ordinary access; explicit removal covers store, media, caches, and key material | Structured allowlist excludes secrets and payloads; purge evidence is minimized | Supported (preferred) |
+| Store key wrapped by a non-exportable WebCrypto key | The key cannot be exported, but anyone using the unlocked browser profile can use it | Same crypto-erasure and deletion | Same | Same | Supported where PRF is unavailable |
+| User-managed application password | User supplies and recovers key material; weak, reused, or lost passwords add support and recovery risk | Can support encryption but complicates expiry, purge, and recovery | Explicit removal possible; holds still require policy machinery | Does not inherently prevent payload logging | Rejected |
 
 #### Accepted Lifecycle By Data Class
 
@@ -441,9 +439,9 @@ disconnected authority.
 | --- | --- | --- | --- |
 | Authorization/team/match metadata | Bounded by entitlement and configured metadata retention | sign-out policy, entitlement/policy expiry, authorization loss, source deletion, explicit removal | A hold never grants UI access; retain only approved evidence scope |
 | Analytics/result summaries | No longer than related authorized match metadata | same triggers plus result supersession when policy requires | Same |
-| Explicit clips/thumbnails | Shorter media-specific period and quota | same triggers plus quota eviction and user clip removal | Same |
+| Explicit clips/thumbnails | Shorter media-specific period and quota | same triggers plus quota or browser eviction and user clip removal | Same |
 | Sync cursors/tombstones | Minimum period needed for safe reconciliation and purge verification | replace after recovery; retain deletion suppression as policy requires | Hold cannot reactivate deleted authority |
-| Entitlements/keys | Entitlement expires cryptographically; old keys have a bounded rotation grace only for verification/decryption migration | expiry, sign-out removal policy, device reset, revocation reconciliation, explicit removal, completed key rotation | Secret key material is not retained under content holds |
+| Entitlements/keys | Entitlement expires cryptographically; old keys have a bounded rotation grace only for verification/decryption migration | expiry, sign-out removal policy, browser-data reset, revocation reconciliation, explicit removal, completed key rotation | Secret key material is not retained under content holds |
 | Minimized purge/audit receipts | Separately bounded non-payload evidence period | policy expiry or approved evidence deletion | May be held when specifically authorized |
 
 Source deletion and authorization loss remove visibility before asynchronous
@@ -463,10 +461,10 @@ Review scope: D-03 through D-08 against the trust and copy-lifecycle rules in
 
 | Boundary or obligation | Selected control | Residual risk | Disposition |
 | --- | --- | --- | --- |
-| Human/renderer to API and privileged desktop process (`BND-001`) | BFF/API remains authoritative; context isolation, sandboxed renderer, narrow typed preload IPC, no direct database/key access | A renderer or dependency vulnerability can invoke allowed operations as the active user | Accept for architecture; implementation requires IPC authorization, dependency, and adversarial tests |
+| Human client to API/BFF and the offline replica (`BND-001`) | BFF/API remains authoritative; one hardened origin with a strict Content Security Policy, Trusted Types, Subresource Integrity, and no third-party scripts; only the worker opens the replica, and screens use typed repositories | A script or dependency compromise on the origin can invoke allowed operations and read the unlocked replica as the active user, as it can already read everything the user sees online | Accept for architecture; implementation requires worker-message authorization, dependency, and adversarial tests |
 | Stamp and team/match isolation (`BND-005`, `CTL-001`, `CTL-007`) | Cursor, entitlement, snapshot, and delta are bound to one club stamp and current user/team/match scope | Server authorization defect could disclose data before local controls act | Accept only with server boundary tests; local state never broadens scope |
-| Active store to cache/index/telemetry (`BND-008`, `CTL-010`) | Copy inventory includes SQLite, WAL/temp, media, thumbnails, indexes, diagnostics, and purge receipts | Crash/interruption can delay physical removal | Accept with inaccessible-first behavior, restartable purge, retries, and verification |
-| Encryption and secrets (`CTL-008`) | App-encrypted store, OS-protected per-installation key, signed entitlement, no secret/payload logging | Unlocked compromised device can access active authorized content | Accept with OS account protection, bounded entitlement, rapid expiry, explicit removal, and device-loss response |
+| Active store to cache/index/telemetry (`BND-008`, `CTL-010`) | Copy inventory includes the replica and its temporary files, IndexedDB, Origin Private File System and Cache Storage entries, media, thumbnails, diagnostics, and purge receipts | Crash/interruption can delay physical removal; physical removal is confirmed only through browser APIs | Accept with crypto-erasure first, inaccessible-first behavior, restartable purge, retries, and verification |
+| Encryption and secrets (`CTL-008`) | Encrypted store with a key wrapped by a PRF-derived or non-exportable WebCrypto key, device-bound signed entitlement, no secret/payload logging | A compromised unlocked session can access active authorized content; without PRF the wrapping key lives in the browser profile | Accept with OS account protection, bounded entitlement, rapid expiry, explicit removal, and device-loss response |
 | Authorization loss and source deletion | Reconcile current authority, hide first, persist tombstone, purge all local classes, retain minimized outcome evidence | Offline device cannot learn revocation until expiry/reconnect | Accept because authority is time-bounded; indefinite authority is prohibited |
 | Retention and holds | Versioned per-class bounded policy; narrow expiring holds do not restore access; secrets excluded from holds | Incorrect policy configuration can over-retain content | Accept only with readiness validation that rejects absent/unbounded values |
 | Diagnostics and support | Allowlisted operational fields; no tokens, keys, entitlement payloads, database/media payloads, or durable URLs | Free-form support capture could bypass normal schemas | Accept only with support-bundle review/redaction tests and explicit exceptional capture controls |
@@ -489,35 +487,36 @@ isolation.
 
 ### REV-CLIENT-2026-09-21
 
-The Architecture, Product, Security/Data-Governance, and Desktop Release roles
+The Architecture, Product, Security/Data-Governance, and Web Release roles
 reviewed the client choices together against the architecture decision
-scenarios.
+scenarios. The 2026-10-12 revision repeated the review for D-02, D-03, D-07,
+D-08, and D-09.
 
 | Decision | Realistic alternatives | Supporting evidence | Consequences and migration understood | Accountable owner/required approval | Review result |
 | --- | --- | --- | --- | --- | --- |
 | D-01 First release scope | Yes | `EV-D01` | Yes | Architecture + Product | Pass |
-| D-02 Code sharing | Yes | `EV-D02` | Yes | Architecture + Product + Security/Data-Governance + Desktop Release | Pass |
+| D-02 Application shape | Yes | `EV-D02` | Yes | Architecture + Product + Security/Data-Governance + Web Release | Pass |
 | D-03 Local persistence | Yes | `EV-D03`, `EV-SPR-01` | Yes | Architecture + Security/Data-Governance | Pass |
 | D-04 Synchronization | Yes | `EV-D04`, `EV-SPR-01` | Yes | Architecture + Security/Data-Governance | Pass |
 | D-05 Offline data/media | Yes | `EV-D05`, `EV-SPR-01` | Yes | Architecture + Product + Security/Data-Governance | Pass |
 | D-06 Offline writes | Yes | `EV-D06` | Yes | Architecture + Product | Pass |
 | D-07 Disconnected authorization | Yes | `EV-D07`, `EV-SPR-01` | Yes | Architecture + Product + Security/Data-Governance | Pass |
 | D-08 Protection/retention | Yes | `EV-D08`, `EV-SPR-01` | Yes | Architecture + Security/Data-Governance | Pass |
-| D-09 Platforms/distribution | Yes | `EV-D09` | Yes | Architecture + Product + Desktop Release | Pass |
+| D-09 Platforms/distribution | Yes | `EV-D09` | Yes | Architecture + Product + Web Release | Pass |
 
 Promotion-policy review confirms serious alternatives, explicit tradeoffs,
 architecture-level evidence, reversible boundaries, and maturity sufficient to
 govern later implementation proposals. It does not claim implementation,
-packaging, security-control, or operational exercise evidence already exists.
+browser, security-control, or operational exercise evidence already exists.
 
 #### Final Approval Outcomes
 
 | Approval reference | Assignee/role | Outcome |
 | --- | --- | --- |
-| `APR-ARCH-2026-09-21` | Markus Heiliger, Architecture Owner | Approved all nine outcomes and atomic gate release |
-| `APR-PROD-2026-09-21` | Markus Heiliger, Product Owner | Approved first-release, offline/media, write, entitlement-usability, and platform outcomes |
-| `APR-SECGOV-2026-09-21` | Markus Heiliger, Security and Data-Governance Owner | Approved persistence, synchronization, data scope, entitlement, lifecycle, privacy, and residual-risk outcomes |
-| `APR-DESKTOP-2026-09-21` | Markus Heiliger, Desktop Release Owner | Approved Windows 11 x64 initial support and release-operation obligations |
+| `APR-ARCH-2026-09-21` | Markus Heiliger, Architecture Owner | Approved all nine outcomes and atomic gate release; confirmed the 2026-10-12 PWA revision |
+| `APR-PROD-2026-09-21` | Markus Heiliger, Product Owner | Approved first-release, offline/media, write, entitlement-usability, and platform outcomes; confirmed the single PWA |
+| `APR-SECGOV-2026-09-21` | Markus Heiliger, Security and Data-Governance Owner | Approved persistence, synchronization, data scope, entitlement, lifecycle, privacy, and residual-risk outcomes; accepted the PWA residual risks in `EV-SPR-01` |
+| `APR-WEB-2026-10-12` | Markus Heiliger, Web Release Owner | Approved the supported-browser matrix, service-worker update, and offline evidence obligations |
 
 Every required approval is Approved. Architecture synchronization must still
 occur atomically; this review alone does not release the gate.
@@ -527,18 +526,19 @@ occur atomically; this review alone does not release the gate.
 | Candidate | Disposition and reason |
 | --- | --- |
 | Read-only or read/write offline in the first release | Deferred because persistence, synchronization, entitlement, and lifecycle implementation evidence does not exist |
-| Fully independent duplicated client logic | Rejected because generated contracts, validation, and design primitives would drift |
-| One shared React application for web and Electron | Rejected because it couples releases and weakens product and Electron privilege boundaries |
-| Renderer-owned IndexedDB | Rejected because privileged local data and key boundaries are weaker |
-| Application-managed encrypted files | Rejected because it creates a custom database, indexing, journaling, migration, and recovery burden |
+| Separate Electron Coach Client next to the Web UI | Superseded because every coach workflow would be built and maintained twice and a cross-platform installer adds release cost |
+| Two PWA builds on separate origins | Rejected because the isolation gain does not justify a second build, release, and origin |
+| IndexedDB accessed from the UI thread | Rejected because every script on the origin reaches the store directly |
+| Application-managed encrypted records | Rejected because it creates a custom database, indexing, journaling, migration, and recovery burden |
 | Full-snapshot-only synchronization | Rejected as the ordinary contract; retained only as bounded cursor-expiry recovery |
-| Server-event replay to the desktop | Rejected because it exposes retention, ordering, projection, and compatibility complexity to the client |
+| Server-event replay to the client | Rejected because it exposes retention, ordering, projection, and compatibility complexity to the client |
 | Complete recording replication | Rejected by default because exposure, storage, deletion, and support cost exceed the validated workflow |
 | Server-wins or blind last-write-wins | Rejected because user intent can be silently discarded |
 | Indefinite cached authority | Rejected because revocation and expiry would be unbounded |
-| OS full-disk encryption alone | Rejected because an unlocked device lacks an application-scoped protection and purge boundary |
+| Browser and OS disk encryption alone | Rejected because an unlocked profile lacks an application-scoped protection and purge boundary |
 | User-managed encryption passwords | Rejected because weak/lost/reused credentials add risk and lifecycle complexity |
-| Unvalidated macOS or Linux first-release support | Deferred until named coach demand and complete release-operation evidence exist |
+| Passkey-bound entitlement | Rejected because synced passkeys exist on all of a user's devices and cannot bind to one |
+| Offline mode on browsers outside the matrix | Deferred until storage, eviction, and PRF evidence and validated coach demand exist |
 
 The selected candidates require no revision after evidence review. The current
 decisions are recorded directly in the owning architecture documents; later
@@ -554,9 +554,9 @@ implementation validation remains future work.
 | Review lens | Reviewer role/assignee | Confirmation |
 | --- | --- | --- |
 | Architecture | Architecture Owner, Markus Heiliger | All nine decisions are explicit and mutually coherent; architecture sources state the accepted choices without relying on separate decision records |
-| Product | Product Owner, Markus Heiliger | Online-only first release, explicit-clip scope, read-only first offline delivery, bounded-outage behavior, and Windows 11 x64 scope match the validated workflows and deferrals |
-| Security and privacy | Security and Data-Governance Owner, Markus Heiliger | Local isolation, entitlement, encryption/key custody, retention, deletion, holds, diagnostics, copy inventory, and residual risks satisfy the architecture trust/copy obligations |
-| Desktop release | Desktop Release Owner, Markus Heiliger | Initial platform, signing, install/update/recovery, uninstall/local-data behavior, support ownership, and evidence required for added platforms are explicit |
+| Product | Product Owner, Markus Heiliger | Online-only first release, explicit-clip scope, read-only first offline delivery, bounded-outage behavior, one Web UI for every workflow, and the supported-browser matrix match the validated workflows and deferrals |
+| Security and privacy | Security and Data-Governance Owner, Markus Heiliger | Worker isolation, origin hardening, entitlement, encryption/key custody, retention, deletion, holds, diagnostics, copy inventory, and residual risks satisfy the architecture trust/copy obligations |
+| Web release | Web Release Owner, Markus Heiliger | Supported browsers, installation, service-worker update and recovery, local-data removal, support ownership, and evidence required for added browsers are explicit |
 
 #### Completeness Confirmation
 
@@ -564,25 +564,26 @@ implementation validation remains future work.
   results, risks, migration effects, residual-risk dispositions, and passing
   combined-review rows.
 - `APR-ARCH-2026-09-21`, `APR-PROD-2026-09-21`,
-  `APR-SECGOV-2026-09-21`, and `APR-DESKTOP-2026-09-21` are Approved.
+  `APR-SECGOV-2026-09-21`, and `APR-WEB-2026-10-12` are Approved.
 - The owning architecture documents link this evidence and state the accepted decisions.
 - The four affected architecture sources state the same accepted outcomes.
-- Later implementation must still provide workspace/dependency tests, local
-  schema/recovery tests, sync simulations, IPC and entitlement threat tests,
-  keystore/purge evidence, and Windows packaging/update evidence.
+- Later implementation must still provide local schema/recovery tests, sync
+  simulations, worker-message and entitlement threat tests, key custody and
+  purge evidence, and the supported-browser evidence of `EV-D09`.
 
 #### Non-Goals Confirmed
 
-- No client, shared package, installer, local database, sync engine,
-  entitlement issuer, or client-facing API was scaffolded or implemented.
+- No client, service worker, local database, sync engine, entitlement issuer, or
+  client-facing API was scaffolded or implemented.
 - No server retention duration, residency, production topology, backup value,
   or unrelated production-governance gap was resolved.
-- The Coach Client did not gain club administration, recording upload, or
-  offline agent submission/refresh.
+- Offline mode does not offer club administration, recording upload, or
+  agent submission/refresh.
 
 #### Preserved Invariants Confirmed
 
-- Two separately packaged clients retain their accepted scopes.
+- One Web UI serves every workflow; roles and team authorization decide what
+  each user sees, online and offline.
 - Server APIs remain authoritative; local state is a user-scoped replica.
 - Current user, team, and match authorization remains mandatory.
 - Every cursor, entitlement, and local copy is scoped to one club deployment

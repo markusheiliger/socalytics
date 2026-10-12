@@ -112,7 +112,8 @@ defined in the
 
 - React and TypeScript web UI built with Vite
 - React Router, TanStack Query, and MUI with a SocAlytics theme
-- React, TypeScript, and Electron coach desktop client
+- React and TypeScript Web UI as a Progressive Web App with an offline mode for
+  coaches
 - separately packaged application shells with selected environment-neutral
     packages shared through a `pnpm` workspace
 - future offline boundaries governed by

@@ -6,7 +6,7 @@ This area is reserved for SocAlytics user-facing client applications.
 
 ## Planned Ownership
 
-The planned boundary includes the React Web UI, the Electron Coach Client, and environment-neutral TypeScript sharing between those application shells. Browser-specific behavior, Electron IPC, offline storage, and workflow-specific UI remain owned by their eventual applications.
+The planned boundary is the React Web UI, a Progressive Web App on a single origin. It serves every workflow, including coach workflows and the later offline mode for coaches; there is no second client application.
 
 ## Exclusions
 

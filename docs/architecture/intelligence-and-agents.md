@@ -263,13 +263,13 @@ accepted state.
 
 ### Client, Transport, And Runtime Protocol
 
-Connected Web UI and Coach Client requests use one versioned API/BFF surface;
-neither client calls Hermes. An authorized submission includes an idempotency
+Connected Web UI requests use one versioned API/BFF surface;
+the Web UI never calls Hermes. An authorized submission includes an idempotency
 key scoped to initiating actor, conversation, and operation. The API returns
 `202 Accepted`, the durable conversation and invocation identifiers, a status
 location, and retry guidance. Repeating equivalent content with the same key
 returns the existing invocation; conflicting reuse fails without changing it.
-Clients retrieve status, result, and lineage through conditional REST polling.
+The Web UI retrieves status, result, and lineage through conditional REST polling.
 An unchanged representation produces the protocol's unchanged response and
 never creates another invocation or attempt.
 
