@@ -26,6 +26,7 @@ public sealed class FinalizeRecordingSetHandler(
     IAccessAuthorizer authorizer,
     IRequestContext requestContext,
     IAuditTrail audit,
+    IOutbox outbox,
     IOptions<RecordingSetOptions> options,
     TimeProvider time)
 {
@@ -129,7 +130,21 @@ public sealed class FinalizeRecordingSetHandler(
                     ["timelineMappingDigest"] = m.TimelineMappingDigest,
                 })]),
             };
-            await recordings.InsertFinalizedEventAsync(eventId, set.Id, command.MatchId, teamId, now, payload.ToJsonString(), cancellationToken);
+            var payloadJson = payload.ToJsonString();
+            await recordings.InsertFinalizedEventAsync(eventId, set.Id, command.MatchId, teamId, now, payloadJson, cancellationToken);
+            using (var payloadDocument = System.Text.Json.JsonDocument.Parse(payloadJson))
+            {
+                await outbox.EnqueueAsync(
+                    new OutboxMessageDraft(
+                        eventId,
+                        OutboxMessageTypes.RecordingsFinalized,
+                        "1.0.0",
+                        OutboxMessageTypes.RecordingsFinalized,
+                        payloadDocument.RootElement.Clone(),
+                        eventId),
+                    cancellationToken);
+            }
+
             await retryOutcomes.InsertAsync(
                 RecordingRetryOperation.FinalizeRecordingSet,
                 command.MatchId,

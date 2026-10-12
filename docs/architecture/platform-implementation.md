@@ -276,15 +276,15 @@ migrations create, so no handler can forget an increment:
 If the platform moved to another database, the guarantee would stay and only
 this mechanism would change.
 
-Database changes and outgoing events will commit atomically through a
+Database changes and outgoing events commit atomically through a
 PostgreSQL transactional outbox (`socalytics.outbox_messages`). The API process
-will host the background workers: an outbox publisher that delivers pending
+hosts the background workers: an outbox publisher that delivers pending
 records to NATS JetStream at least once with bounded retries and records each
 outcome, a retention worker that removes only records whose publication
 outcome is known, the Job Monitor that detects expired attempt leases from
 durable state, the consumer of `matches.recordings-finalized`, and publication
 reconciliation at startup and after transport reconnection. Workers claim rows
-with `FOR UPDATE SKIP LOCKED`, so several API replicas can run them safely
+with `FOR UPDATE SKIP LOCKED`, so several API replicas run them safely
 without leader election, and they add no deployable. Consumers and completion
 handlers remain idempotent.
 
@@ -396,7 +396,7 @@ Registry functional area that supports only this grant; the platform does not
 run a general-purpose authorization server for machine clients.
 
 Until a dedicated stamp-operator role is defined, operational workflow
-inspection and reconciliation operations under `/api/v1/operations` will be
+inspection and reconciliation operations under `/api/v1/operations` are
 restricted to Club Admins and audited when they change state.
 
 ### Agent Runtime

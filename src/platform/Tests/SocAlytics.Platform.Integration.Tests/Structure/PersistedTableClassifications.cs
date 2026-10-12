@@ -36,5 +36,18 @@ internal static class PersistedTableClassifications
             ["recording_set_members"] = TableClassification.Immutable,
             ["recording_retry_outcomes"] = TableClassification.Immutable,
             ["recording_finalized_events"] = TableClassification.Immutable,
+            ["analysis_run_snapshots"] = TableClassification.ChildOf("analysis_runs", "run_id"),
+            ["analysis_workflow_nodes"] = TableClassification.ChildOf("analysis_runs", "run_id"),
+            ["analysis_node_snapshots"] = TableClassification.ChildOf("analysis_runs", "run_id"),
+            ["analysis_dependency_edges"] = TableClassification.ChildOf("analysis_runs", "run_id"),
+            ["analysis_logical_job_snapshots"] = TableClassification.ChildOf("analysis_logical_jobs", "logical_job_id"),
+            ["analysis_logical_job_inputs"] = TableClassification.ChildOf("analysis_logical_jobs", "logical_job_id"),
+            ["analysis_readiness_occurrences"] = TableClassification.ChildOf("analysis_logical_jobs", "logical_job_id"),
+            ["analysis_execution_attempts"] = TableClassification.ChildOf("analysis_logical_jobs", "logical_job_id"),
+            ["analysis_claim_keys"] = TableClassification.Immutable,
+            ["analysis_accepted_results"] = TableClassification.Immutable,
+            ["analysis_completion_outcomes"] = TableClassification.Immutable,
+            ["analysis_notification_receipts"] = TableClassification.Immutable,
+            ["outbox_messages"] = TableClassification.Unversioned("operational publication record; transitions guarded by row lock and state"),
         };
 }

@@ -120,10 +120,10 @@ of recording-version ID, timeline-mapping digest, segmentation-policy digest,
 and segment number. The Scheduler accepts it only after membership and
 match/team scope validation. Recording-set-only revisions may reuse the same
 materialized media while retaining distinct analysis-run lineage.
-Machine-readable job and completion schemas will be introduced by the Durable
+Machine-readable job and completion schemas are introduced by the Durable
 Analysis Workflow slice, ahead of Analyst execution, under
-`contracts/analysis/`; they must preserve these identities and fencing
-boundaries and evolve additively within their major version.
+`contracts/analysis/`; they preserve these identities and fencing boundaries
+and evolve additively within their major version.
 
 ## Readiness And Dependencies
 

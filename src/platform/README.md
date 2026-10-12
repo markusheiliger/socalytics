@@ -37,8 +37,7 @@ implementation-type visibility.
 
 The persistence foundation (schema, migrations, Migrator, units of work,
 optimistic concurrency, database-aware readiness) is implemented as
-development evidence. Further domain behavior, NATS messaging, the
-transactional outbox, client
+development evidence. Further domain behavior, client
 applications, deployment images and configuration, production credentials, and
 production deployment remain deferred.
 
@@ -85,6 +84,35 @@ approval, activation, DPoP machine tokens, revocation, unregistration):
 - The golden fixtures under `contracts/analyst-manager/` are exercised by the
   fixture tests in `Tests/SocAlytics.Platform.Integration.Tests/Registry` and by
   the Analyst Manager tests.
+
+The durable analysis workflow is implemented as development evidence (outbox,
+NATS JetStream publication, run creation from finalized recording sets,
+readiness, fenced attempts, Analyst job and completion contracts). Analyst
+execution, production transport values, and production readiness remain
+deferred.
+
+- The AppHost starts a `nats` resource (JetStream enabled) and injects
+  `ConnectionStrings:nats` into the API. Docker is required for it.
+- The API hosts the outbox publisher, retention, Job Monitor,
+  recordings-finalized consumer, and reconciliation workers. The switch
+  `Analysis:Workers:Enabled` (default `true`) turns them off; tests may disable
+  the workers and drive the commands directly.
+- Health checks: `nats` is registered only when `ConnectionStrings:nats` is
+  configured and reports degraded, never unhealthy; `analysis-workflow`
+  (FR-046) reports whether the workflow definition resolves.
+- Development configuration sections (every value is a development default,
+  not a production value): `ConnectionStrings:nats`; `Messaging:Nats`
+  (`ProvisionTopology` true in Development, streams `SOCALYTICS_EVENTS` and
+  `SOCALYTICS_ANALYSIS_JOBS`, `DuplicateWindowSeconds` 120); `Messaging:Outbox`
+  (`PollIntervalSeconds` 1, `BatchSize` 50, `MaxAttempts` 8,
+  `BackoffBaseSeconds` 2, `BackoffMaxSeconds` 300, `RetentionPeriodHours` 168,
+  `RetentionIntervalMinutes` 60); `Analysis:Notifications` (`ConsumerName`
+  `analysis-scheduler-recordings-finalized`, `NakDelaySeconds` 10,
+  `ResolveRecheckSeconds` 15); `Analysis:Leases` (`MonitorIntervalSeconds` 5,
+  `BatchSize` 50); `Analysis:Reconciliation` (`OnStartup` true, `OnReconnect`
+  true, `BatchSize` 200); `Analysis:Workers` (`Enabled` true);
+  `Analysis:DefaultWorkflow` (development fixture workflow in
+  `appsettings.Development.json`).
 
 The AppHost bootstraps the first club with these parameters:
 

@@ -2,6 +2,7 @@
 	<ItemGroup>
 		<PackageReference Include="AWSSDK.S3" />
 		<PackageReference Include="Dapper" />
+		<PackageReference Include="JsonSchema.Net" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
 		<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
@@ -10,11 +11,13 @@
 		<PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
 		<PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+		<PackageReference Include="NATS.Client.JetStream" />
 		<PackageReference Include="Npgsql" />
 	</ItemGroup>
 
 	<ItemGroup>
 		<EmbeddedResource Include="Persistence/Migrations/*.sql" />
+		<EmbeddedResource Include="..\..\..\contracts\**\*.schema.json" Exclude="..\..\..\contracts\**\releases\**;..\..\..\contracts\**\examples\**" LogicalName="contracts/%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>
 
 	<ItemGroup>

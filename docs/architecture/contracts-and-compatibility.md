@@ -13,9 +13,9 @@ live under the repository-root `contracts/` directory. The Recording
 Lineage and Upload feature introduces the directory, its index
 `contracts/README.md`, which identifies every published artifact, owner,
 version, example, and validation command, and the first artifact, the
-recordings-finalized event schema. The Durable Analysis Workflow feature will
-then add the shared definitions in `contracts/common/v1/` and the Analyst job,
-attempt completion, and run-state-changed schemas under `contracts/analysis/`.
+recordings-finalized event schema. The Durable Analysis Workflow adds the
+shared definitions in `contracts/common/v1/` and the Analyst job, attempt
+completion, and run-state-changed schemas under `contracts/analysis/`.
 Each schema lives at `contracts/<area>/<name>/v<major>/<name>.schema.json`,
 declares the `$id`
 `https://socalytics.invalid/contracts/<area>/<name>/v<major>/<name>.schema.json`
@@ -153,10 +153,9 @@ authority for JSON Schema syntax and the 2020-12 dialect, `$id` and version
 metadata, offline references, index coverage, and example outcomes. Features
 that add further contract kinds will extend the same command with
 unique-identifier checks, OpenAPI linting and bundling, and same-major
-compatibility checks. Durable Analysis will extend it to check every schema
-against its immutable released copies in the same major version and fail on
-removed or renamed properties, newly required inputs, narrowed values, or newly
-closed objects. The same fixture corpus will also be validated independently at
+compatibility checks. It also checks every schema against its immutable
+released copies in the same major version and fails on removed or renamed
+properties, newly required inputs, narrowed values, or newly closed objects. The same fixture corpus will also be validated independently at
 .NET and Python boundaries. Kiota generation and compilation for TypeScript,
 C#, and Python will provide transport-consumer evidence without making
 generated code authoritative.

@@ -8,6 +8,12 @@ internal static class TestMigrationCatalogs
 
     public static MigrationCatalog Platform() => MigrationCatalog.Platform;
 
+    public static MigrationCatalog Before(string migrationIdentity)
+    {
+        var target = MigrationCatalog.Platform.Scripts.Single(s => s.Identity == migrationIdentity);
+        return MigrationCatalog.Create(MigrationCatalog.Platform.Scripts.Where(s => s.Sequence < target.Sequence));
+    }
+
     public static MigrationScript Script(string identity, string sql) => new(identity, sql);
 
     public static MigrationCatalog With(MigrationCatalog catalog, params MigrationScript[] scripts) =>

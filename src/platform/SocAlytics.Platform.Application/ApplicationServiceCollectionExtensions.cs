@@ -33,6 +33,26 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<UpdateMatchHandler>();
         services.TryAddScoped<GetMatchHandler>();
         services.TryAddScoped<ListTeamMatchesHandler>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Analysis.WorkflowSnapshotMapper>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.RunReadinessCoordinator>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.HandleRecordingsFinalizedNotificationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.ClaimLogicalJobHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.RenewAttemptLeaseHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.CompleteAttemptHandler>();
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.Commands.AnalysisLeaseOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.Commands.AnalysisLeaseOptions.SectionName);
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.ExpireStaleAttemptsHandler>();
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.Commands.AnalysisReconciliationOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.Commands.AnalysisReconciliationOptions.SectionName);
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.ReconcileAnalysisPublicationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Messaging.PurgeOutboxMessagesHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisRunHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListMatchAnalysisRunsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisOperationalSummaryHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListNotificationReceiptsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.RunAnalysisReconciliationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Messaging.ListOutboxMessagesHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Messaging.GetOutboxMessageHandler>();
         services.TryAddScoped<ValidateSessionHandler>();
         services.TryAddScoped<GetSessionHandler>();
         services.TryAddScoped<SignOutHandler>();
