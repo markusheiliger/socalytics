@@ -1,0 +1,9 @@
+{
+  "names-manager.json": "additionalProperties",
+  "names-host.json": "additionalProperties",
+  "names-container-runtime-product.json": "additionalProperties",
+  "names-accelerator-model.json": "additionalProperties",
+  "names-preprocessing-tile.json": "additionalProperties",
+  "carries-stamp-discriminator.json": "additionalProperties",
+  "carries-club-discriminator.json": "additionalProperties"
+}

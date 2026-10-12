@@ -39,6 +39,8 @@ internal sealed class PostgresAuditTrail(
         "deviceFingerprint",
         "pairingSourceAddress",
         "registrationCorrelationId",
+        "readyJobsRepublished",
+        "notificationsRepublished",
     };
 
     private const string InsertSql =

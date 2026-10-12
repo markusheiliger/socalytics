@@ -1,0 +1,12 @@
+{
+  "missing-attempt-identity.json": "required",
+  "missing-attempt-number.json": "required",
+  "missing-fencing-token.json": "required",
+  "missing-idempotency-key.json": "required",
+  "missing-upstream-lineage.json": "required",
+  "succeeded-without-result.json": "required",
+  "carries-credential-field.json": "additionalProperties",
+  "presigned-url-in-object-key.json": "pattern",
+  "carries-broker-connection-string.json": "additionalProperties",
+  "carries-inline-media.json": "additionalProperties"
+}

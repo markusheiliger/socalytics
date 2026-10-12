@@ -3,6 +3,8 @@ using SocAlytics.Platform.Api.Bootstrap;
 using SocAlytics.Platform.Api.Endpoints.Club;
 using SocAlytics.Platform.Api.Endpoints.IdentityAccess;
 using SocAlytics.Platform.Api.Http;
+using SocAlytics.Platform.Api.Analysis;
+using SocAlytics.Platform.Api.Operations;
 using SocAlytics.Platform.Api.Recordings;
 using SocAlytics.Platform.Api.Registry;
 using SocAlytics.Platform.Api.Security;
@@ -19,6 +21,8 @@ builder.Services.AddApplication();
 builder.Services.AddInfrastructure();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IRequestContext, HttpRequestContext>();
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentAnalystManager, SocAlytics.Platform.Api.Analysis.HttpCurrentAnalystManager>();
 builder.Services.AddOptions<IdentityAccessOptions>()
 	.Bind(builder.Configuration.GetSection(IdentityAccessOptions.SectionName))
 	.ValidateDataAnnotations()
@@ -65,6 +69,9 @@ app.MapMatchEndpoints();
 app.MapMemberEndpoints();
 app.MapCredentialEndpoints();
 app.MapRecordingEndpoints();
+app.MapAnalysisRunEndpoints();
+app.MapWorkflowOperationsEndpoints();
+app.MapAnalystManagerEndpoints();
 app.MapRegistryEndpoints();
 
 app.Run();

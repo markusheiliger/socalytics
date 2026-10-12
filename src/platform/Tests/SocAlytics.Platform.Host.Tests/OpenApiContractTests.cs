@@ -58,7 +58,7 @@ public sealed class OpenApiContractTests
 		// Recording operations are verified by RecordingsOpenApiTests and Registry operations by
 		// RegistryOpenApiTests, not against the Club contract.
 		var operationCount = paths.EnumerateObject()
-			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name))
+			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name))
 			.Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
 		operationCount.ShouldBe(ContractOperations.All.Count);
 
@@ -75,6 +75,13 @@ public sealed class OpenApiContractTests
 		root.GetProperty("security").EnumerateArray()
 			.Any(r => r.TryGetProperty("sessionCookie", out _)).ShouldBeTrue();
 	}
+
+	// Analysis operations are verified against specs/20261005-130703-durable-analysis-workflow/contracts/openapi.yaml
+	// by the Analysis tests and T039, not against the Club contract.
+	private static bool IsAnalysisPath(string path) =>
+		path.StartsWith("/api/v1/analysis/", StringComparison.Ordinal)
+		|| path.StartsWith("/api/v1/operations/", StringComparison.Ordinal)
+		|| path.EndsWith("/analysis-runs", StringComparison.Ordinal);
 
 	private static bool IsRecordingPath(string path)
 	{

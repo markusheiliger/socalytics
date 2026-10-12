@@ -28,6 +28,7 @@ public sealed class PlatformHostTests
         await app.StartAsync(timeout.Token);
         await app.ResourceNotifications.WaitForResourceHealthyAsync("postgres", timeout.Token);
         await app.ResourceNotifications.WaitForResourceHealthyAsync("rustfs", timeout.Token);
+        await app.ResourceNotifications.WaitForResourceHealthyAsync("nats", timeout.Token);
         await app.ResourceNotifications.WaitForResourceAsync(
             MigratorResourceName, KnownResourceStates.Finished, timeout.Token);
         app.ResourceNotifications.TryGetCurrentState(MigratorResourceName, out var migrator).ShouldBeTrue();
@@ -44,7 +45,9 @@ public sealed class PlatformHostTests
 
         using var client = app.CreateHttpClient(ApiResourceName, "http");
         await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);
-        await ShouldReturnSuccessAsync(client, "/health", timeout.Token);
+        using var healthResponse = await client.GetAsync("/health", timeout.Token);
+        healthResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        (await healthResponse.Content.ReadAsStringAsync(timeout.Token)).Trim().ShouldBe("Healthy");
 
         using var openApiResponse = await client.GetAsync("/openapi/v1.json", timeout.Token);
         openApiResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -53,6 +56,23 @@ public sealed class PlatformHostTests
         using var openApiDocument = await JsonDocument.ParseAsync(openApiStream, cancellationToken: timeout.Token);
         openApiDocument.RootElement.GetProperty("info").GetProperty("version").GetString().ShouldBe("v1");
         openApiDocument.RootElement.GetProperty("paths").TryGetProperty("/api/v1/session", out _).ShouldBeTrue();
+
+        var operationIds = openApiDocument.RootElement.GetProperty("paths").EnumerateObject()
+            .SelectMany(static path => path.Value.EnumerateObject())
+            .Where(static operation => operation.Value.ValueKind == JsonValueKind.Object
+                && operation.Value.TryGetProperty("operationId", out _))
+            .Select(static operation => operation.Value.GetProperty("operationId").GetString())
+            .ToHashSet();
+        string[] analysisOperationIds =
+        [
+            "getAnalysisRun", "listMatchAnalysisRuns", "claimLogicalJob", "renewAttemptLease", "completeAttempt",
+            "listOutboxMessages", "getOutboxMessage", "getAnalysisOperationalSummary", "listNotificationReceipts",
+            "reconcileAnalysisPublication",
+        ];
+        foreach (var operationId in analysisOperationIds)
+        {
+            operationIds.ShouldContain(operationId);
+        }
     }
 
     [Fact]

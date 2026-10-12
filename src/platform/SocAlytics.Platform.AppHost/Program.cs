@@ -44,6 +44,8 @@ var rustfs = builder.AddContainer("rustfs", "rustfs/rustfs", "1.0.1")
     .WithHttpHealthCheck("/health", endpointName: "s3");
 var rustfsEndpoint = rustfs.GetEndpoint("s3");
 
+var nats = builder.AddNats("nats").WithJetStream();
+
 var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithHttpEndpoint()
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
@@ -70,6 +72,8 @@ var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithReference(appConnection)
     .WaitFor(postgres)
     .WaitFor(rustfs)
+    .WithReference(nats)
+    .WaitFor(nats)
     .WaitForCompletion(migrator);
 
 api.WithEnvironment("Stamp__Id", "local-dev-stamp")
