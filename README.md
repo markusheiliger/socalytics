@@ -307,13 +307,15 @@ their "blocked by" issues are closed.
       `.github/actions/environment-verify` action. After a task, mode `task`
       runs the checks the changed paths call for with only the tests the task
       touched (the agent is told to run only those as well, not the whole
-      suite); the phase's last task uses mode `phase`, which runs those checks
-      with all their tests. When the phase's last stage is a `[P]` group, the
-      phase workflow's job `verify` runs mode `phase` on the landed result
-      instead; if it
-      fails, the implementation stops for a person (and a diagnosis). A
-      conflict resolution and the merge run every check with all tests (mode
-      `finalize`);
+      suite). After the phase's last stage, the phase workflow's job "Verify
+      the phase" runs mode `phase` (those checks with all their tests) for all
+      changes of the implementation branch; if it fails, the implementation
+      stops for a person (and a diagnosis) without using up the attempts of
+      the task that came last. A conflict resolution and the merge run every
+      check with all tests (mode `finalize`). Every verification that fails
+      runs once more, and only the second result counts, so a flaky test does
+      not cost an attempt; a task that passes only on the re-run says so in
+      its comment;
   3. pushes the results in one "Commit and push" job (`land`) that never runs
       agent-written code:
       in task order, it re-validates each change (a task may only add its own
@@ -322,8 +324,9 @@ their "blocked by" issues are closed.
       under `.github/`, `.specify/`, or `specs/`, and is replayed onto git's
       own merge), then commits, pushes, updates the pull request body and
       check run, and comments the result. When parallel tasks edited the same
-      files, it merges them three-way and the stage's "Verify … together" job
-      verifies the combination before the next stage starts. When every task
+      files, it merges them three-way and the stage's "Verify the parallel
+      changes together" job verifies the combination before the next stage
+      starts. When every task
       was pushed, it shows the next stage's attempts as in progress; otherwise
       the job fails on purpose, the stages after it are cancelled, and the
       next run retries.
@@ -396,8 +399,8 @@ their "blocked by" issues are closed.
   whose siblings landed first is rebuilt on the new head (its change without
   `tasks.md`, plus its own tick) and validated again. Files that a sibling
   (or a person) also changed since the task started are merged three-way;
-  the stage's "Verify … together" job then runs mode `phase` on the combined
-  result, and if that fails, the implementation stops for a person (and a
+  the stage's "Verify the parallel changes together" job then runs mode
+  `phase` on the combined result, and if that fails, the implementation stops for a person (and a
   diagnosis). Only when those edits conflict, or the change no longer
   applies, the task runs again from the new head in the next run; that does
   not count as a failed attempt, but every task has at most six attempts. A

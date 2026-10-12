@@ -13,7 +13,7 @@ name: Spec Kit implement task
 #         conflicting edits are redone from the new head. When every task was pushed, it shows the attempts of the next
 #         stage as in progress on the new head; otherwise it fails, so the calling matrix cancels the stages after this
 #         one.
-#   verify: named "Verify <tasks> together", only after land combined edits to the same files: the full verification
+#   verify: named "Verify the parallel changes together", only after land combined edits to the same files: the full verification
 #         of the combination (read-only token)
 #   report: after that verification, shows the next stage as in progress, or stops the implementation for a person
 #         and fails, so the calling matrix cancels the stages after this one
@@ -180,8 +180,20 @@ jobs:
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
-          # task: build and the tests the task touched; phase (the last task of a phase): all tests of the affected
-          # checks; finalize (a conflict resolution): every check with all tests.
+          # task: build and the tests the task touched; finalize (a conflict resolution): every check with all tests.
+          # The phase gets its full verification in the phase workflow after its last stage.
+          mode: ${{ matrix.verify_mode || 'phase' }}
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      # One more run after a failure, so a flaky test does not use up an attempt; the verdict uses the last run.
+      - name: Verify the change again
+        id: verify-again
+        if: steps.verify.outcome == 'failure'
+        continue-on-error: true
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: ${{ matrix.verify_mode || 'phase' }}
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
@@ -190,9 +202,10 @@ jobs:
         if: inputs.step != 'converge'
         env:
           SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
-          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
-          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outcome || steps.verify-again.outcome }}
+          SPECKIT_VERIFY_CHECKS: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outputs.checks || steps.verify-again.outputs.checks }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outputs.uncovered || steps.verify-again.outputs.uncovered }}
+          SPECKIT_VERIFY_RETRIED: ${{ steps.verify-again.outcome != 'skipped' }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" verdict
 
       - name: Upload the result
@@ -220,7 +233,6 @@ jobs:
       head: ${{ steps.land.outputs.head }}
       start: ${{ steps.land.outputs.start }}
       combined: ${{ steps.land.outputs.combined }}
-      tasks: ${{ steps.land.outputs.tasks }}
     env:
       SPECKIT_STEP: ${{ inputs.step }}
       SPECKIT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -270,10 +282,10 @@ jobs:
         run: node tooling/.github/scripts/speckit-step.mjs land-stage
 
   # Parallel tasks that edited the same files were merged three-way while pushing: each passed its own verification,
-  # so their combination gets the full verification here (read-only token; it runs agent-written code). Its name comes
-  # from needs, because GitHub cannot evaluate the inputs for the name of a skipped job.
+  # so their combination gets the full verification here (read-only token; it runs agent-written code). The name is
+  # static: this job is usually skipped, and GitHub does not evaluate the name of a skipped job in a called workflow.
   verify:
-    name: ${{ needs.land.outputs.tasks && format('Verify {0} together', needs.land.outputs.tasks) || 'Verify the combined changes' }}
+    name: Verify the parallel changes together
     needs: land
     if: always() && needs.land.outputs.combined == 'true'
     runs-on: ubuntu-latest
@@ -314,7 +326,19 @@ jobs:
           workspace: workspace
 
       - name: Verify the combined changes
+        id: verify
         if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: phase
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      # One more run after a failure, so a flaky test does not stop the implementation.
+      - name: Verify the combined changes again
+        if: steps.verify.outcome == 'failure'
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}

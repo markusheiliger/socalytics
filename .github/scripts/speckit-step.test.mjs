@@ -107,7 +107,7 @@ function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { 
     const ready = inputs.step === 'merge' ? integrated.result.reasons.length === 0 && integrated.result.conflicts.length === 0 : packaged.verify;
     const verifyEnv = verify === null
       ? { SPECKIT_VERIFY_CONFIGURED: 'false' }
-      : { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: ready ? verify.outcome : 'skipped', SPECKIT_VERIFY_CHECKS: ready ? verify.checks : '', SPECKIT_VERIFY_UNCOVERED: ready ? verify.uncovered ?? '' : '', SPECKIT_SELFTEST_OUTCOME: verify.selfTest ?? '' };
+      : { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: ready ? verify.outcome : 'skipped', SPECKIT_VERIFY_CHECKS: ready ? verify.checks : '', SPECKIT_VERIFY_UNCOVERED: ready ? verify.uncovered ?? '' : '', SPECKIT_VERIFY_RETRIED: verify.retried ? 'true' : 'false', SPECKIT_SELFTEST_OUTCOME: verify.selfTest ?? '' };
     result = runVerdict({ env: verifyEnv, inputs, resultDir: repos.resultDir, log: silent }).result;
   }
   return { integrated, packaged, result, output: readFileSync(outputFile, 'utf8') };
@@ -217,6 +217,21 @@ test('task: land re-validates, commits, pushes, and reports a verified task', ()
 
 const PARALLEL_TASKS = '# Tasks\n\n## Phase 1\n\n- [ ] T001 [P] Create docs/x.md\n- [ ] T002 [P] Create docs/y.md\n';
 
+test('task: a verification that passes only on its re-run lands, and the comment points to a flaky test', () => withRepos({}, async (repos) => {
+  const { result } = work(repos, { agent: (r) => agentDoesT001(r.work), verify: { outcome: 'success', checks: 'Markdown check', retried: true } });
+  assert.deepEqual([result.verified, result.flaky], [true, true]);
+  const github = fakeGitHub();
+  assert.equal((await land(repos, github)).exitCode, 0);
+  assert.match(github.comments.at(-1).body, /- Verification: Markdown check passed\n- The first verification failed and the re-run passed, so a test may be flaky/);
+  const failed = makeGitRepos();
+  try {
+    const verdict = work(failed, { agent: (r) => agentDoesT001(r.work), verify: { outcome: 'failure', checks: 'Markdown check', retried: true } }).result;
+    assert.deepEqual([verdict.verified, verdict.flaky, verdict.reasons], [false, undefined, ['Markdown check failed']], 'a re-run that fails again counts');
+  } finally {
+    rmSync(failed.base, { recursive: true, force: true });
+  }
+}));
+
 // Simulates a parallel sibling (or a person) pushing to the implementation branch after the task started.
 function siblingLands(repos, change) {
   const dir = path.join(repos.base, `sibling-${Date.now()}`);
@@ -321,7 +336,7 @@ test('stage: lands the tasks of a [P] group in order and shows the next stage as
   assert.deepEqual(reported.map((check) => [check.status, check.conclusion]), [['completed', 'success'], ['completed', 'success']], 'the stage reports through the check runs decide created');
   const next = github.repo.checkRuns.find((check) => check.external_id === 'speckit:attempt:task:T003:1');
   assert.deepEqual([next.status, next.output.title, next.output.summary], ['in_progress', 'T003 attempt 1 in progress', 'Create docs/z.md']);
-  assert.match(result.output, /^ok=true\nhead=sha-head\nstart=[0-9a-f]{40}\ncombined=false\ntasks=T001, T002\n$/);
+  assert.match(result.output, /^ok=true\nhead=sha-head\nstart=[0-9a-f]{40}\ncombined=false\n$/);
   assert.equal(result.exitCode, 0);
 }));
 
@@ -369,7 +384,7 @@ test('stage: parallel edits to the same file are combined, and the next stage wa
   assert.deepEqual([result.ok, result.exitCode, result.combined], [true, 0, ['docs/list.md']]);
   assert.deepEqual(result.outcomes.map((outcome) => [outcome.key, outcome.landed, outcome.combined]), [['T001', true, []], ['T002', true, ['docs/list.md']]]);
   assert.equal(remoteShow(repos, 'speckit/f:docs/list.md'), 'one\ntwo (x)\nthree\nfour\nfive (y)\nsix\n');
-  assert.match(result.output, /^ok=true\nhead=sha-head\nstart=[0-9a-f]{40}\ncombined=true\ntasks=T001, T002\n$/);
+  assert.match(result.output, /^ok=true\nhead=sha-head\nstart=[0-9a-f]{40}\ncombined=true\n$/);
   assert.equal(github.repo.checkRuns.some((check) => String(check.external_id).includes('T003')), false, 'the next stage waits for the combined verification');
 }));
 

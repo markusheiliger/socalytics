@@ -211,6 +211,18 @@ jobs:
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
 
+      # One more run after a failure, so a flaky test does not use up a merge attempt; the verdict uses the last run.
+      - name: Verify the merged result again
+        id: verify-again
+        if: steps.verify.outcome == 'failure'
+        continue-on-error: true
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: finalize
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
       # An environment spec changes the actions above, which the workflows load from the default branch, so its own
       # versions have not run yet. Run them once on the merged result before the merge. This job is read-only and
       # already runs agent-written code, so loading the actions from the workspace grants nothing new.
@@ -240,9 +252,10 @@ jobs:
       - name: Record the verdict
         env:
           SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
-          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
-          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outcome || steps.verify-again.outcome }}
+          SPECKIT_VERIFY_CHECKS: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outputs.checks || steps.verify-again.outputs.checks }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outputs.uncovered || steps.verify-again.outputs.uncovered }}
+          SPECKIT_VERIFY_RETRIED: ${{ steps.verify-again.outcome != 'skipped' }}
           SPECKIT_SELFTEST_OUTCOME: >-
             ${{ steps.selftest-setup.outcome == 'failure' && 'failure' || steps.selftest-verify.outcome }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-step.mjs" verdict

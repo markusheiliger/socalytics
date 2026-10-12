@@ -551,18 +551,40 @@ test('the implementation workflows nest spec, phase, and task; the phase runs it
   assert.match(stages, /max-parallel: 1\n\s+fail-fast: true\n\s+matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.stage_matrix\) \}\}/);
   assert.match(stages, /uses: \.\/\.github\/workflows\/speckit-implement-task\.yml/);
   assert.match(phase, /verified:[\s\S]*?value: \$\{\{ jobs\.verify\.result \}\}/);
+  // Every verification runs once more after a failure, so a flaky test does not count; the re-run decides.
+  const phaseVerify = job(phase, 'verify');
+  assert.match(phaseVerify, /if: >-\n\s+!cancelled\(\) && needs\.plan\.outputs\.phase_check == 'true' && needs\.stages\.result == 'success'/);
+  assert.match(phaseVerify, /- name: Verify the phase\n\s+id: verify\n[\s\S]*?continue-on-error: true[\s\S]*- name: Verify the phase again\n\s+if: steps\.verify\.outcome == 'failure'\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify/);
+  assert.match(phaseVerify, /git merge-base HEAD "origin\/\$DEFAULT_BRANCH"/, 'the phase verification covers all changes of the branch');
+  assert.match(job(task, 'verify'), /- name: Verify the combined changes again\n\s+if: steps\.verify\.outcome == 'failure'/);
+  for (const [workflow, name, step] of [[task, 'work', 'Verify the change again'], [spec, 'merge-verify', 'Verify the merged result again']]) {
+    const text = job(workflow, name);
+    assert.match(text, new RegExp(`- name: ${step}\\n\\s+id: verify-again\\n\\s+if: steps\\.verify\\.outcome == 'failure'`), name);
+    assert.match(text, /SPECKIT_VERIFY_OUTCOME: \$\{\{ steps\.verify-again\.outcome == 'skipped' && steps\.verify\.outcome \|\| steps\.verify-again\.outcome \}\}/, name);
+    assert.match(text, /SPECKIT_VERIFY_RETRIED: \$\{\{ steps\.verify-again\.outcome != 'skipped' \}\}/, name);
+  }
   // A called workflow cannot hold more permissions than the job that calls it.
   const permissions = (text) => Object.fromEntries([...(text.match(/permissions:\n((?: {6}[\w-]+: \w+\n)+)/)?.[1] ?? '').matchAll(/([\w-]+): (\w+)/g)].map((match) => [match[1], match[2]]));
   const rank = { none: 0, read: 1, write: 2 };
   const covers = (caller, called, label) => {
     for (const [scope, level] of Object.entries(called)) assert.ok(rank[caller[scope] ?? 'none'] >= rank[level], `${label}: ${scope}: ${level}`);
   };
-  for (const name of ['work', 'land']) {
+  for (const name of ['work', 'land', 'verify', 'report']) {
     covers(permissions(job(phase, 'stages')), permissions(job(task, name)), `phase stages covers task ${name}`);
     covers(permissions(job(spec, 'step')), permissions(job(task, name)), `spec step covers task ${name}`);
   }
   for (const name of ['plan', 'stages', 'verify']) covers(permissions(job(spec, 'phase')), permissions(job(phase, name)), `spec phase covers phase ${name}`);
   assert.equal(MAX_STAGES_PER_RUN, 256, 'GitHub runs at most 256 matrix jobs per run');
+  // GitHub does not evaluate the name of a skipped job in a called workflow and shows the raw expression, so a job that
+  // can be skipped there has a static name. Only `stages` keeps its matrix title: it is skipped only when the plan
+  // found nothing to do, and a matrix job cannot be named otherwise.
+  for (const [label, workflow] of [['phase', phase], ['task', task]]) {
+    for (const [, name, body] of workflow.matchAll(/^ {2}([\w-]+):\n([\s\S]*?)(?=^ {2}\S|^ {2}#|(?![\s\S]))/gm)) {
+      const condition = body.match(/^ {4}if: (?:>-\n\s+)?(.*)$/m)?.[1] ?? null;
+      const dynamic = /^ {4}name: .*\$\{\{/m.test(body);
+      if (condition && condition.trim() !== 'always()' && name !== 'stages') assert.equal(dynamic, false, `${label} ${name}: a job that can be skipped needs a static name`);
+    }
+  }
 });
 
 test('titles every implementation run and job with its workflow, the twin, and its subject', () => {

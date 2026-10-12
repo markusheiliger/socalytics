@@ -224,20 +224,21 @@ function readSpecInputs(env) {
 }
 
 // The matrix entries of each stage of a decision (decideNext, action "stages"): prompts, verify modes, and task
-// summaries. Guidance from a resume applies to the stopped step, which is always the first stage.
+// summaries. Guidance from a resume applies to the stopped step, which is always the first stage. Every task is verified
+// on its own (mode `task`); the phase gets its full verification in its own job after its last stage, so a failure
+// there is never charged to the task that happens to come last.
 function prepareStages(decision, folder) {
   const guidance = currentGuidance(decision);
   const withGuidance = (prompt) => (guidance ? `${prompt} Guidance from the person who resumed this implementation: ${guidance.replace(/\s+/g, ' ').slice(0, 1500)}` : prompt);
   const texts = new Map(listTasks(decision.tasksMarkdown).map((task) => [task.id, task.text]));
   return decision.stages.map((stage, index) => ({
     include: stage.map(({ task, attempt }) => {
-      const last = index === decision.stages.length - 1 && decision.phaseEnd && stage.length === 1;
       const prompt = decision.step === 'task' ? renderTaskPrompt(task, folder) : decision.step === 'converge' ? renderConvergePrompt() : '';
       return {
         task: task ?? '',
         attempt,
         prompt: index === 0 && prompt ? withGuidance(prompt) : prompt,
-        verify_mode: decision.step === 'resolve' ? 'finalize' : last ? 'phase' : 'task',
+        verify_mode: decision.step === 'resolve' ? 'finalize' : 'task',
         summary: task ? neutralizeMarkers(summarizeTask(texts.get(task) ?? '')).slice(0, 300) : '',
       };
     }),
@@ -338,8 +339,8 @@ export async function runDecide({ client, env, log, now = Date.now }) {
 // again from the state on GitHub and, while the phase is still the next segment, plans its stages in task order: the
 // stages with their prompts, verify modes, and summaries; the matrix of the stages job, one entry per stage with the
 // title it runs under; and the check runs of the first stage. It plans nothing when the state changed since the spec
-// run decided. `phase_check` tells whether the phase ends with a `[P]` group, whose combined result then gets the
-// phase's full verification.
+// run decided. `phase_check` tells whether this run finishes the phase, whose result then gets the phase's full
+// verification in the phase workflow's verify job.
 export async function runPlanPhase({ client, env, log, now = Date.now }) {
   const report = createReporter(env, log);
   const { twin, pull: pullNumber } = readSpecInputs(env);
@@ -362,10 +363,10 @@ export async function runPlanPhase({ client, env, log, now = Date.now }) {
   }
   const stages = prepareStages(decision, folder);
   await startAttemptChecks(client, { head, step: 'task', entries: stages[0].include });
-  const phaseCheck = decision.lastIsGroup;
+  const phaseCheck = decision.phaseEnd;
   reportStages(report, 'task', stages);
-  if (phaseCheck) report.line('- Then the full verification of the phase, because its last stage is a `[P]` group.');
-  if (!decision.phaseEnd) report.line('- The rest of the phase continues in the next run.');
+  if (phaseCheck) report.line('- Then the full verification of the phase.');
+  else report.line('- The rest of the phase continues in the next run.');
   return finish({
     count: String(stages.length),
     head,
@@ -392,10 +393,10 @@ export async function runContinue({ client, env, log }) {
       status: 'completed',
       conclusion: 'failure',
       external_id: CHECK_LIMIT,
-      output: { title: 'The phase verification failed', summary: 'The full verification at the end of the phase failed after its `[P]` tasks landed together.' },
+      output: { title: 'The phase verification failed', summary: 'The full verification at the end of the phase failed, although each task passed its own verification.' },
     });
     await client.createComment(pullNumber, [
-      `**Implementation needs attention**${requester ? ` @${requester}` : ''}: the full verification at the end of the phase failed after its \`[P]\` tasks landed together${run ? ` (see the [run](${run}))` : ''}. Each task passed its own verification, so the combination breaks something.`,
+      `**Implementation needs attention**${requester ? ` @${requester}` : ''}: the full verification at the end of the phase failed${run ? ` (see the [run](${run}))` : ''}. Each task passed its own verification, which covers only the tests it touched, so a change of the phase breaks tests elsewhere, or the tasks break something together.`,
       '',
       ...renderNextSteps({ autoDiagnosis: autoDiagnosisEnabled(env), behindMain: folder ? await isBehindDefaultBranch(client, env, folder) : false }),
     ].join('\n'));

@@ -502,13 +502,14 @@ test('chain: decide picks the phase, and plan-phase plans its stages with prompt
     assert.match(stale.text, /Nothing to plan/);
 
     const decided = await planPhase(github, root, twin, chosen.outputs.phase);
-    assert.deepEqual([decided.outputs.count, decided.outputs.phase_check], ['2', 'false']);
+    assert.deepEqual([decided.outputs.count, decided.outputs.phase_check], ['2', 'true'], 'a run that finishes the phase verifies it in its own job');
     assert.deepEqual(JSON.parse(decided.outputs.stage_matrix), { include: [
       { number: 1, index: 0, title: `Spec Kit implement task #${twin.number} · Multiple tasks` },
       { number: 2, index: 1, title: `Spec Kit implement task #${twin.number} · T003 [US1] Build it` },
     ] });
     const stages = JSON.parse(decided.outputs.stages);
-    assert.deepEqual(stages.map((stage) => stage.include.map((entry) => [entry.task, entry.attempt, entry.verify_mode])), [[['T001', 1, 'task'], ['T002', 1, 'task']], [['T003', 1, 'phase']]]);
+    assert.deepEqual(stages.map((stage) => stage.include.map((entry) => [entry.task, entry.attempt, entry.verify_mode])), [[['T001', 1, 'task'], ['T002', 1, 'task']], [['T003', 1, 'task']]], 'the last task is verified like every other; the phase is verified on its own');
+    assert.match(decided.text, /- Then the full verification of the phase\./);
     assert.match(stages[0].include[0].prompt, /^\/speckit-implement Implement only task T001 of the spec in `specs\/a\/` \(its `tasks\.md`\); ignore the other specs\./);
     assert.equal(stages[1].include[0].summary, '[US1] Build it');
     assert.equal(progress.external_id, 'speckit:attempt:task:T001:1', 'the first attempt takes over the queued progress check run');
@@ -610,7 +611,7 @@ test('chain: continue starts the next run, and reports a failed phase verificati
     await runContinue({ client: github, env: { ...env, SPECKIT_PHASE_CHECK: 'failure' }, log: silent });
     const stop = github.repo.checkRuns.at(-1);
     assert.deepEqual([stop.external_id, stop.conclusion, stop.output.title], [CHECK_LIMIT, 'failure', 'The phase verification failed']);
-    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: the full verification at the end of the phase failed[\s\S]*actions\/runs\/42/);
+    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: the full verification at the end of the phase failed[\s\S]*actions\/runs\/42[\s\S]*covers only the tests it touched/);
     assert.equal(github.repo.runs.filter((run) => run.workflow === 'speckit-implement-spec.yml').length, 2, 'the next run reports the stop and starts a diagnosis');
   } finally {
     rmSync(root, { recursive: true, force: true });

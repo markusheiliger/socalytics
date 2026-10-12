@@ -2,7 +2,7 @@ name: Environment verify
 description: >-
   Verifies a change to this solution. Optional extension point of the Spec Kit workflows, which run it after the
   agent implemented a task (mode task: only the checks the changed files call for, each building its solution but
-  running only the always-run test projects and the tests the task touched; mode phase, for the last task of a phase:
+  running only the always-run test projects and the tests the task touched; mode phase, after the last stage of a phase:
   those checks with all their tests), after a conflict resolution, and before merging (mode finalize: every check
   with all tests); the workflows skip it when this file does not exist. It runs in a job
   with a read-only token and no token environment variables, because the checks execute agent-written code. The step
@@ -105,7 +105,7 @@ runs:
         # run_tests <solution> <repo path prefix of the current directory> <always-run project regex>
         # phase and finalize: every test. task: the always-run test projects; the test classes declared in the changed
         # .cs files of a test project; the whole test project when other files of it changed (fixtures without a class,
-        # project files). A test project the task did not touch is skipped; the phase's last task and the merge run it.
+        # project files). A test project the task did not touch is skipped; the phase verification and the merge run it.
         run_tests() {
           local solution="$1" prefix="$2" always="$3" result=0 project rel files file found classes whole filter
           if [ "$MODE" != task ]; then

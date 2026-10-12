@@ -7,7 +7,9 @@ name: Spec Kit implement phase
 #            as in progress; it never runs agent-written code
 #   stages:  a matrix that runs Spec Kit implement task once per stage, one at a time: a stage lands before the next
 #            starts, and a stage that does not land cancels the stages after it
-#   verify:  the full verification of the phase, when its last stage was a `[P]` group (read-only token)
+#   verify:  the full verification of the phase after its last stage (read-only token); each task is verified only with
+#            the tests it touched, so a failure here stops the implementation for a diagnosis without using up the
+#            attempts of a task. A failed verification runs once more before it counts.
 # A phase longer than 256 stages continues in the next run of the spec.
 on:
   workflow_call:
@@ -102,8 +104,9 @@ jobs:
       stages: ${{ needs.plan.outputs.stages }}
       index: ${{ matrix.index }}
 
-  # The phase's last stage was a `[P]` group: each task passed its own verification, so the combination gets the phase's
-  # full verification here (read-only token; it runs agent-written code).
+  # The phase's full verification after its last stage, in its own job (read-only token; it runs agent-written code):
+  # each task was verified only with the tests it touched, so a change that breaks other tests shows here, and a
+  # failure stops the implementation for a diagnosis instead of using up the attempts of the task that came last.
   verify:
     name: Verify the phase
     needs: [plan, stages]
@@ -138,13 +141,14 @@ jobs:
         with:
           node-version: 24
 
-      - name: List the changes of the phase
+      # All changes of the implementation branch, so tasks of the phase that earlier runs implemented are covered too.
+      - name: List the changes of the implementation
         working-directory: workspace
         env:
-          PHASE_START: ${{ needs.plan.outputs.head }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           mkdir -p "$SPECKIT_RESULT_DIR"
-          git diff --name-only --no-renames "$PHASE_START" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
+          git diff --name-only --no-renames "$(git merge-base HEAD "origin/$DEFAULT_BRANCH")" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
 
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
@@ -153,7 +157,19 @@ jobs:
           workspace: workspace
 
       - name: Verify the phase
+        id: verify
         if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: phase
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      # One more run after a failure, so a flaky test does not stop the implementation.
+      - name: Verify the phase again
+        if: steps.verify.outcome == 'failure'
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
