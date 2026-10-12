@@ -1,0 +1,35 @@
+{
+  "contractVersion": "1.0.0",
+  "idempotencyKey": "idem-0001",
+  "teamId": "team-0001",
+  "matchId": "match-0001",
+  "runId": "run-0001",
+  "nodeId": "node-0001",
+  "logicalJobId": "job-0001",
+  "attemptId": "attempt-0001",
+  "attemptNumber": 1,
+  "outcome": "succeeded",
+  "result": {
+    "manifestReference": "results/run-0001/job-0001/manifest.json",
+    "manifestChecksum": "sha-256:0000000000000000000000000000000000000000000000000000000000000006"
+  },
+  "capability": {
+    "id": "player-detection",
+    "version": "1.0.0"
+  },
+  "schemaVersion": "1.0.0",
+  "executedRuntime": {
+    "runtimeProfile": "container-cpu",
+    "runtimeVersion": "1.2.3",
+    "operatingSystem": "linux",
+    "architecture": "x86-64",
+    "accelerators": []
+  },
+  "executedImageDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000004",
+  "executedModelDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000005",
+  "acceptedUpstreamResultIds": [],
+  "completedAt": "2026-10-05T13:10:00Z",
+  "correlation": {
+    "correlationId": "corr-0001"
+  }
+}
