@@ -57,7 +57,8 @@ workflow started you): never ask, and turn every open question into a report que
      (`gh run list --workflow speckit-implement-spec.yml`, `gh run view <id> --log-failed`), and an open amendment pull
      request from `speckit-amend/<folder>` with its comments and reviews. Work in a worktree of the implementation
      branch (`git worktree add <temp-dir> origin/speckit/<folder>`), or of the amendment branch to rework it.
-2. **Read the artifacts** in `specs/<folder>/` and the constitution, and the code and tests the stuck task touches.
+2. **Read the artifacts** in the spec folder (`specs/<folder>/`, or `specs/archive/<folder>/` once the implementation
+   archived it right before its merge; called `<spec folder>` below) and the constitution, and the code and tests the stuck task touches.
 3. **Find the root cause.** Compare the attempts: the same failure every time points to a systematic cause,
    different failures to an approach or flakiness problem. Check what the task asks against what the artifacts
    decide and what the code does. Experiments are allowed (build, run the relevant tests, scratch edits); revert
@@ -87,7 +88,7 @@ workflow started you): never ask, and turn every open question into a report que
      and depends on no unfinished task. Reference artifact sections and requirement IDs like the existing tasks, and
      update dependency and strategy notes that mention the changed tasks.
    - Re-check consistency like `/speckit-analyze` for the whole folder before you finish.
-   - Non-interactive: change only files in `specs/<folder>/`, then call `create_pull_request` with branch
+   - Non-interactive: change only files in `<spec folder>/`, then call `create_pull_request` with branch
      `speckit-amend/<folder>`, base `speckit/<folder>`, a title naming the cause, and a body with the cause and the
      changed artifacts with one line each on what changed and why. Do not commit or push yourself.
    - Interactive: show the diff and ask. Then either commit `docs(<folder>): amend spec artifacts` on the
@@ -98,7 +99,7 @@ workflow started you): never ask, and turn every open question into a report que
    - Interactive: summarize the cause, evidence, and options; ask which option to take; carry it out, either locally
      or by commenting the command on the pull request (`gh pr comment <n> --body "/speckit resume <guidance>"`).
 7. **Fix consistency findings** (mode `fix`). The evidence lists the findings of the independent analysis (and broken
-   amendment rules, if any). Fix each one in the artifacts of `specs/<folder>/` on the amendment branch, following
+   amendment rules, if any). Fix each one in the artifacts of `<spec folder>/` on the amendment branch, following
    the rules of step 5; when a finding is wrong, leave the artifacts as they are and say why. Commit
    `docs(<folder>): fix consistency findings` and call `push_to_pull_request_branch` for the amendment pull request.
    Report with the rework report below.
@@ -142,6 +143,6 @@ workflow started you): never ask, and turn every open question into a report que
 ## Done When
 
 - [ ] The stop is classified with evidence and a confidence (mode `diagnose`).
-- [ ] An amendment changes only `specs/<folder>/` and leaves the whole folder consistent.
+- [ ] An amendment changes only `<spec folder>/` and leaves the whole folder consistent.
 - [ ] Every finding (mode `fix`) or piece of feedback (mode `revise`) has a response.
 - [ ] The report (non-interactive) or the chosen option (interactive) is delivered.

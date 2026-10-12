@@ -1,18 +1,47 @@
 # gha Spec Kit Extension
 
-Repository-local Spec Kit extension that connects `/speckit-implement` to the
-`Spec Kit orchestrate` GitHub Actions workflow. The ID is `gha` (GitHub Actions)
-because Spec Kit already bundles an extension with the ID `github`.
+Repository-local Spec Kit extension that guides spec authoring in Copilot Chat
+and connects `/speckit-implement` to the `Spec Kit orchestrate` GitHub Actions
+workflow. The ID is `gha` (GitHub Actions) because Spec Kit already bundles an
+extension with the ID `github`.
 
 ## Commands
 
 | Command | Skill | Purpose |
 | --- | --- | --- |
+| `speckit.gha.author` | `/speckit-gha-author [architecture section, folder, or feature idea] [notes]` | Guide a spec through specify, clarify, plan, tasks, and analyze to a pushed spec; without input, propose the next logical spec |
 | `speckit.gha.route` | `/speckit-gha-route` | Mandatory `before_implement` hook: choose local implementation or a GitHub request |
 | `speckit.gha.request` | `/speckit-gha-request [folder]` | Request implementation on GitHub directly |
 | `speckit.gha.diagnose` | `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` | Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause |
 | `speckit.gha.refine` | `/speckit-gha-refine [folder]` | Mandatory `after_tasks` hook: refine the `[P]` groups of the generated `tasks.md` so parallel tasks never change the same files |
 | `speckit.gha.archive` | `/speckit-gha-archive [folder]` | Optional `after_converge` hook: archive an implemented spec to `specs/archive/<folder>` and rewrite every reference to it before a local or manual merge |
+
+## Authoring Specs
+
+`/speckit-gha-author` keeps the whole authoring flow in Copilot Chat. It runs
+the repository's Spec Kit skills in Spec Kit's order (`/speckit-specify`,
+`/speckit-clarify`, `/speckit-plan`, optional `/speckit-checklist`,
+`/speckit-tasks` with its refine hook, `/speckit-analyze`) and pauses after
+specify and clarify, plan, tasks, and analyze. It changes spec artifacts only
+through those skills and never ticks a checklist item without the user's
+confirmation. Its additions are:
+
+- **Input:** nothing (it compares the architecture with the existing specs,
+  twin issues, and code, and proposes the next three specs), an architecture
+  section such as `docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui`,
+  a feature idea in free text (it maps the idea to the architecture first and
+  says when the architecture must change with it), or a spec folder to resume.
+- **Environment check:** when the plan needs new frameworks, SDKs, or tools, it
+  stops and offers to author the environment spec first, then records it as a
+  dependency through `/speckit-clarify`.
+- **Publish checks:** stage `tasked`, no open clarification markers or checklist
+  items, a `specs/README.md` row, and a clean Markdown check.
+- **Last decision:** commit and push the spec folder and `specs/README.md`.
+  Everything after the push belongs to the GitHub workflows.
+
+`node .github/scripts/speckit-author.mjs status [folder] [--json]` reports a
+spec's next Spec Kit step, its publish blockers, and its Git state, which is how
+the command resumes. It is read-only.
 
 ## Refining Parallel Groups
 
@@ -81,7 +110,7 @@ without symlink support (the Git default on Windows), so commit them as regular
 files:
 
 ```powershell
-foreach ($name in 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose', 'speckit-gha-refine', 'speckit-gha-archive') {
+foreach ($name in 'speckit-gha-author', 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose', 'speckit-gha-refine', 'speckit-gha-archive') {
     $skill = ".github/skills/$name/SKILL.md"
     $content = Get-Content -Raw ".specify/extensions/gha/.specify-dev/extension-skills/$name/SKILL.md"
     Remove-Item $skill -Force

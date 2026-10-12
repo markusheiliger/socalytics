@@ -3,8 +3,8 @@ schema_version: "1.0"
 extension:
   id: gha
   name: "GitHub Actions implementation routing"
-  version: "1.2.0"
-  description: "Route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow, refine the parallel task groups after /speckit-tasks, diagnose implementations that stopped, and archive implemented specs"
+  version: "1.3.0"
+  description: "Guide spec authoring through the Spec Kit flow to a pushed spec, route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow, refine the parallel task groups after /speckit-tasks, diagnose implementations that stopped, and archive implemented specs"
   author: socalytics
   repository: https://github.com/markusheiliger/socalytics
   license: MIT
@@ -17,13 +17,16 @@ requires:
       description: "Reads the spec folder from the remote default branch"
     - name: node
       required: true
-      description: "Runs .github/scripts/speckit-orchestrate.mjs, speckit-tasks-groups.mjs, and speckit-archive.mjs"
+      description: "Runs .github/scripts/speckit-orchestrate.mjs, speckit-author.mjs, speckit-tasks-groups.mjs, and speckit-archive.mjs"
     - name: gh
       required: true
       description: "Provides the user's GitHub token for the implementation request"
 
 provides:
   commands:
+    - name: speckit.gha.author
+      file: commands/speckit.gha.author.md
+      description: "Guide a spec from an idea, an architecture section, or an existing folder through specify, clarify, plan, tasks, and analyze to a pushed spec"
     - name: speckit.gha.route
       file: commands/speckit.gha.route.md
       description: "Choose between implementing locally and requesting implementation on GitHub"

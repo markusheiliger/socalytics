@@ -8,6 +8,9 @@ and why), and later `plan.md`, design artifacts, and `tasks.md` from
 restating it, as required by the
 [constitution](../.specify/memory/constitution.md).
 
+New specs are authored with `/speckit-gha-author` in Copilot Chat; see
+[Workflow Per Feature](#workflow-per-feature).
+
 ## Platform Foundation
 
 Implement these features in dependency order. Start a feature only after the
@@ -74,24 +77,54 @@ helper scripts use the machine's local time, so set the environment variable
 
 ## Workflow Per Feature
 
-Create a branch named after the feature folder, then run the Spec Kit skills
-in GitHub Copilot from the repository root:
+### Author
 
-1. `/speckit-clarify` resolves the open questions the spec still carries.
+Run `/speckit-gha-author` in GitHub Copilot Chat from the repository root.
+Without input it proposes the next logical spec from the architecture, the
+existing specs, and the code; with an architecture section (for example
+`docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui`) it
+authors a spec for that part; with a feature idea in free text it first maps the
+idea to the architecture and says when the architecture must change with it;
+with a spec folder it resumes where the spec stopped. It runs the Spec Kit skills in their order and pauses for you after
+each stage:
+
+1. `/speckit-specify` creates the folder and `spec.md`, and
+   `/speckit-clarify` resolves the open questions with you.
 2. `/speckit-plan` selects the technical approach from the architecture and
-    checks it against the constitution.
-3. `/speckit-tasks`, then optionally `/speckit-analyze`.
-4. Merge the spec, plan, and tasks to the default branch, then either implement locally or
-    request implementation on GitHub. `/speckit-implement` asks which one you
-    want; `/speckit-gha-request` requests it directly (see the repository
-    [README](../README.md#requesting-implementation-on-github)). A GitHub
-    request gets a `speckit/<folder>` branch and a draft pull request that
-    closes the twin when merged; the workflow implements the tasks one at a
-    time, in order, and requests your review when all are done. For local work,
-    run `/speckit-implement` and `/speckit-converge` until convergence reports
-    completion.
+   checks it against the constitution. When the plan needs new frameworks,
+   SDKs, or tools, an environment spec is authored and merged first.
+3. Optionally `/speckit-checklist` adds a domain checklist.
+4. `/speckit-tasks` writes `tasks.md`; its `/speckit-gha-refine` hook
+   makes the parallel task groups safe.
+5. `/speckit-analyze` checks the artifacts against each other; findings are
+   fixed through the Spec Kit skills.
+6. The publish checks require stage `tasked`, no open clarification markers or
+   checklist items, a row in the tables above, and a clean Markdown check.
+7. Your last decision: commit and push the spec folder and this file.
+
+`node .github/scripts/speckit-author.mjs status [folder]` shows where a spec
+stands and what still blocks publishing it.
+
+### Publish And Implement
+
+Once the spec is on the default branch, the `Spec Kit prepare` workflow
+creates its twin issue and infers its dependencies on other twins; check them
+on GitHub. Then either request implementation on GitHub or implement locally.
+`/speckit-implement` asks which one you want; `/speckit-gha-request`
+requests it directly (see the repository
+[README](../README.md#requesting-implementation-on-github)).
+
+- **On GitHub:** the request gets a `speckit/<folder>` branch and a draft pull
+  request that closes the twin when merged. The workflows implement the tasks
+  phase by phase, converge, archive the spec, and merge it, or ask for your
+  review when automation cannot continue.
+- **Locally:** run `/speckit-implement` and `/speckit-converge` until
+  convergence reports completion, then `/speckit-gha-archive` before the
+  merge.
 
 The skills locate the active feature through the machine-local
-`.specify/feature.json`. Point it at the folder you are working on, for example
-`{ "feature_directory": "specs/archive/20261005-130700-platform-persistence-foundation" }`, or set
-the `SPECIFY_FEATURE_DIRECTORY` environment variable.
+`.specify/feature.json`, which `/speckit-specify` writes. To work on another
+folder, point it there, for example
+`{ "feature_directory": "specs/<folder>" }`, set the
+`SPECIFY_FEATURE_DIRECTORY` environment variable, or pass the folder to
+`/speckit-gha-author`.
