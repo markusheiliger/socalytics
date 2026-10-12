@@ -24,6 +24,7 @@ features it depends on are merged.
 | [Recording Lineage and Upload](archive/20261005-130702-recording-lineage-upload/spec.md) | Direct-to-storage recording upload, immutable lineage, and authorized finalization | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation |
 | [Analyst Manager Registration](archive/20261005-130704-analyst-manager-registration/spec.md) | Device-bound Analyst Manager registration, safe restore, revocation, runtime preflight, and local operating controls | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation, Recording Lineage and Upload |
 | [Durable Analysis Workflow](archive/20261005-130703-durable-analysis-workflow/spec.md) | Durable analysis runs, readiness evaluation, fenced attempts, reliable work publication, and versioned job contracts | Environment Verification Coverage, Platform Persistence Foundation, Club and Identity Foundation, Recording Lineage and Upload, Analyst Manager Registration |
+| [Analyst Manager Work Execution](20261012-141233-manager-work-execution/spec.md) | A registered Analyst Manager pulls, claims, heartbeats, and completes analysis work with a simulated Analyst; per-Manager short-lived queue credentials, concurrency limits, and revocation that fences active attempts | Analyst Manager Registration, Durable Analysis Workflow |
 
 Environment Verification Coverage and Platform Persistence Foundation can be
 developed in parallel. Analyst Manager Registration follows Recording Lineage
