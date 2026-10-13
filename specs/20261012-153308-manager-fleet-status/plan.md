@@ -45,8 +45,9 @@ Validation: [quickstart.md](quickstart.md).
   `ClubPermission.Administer` and `ClubPermission.Register`, `IAuditTrail`, and
   the registration store and handlers.
 - Existing Manager: `PlatformClient`, `RegistrationStatusMonitor`,
-  `OperatingStateMachine`, `PreflightScheduler`, and, from Analyst Manager Work
-  Execution, `AttemptRegistry` and `ConcurrencyLimit`.
+  `OperatingStateMachine`, `PreflightScheduler`, `IManagerWorkTracker`, and
+  `DefaultConcurrencyLimit`; Analyst Manager Work Execution takes over the
+  active count and limit later.
 - No new packages.
 
 **Storage**: Migration `NNNN_registry_analyst_manager_status.sql` (the next
