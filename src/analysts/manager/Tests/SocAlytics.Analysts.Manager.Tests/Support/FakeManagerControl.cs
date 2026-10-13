@@ -54,6 +54,17 @@ internal sealed class FakeManagerControl : IManagerControl
 
     public Task<ControlResult> SessionEndingAsync() => Task.FromResult(new ControlResult(true));
 
+    public SocAlytics.Analysts.Manager.Work.ConcurrencySnapshot Concurrency { get; set; } = new(1, null, null, 0);
+
+    public SocAlytics.Analysts.Manager.Work.ConcurrencySnapshot GetConcurrency() => Concurrency;
+
+    public Task<ControlResult> SetHostLocalConcurrencyAsync(int limit)
+    {
+        Calls.Add($"concurrency:{limit}");
+        Concurrency = Concurrency with { HostLocal = limit };
+        return Task.FromResult(new ControlResult(true));
+    }
+
     public Task<ControlResult> SetAutostartAsync(bool enabled) => Record($"autostart:{enabled}");
 
     public void Raise() => StatusChanged?.Invoke(this, EventArgs.Empty);

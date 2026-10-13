@@ -25,7 +25,7 @@ public sealed class WorkAcquisitionTests
     private const string Detection = "player-detection";
     private const string Foreign = "ball-tracking";
 
-    private sealed class FakeQueue : IQueueConnection
+    internal sealed class FakeQueue : IQueueConnection
     {
         public List<string> Fetches { get; } = [];
 
@@ -64,10 +64,10 @@ public sealed class WorkAcquisitionTests
         ["correlation"] = new JsonObject { ["correlationId"] = "corr-" + index },
     }.ToJsonString();
 
-    private static HttpResponseMessage Json(HttpStatusCode status, string body) =>
+    internal static HttpResponseMessage Json(HttpStatusCode status, string body) =>
         new(status) { Content = new StringContent(body, Encoding.UTF8, "application/json") };
 
-    private static (ManagerTestHost Host, FakeQueue Queue) Host(SimulatedOutcome outcome, int runtimeMax, int stampMax)
+    internal static (ManagerTestHost Host, FakeQueue Queue) Host(SimulatedOutcome outcome, int runtimeMax, int stampMax)
     {
         var queue = new FakeQueue();
         var adapter = new SimulatedRuntimeAdapter(
@@ -99,7 +99,7 @@ public sealed class WorkAcquisitionTests
         return (host, queue);
     }
 
-    private static async Task Restore(ManagerTestHost host, bool paused = false)
+    internal static async Task Restore(ManagerTestHost host, bool paused = false)
     {
         var ct = TestContext.Current.CancellationToken;
         var key = await host.Keys.CreateKeyAsync(false, ct);
@@ -113,7 +113,7 @@ public sealed class WorkAcquisitionTests
         await host.Services.GetRequiredService<PreflightScheduler>().CheckAsync(ct);
     }
 
-    private static async Task<WorkAcquisitionService> Prepare(ManagerTestHost host)
+    internal static async Task<WorkAcquisitionService> Prepare(ManagerTestHost host)
     {
         var ct = TestContext.Current.CancellationToken;
         var sessions = host.Services.GetRequiredService<WorkSessionProvider>();
@@ -124,7 +124,7 @@ public sealed class WorkAcquisitionTests
         return host.Services.GetRequiredService<WorkAcquisitionService>();
     }
 
-    private static void Enqueue(FakeQueue queue, FakePlatform platform, int count)
+    internal static void Enqueue(FakeQueue queue, FakePlatform platform, int count)
     {
         for (var i = 0; i < count; i++)
         {
@@ -156,6 +156,7 @@ public sealed class WorkAcquisitionTests
         await using var _ = host;
         await Restore(host);
         var service = await Prepare(host);
+        (await host.Control.SetHostLocalConcurrencyAsync(2)).Succeeded.ShouldBeTrue();
         Enqueue(queue, host.Platform, 3);
 
         service.EffectiveLimit().ShouldBe(2);

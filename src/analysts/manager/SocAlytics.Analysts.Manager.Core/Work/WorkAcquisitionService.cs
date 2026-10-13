@@ -21,7 +21,7 @@ public sealed class WorkAcquisitionService(
     IQueueConnection queue,
     PlatformClient platform,
     RuntimeAdapterCatalog catalog,
-    PreflightScheduler preflight,
+    ConcurrencyLimit limit,
     IOptions<RuntimeOptions> runtimeOptions,
     TimeProvider time,
     ILoggerFactory loggers) : BackgroundService
@@ -35,13 +35,8 @@ public sealed class WorkAcquisitionService(
     private IContainerRuntimeAdapter? _runnerAdapter;
     private int _next;
 
-    /// <summary>The number of attempts that may run at once: the lower of the stamp maximum and the validated runtime's maximum.</summary>
-    public int EffectiveLimit()
-    {
-        var stamp = credentials.Current?.MaxConcurrentAnalysts ?? 0;
-        var runtime = preflight.Latest is { Passed: true } latest ? latest.MaxParallelAttempts : 0;
-        return Math.Max(0, Math.Min(stamp, runtime));
-    }
+    /// <summary>The number of attempts that may run at once; see <see cref="ConcurrencyLimit"/>.</summary>
+    public int EffectiveLimit() => limit.Effective();
 
     /// <summary>One acquisition step; returns whether a delivery was fetched and started.</summary>
     public async Task<bool> StepAsync(CancellationToken cancellationToken)

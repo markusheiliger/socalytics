@@ -15,7 +15,7 @@ public sealed class LocalControlServer : IDisposable
     [
         "invalid-request", "unsupported-protocol-version", "invalid-registration-state", "invalid-operating-state",
         "no-supported-key-store", "insecure-endpoint", "stamp-mismatch", "platform-unreachable", "pairing-refused",
-        "operation-in-progress", "invalid-pause-duration", "autostart-failed", "software-key-not-allowed",
+        "operation-in-progress", "invalid-pause-duration", "autostart-failed", "software-key-not-allowed", "invalid-concurrency",
     ];
 
     private readonly Socket _listener;
@@ -200,6 +200,8 @@ public sealed class LocalControlServer : IDisposable
             case "unregister":
                 var discard = args["discardLocal"]?.GetValue<bool>() ?? false;
                 return Accepted(control, command, await (discard ? control.DiscardLocalRegistrationAsync() : control.UnregisterAsync()));
+            case "concurrency":
+                return await ConcurrencyAsync(control, args);
             case "autostart":
                 if (args["enabled"] is { } enabled)
                 {
@@ -245,6 +247,34 @@ public sealed class LocalControlServer : IDisposable
             ["stampId"] = control.GetStatus().StampId ?? string.Empty,
         });
     }
+
+    private static async Task<LocalControlResponse> ConcurrencyAsync(IManagerControl control, JsonObject args)
+    {
+        if (args["hostLocal"] is { } value)
+        {
+            if (value is not JsonValue number || !number.TryGetValue<int>(out var limit) || limit < 1)
+            {
+                return LocalControlResponse.Failure("invalid-concurrency", "hostLocal must be an integer of at least 1.");
+            }
+
+            var set = await control.SetHostLocalConcurrencyAsync(limit);
+            if (!set.Succeeded)
+            {
+                return Refused(set);
+            }
+        }
+
+        return LocalControlResponse.Success(ConcurrencyReport(control.GetConcurrency()));
+    }
+
+    public static JsonObject ConcurrencyReport(Work.ConcurrencySnapshot snapshot) => new()
+    {
+        ["kind"] = "concurrency",
+        ["hostLocal"] = snapshot.HostLocal,
+        ["stampMaximum"] = snapshot.StampMaximum,
+        ["runtimeMaximum"] = snapshot.RuntimeMaximum,
+        ["effective"] = snapshot.Effective,
+    };
 
     private static async Task<LocalControlResponse> PauseAsync(IManagerControl control, JsonObject args)
     {

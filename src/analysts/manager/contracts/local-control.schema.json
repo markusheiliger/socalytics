@@ -24,7 +24,8 @@
             "resume",
             "exit",
             "unregister",
-            "autostart"
+            "autostart",
+            "concurrency"
           ]
         },
         "arguments": {
@@ -95,6 +96,22 @@
             "properties": {
               "arguments": {
                 "$ref": "#/$defs/autostartArguments"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "command": {
+                "const": "concurrency"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "arguments": {
+                "$ref": "#/$defs/concurrencyArguments"
               }
             }
           }
@@ -185,6 +202,9 @@
             },
             {
               "$ref": "#/$defs/autostartState"
+            },
+            {
+              "$ref": "#/$defs/concurrencyState"
             }
           ]
         },
@@ -242,7 +262,8 @@
             "operation-in-progress",
             "invalid-pause-duration",
             "autostart-failed",
-            "software-key-not-allowed"
+            "software-key-not-allowed",
+            "invalid-concurrency"
           ]
         },
         "message": {
@@ -665,6 +686,50 @@
       "properties": {
         "enabled": {
           "type": "boolean"
+        }
+      }
+    },
+    "concurrencyArguments": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Without hostLocal: report the concurrency limit. With hostLocal: persist the host-local limit (a positive integer; it applies to new pulls only), then report it.",
+      "properties": {
+        "hostLocal": {
+          "type": "integer"
+        }
+      }
+    },
+    "concurrencyState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "hostLocal",
+        "effective"
+      ],
+      "properties": {
+        "kind": {
+          "const": "concurrency"
+        },
+        "hostLocal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stampMaximum": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "runtimeMaximum": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "effective": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },

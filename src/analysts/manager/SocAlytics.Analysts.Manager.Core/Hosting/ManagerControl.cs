@@ -13,14 +13,16 @@ public sealed class ManagerControl : IManagerControl
 
     private readonly IManagerWorkTracker _work;
     private readonly Runtime.PreflightScheduler _preflight;
+    private readonly Work.ConcurrencyLimit _concurrency;
     private readonly DrainCoordinator _drain;
     private readonly Autostart.IAutostartRegistrar _autostart;
     private readonly Microsoft.Extensions.Options.IOptions<OperatingOptions> _operating;
 
     public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work, Runtime.PreflightScheduler preflight,
         DrainCoordinator drain, Microsoft.Extensions.Options.IOptions<OperatingOptions> operating,
-        Autostart.IAutostartRegistrar autostart)
+        Autostart.IAutostartRegistrar autostart, Work.ConcurrencyLimit concurrency)
     {
+        _concurrency = concurrency;
         _autostart = autostart;
         _drain = drain;
         _operating = operating;
@@ -69,6 +71,19 @@ public sealed class ManagerControl : IManagerControl
             ReadAutostart(),
             ControlSurface,
             _coordinator.Fingerprint);
+    }
+
+    public Work.ConcurrencySnapshot GetConcurrency() => _concurrency.Snapshot();
+
+    public async Task<ControlResult> SetHostLocalConcurrencyAsync(int limit)
+    {
+        var result = await _coordinator.SetHostLocalConcurrencyAsync(limit);
+        if (result.Succeeded)
+        {
+            StatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        return result;
     }
 
     public async Task<ControlResult> SetAutostartAsync(bool enabled)

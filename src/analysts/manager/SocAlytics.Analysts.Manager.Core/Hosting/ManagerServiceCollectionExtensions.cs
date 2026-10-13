@@ -55,6 +55,7 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Queue.QueueCredentialProvider>();
         services.AddSingleton<Queue.IQueueConnection>(sp => new Queue.RenewingQueueConnection(
             sp.GetRequiredService<Queue.QueueCredentialProvider>(), sp.GetService<IHostEnvironment>()));
+        services.AddSingleton<Work.ConcurrencyLimit>();
         services.AddSingleton<Work.WorkAcquisitionService>();
         services.AddHostedService(sp => sp.GetRequiredService<Work.WorkAcquisitionService>());
         services.AddSingleton<Operating.DrainCoordinator>();
