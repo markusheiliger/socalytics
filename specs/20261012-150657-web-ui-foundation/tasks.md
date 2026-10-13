@@ -105,6 +105,7 @@ description: "Task list for Web UI Foundation"
 **Independent Test**: Create a member, issue a code, set the password, assign the Coach role, check navigation, then deactivate the member.
 
 - [x] T017 [US4] Members and roles (contracts/platform-adapter.md; FR-018; US4 scenarios 1–6): add `src/clients/web/src/platform/adapters/memberAdapter.ts`, `src/features/members/MembersPage.tsx`, and `src/features/members/MemberPage.tsx` (create; issue a credential code shown once in a dialog and never again; assign and remove club roles and team roles; deactivate and reactivate; unlock; end sessions; the platform's refusals, for example removing the last Club Admin, shown clearly), with keys in `src/i18n/en/members.json`; register the routes in `src/router.tsx`. Unit tests in `tests/unit/features/members/`; browser tests in `tests/e2e/simulated/members.spec.ts` for US4 scenarios 1–6.
+- [ ] T021 [US4] Corrective task, serial platform end-to-end specs (research.md § R5; SC-002, SC-004): the platform specs share one platform instance, its changed Club Admin password, and the club's single active season, so overlapping specs fail (T018 attempts 1–3). Change `src/clients/web/playwright.config.ts` so the `platform` specs run strictly one after another in the order `session.spec.ts`, `navigation.spec.ts`, `club-structure.spec.ts`, `members.spec.ts` (for example chained projects, the last named `platform`, so `npm run test:e2e -- --project platform` runs the whole chain; the `simulated` project stays parallel); make `tests/e2e/platform/club-structure.spec.ts` archive its season at the end, even when the test fails; and make `src/clients/web/tests/e2e/platform/members.spec.ts` (when it exists from earlier attempts; otherwise T018 adds it) do the same. Verify with the whole `platform` project, not a single file.
 - [ ] T018 [US4] Platform end-to-end member flow (SC-001, SC-002, SC-004): add `src/clients/web/tests/e2e/platform/members.spec.ts`: create a member, issue a code, set the member's password on `/set-password` in a second browser context, assign the Coach role, check the member's navigation, deactivate the member, and observe that their next action returns to sign-in.
 
 **Checkpoint**: All user stories work independently.
@@ -124,7 +125,7 @@ description: "Task list for Web UI Foundation"
 - **Foundational (Phase 2)**: after Setup; blocks all stories.
 - **US1 (Phase 3)**: after Foundational. **US2 (Phase 4)**: after US1 (guards and session). **US3 (Phase 5)** and **US4 (Phase 6)**: after US2 (shell and navigation).
 - **Polish (Phase 7)**: after all stories.
-- Within each story, the platform end-to-end task comes last.
+- Within each story, the platform end-to-end task comes last. T021 comes before T018 (serial platform specs).
 
 ### Parallel opportunities
 
