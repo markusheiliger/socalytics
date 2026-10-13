@@ -31,7 +31,7 @@ description: "Task list for Analyst Manager Work Execution With a Simulated Anal
 
 **Purpose**: Add the NATS key and client packages both solutions need.
 
-- [ ] T001 Add the NATS packages (plan.md § Technical Context; research.md § R1, § R3): in `src/platform/Directory.Packages.props` add central versions for `NATS.Jwt` and `NATS.NKeys` (latest stable 1.x from nats-io) and reference both from `src/platform/SocAlytics.Platform.Infrastructure/SocAlytics.Platform.Infrastructure.csproj`; in `src/analysts/manager/Directory.Packages.props` add `NATS.Net` 3.3.0 (the platform's version) and `NATS.NKeys` (same version as the platform) and reference both from `src/analysts/manager/SocAlytics.Analysts.Manager.Core/SocAlytics.Analysts.Manager.Core.csproj`. Restore and build both solutions; no code changes.
+- [X] T001 Add the NATS packages (plan.md § Technical Context; research.md § R1, § R3): in `src/platform/Directory.Packages.props` add central versions for `NATS.Jwt` and `NATS.NKeys` (latest stable 1.x from nats-io) and reference both from `src/platform/SocAlytics.Platform.Infrastructure/SocAlytics.Platform.Infrastructure.csproj`; in `src/analysts/manager/Directory.Packages.props` add `NATS.Net` 3.3.0 (the platform's version) and `NATS.NKeys` (same version as the platform) and reference both from `src/analysts/manager/SocAlytics.Analysts.Manager.Core/SocAlytics.Analysts.Manager.Core.csproj`. Restore and build both solutions; no code changes.
 
 ---
 
