@@ -104,6 +104,9 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.ApproveRegistrationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.RejectRegistrationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.RevokeRegistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Images.RegisterAnalystImageHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Images.ListAnalystImagesHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Images.GetAnalystImageHandler>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.RegistryOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.RegistryOptions.SectionName);
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()

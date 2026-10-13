@@ -5,12 +5,13 @@ namespace SocAlytics.Platform.Application.Registry;
 public static class RegistryAuditEvents
 {
     public const string ResourceType = "analyst-manager-registration";
+    public const string ImageResourceType = "analyst-image";
 
     public static readonly IReadOnlySet<string> AllowedDetailKeys = new HashSet<string>(StringComparer.Ordinal)
     {
         "managerId", "stampId", "keyThumbprint", "fromState", "toState", "windowExpiresAt", "os", "osVersion",
         "architecture", "managerVersion", "claimedKeyProtection", "deviceFingerprint", "pairingSourceAddress",
-        "registrationCorrelationId",
+        "registrationCorrelationId", "reference", "imageDigest", "capabilityId", "capabilityVersion", "modelDigest",
     };
 
     public static AuditEvent PairingIssued(Guid registrationId, IReadOnlyDictionary<string, string>? details = null) =>
@@ -54,6 +55,37 @@ public static class RegistryAuditEvents
 
     public static AuditEvent Revoked(Guid registrationId, IReadOnlyDictionary<string, string>? details = null) =>
         Create("analyst-manager.revoked", "revoke", AuditOutcome.Succeeded, AuditActorKind.Member, registrationId, "club-admin-revocation", details);
+
+    public static AuditEvent AnalystImageRegistered(string imageDigest, IReadOnlyDictionary<string, string>? details = null) =>
+        CreateImageEvent("registry.analyst-image.registered", AuditOutcome.Succeeded, imageDigest, null, details);
+
+    public static AuditEvent AnalystImageRefused(string? imageDigest, string reasonCode, IReadOnlyDictionary<string, string>? details = null) =>
+        CreateImageEvent("registry.analyst-image.refused", AuditOutcome.Refused, imageDigest, reasonCode, details);
+
+    private static AuditEvent CreateImageEvent(
+        string eventType, AuditOutcome outcome, string? imageDigest, string? reasonCode, IReadOnlyDictionary<string, string>? details)
+    {
+        if (details is not null)
+        {
+            foreach (var key in details.Keys)
+            {
+                if (!AllowedDetailKeys.Contains(key))
+                {
+                    throw new ArgumentException($"The audit detail key '{key}' is not allowed.", nameof(details));
+                }
+            }
+        }
+
+        return new AuditEvent
+        {
+            EventType = eventType,
+            Action = "register-image",
+            Outcome = outcome,
+            Resource = new AuditResource(ImageResourceType, imageDigest),
+            ReasonCode = reasonCode,
+            Details = details,
+        };
+    }
 
     private static AuditEvent Create(
         string eventType,
