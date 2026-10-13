@@ -30,3 +30,15 @@ runs:
     - name: Install the SoftHSM2 PKCS#11 token
       shell: bash
       run: sudo apt-get install --yes softhsm2 || { sudo apt-get update && sudo apt-get install --yes softhsm2; }
+
+    - name: Install the Kiota client generator
+      shell: bash
+      run: |
+        dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0
+        echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+        "$HOME/.dotnet/tools/kiota" --version
+
+    # The version must equal WEB_PLAYWRIGHT in environment-verify, which checks the project's @playwright/test pin.
+    - name: Install the Playwright Chromium browser
+      shell: bash
+      run: npx --yes playwright@1.63.0 install --with-deps chromium

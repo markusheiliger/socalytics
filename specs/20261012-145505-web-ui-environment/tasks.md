@@ -40,7 +40,7 @@ description: "Task list for Web UI Verification Environment"
 
 **Independent Test**: Quickstart scenario 10, plus scenario 2 showing no browser download during verification.
 
-- [ ] T003 [US2] Pinned tools in `.github/actions/environment-setup/action.yml` (plan.md § Design 1; research.md § R1, § R2, § R5; FR-006, FR-007, SC-005): after the existing steps, add the step `Install the Kiota client generator` (`dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0`, append `$HOME/.dotnet/tools` to `$GITHUB_PATH`, print `kiota --version`) and the step `Install the Playwright Chromium browser` (`npx --yes playwright@1.63.0 install --with-deps chromium`, with a comment that the version must equal `WEB_PLAYWRIGHT` in `environment-verify`). Neither step reads `src/clients/web/`. Keep the existing .NET, Markdown linter, and SoftHSM2 steps unchanged.
+- [x] T003 [US2] Pinned tools in `.github/actions/environment-setup/action.yml` (plan.md § Design 1; research.md § R1, § R2, § R5; FR-006, FR-007, SC-005): after the existing steps, add the step `Install the Kiota client generator` (`dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0`, append `$HOME/.dotnet/tools` to `$GITHUB_PATH`, print `kiota --version`) and the step `Install the Playwright Chromium browser` (`npx --yes playwright@1.63.0 install --with-deps chromium`, with a comment that the version must equal `WEB_PLAYWRIGHT` in `environment-verify`). Neither step reads `src/clients/web/`. Keep the existing .NET, Markdown linter, and SoftHSM2 steps unchanged.
 
 **Checkpoint**: Setup prints Kiota 1.36.0 and installs the Playwright 1.63.0 Chromium build.
 
