@@ -68,6 +68,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddHostedService<UploadSessionExpiryWorker>();
 
         services.AddOptions<NatsOptions>().BindConfiguration(NatsOptions.SectionName);
+        services.AddOptions<NatsAuthenticationOptions>().BindConfiguration(NatsAuthenticationOptions.SectionName);
+        services.TryAddSingleton<NatsTrust>();
         services.TryAddSingleton<NatsConnectionProvider>();
         services.TryAddSingleton<TransportReconnectSignal>();
         services.TryAddSingleton<NatsTopology>();
