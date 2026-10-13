@@ -1,0 +1,28 @@
+{
+  "teams": {
+    "title": "Teams",
+    "teamTitle": "Team",
+    "empty": "There are no teams to show.",
+    "listLabel": "Teams",
+    "season": "Season",
+    "seasonOption": "{{name}} ({{state}})",
+    "createTitle": "Create a team",
+    "name": "Team name",
+    "create": "Create team",
+    "creating": "Creating…",
+    "created": "The team was created.",
+    "readOnlyNote": "This season is archived. Its teams are read-only.",
+    "viewOnlyNote": "You can view this team but not change it.",
+    "back": "Back to teams",
+    "editTitle": "Edit team",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "The team was saved.",
+    "seasonState": "Season state: {{state}}",
+    "state": {
+      "draft": "Draft",
+      "active": "Active",
+      "archived": "Archived"
+    }
+  }
+}

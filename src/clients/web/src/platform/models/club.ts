@@ -15,3 +15,12 @@ export interface Season {
   archivedAt?: Date;
   version: number;
 }
+
+export interface Team {
+  id: string;
+  seasonId: string;
+  seasonState: SeasonState;
+  name: string;
+  createdAt: Date;
+  version: number;
+}
