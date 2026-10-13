@@ -81,7 +81,7 @@ description: "Task list for Analyst Manager Status Report and Fleet Read API"
 ## Phase 5: Polish & Cross-Cutting Concerns
 
 - [x] T009 Documentation: in `docs/architecture/analyst-manager.md` § Fleet Visibility In The Web UI replace "The status report and the fleet read operation are not yet implemented" with a pointer to the operations; update `src/platform/README.md` (status report operation, `Registry:StatusReporting`, the migration), `src/analysts/manager/README.md` (status reporting and the host label), and the "Current State" in `AGENTS.md`.
-- [ ] T010 Run the validation in [quickstart.md](quickstart.md) and `node .github/scripts/check-markdown.mjs`; fix what fails.
+- [x] T010 Run the validation in [quickstart.md](quickstart.md) and `node .github/scripts/check-markdown.mjs`; fix what fails.
 
 ---
 
