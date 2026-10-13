@@ -283,6 +283,7 @@ export class FakeGitHub {
 
   // Test helper behavior: merges by moving `base` to a new merge commit, or reports the configured outcome.
   async mergeBranch(base, head, message) {
+    if (this.mergeBranchError) throw new Error(this.mergeBranchError);
     if (this.mergeBranchOutcome) return this.mergeBranchOutcome;
     if ((await this.aheadBy(base, head)) === 0) return 'up-to-date';
     const sha = `sha-${this.repo.nextSha++}`;

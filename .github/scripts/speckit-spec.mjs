@@ -14,8 +14,10 @@ import {
   CHECK_MERGE,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
+  CHECK_SYNC_CONFLICT,
   DONE_COMMENT_MARKER,
   MAX_AUTO_DIAGNOSES,
+  MAX_SYNC_RESOLVE_ATTEMPTS,
   MAX_TASK_ATTEMPTS,
   RESUME_COMMENT_MARKER,
   baseBranchOf,
@@ -40,10 +42,12 @@ import {
   renderImplementTitle,
   renderNextSteps,
   renderResumeComment,
+  renderSyncSkippedMarker,
   renderTaskPrompt,
   specTitleOfPull,
   summarizeTask,
   syncPullRequestTaskList,
+  syncSkippedShas,
   taskJobName,
   taskSubject,
 } from './speckit-implement-core.mjs';
@@ -250,6 +254,72 @@ function reportOrder(report, kind, order) {
   }
 }
 
+export function syncBaseEnabled(env) {
+  return String(env.SPECKIT_SYNC_BASE ?? 'true').toLowerCase() !== 'false';
+}
+
+// Before a phase, brings the base branch into the implementation branch so the phase builds on it (best effort):
+// 'merged' after a clean merge, 'conflict' when the merge conflicts (a conflict resolution then comes first, see
+// decideNext), 'skipped' when GitHub refuses the merge, 'none' when there is nothing to merge or this base commit was
+// skipped before, and 'off'. A skipped base commit is not tried again; the merge at the end integrates it.
+export async function syncBaseBeforePhase(client, env, { decision, folder, report }) {
+  if (!syncBaseEnabled(env)) return 'off';
+  const { pull, comments } = decision;
+  const base = baseBranchOf(pull);
+  const branch = implementationBranch(folder);
+  const baseSha = await client.getBranchSha(base);
+  if (!baseSha || (await client.aheadBy(branch, base)) === 0) return 'none';
+  if (syncSkippedShas(comments).has(baseSha)) {
+    report.line(`\`${base}\` at ${baseSha.slice(0, 7)} was not merged before an earlier phase; the merge integrates it at the end.`);
+    return 'none';
+  }
+  const skip = async (reason) => {
+    await client.createComment(pull.number, [
+      renderSyncSkippedMarker(baseSha),
+      `**\`${base}\` was not merged before the next phase**: ${reason}. The implementation continues on its current base; the merge at the end integrates \`${base}\`.`,
+    ].join('\n'));
+    report.line(`Did not merge \`${base}\` before the phase: ${reason}.`);
+    return 'skipped';
+  };
+  let result;
+  try {
+    result = await client.mergeBranch(branch, base, `Merge ${base} into ${branch} before the next phase`);
+  } catch (error) {
+    return skip(`GitHub refused the merge (${neutralizeMarkers(String(error.message).slice(0, 300))})`);
+  }
+  if (result === 'up-to-date') return 'none';
+  if (result === 'merged') {
+    report.line(`Merged \`${base}\` at ${baseSha.slice(0, 7)} into \`${branch}\` before the phase.`);
+    return 'merged';
+  }
+  await client.createCheckRun({
+    name: CHECK_RUN_NAME,
+    head_sha: pull.head.sha,
+    status: 'completed',
+    conclusion: 'neutral',
+    external_id: CHECK_SYNC_CONFLICT,
+    output: { title: `Conflicts with ${base}`, summary: `Merging \`${base}\` at ${baseSha} before the next phase conflicts; they are resolved before the phase.` },
+  });
+  await client.createComment(pull.number, `**\`${base}\` conflicts with \`${branch}\`**: Copilot resolves the conflicts before the next phase. If that does not succeed in ${MAX_SYNC_RESOLVE_ATTEMPTS} attempts or needs a person, the implementation continues on its current base and the conflicts are resolved when it merges.`);
+  report.line(`Merging \`${base}\` at ${baseSha.slice(0, 7)} conflicts; resolving the conflicts first.`);
+  return 'conflict';
+}
+
+// The conflict resolution before a phase was given up (decideNext): records the base commit as skipped, once.
+async function reportSyncGivenUp(client, { decision, report }) {
+  const check = decision.syncGivenUp;
+  const since = Date.parse(check.started_at ?? check.created_at ?? 0);
+  const recorded = decision.comments.some((comment) => comment.user?.login === BOT_LOGIN && syncSkippedShas([comment]).size > 0 && Date.parse(comment.created_at) >= since);
+  const baseSha = String(check.output?.summary ?? '').match(/\b([0-9a-f]{40})\b/)?.[1];
+  if (recorded || !baseSha) return;
+  const base = baseBranchOf(decision.pull);
+  await client.createComment(decision.pull.number, [
+    renderSyncSkippedMarker(baseSha),
+    `**\`${base}\` was not merged before the next phase**: resolving its conflicts did not succeed or needs a person. The implementation continues on its current base; the conflicts are resolved when it merges.`,
+  ].join('\n'));
+  report.line(`Gave up merging \`${base}\` before the phase; the implementation continues on its current base.`);
+}
+
 // Spec Kit implement spec, job "decide" (write access to check runs, issues, and pull requests; never runs agent
 // code): validates the twin and its pull request, reports orphaned attempts, decides what comes next, reports stops
 // (attempt limit, diagnosis), and prepares it: the phase to run (Spec Kit implement phase plans its tasks),
@@ -261,7 +331,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   const finish = (action, outputs = {}) => {
     report.flush();
     setOutput(env, 'action', action);
-    setOutput(env, 'continue', String(['phase', 'converge', 'resolve', 'merge'].includes(action)));
+    setOutput(env, 'continue', String(['phase', 'converge', 'resolve', 'merge', 'again'].includes(action)));
     for (const [name, value] of Object.entries(outputs)) setOutput(env, name, value);
     return { exitCode: 0, action, ...outputs };
   };
@@ -288,7 +358,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   const orphaned = await closeOrphanedAttempts(client, listed);
   if (orphaned > 0) report.line(`Recorded ${orphaned} attempt(s) of an earlier run that ended without reporting as failed.`);
 
-  const decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env) });
+  let decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env) });
   const { pull } = decision;
   for (const stale of decision.stale ?? []) {
     await client.updateCheckRun(stale.id, { status: 'completed', conclusion: 'failure', output: { title: 'Merge attempt abandoned', summary: 'The merge did not finish within 2 hours.' } });
@@ -320,13 +390,26 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     }[decision.action] ?? decision.action);
     return finish(decision.action === 'done' ? 'done' : 'none', common);
   }
+  if (decision.kind === 'task' && !decision.syncGivenUp) {
+    const synced = await syncBaseBeforePhase(client, env, { decision, folder, report });
+    if (synced === 'merged' || synced === 'conflict') {
+      // The head moved (merged) or carries the conflict now; decide again on it.
+      decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env) });
+      common.head = decision.pull.head.sha;
+      if (decision.action !== 'tasks') {
+        report.line(`After merging \`${common.base_branch}\`, the next run decides again.`);
+        return finish('again', common);
+      }
+    }
+  }
+  if (decision.syncGivenUp) await reportSyncGivenUp(client, { decision, report });
   if (decision.kind === 'task') {
     report.line(`Next: ${renderImplementTitle('phase', twin, phaseSubject(decision.phase))}.`);
     return finish('phase', { ...common, phase: decision.phase ?? '', job_name: phaseSubject(decision.phase) });
   }
 
   const order = prepareOrder(decision, folder);
-  await startAttemptChecks(client, { head: pull.head.sha, kind: decision.kind, entries: order[0].include });
+  await startAttemptChecks(client, { head: common.head, kind: decision.kind, entries: order[0].include });
   const subject = taskSubject(decision.kind, order[0].include);
   report.line(`Next: ${renderImplementTitle('task', twin, subject)}.`);
   reportOrder(report, decision.kind, order);

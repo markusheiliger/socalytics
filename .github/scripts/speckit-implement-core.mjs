@@ -40,6 +40,11 @@ export const CHECK_LIMIT = 'speckit:limit';
 export const CHECK_DONE = 'speckit:done';
 export const CHECK_MERGE = 'speckit:merge';
 export const CHECK_CONFLICT = 'speckit:conflict';
+// Merging the base branch before a phase conflicted on this head; a conflict resolution comes before the phase.
+export const CHECK_SYNC_CONFLICT = 'speckit:sync-conflict';
+// Conflict resolutions before a phase are best effort: after this many failed attempts, or one that needs a person,
+// the implementation continues on its current base and the merge resolves the conflicts.
+export const MAX_SYNC_RESOLVE_ATTEMPTS = 2;
 // A diagnosis of a stopped implementation is running, or its findings wait for a person's decision.
 export const CHECK_DIAGNOSING = 'speckit:diagnosing';
 export const CHECK_DIAGNOSED = 'speckit:diagnosed';
@@ -67,6 +72,18 @@ export const MAX_STALLED_ROUNDS = 3;
 export const MAX_CORRECTION_ROUNDS = 10;
 export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
+// Marks that the base branch at a commit was not merged before a phase (refused, or its conflicts need a person), so
+// the next phases do not try that commit again; a newer commit of the base branch is tried again.
+const SYNC_SKIPPED_PATTERN = /<!-- speckit-implement:sync-skipped ([0-9a-f]{7,40}) -->/;
+export const renderSyncSkippedMarker = (sha) => `<!-- speckit-implement:sync-skipped ${sha} -->`;
+
+// The base branch commits that were not merged before a phase, from the workflow's comments.
+export function syncSkippedShas(comments) {
+  return new Set(comments
+    .filter((comment) => comment.user?.login === BOT_LOGIN)
+    .map((comment) => String(comment.body ?? '').match(SYNC_SKIPPED_PATTERN)?.[1])
+    .filter(Boolean));
+}
 // Paths the agent must never change; specs/<folder>/tasks.md may only receive the target task's tick.
 export const PROTECTED_PREFIXES = ['.github/', '.specify/', 'specs/'];
 // The solution's environment actions. Agents may change them, but only in a standalone environment spec, whose
@@ -550,8 +567,10 @@ const checkTime = (check) => Date.parse(check.started_at ?? check.created_at ?? 
 // `Spec Kit implementation` check runs of the current head; `attempts` the attempt ledger (parseAttempts);
 // `windowStart` starts the current attempt window (pull request, resume, or a person's push); `done` tells whether
 // the implementation was finalized for review; `resumedAt` is the latest resume.
-// Order: the tasks of the phase of the next unticked task (planTasks) → converge (until a successful convergence is
-// newer than the last successful task) → merge, or resolve after a merge found conflicts on this head. Only failures
+// Order: a conflict resolution when merging the base branch before the next phase conflicted on this head (best effort,
+// see MAX_SYNC_RESOLVE_ATTEMPTS) → the tasks of the phase of the next unticked task (planTasks) → converge (until a
+// successful convergence is newer than the last successful task) → merge, or resolve after a merge found conflicts on
+// this head. Only failures
 // count against the attempt limit; all outcomes (including redos from a newer head) are capped separately so no-op
 // attempts cannot loop forever. A stop that needs a person (attempt limit, attention, or a diagnosis that runs or waits
 // for a decision) holds everything until a person pushes or resumes.
@@ -586,6 +605,20 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   const exceeded = ({ failures, total }) => failures >= MAX_TASK_ATTEMPTS || total >= MAX_TASK_ATTEMPTS * 2;
 
   const plan = planTasks(tasksMarkdown, { maxEntries });
+  let syncGivenUp = null;
+  if (plan.order.length > 0) {
+    // Merging the base branch before this phase conflicted on this head: resolve first, unless that was given up.
+    const syncConflict = latestCheckRun(checks.filter((check) => check.external_id === CHECK_SYNC_CONFLICT));
+    if (syncConflict) {
+      const list = inWindow.filter((attempt) => attempt.kind === 'resolve' && Date.parse(attempt.at) >= checkTime(syncConflict));
+      const failures = list.filter((attempt) => attempt.outcome === 'failure').length;
+      const handedOver = list.some((attempt) => attempt.outcome === 'attention');
+      if (!handedOver && failures < MAX_SYNC_RESOLVE_ATTEMPTS && list.length < MAX_SYNC_RESOLVE_ATTEMPTS * 2) {
+        return { action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: list.length + 1 }]], phaseEnd: false, lastIsParallel: false, stale };
+      }
+      syncGivenUp = syncConflict;
+    }
+  }
   if (plan.order.length > 0) {
     const ofTask = (id) => tally((attempt) => attempt.kind === 'task' && attempt.task === id);
     // Earlier attempts can only belong to the first entry: a run stops at the first entry that did not land.
@@ -601,6 +634,7 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
       lastIsParallel: plan.lastIsParallel,
       phase: plan.phase,
       stale,
+      ...(syncGivenUp ? { syncGivenUp } : {}),
     };
   }
 

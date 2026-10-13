@@ -694,6 +694,27 @@ test('resolve: conflicts in protected paths ask the requester', () => withRepos(
   assert.match(github.comments.at(-1).body, /\/speckit diagnose|Wait for the diagnosis/);
 }));
 
+test('resolve before a phase: success continues with the phase, and conflicts that need a person do not stop it', async () => {
+  await withRepos({ ...conflicting, tasks: TASKS }, async (repos) => {
+    work(repos, { inputs: RESOLVE_INPUTS, agent: resolveShared, verify: { outcome: 'success', checks: 'platform build and tests' } });
+    const github = fakeGitHub();
+    assert.equal((await land(repos, github, { inputs: RESOLVE_INPUTS })).exitCode, 0);
+    assert.match(github.comments.at(-1).body, /\*\*Conflicts resolved\*\*[\s\S]*- Next: the next phase, on the merged branch\./);
+  });
+  await withRepos({
+    tasks: TASKS,
+    branch: (dir) => write(dir, 'specs/f/spec.md', '# Spec\n\nbranch\n'),
+    main: (dir) => write(dir, 'specs/f/spec.md', '# Spec\n\nmain\n'),
+  }, async (repos) => {
+    const { integrated } = work(repos, { inputs: RESOLVE_INPUTS });
+    assert.equal(integrated.result.attention, true);
+    const github = fakeGitHub();
+    const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+    assert.deepEqual([landed.exitCode, landed.check.external_id === CHECK_LIMIT, landed.check.conclusion], [0, false, 'neutral'], 'the implementation does not stop');
+    assert.match(github.comments.at(-1).body, new RegExp(`^<!-- speckit-implement:attempt [^\\n]*"outcome":"attention"\\} -->\\n<!-- speckit-implement:sync-skipped ${remoteSha(repos, 'main')} -->\\n\\*\\*\`main\` was not merged before the next phase\\*\\*: conflicts in protected paths need a person`));
+  });
+});
+
 // merge-land only reads the result of merge-verify and talks to the GitHub API.
 async function mergeLand(github, result, { env = {}, workResult = 'success' } = {}) {
   const resultDir = mkdtempSync(path.join(tmpdir(), 'speckit-merge-'));

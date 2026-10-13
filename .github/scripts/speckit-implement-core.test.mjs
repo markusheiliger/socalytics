@@ -10,6 +10,8 @@ import {
   defaultBranchOf,
   CHECK_ATTEMPT,
   CHECK_CONFLICT,
+  CHECK_SYNC_CONFLICT,
+  MAX_SYNC_RESOLVE_ATTEMPTS,
   CHECK_DIAGNOSED,
   CHECK_DIAGNOSING,
   CHECK_DONE,
@@ -460,6 +462,24 @@ test('decides convergence, conflict resolution, and merging after the last task'
   assert.deepEqual(decide({ attempts: [...converged, ...earlierResolves], checks: [conflict] }), single('resolve', 1), 'only attempts at the current conflict count');
   const limited = check(8, CHECK_LIMIT, { conclusion: 'failure' });
   assert.deepEqual(decide({ attempts: converged, checks: [limited], resumedAt: at(13), windowStart: at(13) }), { action: 'merge', kind: 'merge', attempt: 1, stale: [] });
+});
+
+test('resolves conflicts with the base branch before a phase, best effort', () => {
+  const windowStart = '2026-10-06T10:00:00Z';
+  const now = Date.parse('2026-10-06T20:00:00Z');
+  const at = (hour) => `2026-10-06T${String(hour).padStart(2, '0')}:00:00Z`;
+  const resolve = (hour, outcome) => attempt(null, outcome, at(hour), 'resolve');
+  const open = '- [x] T001 a\n- [ ] T002 b\n';
+  const syncConflict = { id: 1, external_id: CHECK_SYNC_CONFLICT, status: 'completed', conclusion: 'neutral', started_at: at(12) };
+  const decide = (fields) => decideNext({ tasksMarkdown: open, windowStart, now, checks: [syncConflict], ...fields });
+  const resolveNext = (number) => ({ action: 'tasks', kind: 'resolve', sync: true, order: [[{ task: null, attempt: number }]], phaseEnd: false, lastIsParallel: false, stale: [] });
+
+  assert.deepEqual(decide({}), resolveNext(1), 'the conflict is resolved before the phase');
+  assert.deepEqual(decide({ attempts: [resolve(11, 'failure'), resolve(13, 'failure')] }), resolveNext(2), 'only attempts at this conflict count');
+  const phase = decideNext({ tasksMarkdown: open, windowStart, now });
+  assert.deepEqual(decide({ attempts: [resolve(13, 'failure'), resolve(14, 'failure')] }), { ...phase, syncGivenUp: syncConflict }, `after ${MAX_SYNC_RESOLVE_ATTEMPTS} failed attempts the phase continues on the current base`);
+  assert.deepEqual(decide({ attempts: [resolve(13, 'attention')] }), { ...phase, syncGivenUp: syncConflict }, 'conflicts that need a person are left to the merge');
+  assert.equal(decideNext({ tasksMarkdown: '- [x] T001 a\n', windowStart, now, checks: [syncConflict] }).kind, 'converge', 'a conflict before a phase does not matter once every task is done');
 });
 test('environment specs: only the environment actions, and only without other changes on the branch', () => {
   assert.equal(isEnvironmentPath('.github/actions/environment-setup/action.yml'), true);

@@ -7,7 +7,10 @@ name: Spec Kit implement spec
 # what comes next", then exactly one of the alternatives numbered "2 · …" (a phase, the convergence, a conflict
 # resolution, or the merge), then "3 · Start the next run" (the other alternatives show as skipped).
 #   decide:              "1 · Decide what comes next": validates the twin, decides what comes next, and reports stops
-#                        (attempt limit, diagnosis)
+#                        (attempt limit, diagnosis); before a phase it merges the base branch into the implementation
+#                        branch (repository variable SPECKIT_SYNC_BASE, default true): a clean merge lets the phase build
+#                        on it, a conflict is resolved first ("2 · Conflict resolution", best effort), and a merge GitHub
+#                        refuses or conflicts that need a person are left to the merge at the end
 #   phase:               "2 · <phase heading as written>": one phase of tasks.md in Spec Kit implement phase, whose
 #                        tasks run one after another in Spec Kit implement task (consecutive `[P]` tasks in parallel);
 #                        "2 · Phase" when skipped
@@ -113,6 +116,7 @@ jobs:
           SPECKIT_RESUME: ${{ inputs.resume }}
           SPECKIT_GUIDANCE: ${{ inputs.guidance }}
           SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
+          SPECKIT_SYNC_BASE: ${{ vars.SPECKIT_SYNC_BASE || 'true' }}
         run: node .github/scripts/speckit-spec.mjs decide
   # Named "2 · <phase heading>"; nested jobs show below it as "2 · <phase heading> / T013 / Implement T013".
   phase:
