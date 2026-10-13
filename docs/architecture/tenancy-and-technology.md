@@ -135,8 +135,9 @@ validation criteria are defined in the
   applied only by the one-off `SocAlytics.Platform.Migrator` host
 - ASP.NET Core Identity with Dapper stores, always-available local accounts,
     and optional external OpenID Connect providers
-- provider-neutral SMTP submission for transactional email through the
-    transactional outbox (decided, not yet implemented; see
+- provider-neutral SMTP submission for transactional email with MailKit
+    through a dedicated transactional email outbox table, with a Mailpit
+    mail catcher locally (decided, not yet implemented; see
     [Email Notifications](email-notifications.md))
 - JSON Schema 2020-12 validation of contract payloads with JsonSchema.Net
     (MIT 8.x line)

@@ -28,10 +28,16 @@ document defines the rules all of them follow.
 - An address receives nothing except its verification message until it is
   verified. Verification uses a single-use, time-limited confirmation link,
   stored only as a hash, in the same way as Club Admin-issued set-password
-  credentials. Changing an address requires verifying the new one; the
+  credentials. The delivery worker generates the token when it sends the
+  message, so the raw token is never stored. The token travels in the link's
+  URL fragment, so it never reaches server logs. The link opens a Web UI page
+  that verifies the address only when the member confirms there with one
+  click, so automatic link scanners cannot verify it (decided, not yet
+  implemented). Changing an address requires verifying the new one; the
   previous address stops receiving messages at once.
 - An address is contact data, never a sign-in identifier: members keep signing
-  in with their account name.
+  in with their account name. Only the member and Club Admins can read it
+  (decided, not yet implemented).
 - A deactivated member receives no messages.
 - Addresses and their verification state belong to the identity records
   (`DAT-001` in [Security and Data Governance](security-and-data-governance.md#data-classes))
@@ -62,25 +68,36 @@ document defines the rules all of them follow.
 
 ## Delivery
 
-- A state change that triggers a message writes the message request into the
-  platform's transactional outbox in the same unit of work, so a message is
-  sent only for committed changes and never lost when the API restarts.
-- A delivery worker in the API host renders each message and submits it by
-  SMTP to the relay configured for the stamp. Submission requires TLS and
-  authentication; the channel is provider-neutral and uses no provider-specific
-  API.
+- A state change that triggers a message writes the message request into a
+  dedicated transactional email outbox table in the platform database, in the
+  same unit of work, so a message is sent only for committed changes and never
+  lost when the API restarts. Email does not use the NATS-published platform
+  outbox, because it needs no broker (decided, not yet implemented).
+- A delivery worker in the API host polls that table, re-checks before sending
+  that the recipient is still active, that the address is still the one the
+  message was created for, and, for notifications other than account messages,
+  that the recipient still belongs to the notification's audience and still
+  has it enabled (decided, not yet implemented). It renders each message and
+  submits it by SMTP to the relay configured for the stamp. Submission
+  requires TLS and authentication; the channel is provider-neutral and uses no
+  provider-specific API. The platform uses the MailKit SMTP client (decided,
+  not yet implemented).
 - Delivery retries transient failures with bounded backoff and records a
   permanent failure without retrying further. Each message has a stable
-  identity, so a retry never sends it twice to the same recipient from the
-  platform's side.
+  identity, and a message recorded as sent is never sent again; only a crash
+  between the relay accepting a message and the platform recording it may
+  cause one duplicate (decided, not yet implemented).
 - The platform keeps only minimal delivery records (message identity, type,
   recipient member, state, and timestamps) and does not retain rendered message
   bodies after delivery.
 - Coalescing of repeated notifications and per-recipient rate limits are
-  explicit configuration that the first notification specification defines.
-- In local development, the Aspire AppHost runs a mail-catcher container as the
-  stamp's relay, and automated tests use the same image as a disposable
-  container. No message leaves the developer's machine.
+  explicit configuration. The first notification type, pending Analyst Manager
+  registration requests, sends its first message at once and suppresses
+  further ones for the same Club Admin within a coalescing window. Address
+  confirmations are limited per member per hour (decided, not yet implemented).
+- In local development, the Aspire AppHost runs a mail-catcher container
+  (Mailpit) as the stamp's relay, and automated tests use the same pinned image
+  as a disposable container. No message leaves the developer's machine.
 
 ## Security And Governance
 

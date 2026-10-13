@@ -387,9 +387,10 @@ no API operation, authenticated or not, performs recovery.
 Members may register an optional email address, verified through a single-use
 confirmation link before any message is sent, and choose which notification
 types they receive. The API sends transactional notifications and account
-messages through the transactional outbox and a delivery worker that submits
-them by authenticated, TLS-protected SMTP to the stamp's configured relay; the
-Aspire AppHost and tests use a mail-catcher container. Self-service password
+messages through a dedicated transactional email outbox table and a delivery
+worker that submits them with MailKit by authenticated, TLS-protected SMTP to
+the stamp's configured relay; the Aspire AppHost and tests use a Mailpit
+mail-catcher container. Self-service password
 recovery and invitations may use this channel through their own
 specifications. The channel is decided, not yet implemented; see
 [Email Notifications](email-notifications.md).
