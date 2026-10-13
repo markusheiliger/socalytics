@@ -69,6 +69,13 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddOptions<NatsOptions>().BindConfiguration(NatsOptions.SectionName);
         services.AddOptions<NatsAuthenticationOptions>().BindConfiguration(NatsAuthenticationOptions.SectionName);
+        services.AddOptions<SocAlytics.Platform.Application.Registry.QueueCredentials.AnalystWorkOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Registry.QueueCredentials.AnalystWorkOptions.SectionName)
+            .Validate(static o => o.MaxConcurrentAnalystsPerManager > 0, "AnalystWork:MaxConcurrentAnalystsPerManager must be a positive integer.")
+            .Validate(static o => o.QueueCredentialLifetime > TimeSpan.Zero, "AnalystWork:QueueCredentialLifetime must be positive.")
+            .Validate(static o => o.ConsumerAckWait > TimeSpan.Zero, "AnalystWork:ConsumerAckWait must be positive.")
+            .Validate(static o => o.UnfitRedeliveryDelay >= TimeSpan.Zero, "AnalystWork:UnfitRedeliveryDelay must not be negative.")
+            .ValidateOnStart();
         services.TryAddSingleton<NatsTrust>();
         services.TryAddSingleton<NatsConnectionProvider>();
         services.TryAddSingleton<TransportReconnectSignal>();
