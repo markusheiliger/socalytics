@@ -38,6 +38,7 @@ import {
   renderAttemptMarker,
   renderNextSteps,
   renderResolvePrompt,
+  renderSyncSkippedMarker,
   summarizeTask,
   syncPullRequestTaskList,
   syncPullRequestTicks,
@@ -540,6 +541,13 @@ async function push({ client, git, env, inputs, folder, resultDir, report }) {
 // The next-steps block of an attention comment lists the commands that continue from here.
 const RESUME_HINT = '';
 
+// Whether tasks.md of the spec on the checked-out branch still has unticked tasks: a conflict resolution then comes
+// before a phase (best effort) rather than before the merge.
+function openTasksIn(workspace, folder) {
+  const file = path.join(workspace, tasksPathOf(folder, { archived: isArchivedIn(workspace, folder) }));
+  return existsSync(file) && listTasks(readFileSync(file, 'utf8')).some((task) => !task.done);
+}
+
 // Lands the result of one task (write token, never runs agent-written code): re-validates the change, commits and
 // pushes it, and reports progress.
 export async function runLand({ client, git, env, inputs, folder, workspace, resultDir, workResult, log }) {
@@ -550,6 +558,23 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   else reasons.push(...result.reasons);
   if (result && !result.verified && result.reasons.length === 0) reasons.push('the change was not verified');
 
+  if (result?.attention && inputs.kind === 'resolve' && openTasksIn(workspace, folder)) {
+    // A resolution before a phase is best effort: the implementation continues on its current base.
+    const baseBranch = baseBranchFromEnv(env);
+    await client.updateCheckRun(inputs.checkRun, {
+      status: 'completed',
+      conclusion: 'neutral',
+      output: { title: `${title(inputs)}: ${baseBranch} not merged`, summary: neutralizeMarkers(reasons.join('; ')) },
+    });
+    await client.createComment(inputs.pull, [
+      ...markerLines(inputs, 'attention'),
+      ...(/^[0-9a-f]{40}$/.test(String(result.baseSha ?? '')) ? [renderSyncSkippedMarker(result.baseSha)] : []),
+      `**\`${baseBranch}\` was not merged before the next phase**: ${neutralizeMarkers(reasons.join('; '))}. The implementation continues on its current base; the conflicts are resolved when it merges.`,
+    ].join('\n'));
+    report.line(`${title(inputs)}: ${baseBranch} not merged before the phase: ${reasons.join('; ')}`);
+    report.flush();
+    return { exitCode: 0, reasons };
+  }
   if (result?.attention || result?.limit) {
     const next = result.limit
       ? `Implement the remaining gaps yourself on the implementation branch, or adjust the spec and tasks. ${RESUME_HINT}`
@@ -661,7 +686,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       `**Conflicts resolved** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
       '',
       `- Verification: ${result.verification === 'not-configured' ? 'no verification configured (no environment-verify action)' : checks.join(', ') || 'no checks'}`,
-      `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
+      openTasksIn(workspace, folder) ? '- Next: the next phase, on the merged branch.' : `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
     ];
   }
   gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);

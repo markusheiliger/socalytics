@@ -49,6 +49,7 @@ accepted as the implementation target; it does not imply that code exists.
 | Capability-scoped accepted-result access | Accepted |
 | Post-analysis triage, Hermes, model providers, and MCP boundary | Accepted |
 | Single-club stamp and organizational hierarchy | Provisional |
+| Transactional email channel (member addresses, preferences, minimal content, SMTP delivery) | Accepted; production delivery values Open / Blocking ([Email Notifications](email-notifications.md)) |
 | Security and server data-lifecycle governance | Provisional / Blocking production |
 | Production deployment and operations | Provisional / Blocking production |
 | Technology stack selections | Provisional |
@@ -80,16 +81,15 @@ telemetry, capacity, incidents, upgrades, and production-readiness evidence.
 
 ---
 
-## Planned Implementation Profile
+## Implementation Profile
 
-The logical architecture is planned provisionally as a .NET 10 and ASP.NET
-Core monolith structured in application layers and composed locally with
-Aspire, with React and
-TypeScript clients, one PostgreSQL database per stamp, Dapper-based logical
-CQRS, NATS JetStream, RustFS/S3, a .NET and Avalonia Analyst Manager, and Python
-Analyst Containers. Hermes is planned as a separate Python OCI service. Source
-will remain in one monorepo and production artifacts will be cloud-neutral OCI
-images.
+The logical architecture is implemented as a .NET 10 and ASP.NET Core
+monolith structured in application layers and composed locally with Aspire,
+with one PostgreSQL database per stamp, Dapper-based logical CQRS, NATS
+JetStream, RustFS/S3, and a .NET and Avalonia Analyst Manager. React and
+TypeScript clients, Python Analyst Containers, and Hermes as a separate Python
+OCI service are planned. Source remains in one monorepo and production
+artifacts will be cloud-neutral OCI images.
 
 The canonical technologies, boundaries, and required evidence are defined in
 the [Platform Implementation Profile](platform-implementation.md).

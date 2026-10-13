@@ -12,17 +12,18 @@ Use lowercase kebab-case filenames for architecture narratives. Add each narrati
 4. [Platform Implementation](platform-implementation.md) maps the logical architecture to the provisional implementation baseline.
 5. [Contracts and Compatibility](contracts-and-compatibility.md) defines contract authority, representation, and versioning rules.
 6. [Client Applications](client-applications.md) describes the Web UI, a Progressive Web App, and its offline mode for coaches.
-7. [Analysts, Models, and Hardware](analysts-models-and-hardware.md) defines analyst tiers, preprocessing, provenance, and acceleration strategy.
-8. [Match Data Pipeline](match-data-pipeline.md) covers recording ingestion, lineage, and segment materialization.
-9. [Job Processing](job-processing.md) defines durable, event-driven analysis workflows and dependency evaluation.
-10. [Analyst Manager](analyst-manager.md) describes worker registration, work acquisition, image selection, and outcome reporting.
-11. [Analyst Runtime and Recovery](analyst-runtime-and-recovery.md) defines container lifecycle, attempt fencing, credentials, and recovery semantics.
-12. [Intelligence and Agents](intelligence-and-agents.md) describes AI access, agent roles, and orchestration authority.
-13. [Analyst Capability Catalog](analyst-capability-catalog.md) inventories analyst capabilities, runtime needs, and validation gates.
-14. [Intelligence Agent Catalog](intelligence-agent-catalog.md) inventories coach and specialist agents with their constraints.
-15. [Client Decision Evidence](client-decision-evidence.md) records evidence and approvals for client architecture decisions.
-16. [Security and Data Governance](security-and-data-governance.md) defines the threat model, data classes, lifecycle policies, and production blockers.
-17. [Production Operations](production-operations.md) defines deployment, recovery, observability, incident, and readiness expectations.
+7. [Email Notifications](email-notifications.md) defines the transactional email channel: member addresses, preferences, minimal content, and SMTP delivery.
+8. [Analysts, Models, and Hardware](analysts-models-and-hardware.md) defines analyst tiers, preprocessing, provenance, and acceleration strategy.
+9. [Match Data Pipeline](match-data-pipeline.md) covers recording ingestion, lineage, and segment materialization.
+10. [Job Processing](job-processing.md) defines durable, event-driven analysis workflows and dependency evaluation.
+11. [Analyst Manager](analyst-manager.md) describes worker registration, work acquisition, image selection, and outcome reporting.
+12. [Analyst Runtime and Recovery](analyst-runtime-and-recovery.md) defines container lifecycle, attempt fencing, credentials, and recovery semantics.
+13. [Intelligence and Agents](intelligence-and-agents.md) describes AI access, agent roles, and orchestration authority.
+14. [Analyst Capability Catalog](analyst-capability-catalog.md) inventories analyst capabilities, runtime needs, and validation gates.
+15. [Intelligence Agent Catalog](intelligence-agent-catalog.md) inventories coach and specialist agents with their constraints.
+16. [Client Decision Evidence](client-decision-evidence.md) records evidence and approvals for client architecture decisions.
+17. [Security and Data Governance](security-and-data-governance.md) defines the threat model, data classes, lifecycle policies, and production blockers.
+18. [Production Operations](production-operations.md) defines deployment, recovery, observability, incident, and readiness expectations.
 
 ## Supporting Areas
 

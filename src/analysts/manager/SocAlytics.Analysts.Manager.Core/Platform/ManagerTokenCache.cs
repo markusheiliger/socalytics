@@ -18,11 +18,12 @@ public sealed class ManagerTokenCache(
     }
 
     public async Task<SelfRegistrationResult> GetSelfRegistrationAsync(
-        Uri endpoint, IDeviceKey key, string managerId, CancellationToken cancellationToken)
+        Uri endpoint, IDeviceKey key, string managerId, CancellationToken cancellationToken,
+        StatusReport? report = null)
     {
         try
         {
-            return await GetSelfRegistrationCoreAsync(endpoint, key, managerId, cancellationToken);
+            return await GetSelfRegistrationCoreAsync(endpoint, key, managerId, cancellationToken, report);
         }
         catch (DeviceKeyException e) when (failures?.Handle(e.Code) == true)
         {
@@ -55,7 +56,7 @@ public sealed class ManagerTokenCache(
     }
 
     private async Task<SelfRegistrationResult> GetSelfRegistrationCoreAsync(
-        Uri endpoint, IDeviceKey key, string managerId, CancellationToken cancellationToken)
+        Uri endpoint, IDeviceKey key, string managerId, CancellationToken cancellationToken, StatusReport? report)
     {
         var (signal, token) = await GetTokenAsync(endpoint, key, managerId, cancellationToken);
         if (token is null)
@@ -63,7 +64,10 @@ public sealed class ManagerTokenCache(
             return new(signal, null);
         }
 
-        var response = await platform.SendAsync(platform.BuildSelfRegistration(endpoint, key, token), cancellationToken);
+        var request = report is null
+            ? platform.BuildSelfRegistration(endpoint, key, token)
+            : platform.BuildStatusReport(endpoint, key, token, report);
+        var response = await platform.SendAsync(request, cancellationToken);
         signal = PlatformSignals.ClassifyResource(response.Status, response.WwwAuthenticate, response.Body);
         if (signal.Outcome != PlatformOutcome.Success)
         {

@@ -54,7 +54,7 @@ test('diagnose starts a diagnosis with the previous one as context, unless one i
   // The diagnose run ended without reporting (for example the agent failed): a new diagnosis may start.
   const unfinished = github.repo.checkRuns.at(-1);
   Object.assign(github.repo.runs.at(-1), { status: 'completed', conclusion: 'failure' });
-  github.repo.runs.push({ id: 900, workflow: 'speckit-diagnose.lock.yml', display_title: 'Spec Kit diagnose #5', status: 'completed', conclusion: 'failure', created_at: github.tick() });
+  github.repo.runs.push({ id: 900, workflow: 'speckit-diagnose.lock.yml', display_title: 'Spec Kit diagnose #5 · why #9 stopped', status: 'completed', conclusion: 'failure', created_at: github.tick() });
   assert.equal((await run(github, '/speckit diagnose')).outcome, 'started');
   assert.deepEqual([unfinished.status, unfinished.conclusion, unfinished.output.title], ['completed', 'failure', 'Diagnosis did not finish']);
 

@@ -235,7 +235,9 @@ development and test, a stamp may allow software-backed keys only for Managers
 that claim the headless server profile, for Linux servers without a TPM or
 virtual TPM; tray Managers keep requiring hardware-backed keys. The platform can
 verify neither the profile nor the protection, so the approval view shows both
-as claimed, with a warning. Hardware key attestation is a later decision.
+as claimed, with a warning (the first Web UI decision view shows the profile
+only once Managers report it; see
+[Fleet Visibility In The Web UI](#fleet-visibility-in-the-web-ui)). Hardware key attestation is a later decision.
 Production approval of any store remains governed by `GOV-CRED-002` in
 [Security and Data Governance](security-and-data-governance.md#credential-class-entries).
 
@@ -426,8 +428,21 @@ actions are approving or rejecting pending requests and revoking registrations.
 Host-local actions stay in the Manager, because they act on that machine:
 pairing, pause, timed pause, resume, safe exit, unregister, autostart, updates
 in manual mode, and the local concurrency limit. Queue depth remains guidance in
-the Manager's own status view. The status report and the fleet read operation
-are not yet implemented.
+the Manager's own status view. The status report is sent with
+`POST /api/v1/analyst-managers/self/status` and the fleet is read with the
+registration list and detail operations; see
+[the platform README](../../src/platform/README.md) and the
+[Manager status contracts](../../specs/archive/20261012-153308-manager-fleet-status/contracts/self-status-api.md).
+
+The first Web UI fleet and decision views will not show the claimed
+application profile: it follows once the headless server profile exists and
+Managers report it, while the claimed device-key protection is shown from the
+start. Approving a request will require re-entering the last six characters of
+the device fingerprint, and revoking a registration typing the Manager's host
+label. The navigation will show Club Admins the number of pending requests.
+Club Admins with a verified email address will also be notified of pending
+requests by email through the
+[email channel](email-notifications.md), in a later specification.
 
 ---
 
