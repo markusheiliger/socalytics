@@ -28,6 +28,26 @@ retention removes only records whose publication outcome is known. Retention,
 deletion, audit, replica, and backup obligations then follow
 [Security and Data Governance](security-and-data-governance.md).
 
+### JetStream Topology
+
+Each stamp uses two JetStream streams:
+
+| Stream | Subjects | Retention | Content |
+| --- | --- | --- | --- |
+| `SOCALYTICS_EVENTS` | `matches.>`, `analysis.events.>` | limits | lifecycle notifications such as `matches.recordings-finalized` and `analysis.events.run-state-changed` |
+| `SOCALYTICS_ANALYSIS_JOBS` | `analysis.jobs.ready.>` | work queue | ready Logical Jobs on `analysis.jobs.ready.<capability-id>` |
+
+The publisher sets the outbox message identity as the JetStream message ID, so
+the stream's duplicate window suppresses repeated publication of the same
+record. When reconciliation republishes a record in a later publication round,
+it uses a round-specific message ID so the broker accepts it again; the
+payload's own identities do not change. The control plane consumes
+`matches.recordings-finalized` through a durable consumer with explicit
+acknowledgement. Stream and subject names are configuration with these
+defaults; broker credentials, limits, and replica counts per environment
+remain production values governed by
+[Production Deployment and Operations](production-operations.md).
+
 ```mermaid
 sequenceDiagram
 
@@ -92,24 +112,36 @@ This hierarchy is `analysis run → workflow node → logical job → execution
 attempt`. NATS is not a workflow state store and does not decide dependency
 readiness.
 
-### Planned Durable Foundation
+### Durable Foundation
 
-The planned Analysis functional area will persist, in the platform's
+The Analysis functional area persists, in the platform's
 application schema, Analysis Runs, Workflow Nodes and run-local dependency
 edges, Logical Jobs, Execution Attempts, immutable accepted-result references,
 idempotency, notification deduplication, and its outgoing events through the
 platform outbox. Registry-owned workflow,
 capability, Analyst-profile, model, schema, runtime, policy, resource, retry,
 and timeout versions are validated through typed Registry application queries;
+until the Registry's capability catalog exists, these queries resolve a
+configured workflow definition.
 Analysis stores the resolved capability declaration, Analyst-profile, OCI
 image, model, policy, schema, resource, retry, lease, stale-timeout, and
 execution-timeout identities and values in immutable run and node snapshots.
 Container-owned preprocessing has no independently selectable job identity.
 
-Implementation evidence must cover hierarchy round trips, immutable run
+Every time a Logical Job becomes ready, the platform records a **readiness
+occurrence**: a stable occurrence identity and a per-job readiness sequence
+(1 for the first readiness, incremented for each retry readiness). Exactly one
+occurrence is current per ready Logical Job. The ready-job message carries the
+occurrence identity, its sequence, and a message identity that stays the same
+for every republication of that occurrence. A claim must name the current
+occurrence and the message; a claim for a superseded occurrence is
+deterministically obsolete, so redelivered or republished messages of an
+earlier readiness can never start an attempt.
+
+Integration tests cover hierarchy round trips, immutable run
 snapshots, acyclic graph validation, hardware-neutral Logical Jobs, attempt
 number and entity-version conflicts, accepted-result lineage and fencing,
-duplicate or fabricated notification rejection, and complete restart recovery
+duplicate or fabricated notification rejection, and restart recovery
 with NATS empty or unavailable. Outbox tests cover atomic state publication
 records, broker outage, retry, restart, and expired leases.
 
@@ -120,9 +152,9 @@ of recording-version ID, timeline-mapping digest, segmentation-policy digest,
 and segment number. The Scheduler accepts it only after membership and
 match/team scope validation. Recording-set-only revisions may reuse the same
 materialized media while retaining distinct analysis-run lineage.
-Machine-readable job and completion schemas are introduced by the Durable
-Analysis Workflow slice, ahead of Analyst execution, under
-`contracts/analysis/`; they preserve these identities and fencing boundaries
+Machine-readable job and completion schemas live under
+`contracts/analysis/`, introduced by the Durable Analysis Workflow ahead of
+Analyst execution; they preserve these identities and fencing boundaries
 and evolve additively within their major version.
 
 ## Readiness And Dependencies
