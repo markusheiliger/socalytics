@@ -16,7 +16,9 @@
   "dependencies": {
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
+    "@microsoft/kiota-abstractions": "1.0.0-preview.110",
     "@microsoft/kiota-bundle": "1.0.0-preview.110",
+    "@microsoft/kiota-http-fetchlibrary": "1.0.0-preview.110",
     "@mui/material": "7.3.11",
     "@tanstack/react-query": "5.104.2",
     "i18next": "26.4.4",
