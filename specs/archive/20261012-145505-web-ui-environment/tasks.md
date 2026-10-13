@@ -5,7 +5,7 @@ description: "Task list for Web UI Verification Environment"
 
 # Tasks: Web UI Verification Environment
 
-**Input**: Design documents from `specs/20261012-145505-web-ui-environment/`
+**Input**: Design documents from `specs/archive/20261012-145505-web-ui-environment/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/verify-web-ui.md](contracts/verify-web-ui.md), [quickstart.md](quickstart.md)
 
