@@ -1,6 +1,7 @@
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Registry.Abstractions;
+using SocAlytics.Platform.Application.Registry.StatusReporting;
 using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Application.Registry.MachineAccess;
@@ -8,7 +9,8 @@ namespace SocAlytics.Platform.Application.Registry.MachineAccess;
 public sealed record UnregistrationResult(string ManagerId, string State);
 
 public sealed class CompleteUnregistrationHandler(
-    IUnitOfWork unitOfWork, IRegistrationStore registrations, IManagerAccessTokenStore tokens, IAuditTrail audit, TimeProvider time)
+    IUnitOfWork unitOfWork, IRegistrationStore registrations, IManagerAccessTokenStore tokens,
+    IManagerStatusStore statuses, IAuditTrail audit, TimeProvider time)
 {
     public async Task<OperationResult<UnregistrationResult>> HandleAsync(Guid registrationId, CancellationToken cancellationToken)
     {
@@ -32,6 +34,7 @@ public sealed class CompleteUnregistrationHandler(
         }
 
         await tokens.DeleteForRegistrationAsync(registration.Id, cancellationToken);
+        await statuses.DeleteAsync(registration.Id, cancellationToken);
         await audit.RecordAsync(RegistryAuditEvents.Unregistered(registration.Id, new Dictionary<string, string>
         {
             ["fromState"] = nameof(RegistrationState.Unregistering),
