@@ -71,7 +71,7 @@ description: "Task list for Analyst Manager Status Report and Fleet Read API"
 
 ### Label validation on both sides
 
-- [ ] T007 [P] [US3] Platform label rules (research.md § R7; FR-010, FR-011): refuse control characters in `hostLabel` in `src/platform/SocAlytics.Platform.Domain/Registry/DeviceMetadata.cs`. Tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/HostLabelTests.cs`: control characters refused, the label and fingerprint present in the Registrar's submission response and in the fleet list.
+- [x] T007 [P] [US3] Platform label rules (research.md § R7; FR-010, FR-011): refuse control characters in `hostLabel` in `src/platform/SocAlytics.Platform.Domain/Registry/DeviceMetadata.cs`. Tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/HostLabelTests.cs`: control characters refused, the label and fingerprint present in the Registrar's submission response and in the fleet list.
 - [ ] T008 [P] [US3] Manager label validation (research.md § R7; FR-010; SC-005): validate `--host-label` locally (trimmed, 1–64 characters, no control characters) in `src/analysts/manager/SocAlytics.Analysts.Manager/Cli/ManagerCli.cs` and in `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Registration/RegistrationCoordinator.cs`. Tests in `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Registration/HostLabelTests.cs`: invalid labels refused locally with a message, the pairing request carries exactly the entered label or none, and the machine name never appears in any request (SC-005).
 
 **Checkpoint**: All user stories work.
