@@ -1,4 +1,5 @@
 import { expect, test as base } from '../support/fixtures';
+import { archiveActiveSeasons } from '../support/platformState';
 
 const ADMIN_ACCOUNT = process.env.SOCALYTICS_E2E_ADMIN_ACCOUNT ?? 'club-admin';
 const ADMIN_INITIAL_PASSWORD = process.env.SOCALYTICS_E2E_ADMIN_PASSWORD ?? 'E2e-Admin-Password-0001';
@@ -17,26 +18,10 @@ const firstTeam = `E2E first ${run}`;
 const secondTeam = `E2E second ${run}`;
 const renamedTeam = `E2E renamed ${run}`;
 
-// Archives the test's season so the club's single active season is free for the next spec, even when the test fails.
-test.afterEach(async ({ page }) => {
-  await page.goto('/');
-  if (/\/sign-in$/.test(page.url())) {
-    await page.getByLabel('Sign-in name').fill(ADMIN_ACCOUNT);
-    await page.getByLabel('Password').fill(ADMIN_CHANGED_PASSWORD);
-    await page.getByRole('button', { name: 'Sign in' }).click();
-  }
-  await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
-  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link', { name: 'Seasons' }).click();
-  const link = page.getByRole('listitem').filter({ hasText: seasonName }).getByRole('link', { name: seasonName });
-  await expect(page.getByRole('heading', { level: 2, name: 'Seasons' })).toBeVisible();
-  if ((await link.count()) === 0) return;
-  await link.click();
-  const archive = page.getByRole('button', { name: 'Archive' });
-  await expect(page.getByText(/^State: /)).toBeVisible();
-  if (await archive.isVisible()) {
-    await archive.click();
-    await expect(page.getByText('State: Archived')).toBeVisible();
-  }
+// Archives the club's active seasons through the API so the single active season is free for the next spec, even when
+// the test fails.
+test.afterEach(async () => {
+  await archiveActiveSeasons();
 });
 
 test('creates and activates a season, creates two teams, and edits one (SC-002)', async ({ page }) => {
@@ -75,9 +60,16 @@ test('creates and activates a season, creates two teams, and edits one (SC-002)'
   await expect(page.getByRole('link', { name: firstTeam })).toBeVisible();
 
   await page.getByRole('link', { name: secondTeam }).click();
-  await page.getByLabel(/^Team name/).fill(renamedTeam);
-  await page.getByRole('button', { name: 'Save' }).click();
+  // The form is unmounted while the team refetches; fill only once it holds the team's current name and can be saved.
+  const nameField = page.getByLabel(/^Team name/);
+  const save = page.getByRole('button', { name: 'Save' });
+  await expect(save).toBeEnabled();
+  await expect(nameField).toHaveValue(secondTeam);
+  await nameField.fill(renamedTeam);
+  await save.click();
   await expect(page.getByText('The team was saved.')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 2, name: renamedTeam })).toBeVisible();
+  await expect(page.getByLabel(/^Team name/)).toHaveValue(renamedTeam);
 
   await page.getByRole('link', { name: 'Back to teams' }).click();
   await page.getByLabel('Season', { exact: true }).selectOption({ label: `${seasonName} (Active)` });
