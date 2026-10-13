@@ -9,6 +9,19 @@ public static class AttemptExecutionStates
     public const string Finalizing = "finalizing";
 }
 
+/// <summary>Why the registry stopped an attempt from outside.</summary>
+public enum AttemptStopReason
+{
+    /// <summary>The drain timeout expired under the stop-and-clean-up policy; a failed completion is reported.</summary>
+    DrainTimeout,
+
+    /// <summary>The Manager is exiting; nothing is reported.</summary>
+    Exit,
+
+    /// <summary>The registration was revoked; nothing is reported.</summary>
+    Revoked,
+}
+
 /// <summary>In-memory view of one claimed attempt; the fencing token is never logged or persisted.</summary>
 public sealed class ActiveAttempt
 {
@@ -16,6 +29,7 @@ public sealed class ActiveAttempt
     private DateTimeOffset _leaseExpiresAt;
     private DateTimeOffset? _lastConfirmedHeartbeat;
     private string _executionState = AttemptExecutionStates.Preparing;
+    private AttemptStopReason? _stopReason;
 
     public ActiveAttempt(AnalystJobMessage job, ClaimGranted claim, DateTimeOffset startedAt)
     {
@@ -70,6 +84,12 @@ public sealed class ActiveAttempt
     {
         get { lock (_gate) { return _executionState; } }
         set { lock (_gate) { _executionState = value; } }
+    }
+
+    internal AttemptStopReason? StopReason
+    {
+        get { lock (_gate) { return _stopReason; } }
+        set { lock (_gate) { _stopReason = value; } }
     }
 
     internal void ConfirmHeartbeat(DateTimeOffset confirmedAt, DateTimeOffset leaseExpiresAt)

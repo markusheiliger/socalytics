@@ -38,7 +38,14 @@ public sealed class AttemptRegistry : IManagerWorkTracker
         {
             try
             {
-                await body(attempt => entry.Attempt = attempt, entry.Cts.Token);
+                await body(attempt =>
+                {
+                    lock (_gate)
+                    {
+                        entry.Attempt = attempt;
+                        attempt.StopReason = entry.Reason;
+                    }
+                }, entry.Cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -59,10 +66,26 @@ public sealed class AttemptRegistry : IManagerWorkTracker
         }
     }
 
-    public async Task StopAndCleanUpAsync(CancellationToken cancellationToken)
+    /// <summary>Stops every attempt for the drain timeout; each current attempt reports a failed completion.</summary>
+    public Task StopAndCleanUpAsync(CancellationToken cancellationToken) =>
+        StopAsync(AttemptStopReason.DrainTimeout, cancellationToken);
+
+    /// <summary>Stops and cleans up every attempt; only <see cref="AttemptStopReason.DrainTimeout"/> reports a completion.</summary>
+    public async Task StopAsync(AttemptStopReason reason, CancellationToken cancellationToken)
     {
         Entry[] entries;
-        lock (_gate) { entries = [.. _entries]; }
+        lock (_gate)
+        {
+            entries = [.. _entries];
+            foreach (var entry in entries)
+            {
+                entry.Reason = reason;
+                if (entry.Attempt is { } attempt)
+                {
+                    attempt.StopReason = reason;
+                }
+            }
+        }
 
         foreach (var entry in entries)
         {
@@ -106,5 +129,7 @@ public sealed class AttemptRegistry : IManagerWorkTracker
         public Task Task { get; set; } = Task.CompletedTask;
 
         public ActiveAttempt? Attempt { get; set; }
+
+        public AttemptStopReason? Reason { get; set; }
     }
 }

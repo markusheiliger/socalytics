@@ -25,6 +25,9 @@ public interface IQueueConnection : IAsyncDisposable
 {
     /// <summary>Fetches at most one delivery from the capability's consumer; null when none is available within <paramref name="expires"/>.</summary>
     Task<IQueueDelivery?> FetchOneAsync(string capability, TimeSpan expires, CancellationToken cancellationToken);
+
+    /// <summary>Closes the connection held for the current credential; a later fetch reconnects only with a new credential.</summary>
+    ValueTask CloseAsync() => ValueTask.CompletedTask;
 }
 
 /// <summary>Connection to the queue with one issued credential: user JWT, nonce signing, and the Manager's inbox prefix.</summary>
@@ -185,24 +188,26 @@ public sealed class RenewingQueueConnection : IQueueConnection
         }
 
         // A discarded credential closes the connection so a revoked Manager stops pulling at once.
-        _ = Task.Run(async () =>
+        _ = Task.Run(async () => await CloseAsync());
+    }
+
+    public async ValueTask CloseAsync()
+    {
+        await _gate.WaitAsync();
+        try
         {
-            await _gate.WaitAsync();
-            try
+            var old = _connection;
+            _connection = null;
+            _connectedWith = null;
+            if (old is not null)
             {
-                var old = _connection;
-                _connection = null;
-                _connectedWith = null;
-                if (old is not null)
-                {
-                    await old.DisposeAsync();
-                }
+                await old.DisposeAsync();
             }
-            finally
-            {
-                _gate.Release();
-            }
-        });
+        }
+        finally
+        {
+            _gate.Release();
+        }
     }
 
     public async ValueTask DisposeAsync()

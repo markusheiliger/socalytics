@@ -202,14 +202,23 @@ public sealed class AttemptRunner(
                 if (finished == heartbeat)
                 {
                     heartbeatCts.Cancel();
-                    await StopAsync(attempt, execution);
-                    _logger.LogWarning(
-                        "Abandoning Logical Job {LogicalJobId} attempt {AttemptId} correlation {CorrelationId}: heartbeat ended ({End})",
-                        attempt.LogicalJobId, attempt.AttemptId, attempt.CorrelationId, await heartbeat);
-                    return AttemptRunEnd.Abandoned;
+                    if (attempt.StopReason == AttemptStopReason.DrainTimeout)
+                    {
+                        _logger.LogWarning(
+                            "Logical Job {LogicalJobId} attempt {AttemptId} correlation {CorrelationId} is stopped: drain-timeout",
+                            attempt.LogicalJobId, attempt.AttemptId, attempt.CorrelationId);
+                        failure = new CompletionFailure("cancelled-by-manager");
+                    }
+                    else
+                    {
+                        await StopAsync(attempt, execution);
+                        _logger.LogWarning(
+                            "Abandoning Logical Job {LogicalJobId} attempt {AttemptId} correlation {CorrelationId}: heartbeat ended ({End})",
+                            attempt.LogicalJobId, attempt.AttemptId, attempt.CorrelationId, await heartbeat);
+                        return AttemptRunEnd.Abandoned;
+                    }
                 }
-
-                if (finished == timeout)
+                else if (finished == timeout)
                 {
                     _logger.LogWarning(
                         "Logical Job {LogicalJobId} attempt {AttemptId} correlation {CorrelationId} exceeded its execution timeout",
@@ -302,6 +311,11 @@ public sealed class AttemptRunner(
         ActiveAttempt attempt, AttemptOutcome? outcome, CompletionFailure? failure, Func<PlatformSession?> sessions,
         CancellationToken cancellationToken)
     {
+        if (attempt.StopReason == AttemptStopReason.Revoked)
+        {
+            return AttemptRunEnd.Abandoned;
+        }
+
         var job = attempt.Job;
         var succeeded = outcome is { Succeeded: true };
         var completion = new AttemptCompletion(

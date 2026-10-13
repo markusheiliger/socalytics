@@ -125,7 +125,7 @@ public sealed class WorkAcquisitionService(
         finally
         {
             using var bound = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await registry.StopAndCleanUpAsync(bound.Token);
+            await registry.StopAsync(AttemptStopReason.Exit, bound.Token);
             await renewal;
         }
     }
