@@ -52,6 +52,13 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.ICapabilityDeclarationStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.CapabilityDeclarationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.IAnalystProfileStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.AnalystProfileStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.WorkflowDefinitionStore>();
+        services.AddOptions<SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions>()
+            .BindConfiguration(SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions.SectionName);
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Options.IValidateOptions<SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions>, SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptionsValidator>());
+        services.TryAddSingleton(sp => new SocAlytics.Platform.Infrastructure.Registry.Oci.OciDistributionClient(
+            new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = TimeSpan.FromSeconds(30) },
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions>>()));
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IOciImageReader, SocAlytics.Platform.Infrastructure.Registry.Oci.OciImageReader>();
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
         services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.Analysis.AnalysisRunScopeSource>();
