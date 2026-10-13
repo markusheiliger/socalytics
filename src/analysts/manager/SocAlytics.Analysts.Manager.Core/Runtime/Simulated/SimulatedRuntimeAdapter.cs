@@ -31,6 +31,9 @@ public sealed class SimulatedRuntimeAdapter : IContainerRuntimeAdapter
 
     public string Profile => TestProfile;
 
+    public IReadOnlyList<Platform.QueueCapability> Capabilities =>
+        options.Capabilities.Select(c => new Platform.QueueCapability(c.Key, c.Value.Version)).ToList();
+
     public RuntimeProbe Probe { get; set; }
 
     public Exception? Failure { get; set; }

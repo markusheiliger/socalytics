@@ -49,7 +49,14 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<ProofFactory>();
         services.AddHttpClient<PlatformClient>();
         services.AddSingleton<Operating.AdmissionGate>();
-        services.AddSingleton<Operating.IManagerWorkTracker, Operating.NoManagerWork>();
+        services.AddSingleton<Work.AttemptRegistry>();
+        services.AddSingleton<Operating.IManagerWorkTracker>(sp => sp.GetRequiredService<Work.AttemptRegistry>());
+        services.AddSingleton<Work.WorkSessionProvider>();
+        services.AddSingleton<Queue.QueueCredentialProvider>();
+        services.AddSingleton<Queue.IQueueConnection>(sp => new Queue.RenewingQueueConnection(
+            sp.GetRequiredService<Queue.QueueCredentialProvider>(), sp.GetService<IHostEnvironment>()));
+        services.AddSingleton<Work.WorkAcquisitionService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Work.WorkAcquisitionService>());
         services.AddSingleton<Operating.DrainCoordinator>();
         services.AddSingleton(sp => new LocalState.SignedStateStore(
             ManagerStatePaths.Resolve(sp.GetRequiredService<IOptions<ManagerOptions>>().Value.StateDirectory),

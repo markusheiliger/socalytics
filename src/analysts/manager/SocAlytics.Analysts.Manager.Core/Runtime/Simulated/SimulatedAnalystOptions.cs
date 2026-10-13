@@ -10,6 +10,9 @@ public enum SimulatedOutcome
 
 public sealed class SimulatedCapabilityOptions
 {
+    /// <summary>The capability version the simulated runtime offers to the queue.</summary>
+    public string Version { get; set; } = "1.0.0";
+
     public SimulatedOutcome Outcome { get; set; } = SimulatedOutcome.Succeed;
 
     public TimeSpan RunDuration { get; set; } = TimeSpan.Zero;
