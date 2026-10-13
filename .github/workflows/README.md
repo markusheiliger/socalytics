@@ -87,8 +87,8 @@ pull request, and thick arrows are reusable workflow calls (`workflow_call`) tha
   `[P]` tasks under one heading run in parallel.
 
 Each run of Spec Kit implement spec does one of these: a phase, the convergence (`/speckit-converge`), a conflict
-resolution, or the merge. Before a phase starts (none of its tasks is ticked yet), the job `sync` ("Merge main into the
-branch") merges the base branch into the implementation branch when it is ahead (repository variable
+resolution, or the merge. Before a phase starts (none of its tasks is ticked yet), the job `sync` ("Merge the base
+branch before the phase") merges the base branch into the implementation branch when it is ahead (repository variable
 `SPECKIT_SYNC_BASE`, default `true`), so every phase builds on the current base branch and picks up fixes and tooling
 that landed there; retries and continuations of a started phase keep its base. The merge happens through the GitHub
 API; on a conflict the phase does not run, and the next run resolves the conflicts first with the conflict resolution
