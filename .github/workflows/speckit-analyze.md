@@ -163,9 +163,12 @@ consistent with each other and with the constitution.
    Skip its extension hooks and its offer of a remediation plan.
 2. Also read the amendment's own changes (`git diff origin/speckit/${{ inputs.folder }}...HEAD -- specs/`, or the
    pull request with the GitHub tools) and check in particular that every changed decision is reflected everywhere it
-   matters: requirements and success criteria (`spec.md`), plan and risks (`plan.md`), `research.md`,
-   `data-model.md`, `contracts/`, `quickstart.md`, checklists, and `tasks.md` (task text, references, order, and
-   dependency notes). A statement that the amendment made stale is a finding.
+   matters: requirements and success criteria (`spec.md`), plan and risks (`plan.md`, including its
+   `## Architecture Updates` section), `research.md`, `data-model.md`, `contracts/`, `quickstart.md`, checklists, and
+   `tasks.md` (task text, references, order, and dependency notes). A statement that the amendment made stale is a
+   finding. A changed design decision that `docs/architecture/` states must be covered by an unchecked documentation
+   task that brings it into the owning narrative (constitution Principle I); a missing one is a finding, and so is an
+   amendment that changes `docs/architecture/` itself.
 3. Use the severities of the skill. Report only real inconsistencies, ambiguities, coverage gaps, and constitution
    conflicts; no style preferences above LOW.
 4. `.speckit-analysis/previous.json` lists the findings that the last correction round tried to fix, each with an id
