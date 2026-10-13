@@ -56,7 +56,7 @@ public sealed class OpenApiContractTests
 		mismatches.ShouldBeEmpty();
 
 		// Recording operations are verified by RecordingsOpenApiTests and Registry operations by
-		// RegistryOpenApiTests, not against the Club contract.
+		// RegistryOpenApiTests and AnalystRegistryOpenApiTests, not against the Club contract.
 		var operationCount = paths.EnumerateObject()
 			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name))
 			.Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
@@ -105,7 +105,7 @@ public sealed class OpenApiContractTests
 
 	private static bool IsRegistryPath(string path)
 	{
-		foreach (var prefix in new[] { "/api/v1/analyst-managers", "/api/v1/analyst-manager-registrations" })
+		foreach (var prefix in new[] { "/api/v1/analyst-managers", "/api/v1/analyst-manager-registrations", "/api/v1/registry" })
 		{
 			if (path == prefix || path.StartsWith(prefix + "/", StringComparison.Ordinal))
 			{
