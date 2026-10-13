@@ -74,6 +74,8 @@ storage of member data or secrets (FR-004, SC-003).
   `members` (for example chained Playwright projects, the last one named
   `platform` so `--project platform` runs the whole chain), and a spec that
   activates the club's single active season archives it again before it ends.
+  The cleanup and the pre-activation reset go through the platform API (a
+  shared helper in `tests/e2e/support/`), never through UI timing.
 - The platform side gets a Host test that keeps the OpenAPI snapshot current.
 
 **Target Platform**: Chromium-based browsers (automated: Chromium on Linux);
