@@ -121,8 +121,8 @@ public sealed class SimulatedAttempt : IAttemptExecution
             {
                 case SimulatedOutcome.Succeed:
                     outcome.TrySetResult(AttemptOutcome.Success(
-                        behavior.ResultReference ?? $"simulated://results/{Launch.AttemptId}",
-                        behavior.ResultChecksum ?? "sha256:" + new string('0', 64)));
+                        behavior.ResultReference ?? $"simulated/results/{Launch.AttemptId}",
+                        behavior.ResultChecksum ?? "sha-256:" + new string('0', 64)));
                     break;
                 case SimulatedOutcome.Fail:
                     outcome.TrySetResult(AttemptOutcome.Failure(behavior.FailureReason));

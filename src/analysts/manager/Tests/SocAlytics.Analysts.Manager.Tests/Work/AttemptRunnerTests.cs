@@ -120,7 +120,7 @@ public class AttemptRunnerTests
         delivery.Naks.ShouldBe(0);
         Calls(WorkOperation.Claim).ShouldBe(1);
         Calls(WorkOperation.Completion).ShouldBe(1);
-        _platform.Headers.Single(h => h.Operation == WorkOperation.Claim).IdempotencyKey.ShouldBe($"{MessageId}:{OccurrenceId}");
+        _platform.Headers.Single(h => h.Operation == WorkOperation.Claim).IdempotencyKey.ShouldBe($"{MessageId}.{OccurrenceId}");
         seen!.AttemptId.ShouldBe(AttemptId);
 
         var simulated = _runtime.Attempts.Single();
@@ -130,7 +130,7 @@ public class AttemptRunnerTests
 
         var body = JsonNode.Parse(_platform.Requests.Last(r => r.Uri.AbsolutePath.EndsWith("/completion", StringComparison.Ordinal)).Body)!;
         ((string)body["outcome"]!).ShouldBe("succeeded");
-        ((string)body["idempotencyKey"]!).ShouldBe($"completion:{AttemptId}");
+        ((string)body["idempotencyKey"]!).ShouldBe($"completion.{AttemptId}");
         ((long)body["fencingToken"]!).ShouldBe(Token);
         ((string)body["executedImageDigest"]!).ShouldBe(ImageDigest);
         ((string)body["executedModelDigest"]!).ShouldBe(ModelDigest);
@@ -196,13 +196,13 @@ public class AttemptRunnerTests
 
         Calls(WorkOperation.Claim).ShouldBe(2);
         _platform.Headers.Where(h => h.Operation == WorkOperation.Claim).Select(h => h.IdempotencyKey).Distinct()
-            .ShouldBe([$"{MessageId}:{OccurrenceId}"]);
+            .ShouldBe([$"{MessageId}.{OccurrenceId}"]);
         Calls(WorkOperation.Completion).ShouldBe(3);
         delivery.Acks.ShouldBe(1);
         var bodies = _platform.Requests.Where(r => r.Uri.AbsolutePath.EndsWith("/completion", StringComparison.Ordinal))
             .Select(r => JsonNode.Parse(r.Body)!).ToList();
         bodies.Count.ShouldBe(3);
-        bodies.Select(b => (string)b["idempotencyKey"]!).Distinct().ShouldBe([$"completion:{AttemptId}"]);
+        bodies.Select(b => (string)b["idempotencyKey"]!).Distinct().ShouldBe([$"completion.{AttemptId}"]);
         bodies.Select(b => (string)b["outcome"]!).Distinct().Count().ShouldBe(1);
     }
 

@@ -29,7 +29,7 @@ public sealed class ActiveAttempt
         ExecutionTimeout = TimeSpan.FromSeconds(claim.ExecutionTimeoutSeconds);
         _leaseExpiresAt = claim.LeaseExpiresAt;
         StartedAt = startedAt;
-        CompletionIdempotencyKey = $"completion:{claim.AttemptId}";
+        CompletionIdempotencyKey = $"completion.{claim.AttemptId}";
     }
 
     public AnalystJobMessage Job { get; }

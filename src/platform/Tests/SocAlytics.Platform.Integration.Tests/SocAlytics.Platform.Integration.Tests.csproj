@@ -31,6 +31,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="SocAlytics.Platform.EndToEnd.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <EmbeddedResource Include="TestMigrations/**/*.sql" />
   </ItemGroup>
 

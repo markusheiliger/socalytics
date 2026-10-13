@@ -13,5 +13,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="SocAlytics.Analysts.Manager.Tests" />
+    <InternalsVisibleTo Include="SocAlytics.Platform.EndToEnd.Tests" />
   </ItemGroup>
 </Project>

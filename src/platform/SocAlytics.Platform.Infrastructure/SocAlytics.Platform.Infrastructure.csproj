@@ -25,6 +25,7 @@
 	<ItemGroup>
 		<InternalsVisibleTo Include="SocAlytics.Platform.Migrator" />
 		<InternalsVisibleTo Include="SocAlytics.Platform.Integration.Tests" />
+		<InternalsVisibleTo Include="SocAlytics.Platform.EndToEnd.Tests" />
 	</ItemGroup>
 
 	<ItemGroup>

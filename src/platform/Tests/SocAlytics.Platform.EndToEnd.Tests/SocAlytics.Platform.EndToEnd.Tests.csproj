@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!-- The Manager's device key is PKCS#11 (SoftHSM2) on Linux; the test skips elsewhere. -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="Shouldly" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SocAlytics.Platform.Integration.Tests\SocAlytics.Platform.Integration.Tests.csproj" />
+    <ProjectReference Include="..\..\..\analysts\manager\SocAlytics.Analysts.Manager.Core\SocAlytics.Analysts.Manager.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\SocAlytics.Platform.AppHost\PostgresInit\01-socalytics-roles.sh" Link="PostgresInit\01-socalytics-roles.sh" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\contracts\recordings\recordings-finalized\v1\recordings-finalized.schema.json" Link="contracts\recordings\recordings-finalized\v1\recordings-finalized.schema.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\contracts\analyst-manager\registration\v1\**" Link="contracts\analyst-manager\registration\v1\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

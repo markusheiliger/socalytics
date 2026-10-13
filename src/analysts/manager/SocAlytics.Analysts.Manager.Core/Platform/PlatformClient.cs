@@ -137,6 +137,8 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
         var uri = AnalysisEndpoint(session.BaseUri, $"attempts/{attemptId}/completion");
         var body = JsonSerializer.SerializeToNode(completion, PlatformJson.Options)!.AsObject();
         body["idempotencyKey"] = idempotencyKey;
+        // The contract's timestamp pattern requires the UTC designator "Z", not "+00:00".
+        body["completedAt"] = completion.CompletedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", System.Globalization.CultureInfo.InvariantCulture);
         if (!body.ContainsKey("executedModelDigest"))
         {
             body["executedModelDigest"] = null;

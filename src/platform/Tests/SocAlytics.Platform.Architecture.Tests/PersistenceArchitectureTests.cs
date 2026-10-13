@@ -99,7 +99,7 @@ public sealed partial class PersistenceArchitectureTests
     }
 
     [Fact]
-    public void Infrastructure_exposes_internals_only_to_the_migrator_and_integration_tests()
+    public void Infrastructure_exposes_internals_only_to_the_migrator_and_the_integration_and_end_to_end_tests()
     {
         var visibleTo = LoadAssembly(InfrastructureAssemblyName)
             .GetCustomAttributes<InternalsVisibleToAttribute>()
@@ -107,7 +107,7 @@ public sealed partial class PersistenceArchitectureTests
             .ToArray();
 
         visibleTo.ShouldBe(
-            [MigratorAssemblyName, "SocAlytics.Platform.Integration.Tests"],
+            [MigratorAssemblyName, "SocAlytics.Platform.Integration.Tests", "SocAlytics.Platform.EndToEnd.Tests"],
             ignoreOrder: true);
     }
 

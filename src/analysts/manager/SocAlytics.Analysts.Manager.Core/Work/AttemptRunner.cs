@@ -97,7 +97,7 @@ public sealed class AttemptRunner(
         AnalystJobMessage job, Guid jobId, Guid occurrenceId, Guid messageId, Func<PlatformSession?> sessions,
         CancellationToken cancellationToken)
     {
-        var retryKey = $"{messageId}:{occurrenceId}";
+        var retryKey = $"{messageId}.{occurrenceId}";
         var deadline = time.GetUtcNow() + ClaimRetryWindow;
         var backoff = InitialBackoff;
         while (true)
