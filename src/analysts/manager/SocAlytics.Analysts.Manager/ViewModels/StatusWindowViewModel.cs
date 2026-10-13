@@ -9,7 +9,7 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
     [
         nameof(RegistrationState), nameof(Stamp), nameof(Club), nameof(PlatformEndpoint), nameof(Connectivity), nameof(OperatingState),
         nameof(Uptime), nameof(Preflight), nameof(PauseRemaining), nameof(DrainDeadline), nameof(DeviceFingerprint),
-        nameof(KeyProtection), nameof(Diagnostics),
+        nameof(KeyProtection), nameof(Diagnostics), nameof(EffectiveConcurrency), nameof(ActiveAttempts),
     ];
 
     private readonly IManagerControl _control;
@@ -79,6 +79,19 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
         }
     }
 
+    public string EffectiveConcurrency
+    {
+        get
+        {
+            var c = _control.GetStatus().Concurrency;
+            return $"{c.Effective} (host-local {c.HostLocal}, stamp maximum {c.StampMaximum?.ToString() ?? "unknown"}, runtime maximum {c.RuntimeMaximum?.ToString() ?? "unknown"})";
+        }
+    }
+
+    public IReadOnlyList<ActiveAttemptRow> ActiveAttempts => [.. _control.GetStatus().ActiveAttempts.Select(a => new ActiveAttemptRow(
+        a.LogicalJobId.ToString(), a.AttemptNumber, a.Capability, a.ExecutionState, a.StartedAt.ToString("u"),
+        a.LastConfirmedHeartbeatAt?.ToString("u") ?? "—"))];
+
     public void Dispose()
     {
         _control.StatusChanged -= OnChanged;
@@ -92,4 +105,9 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
             Raise(name);
         }
     });
+}
+
+public sealed record ActiveAttemptRow(string LogicalJobId, int AttemptNumber, string Capability, string ExecutionState, string StartedAt, string LastConfirmedHeartbeat)
+{
+    public string Summary => $"{LogicalJobId} #{AttemptNumber} · {Capability} · {ExecutionState} · started {StartedAt} · heartbeat {LastConfirmedHeartbeat}";
 }

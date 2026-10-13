@@ -318,8 +318,21 @@ public sealed class LocalControlServer : IDisposable
 
     public static JsonObject StatusReport(IManagerControl control)
     {
-        var node = JsonSerializer.SerializeToNode(control.GetStatus(), LocalControlProtocol.Json)!.AsObject();
+        var status = control.GetStatus();
+        var node = JsonSerializer.SerializeToNode(status, LocalControlProtocol.Json)!.AsObject();
         node["kind"] = "status";
+        var concurrency = ConcurrencyReport(status.Concurrency);
+        concurrency.Remove("kind");
+        node["concurrency"] = concurrency;
+        node["activeAttempts"] = new JsonArray([.. status.ActiveAttempts.Select(a => (JsonNode?)new JsonObject
+        {
+            ["logicalJobId"] = a.LogicalJobId.ToString(),
+            ["attemptNumber"] = a.AttemptNumber,
+            ["capability"] = a.Capability,
+            ["executionState"] = a.ExecutionState,
+            ["startedAt"] = a.StartedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
+            ["lastConfirmedHeartbeatAt"] = a.LastConfirmedHeartbeatAt?.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
+        })]);
         return node;
     }
 

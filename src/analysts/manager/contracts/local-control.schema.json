@@ -577,6 +577,90 @@
             "null"
           ],
           "pattern": "^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$"
+        },
+        "concurrency": {
+          "$ref": "#/$defs/concurrencyBounds"
+        },
+        "activeAttempts": {
+          "type": "array",
+          "description": "The attempts that were claimed and have not finished; never carries fencing tokens, credentials, or result checksums.",
+          "items": {
+            "$ref": "#/$defs/activeAttempt"
+          }
+        }
+      }
+    },
+    "concurrencyBounds": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hostLocal",
+        "effective"
+      ],
+      "properties": {
+        "hostLocal": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "stampMaximum": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Absent or null until known."
+        },
+        "runtimeMaximum": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "Absent or null until known."
+        },
+        "effective": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "activeAttempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logicalJobId",
+        "attemptNumber",
+        "capability",
+        "executionState",
+        "startedAt"
+      ],
+      "properties": {
+        "logicalJobId": {
+          "type": "string"
+        },
+        "attemptNumber": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "capability": {
+          "type": "string"
+        },
+        "executionState": {
+          "enum": [
+            "preparing",
+            "running",
+            "finalizing"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "lastConfirmedHeartbeatAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time",
+          "description": "Absent or null before the first confirmed heartbeat."
         }
       }
     },

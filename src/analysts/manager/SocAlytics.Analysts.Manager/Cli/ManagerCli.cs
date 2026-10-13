@@ -149,6 +149,27 @@ internal static class ManagerCli
         });
         root.Subcommands.Add(autostart);
 
+        var concurrency = new Command("concurrency", "Show the concurrency limit, or set the host-local limit.");
+        var limit = new Argument<string?>("n") { Arity = ArgumentArity.ZeroOrOne, Description = "The new host-local limit (a positive integer)." };
+        concurrency.Arguments.Add(limit);
+        concurrency.SetAction(async (r, _) =>
+        {
+            var a = new JsonObject();
+            if (r.GetValue(limit) is { } text)
+            {
+                if (!int.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out var n) || n < 1)
+                {
+                    await error.WriteLineAsync("The limit must be an integer of at least 1.");
+                    return Usage;
+                }
+
+                a["hostLocal"] = n;
+            }
+
+            return await Send("concurrency", a, n => ConcurrencyText(n));
+        });
+        root.Subcommands.Add(concurrency);
+
         var parse = root.Parse(args);
         if (parse.Errors.Count > 0)
         {
@@ -171,6 +192,9 @@ internal static class ManagerCli
         $"Open {(string?)n["verificationUri"]}{Environment.NewLine}Pairing code: {(string?)n["pairingCode"]}{Environment.NewLine}" +
         $"Device fingerprint: {(string?)n["deviceFingerprint"]}{Environment.NewLine}Expires: {(string?)n["expiresAt"]}";
 
+    private static string ConcurrencyText(JsonNode n) =>
+        $"Concurrency: effective {(int?)n["effective"]} (host-local {(int?)n["hostLocal"]}, stamp maximum {n["stampMaximum"]?.ToString() ?? "unknown"}, runtime maximum {n["runtimeMaximum"]?.ToString() ?? "unknown"})";
+
     private static string StatusText(JsonNode n)
     {
         var lines = new List<string>
@@ -186,6 +210,17 @@ internal static class ManagerCli
         {
             lines.Add($"Pause remaining: {(double)rem:F0}s");
         }
+
+        if (n["concurrency"] is { } c)
+        {
+            lines.Add(ConcurrencyText(c));
+        }
+
+        var attempts = n["activeAttempts"] as JsonArray ?? [];
+        lines.Add($"Active attempts: {attempts.Count}");
+        lines.AddRange(attempts.Select(a =>
+            $"  {(string?)a?["logicalJobId"]} #{(int?)a?["attemptNumber"]} {(string?)a?["capability"]} {(string?)a?["executionState"]} " +
+            $"started {(string?)a?["startedAt"]}, last heartbeat {(string?)a?["lastConfirmedHeartbeatAt"] ?? "-"}"));
 
         return string.Join(Environment.NewLine, lines);
     }
