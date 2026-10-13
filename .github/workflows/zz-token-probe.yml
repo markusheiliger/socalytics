@@ -1,0 +1,44 @@
+name: Token probe (temporary)
+
+# Temporary experiment: which ways of bringing main into an existing branch the workflow token may push when main
+# changed workflow files. Runs only for the pull request of exp/token-probe and is deleted afterwards.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    if: github.head_ref == 'exp/token-probe'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Probe pushes with the workflow token
+        env:
+          OLD: 44197849eb446e885d2507d5ec5fee7bcba2dbb3
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          MAIN=$(git rev-parse origin/main)
+          echo "main=$MAIN old=$OLD; workflow files main changed since old:"
+          git diff --name-only "$OLD" "$MAIN" -- .github/workflows
+          try() { name=$1; shift; if "$@" > out.txt 2>&1; then echo "RESULT $name: ACCEPTED"; else echo "RESULT $name: REFUSED"; fi; tail -3 out.txt | sed 's/^/    /'; }
+          git checkout -q -b feature "$OLD"
+          echo probe > probe.txt && git add probe.txt && git commit -qm "feature change"
+          FEATURE=$(git rev-parse HEAD)
+          for b in a b c d; do git push -q origin "$FEATURE:refs/heads/exp/probe-$b"; done
+          echo "scratch branches created at $FEATURE"
+          git checkout -q -B a "$FEATURE" && git merge -q --no-edit "$MAIN"
+          try "a normal merge, first parent = branch" git push origin HEAD:refs/heads/exp/probe-a
+          git checkout -q -B b "$MAIN" && git merge -q --no-edit "$FEATURE"
+          git merge-base --is-ancestor "$FEATURE" HEAD && echo "b is a fast-forward of the branch"
+          try "b main-side merge, first parent = main" git push origin HEAD:refs/heads/exp/probe-b
+          git checkout -q -B c "$FEATURE" && git rebase -q "$MAIN"
+          try "c rebase onto main, force push" git push --force origin HEAD:refs/heads/exp/probe-c
+          try "d REST POST /merges" gh api -X POST "repos/$GITHUB_REPOSITORY/merges" -f base=exp/probe-d -f head="$MAIN"
