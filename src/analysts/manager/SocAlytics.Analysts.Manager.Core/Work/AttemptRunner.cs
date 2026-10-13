@@ -185,6 +185,7 @@ public sealed class AttemptRunner(
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var heartbeat = new HeartbeatLoop(platform, time, _logger).RunAsync(attempt, sessions, heartbeatCts.Token);
         IAttemptExecution? execution = null;
+        var cleanedUp = false;
         try
         {
             AttemptOutcome? outcome = null;
@@ -201,6 +202,7 @@ public sealed class AttemptRunner(
                 if (finished == heartbeat)
                 {
                     heartbeatCts.Cancel();
+                    await StopAsync(attempt, execution);
                     _logger.LogWarning(
                         "Abandoning Logical Job {LogicalJobId} attempt {AttemptId} correlation {CorrelationId}: heartbeat ended ({End})",
                         attempt.LogicalJobId, attempt.AttemptId, attempt.CorrelationId, await heartbeat);
@@ -236,6 +238,8 @@ public sealed class AttemptRunner(
             if (execution is not null && failure is not null)
             {
                 await StopAsync(attempt, execution);
+                await CleanUpAsync(attempt, execution);
+                cleanedUp = true;
             }
 
             return await ReportAsync(attempt, outcome, failure, sessions, cancellationToken);
@@ -244,7 +248,7 @@ public sealed class AttemptRunner(
         {
             heartbeatCts.Cancel();
             await heartbeat;
-            if (execution is not null)
+            if (execution is not null && !cleanedUp)
             {
                 await CleanUpAsync(attempt, execution);
             }
