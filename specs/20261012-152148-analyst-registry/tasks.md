@@ -47,6 +47,8 @@ description: "Task list for Analyst Registry: Manifests, Profiles, and Workflow 
 
 - [x] T005 [US1] Image registration (contracts/registry-api.md rows 1–3; FR-001–FR-005, FR-015, FR-016): add `RegisterAnalystImageCommand` in `src/platform/SocAlytics.Platform.Application/Registry/Images/RegisterAnalystImage.cs` (digest-only and allowed-prefix references, reads through `IOciImageReader`, validates through `IAnalystManifestValidator`, checks labels against the manifest, stores idempotently, records `registry.analyst-image.registered` or `…refused`), `IAnalystManifestValidator` in `Application/Registry/Images/`, its internal implementation with `JsonSchema.Net` against the released schema in `src/platform/SocAlytics.Platform.Infrastructure/Registry/AnalystManifestValidator.cs`, the new audit event types in `src/platform/SocAlytics.Platform.Application/Registry/RegistryAuditEvents.cs`, and `POST`/`GET /api/v1/registry/analyst-images` and `GET /api/v1/registry/analyst-images/{digest}` in `src/platform/SocAlytics.Platform.Api/Registry/AnalystRegistryEndpoints.cs` (Club Admin; refusal codes per the contract). Tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/AnalystImageImportTests.cs` covering US1 scenarios 1–7 and the edge cases on digests, labels, and duplicate capabilities.
 
+- [ ] T011 [US1] Corrective: keep the Club OpenAPI contract test valid for Registry paths (found by the phase verification of Phase 2, where `OpenApiContractTests.OpenApiDocumentMatchesContractOperationsAndSecuritySchemes` counted 37 operations instead of 34 because the three `/api/v1/registry/analyst-images` operations of T005 are not excluded like the other Registry, Recording, and Analysis operations): in `src/platform/Tests/SocAlytics.Platform.Host.Tests/OpenApiContractTests.cs` make `IsRegistryPath` also match the prefix `/api/v1/registry/` (covers the profile, workflow, and default-workflow operations of T006 and T007 too) and update the comment to name the new Registry tests; add `src/platform/Tests/SocAlytics.Platform.Host.Tests/AnalystRegistryOpenApiTests.cs`, which starts the AppHost like `RegistryOpenApiTests` and asserts that `/openapi/v1.json` contains the operationIds `registerAnalystImage`, `listAnalystImages`, and `getAnalystImage` (later tasks extend the list with their operationIds). Run `dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests` before finishing.
+
 **Checkpoint**: User Story 1 works and is the MVP.
 
 ---
@@ -86,7 +88,7 @@ description: "Task list for Analyst Registry: Manifests, Profiles, and Workflow 
 ## Dependencies & Execution Order
 
 - **Phase 1**: T001 and T002 in parallel; T003 after them (its stores use the domain types from T002); T004 after T003 (both change `InfrastructureServiceCollectionExtensions.cs`).
-- **US1 (Phase 2)**: after Phase 1. **US2 (Phase 3)**: after US1 (profiles reference registered declarations). **US3 (Phase 4)**: after US2; T007 → T008.
+- **US1 (Phase 2)**: after Phase 1; T011 after T005 (it corrects the Host test that T005's endpoints broke, so the phase verification passes). **US2 (Phase 3)**: after US1 (profiles reference registered declarations). **US3 (Phase 4)**: after US2; T007 → T008.
 - **Polish**: after all stories.
 
 ### Parallel opportunities
