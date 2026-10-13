@@ -66,6 +66,11 @@ runs:
         MANAGER_SOLUTION=src/analysts/manager/SocAlytics.Analysts.Manager.slnx
         MANAGER_SCOPE='^src/analysts/manager/'
         MANAGER_TRIGGER='^(src/analysts/manager|contracts/analyst-manager)/'
+        WEB_DIR=src/clients/web
+        WEB_SCOPE='^src/clients/web/'
+        WEB_TRIGGER='^(src/clients/web|src/platform/SocAlytics\.Platform\.Api)/'
+        # Must equal the Playwright pin in environment-setup.
+        WEB_PLAYWRIGHT=1.63.0
         # Paths that need no check (repository metadata, Spec Kit artifacts, and the environment actions, which the
         # merge self-tests). A check adds its scope only when it can run, so changes in the scope of a check whose
         # project is missing (for example a deleted solution) are reported as not covered. The platform scope also
@@ -81,6 +86,7 @@ runs:
         )
         [ -f "$WORKSPACE/$PLATFORM_SOLUTION" ] && COVERED+=("$PLATFORM_SCOPE")
         [ -f "$WORKSPACE/$MANAGER_SOLUTION" ] && COVERED+=("$MANAGER_SCOPE")
+        [ -f "$WORKSPACE/$WEB_DIR/package.json" ] && COVERED+=("$WEB_SCOPE")
         mkdir -p "$(dirname "$LOG_FILE")"
         : > "$LOG_FILE"
         changed=""
