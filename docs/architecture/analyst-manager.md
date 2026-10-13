@@ -426,8 +426,11 @@ actions are approving or rejecting pending requests and revoking registrations.
 Host-local actions stay in the Manager, because they act on that machine:
 pairing, pause, timed pause, resume, safe exit, unregister, autostart, updates
 in manual mode, and the local concurrency limit. Queue depth remains guidance in
-the Manager's own status view. The status report and the fleet read operation
-are not yet implemented.
+the Manager's own status view. The status report is sent with
+`POST /api/v1/analyst-managers/self/status` and the fleet is read with the
+registration list and detail operations; see
+[the platform README](../../src/platform/README.md) and the
+[Manager status contracts](../../specs/20261012-153308-manager-fleet-status/contracts/self-status-api.md).
 
 ---
 
