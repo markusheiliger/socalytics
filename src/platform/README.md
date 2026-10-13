@@ -98,6 +98,36 @@ approval, activation, DPoP machine tokens, revocation, unregistration):
   fixture tests in `Tests/SocAlytics.Platform.Integration.Tests/Registry` and by
   the Analyst Manager tests.
 
+The Analyst Registry (migration `0015_registry_analyst_registry.sql`) caches
+Analyst capability declarations by image digest, holds content-addressed Analyst
+profiles (draft, approved, retired), workflow definitions, and the one default
+workflow, and resolves analysis runs from the default workflow.
+
+- Registry API under `/api/v1/registry` (Club Admins, `ActiveMember` session,
+  anti-forgery on state changes, `If-Match` on approval, retirement, and the
+  default workflow): `analyst-images` (register by digest, list, read),
+  `analyst-profiles` (create, list, read, `approval`, `retirement`),
+  `workflows` (define, list, read), and `default-workflow` (read, set). The
+  operations are `registerAnalystImage`, `listAnalystImages`, `getAnalystImage`,
+  `createAnalystProfile`, `listAnalystProfiles`, `getAnalystProfile`,
+  `approveAnalystProfile`, `retireAnalystProfile`, `defineWorkflow`,
+  `listWorkflows`, `getWorkflow`, `getDefaultWorkflow`, and `setDefaultWorkflow`.
+  Contracts: `contracts/analysis/analyst-manifest/v1/` and the
+  [Registry API contract](../../specs/20261012-152148-analyst-registry/contracts/registry-api.md).
+- `Registry:Images` options: `RegistryHost`, `RepositoryPrefix`, optional
+  `Username` and `Token` (configured together), and `UseHttp` (Development and
+  Test only; HTTPS is required elsewhere). Only digest references within the
+  host and prefix are imported; the packaging convention is in
+  `docs/architecture/analysts-models-and-hardware.md`. Registry credentials are
+  never returned by the API. The integration tests use a disposable `registry:2`
+  container.
+- Development and Test seed: when the Registry is empty, the hosted
+  `ConfiguredWorkflowSeeder` creates schema-valid `source = seed` declarations,
+  approved profiles, and a default workflow from `Analysis:DefaultWorkflow`
+  (no image registry access) and records one `registry.seeded` audit event.
+  Tests that need an empty Registry start the API with `omitWorkflow: true`.
+  Without a default workflow, runs resolve as not configured.
+
 The durable analysis workflow is implemented as development evidence (outbox,
 NATS JetStream publication, run creation from finalized recording sets,
 readiness, fenced attempts, Analyst job and completion contracts). Analyst

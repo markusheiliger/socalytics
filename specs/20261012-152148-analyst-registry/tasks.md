@@ -81,7 +81,7 @@ description: "Task list for Analyst Registry: Manifests, Profiles, and Workflow 
 
 ## Phase 5: Polish & Cross-Cutting Concerns
 
-- [ ] T009 Documentation: record the packaging convention (manifest file in the last layer, the `io.socalytics.*` labels, supported layer media types) in `docs/architecture/analysts-models-and-hardware.md` § Image Metadata And Packaging; update `src/platform/README.md` (Registry API, `Registry:Images` options, the Development and Test seed, the migration) and the "Current State" in `AGENTS.md`.
+- [x] T009 Documentation: record the packaging convention (manifest file in the last layer, the `io.socalytics.*` labels, supported layer media types) in `docs/architecture/analysts-models-and-hardware.md` § Image Metadata And Packaging; update `src/platform/README.md` (Registry API, `Registry:Images` options, the Development and Test seed, the migration) and the "Current State" in `AGENTS.md`.
 - [ ] T010 Run the validation in [quickstart.md](quickstart.md) and `node .github/scripts/check-markdown.mjs`; fix what fails.
 
 ---
