@@ -2,12 +2,15 @@ using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Club;
 using SocAlytics.Platform.Application.Registry.Abstractions;
+using Microsoft.Extensions.Options;
+using SocAlytics.Platform.Application.Registry.StatusReporting;
 using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Application.Registry.MachineAccess;
 
 public sealed class BeginUnregistrationHandler(
-    IUnitOfWork unitOfWork, IRegistrationStore registrations, IClubHierarchyStore clubs, IAuditTrail audit, TimeProvider time)
+    IUnitOfWork unitOfWork, IRegistrationStore registrations, IClubHierarchyStore clubs, IAuditTrail audit, TimeProvider time,
+    IOptions<StatusReportingOptions> statusReporting)
 {
     public async Task<OperationResult<OwnRegistration>> HandleAsync(Guid registrationId, CancellationToken cancellationToken)
     {
@@ -44,6 +47,7 @@ public sealed class BeginUnregistrationHandler(
 
         return new OwnRegistration(
             registration.ManagerId.Value.ToString(), registration.StampId, "unregistering",
-            club.DisplayName.Value, registration.KeyThumbprint, registration.ActivatedAt.Value);
+            club.DisplayName.Value, registration.KeyThumbprint, registration.ActivatedAt.Value,
+            statusReporting.Value.IntervalSeconds);
     }
 }
