@@ -32,7 +32,7 @@ npm run test:e2e   # Playwright: simulated project and platform project (starts 
 | `npm run build` | The generated client compiles against the Web UI; SRI attributes are emitted |
 | `npm test` | Middlewares, adapters, error mapping, guards, translation-key coverage, views |
 | `npm run test:e2e -- --project simulated` | Every acceptance scenario, role navigation, axe WCAG 2.2 AA, CSP violations, no secrets in storage |
-| `npm run test:e2e -- --project platform` | Sign-in, required password change, session end, role navigation, and create flows against the real platform |
+| `npm run test:e2e -- --project platform` | Sign-in, required password change, session end, role navigation, and create flows against the real platform, one spec after another |
 
 ## Manual exploration
 

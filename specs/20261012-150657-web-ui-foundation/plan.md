@@ -69,6 +69,11 @@ storage of member data or secrets (FR-004, SC-003).
 - `npm run test:e2e`: Playwright projects `simulated` and `platform`.
   `platform` starts the AppHost in its `e2e` mode through Playwright's
   `webServer` and waits for the Web UI origin.
+  The `platform` specs share one platform instance, so they run one after
+  another in the fixed order `session`, `navigation`, `club-structure`,
+  `members` (for example chained Playwright projects, the last one named
+  `platform` so `--project platform` runs the whole chain), and a spec that
+  activates the club's single active season archives it again before it ends.
 - The platform side gets a Host test that keeps the OpenAPI snapshot current.
 
 **Target Platform**: Chromium-based browsers (automated: Chromium on Linux);
