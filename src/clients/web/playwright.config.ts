@@ -23,14 +23,15 @@ export default defineConfig({
     {
       name: 'platform',
       testDir: './tests/e2e/platform',
-      testIgnore: /navigation\.spec\.ts$/,
+      testIgnore: /(navigation|club-structure)\.spec\.ts$/,
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
       // Runs after `platform`: session.spec.ts needs the Club Admin's initial password, which this set's setup changes.
+      // These specs rely on the changed password.
       name: 'platform-roles',
       testDir: './tests/e2e/platform',
-      testMatch: /navigation\.spec\.ts$/,
+      testMatch: /(navigation|club-structure)\.spec\.ts$/,
       dependencies: ['platform'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
