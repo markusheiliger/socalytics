@@ -8,7 +8,12 @@ using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Application.Registry.Decisions;
 
-public sealed record FleetEntry(AnalystManagerRegistration Registration, StoredManagerStatus? Status, ManagerConnectivity Connectivity);
+public sealed record FleetEntry(
+    AnalystManagerRegistration Registration, StoredManagerStatus? Status, ManagerConnectivity Connectivity, bool IncludesOperations = true)
+{
+    public static FleetEntry Submitted(AnalystManagerRegistration registration) =>
+        new(registration, null, ManagerConnectivity.NotApplicable, false);
+}
 
 public sealed record FleetPage(IReadOnlyList<FleetEntry> Items, string? ContinuationToken);
 
@@ -34,16 +39,37 @@ internal static class FleetEntries
     }
 }
 
+internal sealed record FleetViewer(Guid? SubmittedBy)
+{
+    // Club Admins see the whole fleet; Registrars only the requests they submitted; others nothing.
+    public static async Task<FleetViewer?> ResolveAsync(
+        IAccessAuthorizer authorizer, IRequestContext context, AuditResource resource, CancellationToken cancellationToken)
+    {
+        if ((await authorizer.AuthorizeClubAsync(ClubPermission.Administer, resource, cancellationToken)).IsGranted)
+        {
+            return new FleetViewer((Guid?)null);
+        }
+
+        if (context.MemberAccountId is { } member
+            && (await authorizer.AuthorizeClubAsync(ClubPermission.Register, resource, cancellationToken)).IsGranted)
+        {
+            return new FleetViewer(member);
+        }
+
+        return null;
+    }
+}
+
 public sealed class GetRegistrationHandler(
     IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IRegistrationStore store, IManagerStatusStore statuses,
-    TimeProvider time, IOptions<StatusReportingOptions> statusReporting)
+    IRequestContext context, TimeProvider time, IOptions<StatusReportingOptions> statusReporting)
 {
     public async Task<OperationResult<FleetEntry>> HandleAsync(Guid registrationId, CancellationToken cancellationToken)
     {
         await using var scope = await unitOfWork.BeginAsync(cancellationToken);
-        var decision = await authorizer.AuthorizeClubAsync(
-            ClubPermission.Administer, new AuditResource(RegistryAuditEvents.ResourceType, registrationId.ToString()), cancellationToken);
-        if (!decision.IsGranted)
+        var resource = new AuditResource(RegistryAuditEvents.ResourceType, registrationId.ToString());
+        var viewer = await FleetViewer.ResolveAsync(authorizer, context, resource, cancellationToken);
+        if (viewer is null)
         {
             return OperationFailure.Forbidden();
         }
@@ -54,6 +80,11 @@ public sealed class GetRegistrationHandler(
             return OperationFailure.NotFound();
         }
 
+        if (viewer.SubmittedBy is { } submitter)
+        {
+            return registration.SubmittedBy == submitter ? FleetEntry.Submitted(registration) : OperationFailure.NotFound();
+        }
+
         var entries = await FleetEntries.BuildAsync([registration], statuses, time, statusReporting.Value, cancellationToken);
         return entries[0];
     }
@@ -61,7 +92,7 @@ public sealed class GetRegistrationHandler(
 
 public sealed class ListRegistrationsHandler(
     IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IRegistrationStore store, IManagerStatusStore statuses,
-    TimeProvider time, IOptions<StatusReportingOptions> statusReporting)
+    IRequestContext context, TimeProvider time, IOptions<StatusReportingOptions> statusReporting)
 {
     public const int PageSize = 50;
 
@@ -69,9 +100,9 @@ public sealed class ListRegistrationsHandler(
         string? state, string? continuationToken, CancellationToken cancellationToken)
     {
         await using var scope = await unitOfWork.BeginAsync(cancellationToken);
-        var decision = await authorizer.AuthorizeClubAsync(
-            ClubPermission.Administer, new AuditResource(RegistryAuditEvents.ResourceType, null), cancellationToken);
-        if (!decision.IsGranted)
+        var viewer = await FleetViewer.ResolveAsync(
+            authorizer, context, new AuditResource(RegistryAuditEvents.ResourceType, null), cancellationToken);
+        if (viewer is null)
         {
             return OperationFailure.Forbidden();
         }
@@ -89,7 +120,12 @@ public sealed class ListRegistrationsHandler(
 
         try
         {
-            var page = await store.ListAsync(filter, PageSize, continuationToken, cancellationToken);
+            var page = await store.ListAsync(filter, viewer.SubmittedBy, PageSize, continuationToken, cancellationToken);
+            if (viewer.SubmittedBy is not null)
+            {
+                return new FleetPage([.. page.Items.Select(FleetEntry.Submitted)], page.ContinuationToken);
+            }
+
             var entries = await FleetEntries.BuildAsync(page.Items, statuses, time, statusReporting.Value, cancellationToken);
             return new FleetPage(entries, page.ContinuationToken);
         }

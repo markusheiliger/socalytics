@@ -46,6 +46,11 @@ internal static class AnalystManagerRegistrationEndpoints
 	internal static object ToDto(FleetEntry entry)
 	{
 		var dto = BuildDto(entry.Registration);
+		if (!entry.IncludesOperations)
+		{
+			return dto;
+		}
+
 		var status = entry.Status;
 		dto["status"] = status is null
 			? null

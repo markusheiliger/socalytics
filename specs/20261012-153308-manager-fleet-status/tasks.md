@@ -57,7 +57,7 @@ description: "Task list for Analyst Manager Status Report and Fleet Read API"
 
 **Independent Test**: Two Registrars each submit a code; each sees only their own request; a Club Admin's decision is visible to its Registrar.
 
-- [ ] T006 [US2] Registrar view (contracts/fleet-read-api.md; research.md § R5; FR-007, FR-008): in `src/platform/SocAlytics.Platform.Application/Registry/Decisions/ReadRegistrations.cs` fall back from `ClubPermission.Administer` to `ClubPermission.Register` with a `submitted_by` filter and no `status` or `connectivity`; return `404` for registrations the Registrar did not submit; add the `submittedBy` filter to `IRegistrationStore` and `src/platform/SocAlytics.Platform.Infrastructure/Registry/DapperRegistrationStore.cs`. Tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/RegistrarViewTests.cs` covering US2 scenarios 1–3 and `403` for other members.
+- [x] T006 [US2] Registrar view (contracts/fleet-read-api.md; research.md § R5; FR-007, FR-008): in `src/platform/SocAlytics.Platform.Application/Registry/Decisions/ReadRegistrations.cs` fall back from `ClubPermission.Administer` to `ClubPermission.Register` with a `submitted_by` filter and no `status` or `connectivity`; return `404` for registrations the Registrar did not submit; add the `submittedBy` filter to `IRegistrationStore` and `src/platform/SocAlytics.Platform.Infrastructure/Registry/DapperRegistrationStore.cs`. Tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/RegistrarViewTests.cs` covering US2 scenarios 1–3 and `403` for other members.
 
 **Checkpoint**: User Stories 1 and 2 work independently.
 
