@@ -23,6 +23,7 @@ import {
   defaultBranchOf,
   implementationBranch,
   isImplementRunOf,
+  isTwinRunOf,
   neutralizeMarkers,
   nextTaskGroup,
   readSpecTasks,
@@ -289,7 +290,7 @@ function readAgentReports(env) {
 export async function diagnosisRunEnded(client, twin, check) {
   const since = check?.started_at ?? check?.created_at;
   if (!since) return false;
-  const runs = (await client.listWorkflowRuns(DIAGNOSE_WORKFLOW_FILE, since, 1)).filter((run) => run.display_title === `Spec Kit diagnose #${twin}`);
+  const runs = (await client.listWorkflowRuns(DIAGNOSE_WORKFLOW_FILE, since, 1)).filter((run) => isTwinRunOf(DIAGNOSE_WORKFLOW_FILE, run.display_title, twin));
   return runs.length > 0 && runs.every((run) => run.status === 'completed');
 }
 

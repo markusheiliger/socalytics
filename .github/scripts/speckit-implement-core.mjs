@@ -405,6 +405,14 @@ export function isImplementRunOf(title, twin) {
   return title === name || String(title ?? '').startsWith(`${name} `);
 }
 
+// Diagnose and analyze runs are named "<workflow> #<twin> · <what the run does>" (run-name in their workflow sources).
+const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze']]);
+
+export function isTwinRunOf(workflowFile, title, twin) {
+  const name = `${TWIN_RUN_NAMES.get(workflowFile)} #${twin}`;
+  return title === name || String(title ?? '').startsWith(`${name} `);
+}
+
 // The spec title of an implementation pull request, whose title is "Implement: <spec title>" (renderPullRequestTitle).
 export function specTitleOfPull(pull) {
   return String(pull?.title ?? '').replace(/^Implement:\s*/, '').trim();

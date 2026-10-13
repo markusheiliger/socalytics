@@ -37,6 +37,7 @@ import {
   parseGuidance,
   parseMaxParallel,
   isImplementRunOf,
+  isTwinRunOf,
   phaseSubject,
   specTitleOfPull,
   taskSubject,
@@ -186,6 +187,11 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.equal(isImplementRunOf('Spec Kit implement spec #381', 38), false);
   assert.equal(isImplementRunOf('Spec Kit implement #38 T002 attempt 3', 38), false, 'runs of the earlier workflows are not runs of this one');
   assert.equal(isImplementRunOf('Spec Kit diagnose #38', 38), false);
+  assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #38 · why #41 stopped', 38), true);
+  assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #38', 38), true, 'runs named before the mode was added');
+  assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #381 · fix #82 round 1', 38), false);
+  assert.equal(isTwinRunOf('speckit-analyze.lock.yml', 'Spec Kit analyze #38 · check #82 after round 1', 38), true);
+  assert.equal(isTwinRunOf('speckit-analyze.lock.yml', 'Spec Kit diagnose #38 · why #41 stopped', 38), false);
   const comment = (body, login = 'github-actions[bot]', at = '2026-10-06T11:00:00Z') => ({ body, user: { login }, created_at: at });
   const marker = renderAttemptMarker({ kind: 'task', task: 'T002', attempt: 2, outcome: 'failure' });
   assert.equal(marker, '<!-- speckit-implement:attempt {"kind":"task","task":"T002","attempt":2,"outcome":"failure"} -->');
