@@ -6,6 +6,7 @@ using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Application.Registry.Images;
 using SocAlytics.Platform.Application.Registry.Profiles;
+using SocAlytics.Platform.Application.Registry.Workflows;
 using SocAlytics.Platform.Domain.Analysis;
 using SocAlytics.Platform.Domain.Registry;
 
@@ -30,10 +31,30 @@ internal sealed record AnalystProfileContentBody(
 
 internal sealed record CreateAnalystProfileBody(string? ProfileId, string? ImageDigest, AnalystProfileContentBody? Content);
 
+internal sealed record WorkflowNodeBody(string? NodeKey, string? ProfileId, int ProfileVersion);
+
+internal sealed record WorkflowPredicateBody(string? Kind, string? CapabilityId, string? NodeKey);
+
+internal sealed record WorkflowEdgeBody(string? UpstreamNodeKey, string? DependentNodeKey, string? Kind, WorkflowPredicateBody? Predicate);
+
+internal sealed record WorkflowSegmentationBody(int Version, int DurationSeconds, string? Digest);
+
+internal sealed record DefineWorkflowBody(
+	string? WorkflowId,
+	string? WorkflowVersion,
+	string[]? RequestedCapabilities,
+	string? CompletionPolicy,
+	WorkflowSegmentationBody? SegmentationPolicy,
+	WorkflowNodeBody[]? Nodes,
+	WorkflowEdgeBody[]? Edges);
+
+internal sealed record SetDefaultWorkflowBody(string? WorkflowId, string? WorkflowVersion);
+
 internal static class AnalystRegistryEndpoints
 {
 	private const string ImagesPath = MemberApiRouteGroup.Prefix + "/registry/analyst-images";
 	private const string ProfilesPath = MemberApiRouteGroup.Prefix + "/registry/analyst-profiles";
+	private const string WorkflowsPath = MemberApiRouteGroup.Prefix + "/registry/workflows";
 
 	public static IEndpointRouteBuilder MapAnalystRegistryEndpoints(this IEndpointRouteBuilder routes)
 	{
@@ -56,6 +77,18 @@ internal static class AnalystRegistryEndpoints
 			.WithName("approveAnalystProfile");
 		group.MapPost("/registry/analyst-profiles/{profileId}/versions/{version:int}/retirement", RetireProfileAsync)
 			.WithName("retireAnalystProfile");
+		group.MapPost("/registry/workflows", DefineWorkflowAsync)
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("defineWorkflow");
+		group.MapGet("/registry/workflows", ListWorkflowsAsync)
+			.WithName("listWorkflows");
+		group.MapGet("/registry/workflows/{workflowId}/versions/{version}", GetWorkflowAsync)
+			.WithName("getWorkflow");
+		group.MapGet("/registry/default-workflow", GetDefaultWorkflowAsync)
+			.WithName("getDefaultWorkflow");
+		group.MapPut("/registry/default-workflow", SetDefaultWorkflowAsync)
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("setDefaultWorkflow");
 		return routes;
 	}
 
@@ -250,6 +283,139 @@ internal static class AnalystRegistryEndpoints
 		return expected.IsSuccess
 			? ProfileResult(http, await handler.HandleAsync(new ProfileTransitionCommand(profileId, version, expected.Value), cancellationToken))
 			: ProblemResults.From(expected.Failure);
+	}
+
+	internal static object ToDto(StoredWorkflowDefinition d) => new
+	{
+		workflowId = d.WorkflowId,
+		workflowVersion = d.WorkflowVersion,
+		definitionDigest = d.DefinitionDigest,
+		definition = JsonNode.Parse(d.DefinitionJson),
+		createdAt = d.CreatedAt,
+		createdBy = d.CreatedBy,
+	};
+
+	private static object ToDto(StoredDefaultWorkflow d) => new
+	{
+		workflowId = d.WorkflowId,
+		workflowVersion = d.WorkflowVersion,
+		changedAt = d.ChangedAt,
+		changedBy = d.ChangedBy,
+	};
+
+	private static async Task<T?> ReadBodyAsync<T>(HttpContext http, CancellationToken cancellationToken)
+		where T : class
+	{
+		try
+		{
+			return await http.Request.ReadFromJsonAsync<T>(cancellationToken);
+		}
+		catch (JsonException)
+		{
+			return null;
+		}
+	}
+
+	private static async Task<IResult> DefineWorkflowAsync(HttpContext http, DefineWorkflowHandler handler, CancellationToken cancellationToken)
+	{
+		var body = await ReadBodyAsync<DefineWorkflowBody>(http, cancellationToken);
+		var command = new DefineWorkflowCommand(
+			body?.WorkflowId,
+			body?.WorkflowVersion,
+			body?.RequestedCapabilities,
+			body?.CompletionPolicy,
+			body?.SegmentationPolicy is { } s ? new WorkflowSegmentationCommand(s.Version, s.DurationSeconds, s.Digest) : null,
+			body?.Nodes?.Select(n => new WorkflowNodeCommand(n.NodeKey, n.ProfileId, n.ProfileVersion)).ToArray(),
+			body?.Edges?.Select(e => new WorkflowEdgeCommand(
+				e.UpstreamNodeKey,
+				e.DependentNodeKey,
+				e.Kind,
+				e.Predicate is { } p ? new ConditionalPredicate(p.Kind ?? "", p.CapabilityId, p.NodeKey) : null)).ToArray());
+		var result = await handler.HandleAsync(command, cancellationToken);
+		if (result.Failure is { } failure)
+		{
+			return ProblemResults.From(failure);
+		}
+
+		if (result.Definition is null)
+		{
+			return ProblemResults.Problem(StatusCodes.Status422UnprocessableEntity, DefineWorkflowHandler.WorkflowInvalid, result.Violations);
+		}
+
+		var definition = result.Definition;
+		http.Response.Headers.Location =
+			$"{WorkflowsPath}/{Uri.EscapeDataString(definition.WorkflowId)}/versions/{Uri.EscapeDataString(definition.WorkflowVersion)}";
+		return Results.Json(ToDto(definition), statusCode: StatusCodes.Status201Created);
+	}
+
+	private static async Task<IResult> ListWorkflowsAsync(ListWorkflowsHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(cancellationToken);
+		return result.IsSuccess
+			? Results.Json(new
+			{
+				items = result.Value.Select(d => new
+				{
+					workflowId = d.WorkflowId,
+					workflowVersion = d.WorkflowVersion,
+					definitionDigest = d.DefinitionDigest,
+					createdAt = d.CreatedAt,
+				}).ToArray(),
+			})
+			: ProblemResults.From(result.Failure);
+	}
+
+	private static async Task<IResult> GetWorkflowAsync(
+		string workflowId, string version, GetWorkflowHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(workflowId, version, cancellationToken);
+		return result.IsSuccess ? Results.Json(ToDto(result.Value)) : ProblemResults.From(result.Failure);
+	}
+
+	private static IResult DefaultResult(HttpContext http, OperationResult<StoredDefaultWorkflow> result)
+	{
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.ETag = IfMatchHeader.Format(result.Value.Version);
+		return Results.Json(ToDto(result.Value));
+	}
+
+	private static async Task<IResult> GetDefaultWorkflowAsync(
+		HttpContext http, GetDefaultWorkflowHandler handler, CancellationToken cancellationToken) =>
+		DefaultResult(http, await handler.HandleAsync(cancellationToken));
+
+	private static async Task<IResult> SetDefaultWorkflowAsync(
+		HttpContext http, SetDefaultWorkflowHandler handler, CancellationToken cancellationToken)
+	{
+		long? expected = null;
+		if (http.Request.Headers.ContainsKey("If-Match"))
+		{
+			var parsed = IfMatchHeader.Parse(http.Request);
+			if (!parsed.IsSuccess)
+			{
+				return ProblemResults.From(parsed.Failure);
+			}
+
+			expected = parsed.Value;
+		}
+
+		var body = await ReadBodyAsync<SetDefaultWorkflowBody>(http, cancellationToken);
+		var result = await handler.HandleAsync(new SetDefaultWorkflowCommand(body?.WorkflowId, body?.WorkflowVersion, expected), cancellationToken);
+		if (result.Failure is { } failure)
+		{
+			return ProblemResults.From(failure);
+		}
+
+		if (result.Default is null)
+		{
+			return ProblemResults.Problem(StatusCodes.Status422UnprocessableEntity, SetDefaultWorkflowHandler.WorkflowNotResolvable);
+		}
+
+		http.Response.Headers.ETag = IfMatchHeader.Format(result.Default.Version);
+		return Results.Json(ToDto(result.Default));
 	}
 
 	private static async Task<IResult> RetireProfileAsync(

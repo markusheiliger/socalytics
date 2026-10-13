@@ -19,6 +19,11 @@ public sealed class AnalystRegistryOpenApiTests
 		"getAnalystProfile",
 		"approveAnalystProfile",
 		"retireAnalystProfile",
+		"defineWorkflow",
+		"listWorkflows",
+		"getWorkflow",
+		"getDefaultWorkflow",
+		"setDefaultWorkflow",
 	];
 
 	[Fact]

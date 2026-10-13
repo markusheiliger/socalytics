@@ -7,13 +7,15 @@ public static class RegistryAuditEvents
     public const string ResourceType = "analyst-manager-registration";
     public const string ImageResourceType = "analyst-image";
     public const string ProfileResourceType = "analyst-profile";
+    public const string WorkflowResourceType = "analyst-workflow";
 
     public static readonly IReadOnlySet<string> AllowedDetailKeys = new HashSet<string>(StringComparer.Ordinal)
     {
         "managerId", "stampId", "keyThumbprint", "fromState", "toState", "windowExpiresAt", "os", "osVersion",
         "architecture", "managerVersion", "claimedKeyProtection", "deviceFingerprint", "pairingSourceAddress",
         "registrationCorrelationId", "reference", "imageDigest", "capabilityId", "capabilityVersion", "modelDigest",
-        "profileId", "profileVersion", "profileDigest", "selfApproval",
+        "profileId", "profileVersion", "profileDigest", "selfApproval", "workflowId", "workflowVersion", "definitionDigest",
+        "previousWorkflowId", "previousWorkflowVersion",
     };
 
     public static AuditEvent PairingIssued(Guid registrationId, IReadOnlyDictionary<string, string>? details = null) =>
@@ -72,6 +74,14 @@ public static class RegistryAuditEvents
 
     public static AuditEvent AnalystProfileRetired(string profileId, int version, IReadOnlyDictionary<string, string>? details = null) =>
         CreateProfileEvent("registry.analyst-profile.retired", "retire-profile", profileId, version, details);
+
+    public static AuditEvent WorkflowDefined(string workflowId, string workflowVersion, IReadOnlyDictionary<string, string>? details = null) =>
+        CreateEvent("registry.workflow.defined", "define-workflow", AuditOutcome.Succeeded, WorkflowResourceType, WorkflowResourceId(workflowId, workflowVersion), null, details);
+
+    public static AuditEvent DefaultWorkflowChanged(string workflowId, string workflowVersion, IReadOnlyDictionary<string, string>? details = null) =>
+        CreateEvent("registry.default-workflow.changed", "set-default-workflow", AuditOutcome.Succeeded, WorkflowResourceType, WorkflowResourceId(workflowId, workflowVersion), null, details);
+
+    public static string WorkflowResourceId(string workflowId, string workflowVersion) => $"{workflowId}:{workflowVersion}";
 
     public static string ProfileResourceId(string profileId, int version) => $"{profileId}:{version}";
 

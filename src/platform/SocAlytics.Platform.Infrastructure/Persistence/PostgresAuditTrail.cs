@@ -48,6 +48,11 @@ internal sealed class PostgresAuditTrail(
         "profileVersion",
         "profileDigest",
         "selfApproval",
+        "workflowId",
+        "workflowVersion",
+        "definitionDigest",
+        "previousWorkflowId",
+        "previousWorkflowVersion",
         "readyJobsRepublished",
         "notificationsRepublished",
     };

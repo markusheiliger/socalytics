@@ -112,6 +112,11 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Profiles.RetireAnalystProfileHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Profiles.ListAnalystProfilesHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Profiles.GetAnalystProfileHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Workflows.DefineWorkflowHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Workflows.SetDefaultWorkflowHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Workflows.ListWorkflowsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Workflows.GetWorkflowHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Workflows.GetDefaultWorkflowHandler>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.RegistryOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.RegistryOptions.SectionName);
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()
