@@ -397,7 +397,8 @@ jobs:
       checks: write
       contents: read
       issues: write
-      pull-requests: read
+      # Commenting on the implementation pull request (the stop report) needs pull-requests: write.
+      pull-requests: write
     steps:
       - name: Check out the default branch
         uses: actions/checkout@v5
