@@ -4,7 +4,10 @@ description: >-
   workflows, which run it before an agent works and before the verification; the workflows skip it when this file
   does not exist. Docker is already on the runner (used by Testcontainers), and the calling workflow provides Node.js.
   The Analyst Manager (src/analysts/manager) pins the same SDK version as src/platform/global.json, so the Set up .NET
-  step serves both solutions. SoftHSM2 serves the Manager's Linux PKCS#11 key-provider tests.
+  step serves both solutions. SoftHSM2 serves the Manager's Linux PKCS#11 key-provider tests. The Kiota client
+  generator 1.36.0 generates the Web UI's API client, and the Playwright 1.63.0 Chromium browser (with its system
+  dependencies) runs the Web UI's browser tests; both are installed independently of the Web UI project files, so
+  verification downloads no browser.
 # Extending: specs change this action, together with environment-verify, only in a standalone environment spec, which
 # is reviewed and merged before the specs that need it start. Pin tool versions, and install SDKs independently of
 # project files that do not exist yet (for example with an explicit version instead of a project's version file).
@@ -30,3 +33,15 @@ runs:
     - name: Install the SoftHSM2 PKCS#11 token
       shell: bash
       run: sudo apt-get install --yes softhsm2 || { sudo apt-get update && sudo apt-get install --yes softhsm2; }
+
+    - name: Install the Kiota client generator
+      shell: bash
+      run: |
+        dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0
+        echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+        "$HOME/.dotnet/tools/kiota" --version
+
+    # The version must equal WEB_PLAYWRIGHT in environment-verify, which checks the project's @playwright/test pin.
+    - name: Install the Playwright Chromium browser
+      shell: bash
+      run: npx --yes playwright@1.63.0 install --with-deps chromium

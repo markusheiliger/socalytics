@@ -103,7 +103,7 @@ under 10 minutes); no load targets.
 | III. API-first control plane | The Web UI is an API consumer with no business logic and no database access; it uses only existing operations; the OpenAPI document stays authoritative over the generated code. | Pass |
 | IV. Evidence over claims | Unit tests, simulated browser tests, an end-to-end set against the real platform, axe and CSP checks, and the platform snapshot test; no production readiness claimed. | Pass |
 | V. Focused, minimal changes | Only the dependencies the architecture names plus the test and accessibility tools the spec requires; no service worker, no offline code, no container image. | Pass |
-| Tooling constraints | Depends on the environment feature `specs/20261012-145505-web-ui-environment` (Kiota 1.36.0, Playwright 1.63.0 Chromium, the Web UI check with scripts `build`, `test`, `test:e2e`); the .NET SDK and Docker for the `platform` browser tests are already provided. | Pass |
+| Tooling constraints | Depends on the environment feature `specs/archive/20261012-145505-web-ui-environment` (Kiota 1.36.0, Playwright 1.63.0 Chromium, the Web UI check with scripts `build`, `test`, `test:e2e`); the .NET SDK and Docker for the `platform` browser tests are already provided. | Pass |
 
 Post-design re-check: passes; no Complexity Tracking entries.
 
