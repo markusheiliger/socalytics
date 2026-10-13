@@ -5,7 +5,7 @@ description: "Task list for Analyst Manager Status Report and Fleet Read API"
 
 # Tasks: Analyst Manager Status Report and Fleet Read API
 
-**Input**: Design documents from `specs/20261012-153308-manager-fleet-status/`
+**Input**: Design documents from `specs/archive/20261012-153308-manager-fleet-status/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/self-status-api.md](contracts/self-status-api.md), [contracts/fleet-read-api.md](contracts/fleet-read-api.md), [quickstart.md](quickstart.md)
 

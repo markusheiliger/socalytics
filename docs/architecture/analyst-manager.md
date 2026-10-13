@@ -430,7 +430,7 @@ the Manager's own status view. The status report is sent with
 `POST /api/v1/analyst-managers/self/status` and the fleet is read with the
 registration list and detail operations; see
 [the platform README](../../src/platform/README.md) and the
-[Manager status contracts](../../specs/20261012-153308-manager-fleet-status/contracts/self-status-api.md).
+[Manager status contracts](../../specs/archive/20261012-153308-manager-fleet-status/contracts/self-status-api.md).
 
 ---
 

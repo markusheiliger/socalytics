@@ -2,7 +2,7 @@
 
 **Branch**: `20261012-153308-manager-fleet-status` | **Date**: 2026-10-12 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261012-153308-manager-fleet-status/spec.md`
+**Input**: Feature specification from `specs/archive/20261012-153308-manager-fleet-status/spec.md`
 
 ## Summary
 
@@ -99,7 +99,7 @@ Post-design re-check: passes.
 ### Documentation (this feature)
 
 ```text
-specs/20261012-153308-manager-fleet-status/
+specs/archive/20261012-153308-manager-fleet-status/
 ├── plan.md
 ├── research.md
 ├── data-model.md
