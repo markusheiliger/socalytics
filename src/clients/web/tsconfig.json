@@ -14,7 +14,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "tsBuildInfoFile": "node_modules/.tmp/tsconfig.tsbuildinfo",
-    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
+    "types": ["node", "vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
   "include": ["src", "tests/unit"],
   "references": [{ "path": "./tsconfig.node.json" }]
