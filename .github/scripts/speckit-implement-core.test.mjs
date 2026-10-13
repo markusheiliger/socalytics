@@ -579,12 +579,19 @@ test('the implementation workflows nest spec, phase, and task; the phase runs it
   assert.match(phase, /^name: Spec Kit implement phase\n/);
   assert.match(task, /^name: Spec Kit implement task\n/);
   assert.match(spec, /^run-name: "Spec Kit implement spec #\$\{\{ inputs\.twin \}\}\$\{\{ inputs\.title && format\(' · \{0\}', inputs\.title\) \|\| '' \}\}"$/m);
-  assert.match(job(spec, 'phase'), /name: \$\{\{ needs\.decide\.outputs\.action == 'phase' && format\('2 · \{0\}', needs\.decide\.outputs\.job_name\) \|\| '2 · Phase' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-phase\.yml/);
-  assert.match(job(spec, 'converge-or-resolve'), /name: \$\{\{ \(needs\.decide\.outputs\.action == 'converge' \|\| needs\.decide\.outputs\.action == 'resolve'\) && format\('2 · \{0\}', needs\.decide\.outputs\.job_name\) \|\| '2 · Convergence or conflict resolution' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-task\.yml[\s\S]*kind: \$\{\{ needs\.decide\.outputs\.action \}\}/);
-  // The job names number the flow: one decision, exactly one of the alternatives, and the next run.
-  assert.deepEqual([...spec.matchAll(/^ {2}([\w-]+):\n {4}name: [^\n]*?(\d) · /gm)].map((match) => `${match[2]} ${match[1]}`),
-    ['1 decide', '2 phase', '2 converge-or-resolve', '2 merge-archive', '2 merge-verify', '2 merge-land', '3 continue']);
-  assert.match(spec, /continue:[\s\S]*?needs: \[decide, phase, converge-or-resolve, merge-archive, merge-verify, merge-land\][\s\S]*SPECKIT_PHASE_CHECK: \$\{\{ needs\.phase\.outputs\.verified \}\}/);
+  assert.match(job(spec, 'phase'), /name: \$\{\{ needs\.decide\.outputs\.action == 'phase' && needs\.decide\.outputs\.job_name \|\| 'Implement a phase' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-phase\.yml/);
+  assert.match(job(spec, 'converge-or-resolve'), /name: \$\{\{ \(needs\.decide\.outputs\.action == 'converge' \|\| needs\.decide\.outputs\.action == 'resolve'\) && needs\.decide\.outputs\.job_name \|\| 'Convergence or conflict resolution' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-task\.yml[\s\S]*kind: \$\{\{ needs\.decide\.outputs\.action \}\}/);
+  // Before a phase starts, its own job merges the base branch; the phase waits for it and skips after a conflict.
+  assert.match(job(spec, 'sync'), /name: \$\{\{ needs\.decide\.outputs\.sync == 'true' && format\('Merge \{0\} into the branch', needs\.decide\.outputs\.base_branch\)[\s\S]*if: needs\.decide\.outputs\.action == 'phase' && needs\.decide\.outputs\.sync == 'true'[\s\S]*run: node \.github\/scripts\/speckit-spec\.mjs sync/);
+  assert.match(job(spec, 'phase'), /needs: \[decide, sync\]\n[\s\S]*if: \$\{\{ !cancelled\(\) && needs\.decide\.outputs\.action == 'phase' && needs\.sync\.result != 'failure' && needs\.sync\.outputs\.result != 'conflict' \}\}/);
+  assert.match(job(spec, 'continue'), /needs: \[decide, sync, phase,/);
+  for (const [label, workflow] of [['spec', spec], ['phase', phase], ['task', task]]) {
+    assert.doesNotMatch(workflow, /name: [^\n]*['"]?[123] · /, `${label}: job names say what the job does, without step numbers`);
+  }
+  // One decision, the merge of the base branch before a phase, exactly one of the alternatives, and the next run.
+  assert.deepEqual([...spec.matchAll(/^ {2}([\w-]+):\n {4}name: /gm)].map((match) => match[1]),
+    ['refuse', 'decide', 'sync', 'phase', 'converge-or-resolve', 'merge-archive', 'merge-verify', 'merge-land', 'continue']);
+  assert.match(spec, /continue:[\s\S]*?needs: \[decide, sync, phase, converge-or-resolve, merge-archive, merge-verify, merge-land\][\s\S]*SPECKIT_PHASE_CHECK: \$\{\{ needs\.phase\.outputs\.verified \}\}/);
   const tasks = job(phase, 'tasks');
   assert.match(tasks, /name: \$\{\{ matrix\.name \}\}/);
   assert.match(tasks, /max-parallel: 1\n\s+fail-fast: true\n\s+matrix: \$\{\{ fromJSON\(needs\.plan\.outputs\.task_matrix\) \}\}/);
@@ -608,18 +615,18 @@ test('the implementation workflows nest spec, phase, and task; the phase runs it
   for (const [label, workflow] of [['spec', spec], ['phase', phase], ['task', task]]) {
     assert.doesNotMatch(workflow, /SPECKIT_BRANCH:|\bmain\b/, `${label}: no SPECKIT_BRANCH and no assumed main`);
   }
-  // Every verification runs once more after a failure, so a flaky test does not count; the re-run decides.
+  // Every verification runs once; its failure decides (a re-run of unchanged code only delayed real failures).
   const phaseVerify = job(phase, 'verify');
   assert.match(phaseVerify, /if: >-\n\s+!cancelled\(\) && needs\.plan\.outputs\.phase_check == 'true' && needs\.tasks\.result == 'success'/);
-  assert.match(phaseVerify, /- name: Verify the phase\n\s+id: verify\n[\s\S]*?continue-on-error: true[\s\S]*- name: Verify the phase again\n\s+if: steps\.verify\.outcome == 'failure'\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify/);
+  assert.match(phaseVerify, /- name: Verify the phase\n\s+if: [^\n]+\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify/, 'a failed phase verification fails the job');
   assert.match(phaseVerify, /BASE_BRANCH: \$\{\{ inputs\.base \}\}[\s\S]*git merge-base HEAD "origin\/\$BASE_BRANCH"/, 'the phase verification covers all changes of the branch');
-  assert.match(job(task, 'verify'), /- name: Verify the combined changes again\n\s+if: steps\.verify\.outcome == 'failure'/);
-  for (const [workflow, name, kind] of [[task, 'work', 'Verify the change again'], [spec, 'merge-verify', 'Verify the merged result again']]) {
+  assert.match(job(task, 'verify'), /- name: Verify the combined changes\n\s+if: [^\n]+\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify/);
+  for (const [workflow, name] of [[task, 'work'], [spec, 'merge-verify']]) {
     const text = job(workflow, name);
-    assert.match(text, new RegExp(`- name: ${kind}\\n\\s+id: verify-again\\n\\s+if: steps\\.verify\\.outcome == 'failure'`), name);
-    assert.match(text, /SPECKIT_VERIFY_OUTCOME: \$\{\{ steps\.verify-again\.outcome == 'skipped' && steps\.verify\.outcome \|\| steps\.verify-again\.outcome \}\}/, name);
-    assert.match(text, /SPECKIT_VERIFY_RETRIED: \$\{\{ steps\.verify-again\.outcome != 'skipped' \}\}/, name);
+    assert.doesNotMatch(text, /verify-again|again\n/, name);
+    assert.match(text, /SPECKIT_VERIFY_OUTCOME: \$\{\{ steps\.verify\.outcome \}\}/, name);
   }
+  for (const workflow of [phase, task, spec]) assert.doesNotMatch(workflow, /Verify [^\n]* again|SPECKIT_VERIFY_RETRIED/);
   // A called workflow cannot hold more permissions than the job that calls it.
   const permissions = (text) => Object.fromEntries([...(text.match(/permissions:\n((?: {6}[\w-]+: \w+\n)+)/)?.[1] ?? '').matchAll(/([\w-]+): (\w+)/g)].map((match) => [match[1], match[2]]));
   const rank = { none: 0, read: 1, write: 2 };
