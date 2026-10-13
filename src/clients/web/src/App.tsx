@@ -5,6 +5,7 @@ import Typography from '@mui/material/Typography';
 import { ThemeProvider } from '@mui/material/styles';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { ConnectivityProvider } from './connectivity/ConnectivityProvider';
 import theme from './theme';
 
 export default function App() {
@@ -13,12 +14,14 @@ export default function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ThemeProvider theme={theme}>
-        <CssBaseline />
-        <Container component="main" maxWidth="md" sx={{ py: 4 }}>
-          <Typography variant="h1">{t('app.name')}</Typography>
-        </Container>
-      </ThemeProvider>
+      <ConnectivityProvider>
+        <ThemeProvider theme={theme}>
+          <CssBaseline />
+          <Container component="main" maxWidth="md" sx={{ py: 4 }}>
+            <Typography variant="h1">{t('app.name')}</Typography>
+          </Container>
+        </ThemeProvider>
+      </ConnectivityProvider>
     </QueryClientProvider>
   );
 }
