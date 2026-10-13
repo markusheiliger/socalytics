@@ -22,11 +22,14 @@ public sealed record RuntimeProbe(
     ProbeCheck RegistryAuthentication,
     ProbeCheck ImagePlatformCompatible,
     ProbeCheck ResourceLimitsFeasible,
-    IReadOnlyList<AcceleratorProbe> Accelerators);
+    IReadOnlyList<AcceleratorProbe> Accelerators,
+    int MaxParallelAttempts = 1);
 
 public interface IContainerRuntimeAdapter
 {
     string Profile { get; }
 
     Task<RuntimeProbe> ProbeAsync(RuntimeProbeRequest request, CancellationToken cancellationToken);
+
+    Task<IAttemptExecution> StartAttemptAsync(AttemptLaunch launch, CancellationToken cancellationToken);
 }

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using SocAlytics.Analysts.Manager.DeviceKeys;
 using SocAlytics.Analysts.Manager.Platform;
@@ -61,7 +62,9 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Registration.RegistrationCoordinator>();
         services.AddSingleton<Registration.RegistrationRestorer>();
         services.AddHostedService<Registration.RestoreHostedService>();
-        services.AddSingleton(new Runtime.RuntimeAdapterCatalog([]));
+        services.Configure<Runtime.Simulated.SimulatedAnalystOptions>(
+            configuration.GetSection(Runtime.Simulated.SimulatedAnalystOptions.SectionName));
+        services.AddSingleton(CreateRuntimeAdapterCatalog);
         services.AddSingleton(_ => Runtime.RuntimeCompatibilityList.LoadEmbedded());
         services.AddSingleton<Runtime.PreflightRunner>();
         services.AddSingleton<Runtime.PreflightScheduler>();
@@ -71,6 +74,31 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<ManagerControl>();
         services.AddSingleton<IManagerControl>(sp => sp.GetRequiredService<ManagerControl>());
         return services;
+    }
+
+    private static Runtime.RuntimeAdapterCatalog CreateRuntimeAdapterCatalog(IServiceProvider sp)
+    {
+        var environment = sp.GetService<IHostEnvironment>();
+        var simulatedAllowed = environment is not null
+            && (environment.IsDevelopment() || environment.IsEnvironment("Test"));
+        if (!simulatedAllowed)
+        {
+            var profile = sp.GetRequiredService<IOptions<RuntimeOptions>>().Value.Profile;
+            if (string.Equals(profile, Runtime.Simulated.SimulatedRuntimeAdapter.TestProfile, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    "Runtime:Profile 'simulated' is only available in the Development and Test environments; select a validated runtime profile.");
+            }
+
+            return new Runtime.RuntimeAdapterCatalog([]);
+        }
+
+        return new Runtime.RuntimeAdapterCatalog(
+        [
+            new Runtime.Simulated.SimulatedRuntimeAdapter(
+                sp.GetRequiredService<IOptions<Runtime.Simulated.SimulatedAnalystOptions>>(),
+                sp.GetRequiredService<TimeProvider>()),
+        ]);
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]

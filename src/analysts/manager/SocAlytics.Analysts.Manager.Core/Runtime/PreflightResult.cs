@@ -10,4 +10,5 @@ public sealed record PreflightResult(
     string? Backend,
     bool Passed,
     IReadOnlyList<PreflightCheck> Checks,
-    IReadOnlyList<string> ValidatedCapabilities);
+    IReadOnlyList<string> ValidatedCapabilities,
+    int MaxParallelAttempts = 0);
