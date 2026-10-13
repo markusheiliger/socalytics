@@ -10,7 +10,7 @@ editor or a Viewer of that team.
 | `/teams/:teamId` | Team detail, now with the team's match list (newest kickoff first, paged) and "New match" for editors | Reader of the team (Club Admin sees all teams) | foundation operations, `GET /api/v1/teams/{teamId}/matches` |
 | `/teams/:teamId/matches/new` | Create match | Editor; hidden when the team's season is archived | `POST /api/v1/teams/{teamId}/matches` |
 | `/matches/:matchId` | Match view: details; recordings (accepted versions, pending uploads of this member in this browser, add recordings for editors); finalized sets with their analysis run states; finalize action for editors | Reader | `GET /api/v1/matches/{matchId}`, `GET …/recording-lineage`, `GET …/analysis-runs`, `GET …/upload-sessions/{id}`, upload operations for editors |
-| `/matches/:matchId/edit` | Edit kickoff time, home or away, competition (opponent read-only) | Editor | `GET`/`PUT /api/v1/matches/{matchId}` |
+| `/matches/:matchId/edit` | Edit kickoff time, venue (home, away, or neutral), competition (opponent read-only) | Editor | `GET`/`PUT /api/v1/matches/{matchId}` |
 | `/matches/:matchId/finalize` | Select, order, choose mappings, confirm | Editor | `POST /api/v1/matches/{matchId}/recording-set-versions` |
 | `/matches/:matchId/recordings/:recordingVersionId` | Recording version: size, digest, upload time, mappings; "Revise mapping" for editors | Reader | `GET …/recording-versions/{id}`, `POST …/recording-versions/{id}/timeline-mappings` |
 

@@ -22,7 +22,7 @@
 
 ### User Story 1 - Manage a team's matches (Priority: P1)
 
-A Coach opens one of their teams and sees its matches, newest first. They create a match with the opponent, kickoff time, home or away, and competition, and later correct the kickoff time, home or away, or competition. A Club Admin can do the same for every team. A Viewer of the team sees the matches but cannot change them. The opponent is a snapshot recorded when the match is created and cannot be edited afterwards.
+A Coach opens one of their teams and sees its matches, newest first. They create a match with the opponent, kickoff time, venue (home, away, or neutral), and competition, and later correct the kickoff time, venue (home, away, or neutral), or competition. A Club Admin can do the same for every team. A Viewer of the team sees the matches but cannot change them. The opponent is a snapshot recorded when the match is created and cannot be edited afterwards.
 
 **Why this priority**: Every recording belongs to a match, so nothing else in this feature works without matches. On its own it already replaces API calls with a usable view of a team's fixtures.
 
@@ -30,9 +30,9 @@ A Coach opens one of their teams and sees its matches, newest first. They create
 
 **Acceptance Scenarios**:
 
-1. **Given** a Coach of Team A, **When** they open Team A, **Then** the Web UI lists Team A's matches with opponent, kickoff time, home or away, and competition, newest kickoff first.
+1. **Given** a Coach of Team A, **When** they open Team A, **Then** the Web UI lists Team A's matches with opponent, kickoff time, venue (home, away, or neutral), and competition, newest kickoff first.
 2. **Given** a Coach of Team A or a Club Admin, **When** they create a match for Team A with the required details, **Then** the match is saved and appears in the team's match list and opens on its match view.
-3. **Given** an existing match, **When** a Coach of its team or a Club Admin edits its kickoff time, home or away, or competition, **Then** the change is saved; the opponent is shown read-only and is never sent as a change.
+3. **Given** an existing match, **When** a Coach of its team or a Club Admin edits its kickoff time, venue (home, away, or neutral), or competition, **Then** the change is saved; the opponent is shown read-only and is never sent as a change.
 4. **Given** a Viewer of Team A, **When** they open Team A and one of its matches, **Then** they see the matches and match details without any create, edit, upload, mapping, or finalize action.
 5. **Given** a match that someone else changed since it was loaded, **When** a member saves their edit, **Then** the save is refused, nothing is overwritten, and the Web UI offers to reload the current version.
 6. **Given** a team in an archived season, **When** a Coach opens it, **Then** its matches are shown read-only as the platform defines, and any refused change is shown with the platform's reason.
@@ -136,8 +136,8 @@ Every member who can see a match (its team's Coaches and Viewers, and Club Admin
 
 #### Matches
 
-- **FR-001**: The Web UI MUST list a team's matches for every member whose roles allow viewing that team, with opponent, kickoff time, home or away, and competition, newest kickoff first, using the platform's paging where the list is long.
-- **FR-002**: Coaches of the team and Club Admins MUST be able to create a match with the details the platform requires and edit its kickoff time, home or away, and competition; the opponent MUST be shown read-only after creation.
+- **FR-001**: The Web UI MUST list a team's matches for every member whose roles allow viewing that team, with opponent, kickoff time, venue (home, away, or neutral), and competition, newest kickoff first, using the platform's paging where the list is long.
+- **FR-002**: Coaches of the team and Club Admins MUST be able to create a match with the details the platform requires and edit its kickoff time, venue (home, away, or neutral), and competition; the opponent MUST be shown read-only after creation.
 - **FR-003**: Match edits MUST send the version the match was loaded with; a refused stale save MUST NOT overwrite anything and MUST offer to reload the current version.
 - **FR-004**: Viewers MUST see matches, recordings, lineage, and analysis run states without any create, edit, upload, mapping, or finalize action; the platform's refusal remains authoritative for any attempted change.
 
@@ -182,7 +182,7 @@ Every member who can see a match (its team's Coaches and Viewers, and Club Admin
 
 ### Key Entities
 
-- **Match (client view)**: A team's fixture with opponent snapshot, kickoff time, home or away, competition, and version, as exposed by the platform.
+- **Match (client view)**: A team's fixture with opponent snapshot, kickoff time, venue (home, away, or neutral), competition, and version, as exposed by the platform.
 - **Upload session**: The platform's pending, completed, or expired upload of one recording for a match, with its declaration (total size, part size, part count, composite digest) and expiry time.
 - **Local upload record**: What the browser remembers about a pending upload for one member: session identity, match, file name and size, declaration, and parts confirmed as stored; never grants, secrets, or file contents.
 - **Part grant**: A short-lived permission from the platform to store one declared part in object storage, used once and never remembered.

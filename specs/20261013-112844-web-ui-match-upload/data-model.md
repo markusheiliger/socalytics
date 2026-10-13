@@ -16,7 +16,7 @@ Source: `MatchDto` (`listTeamMatches`, `getMatch`, `createMatch`,
 | --- | --- |
 | `id`, `teamId` | Routes, authorization checks through the session's team roles |
 | `opponent.name` | Shown; editable only at creation (FR-002) |
-| `kickoffAt`, `homeAway` (`home` or `away`), `competition` | Shown and editable |
+| `kickoffAt`, `homeAway` (`home`, `away`, or `neutral`), `competition` | Shown and editable |
 | `version` | `If-Match` on update (FR-003) |
 
 Editable only when the member is Club Admin or Coach of `teamId` and the team's

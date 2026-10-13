@@ -104,6 +104,26 @@ existing platform API.
 
 Post-design re-check: passes; no Complexity Tracking entries.
 
+## Architecture Updates
+
+**Narratives implemented**:
+
+- [client-applications.md](../../docs/architecture/client-applications.md) § Web UI: match creation, recording uploads, and upload finalization.
+- [match-data-pipeline.md](../../docs/architecture/match-data-pipeline.md) § Upload: the Web UI path of the direct multipart upload, timeline mapping, and finalization.
+
+**Design updates applied by this feature**:
+
+- **`client-applications.md` § Web UI**: the upload worker and its resume journal. The journal is worker-owned IndexedDB, member-scoped, and holds identifiers and progress only, never grants or file contents. It is purged on explicit sign-out and is not the offline replica; uploads stay connected-only.
+- **`platform-implementation.md` § Object Storage**: the development allow-list of the Web UI origin on the local object storage, and the storage origin passed to the Web UI. Production CORS, origins, and lifetimes remain unresolved.
+- **`security-and-data-governance.md`, Web UI security baseline**: the CSP additions of [contracts/security-headers.md](contracts/security-headers.md), namely the object-storage origin in `connect-src`, `media-src blob:`, `worker-src 'self'`, and the `upload-worker` Trusted Types policy.
+
+**Implementation-status statements this feature makes true or false**:
+
+- **`platform-implementation.md` § Planned Acceptance Evidence**: the statement that the Web UI remains unsupported by implementation evidence must name the match workflow and recording upload among the implemented Web UI workflows, while the offline mode and the other client workflows stay unsupported.
+- **`client-applications.md` § Web UI**: wherever the narrative presents match creation, recording uploads, and upload finalization as planned or future, it now describes them as implemented in the connected Web UI. Analysis review, agent conversations, and offline mode stay future.
+
+The documentation task (T019) applies exactly these updates and corrects any other statement in `docs/architecture/` that the merged feature makes false.
+
 ## Project Structure
 
 ### Documentation (this feature)
