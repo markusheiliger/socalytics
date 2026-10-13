@@ -76,7 +76,9 @@ sequenceDiagram
                 Scheduler->>Jobs: Publish ready stamp-local jobs
                 Manager->>Jobs: Pull compatible low-level job
                 Manager->>Analysts: Run accepted execution attempt
-                Analysts->>Storage: Write immutable result and manifest
+                Analysts-->>Manager: Result and manifest in the result mount
+                Manager->>API: Request per-object result write grants
+                Manager->>Storage: Store immutable result and manifest
                 Manager->>API: Complete attempt with manifest reference
                 API->>Registry: Accept completion and index facts
         end
@@ -86,7 +88,9 @@ sequenceDiagram
         Manager->>Jobs: Pull compatible high-level job
         Manager->>Analysts: Run accepted execution attempt
         Analysts->>API: Query accepted upstream facts
-        Analysts->>Storage: Write immutable concepts and manifest
+        Analysts-->>Manager: Concepts and manifest in the result mount
+        Manager->>API: Request per-object result write grants
+        Manager->>Storage: Store immutable concepts and manifest
         Manager->>API: Complete attempt with lineage
         API->>Registry: Accept completion and index concepts
 ```
