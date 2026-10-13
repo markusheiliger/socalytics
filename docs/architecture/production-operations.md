@@ -54,6 +54,7 @@ Each stamp references one immutable profile version. A profile records:
 | Network | Ingress, internal networks, egress, DNS, TLS, exposed and denied endpoints |
 | Configuration | Non-secret source, schema/version, validation, reload or restart behavior |
 | Secrets | Source, scope, delivery, rotation, revocation, recovery, and audit behavior |
+| Email | Relay endpoint and credentials, relay residency, sender domain and address, SPF/DKIM/DMARC, bounce and complaint handling, delivery-record retention, rate limits (see [Email Notifications](email-notifications.md#production-values)) |
 | Persistence | Volume, authority, durability, encryption, capacity, residency, retention, backup and recovery |
 | Objectives | Numeric value, unit, window, signal, owner, approval, alert and evidence |
 | Evidence | Preflight, restore, failure, capacity, upgrade, rollback and incident exercise references |

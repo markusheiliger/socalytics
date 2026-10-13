@@ -5,19 +5,22 @@ It refines the logical components in the [architecture overview](overview.md)
 without changing their domain responsibilities. The source and runtime choices
 in this profile are adopted architecture; production readiness and operational
 values remain **Provisional / Blocking production** as governed by
-[Production Deployment and Operations](production-operations.md). Only the
-platform host scaffold is executable: it provides the .NET 10 solution, local
-Aspire composition, operational API surface, the layered project structure, and
-host and architecture tests described below. It provides no domain behavior,
-external infrastructure integration, security implementation, client runtime,
-deployment configuration, or production-readiness evidence.
+[Production Deployment and Operations](production-operations.md). The
+executable platform provides the .NET 10 solution, local Aspire composition of
+PostgreSQL, NATS JetStream, S3-compatible RustFS storage, the one-off Migrator,
+and the API, the operational API surface, the layered project structure, and
+the persistence, club and identity, recording lineage and upload, durable
+analysis workflow, and Analyst Manager registration foundations described
+below, with host, architecture, contract, and integration tests. Analyst
+execution, external OpenID Connect sign-in, MFA enforcement, client runtimes,
+deployment configuration, and production-readiness evidence do not exist yet.
 
 ## Source And Runtime Baseline
 
 SocAlytics uses one `src` root with these first-level ownership areas:
 
 - `src/platform` owns the platform API, control plane, and supporting platform
-  services; its initial executable host scaffold is implemented
+  services; the API, Migrator, and their layers are implemented
 - `src/clients` owns the future Web UI, a Progressive Web App
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
@@ -148,7 +151,7 @@ architecture change backed by measured scaling, fault-isolation, or operational
 evidence. The one-off Migrator is not such a split: it shares the
 Infrastructure layer and runs only before API instances start.
 
-### Planned Data Organization
+### Data Organization
 
 Each stamp uses one PostgreSQL database with one application schema,
 `socalytics`, for all functional areas. Table names are prefixed or grouped by
@@ -183,8 +186,9 @@ deployment unless measured scaling later justifies extraction.
 
 The persistence foundation implements PostgreSQL access with Npgsql and Dapper,
 DbUp migrations applied by the Migrator, explicit units of work, and
-trigger-managed versions; NATS JetStream, the
-transactional outbox, and all domain tables remain unimplemented.
+trigger-managed versions. The domain tables of the Club, Identity Access,
+Recordings, Registry, and Analysis areas and the transactional outbox, published
+to NATS JetStream, build on it.
 
 Each future deployment stamp uses one logical PostgreSQL database. Npgsql and Dapper
 provide database access; Entity Framework Core is not part of the baseline.
@@ -307,8 +311,11 @@ their multipart uploads. Locally the Aspire AppHost runs a pinned RustFS
 container as a plain container resource, the API creates the development
 bucket, and integration tests use the same image through Testcontainers
 together with a store conformance probe that any production store must pass.
+For the Web UI's direct part uploads in local development, the AppHost will
+allow the Web UI origin in the local store's CORS configuration and pass the
+store's origin to the Web UI for its Content Security Policy.
 Bucket provisioning, production storage selection, encryption, credentials,
-browser CORS, public endpoints, grant and session lifetimes, and lifecycle
+production browser CORS and origins, public endpoints, grant and session lifetimes, and lifecycle
 policy remain governed by
 [Production Deployment and Operations](production-operations.md) and
 [Security and Data Governance](security-and-data-governance.md).
@@ -324,12 +331,12 @@ OpenID Connect sign-in, MFA enforcement, or generated client. Exposure and
 access policy for operational endpoints in a production ingress remain
 unresolved.
 
-REST with JSON will be the primary platform protocol. ASP.NET Core will publish
+REST with JSON is the primary platform protocol. ASP.NET Core publishes
 a versioned OpenAPI description, and Kiota will generate TypeScript, C#, and Python
 clients. Applications keep generated clients behind local adapter boundaries so
 transport generation does not define their domain models.
 
-The future canonical artifacts, owner map, and compatibility policy are
+The canonical artifacts, owner map, and compatibility policy are
 governed by [Contracts and Compatibility](contracts-and-compatibility.md).
 
 Platform-managed local accounts are always available. ASP.NET Core Identity
@@ -377,11 +384,29 @@ requires a password change at the next sign-in. It grants no roles and is
 audited. The platform never writes the credential to logs or diagnostics, and
 no API operation, authenticated or not, performs recovery.
 
+Members may register an optional email address, verified through a single-use
+confirmation link before any message is sent, and choose which notification
+types they receive. The API sends transactional notifications and account
+messages through a dedicated transactional email outbox table and a delivery
+worker that submits them with MailKit by authenticated, TLS-protected SMTP to
+the stamp's configured relay; the Aspire AppHost and tests use a Mailpit
+mail-catcher container. Self-service password
+recovery and invitations may use this channel through their own
+specifications. The channel is decided, not yet implemented; see
+[Email Notifications](email-notifications.md).
+
 Analyst Manager registration uses browser device-code pairing initiated by a
 club `Registrar` and explicitly approved by a `Club Admin`. Club Admin inherits
 the Registrar capability and may self-approve through a separate audited
 operation. The AM activates only after proving possession of the protected
 device key bound during pairing.
+
+The pairing response's verification URL will be built from an optional
+verification base address, for stamps whose Web UI and API origins differ, as
+in local development; the token, activation, and other machine-facing addresses
+and the DPoP target stay on the stamp's public base address. The registration
+operations will declare typed OpenAPI request and response schemas, so the Web
+UI's generated client covers them.
 
 An active AM uses OAuth 2.0 client credentials with `private_key_jwt` and
 short-lived DPoP-bound access tokens. API authorization also checks the
@@ -486,7 +511,7 @@ than selected as a separate job artifact.
 
 ## Test And Observability Baseline
 
-The executable platform scaffold uses xUnit v3 and Shouldly for the Aspire host
+The platform uses xUnit v3 and Shouldly for the Aspire host
 smoke test and NetArchTest.Rules plus project-reference and reflection assertions
 for architecture tests. ServiceDefaults provides the standard Aspire
 service-discovery, resilience, OpenTelemetry, liveness, and readiness wiring;
@@ -506,12 +531,12 @@ wires health checks, structured logs, metrics, and traces for .NET services;
 other runtimes emit compatible telemetry with the same correlation context.
 Telemetry payload minimization and lifecycle follow
 [Security and Data Governance](security-and-data-governance.md).
-Testcontainers runs disposable PostgreSQL instances for
+Testcontainers runs disposable PostgreSQL, NATS, and RustFS instances for
 `SocAlytics.Platform.Integration.Tests`.
 
-## Planned Acceptance Evidence
+## Acceptance Evidence
 
-The initial platform-host change provides this executable evidence:
+The platform provides this executable evidence:
 
 - `src/platform/SocAlytics.Platform.slnx` restores, builds, and tests on .NET 10;
 - Aspire starts PostgreSQL, the one-off Migrator, and the API in that order and
@@ -526,20 +551,26 @@ migrations, unknown applied migrations, distinguishable Migrator exit
 outcomes, explicit units of work, optimistic concurrency, the version
 guarantee including child-root and migration behavior, trigger presence,
 absence of `club_id`, runtime-role access limits, and API readiness against
-current and non-current migration states.
+current and non-current migration states; and
+- integration tests cover the club hierarchy, local accounts, sessions, roles,
+  team-scoped authorization, and audit evidence; idempotent recording upload,
+  immutable recording lineage, and S3 conformance against RustFS; Analyst
+  Manager pairing, approval, activation, revocation, and DPoP authentication;
+  and analysis run creation, readiness, claims, fenced completion,
+  state-plus-outbox atomicity, outbox publication and retention, and recovery
+  from NATS outage, restart, and duplicate notifications; and
+- contract tests validate the canonical schemas, examples, and golden fixtures
+  in `contracts/` and the OpenAPI document.
 
 The following remain validation targets rather than claims of current evidence:
 
-- PostgreSQL integration tests cover Dapper mappings of domain records,
-idempotency, authorization, immutable lineage, registry versions, analysis
-recovery, and state-plus-outbox atomicity;- NATS recovery tests cover broker outage, retry, publisher restart,
-  expired-lease recovery, duplicate notification handling, and PostgreSQL
-  revalidation;
-- canonical contract validation, registry transport mapping, runtime
-  conformance, and generated TypeScript, C#, and Python client smoke checks
-  pass without introducing duplicate wire contracts; and
-- telemetry tests cover correlation and operational signals while excluding
-  recording, result, and outbox payload bodies.
+- PostgreSQL integration tests cover Dapper mappings and registry versions of
+  capability, model, and Analyst-profile records;
+- registry transport mapping, runtime conformance, and generated TypeScript,
+  C#, and Python client smoke checks pass without introducing duplicate wire
+  contracts; and
+- telemetry tests cover correlation and operational signals across all areas
+  while excluding recording, result, and outbox payload bodies.
 
 ### Architecture Reassessment
 
@@ -553,33 +584,37 @@ choice or reveals a material operational tradeoff:
   identity, client sharing, Analyst Manager UI/runtime, or Analyst
   image/runtime choices.
 - **Consequences and operational tradeoffs understood — partially met.**
-  Layer dependency rules, host composition with PostgreSQL and the Migrator,
-  local transaction boundaries, and local database unavailability are
-  exercised. Duplicate delivery, restart recovery, other local infrastructure
-  failure, production database access control, backup/restore, lifecycle controls, service objectives, capacity, and complete
-  workflow failure behavior remain unevidenced.
+  Layer dependency rules, host composition with PostgreSQL, NATS, RustFS, and
+  the Migrator, local transaction boundaries, local database and broker
+  unavailability, duplicate delivery, and analysis restart recovery are
+  exercised. Production database access control, backup/restore, lifecycle
+  controls, service objectives, capacity, and workflow failure behavior with
+  real Analyst execution remain unevidenced.
 - **Prototype, measurement, or implementation evidence supports the choice —
   partially met.** The .NET 10 host, Aspire local composition, operational
-  API surface, layer composition methods, structural tests, and the persistence
-  foundation (migrations, Migrator, units of work, version triggers) are
-  implemented. Domain persistence, publication, secure BFF identity, the Web UI
-  and its offline mode, cross-runtime schema agreement, reproducible Analyst images, and the
-  Avalonia/OCI platform matrix remain unsupported by implementation evidence.
+  API surface, layer composition methods, structural tests, the persistence
+  foundation (migrations, Migrator, units of work, version triggers), domain
+  persistence, outbox publication to NATS JetStream, local-account BFF
+  sessions, S3-compatible upload, and Analyst Manager registration are
+  implemented. External OpenID Connect sign-in, MFA enforcement, the Web UI
+  and its offline mode, cross-runtime schema agreement, reproducible Analyst
+  images, and the Avalonia/OCI platform matrix remain unsupported by
+  implementation evidence.
 - **Mature enough to govern subsequent implementation — not met for
   promotion.** The foundation can guide further reversible implementation, but
   the incomplete identity, client, Scheduler, Analyst runtime, production
   operations, and security/lifecycle evidence prevents the production profile
   from becoming production-ready or implementation-proven.
 
-The host scaffold has demonstrated that Aspire starts the local API with health
-and telemetry defaults and that architecture tests enforce the layer
-dependency and visibility boundaries. Before treating the remaining
-choices as implementation-proven, evidence must demonstrate:
+The implementation has demonstrated that Aspire starts the local platform with
+health and telemetry defaults, that architecture tests enforce the layer
+dependency and visibility boundaries, and that PostgreSQL integration tests
+cover Dapper mappings, migrations, optimistic concurrency, outbox recovery, and
+duplicate delivery. Before treating the remaining choices as
+implementation-proven, evidence must demonstrate:
 
-- PostgreSQL integration tests cover Dapper mappings, migrations, optimistic
-  concurrency, outbox recovery, and duplicate delivery
-- local and optional OIDC login share a secure BFF session, including CSRF,
-  reset, lockout, MFA, logout, and authorization tests
+- optional OIDC login shares the local-account BFF session, including MFA
+  enforcement tests
 - Kiota-generated TypeScript, C#, and Python clients compile and pass contract
   compatibility tests
 - the Web UI PWA installs, updates through its service worker, and meets the

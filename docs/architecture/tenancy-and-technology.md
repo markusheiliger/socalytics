@@ -50,20 +50,20 @@ Requirements:
 - stamp-specific analytics and model tracking
 - stamp-registered Analyst Managers
 
-### Planned Stamp Persistence
+### Stamp Persistence
 
-The control-plane foundation will implement the stamp's database side as
+The control-plane foundation implements the stamp's database side as
 one PostgreSQL database with one application schema, `socalytics`, holding the
 singleton Club root and the `Club > Season > Team > Match` hierarchy,
-membership and Club/Team grants, immutable recording lineage, immutable
-capability and model metadata, and durable run and result lineage. Shared
-migration history is kept apart in `socalytics_migrations`; it owns no domain
-records.
+membership and Club/Team grants, immutable recording lineage, and durable run
+and accepted-result lineage. Immutable capability and model metadata will join
+it with the Registry's capability catalog. Shared migration history is kept
+apart in `socalytics_migrations`; it owns no domain records.
 
-Architecture and PostgreSQL tests must verify that the Club row is a singleton,
+Architecture and PostgreSQL tests verify that the Club row is a singleton,
 hierarchy parents are required, protected resources resolve to Team scope,
 revoked and cross-Team grants do not authorize access, and internal tables,
-commands, and events carry no `club_id`. These checks will validate the planned
+commands, and events carry no `club_id`. These checks validate the
 single-club invariant only. They do not approve shared physical production
 infrastructure, credentials, residency, encryption, retention, or other
 production-policy values.
@@ -104,9 +104,9 @@ entry keeps production promotion blocked.
 
 ## Technology Stack
 
-The detailed planned implementation baseline and validation criteria are
-defined in the
-[Platform Implementation Profile](platform-implementation.md#planned-acceptance-evidence).
+The detailed implementation baseline, its current evidence, and the remaining
+validation criteria are defined in the
+[Platform Implementation Profile](platform-implementation.md#acceptance-evidence).
 
 ### Client Applications
 
@@ -135,6 +135,10 @@ defined in the
   applied only by the one-off `SocAlytics.Platform.Migrator` host
 - ASP.NET Core Identity with Dapper stores, always-available local accounts,
     and optional external OpenID Connect providers
+- provider-neutral SMTP submission for transactional email with MailKit
+    through a dedicated transactional email outbox table, with a Mailpit
+    mail catcher locally (decided, not yet implemented; see
+    [Email Notifications](email-notifications.md))
 - JSON Schema 2020-12 validation of contract payloads with JsonSchema.Net
     (MIT 8.x line)
 

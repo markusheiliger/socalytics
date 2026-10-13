@@ -11,7 +11,13 @@ description: >-
   tests" runs when src/analysts/manager/ or contracts/analyst-manager/ (the Manager's shared golden fixtures) changed
   or in finalize mode, covers only src/analysts/manager/ (contract files stay covered by the platform scope), is
   active only while src/analysts/manager/SocAlytics.Analysts.Manager.slnx exists, and fails when its global.json sdk
-  object differs from the platform's; other paths under src/analysts/ stay uncovered; "Markdown check" follows.
+  object differs from the platform's; other paths under src/analysts/ stay uncovered; "Web UI build and tests" runs
+  when src/clients/web/ or src/platform/SocAlytics.Platform.Api/ changed or in finalize mode (the full Web UI tests
+  run in every mode), covers only src/clients/web/ (API files stay covered by the platform scope), is active only
+  while src/clients/web/package.json exists, and runs the steps install (npm ci without a browser download),
+  playwright pin (the installed @playwright/test must be 1.63.0, the version environment-setup installs), build,
+  unit tests, and browser tests through the npm scripts build, test, and test:e2e, stopping at the first failure;
+  other paths under src/clients/ stay uncovered; "Markdown check" follows.
 # Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
 # is reviewed and merged before the specs that need it start. For a new framework or source area, add one block below
 # that (1) adds its scope to COVERED only when its project exists, (2) runs only when the scope changed or in finalize
@@ -19,7 +25,9 @@ description: >-
 # created, and (4) runs its tests through run_tests, so mode task runs only the tests the change touched. Current
 # coverage: the platform scope (src/platform/ and contracts/) is covered while the platform solution
 # exists; the Analyst Manager scope (src/analysts/manager/) is covered while the Manager solution exists, and its
-# check also runs for contracts/analyst-manager/ changes without covering those files.
+# check also runs for contracts/analyst-manager/ changes without covering those files; the Web UI scope
+# (src/clients/web/) is covered while src/clients/web/package.json exists, and its check also runs for
+# src/platform/SocAlytics.Platform.Api/ changes without covering those files.
 inputs:
   workspace:
     description: Path of the code to verify
@@ -66,6 +74,11 @@ runs:
         MANAGER_SOLUTION=src/analysts/manager/SocAlytics.Analysts.Manager.slnx
         MANAGER_SCOPE='^src/analysts/manager/'
         MANAGER_TRIGGER='^(src/analysts/manager|contracts/analyst-manager)/'
+        WEB_DIR=src/clients/web
+        WEB_SCOPE='^src/clients/web/'
+        WEB_TRIGGER='^(src/clients/web|src/platform/SocAlytics\.Platform\.Api)/'
+        # Must equal the Playwright pin in environment-setup.
+        WEB_PLAYWRIGHT=1.63.0
         # Paths that need no check (repository metadata, Spec Kit artifacts, and the environment actions, which the
         # merge self-tests). A check adds its scope only when it can run, so changes in the scope of a check whose
         # project is missing (for example a deleted solution) are reported as not covered. The platform scope also
@@ -81,6 +94,7 @@ runs:
         )
         [ -f "$WORKSPACE/$PLATFORM_SOLUTION" ] && COVERED+=("$PLATFORM_SCOPE")
         [ -f "$WORKSPACE/$MANAGER_SOLUTION" ] && COVERED+=("$MANAGER_SCOPE")
+        [ -f "$WORKSPACE/$WEB_DIR/package.json" ] && COVERED+=("$WEB_SCOPE")
         mkdir -p "$(dirname "$LOG_FILE")"
         : > "$LOG_FILE"
         changed=""
@@ -163,6 +177,32 @@ runs:
               run_tests SocAlytics.Analysts.Manager.slnx src/analysts/manager/ ''; } || status=1
             popd > /dev/null
           fi
+        fi
+        # Active only once the Web UI project exists; it also runs for platform API changes because the Web UI build
+        # generates its client from the API contract. Browser downloads stay in environment-setup.
+        web_playwright_pin() {
+          local installed
+          installed="$(node -e 'console.log(require(process.argv[1]).version)' "$PWD/node_modules/@playwright/test/package.json" 2>/dev/null)"
+          if [ "$installed" != "$WEB_PLAYWRIGHT" ]; then
+            echo "@playwright/test ${installed:-<not installed>} in $WEB_DIR differs from WEB_PLAYWRIGHT $WEB_PLAYWRIGHT (the Playwright pin in environment-setup)" | tee -a "$LOG_FILE"
+            return 1
+          fi
+        }
+        web_step() {
+          local name="$1"
+          shift
+          echo "Web UI step: $name" | tee -a "$LOG_FILE"
+          "$@" || { echo "Web UI step failed: $name" | tee -a "$LOG_FILE"; return 1; }
+        }
+        if [ "$status" -eq 0 ] && applies "$WEB_TRIGGER" && [ -f "$WEB_DIR/package.json" ]; then
+          checks+=("Web UI build and tests")
+          pushd "$WEB_DIR" > /dev/null
+          { web_step install step env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci &&
+            web_step 'playwright pin' web_playwright_pin &&
+            web_step build step npm run build &&
+            web_step 'unit tests' step npm test &&
+            web_step 'browser tests' step npm run test:e2e; } || status=1
+          popd > /dev/null
         fi
         if [ "$status" -eq 0 ] && applies '\.md$'; then
           checks+=("Markdown check")

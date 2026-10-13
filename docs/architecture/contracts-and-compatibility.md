@@ -1,7 +1,7 @@
 # Contracts And Compatibility
 
-This document defines the planned authority, ownership, versioning,
-compatibility, and validation rules for future SocAlytics machine-readable
+This document defines the authority, ownership, versioning,
+compatibility, and validation rules for SocAlytics machine-readable
 contracts. It refines the
 [Platform Implementation Profile](platform-implementation.md) without changing
 the domain responsibilities in the owning architecture topics.
@@ -42,7 +42,7 @@ Machine-readable representation does not move domain ownership:
 | Capability declarations | Model/Capability Registry | [Analysts, Models, and Hardware](analysts-models-and-hardware.md) |
 | Logical-segment identity, boundaries, and manifests | Segment Service/data plane | [Match Data Pipeline](match-data-pipeline.md) |
 | Analyst job and result payload semantics | Analyst capability owners | [Analysts, Models, and Hardware](analysts-models-and-hardware.md) |
-| Contract syntax, reference closure, examples, compatibility, and generation evidence | Future contract pipeline | This document and the future contract index |
+| Contract syntax, reference closure, examples, compatibility, and generation evidence | Contract tests (`SocAlytics.Platform.Contracts.Tests`) | This document and the contract index `contracts/README.md` |
 
 When a schema and its owning architecture disagree, the owner resolves the
 semantic discrepancy before the schema is accepted. A schema must not silently
@@ -62,14 +62,14 @@ decide the Open / Blocking client code-sharing question in
 
 ## Scope And Dependencies
 
-The Recording Lineage and Upload feature establishes the contract baseline
-with the recordings-finalized event schema. The documented Analyst workflow
-contracts (shared resources and errors under `contracts/common/v1`, logical
-segments, Analyst jobs and result manifests, capability declarations, accepted
-upstream facts, and fenced attempt completion) will follow, starting with the
-shared definitions and the Analyst job and attempt-completion schemas of
-Durable Analysis, and will extend the same directory, index, and contract
-command. It excludes service implementation, unrelated administration and
+The Recording Lineage and Upload feature established the contract baseline
+with the recordings-finalized event schema. Durable Analysis added the shared
+definitions under `contracts/common/v1` and the Analyst job, attempt-completion,
+and run-state-changed schemas, and Analyst Manager Registration added the
+registration golden fixtures. The remaining documented Analyst workflow
+contracts (logical segments, result manifests, capability declarations, and
+accepted upstream facts) will follow and extend the same directory, index, and
+contract command. It excludes service implementation, unrelated administration and
 identity APIs, deployment contracts, production SDK adapters, and AsyncAPI.
 
 The accepted logical-segment architecture is an input. Future

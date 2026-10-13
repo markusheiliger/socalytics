@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { collectFacts, countClarificationSessions, main, nextAuthoringStep, publishBlockers } from './speckit-author.mjs';
+import { architectureUpdates, collectFacts, countClarificationSessions, hasArchitectureTask, main, nextAuthoringStep, publishBlockers } from './speckit-author.mjs';
 import { UsageError } from './speckit-orchestrate.mjs';
 
 const SPEC = ['# Feature Specification: F', '', '## Clarifications', '', '### Session 2026-10-12', '', '- Q: a → A: b', '', '## User Scenarios', ''].join('\n');
@@ -65,6 +65,28 @@ test('reports publish blockers for stage, checklists, markers, and the specs ove
   assert.deepEqual(publishBlockers({ ...facts, artifacts: ['spec.md', 'plan.md', 'tasks.md'], tasksMarkdown: TASKS, openChecklistItems: 0, openClarificationMarkers: 0, listedInSpecsReadme: true }), []);
 });
 
+test('reads the Architecture Updates section of a plan', () => {
+  assert.deepEqual(architectureUpdates('# Plan\n\n## Summary\n\nx\n'), { present: false, none: false });
+  assert.deepEqual(architectureUpdates('# Plan\n\n## Architecture Updates\n\n- docs/architecture/a.md\n\n## Next\n'), { present: true, none: false });
+  assert.deepEqual(architectureUpdates('## Architecture Updates\r\n\r\n**None**: only the environment actions change.\r\n'), { present: true, none: true });
+  assert.deepEqual(architectureUpdates('## Architecture Updates\n\n## None\n'), { present: true, none: false });
+  assert.equal(hasArchitectureTask('- [ ] T009 Update `docs/architecture/a.md`\n'), true);
+  assert.equal(hasArchitectureTask('- [x] T009 Update docs/README.md\n'), false);
+});
+
+test('blocks publishing without the Architecture Updates section or its documentation task', () => {
+  const ready = { folder: 'f', hasSpec: true, artifacts: ['spec.md', 'plan.md', 'tasks.md'], tasksMarkdown: TASKS, openChecklistItems: 0, openClarificationMarkers: 0, listedInSpecsReadme: true };
+  const [missing] = publishBlockers({ ...ready, architecture: { present: false, none: false } });
+  assert.match(missing, /Architecture Updates/);
+  const [noTask] = publishBlockers({ ...ready, architecture: { present: true, none: false } });
+  assert.match(noTask, /docs\/architecture\//);
+  assert.deepEqual(publishBlockers({ ...ready, architecture: { present: true, none: true } }), []);
+  const withTask = `${TASKS}- [ ] T003 Make docs/architecture/a.md true for the merged state\n`;
+  assert.deepEqual(publishBlockers({ ...ready, tasksMarkdown: withTask, architecture: { present: true, none: false } }), []);
+  const planned = { ...ready, artifacts: ['spec.md', 'plan.md'], tasksMarkdown: null, architecture: { present: true, none: false } };
+  assert.equal(publishBlockers(planned).some((reason) => /docs\/architecture\//.test(reason)), false);
+});
+
 test('collects facts from the folder, its checklists, specs/README.md, and git', () => withRepo({
   'specs/README.md': '| [F](f/spec.md) |\n',
   'specs/f/spec.md': SPEC,
@@ -77,6 +99,7 @@ test('collects facts from the folder, its checklists, specs/README.md, and git',
   assert.equal(facts.clarificationSessions, 1);
   assert.deepEqual(facts.checklists, [{ name: 'requirements.md', open: 1 }]);
   assert.equal(facts.listedInSpecsReadme, true);
+  assert.deepEqual(facts.architecture, { present: false, none: false });
   assert.deepEqual(facts.git, { currentBranch: 'main', defaultBranch: 'main', upstream: 'origin/main', uncommitted: ['specs/f/tasks.md'], unpushedCommits: 0, published: false });
 }));
 

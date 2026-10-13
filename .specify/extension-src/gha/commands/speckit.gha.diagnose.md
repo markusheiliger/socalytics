@@ -79,6 +79,11 @@ workflow started you): never ask, and turn every open question into a report que
      task goes directly before the stuck task. Mark a task `[P]` only when it touches other files than its neighbours
      and depends on no unfinished task. Reference artifact sections and requirement IDs like the existing tasks, and
      update dependency and strategy notes that mention the changed tasks.
+   - Architecture (constitution Principle I): when the amendment changes a design decision that `docs/architecture/`
+     states, or that `plan.md` § Architecture Updates lists, update that section and make sure an unchecked task
+     carries the change into the owning narrative: extend the unchecked documentation task, or, when it is already
+     checked, add a documentation task with the next free ID before the convergence phases. Never change
+     `docs/architecture/` itself in an amendment.
    - Re-check consistency like `/speckit-analyze` for the whole folder before you finish.
    - Non-interactive: change only files in `<spec folder>/`, then call `create_pull_request` with branch
      `speckit-amend/<folder>`, base `speckit/<folder>`, a title naming the cause, and a body with the cause and the

@@ -5,7 +5,7 @@ readiness.
 
 ## Prerequisites
 
-- The Web UI verification environment (`specs/20261012-145505-web-ui-environment`)
+- The Web UI verification environment (`specs/archive/20261012-145505-web-ui-environment`)
   merged: Kiota 1.36.0 on `PATH` and the Playwright 1.63.0 Chromium browser.
   Locally:
   - `dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0`;

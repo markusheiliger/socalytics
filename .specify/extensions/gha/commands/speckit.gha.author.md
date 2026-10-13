@@ -31,8 +31,8 @@ first token is a note from the user; take it into account.
 - **Run every step through the repository's Spec Kit skill.** For step `<name>`, load
   `.github/skills/speckit-<name>/SKILL.md` and follow it exactly, with the arguments named below as its user input.
   Do not paraphrase, shorten, or replace a Spec Kit step with your own logic. Hooks (`before_*`, `after_*`), including
-  the mandatory `after_tasks` hook `/speckit-gha-refine`, run from those skills as they prescribe; never run them
-  yourself in addition.
+  the mandatory `after_plan` hook `/speckit-gha-architecture` and the mandatory `after_tasks` hook
+  `/speckit-gha-refine`, run from those skills as they prescribe; never run them yourself in addition.
 - **Change spec artifacts only through Spec Kit.** Do not edit `spec.md`, `plan.md`, `tasks.md`, design artifacts, or
   checklists yourself. Changes come from the Spec Kit skills, including the remediation edits that `/speckit-analyze`
   proposes and the user approves. Formatting-only fixes for the Markdown check are the only exception.
@@ -116,7 +116,8 @@ continue to plan (recommended), clarify again, or stop.
 
 ### 3. Plan
 
-Run `/speckit-plan`.
+Run `/speckit-plan`; its `after_plan` hook writes the `## Architecture Updates` section of `plan.md` (constitution
+Principle I) and applies the design-level updates to `docs/architecture/`.
 
 **Environment check.** Compare the frameworks, SDKs, tools, and services the plan needs to build and test the feature
 with what `.github/actions/environment-setup` and `.github/actions/environment-verify` provide and with the commands in
@@ -126,7 +127,8 @@ folders and is merged before this spec. Once it exists, return to this spec and 
 `/speckit-clarify`, with the environment spec folder as the answer to the dependency question, then rerun
 `/speckit-plan` if the plan must change.
 
-**Pause:** summarize the plan (technical decisions, structure, contracts, migrations, dependencies) and ask: continue
+**Pause:** summarize the plan (technical decisions, structure, contracts, migrations, dependencies, and the
+architecture narratives, design updates, and status statements of its Architecture Updates section) and ask: continue
 to tasks (recommended), add a domain checklist with `/speckit-checklist`, revise the plan, or stop. Each checklist must
 be fully checked before the spec is published, so add only checklists the user intends to resolve.
 
@@ -157,6 +159,10 @@ Run `node .github/scripts/speckit-author.mjs status <folder>` and resolve every 
   them (`/speckit-clarify` for `requirements.md`); tick an item only when the user confirms it.
 - **Missing `specs/README.md` entry:** add a row for the spec to the matching table (feature link, purpose, depends
   on) and show it. `specs/README.md` is a repository overview, not a Spec Kit artifact.
+- **Missing `## Architecture Updates` in `plan.md`:** rerun `/speckit-plan` (its `after_plan` hook writes the
+  section), or run `/speckit-gha-architecture <folder>` for a plan that is otherwise final.
+- **No task references `docs/architecture/`:** rerun `/speckit-tasks` so it generates the outcome-based
+  documentation task that the Architecture Updates section requires (not needed when the section says `None`).
 
 Then run `node .github/scripts/check-markdown.mjs` and fix what it reports (formatting only inside the spec folder).
 

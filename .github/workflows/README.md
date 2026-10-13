@@ -87,7 +87,10 @@ pull request, and thick arrows are reusable workflow calls (`workflow_call`) tha
   `[P]` tasks under one heading run in parallel.
 
 Each run of Spec Kit implement spec does one of these: a phase, the convergence (`/speckit-converge`), a conflict
-resolution, or the merge. The merge first archives the spec to `specs/archive/<folder>` on the implementation branch
+resolution, or the merge. The convergence starts with the `gha` extension's `before_converge` hook
+`/speckit-gha-drift`, which checks `docs/architecture/` against the implementation; each stale, missing, or
+contradicting statement becomes a convergence task, so the architecture is corrected before the merge. The hook comes
+from the implementation branch, so a branch created before it existed gets it after `/speckit sync`. The merge first archives the spec to `specs/archive/<folder>` on the implementation branch
 (job `merge-archive`), so the archive lands with the implementation. It runs only one of its `phase`, `converge-or-resolve`, or `merge-*` jobs, so the others
 always show as skipped. Prepare, orchestrate, and implement spec also have a `refuse` job that only runs, and fails, when
 started from a branch other than the default branch.
