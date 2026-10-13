@@ -170,6 +170,32 @@ runs:
             popd > /dev/null
           fi
         fi
+        # Active only once the Web UI project exists; it also runs for platform API changes because the Web UI build
+        # generates its client from the API contract. Browser downloads stay in environment-setup.
+        web_playwright_pin() {
+          local installed
+          installed="$(node -e 'console.log(require(process.argv[1]).version)' "$PWD/node_modules/@playwright/test/package.json" 2>/dev/null)"
+          if [ "$installed" != "$WEB_PLAYWRIGHT" ]; then
+            echo "@playwright/test ${installed:-<not installed>} in $WEB_DIR differs from WEB_PLAYWRIGHT $WEB_PLAYWRIGHT (the Playwright pin in environment-setup)" | tee -a "$LOG_FILE"
+            return 1
+          fi
+        }
+        web_step() {
+          local name="$1"
+          shift
+          echo "Web UI step: $name" | tee -a "$LOG_FILE"
+          "$@" || { echo "Web UI step failed: $name" | tee -a "$LOG_FILE"; return 1; }
+        }
+        if [ "$status" -eq 0 ] && applies "$WEB_TRIGGER" && [ -f "$WEB_DIR/package.json" ]; then
+          checks+=("Web UI build and tests")
+          pushd "$WEB_DIR" > /dev/null
+          { web_step install step env PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci &&
+            web_step 'playwright pin' web_playwright_pin &&
+            web_step build step npm run build &&
+            web_step 'unit tests' step npm test &&
+            web_step 'browser tests' step npm run test:e2e; } || status=1
+          popd > /dev/null
+        fi
         if [ "$status" -eq 0 ] && applies '\.md$'; then
           checks+=("Markdown check")
           step node "$MARKDOWN_CHECK" || status=1
