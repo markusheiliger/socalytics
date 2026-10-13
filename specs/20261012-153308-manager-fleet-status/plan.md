@@ -22,9 +22,10 @@
 - **Analyst Manager**:
   - `RegistrationStatusMonitor` sends the report with every check: the
     operating state and pause end from `OperatingStateMachine`, the runtime
-    reason from the latest preflight, active attempts and the effective limit
-    from the attempt registry and concurrency limit of Analyst Manager Work
-    Execution, and the version.
+    reason from the latest preflight, active count and a fixed limit of 1
+    (never below the active count) until Analyst Manager Work Execution
+    provides the attempt registry and the effective concurrency limit and
+    takes over, and the version.
   - It uses the interval the platform returns.
   - The CLI's existing `--host-label` is validated locally (1–64 characters,
     no control characters).
@@ -88,7 +89,7 @@ page).
 | III. API-first control plane | The report and the fleet read are REST operations; the fleet read never addresses a Manager. | Pass |
 | IV. Evidence over claims | Integration, Manager, and golden-fixture tests; no production values claimed. | Pass |
 | V. Focused, minimal changes | Extends the existing self endpoints and registration list instead of adding parallel ones; no UI. | Pass |
-| Tooling constraints | .NET and Docker only; no environment feature needed. Depends on Analyst Manager Work Execution for active and maximum Analysts. | Pass |
+| Tooling constraints | .NET and Docker only; no environment feature needed. No dependency on Analyst Manager Work Execution: active and maximum Analysts use the work tracker and a fixed limit until that feature takes over. | Pass |
 
 Post-design re-check: passes.
 
