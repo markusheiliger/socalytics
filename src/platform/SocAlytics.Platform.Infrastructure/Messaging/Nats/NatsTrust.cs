@@ -93,9 +93,20 @@ internal sealed class NatsTrust
         IReadOnlyCollection<string> subscribeAllow,
         DateTimeOffset? expires = null)
     {
-        var account = Require(_account);
         var user = KeyPair.CreatePair(PrefixByte.User);
-        var claims = NatsJwt.NewUserClaims(user.GetPublicKey());
+        return (CreateUserJwt(user.GetPublicKey(), name, publishAllow, subscribeAllow, expires), user.GetSeed());
+    }
+
+    /// <summary>Mints a user JWT of the stamp account for a public key whose seed the platform never sees.</summary>
+    public string CreateUserJwt(
+        string userPublicKey,
+        string name,
+        IReadOnlyCollection<string> publishAllow,
+        IReadOnlyCollection<string> subscribeAllow,
+        DateTimeOffset? expires = null)
+    {
+        var account = Require(_account);
+        var claims = NatsJwt.NewUserClaims(userPublicKey);
         claims.Name = name;
         claims.Expires = expires;
         claims.User.Pub = new NatsPermission { Allow = [.. publishAllow] };
@@ -103,7 +114,7 @@ internal sealed class NatsTrust
         claims.User.Subs = -1;
         claims.User.Data = -1;
         claims.User.Payload = -1;
-        return (NatsJwt.EncodeUserClaims(claims, account), user.GetSeed());
+        return NatsJwt.EncodeUserClaims(claims, account);
     }
 
     /// <summary>Mints the platform's own user: stream and consumer administration, work and event publishing, and consuming.</summary>
