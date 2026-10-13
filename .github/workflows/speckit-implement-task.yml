@@ -58,7 +58,7 @@ permissions: {}
 
 jobs:
   work:
-    name: ${{ inputs.kind == 'task' && format('Implement {0}', matrix.task) || inputs.kind == 'converge' && 'Converge' || 'Resolve conflicts' }}
+    name: ${{ inputs.kind == 'task' && format('Implement {0}', matrix.task) || inputs.kind == 'converge' && 'Check the implementation against the spec' || 'Resolve conflicts' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
