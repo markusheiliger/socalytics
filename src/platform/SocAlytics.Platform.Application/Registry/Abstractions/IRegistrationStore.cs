@@ -39,7 +39,7 @@ public interface IRegistrationStore
         Guid id, RegistrationState expectedState, CancellationToken cancellationToken);
 
     Task<RegistrationPage> ListAsync(
-        RegistrationState? state, int pageSize, string? continuationToken, CancellationToken cancellationToken);
+        RegistrationState? state, Guid? submittedBy, int pageSize, string? continuationToken, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<AnalystManagerRegistration>> ListDueForExpiryAsync(
         DateTimeOffset now, int limit, CancellationToken cancellationToken);

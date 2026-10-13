@@ -67,11 +67,24 @@ approval, activation, DPoP machine tokens, revocation, unregistration):
   `/api/v1/analyst-manager-registrations`, `GET .../{registrationId}`, and
   `POST .../{registrationId}/approval`, `/rejection`, and `/revocation`.
 - Manager `self` endpoints: `GET /api/v1/analyst-managers/self/registration`,
-  `POST .../self/unregistration`, and `POST .../self/unregistration/completion`;
+  `POST .../self/status`, `POST .../self/unregistration`, and
+  `POST .../self/unregistration/completion`;
   they require the `AnalystManagerDPoP` authentication scheme and the
   `AnalystManager` authorization policy. The principal carries the claims in
   `AnalystManagerClaimTypes`: `client_id`, `socalytics:registration_id`, and
   `scope` (`analyst-manager`).
+- Status report: an active Manager sends `POST /api/v1/analyst-managers/self/status`
+  with its operating state, runtime-unavailable reason, active and maximum
+  Analysts, and version. The platform validates it (`ManagerStatusReport`), keeps
+  only the latest report per Manager in `registry.analyst_manager_status`
+  (migration `0014_registry_analyst_manager_status.sql`), and returns
+  `statusCheckIntervalSeconds`; an invalid report is answered with
+  `reportAccepted: false` and field violations. Club Admins read `status` and
+  `connectivity` (`online`, `offline`, `not-applicable`) in the registration
+  list and detail; Registrars read only the registrations they submitted,
+  without status. `Registry:StatusReporting:Interval` (60 seconds) and
+  `Registry:StatusReporting:MissedIntervalsBeforeOffline` (3) are development
+  values, not adopted production values.
 - `Stamp:Id` and `Stamp:PublicBaseUri` identify the stamp and build the
   verification address (development values are in `appsettings.Development.json`).
 - `Registry` option defaults: `AllowSoftwareKeys` false (true only for

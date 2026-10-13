@@ -95,6 +95,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.IssueManagerTokenHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.AuthenticateManagerRequestHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.GetOwnRegistrationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.ReportStatusHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.BeginUnregistrationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.MachineAccess.CompleteUnregistrationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Expiry.ExpireDueRegistrationsHandler>();
@@ -119,6 +120,10 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Workflows.GetDefaultWorkflowHandler>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.RegistryOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.RegistryOptions.SectionName);
+        services.AddOptions<SocAlytics.Platform.Application.Registry.StatusReporting.StatusReportingOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Registry.StatusReporting.StatusReportingOptions.SectionName)
+            .Validate(static o => o.Interval > TimeSpan.Zero, "Registry:StatusReporting:Interval must be positive.")
+            .Validate(static o => o.MissedIntervalsBeforeOffline >= 1, "Registry:StatusReporting:MissedIntervalsBeforeOffline must be at least 1.");
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StampOptions.SectionName);
 

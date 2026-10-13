@@ -3,24 +3,32 @@ name: Spec Kit implement spec
 # The implementation chain of one spec: every run decides what comes next for the spec from the state on GitHub, runs
 # it, and starts the next run, until the implementation is merged, waits for review, or needs a person. Started by the
 # scheduler (Spec Kit orchestrate), by itself, by `/speckit resume|sync` comments, and when an amendment is merged.
-# Runs are named "Spec Kit implement spec #<twin> · <spec title>". The job names number the flow of a run: "1 · Decide
-# what comes next", then exactly one of the alternatives numbered "2 · …" (a phase, the convergence, a conflict
-# resolution, or the merge), then "3 · Start the next run" (the other alternatives show as skipped).
-#   decide:              "1 · Decide what comes next": validates the twin, decides what comes next, and reports stops
-#                        (attempt limit, diagnosis)
-#   phase:               "2 · <phase heading as written>": one phase of tasks.md in Spec Kit implement phase, whose
-#                        tasks run one after another in Spec Kit implement task (consecutive `[P]` tasks in parallel);
-#                        "2 · Phase" when skipped
-#   converge-or-resolve: "2 · Convergence" or "2 · Conflict resolution" in Spec Kit implement task, which belong to no
-#                        phase; "2 · Convergence or conflict resolution" when skipped
-#   merge-archive:       "2 · Merge: archive the spec": moves the spec folder to specs/archive/<folder> on the
+# Runs are named "Spec Kit implement spec #<twin> · <spec title>". Every run decides what comes next ("Decide what comes
+# next"), runs exactly one alternative (a phase, the convergence, a conflict resolution, or the merge; the others show
+# as skipped), and then starts the next run ("Start the next run"). Job names say what the job does; GitHub shows the
+# order of the jobs.
+#   decide:              "Decide what comes next": validates the twin, decides what comes next, and reports stops
+#                        (attempt limit, diagnosis); before a phase starts (none of its tasks ticked yet) it tells the
+#                        job sync to merge the base branch first when it is ahead (repository variable
+#                        SPECKIT_SYNC_BASE, default true)
+#   sync:                "Merge <base branch> into the branch": merges the base branch into the implementation branch
+#                        through the GitHub API, so the phase builds on it; on a conflict the phase does not run and the
+#                        next run resolves the conflicts first ("Conflict resolution", best effort); a merge GitHub
+#                        refuses or conflicts that need a person are left to the merge at the end (write token, never
+#                        runs agent-written code)
+#   phase:               "<phase heading as written>": one phase of tasks.md in Spec Kit implement phase, whose tasks
+#                        run one after another in Spec Kit implement task (consecutive `[P]` tasks in parallel);
+#                        "Implement a phase" when skipped
+#   converge-or-resolve: "Convergence" or "Conflict resolution" in Spec Kit implement task, which belong to no phase;
+#                        "Convergence or conflict resolution" when skipped
+#   merge-archive:       "Merge: archive the spec": moves the spec folder to specs/archive/<folder> on the
 #                        implementation branch and rewrites the references to it (write token, never runs agent-written
 #                        code)
-#   merge-verify:        "2 · Merge: integrate and verify": merges the base branch and runs the full verification
+#   merge-verify:        "Merge: integrate and verify": merges the base branch and runs the full verification
 #                        (read-only token)
-#   merge-land:          "2 · Merge: merge and report": squash-merges the pull request, or asks for review (never runs
+#   merge-land:          "Merge: merge and report": squash-merges the pull request, or asks for review (never runs
 #                        agent-written code)
-#   continue:            "3 · Start the next run": dispatches the next run of the chain
+#   continue:            "Start the next run": dispatches the next run of the chain
 run-name: "Spec Kit implement spec #${{ inputs.twin }}${{ inputs.title && format(' · {0}', inputs.title) || '' }}"
 
 on:
@@ -69,7 +77,7 @@ jobs:
           exit 1
 
   decide:
-    name: 1 · Decide what comes next
+    name: Decide what comes next
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -91,6 +99,7 @@ jobs:
       order: ${{ steps.decide.outputs.order }}
       attempt: ${{ steps.decide.outputs.attempt }}
       check_run: ${{ steps.decide.outputs.check_run }}
+      sync: ${{ steps.decide.outputs.sync }}
     steps:
       - name: Check out the default branch
         uses: actions/checkout@v5
@@ -113,12 +122,54 @@ jobs:
           SPECKIT_RESUME: ${{ inputs.resume }}
           SPECKIT_GUIDANCE: ${{ inputs.guidance }}
           SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
+          SPECKIT_SYNC_BASE: ${{ vars.SPECKIT_SYNC_BASE || 'true' }}
         run: node .github/scripts/speckit-spec.mjs decide
-  # Named "2 · <phase heading>"; nested jobs show below it as "2 · <phase heading> / T013 / Implement T013".
-  phase:
-    name: ${{ needs.decide.outputs.action == 'phase' && format('2 · {0}', needs.decide.outputs.job_name) || '2 · Phase' }}
+
+  # Merges the base branch into the implementation branch before a phase starts (none of its tasks ticked), so the
+  # phase builds on it (write token, never runs agent-written code). On a conflict the phase does not run, and the next
+  # run resolves the conflicts first; a merge GitHub refuses is left to the merge at the end.
+  sync:
+    name: ${{ needs.decide.outputs.sync == 'true' && format('Merge {0} into the branch', needs.decide.outputs.base_branch) || 'Merge the base branch into the branch' }}
     needs: decide
-    if: needs.decide.outputs.action == 'phase'
+    if: needs.decide.outputs.action == 'phase' && needs.decide.outputs.sync == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      checks: write
+      contents: write
+      issues: read
+      pull-requests: write
+    outputs:
+      result: ${{ steps.sync.outputs.result }}
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Merge the base branch
+        id: sync
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_TWIN: ${{ inputs.twin }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+          SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
+          SPECKIT_SYNC_BASE: ${{ vars.SPECKIT_SYNC_BASE || 'true' }}
+        run: node .github/scripts/speckit-spec.mjs sync
+
+  # Named after the phase heading; nested jobs show below it as "<phase heading> / T013 / Implement T013".
+  phase:
+    name: ${{ needs.decide.outputs.action == 'phase' && needs.decide.outputs.job_name || 'Implement a phase' }}
+    needs: [decide, sync]
+    # Runs after the merge of the base branch, or without it; not after a failed merge or a conflict.
+    if: ${{ !cancelled() && needs.decide.outputs.action == 'phase' && needs.sync.result != 'failure' && needs.sync.outputs.result != 'conflict' }}
     uses: ./.github/workflows/speckit-implement-phase.yml
     permissions:
       actions: read
@@ -136,7 +187,7 @@ jobs:
 
   # The convergence or a conflict resolution, whose attempt decide already started.
   converge-or-resolve:
-    name: ${{ (needs.decide.outputs.action == 'converge' || needs.decide.outputs.action == 'resolve') && format('2 · {0}', needs.decide.outputs.job_name) || '2 · Convergence or conflict resolution' }}
+    name: ${{ (needs.decide.outputs.action == 'converge' || needs.decide.outputs.action == 'resolve') && needs.decide.outputs.job_name || 'Convergence or conflict resolution' }}
     needs: decide
     if: needs.decide.outputs.action == 'converge' || needs.decide.outputs.action == 'resolve'
     uses: ./.github/workflows/speckit-implement-task.yml
@@ -160,7 +211,7 @@ jobs:
   # references, and pushes. The verification and the merge then work on that head, so the base branch never has broken
   # links. On conflicts with the base branch it changes nothing, and the conflict resolution runs first.
   merge-archive:
-    name: "2 · Merge: archive the spec"
+    name: "Merge: archive the spec"
     needs: decide
     if: needs.decide.outputs.action == 'merge'
     runs-on: ubuntu-latest
@@ -211,7 +262,7 @@ jobs:
 
   # Runs agent-written code (the full verification), so it holds a read-only token.
   merge-verify:
-    name: "2 · Merge: integrate and verify"
+    name: "Merge: integrate and verify"
     needs: [decide, merge-archive]
     if: needs.decide.outputs.action == 'merge'
     runs-on: ubuntu-latest
@@ -276,18 +327,6 @@ jobs:
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
 
-      # One more run after a failure, so a flaky test does not use up a merge attempt; the verdict uses the last run.
-      - name: Verify the merged result again
-        id: verify-again
-        if: steps.verify.outcome == 'failure'
-        continue-on-error: true
-        uses: ./tooling/.github/actions/environment-verify
-        with:
-          workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: finalize
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
-          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
-
       # An environment spec changes the actions above, which the workflows load from the default branch, so its own
       # versions have not run yet. Run them once on the merged result before the merge. This job is read-only and
       # already runs agent-written code, so loading the actions from the workspace grants nothing new.
@@ -317,10 +356,9 @@ jobs:
       - name: Record the verdict
         env:
           SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
-          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outcome || steps.verify-again.outcome }}
-          SPECKIT_VERIFY_CHECKS: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outputs.checks || steps.verify-again.outputs.checks }}
-          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outputs.uncovered || steps.verify-again.outputs.uncovered }}
-          SPECKIT_VERIFY_RETRIED: ${{ steps.verify-again.outcome != 'skipped' }}
+          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
           SPECKIT_SELFTEST_OUTCOME: >-
             ${{ steps.selftest-setup.outcome == 'failure' && 'failure' || steps.selftest-verify.outcome }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-task.mjs" verdict
@@ -336,7 +374,7 @@ jobs:
 
   # Never checks out or runs workspace code; it only uses the GitHub API.
   merge-land:
-    name: "2 · Merge: merge and report"
+    name: "Merge: merge and report"
     needs: [decide, merge-archive, merge-verify]
     if: always() && needs.decide.outputs.action == 'merge'
     runs-on: ubuntu-latest
@@ -387,8 +425,8 @@ jobs:
   # Starts the next run of the chain unless this run was cancelled; a stop (attempt limit, diagnosis, review) is decided
   # by the next run's decide job. A failed phase verification is reported here as a stop.
   continue:
-    name: 3 · Start the next run
-    needs: [decide, phase, converge-or-resolve, merge-archive, merge-verify, merge-land]
+    name: Start the next run
+    needs: [decide, sync, phase, converge-or-resolve, merge-archive, merge-verify, merge-land]
     if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.continue == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -397,7 +435,8 @@ jobs:
       checks: write
       contents: read
       issues: write
-      pull-requests: read
+      # Commenting on the implementation pull request (the stop report) needs pull-requests: write.
+      pull-requests: write
     steps:
       - name: Check out the default branch
         uses: actions/checkout@v5

@@ -60,6 +60,7 @@ public static class InfrastructureServiceCollectionExtensions
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions>>()));
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IOciImageReader, SocAlytics.Platform.Infrastructure.Registry.Oci.OciImageReader>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IAnalystManifestValidator, SocAlytics.Platform.Infrastructure.Registry.AnalystManifestValidator>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.StatusReporting.IManagerStatusStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.ManagerStatusStore>();
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
         services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.Analysis.AnalysisRunScopeSource>();

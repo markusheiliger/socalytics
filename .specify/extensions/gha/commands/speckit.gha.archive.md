@@ -10,7 +10,7 @@ $ARGUMENTS
 
 Implemented specs move from `specs/<folder>` to `specs/archive/<folder>` in the same commit that merges their
 implementation, so the base branch never has a broken link. Implementations on GitHub do this automatically in their
-merge (job `2 · Merge: archive the spec`). This command does it for an implementation that is merged locally or by a
+merge (job `Merge: archive the spec`). This command does it for an implementation that is merged locally or by a
 person, and runs as an optional `after_converge` hook of `/speckit-converge`.
 
 If the input names a spec folder (for example `20261005-130700-platform-persistence-foundation`), use it as `FOLDER`.

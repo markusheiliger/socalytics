@@ -39,6 +39,15 @@ The React Web UI supports connected platform and club workflows, including:
 What a user sees is decided by their roles and team authorization, online and
 offline alike.
 
+Recording uploads will run in a dedicated upload worker that hashes the parts
+and transfers them directly to object storage with the platform's per-part
+grants; screens reach it only through an application-owned upload coordinator
+and repository. The worker will keep a resume journal in worker-owned
+IndexedDB so an interrupted upload can continue after a reload. The journal is
+member-scoped, holds identifiers and progress only, never grants or file
+contents, and is purged on explicit sign-out. It is not the offline replica:
+uploads stay connected-only.
+
 The provisional implementation is an independent React and TypeScript SPA built
 with Vite. React Router handles navigation, TanStack Query manages remote server
 state, and MUI provides accessible controls under a SocAlytics theme. It uses

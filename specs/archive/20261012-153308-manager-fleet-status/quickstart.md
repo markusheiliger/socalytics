@@ -7,8 +7,6 @@ Development evidence only.
 - .NET SDK from `src/platform/global.json` (also pinned by the Manager), and
   Docker for PostgreSQL.
 - Linux with SoftHSM2 for the Manager's PKCS#11 tests.
-- Analyst Manager Work Execution merged (attempt registry and concurrency
-  limit).
 
 ## Automated validation
 

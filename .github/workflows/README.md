@@ -87,7 +87,20 @@ pull request, and thick arrows are reusable workflow calls (`workflow_call`) tha
   `[P]` tasks under one heading run in parallel.
 
 Each run of Spec Kit implement spec does one of these: a phase, the convergence (`/speckit-converge`), a conflict
-resolution, or the merge. The merge first archives the spec to `specs/archive/<folder>` on the implementation branch
+resolution, or the merge. Before a phase starts (none of its tasks is ticked yet), the job `sync` ("Merge main into the
+branch") merges the base branch into the implementation branch when it is ahead (repository variable
+`SPECKIT_SYNC_BASE`, default `true`), so every phase builds on the current base branch and picks up fixes and tooling
+that landed there; retries and continuations of a started phase keep its base. The merge happens through the GitHub
+API; on a conflict the phase does not run, and the next run resolves the conflicts first with the conflict resolution
+the merge uses (Copilot edits only the conflicted files, the full verification runs). This is best effort: when GitHub
+refuses the merge, the conflicts touch protected paths, or the resolution fails `MAX_SYNC_RESOLVE_ATTEMPTS` times, the
+implementation continues on its current base without stopping, that base commit is not tried again, and the merge at
+the end integrates it. The workflow token may push these merges
+even when the base branch changed workflow files, because they only bring in commits the repository already has. Job
+names say what a job does, without step numbers; GitHub shows their order. The convergence starts with the `gha` extension's `before_converge` hook
+`/speckit-gha-drift`, which checks `docs/architecture/` against the implementation; each stale, missing, or
+contradicting statement becomes a convergence task, so the architecture is corrected before the merge. The hook comes
+from the implementation branch, so a branch created before it existed gets it after `/speckit sync`. The merge first archives the spec to `specs/archive/<folder>` on the implementation branch
 (job `merge-archive`), so the archive lands with the implementation. It runs only one of its `phase`, `converge-or-resolve`, or `merge-*` jobs, so the others
 always show as skipped. Prepare, orchestrate, and implement spec also have a `refuse` job that only runs, and fails, when
 started from a branch other than the default branch.

@@ -56,6 +56,7 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Platform.InactiveSignalSink>();
         services.AddSingleton<Registration.ProtectedStoreFailureHandler>();
         services.AddSingleton<Platform.ManagerTokenCache>();
+        services.AddSingleton<Diagnostics.StatusReportBuilder>();
         services.AddSingleton<Registration.RegistrationStatusMonitor>();
         services.AddHostedService(sp => sp.GetRequiredService<Registration.RegistrationStatusMonitor>());
         services.AddSingleton<Registration.RegistrationCoordinator>();

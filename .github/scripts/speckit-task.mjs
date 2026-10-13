@@ -38,6 +38,7 @@ import {
   renderAttemptMarker,
   renderNextSteps,
   renderResolvePrompt,
+  renderSyncSkippedMarker,
   summarizeTask,
   syncPullRequestTaskList,
   syncPullRequestTicks,
@@ -327,8 +328,7 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
 // Spec Kit implement task and the merge verification, job "work": records the outcome of the optional environment-verify action in the result.
 // SPECKIT_VERIFY_CONFIGURED tells whether the action exists; SPECKIT_VERIFY_OUTCOME and SPECKIT_VERIFY_CHECKS are the
 // verification's outcome and its "checks" output (comma-separated, in order; after a failure the last one failed);
-// SPECKIT_VERIFY_UNCOVERED lists changed files that no check covers; SPECKIT_VERIFY_RETRIED tells whether these come from
-// the re-run after a failed first run, so a pass then points to a flaky test. For a merge that changes the environment
+// SPECKIT_VERIFY_UNCOVERED lists changed files that no check covers. For a merge that changes the environment
 // actions, SPECKIT_SELFTEST_OUTCOME is the outcome of running the changed actions themselves.
 export function runVerdict({ env, inputs, resultDir, log }) {
   mkdirSync(resultDir, { recursive: true });
@@ -342,7 +342,6 @@ export function runVerdict({ env, inputs, resultDir, log }) {
     const outcome = String(env.SPECKIT_VERIFY_OUTCOME ?? '');
     if (outcome === 'success') {
       result.checks = names.map((name) => ({ name, passed: true }));
-      if (String(env.SPECKIT_VERIFY_RETRIED ?? '') === 'true') result.flaky = true;
     } else {
       result.checks = names.map((name, index) => ({ name, passed: index < names.length - 1 }));
       result.reasons.push(names.length > 0 ? `${names.at(-1)} failed` : `the verification did not succeed (${outcome || 'not run'})`);
@@ -540,6 +539,13 @@ async function push({ client, git, env, inputs, folder, resultDir, report }) {
 // The next-steps block of an attention comment lists the commands that continue from here.
 const RESUME_HINT = '';
 
+// Whether tasks.md of the spec on the checked-out branch still has unticked tasks: a conflict resolution then comes
+// before a phase (best effort) rather than before the merge.
+function openTasksIn(workspace, folder) {
+  const file = path.join(workspace, tasksPathOf(folder, { archived: isArchivedIn(workspace, folder) }));
+  return existsSync(file) && listTasks(readFileSync(file, 'utf8')).some((task) => !task.done);
+}
+
 // Lands the result of one task (write token, never runs agent-written code): re-validates the change, commits and
 // pushes it, and reports progress.
 export async function runLand({ client, git, env, inputs, folder, workspace, resultDir, workResult, log }) {
@@ -550,6 +556,23 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   else reasons.push(...result.reasons);
   if (result && !result.verified && result.reasons.length === 0) reasons.push('the change was not verified');
 
+  if (result?.attention && inputs.kind === 'resolve' && openTasksIn(workspace, folder)) {
+    // A resolution before a phase is best effort: the implementation continues on its current base.
+    const baseBranch = baseBranchFromEnv(env);
+    await client.updateCheckRun(inputs.checkRun, {
+      status: 'completed',
+      conclusion: 'neutral',
+      output: { title: `${title(inputs)}: ${baseBranch} not merged`, summary: neutralizeMarkers(reasons.join('; ')) },
+    });
+    await client.createComment(inputs.pull, [
+      ...markerLines(inputs, 'attention'),
+      ...(/^[0-9a-f]{40}$/.test(String(result.baseSha ?? '')) ? [renderSyncSkippedMarker(result.baseSha)] : []),
+      `**\`${baseBranch}\` was not merged before the next phase**: ${neutralizeMarkers(reasons.join('; '))}. The implementation continues on its current base; the conflicts are resolved when it merges.`,
+    ].join('\n'));
+    report.line(`${title(inputs)}: ${baseBranch} not merged before the phase: ${reasons.join('; ')}`);
+    report.flush();
+    return { exitCode: 0, reasons };
+  }
   if (result?.attention || result?.limit) {
     const next = result.limit
       ? `Implement the remaining gaps yourself on the implementation branch, or adjust the spec and tasks. ${RESUME_HINT}`
@@ -627,7 +650,6 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       '',
       `- Changed files: ${(result.changedFiles ?? []).map((file) => `\`${file}\``).join(', ') || 'none'}`,
       `- Verification: ${verification}`,
-      ...(result.flaky ? ['- The first verification failed and the re-run passed, so a test may be flaky'] : []),
       ...((result.uncovered ?? []).length > 0 ? [`- Not covered by any check: ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
     ];
   } else if (inputs.kind === 'converge') {
@@ -661,7 +683,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       `**Conflicts resolved** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
       '',
       `- Verification: ${result.verification === 'not-configured' ? 'no verification configured (no environment-verify action)' : checks.join(', ') || 'no checks'}`,
-      `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
+      openTasksIn(workspace, folder) ? '- Next: the next phase, on the merged branch.' : `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
     ];
   }
   gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);

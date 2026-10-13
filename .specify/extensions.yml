@@ -3,6 +3,24 @@ installed:
 settings:
   auto_execute_hooks: true
 hooks:
+  after_plan:
+  - extension: gha
+    command: speckit.gha.architecture
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Execute speckit.gha.architecture?
+    description: Write the Architecture Updates section of the generated plan.md
+    condition: null
+  before_converge:
+  - extension: gha
+    command: speckit.gha.drift
+    enabled: true
+    optional: false
+    priority: 10
+    prompt: Execute speckit.gha.drift?
+    description: Report architecture drift for convergence to turn into tasks
+    condition: null
   before_implement:
   - extension: gha
     command: speckit.gha.route

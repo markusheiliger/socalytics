@@ -14,13 +14,16 @@ import {
   CHECK_MERGE,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
+  CHECK_SYNC_CONFLICT,
   DONE_COMMENT_MARKER,
   MAX_AUTO_DIAGNOSES,
+  MAX_SYNC_RESOLVE_ATTEMPTS,
   MAX_TASK_ATTEMPTS,
   RESUME_COMMENT_MARKER,
   baseBranchOf,
   behindBaseOf,
   decideNext,
+  describeParallelGroups,
   dispatchImplementation,
   implementationBranch,
   kindLabel,
@@ -40,10 +43,12 @@ import {
   renderImplementTitle,
   renderNextSteps,
   renderResumeComment,
+  renderSyncSkippedMarker,
   renderTaskPrompt,
   specTitleOfPull,
   summarizeTask,
   syncPullRequestTaskList,
+  syncSkippedShas,
   taskJobName,
   taskSubject,
 } from './speckit-implement-core.mjs';
@@ -250,6 +255,89 @@ function reportOrder(report, kind, order) {
   }
 }
 
+export function syncBaseEnabled(env) {
+  return String(env.SPECKIT_SYNC_BASE ?? 'true').toLowerCase() !== 'false';
+}
+
+// Whether the next phase has not started yet: none of its tasks is ticked. Only then is the base branch merged, so
+// retries and continuations of a phase build on the same base as its first tasks.
+export function phaseNotStarted(tasksMarkdown) {
+  const current = describeParallelGroups(tasksMarkdown).phases.find((phase) => phase.open > 0);
+  return Boolean(current) && current.done === 0;
+}
+
+// The commit of the base branch to merge before the next phase, or null: merging is on, the next phase has not started
+// and its conflict resolution was not given up, the base branch is ahead, and that commit was not skipped before. A
+// skipped base commit is not tried again; the merge at the end integrates it.
+export async function baseToSync(client, env, { decision, folder, report }) {
+  if (!syncBaseEnabled(env) || decision.action !== 'tasks' || decision.kind !== 'task' || decision.syncGivenUp) return null;
+  if (!phaseNotStarted(decision.tasksMarkdown)) return null;
+  const base = baseBranchOf(decision.pull);
+  const baseSha = await client.getBranchSha(base);
+  if (!baseSha || (await client.aheadBy(implementationBranch(folder), base)) === 0) return null;
+  if (syncSkippedShas(decision.comments).has(baseSha)) {
+    report.line(`\`${base}\` at ${baseSha.slice(0, 7)} was not merged before an earlier phase; the merge integrates it at the end.`);
+    return null;
+  }
+  return baseSha;
+}
+
+// Before a phase starts, brings the base branch into the implementation branch so the phase builds on it (best
+// effort): 'merged' after a clean merge, 'conflict' when the merge conflicts (a conflict resolution then comes first,
+// see decideNext), 'skipped' when GitHub refuses the merge, and 'none' when nothing is due (baseToSync).
+export async function syncBaseBeforePhase(client, env, { decision, folder, report }) {
+  const baseSha = await baseToSync(client, env, { decision, folder, report });
+  if (!baseSha) return 'none';
+  const { pull } = decision;
+  const base = baseBranchOf(pull);
+  const branch = implementationBranch(folder);
+  const skip = async (reason) => {
+    await client.createComment(pull.number, [
+      renderSyncSkippedMarker(baseSha),
+      `**\`${base}\` was not merged before the next phase**: ${reason}. The implementation continues on its current base; the merge at the end integrates \`${base}\`.`,
+    ].join('\n'));
+    report.line(`Did not merge \`${base}\` before the phase: ${reason}.`);
+    return 'skipped';
+  };
+  let result;
+  try {
+    result = await client.mergeBranch(branch, base, `Merge ${base} into ${branch} before the next phase`);
+  } catch (error) {
+    return skip(`GitHub refused the merge (${neutralizeMarkers(String(error.message).slice(0, 300))})`);
+  }
+  if (result === 'up-to-date') return 'none';
+  if (result === 'merged') {
+    report.line(`Merged \`${base}\` at ${baseSha.slice(0, 7)} into \`${branch}\` before the phase.`);
+    return 'merged';
+  }
+  await client.createCheckRun({
+    name: CHECK_RUN_NAME,
+    head_sha: pull.head.sha,
+    status: 'completed',
+    conclusion: 'neutral',
+    external_id: CHECK_SYNC_CONFLICT,
+    output: { title: `Conflicts with ${base}`, summary: `Merging \`${base}\` at ${baseSha} before the next phase conflicts; they are resolved before the phase.` },
+  });
+  await client.createComment(pull.number, `**\`${base}\` conflicts with \`${branch}\`**: Copilot resolves the conflicts in the next run, before the phase starts. If that does not succeed in ${MAX_SYNC_RESOLVE_ATTEMPTS} attempts or needs a person, the implementation continues on its current base and the conflicts are resolved when it merges.`);
+  report.line(`Merging \`${base}\` at ${baseSha.slice(0, 7)} conflicts; the next run resolves the conflicts before the phase.`);
+  return 'conflict';
+}
+
+// The conflict resolution before a phase was given up (decideNext): records the base commit as skipped, once.
+async function reportSyncGivenUp(client, { decision, report }) {
+  const check = decision.syncGivenUp;
+  const since = Date.parse(check.started_at ?? check.created_at ?? 0);
+  const recorded = decision.comments.some((comment) => comment.user?.login === BOT_LOGIN && syncSkippedShas([comment]).size > 0 && Date.parse(comment.created_at) >= since);
+  const baseSha = String(check.output?.summary ?? '').match(/\b([0-9a-f]{40})\b/)?.[1];
+  if (recorded || !baseSha) return;
+  const base = baseBranchOf(decision.pull);
+  await client.createComment(decision.pull.number, [
+    renderSyncSkippedMarker(baseSha),
+    `**\`${base}\` was not merged before the next phase**: resolving its conflicts did not succeed or needs a person. The implementation continues on its current base; the conflicts are resolved when it merges.`,
+  ].join('\n'));
+  report.line(`Gave up merging \`${base}\` before the phase; the implementation continues on its current base.`);
+}
+
 // Spec Kit implement spec, job "decide" (write access to check runs, issues, and pull requests; never runs agent
 // code): validates the twin and its pull request, reports orphaned attempts, decides what comes next, reports stops
 // (attempt limit, diagnosis), and prepares it: the phase to run (Spec Kit implement phase plans its tasks),
@@ -320,17 +408,40 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     }[decision.action] ?? decision.action);
     return finish(decision.action === 'done' ? 'done' : 'none', common);
   }
+  if (decision.syncGivenUp) await reportSyncGivenUp(client, { decision, report });
   if (decision.kind === 'task') {
+    // The job "sync" merges the base branch first when that is due; the phase then plans on the merged head.
+    const baseSha = await baseToSync(client, env, { decision, folder, report });
+    if (baseSha) report.line(`First: merge \`${common.base_branch}\` at ${baseSha.slice(0, 7)} into the branch, because the phase has not started.`);
     report.line(`Next: ${renderImplementTitle('phase', twin, phaseSubject(decision.phase))}.`);
-    return finish('phase', { ...common, phase: decision.phase ?? '', job_name: phaseSubject(decision.phase) });
+    return finish('phase', { ...common, phase: decision.phase ?? '', job_name: phaseSubject(decision.phase), sync: String(Boolean(baseSha)) });
   }
 
   const order = prepareOrder(decision, folder);
-  await startAttemptChecks(client, { head: pull.head.sha, kind: decision.kind, entries: order[0].include });
+  await startAttemptChecks(client, { head: common.head, kind: decision.kind, entries: order[0].include });
   const subject = taskSubject(decision.kind, order[0].include);
   report.line(`Next: ${renderImplementTitle('task', twin, subject)}.`);
   reportOrder(report, decision.kind, order);
   return finish(decision.kind, { ...common, order: JSON.stringify(order), job_name: subject });
+}
+
+// Spec Kit implement spec, job "sync" ("Merge <base branch> into the branch"; write access to contents, check runs,
+// and pull requests; never runs agent code): merges the base branch into the implementation branch before a phase
+// starts (syncBaseBeforePhase). Its output `result` tells the phase whether to run: not after a conflict, which the
+// next run resolves first.
+export async function runSync({ client, env, log, now = Date.now }) {
+  const report = createReporter(env, log);
+  const { twin, pull: pullNumber } = readSpecInputs(env);
+  const folder = String(env.SPECKIT_FOLDER ?? '');
+  if (!folder) throw new SpecUsageError('Expected SPECKIT_FOLDER.');
+  report.line(`## ${renderImplementTitle('spec', twin, 'Merge the base branch before the phase')}`);
+  report.line();
+  const decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env) });
+  const result = await syncBaseBeforePhase(client, env, { decision, folder, report });
+  if (result === 'none') report.line('Nothing to merge.');
+  report.flush();
+  setOutput(env, 'result', result);
+  return { exitCode: 0, result };
 }
 
 // Spec Kit implement phase, job "plan" (write access to check runs and pull requests; never runs agent code): decides
@@ -418,8 +529,8 @@ function githubClient(env) {
 
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command] = argv;
-  const handlers = { decide: runDecide, 'plan-phase': runPlanPhase, continue: runContinue };
-  if (!handlers[command]) throw new SpecUsageError('Usage: speckit-spec.mjs <decide | plan-phase | continue> (inputs come from SPECKIT_* environment variables)');
+  const handlers = { decide: runDecide, sync: runSync, 'plan-phase': runPlanPhase, continue: runContinue };
+  if (!handlers[command]) throw new SpecUsageError('Usage: speckit-spec.mjs <decide | sync | plan-phase | continue> (inputs come from SPECKIT_* environment variables)');
   return (await handlers[command]({ client: client ?? githubClient(env), env, log })).exitCode;
 }
 

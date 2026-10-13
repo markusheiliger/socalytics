@@ -21,6 +21,7 @@ import {
   dispatchImplementation,
   folderOfBranch,
   implementationBranch,
+  isTwinRunOf,
   latestCheckRun,
   neutralizeMarkers,
   renderAmendmentHowTo,
@@ -506,7 +507,7 @@ export async function runRecordAnalysis({ client, env, log }) {
 async function reworkRunning(client, context, now) {
   const since = new Date(now - 2 * DIAGNOSIS_STALE_MS).toISOString();
   for (const file of AMEND_RUN_WORKFLOWS) {
-    const runs = (await client.listWorkflowRuns(file, since, 1)).filter((run) => String(run.display_title ?? '').endsWith(`#${context.twin}`));
+    const runs = (await client.listWorkflowRuns(file, since, 1)).filter((run) => isTwinRunOf(file, run.display_title, context.twin));
     if (runs.some((run) => run.status !== 'completed')) return { running: true };
   }
   const current = await client.getPullRequest(context.amendment.number);
