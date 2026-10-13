@@ -49,6 +49,7 @@ accepted as the implementation target; it does not imply that code exists.
 | Capability-scoped accepted-result access | Accepted |
 | Post-analysis triage, Hermes, model providers, and MCP boundary | Accepted |
 | Single-club stamp and organizational hierarchy | Provisional |
+| Transactional email channel (member addresses, preferences, minimal content, SMTP delivery) | Accepted; production delivery values Open / Blocking ([Email Notifications](email-notifications.md)) |
 | Security and server data-lifecycle governance | Provisional / Blocking production |
 | Production deployment and operations | Provisional / Blocking production |
 | Technology stack selections | Provisional |

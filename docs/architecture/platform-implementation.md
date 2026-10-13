@@ -384,6 +384,16 @@ requires a password change at the next sign-in. It grants no roles and is
 audited. The platform never writes the credential to logs or diagnostics, and
 no API operation, authenticated or not, performs recovery.
 
+Members may register an optional email address, verified through a single-use
+confirmation link before any message is sent, and choose which notification
+types they receive. The API sends transactional notifications and account
+messages through the transactional outbox and a delivery worker that submits
+them by authenticated, TLS-protected SMTP to the stamp's configured relay; the
+Aspire AppHost and tests use a mail-catcher container. Self-service password
+recovery and invitations may use this channel through their own
+specifications. The channel is decided, not yet implemented; see
+[Email Notifications](email-notifications.md).
+
 Analyst Manager registration uses browser device-code pairing initiated by a
 club `Registrar` and explicitly approved by a `Club Admin`. Club Admin inherits
 the Registrar capability and may self-approve through a separate audited

@@ -437,8 +437,9 @@ Managers report it, while the claimed device-key protection is shown from the
 start. Approving a request will require re-entering the last six characters of
 the device fingerprint, and revoking a registration typing the Manager's host
 label. The navigation will show Club Admins the number of pending requests.
-Notifying Club Admins of pending requests by email awaits an architecture
-decision on an email delivery channel.
+Club Admins with a verified email address will also be notified of pending
+requests by email through the
+[email channel](email-notifications.md), in a later specification.
 
 ---
 
