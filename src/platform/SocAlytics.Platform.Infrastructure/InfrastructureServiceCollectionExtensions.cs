@@ -49,6 +49,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IProofReplayStore, SocAlytics.Platform.Infrastructure.Registry.DapperProofReplayStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IManagerAccessTokenStore, SocAlytics.Platform.Infrastructure.Registry.DapperManagerAccessTokenStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IManagerProofValidator, SocAlytics.Platform.Infrastructure.Registry.JoseManagerProofValidator>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.ICapabilityDeclarationStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.CapabilityDeclarationStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.IAnalystProfileStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.AnalystProfileStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.WorkflowDefinitionStore>();
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
         services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.Analysis.AnalysisRunScopeSource>();

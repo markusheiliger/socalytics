@@ -48,6 +48,8 @@ internal static class PersistedTableClassifications
             ["analysis_accepted_results"] = TableClassification.Immutable,
             ["analysis_completion_outcomes"] = TableClassification.Immutable,
             ["analysis_notification_receipts"] = TableClassification.Immutable,
+            ["analyst_capability_declaration"] = TableClassification.Immutable,
+            ["workflow_definition"] = TableClassification.Immutable,
             ["outbox_messages"] = TableClassification.Unversioned("operational publication record; transitions guarded by row lock and state"),
         };
 }
