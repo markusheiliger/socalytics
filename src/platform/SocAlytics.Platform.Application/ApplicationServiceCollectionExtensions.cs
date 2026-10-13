@@ -107,6 +107,11 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Images.RegisterAnalystImageHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Images.ListAnalystImagesHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Images.GetAnalystImageHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Profiles.CreateAnalystProfileHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Profiles.ApproveAnalystProfileHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Profiles.RetireAnalystProfileHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Profiles.ListAnalystProfilesHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.Profiles.GetAnalystProfileHandler>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.RegistryOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.RegistryOptions.SectionName);
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()

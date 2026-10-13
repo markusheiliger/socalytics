@@ -44,6 +44,10 @@ internal sealed class PostgresAuditTrail(
         "capabilityId",
         "capabilityVersion",
         "modelDigest",
+        "profileId",
+        "profileVersion",
+        "profileDigest",
+        "selfApproval",
         "readyJobsRepublished",
         "notificationsRepublished",
     };

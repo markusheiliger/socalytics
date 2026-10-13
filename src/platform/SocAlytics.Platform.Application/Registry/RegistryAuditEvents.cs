@@ -6,12 +6,14 @@ public static class RegistryAuditEvents
 {
     public const string ResourceType = "analyst-manager-registration";
     public const string ImageResourceType = "analyst-image";
+    public const string ProfileResourceType = "analyst-profile";
 
     public static readonly IReadOnlySet<string> AllowedDetailKeys = new HashSet<string>(StringComparer.Ordinal)
     {
         "managerId", "stampId", "keyThumbprint", "fromState", "toState", "windowExpiresAt", "os", "osVersion",
         "architecture", "managerVersion", "claimedKeyProtection", "deviceFingerprint", "pairingSourceAddress",
         "registrationCorrelationId", "reference", "imageDigest", "capabilityId", "capabilityVersion", "modelDigest",
+        "profileId", "profileVersion", "profileDigest", "selfApproval",
     };
 
     public static AuditEvent PairingIssued(Guid registrationId, IReadOnlyDictionary<string, string>? details = null) =>
@@ -62,8 +64,28 @@ public static class RegistryAuditEvents
     public static AuditEvent AnalystImageRefused(string? imageDigest, string reasonCode, IReadOnlyDictionary<string, string>? details = null) =>
         CreateImageEvent("registry.analyst-image.refused", AuditOutcome.Refused, imageDigest, reasonCode, details);
 
+    public static AuditEvent AnalystProfileCreated(string profileId, int version, IReadOnlyDictionary<string, string>? details = null) =>
+        CreateProfileEvent("registry.analyst-profile.created", "create-profile", profileId, version, details);
+
+    public static AuditEvent AnalystProfileApproved(string profileId, int version, IReadOnlyDictionary<string, string>? details = null) =>
+        CreateProfileEvent("registry.analyst-profile.approved", "approve-profile", profileId, version, details);
+
+    public static AuditEvent AnalystProfileRetired(string profileId, int version, IReadOnlyDictionary<string, string>? details = null) =>
+        CreateProfileEvent("registry.analyst-profile.retired", "retire-profile", profileId, version, details);
+
+    public static string ProfileResourceId(string profileId, int version) => $"{profileId}:{version}";
+
+    private static AuditEvent CreateProfileEvent(
+        string eventType, string action, string profileId, int version, IReadOnlyDictionary<string, string>? details) =>
+        CreateEvent(eventType, action, AuditOutcome.Succeeded, ProfileResourceType, ProfileResourceId(profileId, version), null, details);
+
     private static AuditEvent CreateImageEvent(
-        string eventType, AuditOutcome outcome, string? imageDigest, string? reasonCode, IReadOnlyDictionary<string, string>? details)
+        string eventType, AuditOutcome outcome, string? imageDigest, string? reasonCode, IReadOnlyDictionary<string, string>? details) =>
+        CreateEvent(eventType, "register-image", outcome, ImageResourceType, imageDigest, reasonCode, details);
+
+    private static AuditEvent CreateEvent(
+        string eventType, string action, AuditOutcome outcome, string resourceType, string? resourceId, string? reasonCode,
+        IReadOnlyDictionary<string, string>? details)
     {
         if (details is not null)
         {
@@ -79,9 +101,9 @@ public static class RegistryAuditEvents
         return new AuditEvent
         {
             EventType = eventType,
-            Action = "register-image",
+            Action = action,
             Outcome = outcome,
-            Resource = new AuditResource(ImageResourceType, imageDigest),
+            Resource = new AuditResource(resourceType, resourceId),
             ReasonCode = reasonCode,
             Details = details,
         };

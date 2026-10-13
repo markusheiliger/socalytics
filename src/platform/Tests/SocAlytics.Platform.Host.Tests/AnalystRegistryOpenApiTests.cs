@@ -14,6 +14,11 @@ public sealed class AnalystRegistryOpenApiTests
 		"registerAnalystImage",
 		"listAnalystImages",
 		"getAnalystImage",
+		"createAnalystProfile",
+		"listAnalystProfiles",
+		"getAnalystProfile",
+		"approveAnalystProfile",
+		"retireAnalystProfile",
 	];
 
 	[Fact]
