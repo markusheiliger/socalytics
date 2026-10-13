@@ -169,8 +169,9 @@ public sealed class WorkflowDefinitionTests(PostgresContainerFixture postgres, O
                 ["Registry:Images:RegistryHost"] = registry.RegistryHost,
                 ["Registry:Images:RepositoryPrefix"] = Prefix,
                 ["Registry:Images:UseHttp"] = "true",
-            });
-        await factory.WaitUntilHealthyAsync(ct);
+            },
+            omitWorkflow: true);
+        await factory.WaitUntilHealthyExceptWorkflowAsync(ct);
         await TestMembers.SeedAsync(db, "admin-1", clubRoles: ["club-admin"], cancellationToken: ct);
         await TestMembers.SeedAsync(db, "reg-1", clubRoles: ["registrar"], cancellationToken: ct);
         return (db, factory);
