@@ -8,6 +8,18 @@ const theme = createTheme({
   typography: {
     h1: { fontSize: '2rem', fontWeight: 600 },
   },
+  components: {
+    MuiButtonBase: {
+      styleOverrides: {
+        root: { '&.Mui-focusVisible': { outline: '2px solid #0b5cad', outlineOffset: 2 } },
+      },
+    },
+    MuiOutlinedInput: {
+      styleOverrides: {
+        root: { '&.Mui-focused': { outline: '2px solid #0b5cad', outlineOffset: 2 } },
+      },
+    },
+  },
 });
 
 export default theme;

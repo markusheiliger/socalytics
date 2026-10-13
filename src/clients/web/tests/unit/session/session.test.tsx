@@ -15,7 +15,7 @@ describe('session states and guards', () => {
     const { router } = renderApp(adapter, '/account');
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
     await act(async () => reject(new PlatformFailure('sessionEnded', { status: 401 })));
-    await heading2('Sign in');
+    await screen.findByRole('heading', { level: 1, name: 'Sign in' });
     expect(router.state.location.pathname).toBe('/sign-in');
   });
 
@@ -37,7 +37,7 @@ describe('session states and guards', () => {
   it('routes every protected route to /password-change while a change is required', async () => {
     const adapter = fakeAdapter({ restore: vi.fn().mockResolvedValue(makeSession({ passwordChangeRequired: true })) });
     const { router } = renderApp(adapter, '/account');
-    await heading2('Change password');
+    await screen.findByRole('heading', { level: 1, name: 'Change your password' });
     expect(router.state.location.pathname).toBe('/password-change');
     await act(() => router.navigate('/club'));
     expect(router.state.location.pathname).toBe('/password-change');

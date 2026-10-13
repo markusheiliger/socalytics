@@ -1,0 +1,34 @@
+{
+  "signIn": {
+    "title": "Sign in",
+    "accountName": "Sign-in name",
+    "password": "Password",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "refused": "Sign-in was not possible. Check your sign-in name and password, or contact a Club Admin.",
+    "cookiesRequired": "Your browser blocks cookies. Allow cookies for this site to sign in.",
+    "unreachable": "The platform is not reachable. Try again in a moment.",
+    "incompatible": "The platform answered in an unexpected way. Reload this page and try again.",
+    "error": "Something went wrong while signing in. Try again later."
+  },
+  "sessionEnded": "Your session ended. Sign in again to continue.",
+  "sessionProblem": "Your session could not be verified for this action. Sign out and sign in again.",
+  "reference": "Reference: {{id}}",
+  "passwordChange": {
+    "title": "Change your password",
+    "intro": "You must choose a new password before you can continue.",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Repeat the new password",
+    "mismatch": "The new passwords do not match.",
+    "submit": "Change password",
+    "submitting": "Changing password…",
+    "refused": "The password was not changed. Check your current password and that the new password meets the password policy.",
+    "unreachable": "The platform is not reachable. Try again in a moment.",
+    "error": "Something went wrong while changing the password. Try again later."
+  },
+  "signOut": {
+    "label": "Sign out",
+    "failed": "Signing out failed. Try again."
+  }
+}
