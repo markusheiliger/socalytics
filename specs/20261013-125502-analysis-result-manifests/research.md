@@ -179,8 +179,10 @@ Recording Lineage and Upload (`specs/archive/20261005-130702-recording-lineage-u
     2. validate `manifest.json` against the embedded `result-manifest` schema
        (`JsonSchema.Net`, already pinned in the Manager's
        `Directory.Packages.props`, now referenced by Core);
-    3. on a violation, upload nothing and report a failed completion
-       `result-manifest-schema-invalid` (clarification);
+    3. on a violation, upload nothing and report a failed completion with the
+       attempt-completion contract's `failure.category` `analyst-error`,
+       keeping `result-manifest-schema-invalid` in the local diagnostics
+       (clarification; the contract carries only sanitized categories);
     4. otherwise compute the SHA-256 digests, request grants, `PUT` each
        object, renew grants on `403` while the attempt is current, and then
        complete with the manifest reference and checksum.
