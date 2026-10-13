@@ -330,15 +330,21 @@ internal sealed class InMemoryDelivery(FakePlatform platform, string payload) : 
         return Task.CompletedTask;
     }
 
+    public List<TimeSpan> NakDelays { get; } = [];
+
+    public int PlainNaks { get; private set; }
+
     public Task NakAsync(TimeSpan delay, CancellationToken cancellationToken)
     {
         Naks++;
+        NakDelays.Add(delay);
         return Task.CompletedTask;
     }
 
     public Task NakAsync(CancellationToken cancellationToken)
     {
         Naks++;
+        PlainNaks++;
         return Task.CompletedTask;
     }
 }

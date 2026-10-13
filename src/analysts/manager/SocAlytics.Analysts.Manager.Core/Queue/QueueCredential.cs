@@ -9,6 +9,8 @@ namespace SocAlytics.Analysts.Manager.Queue;
 /// </summary>
 public sealed class QueueCredential : IDisposable
 {
+    public static readonly TimeSpan DefaultUnfitRedeliveryDelay = TimeSpan.FromSeconds(30);
+
     private readonly KeyPair _key;
 
     internal QueueCredential(KeyPair key, QueueCredentialsResponse response, DateTimeOffset issuedAt, DateTimeOffset renewAt)
@@ -21,6 +23,9 @@ public sealed class QueueCredential : IDisposable
         Consumers = response.Consumers;
         InboxPrefix = response.InboxPrefix;
         MaxConcurrentAnalysts = response.MaxConcurrentAnalysts;
+        UnfitRedeliveryDelay = response.UnfitRedeliveryDelaySeconds is > 0 and var seconds
+            ? TimeSpan.FromSeconds(seconds)
+            : DefaultUnfitRedeliveryDelay;
         IssuedAt = issuedAt;
         RenewAt = renewAt;
     }
@@ -41,6 +46,9 @@ public sealed class QueueCredential : IDisposable
     public string InboxPrefix { get; }
 
     public int MaxConcurrentAnalysts { get; }
+
+    /// <summary>How long the queue withholds a delivery the host cannot fit; the platform default when the credentials carry none.</summary>
+    public TimeSpan UnfitRedeliveryDelay { get; }
 
     internal string UserJwt { get; }
 

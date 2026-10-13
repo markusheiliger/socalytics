@@ -27,7 +27,8 @@ public sealed record QueueConsumer(string Capability, string Consumer);
 /// <summary>Carries a signed user JWT; never logged.</summary>
 public sealed record QueueCredentialsResponse(
     string UserJwt, DateTimeOffset ExpiresAt, string QueueUrl, string Stream,
-    IReadOnlyList<QueueConsumer> Consumers, string InboxPrefix, int MaxConcurrentAnalysts);
+    IReadOnlyList<QueueConsumer> Consumers, string InboxPrefix, int MaxConcurrentAnalysts,
+    int? UnfitRedeliveryDelaySeconds = null);
 
 public sealed record ClaimRequest(Guid ReadinessOccurrenceId, Guid MessageId);
 

@@ -24,6 +24,12 @@ public enum AttemptRunEnd
 
     /// <summary>The attempt was fenced, lost, or the registration became inactive; nothing was reported.</summary>
     Abandoned,
+
+    /// <summary>Admission ended after the fetch; the delivery was negatively acknowledged without delay and not claimed.</summary>
+    NotAdmitted,
+
+    /// <summary>The host cannot meet the pinned resources; the delivery was negatively acknowledged with a delay and not claimed.</summary>
+    Unfit,
 }
 
 /// <summary>Claims one fetched delivery, runs the attempt through the runtime adapter, keeps the lease alive, and reports once.</summary>
@@ -43,7 +49,8 @@ public sealed class AttemptRunner(
     private readonly ExecutedRuntime _executedRuntime = executedRuntime ?? Describe(runtime.Profile);
 
     public async Task<AttemptRunEnd> RunAsync(
-        IQueueDelivery delivery, Func<PlatformSession?> sessions, Action<ActiveAttempt>? started, CancellationToken cancellationToken)
+        IQueueDelivery delivery, Func<PlatformSession?> sessions, Action<ActiveAttempt>? started, CancellationToken cancellationToken,
+        AttemptAdmission? admission = null)
     {
         AnalystJobMessage? job;
         try
@@ -60,6 +67,21 @@ public sealed class AttemptRunner(
         {
             _logger.LogWarning("Delivery for capability {Capability} is not a usable analyst job and stays unacknowledged", delivery.Capability);
             return AttemptRunEnd.Rejected;
+        }
+
+        if (admission is not null)
+        {
+            if (!admission.IsAdmitted())
+            {
+                await NegativelyAcknowledgeAsync(delivery, job, null, cancellationToken);
+                return AttemptRunEnd.NotAdmitted;
+            }
+
+            if (!admission.Capacity.Fits(job.Resources))
+            {
+                await NegativelyAcknowledgeAsync(delivery, job, admission.UnfitDelay(), cancellationToken);
+                return AttemptRunEnd.Unfit;
+            }
         }
 
         var claim = await ClaimAsync(job, jobId, occurrenceId, messageId, sessions, cancellationToken);
@@ -119,6 +141,24 @@ public sealed class AttemptRunner(
                 job.LogicalJobId, job.Correlation.CorrelationId);
             await Task.Delay(backoff, time, cancellationToken);
             backoff = Min(backoff * 2, MaxBackoff);
+        }
+    }
+
+    private async Task NegativelyAcknowledgeAsync(IQueueDelivery delivery, AnalystJobMessage job, TimeSpan? delay, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await (delay is { } d ? delivery.NakAsync(d, cancellationToken) : delivery.NakAsync(cancellationToken));
+            _logger.LogInformation(
+                "Negatively acknowledged unclaimed delivery of Logical Job {LogicalJobId} correlation {CorrelationId} ({Reason})",
+                job.LogicalJobId, job.Correlation.CorrelationId, delay is null ? "admission ended" : "resources do not fit");
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            // An unacknowledged delivery is redelivered after the acknowledgement wait.
+            _logger.LogWarning(
+                "Negatively acknowledging the delivery of Logical Job {LogicalJobId} correlation {CorrelationId} failed: {Error}",
+                job.LogicalJobId, job.Correlation.CorrelationId, e.GetType().Name);
         }
     }
 

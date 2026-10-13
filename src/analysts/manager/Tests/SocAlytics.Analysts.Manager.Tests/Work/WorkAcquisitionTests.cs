@@ -40,7 +40,7 @@ public sealed class WorkAcquisitionTests
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 
-    private static string Payload(int index) => new JsonObject
+    internal static string Payload(int index, int cpuMillicores = 1000, long memoryMebibytes = 2048) => new JsonObject
     {
         ["contractVersion"] = "1.0.0",
         ["messageId"] = Guid.NewGuid().ToString(),
@@ -60,7 +60,7 @@ public sealed class WorkAcquisitionTests
             ["imageDigest"] = "sha-256:" + new string('4', 64),
             ["modelDigest"] = "sha-256:" + new string('5', 64),
         },
-        ["resources"] = new JsonObject { ["cpuMillicores"] = 1000, ["memoryMebibytes"] = 2048 },
+        ["resources"] = new JsonObject { ["cpuMillicores"] = cpuMillicores, ["memoryMebibytes"] = memoryMebibytes },
         ["correlation"] = new JsonObject { ["correlationId"] = "corr-" + index },
     }.ToJsonString();
 

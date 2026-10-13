@@ -22,6 +22,7 @@ public sealed class WorkAcquisitionService(
     PlatformClient platform,
     RuntimeAdapterCatalog catalog,
     ConcurrencyLimit limit,
+    HostCapacity capacity,
     IOptions<RuntimeOptions> runtimeOptions,
     TimeProvider time,
     ILoggerFactory loggers) : BackgroundService
@@ -138,10 +139,12 @@ public sealed class WorkAcquisitionService(
         }
 
         var runner = _runner;
+        var admissionCheck = new AttemptAdmission(
+            admission.TryAdmit, capacity, () => credentials.Current?.UnfitRedeliveryDelay ?? QueueCredential.DefaultUnfitRedeliveryDelay);
         _ = registry.Run(
             async (started, token) =>
             {
-                var end = await runner.RunAsync(delivery, () => sessions.Current, started, token);
+                var end = await runner.RunAsync(delivery, () => sessions.Current, started, token, admissionCheck);
                 _logger.LogDebug("Attempt run for capability {Capability} ended: {End}", delivery.Capability, end);
             },
             stopping);
