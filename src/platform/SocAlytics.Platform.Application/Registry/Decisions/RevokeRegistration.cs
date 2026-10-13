@@ -1,7 +1,9 @@
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.Analysis.Commands;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Application.Registry.Abstractions;
+using SocAlytics.Platform.Application.Registry.QueueCredentials;
 using SocAlytics.Platform.Application.Registry.StatusReporting;
 using SocAlytics.Platform.Domain.Registry;
 
@@ -9,7 +11,8 @@ namespace SocAlytics.Platform.Application.Registry.Decisions;
 
 public sealed class RevokeRegistrationHandler(
     IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IRegistrationStore store, IManagerAccessTokenStore tokens,
-    IManagerStatusStore statuses, IAuditTrail audit, IRequestContext context, TimeProvider time)
+    IManagerStatusStore statuses, FenceManagerAttempts fence, IQueueCredentialStore credentials,
+    IAuditTrail audit, IRequestContext context, TimeProvider time)
 {
     public async Task<OperationResult<AnalystManagerRegistration>> HandleAsync(
         Guid registrationId, string? reason, CancellationToken cancellationToken)
@@ -48,10 +51,14 @@ public sealed class RevokeRegistrationHandler(
 
         await tokens.DeleteForRegistrationAsync(registration.Id, cancellationToken);
         await statuses.DeleteAsync(registration.Id, cancellationToken);
+        var fenced = registration.ManagerId is { } managerId ? await fence.HandleAsync(managerId, cancellationToken) : 0;
+        var revoked = await credentials.MarkRevokedAsync(registration.Id, time.GetUtcNow(), cancellationToken);
         await audit.RecordAsync(RegistryAuditEvents.Revoked(registration.Id, new Dictionary<string, string>
         {
             ["fromState"] = from.ToString(),
             ["toState"] = nameof(RegistrationState.Revoked),
+            ["fencedAttempts"] = fenced.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["revokedCredentials"] = revoked.ToString(System.Globalization.CultureInfo.InvariantCulture),
         }), cancellationToken);
         await scope.CommitAsync(cancellationToken);
         return registration.WithVersion(write.Version ?? registration.Version);

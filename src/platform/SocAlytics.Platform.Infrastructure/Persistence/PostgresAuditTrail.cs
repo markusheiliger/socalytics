@@ -39,6 +39,8 @@ internal sealed class PostgresAuditTrail(
         "deviceFingerprint",
         "pairingSourceAddress",
         "registrationCorrelationId",
+        "fencedAttempts",
+        "revokedCredentials",
         "readyJobsRepublished",
         "notificationsRepublished",
     };

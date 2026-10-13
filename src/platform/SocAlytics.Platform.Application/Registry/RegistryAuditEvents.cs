@@ -10,7 +10,7 @@ public static class RegistryAuditEvents
     {
         "managerId", "stampId", "keyThumbprint", "fromState", "toState", "windowExpiresAt", "os", "osVersion",
         "architecture", "managerVersion", "claimedKeyProtection", "deviceFingerprint", "pairingSourceAddress",
-        "registrationCorrelationId",
+        "registrationCorrelationId", "fencedAttempts", "revokedCredentials",
     };
 
     public static AuditEvent PairingIssued(Guid registrationId, IReadOnlyDictionary<string, string>? details = null) =>
