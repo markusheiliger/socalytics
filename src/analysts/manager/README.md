@@ -82,6 +82,12 @@ These defaults are development values, not adopted production values:
 - `Platform:StatusCheckInterval` 60 seconds; `Platform:RetryBackoff` 2 seconds initial, 60 seconds maximum.
 - `Runtime:PreflightInterval` 60 seconds.
 
+With each status check the active Manager also sends a status report (operating state, pause end, the first failed preflight check as the runtime-unavailable reason, active and maximum Analysts, version); the platform returns the interval in force, which replaces `Platform:StatusCheckInterval`. A refused report is logged and does not affect registration.
+
+## Host Label
+
+`register --host-label TEXT` names the Manager in the platform's fleet view. The label is trimmed, 1–64 characters, and has no control characters; the Manager validates it locally and the platform validates it again.
+
 ## Device Fingerprint
 
 The register dialog, the status window, and `status` show a device fingerprint next to the pairing code. The operator gives both to the Registrar in person; the platform compares the fingerprint and rejects a pairing after `Registry:Pairing:MaxFingerprintMismatches` mismatches. The fingerprint is not a secret; the pairing code appears only in the register dialog and the `register` result.

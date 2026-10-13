@@ -108,7 +108,7 @@ function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { 
     const ready = inputs.kind === 'merge' ? integrated.result.reasons.length === 0 && integrated.result.conflicts.length === 0 : packaged.verify;
     const verifyEnv = verify === null
       ? { SPECKIT_VERIFY_CONFIGURED: 'false' }
-      : { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: ready ? verify.outcome : 'skipped', SPECKIT_VERIFY_CHECKS: ready ? verify.checks : '', SPECKIT_VERIFY_UNCOVERED: ready ? verify.uncovered ?? '' : '', SPECKIT_VERIFY_RETRIED: verify.retried ? 'true' : 'false', SPECKIT_SELFTEST_OUTCOME: verify.selfTest ?? '' };
+      : { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: ready ? verify.outcome : 'skipped', SPECKIT_VERIFY_CHECKS: ready ? verify.checks : '', SPECKIT_VERIFY_UNCOVERED: ready ? verify.uncovered ?? '' : '', SPECKIT_SELFTEST_OUTCOME: verify.selfTest ?? '' };
     result = runVerdict({ env: verifyEnv, inputs, resultDir: repos.resultDir, log: silent }).result;
   }
   return { integrated, packaged, result, output: readFileSync(outputFile, 'utf8') };
@@ -217,21 +217,6 @@ test('task: land re-validates, commits, pushes, and reports a verified task', ()
 }));
 
 const PARALLEL_TASKS = '# Tasks\n\n## Phase 1\n\n- [ ] T001 [P] Create docs/x.md\n- [ ] T002 [P] Create docs/y.md\n';
-
-test('task: a verification that passes only on its re-run lands, and the comment points to a flaky test', () => withRepos({}, async (repos) => {
-  const { result } = work(repos, { agent: (r) => agentDoesT001(r.work), verify: { outcome: 'success', checks: 'Markdown check', retried: true } });
-  assert.deepEqual([result.verified, result.flaky], [true, true]);
-  const github = fakeGitHub();
-  assert.equal((await land(repos, github)).exitCode, 0);
-  assert.match(github.comments.at(-1).body, /- Verification: Markdown check passed\n- The first verification failed and the re-run passed, so a test may be flaky/);
-  const failed = makeGitRepos();
-  try {
-    const verdict = work(failed, { agent: (r) => agentDoesT001(r.work), verify: { outcome: 'failure', checks: 'Markdown check', retried: true } }).result;
-    assert.deepEqual([verdict.verified, verdict.flaky, verdict.reasons], [false, undefined, ['Markdown check failed']], 'a re-run that fails again counts');
-  } finally {
-    rmSync(failed.base, { recursive: true, force: true });
-  }
-}));
 
 // Simulates a parallel sibling (or a person) pushing to the implementation branch after the task started.
 function siblingLands(repos, change) {
@@ -537,7 +522,7 @@ test('converge: code changes are rejected, and the round limit asks the requeste
     assert.deepEqual([landed.exitCode, landed.check.conclusion, landed.check.external_id], [1, 'failure', CHECK_LIMIT]);
     assert.equal(remoteHead(repos), before);
     assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
-    assert.match(github.comments.at(-1).body, /\*\*Next steps\*\*[\s\S]*A diagnosis starts automatically[\s\S]*\/speckit resume \[guidance\]/);
+    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Wait for the diagnosis[\s\S]*<summary>Other options<\/summary>[\s\S]*\/speckit resume \[guidance\]/);
   });
 });
 
@@ -691,8 +676,29 @@ test('resolve: conflicts in protected paths ask the requester', () => withRepos(
   assert.deepEqual([landed.exitCode, landed.check.external_id], [1, CHECK_LIMIT]);
   assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: conflicts in protected paths need a person: specs\/f\/spec\.md/);
   assert.doesNotMatch(github.comments.at(-1).body, /Spec Kit orchestrate` workflow manually/);
-  assert.match(github.comments.at(-1).body, /\/speckit diagnose|A diagnosis starts automatically/);
+  assert.match(github.comments.at(-1).body, /\/speckit diagnose|Wait for the diagnosis/);
 }));
+
+test('resolve before a phase: success continues with the phase, and conflicts that need a person do not stop it', async () => {
+  await withRepos({ ...conflicting, tasks: TASKS }, async (repos) => {
+    work(repos, { inputs: RESOLVE_INPUTS, agent: resolveShared, verify: { outcome: 'success', checks: 'platform build and tests' } });
+    const github = fakeGitHub();
+    assert.equal((await land(repos, github, { inputs: RESOLVE_INPUTS })).exitCode, 0);
+    assert.match(github.comments.at(-1).body, /\*\*Conflicts resolved\*\*[\s\S]*- Next: the next phase, on the merged branch\./);
+  });
+  await withRepos({
+    tasks: TASKS,
+    branch: (dir) => write(dir, 'specs/f/spec.md', '# Spec\n\nbranch\n'),
+    main: (dir) => write(dir, 'specs/f/spec.md', '# Spec\n\nmain\n'),
+  }, async (repos) => {
+    const { integrated } = work(repos, { inputs: RESOLVE_INPUTS });
+    assert.equal(integrated.result.attention, true);
+    const github = fakeGitHub();
+    const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+    assert.deepEqual([landed.exitCode, landed.check.external_id === CHECK_LIMIT, landed.check.conclusion], [0, false, 'neutral'], 'the implementation does not stop');
+    assert.match(github.comments.at(-1).body, new RegExp(`^<!-- speckit-implement:attempt [^\\n]*"outcome":"attention"\\} -->\\n<!-- speckit-implement:sync-skipped ${remoteSha(repos, 'main')} -->\\n\\*\\*\`main\` was not merged before the next phase\\*\\*: conflicts in protected paths need a person`));
+  });
+});
 
 // merge-land only reads the result of merge-verify and talks to the GitHub API.
 async function mergeLand(github, result, { env = {}, workResult = 'success' } = {}) {

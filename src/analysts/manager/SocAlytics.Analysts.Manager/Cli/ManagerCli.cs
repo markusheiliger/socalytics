@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using SocAlytics.Analysts.Manager.LocalControl;
+using SocAlytics.Analysts.Manager.Registration;
 
 namespace SocAlytics.Analysts.Manager.Cli;
 
@@ -76,12 +77,22 @@ internal static class ManagerCli
         register.Options.Add(stamp);
         register.Options.Add(label);
         register.Options.Add(noWait);
-        register.SetAction((r, _) =>
+        register.SetAction(async (r, _) =>
         {
             var a = new JsonObject { ["platformEndpoint"] = r.GetValue(platform) };
             if (r.GetValue(stamp) is { } s) { a["stampId"] = s; }
-            if (r.GetValue(label) is { } l) { a["hostLabel"] = l; }
-            return Send("register", a, RegisterText);
+            if (r.GetValue(label) is { } l)
+            {
+                if (HostLabel.TryNormalize(l, out var problem) is not { } normalized)
+                {
+                    await error.WriteLineAsync(problem);
+                    return Usage;
+                }
+
+                a["hostLabel"] = normalized;
+            }
+
+            return await Send("register", a, RegisterText);
         });
         root.Subcommands.Add(register);
 

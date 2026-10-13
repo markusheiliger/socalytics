@@ -100,8 +100,10 @@ test('records the diagnosis with the amendment, questions, options, and next ste
     assert.match(comment.body, /&lt;!-- speckit-implement:resume -->/, 'agent text cannot carry workflow markers');
     assert.match(comment.body, /\*\*Proposed amendment\*\*: #11[\s\S]*checks it for consistency first, and correction rounds fix what it finds while they make progress[\s\S]*`specs\/f\/research\.md`: refine R6/);
     assert.match(comment.body, /\*\*Questions\*\* \(answer with `\/speckit diagnose <answers>`\)[\s\S]*Keep the counter write\?\n {3}- Yes/);
-    assert.match(comment.body, /Actions outside these commands[\s\S]*\*\*Recommended:\*\* Review and merge the amendment[\s\S]*Ask the platform team/);
-    assert.match(comment.body, /\*\*Review the amendment #11\*\*: merge it to apply it[\s\S]*\/speckit resume Use one statement/);
+    assert.doesNotMatch(comment.body, /Actions outside these commands/);
+    assert.equal(comment.body.match(/\*\*Recommended next step\*\*/g).length, 1, 'exactly one recommendation');
+    assert.match(comment.body, /\*\*Recommended next step\*\*: Review the amendment #11 and merge it[\s\S]*<summary>Other options<\/summary>[\s\S]*\/speckit resume Use one statement[\s\S]*- Ask the platform team\./);
+    assert.doesNotMatch(comment.body, /Review and merge the amendment/, 'the open amendment is the recommendation');
     assert.doesNotMatch(comment.body, /\/speckit (apply|revise|discard)/);
     assert.match(comment.body, /\[Diagnosis run\]\(https:\/\/github\.com\/octo\/repo\/actions\/runs\/42\)/);
     const done = github.repo.checkRuns.find((run) => run.id === check.id);
@@ -153,7 +155,19 @@ test('records an unusable or missing report', async () => {
   const comment = renderDiagnosisComment({ report: validateReport(REPORT).report, round: 2 });
   assert.match(comment, /\*\*Diagnosis \(round 2\)\*\*/);
   assert.match(comment, /_No amendment pull request was created\._/);
-  assert.match(comment, /\*\*Next steps\*\*/);
+  assert.match(comment, /\*\*Recommended next step\*\*: Review and merge the amendment\./);
+  const outside = renderDiagnosisComment({
+    report: validateReport({
+      ...REPORT,
+      category: 'outside',
+      options: [
+        { title: 'Retry on a less loaded runner. Unlikely to succeed.', command: '/speckit resume Keep going', recommended: false },
+        { title: 'Make the flaky test robust on main, then sync the branch.', command: '/speckit sync', recommended: true },
+      ],
+    }).report,
+  });
+  assert.match(outside, /\*\*Recommended next step\*\*: Make the flaky test robust on main, then sync the branch\.\n\nComment this on the pull request[^\n]*\n\n```text\n\/speckit sync\n```/);
+  assert.match(outside, /<summary>Other options<\/summary>[\s\S]*- Retry on a less loaded runner\. Unlikely to succeed:\n/, 'alternatives are collapsed, without doubled punctuation');
   assert.match(validateReport({ ...REPORT, options: [{ title: 'Apply', command: '/speckit apply' }] }).reasons.join(), /option "Apply" has an invalid command/);
 });
 

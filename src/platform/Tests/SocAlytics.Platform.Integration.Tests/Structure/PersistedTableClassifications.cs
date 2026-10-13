@@ -29,6 +29,7 @@ internal static class PersistedTableClassifications
             ["analyst_manager_access_token"] = TableClassification.Unversioned("operational token rows deleted on revocation; must not advance the registration version"),
             ["analyst_manager_proof_replay"] = TableClassification.Unversioned("proof replay cache purged after expiry"),
             ["analyst_manager_queue_credential"] = TableClassification.Unversioned("issued queue credential rows; revocation and push marks are guarded by the registration unit of work"),
+            ["analyst_manager_status"] = TableClassification.Unversioned("latest self-reported status, overwritten per report; must not advance the registration version"),
             ["recovery_directive_use"] = TableClassification.Immutable,
             ["security_audit_event"] = TableClassification.Immutable,
             ["recording_versions"] = TableClassification.Immutable,

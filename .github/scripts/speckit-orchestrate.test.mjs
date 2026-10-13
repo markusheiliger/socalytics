@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -6,8 +7,8 @@ import test from 'node:test';
 import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
-import { runContinue, runDecide, runPlanPhase } from './speckit-spec.mjs';
-import { CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, START_COMMENT_MARKER, parseGuidance, renderAttemptMarker } from './speckit-implement-core.mjs';
+import { phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
+import { CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, START_COMMENT_MARKER, parseGuidance, renderAttemptMarker } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -586,6 +587,93 @@ test('chain: decide stops at the attempt limit, resumes on request with guidance
     const unflagged = await decide(github, root, twin);
     assert.deepEqual([unflagged.outputs.action, unflagged.outputs.continue], ['none', 'false']);
     assert.match(unflagged.text, /is not open and flagged for implementation/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('chain: the base branch is merged in its own job before a phase starts, its conflicts are resolved first, and what cannot be merged is skipped', async () => {
+  assert.equal(phaseNotStarted('## Phase 1\n\n- [ ] T001 a\n- [ ] T002 b\n'), true);
+  assert.equal(phaseNotStarted('## Phase 1\n\n- [x] T001 a\n- [ ] T002 b\n'), false, 'a ticked task means the phase started');
+  assert.equal(phaseNotStarted('## Phase 1\n\n- [x] T001 a\n\n## Phase 2\n\n- [ ] T002 b\n'), true, 'the next phase starts when the previous one is done');
+  assert.equal(phaseNotStarted('## Phase 1\n\n- [x] T001 a\n'), false, 'no phase is left');
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    const pull = github.repo.pulls[0];
+    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+    const advance = (branch) => {
+      const sha = createHash('sha1').update(`commit ${github.repo.nextSha++}`).digest('hex');
+      github.repo.commits[sha] = { tree: github.repo.commits[github.repo.branches[branch]]?.tree, parents: [github.repo.branches[branch]], message: `${branch} moved` };
+      github.repo.branches[branch] = sha;
+      return sha;
+    };
+    const head = () => github.repo.branches['speckit/a'];
+    const lastComment = () => github.comments.at(-1).body;
+    const sync = (env = {}) => decide(github, root, twin, { SPECKIT_FOLDER: 'a', ...env }, runSyncBase);
+
+    const plain = await decide(github, root, twin);
+    assert.deepEqual([plain.outputs.action, plain.outputs.sync], ['phase', 'false'], 'nothing to merge');
+
+    advance('main');
+    const before = head();
+    const due = await decide(github, root, twin);
+    assert.deepEqual([due.outputs.action, due.outputs.sync, due.outputs.job_name], ['phase', 'true', 'Phase 1: Setup']);
+    assert.match(due.text, /First: merge `main` at [0-9a-f]{7} into the branch, because the phase has not started\./);
+    assert.equal(head(), before, 'decide only tells the job sync to merge');
+    const merged = await sync();
+    assert.equal(merged.outputs.result, 'merged');
+    assert.notEqual(head(), before);
+    assert.match(merged.text, /Merged `main` at [0-9a-f]{7} into `speckit\/a` before the phase\./);
+    assert.equal(await github.aheadBy('speckit/a', 'main'), 0);
+    assert.equal((await decide(github, root, twin)).outputs.sync, 'false', 'the phase then plans on the merged head');
+
+    const conflicted = advance('main');
+    github.mergeBranchOutcome = 'conflict';
+    assert.equal((await decide(github, root, twin)).outputs.sync, 'true');
+    assert.equal((await sync()).outputs.result, 'conflict', 'the phase does not run after a conflict');
+    const syncCheck = github.repo.checkRuns.find((check) => check.external_id === CHECK_SYNC_CONFLICT);
+    assert.deepEqual([syncCheck.head_sha, syncCheck.status], [head(), 'completed']);
+    assert.match(syncCheck.output.summary, new RegExp(conflicted));
+    assert.match(lastComment(), /conflicts with `speckit\/a`\*\*: Copilot resolves the conflicts in the next run, before the phase starts/);
+    const resolve = await decide(github, root, twin);
+    assert.deepEqual([resolve.outputs.action, resolve.outputs.job_name, JSON.parse(resolve.outputs.order)[0].include[0].verify_mode], ['resolve', 'Conflict resolution', 'finalize']);
+
+    for (const check of github.repo.checkRuns) check.status = 'completed';
+    await attemptComment(github, pull.number, null, 'failure', 'resolve');
+    assert.equal((await decide(github, root, twin)).outputs.action, 'resolve', 'one failed attempt is retried');
+    for (const check of github.repo.checkRuns) check.status = 'completed';
+    await attemptComment(github, pull.number, null, 'failure', 'resolve');
+    const givenUp = await decide(github, root, twin);
+    assert.deepEqual([givenUp.outputs.action, givenUp.outputs.sync], ['phase', 'false'], 'the phase continues on the current base');
+    assert.match(lastComment(), new RegExp(`^<!-- speckit-implement:sync-skipped ${conflicted} -->\\n\\*\\*\`main\` was not merged before the next phase\\*\\*: resolving its conflicts`));
+    const comments = github.comments.length;
+    await decide(github, root, twin);
+    assert.equal(github.comments.length, comments, 'the skip is reported once');
+
+    advance('speckit/a');
+    const skipped = await decide(github, root, twin);
+    assert.equal(skipped.outputs.sync, 'false');
+    assert.match(skipped.text, /was not merged before an earlier phase/, 'a skipped base commit is not tried again');
+
+    github.mergeBranchOutcome = null;
+    const refusedHead = head();
+    const refused = advance('main');
+    github.mergeBranchError = 'Resource not accessible by integration';
+    assert.equal((await decide(github, root, twin)).outputs.sync, 'true');
+    assert.equal((await sync()).outputs.result, 'skipped');
+    assert.equal(head(), refusedHead, 'a refused merge changes nothing');
+    assert.match(lastComment(), new RegExp(`^<!-- speckit-implement:sync-skipped ${refused} -->\\n[^\\n]*GitHub refused the merge \\(Resource not accessible by integration\\)`));
+
+    github.mergeBranchError = null;
+    advance('main');
+    assert.equal((await decide(github, root, twin, { SPECKIT_SYNC_BASE: 'false' })).outputs.sync, 'false', 'SPECKIT_SYNC_BASE=false turns it off');
+    assert.equal((await sync({ SPECKIT_SYNC_BASE: 'false' })).outputs.result, 'none');
+
+    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', ' '));
+    assert.equal((await decide(github, root, twin)).outputs.sync, 'false', 'a phase that has started is not merged into');
+    assert.equal((await sync()).outputs.result, 'none');
+    assert.equal(head(), refusedHead);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

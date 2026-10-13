@@ -183,7 +183,7 @@ export class FakeGitHub {
       inputs: structuredClone(inputs),
       display_title: workflowFile === IMPLEMENT_WORKFLOW_FILE
         ? renderImplementRunName(inputs.twin, inputs.title)
-        : { 'speckit-diagnose.lock.yml': `Spec Kit diagnose #${inputs.twin}`, 'speckit-analyze.lock.yml': `Spec Kit analyze #${inputs.twin}` }[workflowFile] ?? workflowFile,
+        : { 'speckit-diagnose.lock.yml': `Spec Kit diagnose #${inputs.twin} · ${inputs.mode ?? 'diagnose'}`, 'speckit-analyze.lock.yml': `Spec Kit analyze #${inputs.twin} · check #${inputs.amendment}` }[workflowFile] ?? workflowFile,
       status: 'queued',
       conclusion: null,
       created_at: this.tick(),
@@ -283,6 +283,7 @@ export class FakeGitHub {
 
   // Test helper behavior: merges by moving `base` to a new merge commit, or reports the configured outcome.
   async mergeBranch(base, head, message) {
+    if (this.mergeBranchError) throw new Error(this.mergeBranchError);
     if (this.mergeBranchOutcome) return this.mergeBranchOutcome;
     if ((await this.aheadBy(base, head)) === 0) return 'up-to-date';
     const sha = `sha-${this.repo.nextSha++}`;

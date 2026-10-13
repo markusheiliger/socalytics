@@ -130,9 +130,13 @@ workflow started you): never ask, and turn every open question into a report que
 }
 ```
 
-- Mark exactly one option as recommended. A `command` is one line: `/speckit resume <guidance>`, `/speckit sync`, or
-  `/speckit diagnose <notes>`. Reviewing and merging the amendment pull request, and actions a person takes outside
-  these commands (for example "fix the trigger test on the base branch"), have `"command": null`.
+- Mark exactly one option as recommended: the one that **solves** the problem, not the cheapest one. It is the only
+  next step the person sees prominently, so never recommend a retry you expect to fail. A `command` is one line:
+  `/speckit resume <guidance>`, `/speckit sync`, or `/speckit diagnose <notes>`. When the solution needs an action
+  outside these commands (for example "fix the timing of the trigger test on the base branch"), describe that action
+  in the option's title and set `command` to the command that continues afterwards (usually `/speckit sync`), so the
+  recommendation is one option. Reviewing and merging the amendment pull request has `"command": null`. Add other
+  options only when they are real alternatives.
 - `artifacts` lists the changed files of the amendment; leave it empty otherwise. Ask at most three questions.
 
 ## Rework report (modes `fix` and `revise`)

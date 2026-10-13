@@ -6,7 +6,7 @@ readiness.
 ## Prerequisites
 
 - Web UI Foundation (`specs/20261012-150657-web-ui-foundation`) and Analyst
-  Manager Status Report and Fleet Read API (`specs/20261012-153308-manager-fleet-status`)
+  Manager Status Report and Fleet Read API (`specs/archive/20261012-153308-manager-fleet-status`)
   merged, with the foundation's prerequisites: Node.js 24, Kiota 1.36.0 on
   `PATH`, the Playwright 1.63.0 Chromium browser, the .NET SDK from
   `src/platform/global.json`, and a running Docker-compatible container runtime.

@@ -19,6 +19,7 @@ public sealed class RegistrationStatusMonitor : BackgroundService
     private readonly IReadOnlyList<IDeviceKeyProvider> _providers;
     private readonly ProtectedStoreFailureHandler _failures;
     private readonly PlatformOptions _options;
+    private readonly StatusReportBuilder _reports;
     private readonly TimeProvider _time;
     private readonly ILogger<RegistrationStatusMonitor> _logger;
     private TimeSpan _backoff;
@@ -26,7 +27,7 @@ public sealed class RegistrationStatusMonitor : BackgroundService
     public RegistrationStatusMonitor(
         RegistrationCoordinator coordinator, ManagerTokenCache tokens, SignedStateStore store,
         IEnumerable<IDeviceKeyProvider> providers, ProtectedStoreFailureHandler failures, InactiveSignalSink sink,
-        IOptions<PlatformOptions> options, TimeProvider time, ILogger<RegistrationStatusMonitor> logger)
+        IOptions<PlatformOptions> options, StatusReportBuilder reports, TimeProvider time, ILogger<RegistrationStatusMonitor> logger)
     {
         _coordinator = coordinator;
         _tokens = tokens;
@@ -34,6 +35,7 @@ public sealed class RegistrationStatusMonitor : BackgroundService
         _providers = providers.ToList();
         _failures = failures;
         _options = options.Value;
+        _reports = reports;
         _time = time;
         _logger = logger;
         _backoff = _options.RetryBackoff.Initial;
@@ -61,11 +63,20 @@ public sealed class RegistrationStatusMonitor : BackgroundService
             }
 
             var key = await provider.OpenKeyAsync(active.KeyReference, ct);
-            var result = await _tokens.GetSelfRegistrationAsync(active.PlatformEndpoint, key, active.ManagerId, ct);
+            var report = _coordinator.State == ManagerRegistrationState.Active ? _reports.Build() : null;
+            var result = await _tokens.GetSelfRegistrationAsync(
+                active.PlatformEndpoint, key, active.ManagerId, ct, report);
             switch (result.Signal.Outcome)
             {
                 case PlatformOutcome.Success:
                     _backoff = _options.RetryBackoff.Initial;
+                    if (result.Registration!.ReportAccepted == false)
+                    {
+                        _logger.LogWarning(
+                            "The platform refused the status report: {Violations}.",
+                            string.Join(", ", (result.Registration.ReportViolations ?? []).Select(v => $"{v.Field}:{v.Code}")));
+                    }
+
                     _coordinator.SetConnectivity(
                         new ConnectivityStatus("connected", _time.GetUtcNow()), result.Registration!.ClubName);
                     return result.Registration.StatusCheckIntervalSeconds is > 0 and var s

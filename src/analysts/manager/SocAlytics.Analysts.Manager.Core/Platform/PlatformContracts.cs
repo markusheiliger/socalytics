@@ -39,7 +39,14 @@ public sealed record OAuthError(
 
 public sealed record OwnRegistration(
     string ManagerId, string StampId, string State, string ClubName, string KeyThumbprint,
-    DateTimeOffset ActivatedAt, double? StatusCheckIntervalSeconds = null);
+    DateTimeOffset ActivatedAt, double? StatusCheckIntervalSeconds = null,
+    bool? ReportAccepted = null, IReadOnlyList<ReportViolation>? ReportViolations = null);
+
+public sealed record ReportViolation(string Field, string Code);
+
+public sealed record StatusReport(
+    string OperatingState, DateTimeOffset? PausedUntil, string? RuntimeUnavailableReason,
+    int ActiveAnalysts, int MaxAnalysts, string ManagerVersion);
 
 public sealed record UnregistrationResult(string ManagerId, string State);
 

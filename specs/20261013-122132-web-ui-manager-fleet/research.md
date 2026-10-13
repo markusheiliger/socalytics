@@ -7,7 +7,7 @@ behind adapters, in-memory session with `X-CSRF-Token`, TanStack Query, the
 `simulated` and `platform` Playwright projects, the committed OpenAPI snapshot,
 and the AppHost `e2e` mode. The registration operations come from
 `specs/archive/20261005-130704-analyst-manager-registration`; the status and
-connectivity fields from `specs/20261012-153308-manager-fleet-status`.
+connectivity fields from `specs/archive/20261012-153308-manager-fleet-status`.
 
 ## R1. Verification address in local development
 
