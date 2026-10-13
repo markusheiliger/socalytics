@@ -42,3 +42,11 @@ export async function sendFor<T extends Parsable>(
     throw toPlatformFailure(error);
   }
 }
+
+export async function sendNoContentFor(api: PlatformApi, info: RequestInformation): Promise<void> {
+  try {
+    await api.adapter.sendNoResponseContent(info, errorMappings);
+  } catch (error) {
+    throw toPlatformFailure(error);
+  }
+}
