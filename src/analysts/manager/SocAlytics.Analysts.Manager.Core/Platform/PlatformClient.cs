@@ -82,6 +82,13 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
     public HttpRequestMessage BuildSelfRegistration(Uri baseUri, IDeviceKey key, string accessToken) =>
         Self(HttpMethod.Get, Endpoint(baseUri, "self/registration"), key, accessToken);
 
+    public HttpRequestMessage BuildStatusReport(Uri baseUri, IDeviceKey key, string accessToken, StatusReport report)
+    {
+        var request = Self(HttpMethod.Post, Endpoint(baseUri, "self/status"), key, accessToken);
+        request.Content = JsonContent.Create(report, options: PlatformJson.Options);
+        return request;
+    }
+
     public HttpRequestMessage BuildUnregistration(Uri baseUri, IDeviceKey key, string accessToken) =>
         Self(HttpMethod.Post, Endpoint(baseUri, "self/unregistration"), key, accessToken);
 
