@@ -311,8 +311,11 @@ their multipart uploads. Locally the Aspire AppHost runs a pinned RustFS
 container as a plain container resource, the API creates the development
 bucket, and integration tests use the same image through Testcontainers
 together with a store conformance probe that any production store must pass.
+For the Web UI's direct part uploads in local development, the AppHost will
+allow the Web UI origin in the local store's CORS configuration and pass the
+store's origin to the Web UI for its Content Security Policy.
 Bucket provisioning, production storage selection, encryption, credentials,
-browser CORS, public endpoints, grant and session lifetimes, and lifecycle
+production browser CORS and origins, public endpoints, grant and session lifetimes, and lifecycle
 policy remain governed by
 [Production Deployment and Operations](production-operations.md) and
 [Security and Data Governance](security-and-data-governance.md).
@@ -386,6 +389,13 @@ club `Registrar` and explicitly approved by a `Club Admin`. Club Admin inherits
 the Registrar capability and may self-approve through a separate audited
 operation. The AM activates only after proving possession of the protected
 device key bound during pairing.
+
+The pairing response's verification URL will be built from an optional
+verification base address, for stamps whose Web UI and API origins differ, as
+in local development; the token, activation, and other machine-facing addresses
+and the DPoP target stay on the stamp's public base address. The registration
+operations will declare typed OpenAPI request and response schemas, so the Web
+UI's generated client covers them.
 
 An active AM uses OAuth 2.0 client credentials with `private_key_jwt` and
 short-lived DPoP-bound access tokens. API authorization also checks the

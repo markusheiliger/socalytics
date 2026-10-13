@@ -105,22 +105,26 @@ Post-design re-check: passes; no Complexity Tracking entries.
 - [analyst-manager.md](../../docs/architecture/analyst-manager.md) § Browser Pairing And Approval: the browser side, meaning the pairing page and the Club Admin decision view.
 - [analyst-manager.md](../../docs/architecture/analyst-manager.md) § Fleet Visibility In The Web UI.
 - [client-applications.md](../../docs/architecture/client-applications.md) § Web UI: the Analyst Manager fleet view.
+- [platform-implementation.md](../../docs/architecture/platform-implementation.md) § API And Identity: the Analyst Manager registration operations.
 
-**Design updates applied by this feature**:
+**Design updates** (applied with this plan as decided, not implemented; the implementation turns them into present
+tense):
 
-- **`analyst-manager.md` § Fleet Visibility In The Web UI**:
-  - The fleet and decision views do not yet show the claimed application profile; it follows once the headless profile exists and the Manager reports it.
+- **`analyst-manager.md` § Fleet Visibility In The Web UI** (with a pointer from § Browser Pairing And Approval, whose approval view shows the claimed profile):
+  - The first fleet and decision views do not show the claimed application profile; it follows once the headless profile exists and the Manager reports it.
   - Approval requires re-entering the last 6 fingerprint characters, and revocation requires typing the host label.
   - The navigation shows the pending count. Email notification of Club Admins awaits an architecture decision on an email delivery channel.
-- **`platform-implementation.md`**: the optional verification base address (`Registry:Pairing:VerificationBaseUri`). It is for stamps whose Web UI and API origins differ, as in local development; machine-facing URIs stay on the stamp's public base address. It also records that the registration operations declare typed OpenAPI schemas.
+- **`platform-implementation.md` § API And Identity**: the optional verification base address (`Registry:Pairing:VerificationBaseUri`). It is for stamps whose Web UI and API origins differ, as in local development; machine-facing URIs stay on the stamp's public base address. The registration operations declare typed OpenAPI schemas.
 
-**Implementation-status statements this feature makes true or false**:
+**Implementation-status statements this feature makes true or false at merge**:
 
 - **`platform-implementation.md` § Analyst Technology**: "The planned fleet view adds a Manager status report, … and a fleet read operation for Club Admins" must describe the fleet view as implemented in the Web UI.
-- **`platform-implementation.md` § Planned Acceptance Evidence**: the statement that the Web UI remains unsupported by implementation evidence must name the Analyst Manager pairing, approval, and fleet views among the implemented Web UI workflows.
-- **`analyst-manager.md` § Fleet Visibility In The Web UI**: any remaining sentence that presents the fleet view or browser pairing as not implemented. The status report and fleet read API are made true by `specs/20261012-153308-manager-fleet-status`.
+- **`platform-implementation.md` § Architecture Reassessment**: "the Web UI and its offline mode … remain unsupported by implementation evidence" must name the Analyst Manager pairing, approval, and fleet views among the implemented Web UI workflows.
+- **`platform-implementation.md` § Acceptance Evidence**: the evidence list gains the pairing, decision, and fleet browser tests (simulated and `platform` projects).
+- **`analyst-manager.md` § Fleet Visibility In The Web UI** and **`platform-implementation.md` § API And Identity**: the design updates above, from "will" to present tense, and any remaining sentence that presents the fleet view or browser pairing as not implemented. The status report and fleet read API are made true by `specs/20261012-153308-manager-fleet-status`.
+- Statements that Web UI Foundation makes false (for example `client-applications.md` § Source Ownership And Delivery "The future React and TypeScript sources of the Web UI", `platform-implementation.md` § Source And Runtime Baseline "`src/clients` owns the future Web UI", and `overview.md` § Implementation Profile "React and TypeScript clients … are planned") are corrected by that feature; any that still remain when this feature merges are corrected by it.
 
-The documentation task (T013) applies exactly these updates and corrects any other statement in `docs/architecture/` that the merged feature makes false.
+The documentation task (T013) must make these narratives and every status statement this feature affects true for the merged state. It re-reads `docs/architecture/` at implementation time; the updates listed here are examples, not the whole job.
 
 ## Project Structure
 

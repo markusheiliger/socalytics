@@ -110,19 +110,25 @@ Post-design re-check: passes; no Complexity Tracking entries.
 
 - [client-applications.md](../../docs/architecture/client-applications.md) § Web UI: match creation, recording uploads, and upload finalization.
 - [match-data-pipeline.md](../../docs/architecture/match-data-pipeline.md) § Upload: the Web UI path of the direct multipart upload, timeline mapping, and finalization.
+- [platform-implementation.md](../../docs/architecture/platform-implementation.md) § Object Storage: development browser access to the local store.
+- [security-and-data-governance.md](../../docs/architecture/security-and-data-governance.md), Web UI security baseline (written by `specs/20261012-150657-web-ui-foundation`): the Content Security Policy.
 
-**Design updates applied by this feature**:
+**Design updates** (applied with this plan as decided, not implemented; the implementation turns them into present
+tense):
 
 - **`client-applications.md` § Web UI**: the upload worker and its resume journal. The journal is worker-owned IndexedDB, member-scoped, and holds identifiers and progress only, never grants or file contents. It is purged on explicit sign-out and is not the offline replica; uploads stay connected-only.
 - **`platform-implementation.md` § Object Storage**: the development allow-list of the Web UI origin on the local object storage, and the storage origin passed to the Web UI. Production CORS, origins, and lifetimes remain unresolved.
-- **`security-and-data-governance.md`, Web UI security baseline**: the CSP additions of [contracts/security-headers.md](contracts/security-headers.md), namely the object-storage origin in `connect-src`, `media-src blob:`, `worker-src 'self'`, and the `upload-worker` Trusted Types policy.
 
-**Implementation-status statements this feature makes true or false**:
+**Design update at implementation**: **`security-and-data-governance.md`, Web UI security baseline**: the CSP additions of [contracts/security-headers.md](contracts/security-headers.md), namely the object-storage origin in `connect-src`, `media-src blob:`, `worker-src 'self'`, and the `upload-worker` Trusted Types policy. The baseline section does not exist until Web UI Foundation, which this feature depends on, writes it, so this update is applied when the feature is implemented.
 
-- **`platform-implementation.md` § Planned Acceptance Evidence**: the statement that the Web UI remains unsupported by implementation evidence must name the match workflow and recording upload among the implemented Web UI workflows, while the offline mode and the other client workflows stay unsupported.
-- **`client-applications.md` § Web UI**: wherever the narrative presents match creation, recording uploads, and upload finalization as planned or future, it now describes them as implemented in the connected Web UI. Analysis review, agent conversations, and offline mode stay future.
+**Implementation-status statements this feature makes true or false at merge**:
 
-The documentation task (T019) applies exactly these updates and corrects any other statement in `docs/architecture/` that the merged feature makes false.
+- **`platform-implementation.md` § Architecture Reassessment**: "the Web UI and its offline mode … remain unsupported by implementation evidence" must name the match workflow and recording upload among the implemented Web UI workflows, while the offline mode and the other client workflows stay unsupported.
+- **`platform-implementation.md` § Acceptance Evidence**: the evidence list gains the Web UI match and upload browser tests (simulated and `platform` projects) and the development CORS test.
+- **`client-applications.md` § Web UI** and **`platform-implementation.md` § Object Storage**: the design updates above, from "will" to present tense. Wherever a narrative presents match creation, recording uploads, or upload finalization as planned or future, it describes them as implemented in the connected Web UI; analysis review, agent conversations, and offline mode stay future.
+- Statements that Web UI Foundation makes false (for example `client-applications.md` § Source Ownership And Delivery "The future React and TypeScript sources of the Web UI", `platform-implementation.md` § Source And Runtime Baseline "`src/clients` owns the future Web UI", and `overview.md` § Implementation Profile "React and TypeScript clients … are planned") are corrected by that feature; any that still remain when this feature merges are corrected by it.
+
+The documentation task (T019) must make these narratives and every status statement this feature affects true for the merged state. It re-reads `docs/architecture/` at implementation time; the updates listed here are examples, not the whole job.
 
 ## Project Structure
 
