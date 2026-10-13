@@ -1,0 +1,9 @@
+{
+  "club": {
+    "title": "Club",
+    "displayName": "Club name",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "The club details were saved."
+  }
+}

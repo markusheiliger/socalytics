@@ -6,7 +6,10 @@ import { AccountPage } from './features/account/AccountPage';
 import { SetPasswordPage } from './features/set-password/SetPasswordPage';
 import { PasswordChangePage } from './features/account/PasswordChangePage';
 import { SignOutButton } from './features/account/SignOutButton';
+import { ClubPage } from './features/club/ClubPage';
 import { HomePage } from './features/home/HomePage';
+import { SeasonPage } from './features/seasons/SeasonPage';
+import { SeasonsPage } from './features/seasons/SeasonsPage';
 import { SignInPage } from './features/sign-in/SignInPage';
 import { AppLayout } from './shell/AppLayout';
 import { NotFoundPage } from './shell/NotFoundPage';
@@ -51,9 +54,9 @@ export const appRoutes: RouteObject[] = [
         children: [
           { path: '/', element: <HomePage /> },
           { path: '/account', element: <AccountPage /> },
-          { path: '/club', element: clubAdminOnly(<Placeholder name="Club" />) },
-          { path: '/seasons', element: clubAdminOnly(<Placeholder name="Seasons" />) },
-          { path: '/seasons/:seasonId', element: clubAdminOnly(<Placeholder name="Season" />) },
+          { path: '/club', element: clubAdminOnly(<ClubPage />) },
+          { path: '/seasons', element: clubAdminOnly(<SeasonsPage />) },
+          { path: '/seasons/:seasonId', element: clubAdminOnly(<SeasonPage />) },
           { path: '/teams', element: <RequireRole allow={canViewTeams}><Placeholder name="Teams" /></RequireRole> },
           { path: '/teams/:teamId', element: <TeamDetailRoute /> },
           { path: '/members', element: clubAdminOnly(<Placeholder name="Members" />) },
