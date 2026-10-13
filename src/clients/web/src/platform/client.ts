@@ -15,7 +15,7 @@ export interface PlatformClientOptions {
   fetch?: (url: string, init: RequestInit) => Promise<Response>;
 }
 
-export function createPlatformClient(options: PlatformClientOptions) {
+export function createPlatformApi(options: PlatformClientOptions) {
   const baseFetch = options.fetch ?? ((url, init) => fetch(url, init));
   const sameOriginFetch = (url: string, init: RequestInit) =>
     baseFetch(url, { ...init, credentials: 'same-origin' });
@@ -29,5 +29,9 @@ export function createPlatformClient(options: PlatformClientOptions) {
   const httpClient = KiotaClientFactory.create(sameOriginFetch, middlewares);
   const adapter = new DefaultRequestAdapter(new AnonymousAuthenticationProvider(), undefined, undefined, httpClient);
   adapter.baseUrl = options.baseUrl ?? window.location.origin;
-  return createPlatformApiClient(adapter);
+  return { adapter, client: createPlatformApiClient(adapter) };
+}
+
+export function createPlatformClient(options: PlatformClientOptions) {
+  return createPlatformApi(options).client;
 }
