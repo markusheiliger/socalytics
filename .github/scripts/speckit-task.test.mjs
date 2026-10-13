@@ -537,7 +537,7 @@ test('converge: code changes are rejected, and the round limit asks the requeste
     assert.deepEqual([landed.exitCode, landed.check.conclusion, landed.check.external_id], [1, 'failure', CHECK_LIMIT]);
     assert.equal(remoteHead(repos), before);
     assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
-    assert.match(github.comments.at(-1).body, /\*\*Next steps\*\*[\s\S]*A diagnosis starts automatically[\s\S]*\/speckit resume \[guidance\]/);
+    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Wait for the diagnosis[\s\S]*<summary>Other options<\/summary>[\s\S]*\/speckit resume \[guidance\]/);
   });
 });
 
@@ -691,7 +691,7 @@ test('resolve: conflicts in protected paths ask the requester', () => withRepos(
   assert.deepEqual([landed.exitCode, landed.check.external_id], [1, CHECK_LIMIT]);
   assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: conflicts in protected paths need a person: specs\/f\/spec\.md/);
   assert.doesNotMatch(github.comments.at(-1).body, /Spec Kit orchestrate` workflow manually/);
-  assert.match(github.comments.at(-1).body, /\/speckit diagnose|A diagnosis starts automatically/);
+  assert.match(github.comments.at(-1).body, /\/speckit diagnose|Wait for the diagnosis/);
 }));
 
 // merge-land only reads the result of merge-verify and talks to the GitHub API.

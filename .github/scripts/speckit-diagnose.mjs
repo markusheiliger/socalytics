@@ -368,14 +368,7 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
       for (const choice of item.choices) lines.push(`   - ${safe(choice)}`);
     });
   }
-  const manual = report.options.filter((option) => !option.command);
-  if (manual.length > 0) {
-    lines.push('', '**Actions outside these commands**', '', ...manual.map((option) => `- ${option.recommended ? '**Recommended:** ' : ''}${safe(option.title)}`));
-  }
-  const commandOptions = report.options
-    .filter((option) => option.command)
-    .map((option) => ({ title: `${option.recommended ? '**Recommended:** ' : ''}${safe(option.title)}`, command: option.command }));
-  lines.push('', ...renderNextSteps({ options: commandOptions, amendmentPull: amendment?.number ?? null, behindBase, diagnosed: true }));
+  lines.push('', ...renderNextSteps({ options: report.options.map((option) => ({ ...option, title: safe(option.title) })), amendmentPull: amendment?.number ?? null, behindBase, diagnosed: true }));
   if (reasons.length > 0) lines.push('', `_Parts of the report were dropped: ${reasons.map(safe).join('; ')}._`);
   if (runUrl) lines.push('', `<sub>[Diagnosis run](${runUrl})</sub>`);
   return lines.join('\n');

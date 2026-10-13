@@ -807,7 +807,10 @@ export const PR_COMMANDS = [
   { name: 'help', usage: '/speckit help', help: 'list these commands' },
 ];
 
-const commandEntry = (text, command) => [`1. ${text}:`, '', '   ```text', `   ${command}`, '   ```'];
+// An option title as one sentence: without the trailing punctuation an agent may add, ending with a period.
+const bareTitle = (text) => String(text ?? '').trim().replace(/[\s.:;,]+$/, '');
+const sentence = (text) => `${bareTitle(text)}.`;
+const commandEntry = (text, command) => [`- ${bareTitle(text)}:`, '', '  ```text', `  ${command}`, '  ```'];
 
 // How a person handles an amendment pull request; shown in its description and referenced from the implementation.
 export function renderAmendmentHowTo(implementationPull) {
@@ -831,40 +834,53 @@ export function setAmendmentStatus(body, lines) {
   return `${block}\n\n${text}`;
 }
 
-// The "Next steps" block of a comment where the implementation waits for a person. Only commands that are valid in
-// the given state are suggested, the recommended one first. `options` are a diagnosis' options
-// ({ title, command }), `amendmentPull` an open amendment pull request, `behindBase` the name of the base branch when
-// it has commits the implementation branch lacks (otherwise null), and `autoDiagnosis` whether a diagnosis starts
+// The next-step block of a comment where the implementation waits for a person: exactly one recommended next step
+// (an open amendment, else the diagnosis' recommended option, else waiting for the automatic diagnosis, else a
+// diagnosis), then every other valid option, collapsed. `options` are a diagnosis' options ({ title, command,
+// recommended }), `amendmentPull` an open amendment pull request, `behindBase` the name of the base branch when it has
+// commits the implementation branch lacks (otherwise null), and `autoDiagnosis` whether a diagnosis starts
 // automatically.
 export function renderNextSteps({ options = null, amendmentPull = null, behindBase = null, autoDiagnosis = false, diagnosed = false } = {}) {
-  const lines = [];
+  const all = options ?? [];
+  let recommended;
+  let others = all;
   if (amendmentPull) {
-    lines.push(
-      `**Review the amendment #${amendmentPull}**: merge it to apply it (the implementation then continues), comment or request changes there to have it reworked, or close it to discard it.`,
-      '',
-      'Instead of the amendment, you can also comment one of these commands on this pull request (people with write access):',
-      '',
-    );
+    recommended = {
+      title: `Review the amendment #${amendmentPull} and merge it; the implementation then continues by itself with a fresh attempt count. Comment or request changes there to have it reworked`,
+      command: null,
+    };
+    // A diagnosis recommends its own amendment as an option without a command; the amendment is that option.
+    others = all.filter((option) => !(option.recommended && !option.command));
   } else {
-    lines.push('**Next steps**: comment one of these commands on this pull request (people with write access):', '');
+    const pick = all.find((option) => option.recommended) ?? null;
+    if (pick) {
+      recommended = pick;
+      others = all.filter((option) => option !== pick);
+    } else if (autoDiagnosis) {
+      recommended = { title: 'Wait for the diagnosis: it starts automatically and posts its recommendation here', command: null };
+    } else {
+      recommended = {
+        title: diagnosed ? 'Diagnose again, with notes on what to try instead' : 'Diagnose why the implementation stopped (notes steer the analysis)',
+        command: '/speckit diagnose [notes]',
+      };
+    }
   }
-  if (autoDiagnosis) lines.push('_A diagnosis starts automatically and posts its findings here; you can also act right away._', '');
-  const entries = [];
-  for (const option of options ?? []) {
-    if (option.command) entries.push(commandEntry(option.title, option.command));
-  }
-  // Commands an option already suggests are not repeated.
-  const used = new Set((options ?? []).map((option) => String(option.command ?? '').split(/\s+/)[1]));
+
+  const lines = [`**Recommended next step**: ${sentence(recommended.title)}`];
+  if (recommended.command) lines.push('', 'Comment this on the pull request (people with write access):', '', '```text', recommended.command, '```');
+
+  const entries = others.map((option) => (option.command ? commandEntry(option.title, option.command) : [`- ${sentence(option.title)}`]));
+  // Commands the recommendation or an option already suggests are not repeated.
+  const used = new Set([recommended, ...others].map((option) => String(option.command ?? '').split(/\s+/)[1]));
   if (!autoDiagnosis && !used.has('diagnose')) {
     entries.push(commandEntry(diagnosed ? 'Diagnose again, optionally with your notes or answers' : 'Diagnose why the implementation stopped (notes steer the analysis)', '/speckit diagnose [notes]'));
   }
   if (!used.has('resume')) entries.push(commandEntry('Retry with a fresh attempt count, optionally with guidance for the agent', '/speckit resume [guidance]'));
   if (behindBase && !used.has('sync')) entries.push(commandEntry(`Merge the base branch \`${behindBase}\` (for example a fix that landed there) and retry`, '/speckit sync'));
+  entries.push(['- Push a fix to the implementation branch (the implementation continues automatically), or close this pull request to abandon it.']);
+  lines.push('', '<details><summary>Other options</summary>', '');
   for (const entry of entries) lines.push(...entry);
-  lines.push(
-    '',
-    'Or push a fix to the implementation branch (the implementation continues automatically), or close this pull request to abandon it.',
-  );
+  lines.push('', '</details>');
   return lines;
 }
 

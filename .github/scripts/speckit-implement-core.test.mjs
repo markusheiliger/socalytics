@@ -262,19 +262,21 @@ test('waits while a diagnosis runs, then for a decision, and gives up on a stale
 });
 test('renders the next steps a person can take', () => {
   const plain = renderNextSteps().join('\n');
-  assert.match(plain, /\/speckit diagnose \[notes\][\s\S]*\/speckit resume \[guidance\]/);
+  assert.match(plain, /^\*\*Recommended next step\*\*: Diagnose why the implementation stopped[\s\S]*```text\n\/speckit diagnose \[notes\]\n```/);
+  assert.match(plain, /<details><summary>Other options<\/summary>[\s\S]*\/speckit resume \[guidance\][\s\S]*Push a fix to the implementation branch[\s\S]*<\/details>$/);
   assert.doesNotMatch(plain, /\/speckit (sync|apply)/);
-  assert.match(plain, /push a fix to the implementation branch/);
   const auto = renderNextSteps({ autoDiagnosis: true, behindBase: 'release' }).join('\n');
-  assert.match(auto, /A diagnosis starts automatically/);
+  assert.match(auto, /^\*\*Recommended next step\*\*: Wait for the diagnosis/);
   assert.doesNotMatch(auto, /\/speckit diagnose/);
-  assert.match(auto, /Merge the base branch `release` \(for example a fix that landed there\) and retry:\n\n {3}```text\n {3}\/speckit sync\n {3}```/);
+  assert.match(auto, /- Merge the base branch `release` \(for example a fix that landed there\) and retry:\n\n {2}```text\n {2}\/speckit sync\n {2}```/);
   const diagnosed = renderNextSteps({ options: [{ title: 'Retry with guidance', command: '/speckit resume Use the helper' }], amendmentPull: 7, diagnosed: true }).join('\n');
-  assert.match(diagnosed, /^\*\*Review the amendment #7\*\*: merge it to apply it[\s\S]*Instead of the amendment[\s\S]*\/speckit resume Use the helper[\s\S]*Diagnose again/);
+  assert.match(diagnosed, /^\*\*Recommended next step\*\*: Review the amendment #7 and merge it[\s\S]*Other options[\s\S]*\/speckit resume Use the helper[\s\S]*Diagnose again/);
   assert.doesNotMatch(diagnosed, /\/speckit (apply|revise|discard)/);
   assert.doesNotMatch(diagnosed, /\/speckit resume \[guidance\]/, 'an option already covers resume');
-  const recommended = renderNextSteps({ options: [{ title: 'Diagnose with these notes', command: '/speckit diagnose keep it' }], diagnosed: true }).join('\n');
+  const recommended = renderNextSteps({ options: [{ title: 'Diagnose with these notes:', command: '/speckit diagnose keep it', recommended: true }], diagnosed: true }).join('\n');
   assert.equal(recommended.match(/\/speckit diagnose/g).length, 1, 'a command an option suggests is not repeated');
+  assert.match(recommended, /^\*\*Recommended next step\*\*: Diagnose with these notes\.\n/, 'trailing punctuation is not doubled');
+  assert.equal(recommended.match(/Recommended next step/g).length, 1);
   const howTo = renderAmendmentHowTo(49).join('\n');
   assert.match(howTo, /\*\*Merge\*\* this pull request[\s\S]*continues on #49[\s\S]*\*Request changes\*[\s\S]*\*\*Close\*\*/);
   const status = setAmendmentStatus('Body from the agent.', ['⏳ checking']);

@@ -234,7 +234,7 @@ test('merging continues the implementation; closing discards; a person\'s push i
   const discarded = diagnosisRepo();
   discarded.closePull(11);
   assert.equal((await runClosed({ client: discarded, env: env({ SPECKIT_PULL: '11', SPECKIT_ACTOR: 'dev' }), log: silent })).outcome, 'discarded');
-  assert.match(discarded.comments.at(-1).body, /^<!-- speckit-amend:closed 11 -->\nAmendment #11 was closed without merging by @dev\.[\s\S]*\*\*Next steps\*\*[\s\S]*\/speckit diagnose/);
+  assert.match(discarded.comments.at(-1).body, /^<!-- speckit-amend:closed 11 -->\nAmendment #11 was closed without merging by @dev\.[\s\S]*\*\*Recommended next step\*\*: Diagnose again[\s\S]*\/speckit diagnose/);
   assert.equal((await runClosed({ client: discarded, env: env({ SPECKIT_PULL: '9' }), log: silent })).outcome, 'ignored');
 
   const pushed = diagnosisRepo();
