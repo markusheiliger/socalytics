@@ -126,7 +126,7 @@ description: "Task list for Analyst Manager Work Execution With a Simulated Anal
 
 ### End-to-end revocation
 
-- [ ] T021 [US4] End-to-end revocation (SC-005, SC-009, SC-010): add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/RevocationEndToEndTests.cs`: revoking a Manager with an active attempt fences it on the platform, disconnects the Manager from the queue, makes the Manager stop its simulated work and return to Unregistered, and lets a second Manager claim and complete the job.
+- [x] T021 [US4] End-to-end revocation (SC-005, SC-009, SC-010): add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/RevocationEndToEndTests.cs`: revoking a Manager with an active attempt fences it on the platform, disconnects the Manager from the queue, makes the Manager stop its simulated work and return to Unregistered, and lets a second Manager claim and complete the job.
 
 **Checkpoint**: All user stories work independently and together.
 

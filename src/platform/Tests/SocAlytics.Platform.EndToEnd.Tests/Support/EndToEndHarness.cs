@@ -163,6 +163,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         var registrationId = (await submission.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("registrationId").GetGuid();
         using var approval = await Admin.SendAsync(HttpMethod.Post, $"/api/v1/analyst-manager-registrations/{registrationId}/approval", null, ct);
         approval.EnsureSuccessStatusCode();
+        instance.RegistrationId = registrationId;
 
         var scheduler = host.Services.GetRequiredService<PreflightScheduler>();
         await WaitAsync(
@@ -181,6 +182,15 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         instance.Connection.Down = true;
         await host.StopAsync(CancellationToken.None);
         instance.Stopped = true;
+    }
+
+    /// <summary>Revokes the Manager's registration as the Club Admin.</summary>
+    public async Task RevokeManagerAsync(IHost host, CancellationToken ct)
+    {
+        var instance = _managers.Single(m => ReferenceEquals(m.Host, host));
+        using var revoke = await Admin.SendAsync(
+            HttpMethod.Post, $"/api/v1/analyst-manager-registrations/{instance.RegistrationId}/revocation", new { reason = "device lost" }, ct);
+        revoke.EnsureSuccessStatusCode();
     }
 
     public static async Task WaitAsync(Func<bool> condition, TimeSpan timeout, string failure, CancellationToken ct)
@@ -249,5 +259,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         public string StateDirectory { get; } = stateDirectory;
 
         public bool Stopped { get; set; }
+
+        public Guid RegistrationId { get; set; }
     }
 }
