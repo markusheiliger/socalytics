@@ -3,7 +3,5 @@
     "name": "SocAlytics"
   },
   "loading": "Loading…",
-  "notPermitted": "You are not permitted to open this page.",
-  "notFound": "This page does not exist.",
   "placeholder": "This view is not available yet."
 }

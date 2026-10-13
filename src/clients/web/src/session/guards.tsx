@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, Outlet } from 'react-router';
 import type { SessionMember } from '../platform/models/session';
+import { NotPermittedPage } from '../shell/NotPermittedPage';
 import { useSession } from './sessionContext';
 
 export function LoadingView() {
@@ -13,16 +14,6 @@ export function LoadingView() {
     <Container component="main" maxWidth="md" sx={{ py: 4 }}>
       <Typography variant="h1">{t('app.name')}</Typography>
       <CircularProgress aria-label={t('loading')} />
-    </Container>
-  );
-}
-
-export function NotPermittedView() {
-  const { t } = useTranslation('common');
-  return (
-    <Container component="main" maxWidth="md" sx={{ py: 4 }}>
-      <Typography variant="h1">{t('app.name')}</Typography>
-      <Typography role="alert">{t('notPermitted')}</Typography>
     </Container>
   );
 }
@@ -56,6 +47,6 @@ export function RequireSignedOut() {
 /** Renders the not-permitted view, without mounting the children, unless the member's roles allow the route. */
 export function RequireRole({ allow, children }: { allow: (member: SessionMember) => boolean; children?: ReactNode }) {
   const { session } = useSession();
-  if (!session || !allow(session.member)) return <NotPermittedView />;
+  if (!session || !allow(session.member)) return <NotPermittedPage />;
   return children ?? <Outlet />;
 }

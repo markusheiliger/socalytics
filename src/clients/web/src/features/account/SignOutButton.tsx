@@ -3,6 +3,7 @@ import Button from '@mui/material/Button';
 import Stack from '@mui/material/Stack';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useConnectivity } from '../../connectivity/useConnectivity';
 import { toPlatformFailure } from '../../platform/failure';
 import { useSession } from '../../session/sessionContext';
 import { SessionProblemAlert } from './SessionProblemAlert';
@@ -11,6 +12,7 @@ import { SessionProblemAlert } from './SessionProblemAlert';
 export function SignOutButton() {
   const { t } = useTranslation('session');
   const { signOut } = useSession();
+  const { isUnreachable } = useConnectivity();
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<'problem' | 'failed'>();
 
@@ -27,7 +29,7 @@ export function SignOutButton() {
 
   return (
     <Stack spacing={1} alignItems="flex-start">
-      <Button variant="outlined" onClick={() => void onClick()} disabled={busy}>
+      <Button variant="outlined" onClick={() => void onClick()} disabled={busy || isUnreachable}>
         {t('signOut.label')}
       </Button>
       {failure === 'problem' && <SessionProblemAlert />}

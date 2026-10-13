@@ -6,6 +6,7 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useConnectivity } from '../../connectivity/useConnectivity';
 import { toPlatformFailure } from '../../platform/failure';
 import { useSession } from '../../session/sessionContext';
 import { SessionProblemAlert } from './SessionProblemAlert';
@@ -28,6 +29,7 @@ export function AccountPage() {
   const { t } = useTranslation('account');
   const { t: tc } = useTranslation('common');
   const { session, changeOwnPassword } = useSession();
+  const { isUnreachable } = useConnectivity();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');
@@ -104,7 +106,7 @@ export function AccountPage() {
           onChange={(e) => setConfirmation(e.target.value)}
           required
         />
-        <Button type="submit" variant="contained" disabled={busy || !currentPassword || !newPassword || !confirmation}>
+        <Button type="submit" variant="contained" disabled={busy || isUnreachable || !currentPassword || !newPassword || !confirmation}>
           {busy ? t('account.submitting') : t('account.submit')}
         </Button>
       </Stack>

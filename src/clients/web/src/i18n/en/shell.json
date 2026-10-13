@@ -1,0 +1,21 @@
+{
+  "nav": {
+    "label": "Main navigation",
+    "home": "Home",
+    "club": "Club",
+    "seasons": "Seasons",
+    "teams": "Teams",
+    "members": "Members",
+    "account": "Account"
+  },
+  "home": {
+    "title": "Home",
+    "signedInAs": "Signed in as {{name}}.",
+    "shortcuts": "Shortcuts"
+  },
+  "connectivity": {
+    "unreachable": "The platform is not reachable. Actions that change data are disabled until it is reachable again."
+  },
+  "notPermitted": "You are not permitted to open this page.",
+  "notFound": "This page does not exist."
+}

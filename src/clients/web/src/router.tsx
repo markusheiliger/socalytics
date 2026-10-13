@@ -6,7 +6,10 @@ import { AccountPage } from './features/account/AccountPage';
 import { SetPasswordPage } from './features/set-password/SetPasswordPage';
 import { PasswordChangePage } from './features/account/PasswordChangePage';
 import { SignOutButton } from './features/account/SignOutButton';
+import { HomePage } from './features/home/HomePage';
 import { SignInPage } from './features/sign-in/SignInPage';
+import { AppLayout } from './shell/AppLayout';
+import { NotFoundPage } from './shell/NotFoundPage';
 import { useSession } from './session/sessionContext';
 import { canViewTeam, canViewTeams, isClubAdmin } from './session/roles';
 import { RequirePasswordChange, RequireRole, RequireSignedIn, RequireSignedOut } from './session/guards';
@@ -33,11 +36,6 @@ function TeamDetailRoute() {
   );
 }
 
-function NotFoundRoute() {
-  const { t } = useTranslation('common');
-  return <Placeholder name={t('notFound')} />;
-}
-
 const clubAdminOnly = (element: React.ReactNode) => <RequireRole allow={isClubAdmin}>{element}</RequireRole>;
 
 /** Routes of contracts/routes-and-roles.md; the views are placeholders until their stories. */
@@ -48,18 +46,23 @@ export const appRoutes: RouteObject[] = [
   {
     element: <RequireSignedIn />,
     children: [
-      { path: '/', element: <Placeholder name="Home" /> },
-      { path: '/account', element: <AccountPage /> },
-      { path: '/club', element: clubAdminOnly(<Placeholder name="Club" />) },
-      { path: '/seasons', element: clubAdminOnly(<Placeholder name="Seasons" />) },
-      { path: '/seasons/:seasonId', element: clubAdminOnly(<Placeholder name="Season" />) },
-      { path: '/teams', element: <RequireRole allow={canViewTeams}><Placeholder name="Teams" /></RequireRole> },
-      { path: '/teams/:teamId', element: <TeamDetailRoute /> },
-      { path: '/members', element: clubAdminOnly(<Placeholder name="Members" />) },
-      { path: '/members/:memberId', element: clubAdminOnly(<Placeholder name="Member" />) },
+      {
+        element: <AppLayout />,
+        children: [
+          { path: '/', element: <HomePage /> },
+          { path: '/account', element: <AccountPage /> },
+          { path: '/club', element: clubAdminOnly(<Placeholder name="Club" />) },
+          { path: '/seasons', element: clubAdminOnly(<Placeholder name="Seasons" />) },
+          { path: '/seasons/:seasonId', element: clubAdminOnly(<Placeholder name="Season" />) },
+          { path: '/teams', element: <RequireRole allow={canViewTeams}><Placeholder name="Teams" /></RequireRole> },
+          { path: '/teams/:teamId', element: <TeamDetailRoute /> },
+          { path: '/members', element: clubAdminOnly(<Placeholder name="Members" />) },
+          { path: '/members/:memberId', element: clubAdminOnly(<Placeholder name="Member" />) },
+        ],
+      },
     ],
   },
-  { path: '*', element: <NotFoundRoute /> },
+  { path: '*', element: <NotFoundPage /> },
 ];
 
 export const createAppRouter = () => createBrowserRouter(appRoutes);
