@@ -1,0 +1,17 @@
+{
+  "manifestVersion": "1.0.0",
+  "upstream": [],
+  "videoAccess": "required",
+  "output": { "schemaVersion": "1.0.0" },
+  "compatibleProfiles": ["gpu-standard"],
+  "model": { "digest": "sha-256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+  "runtime": { "constraints": ["linux-amd64"], "accelerators": ["cuda"] },
+  "resources": { "memory": "8Gi" },
+  "requirements": {
+    "minMaxAttempts": 3,
+    "minLeaseSeconds": 60,
+    "minStaleTimeoutSeconds": 120,
+    "minExecutionTimeoutSeconds": 900
+  },
+  "determinism": { "deterministic": true, "idempotent": true }
+}
