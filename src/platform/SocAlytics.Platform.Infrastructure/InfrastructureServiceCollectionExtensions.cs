@@ -102,7 +102,8 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddOptions<SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowOptions>()
             .BindConfiguration(SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowOptions.SectionName);
-        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionResolver, SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowDefinitionResolver>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionResolver, SocAlytics.Platform.Infrastructure.Registry.RegistryWorkflowDefinitionResolver>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowSeeder>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionAvailability, SocAlytics.Platform.Infrastructure.Registry.WorkflowDefinitionAvailability>();
         services.AddSingleton<SocAlytics.Platform.Infrastructure.Registry.AnalysisWorkflowHealthCheck>();
         services.AddOptions<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckServiceOptions>()

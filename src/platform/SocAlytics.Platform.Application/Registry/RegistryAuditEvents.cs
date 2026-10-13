@@ -8,6 +8,7 @@ public static class RegistryAuditEvents
     public const string ImageResourceType = "analyst-image";
     public const string ProfileResourceType = "analyst-profile";
     public const string WorkflowResourceType = "analyst-workflow";
+    public const string RegistryResourceType = "analyst-registry";
 
     public static readonly IReadOnlySet<string> AllowedDetailKeys = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -80,6 +81,12 @@ public static class RegistryAuditEvents
 
     public static AuditEvent DefaultWorkflowChanged(string workflowId, string workflowVersion, IReadOnlyDictionary<string, string>? details = null) =>
         CreateEvent("registry.default-workflow.changed", "set-default-workflow", AuditOutcome.Succeeded, WorkflowResourceType, WorkflowResourceId(workflowId, workflowVersion), null, details);
+
+    public static AuditEvent RegistrySeeded(IReadOnlyDictionary<string, string>? details = null)
+    {
+        var auditEvent = CreateEvent("registry.seeded", "seed-registry", AuditOutcome.Succeeded, RegistryResourceType, null, null, details);
+        return auditEvent with { ActorOverride = new AuditActorOverride(AuditActorKind.System, null) };
+    }
 
     public static string WorkflowResourceId(string workflowId, string workflowVersion) => $"{workflowId}:{workflowVersion}";
 
