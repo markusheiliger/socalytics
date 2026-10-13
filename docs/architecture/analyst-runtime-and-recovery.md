@@ -89,7 +89,9 @@ credentials, or host-wide control APIs. Analyst launches default to:
 
 - immutable image digests with the configured signature and provenance checks
 - a non-root container user and read-only root filesystem where supported
-- explicit writable scratch and result mounts scoped to one job
+- explicit writable scratch and result mounts scoped to one job, and a
+  read-only input mount into which the AM stages the job's accepted upstream
+  results (decided, not yet implemented)
 - no object-storage write credentials: results go to the job's result mount,
   and the AM stores them through per-object write grants (decided, not yet
   implemented); short-lived read access only where a capability permits it

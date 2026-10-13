@@ -192,12 +192,25 @@ yet implemented; fact indexing remains future work.
 ### Capability-Scoped Result Access
 
 A high-level job receives its team, match, analysis-run, and accepted-
-dependency context. It retrieves accepted upstream data through one
+dependency context. Its accepted upstream data is retrieved through one
 capability-scoped, schema-versioned API pattern. A query identifies the analysis
 run, capability and schema version, match or team scope, optional segment or
 time range, and pagination. The response uses a stable envelope with a
-capability-owned payload and explicitly reports missing, blocked, failed, or
-superseded coverage.
+capability-owned payload and explicitly reports coverage per expected upstream
+segment as accepted, missing, failed, blocked, or skipped. Within one run,
+accepted results are never superseded; supersession applies only across runs,
+which a job's read never crosses.
+
+The AM performs that query on the AC's behalf, because ACs receive no platform
+credentials. Before launching a high-level attempt, the AM reads every upstream
+dependency of the job for the current, unfenced attempt. It downloads each
+accepted result's manifest and artifacts through short-lived per-object read
+grants and verifies their digests. It then stages them, with the coverage, into
+the attempt's read-only input mount. The AC reads only from that mount. The read
+returns exactly the accepted results recorded in the job's input snapshot, so
+the staged inputs equal what acceptance checks as lineage. Staged inputs are
+bounded by a configured size and deleted when the attempt ends. This
+Manager-mediated read is decided but not yet implemented.
 
 Only accepted results are visible. Every response and reference is constrained
 to the job's authorized team and match, and Analysts never query PostgreSQL

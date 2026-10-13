@@ -86,8 +86,9 @@ sequenceDiagram
         Scheduler->>Registry: Evaluate high-level dependencies
         Scheduler->>Jobs: Publish ready match-level jobs
         Manager->>Jobs: Pull compatible high-level job
-        Manager->>Analysts: Run accepted execution attempt
-        Analysts->>API: Query accepted upstream facts
+        Manager->>API: Read accepted upstream results and read grants
+        Manager->>Storage: Download and verify upstream manifests and artifacts
+        Manager->>Analysts: Run accepted execution attempt with staged inputs
         Analysts-->>Manager: Concepts and manifest in the result mount
         Manager->>API: Request per-object result write grants
         Manager->>Storage: Store immutable concepts and manifest
