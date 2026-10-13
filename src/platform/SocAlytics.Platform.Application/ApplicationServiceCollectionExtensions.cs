@@ -106,6 +106,10 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Decisions.RevokeRegistrationHandler>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.RegistryOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.RegistryOptions.SectionName);
+        services.AddOptions<SocAlytics.Platform.Application.Registry.StatusReporting.StatusReportingOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Registry.StatusReporting.StatusReportingOptions.SectionName)
+            .Validate(static o => o.Interval > TimeSpan.Zero, "Registry:StatusReporting:Interval must be positive.")
+            .Validate(static o => o.MissedIntervalsBeforeOffline >= 1, "Registry:StatusReporting:MissedIntervalsBeforeOffline must be at least 1.");
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StampOptions.SectionName);
 
