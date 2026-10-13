@@ -28,6 +28,7 @@ features it depends on are merged.
 | [Web UI Verification Environment](20261012-145505-web-ui-environment/spec.md) | Environment feature: automated verification sets up, builds, and tests the Web UI at `src/clients/web/` with pinned Kiota and Playwright Chromium | None |
 | [Web UI Foundation](20261012-150657-web-ui-foundation/spec.md) | The first Web UI slice: sign-in and session handling, role-based navigation, and Club Admin management of the club, seasons, teams, and members through a generated API client on one origin | Web UI Verification Environment, Club and Identity Foundation |
 | [Analyst Registry](20261012-152148-analyst-registry/spec.md) | Durable Registry of Analyst manifests imported by image digest, approved Analyst profiles, and versioned workflow definitions from which analysis runs resolve | Durable Analysis Workflow, Club and Identity Foundation, Platform Persistence Foundation |
+| [Analyst Manager Status Report and Fleet Read API](20261012-153308-manager-fleet-status/spec.md) | Managers send their latest operating state with the registration check; Club Admins read the fleet with connectivity, Registrars only their own requests | Analyst Manager Work Execution, Analyst Manager Registration |
 
 Environment Verification Coverage and Platform Persistence Foundation can be
 developed in parallel. Analyst Manager Registration follows Recording Lineage
