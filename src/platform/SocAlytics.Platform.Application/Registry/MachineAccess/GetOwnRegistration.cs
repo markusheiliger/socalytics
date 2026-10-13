@@ -2,14 +2,18 @@ using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Club;
 using SocAlytics.Platform.Application.Registry.Abstractions;
+using Microsoft.Extensions.Options;
+using SocAlytics.Platform.Application.Registry.StatusReporting;
 using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Application.Registry.MachineAccess;
 
 public sealed record OwnRegistration(
-    string ManagerId, string StampId, string State, string ClubName, string KeyThumbprint, DateTimeOffset ActivatedAt);
+    string ManagerId, string StampId, string State, string ClubName, string KeyThumbprint, DateTimeOffset ActivatedAt,
+    int StatusCheckIntervalSeconds);
 
-public sealed class GetOwnRegistrationHandler(IUnitOfWork unitOfWork, IRegistrationStore registrations, IClubHierarchyStore clubs)
+public sealed class GetOwnRegistrationHandler(
+    IUnitOfWork unitOfWork, IRegistrationStore registrations, IClubHierarchyStore clubs, IOptions<StatusReportingOptions> statusReporting)
 {
     public async Task<OperationResult<OwnRegistration>> HandleAsync(Guid registrationId, CancellationToken cancellationToken)
     {
@@ -25,6 +29,7 @@ public sealed class GetOwnRegistrationHandler(IUnitOfWork unitOfWork, IRegistrat
         return new OwnRegistration(
             registration.ManagerId.Value.ToString(), registration.StampId,
             registration.State == RegistrationState.Active ? "active" : "unregistering",
-            club.DisplayName.Value, registration.KeyThumbprint, registration.ActivatedAt.Value);
+            club.DisplayName.Value, registration.KeyThumbprint, registration.ActivatedAt.Value,
+            statusReporting.Value.IntervalSeconds);
     }
 }

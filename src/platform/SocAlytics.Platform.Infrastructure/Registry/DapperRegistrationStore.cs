@@ -118,19 +118,20 @@ internal sealed class DapperRegistrationStore(IDbSession session, IOptions<Regis
             new { Id = id, Expected = expectedState.ToApiName() }, cancellationToken);
 
     public async Task<RegistrationPage> ListAsync(
-        RegistrationState? state, int pageSize, string? continuationToken, CancellationToken cancellationToken)
+        RegistrationState? state, Guid? submittedBy, int pageSize, string? continuationToken, CancellationToken cancellationToken)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(pageSize, 1);
         var connection = await session.GetConnectionAsync(cancellationToken);
         var cursor = DecodeToken(continuationToken);
         var rows = (await connection.QueryAsync<Row>(new CommandDefinition(
             $"SELECT {Columns} FROM socalytics.analyst_manager_registration " +
-            "WHERE (@State::text IS NULL OR state = @State) " +
+            "WHERE (@State::text IS NULL OR state = @State) AND (@SubmittedBy::uuid IS NULL OR submitted_by = @SubmittedBy::uuid) " +
             "AND (@CursorId::uuid IS NULL OR (created_at, id) < (@CursorCreated::timestamptz, @CursorId::uuid)) " +
             "ORDER BY created_at DESC, id DESC LIMIT @Take",
             new
             {
                 State = state?.ToApiName(),
+                SubmittedBy = submittedBy,
                 CursorId = cursor?.Id,
                 CursorCreated = cursor?.CreatedAt,
                 Take = pageSize + 1,

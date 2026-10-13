@@ -102,6 +102,10 @@ public sealed class DeviceMetadata
         {
             errors.Add(new("hostLabel", "Optional, 1 to 64 characters."));
         }
+        else if (hostLabel is not null && hostLabel.Any(char.IsControl))
+        {
+            errors.Add(new("hostLabel", "Must not contain control characters."));
+        }
 
         violations = errors;
         metadata = errors.Count == 0

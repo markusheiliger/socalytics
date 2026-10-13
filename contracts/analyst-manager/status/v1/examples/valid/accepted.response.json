@@ -1,0 +1,1 @@
+{ "managerId": "fixture-manager-0001", "stampId": "fixture-stamp", "state": "active", "clubName": "Fixture Club", "keyThumbprint": "fixture-thumbprint", "activatedAt": "2026-01-01T00:00:00Z", "statusCheckIntervalSeconds": 60, "reportAccepted": true, "reportViolations": [] }

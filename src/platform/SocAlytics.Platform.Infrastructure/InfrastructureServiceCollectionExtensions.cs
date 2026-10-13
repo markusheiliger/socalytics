@@ -49,6 +49,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IProofReplayStore, SocAlytics.Platform.Infrastructure.Registry.DapperProofReplayStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IManagerAccessTokenStore, SocAlytics.Platform.Infrastructure.Registry.DapperManagerAccessTokenStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IManagerProofValidator, SocAlytics.Platform.Infrastructure.Registry.JoseManagerProofValidator>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.StatusReporting.IManagerStatusStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.ManagerStatusStore>();
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
         services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.Analysis.AnalysisRunScopeSource>();
