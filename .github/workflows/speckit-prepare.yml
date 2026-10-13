@@ -134,18 +134,39 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install Copilot CLI
-        run: npm install --global @github/copilot
+      # Only the speckit-copilot action and its script, from the default branch.
+      - name: Check out the Copilot action
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tooling
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/speckit-copilot
+            .github/scripts/speckit-copilot.mjs
+          sparse-checkout-cone-mode: false
 
       # The prompt holds all context, so the model gets no tools, MCP servers, or repository access.
       - name: Run dependency inference
-        working-directory: ${{ runner.temp }}/speckit-prepare
+        id: infer
+        uses: ./tooling/.github/actions/speckit-copilot
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          COPILOT_GITHUB_TOKEN: ${{ github.token }}
+        with:
+          level: light
+          mode: inference
+          prompt-file: prompt.txt
+          timeout: 10m
+          working-directory: ${{ runner.temp }}/speckit-prepare
+          output-file: ${{ runner.temp }}/speckit-prepare/inference.txt
+
+      # Fails the job when Copilot CLI failed, so no inference is applied.
+      - name: Show the inference output
+        env:
+          EXIT_CODE: ${{ steps.infer.outputs.exit-code }}
         run: |
-          copilot -p "$(cat prompt.txt)" -s --available-tools= --disable-builtin-mcps \
-            --no-custom-instructions --no-ask-user --no-color --no-auto-update > inference.txt
-          cat inference.txt
+          cat "$RUNNER_TEMP/speckit-prepare/inference.txt"
+          exit "${EXIT_CODE:-1}"
 
       - name: Upload the inference output
         uses: actions/upload-artifact@v7

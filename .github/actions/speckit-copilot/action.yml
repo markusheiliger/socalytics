@@ -1,0 +1,154 @@
+name: Spec Kit Copilot CLI
+description: >-
+  Runs Copilot CLI for the Spec Kit workflows with a model chosen by strength level. The levels and their models live
+  in models.json next to this file, the only place that maps work to models; callers pass a level (for example light,
+  standard, strong) and may override model or effort for a rare exception. An empty value or "auto" lets Copilot CLI
+  pick its default model.
+  When the CLI rejects the chosen model or effort before the agent starts, the action logs a warning and retries once
+  with the default model. The caller provides Node.js and the token as COPILOT_GITHUB_TOKEN in the step env, and loads
+  this action from the trusted default-branch checkout, so an agent cannot change the model, flags, or deny lists.
+inputs:
+  level:
+    description: Strength level of the model, a key of models.json (for example light, standard, strong)
+    required: true
+  model:
+    description: Optional model that overrides the level's model ("auto" for the CLI default)
+    required: false
+    default: ""
+  effort:
+    description: Optional reasoning effort that overrides the level's effort
+    required: false
+    default: ""
+  mode:
+    description: >-
+      inference (no tools, silent output) or agent (all tools except git push, git commit, gh, curl, wget, and the
+      deny-tools patterns)
+    required: true
+  deny-tools:
+    description: Additional tool patterns the agent may not use, one per line (agent mode)
+    required: false
+    default: ""
+  prompt:
+    description: The prompt text (use prompt-file for long prompts)
+    required: false
+    default: ""
+  prompt-file:
+    description: Path of a file holding the prompt, relative to the working directory
+    required: false
+    default: ""
+  ai-credits:
+    description: Optional AI-credit budget for one run (--max-ai-credits)
+    required: false
+    default: ""
+  timeout:
+    description: Time limit for one run, in the format of the timeout command (for example 60m)
+    required: false
+    default: 60m
+  working-directory:
+    description: Directory the CLI runs in
+    required: false
+    default: .
+  output-file:
+    description: Absolute path of the file that receives standard output; standard error goes to <output-file>.stderr
+    required: true
+  output-format:
+    description: text or json
+    required: false
+    default: text
+  exit-code-file:
+    description: Optional file that receives the exit code of the final run
+    required: false
+    default: ""
+  cli-version:
+    description: Copilot CLI version to install
+    required: false
+    default: 1.0.96
+outputs:
+  model:
+    description: The model of the final run, or auto when Copilot CLI chose its default
+    value: ${{ steps.run.outputs.model }}
+  effort:
+    description: The reasoning effort of the final run, or default
+    value: ${{ steps.run.outputs.effort }}
+  fell-back:
+    description: true when the configured model or effort was rejected and the run was retried with the default model
+    value: ${{ steps.run.outputs.fell-back }}
+  exit-code:
+    description: Exit code of the final run; the action does not fail on it, the caller decides
+    value: ${{ steps.run.outputs.exit-code }}
+runs:
+  using: composite
+  steps:
+    - name: Install Copilot CLI
+      shell: bash
+      env:
+        CLI_VERSION: ${{ inputs.cli-version }}
+      run: npm install --global "@github/copilot@${CLI_VERSION:-latest}" --no-audit --no-fund --loglevel=error
+
+    # The levels and their models live in models.json next to this file; workflows only name a level.
+    - name: Resolve the model
+      id: model
+      shell: bash
+      env:
+        SPECKIT_LEVEL: ${{ inputs.level }}
+        SPECKIT_MODEL_OVERRIDE: ${{ inputs.model }}
+        SPECKIT_EFFORT_OVERRIDE: ${{ inputs.effort }}
+      run: node "$GITHUB_ACTION_PATH/../../scripts/speckit-copilot.mjs" resolve --models "$GITHUB_ACTION_PATH/models.json"
+
+    - name: Run Copilot CLI
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        SPECKIT_MODE: ${{ inputs.mode }}
+        SPECKIT_MODEL: ${{ steps.model.outputs.model }}
+        SPECKIT_EFFORT: ${{ steps.model.outputs.effort }}
+        SPECKIT_DENY_TOOLS: ${{ inputs.deny-tools }}
+        SPECKIT_AI_CREDITS: ${{ inputs.ai-credits }}
+        SPECKIT_OUTPUT_FORMAT: ${{ inputs.output-format }}
+        PROMPT: ${{ inputs.prompt }}
+        PROMPT_FILE: ${{ inputs.prompt-file }}
+        TIME_LIMIT: ${{ inputs.timeout }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+        EXIT_CODE_FILE: ${{ inputs.exit-code-file }}
+      run: |
+        set +e -uo pipefail
+        script="$GITHUB_ACTION_PATH/../../scripts/speckit-copilot.mjs"
+        if [ -n "$PROMPT_FILE" ]; then PROMPT="$(cat "$PROMPT_FILE")"; fi
+        if [ -z "$PROMPT" ]; then echo "::error::Pass prompt or prompt-file."; exit 2; fi
+        mkdir -p "$(dirname "$OUTPUT_FILE")"
+        args_file="$(mktemp)"
+
+        # Runs the CLI once; stderr is kept for the rejection check and repeated in the log afterwards.
+        run_copilot() {
+          node "$script" args --out "$args_file" "$@" || exit 2
+          mapfile -d '' args < "$args_file"
+          timeout --kill-after=60s "$TIME_LIMIT" copilot -p "$PROMPT" "${args[@]}" \
+            > "$OUTPUT_FILE" 2> "$OUTPUT_FILE.stderr"
+          local result=$?
+          cat "$OUTPUT_FILE.stderr" >&2
+          return "$result"
+        }
+
+        model="${SPECKIT_MODEL:-auto}"
+        effort="${SPECKIT_EFFORT:-default}"
+        fell_back=false
+        run_copilot
+        code=$?
+        if [ "$code" -ne 0 ] && { [ -n "$SPECKIT_MODEL" ] || [ -n "$SPECKIT_EFFORT" ]; } \
+          && node "$script" rejected "$OUTPUT_FILE.stderr" "$OUTPUT_FILE"; then
+          echo "::warning::Copilot CLI rejected model ${model} with reasoning effort ${effort}; retrying once with its default model."
+          model=auto
+          effort=default
+          fell_back=true
+          run_copilot --auto
+          code=$?
+        fi
+
+        if [ -n "$EXIT_CODE_FILE" ]; then echo "$code" > "$EXIT_CODE_FILE"; fi
+        {
+          echo "model=$model"
+          echo "effort=$effort"
+          echo "fell-back=$fell_back"
+          echo "exit-code=$code"
+        } >> "$GITHUB_OUTPUT"

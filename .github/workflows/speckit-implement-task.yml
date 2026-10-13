@@ -112,9 +112,6 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install Copilot CLI
-        run: npm install --global @github/copilot
-
       # Optional, solution-owned extension point; loaded from the trusted tooling checkout, never from the workspace.
       - name: Set up the solution environment
         if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
@@ -135,44 +132,45 @@ jobs:
           if [ -d "workspace/specs/$FOLDER" ]; then dir="specs/$FOLDER"; else dir="specs/archive/$FOLDER"; fi
           echo "SPECIFY_FEATURE_DIRECTORY=$dir" >> "$GITHUB_ENV"
 
-      # The token reaches Copilot CLI only as COPILOT_GITHUB_TOKEN, which --secret-env-vars strips from the
+      # The speckit-copilot action comes from the trusted tooling checkout, so the agent cannot change its model, flags,
+      # or deny lists. The token reaches Copilot CLI only as COPILOT_GITHUB_TOKEN, which the action strips from the
       # agent's shells. The job token is read-only, so even a leaked token cannot push.
       - name: Run Copilot CLI
         if: inputs.kind != 'resolve'
-        working-directory: workspace
+        uses: ./tooling/.github/actions/speckit-copilot
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
-          PROMPT: ${{ matrix.prompt }}
-          AI_CREDITS: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
-        run: |
-          mkdir -p "$SPECKIT_RESULT_DIR"
-          set +e
-          timeout --kill-after=60s 60m copilot -p "$PROMPT" \
-            --no-ask-user --no-auto-update --allow-all-tools --disable-builtin-mcps \
-            --deny-tool 'shell(git push:*)' --deny-tool 'shell(git commit:*)' --deny-tool 'shell(gh:*)' \
-            --deny-tool 'shell(curl:*)' --deny-tool 'shell(wget:*)' \
-            --secret-env-vars=COPILOT_GITHUB_TOKEN --max-ai-credits "$AI_CREDITS" \
-            --output-format json > "$SPECKIT_RESULT_DIR/agent.jsonl"
-          echo "$?" > "$SPECKIT_RESULT_DIR/agent-exit.txt"
+        with:
+          level: ${{ inputs.kind == 'converge' && 'strong' || 'standard' }}
+          mode: agent
+          prompt: ${{ matrix.prompt }}
+          ai-credits: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
+          working-directory: workspace
+          output-format: json
+          output-file: ${{ env.SPECKIT_RESULT_DIR }}/agent.jsonl
+          exit-code-file: ${{ env.SPECKIT_RESULT_DIR }}/agent-exit.txt
 
       - name: Resolve the conflicts with Copilot CLI
         if: inputs.kind == 'resolve' && steps.integrate.outputs.agent == 'true'
-        working-directory: workspace
+        uses: ./tooling/.github/actions/speckit-copilot
         env:
           COPILOT_GITHUB_TOKEN: ${{ github.token }}
-          PROMPT: ${{ steps.integrate.outputs.prompt }}
-          AI_CREDITS: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
-        run: |
-          set +e
-          timeout --kill-after=60s 60m copilot -p "$PROMPT" \
-            --no-ask-user --no-auto-update --allow-all-tools --disable-builtin-mcps \
-            --deny-tool 'shell(git push:*)' --deny-tool 'shell(git commit:*)' --deny-tool 'shell(git merge:*)' \
-            --deny-tool 'shell(git checkout:*)' --deny-tool 'shell(git reset:*)' --deny-tool 'shell(git restore:*)' \
-            --deny-tool 'shell(git stash:*)' --deny-tool 'shell(git rebase:*)' --deny-tool 'shell(gh:*)' \
-            --deny-tool 'shell(curl:*)' --deny-tool 'shell(wget:*)' \
-            --secret-env-vars=COPILOT_GITHUB_TOKEN --max-ai-credits "$AI_CREDITS" \
-            --output-format json > "$SPECKIT_RESULT_DIR/agent.jsonl"
-          echo "$?" > "$SPECKIT_RESULT_DIR/agent-exit.txt"
+        with:
+          level: standard
+          mode: agent
+          deny-tools: |
+            shell(git merge:*)
+            shell(git checkout:*)
+            shell(git reset:*)
+            shell(git restore:*)
+            shell(git stash:*)
+            shell(git rebase:*)
+          prompt: ${{ steps.integrate.outputs.prompt }}
+          ai-credits: ${{ vars.SPECKIT_TASK_AI_CREDITS || '1000' }}
+          working-directory: workspace
+          output-format: json
+          output-file: ${{ env.SPECKIT_RESULT_DIR }}/agent.jsonl
+          exit-code-file: ${{ env.SPECKIT_RESULT_DIR }}/agent-exit.txt
 
       - name: Package the result
         id: package

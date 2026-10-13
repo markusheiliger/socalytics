@@ -92,6 +92,41 @@ resolution, or the merge. The merge first archives the spec to `specs/archive/<f
 always show as skipped. Prepare, orchestrate, and implement spec also have a `refuse` job that only runs, and fails, when
 started from a branch other than the default branch.
 
+## Copilot CLI and model levels
+
+Every Copilot CLI run of these workflows goes through the composite action
+[speckit-copilot](../actions/speckit-copilot/action.yml), loaded from the trusted default-branch checkout, so an agent
+cannot change its own model, flags, or deny lists. The agentic workflows (diagnose, analyze) use gh-aw's own engine
+settings instead.
+
+Callers choose a strength level, not a model. The levels and their models live in
+[models.json](../actions/speckit-copilot/models.json) next to the action, the only place to change models; a new level
+is one more entry there:
+
+```json
+{ "levels": { "light": { "model": "claude-haiku-5.5", "effort": "medium" } } }
+```
+
+| Level | Model | Reasoning effort | Used by |
+| --- | --- | --- | --- |
+| `light` | `claude-haiku-5.5` | `medium` | Prepare: dependency inference |
+| `standard` | `claude-sonnet-5.5` | `high` | Implement task: tasks and conflict resolution |
+| `strong` | `claude-opus-5.5` | `high` | Implement task: convergence |
+
+- The action's `model` and `effort` inputs override the level for a rare exception.
+- An empty value or `auto` lets Copilot CLI pick its default model.
+- When the CLI rejects the chosen model or effort before the agent starts, the action logs a warning and retries once
+  with the default model; its outputs `model` and `fell-back` show what ran.
+- Mode `inference` gives the model no tools. Mode `agent` allows all tools except `git push`, `git commit`, `gh`,
+  `curl`, `wget`, and the caller's `deny-tools`.
+- The action pins the Copilot CLI version (`cli-version`).
+- Stronger models use the AI-credit budget (`SPECKIT_TASK_AI_CREDITS`, default 1000 per run) faster; raise it when a
+  level moves to a stronger model.
+
+The logic (level resolution, arguments, rejection detection) lives in
+[speckit-copilot.mjs](../scripts/speckit-copilot.mjs) and is covered by its tests, including a check that
+`models.json` is valid and that every `level` used in a workflow exists in it.
+
 ## Editing
 
 The agentic workflows are authored in their `.md` file. Recompile them with `gh aw compile` and never hand-edit the

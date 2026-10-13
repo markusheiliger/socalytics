@@ -46,6 +46,7 @@
 - Changed files that no check covers are listed in the task comments and hold the pull request for review instead of an automatic merge.
 - All Spec Kit workflows refuse to run from branches other than the default branch. The tooling never assumes the default branch is named `main`: workflows pass it as `SPECKIT_DEFAULT_BRANCH`, local scripts ask GitHub, and every merge, comparison, and link of an implementation uses the pull request's base branch instead. Keep that guard, the `pull_request_target` trigger, and the separate tooling checkout when changing them, and never give a job that runs agent-written code a token that can write.
 - Tooling lives in `.github/scripts/speckit-*.mjs`. Run `node --test .github/scripts/speckit-*.test.mjs` after changing it, and keep a readable `name:` on every workflow job and step.
+- Every Copilot CLI run in the Spec Kit workflows goes through the composite action `.github/actions/speckit-copilot`, loaded from the trusted tooling checkout. Callers pass a strength level (`light`, `standard`, `strong`); `.github/actions/speckit-copilot/models.json` is the only place to change models or add a level (see `.github/workflows/README.md`, "Copilot CLI and model levels"). Do not call `copilot` directly in a workflow.
 
 ## Repository Setup
 
