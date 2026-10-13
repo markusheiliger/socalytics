@@ -78,7 +78,7 @@ description: "Task list for Web UI Foundation"
 **Independent Test**: Sign in as Club Admin, Coach, and Viewer and compare navigation; stop the platform and observe the connectivity state.
 
 - [x] T012 [US2] Shell and role-based navigation (contracts/routes-and-roles.md; FR-011, FR-012, FR-013; SC-005): add `src/clients/web/src/shell/AppLayout.tsx`, `src/shell/Navigation.tsx` (exactly the routes the member's club and team roles allow), `src/shell/NotPermittedPage.tsx`, `src/shell/NotFoundPage.tsx`, `src/features/home/HomePage.tsx`, and the connectivity indicator that disables state-changing actions while unreachable, with keys in `src/i18n/en/shell.json`; wire them into `src/router.tsx`. Add the translation-key coverage test `tests/unit/i18n/keys.test.ts` (fails on literal JSX text in `src/features/**` and `src/shell/**`). Unit tests in `tests/unit/shell/`; browser tests in `tests/e2e/simulated/navigation.spec.ts` for US2 scenarios 1–5 with axe checks on every view.
-- [ ] T013 [US2] Platform end-to-end role navigation (SC-005): add `src/clients/web/tests/e2e/platform/navigation.spec.ts`, which creates a Coach and a Viewer through the API with the Club Admin's session in test setup and compares each member's navigation with contracts/routes-and-roles.md.
+- [X] T013 [US2] Platform end-to-end role navigation (SC-005): add `src/clients/web/tests/e2e/platform/navigation.spec.ts`, which creates a Coach and a Viewer through the API with the Club Admin's session in test setup and compares each member's navigation with contracts/routes-and-roles.md.
 
 **Checkpoint**: User Stories 1 and 2 work independently.
 

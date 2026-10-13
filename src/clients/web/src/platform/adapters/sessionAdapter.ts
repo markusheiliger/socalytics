@@ -6,7 +6,9 @@ import {
 } from '@microsoft/kiota-abstractions';
 import {
   createProblemDetailsFromDiscriminatorValue,
+  createCurrentMemberDtoFromDiscriminatorValue,
   createSessionInfoDtoFromDiscriminatorValue,
+  type CurrentMemberDto,
   type SessionInfoDto,
 } from '../../generated/platform-api/models';
 import type { PlatformApiClient } from '../../generated/platform-api/platformApiClient';
@@ -26,10 +28,15 @@ const errorMappings = {
   XXX: createProblemDetailsFromDiscriminatorValue as ParsableFactory<Parsable>,
 };
 
-const CLUB_ROLES: readonly string[] = ['ClubAdmin', 'Registrar'];
-const TEAM_ROLES: readonly string[] = ['Coach', 'Viewer'];
+const CLUB_ROLES: readonly ClubRole[] = ['ClubAdmin', 'Registrar'];
+const TEAM_ROLES: readonly TeamRoleName[] = ['Coach', 'Viewer'];
 
-export function toSession(dto: SessionInfoDto | undefined): Session {
+// The platform sends kebab-case wire values (`club-admin`, `coach`).
+const normalizeRole = (value: string | null | undefined) => (value ?? '').replace(/-/g, '').toLowerCase();
+const findRole = <T extends string>(roles: readonly T[], value: string | null | undefined): T | undefined =>
+  roles.find((role) => role.toLowerCase() === normalizeRole(value));
+
+export function toSession(dto: SessionInfoDto | undefined, teamRoleSource?: CurrentMemberDto): Session {
   const member = dto?.member;
   if (
     !dto ||
@@ -44,11 +51,12 @@ export function toSession(dto: SessionInfoDto | undefined): Session {
   ) {
     throw new PlatformFailure('incompatible');
   }
-  const teamRoles = (member.teamRoles ?? []).flatMap((r): TeamRole[] =>
-    r.teamId && r.seasonId && r.teamName !== undefined && r.teamName !== null && TEAM_ROLES.includes(r.role ?? '')
-      ? [{ teamId: r.teamId.toString(), teamName: r.teamName, seasonId: r.seasonId.toString(), role: r.role as TeamRoleName }]
-      : [],
-  );
+  const teamRoles = (teamRoleSource?.teamRoles ?? member.teamRoles ?? []).flatMap((r): TeamRole[] => {
+    const role = findRole(TEAM_ROLES, r.role);
+    return r.teamId && r.seasonId && r.teamName !== undefined && r.teamName !== null && role
+      ? [{ teamId: r.teamId.toString(), teamName: r.teamName, seasonId: r.seasonId.toString(), role }]
+      : [];
+  });
   return {
     sessionId: dto.sessionId.toString(),
     idleExpiresAt: dto.idleExpiresAt,
@@ -59,7 +67,7 @@ export function toSession(dto: SessionInfoDto | undefined): Session {
       id: member.id.toString(),
       accountName: member.accountName,
       membershipStatus: member.membershipStatus ?? '',
-      clubRoles: (member.clubRoles ?? []).filter((r): r is ClubRole => CLUB_ROLES.includes(r)),
+      clubRoles: (member.clubRoles ?? []).flatMap((r) => findRole(CLUB_ROLES, r) ?? []),
       teamRoles,
     },
   };
@@ -73,9 +81,14 @@ export function createSessionAdapter(api: { adapter: RequestAdapter; client: Pla
     return info;
   };
 
+  // The session response carries no team roles; they come from the member's own profile.
   const sendSession = async (info: RequestInformation) => {
     try {
-      return toSession(await adapter.send(info, createSessionInfoDtoFromDiscriminatorValue, errorMappings));
+      const dto = (await adapter.send(info, createSessionInfoDtoFromDiscriminatorValue, errorMappings)) as SessionInfoDto | undefined;
+      const me = dto && dto.passwordChangeRequired === false
+        ? ((await adapter.send(client.api.v1.me.toGetRequestInformation(), createCurrentMemberDtoFromDiscriminatorValue, errorMappings)) as CurrentMemberDto | undefined)
+        : undefined;
+      return toSession(dto, me);
     } catch (error) {
       throw toPlatformFailure(error);
     }

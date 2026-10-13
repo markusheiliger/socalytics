@@ -37,6 +37,21 @@ const problem = (status: number, code: string) =>
   new Response(JSON.stringify({ status, code }), { status, headers: { 'Content-Type': 'application/problem+json' } });
 
 describe('sessionAdapter', () => {
+  it('maps the kebab-case role values the platform sends', async () => {
+    const wire = {
+      ...sessionBody,
+      member: {
+        ...sessionBody.member,
+        clubRoles: ['club-admin', 'registrar'],
+        teamRoles: [{ ...sessionBody.member.teamRoles[0], role: 'viewer' }],
+      },
+    };
+    const { adapter } = setup(() => ok(200, wire));
+    const session = await adapter.restore();
+    expect(session.member.clubRoles).toEqual(['ClubAdmin', 'Registrar']);
+    expect(session.member.teamRoles[0].role).toBe('Viewer');
+  });
+
   it('signs in with a JSON body and maps the session to a plain model', async () => {
     const { adapter, calls } = setup(() => ok(200, sessionBody));
     const session = await adapter.signIn('ada', 'pw');

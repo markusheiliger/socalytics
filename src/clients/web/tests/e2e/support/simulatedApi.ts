@@ -184,6 +184,9 @@ export class SimulatedApi {
       this.current = null;
       return route.fulfill({ status: 204 });
     }
+    if (path === '/me' && method === 'GET') {
+      return json(200, { ...members[role], passwordChangeRequired });
+    }
     if (path === '/me/password' && method === 'POST') {
       this.current = { role, passwordChangeRequired: false };
       return route.fulfill({ status: 204 });
