@@ -35,7 +35,7 @@ Contents:
 - Preprocessing
 - Tiling
 - Postprocessing
-- Result uploader
+- Result writer for the job's result mount
 - Versioned `analyst-manifest.json`
 
 ### Image Metadata And Packaging
@@ -170,23 +170,47 @@ Every tier emits a versioned result manifest containing:
 - optional supporting video-segment identifiers that the API can resolve,
     never embedded credentials or durable presigned URLs
 
-The AC writes immutable result artifacts and the manifest to stamp-local
-object storage, then completes through the Manager and API callback. Before
-acceptance, the API validates the current fenced attempt, manifest and schema,
-team and match scope, pinned Analyst-profile, image and model digests, declared
-dependencies, complete lineage, and that every emitted fact falls within the
-nominal half-open validity window. It then marks the result accepted and indexes
-queryable facts in stamp metadata. ACs never write metadata tables directly.
+The AC writes its immutable result artifacts and the manifest into the job's
+result mount; it receives no object-storage write credentials. The AM checks
+the manifest against the versioned result-manifest contract and never uploads
+a manifest that violates it; it then reports a failed attempt. Otherwise the AM
+stores the objects in stamp-local object storage through short-lived write
+grants that the API issues per object for the attempt's own result location;
+each grant fixes the object's name, size, and digest and never outlives the
+attempt's lease. The AM then completes through the API callback. Before
+acceptance, the API reads the manifest from storage and validates the current
+fenced attempt, the manifest's checksum and schema, team and match scope,
+pinned Analyst-profile, image and model digests, declared dependencies,
+complete lineage, the stored artifacts' digests, and that every emitted fact
+falls within the nominal half-open validity window. A manifest that fails any
+check ends the attempt as failed with a named reason, and the normal retry
+rules apply. The API then marks the result accepted and indexes queryable facts
+in stamp metadata. ACs never write metadata tables directly. The result write
+grants, the result-manifest contract, and this validation are decided but not
+yet implemented; fact indexing remains future work.
 
 ### Capability-Scoped Result Access
 
 A high-level job receives its team, match, analysis-run, and accepted-
-dependency context. It retrieves accepted upstream data through one
+dependency context. Its accepted upstream data is retrieved through one
 capability-scoped, schema-versioned API pattern. A query identifies the analysis
 run, capability and schema version, match or team scope, optional segment or
 time range, and pagination. The response uses a stable envelope with a
-capability-owned payload and explicitly reports missing, blocked, failed, or
-superseded coverage.
+capability-owned payload and explicitly reports coverage per expected upstream
+segment as accepted, missing, failed, blocked, or skipped. Within one run,
+accepted results are never superseded; supersession applies only across runs,
+which a job's read never crosses.
+
+The AM performs that query on the AC's behalf, because ACs receive no platform
+credentials. Before launching a high-level attempt, the AM reads every upstream
+dependency of the job for the current, unfenced attempt. It downloads each
+accepted result's manifest and artifacts through short-lived per-object read
+grants and verifies their digests. It then stages them, with the coverage, into
+the attempt's read-only input mount. The AC reads only from that mount. The read
+returns exactly the accepted results recorded in the job's input snapshot, so
+the staged inputs equal what acceptance checks as lineage. Staged inputs are
+bounded by a configured size and deleted when the attempt ends. This
+Manager-mediated read is decided but not yet implemented.
 
 Only accepted results are visible. Every response and reference is constrained
 to the job's authorized team and match, and Analysts never query PostgreSQL

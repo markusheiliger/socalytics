@@ -50,23 +50,22 @@ sequenceDiagram
   expires after a configured lifetime, and expiry aborts its multipart upload
   and discards its stored parts. The API never reads or relays the media.
 
-### Planned Recording-Lineage Foundation
+### Recording-Lineage Foundation
 
 The Recordings functional area persists, in the platform's
 application schema, upload sessions as its only mutable aggregate, and
 immutable recording versions, immutable timeline mappings, finalized
 recording-set versions, ordered memberships, scoped idempotency outcomes, and
 exactly one immutable recordings-finalized event record per recording-set
-version, committed in the same transaction as the set. The Durable Analysis
-workflow will introduce the platform outbox and NATS publisher, add the outbox
-call to the finalization handler, and backfill records finalized before it; it
-will publish them to `matches.recordings-finalized`, track publication state
-separately, and never rewrite the record. Match and Team existence and
+version, committed in the same transaction as the set. The finalization
+handler also writes the event to the platform outbox in that transaction; the
+outbox publisher delivers it to `matches.recordings-finalized`, tracks
+publication state separately, and never rewrites the record. Match and Team existence and
 authorization are resolved through the Club and Identity and Access application
 handlers; downstream validation uses a typed Recordings lineage query rather
 than reading Recordings tables directly.
 
-Its implementation tests must cover immutable metadata and mapping revisions,
+Its integration tests cover immutable metadata and mapping revisions,
 mapping/recording mismatch, missing Match and unauthorized Team access, empty
 or cross-scope sets, atomic finalization and rollback, replay behavior, one
 canonical finalized event, and revision through a new recording-set identity.

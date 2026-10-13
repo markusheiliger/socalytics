@@ -12,7 +12,7 @@
 
 ## Authority Boundaries
 
-- `docs/architecture/` is authoritative for the coherent current system design.
+- `docs/architecture/` is authoritative for the coherent current system design, and at merge it must describe the implemented state (constitution Principle I): every plan has an `## Architecture Updates` section (or `None` with a reason), and each feature's documentation task corrects every architecture statement it makes false, including planned, future-tense, or unimplemented wording outside its own sections.
 - Component-local executable contracts and implementation guidance belong with the component that owns and validates them.
 - Preserve unresolved decisions explicitly. Do not present provisional values, target-state descriptions, or missing production evidence as adopted facts.
 
@@ -28,6 +28,7 @@
 - `.specify/extension-src/gha/` is the source of the repository-local Spec Kit extension `gha`. After changing it, reinstall with `specify extension add .specify/extension-src/gha --dev --force`, replace any generated `.github/skills/speckit-gha-*/SKILL.md` symbolic links with regular files as described in its README, and commit the source together with the generated `.specify/extensions/`, `.specify/extensions.yml`, and skill files.
 - Do not run `/speckit-taskstoissues`. Features, not tasks, are mirrored to GitHub as spec twins by `.github/workflows/speckit-prepare.yml`.
 - `/speckit-tasks` ends with the `gha` extension's mandatory `after_tasks` hook `/speckit-gha-refine`, which makes the `[P]` groups of `tasks.md` safe: consecutive unchecked `[P]` tasks under one heading run in parallel, so their predicted file changes (including registrations, project files, and shared configuration) must not overlap. It changes only `tasks.md`, separates groups with `###` or `####` headings (never `##`, which starts a phase), and for a spec already being implemented only fixes conflicting groups without moving or renumbering tasks. `node .github/scripts/speckit-tasks-groups.mjs <folder>` prints the task order as the workflow plans it.
+- `/speckit-plan` ends with the `gha` extension's mandatory `after_plan` hook `/speckit-gha-architecture`, which writes the `## Architecture Updates` section of `plan.md` (affected narratives, design updates applied now, status statements to correct at merge) and requires an outcome-based documentation task; `speckit-author.mjs status` refuses to publish without the section, or, unless it says `None`, without a task that references `docs/architecture/`. `/speckit-converge` starts with the mandatory `before_converge` hook `/speckit-gha-drift`, a read-only check of `docs/architecture/` against the implementation whose findings become convergence tasks. Implementation branches created before a hook existed get it after `/speckit sync`. Diagnosis amendments never edit `docs/architecture/`; they carry a changed design decision into an unchecked documentation task.
 
 ## Spec Twins
 

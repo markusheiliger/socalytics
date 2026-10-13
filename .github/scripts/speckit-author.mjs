@@ -10,6 +10,27 @@ import { UsageError, defaultGit, resolveFolder } from './speckit-orchestrate.mjs
 
 const NEEDS_CLARIFICATION = /\[NEEDS CLARIFICATION/g;
 const CLARIFICATION_SESSION = /^###\s+Session\b/;
+const ARCHITECTURE_HEADING = /^##\s+Architecture Updates\s*$/;
+const ARCHITECTURE_TASK = /^\s*-\s+\[[ xX]\]\s+T\d+\b.*docs\/architecture\//;
+
+// The `## Architecture Updates` section of a plan.md (constitution Principle I): whether it exists, and whether it
+// declares that the feature has no architectural effect (its first non-empty line starts with "None").
+export function architectureUpdates(planMarkdown) {
+  const lines = String(planMarkdown ?? '').replaceAll('\r\n', '\n').split('\n');
+  const start = lines.findIndex((line) => ARCHITECTURE_HEADING.test(line.trim()));
+  if (start === -1) return { present: false, none: false };
+  const body = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^##\s/.test(line)) break;
+    body.push(line);
+  }
+  const first = body.map((line) => line.trim()).find(Boolean) ?? '';
+  return { present: true, none: /^[*_`]*None\b/i.test(first) };
+}
+
+export function hasArchitectureTask(tasksMarkdown) {
+  return String(tasksMarkdown ?? '').split(/\r?\n/).some((line) => ARCHITECTURE_TASK.test(line));
+}
 
 export function countClarificationSessions(specMarkdown) {
   const lines = specMarkdown.replaceAll('\r\n', '\n').split('\n');
@@ -42,6 +63,12 @@ export function publishBlockers(facts) {
   const reasons = implementBlockers({ folder: facts.folder, computedStage: stage, openChecklistItems: facts.openChecklistItems });
   if (facts.openClarificationMarkers > 0) reasons.push(`spec.md still contains ${facts.openClarificationMarkers} [NEEDS CLARIFICATION] marker(s)`);
   if (!facts.listedInSpecsReadme) reasons.push(`specs/README.md does not list specs/${facts.folder} yet`);
+  // `architecture` is present once plan.md exists.
+  if (facts.architecture && !facts.architecture.present) {
+    reasons.push('plan.md has no `## Architecture Updates` section (constitution Principle I); run /speckit-gha-architecture');
+  } else if (facts.architecture && !facts.architecture.none && facts.tasksMarkdown && !hasArchitectureTask(facts.tasksMarkdown)) {
+    reasons.push('tasks.md has no task that references docs/architecture/ although plan.md § Architecture Updates lists changes');
+  }
   return reasons;
 }
 
@@ -90,7 +117,8 @@ export function collectFacts({ rootDir, folder, git, env = {} }) {
   const checklistFiles = existsSync(checklistDir) ? readdirSync(checklistDir).filter((name) => name.endsWith('.md')).sort() : [];
   const checklists = checklistFiles.map((name) => ({ name, open: countOpenChecklistItems([readFileSync(path.join(checklistDir, name), 'utf8')]) }));
   const readme = path.join(rootDir, 'specs', 'README.md');
-  const hasPlan = read('plan.md') !== null;
+  const planMarkdown = read('plan.md');
+  const hasPlan = planMarkdown !== null;
   return {
     folder,
     archived,
@@ -99,6 +127,7 @@ export function collectFacts({ rootDir, folder, git, env = {} }) {
     hasTasks: tasksMarkdown !== null,
     artifacts: [...(specMarkdown === null ? [] : ['spec.md']), ...(hasPlan ? ['plan.md'] : []), ...(tasksMarkdown === null ? [] : ['tasks.md'])],
     tasksMarkdown,
+    architecture: hasPlan ? architectureUpdates(planMarkdown) : null,
     clarificationSessions: specMarkdown ? countClarificationSessions(specMarkdown) : 0,
     openClarificationMarkers: specMarkdown ? (specMarkdown.match(NEEDS_CLARIFICATION) ?? []).length : 0,
     checklists,

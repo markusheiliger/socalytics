@@ -63,7 +63,7 @@ evidence references.
 
 | ID | Data class | Classification | Purpose and authoritative owner | Permitted locations and copies | Lifecycle policy |
 | --- | --- | --- | --- | --- | --- |
-| DAT-001 | Identity, role, team, and registration records | Restricted | API identity and domain functional areas | Stamp database, authorized indexes, replicas, backups | POL-001 |
+| DAT-001 | Identity, role, team, and registration records, including members' optional email addresses, their verification state, and notification preferences | Restricted | API identity and domain functional areas | Stamp database, authorized indexes, replicas, backups | POL-001 |
 | DAT-002 | Device keys, tokens, grants, and broker credentials | Secret | Issuing identity or credential service; protected endpoint for device keys | Protected keystore or issuing service; transient authorized process memory; secrets MUST NOT enter logs, caches, or backups unless explicitly required and protected | POL-002 |
 | DAT-003 | Source recordings and timeline mappings | Sensitive | Object storage for bytes; database for immutable references and mappings | Stamp object storage, metadata database, approved replicas and backups | POL-003 |
 | DAT-004 | Materialized segments and media caches | Sensitive | Segment Service and object storage | Stamp object storage and bounded processing caches; approved replicas and backups only when policy requires | POL-004 |
@@ -121,6 +121,7 @@ can be correlated with a person, team, match, stamp, or credential.
 | BND-007 | Platform to external identity and artifact services | Explicit trust configuration, provenance validation, minimum scopes, failure closed |
 | BND-008 | Active stores to caches, indexes, replicas, backups, and telemetry | Classification and lifecycle obligations propagate to every copy |
 | BND-009 | Privileged operator to stamp resources | Least privilege, separation of duties where practical, auditable use, no implicit cross-stamp access |
+| BND-010 | Platform to external email relay | Authenticated TLS submission, minimal message content, no credentials in notification links, verified recipient addresses only (see [Email Notifications](email-notifications.md)) |
 
 ## Control Catalog
 
@@ -157,6 +158,7 @@ remains Provisional; inclusion here does not promote it to Accepted.
 | THR-009 | Accidental or malicious deletion removes authoritative evidence or leaves unauthorized orphan copies | CTL-009, CTL-010 | Deletion request, authorization, copy inventory, purge result, tombstone, backup-expiry, and hold events | Asynchronous deletion and immutable backups delay physical removal; approved policy and restore suppression are required | Open / Blocking |
 | THR-010 | Shared storage, replica, cache, index, backup, or telemetry infrastructure leaks data | CTL-001, CTL-008, CTL-010, CTL-012 | Configuration evidence, access denials, copy inventory, residency and encryption checks | Provider/operator defects remain; deployment evidence and residual-risk acceptance are required | Open / Blocking |
 | THR-011 | Lifecycle policy is bypassed through an untracked copy or unsupported restore | CTL-009, CTL-010 | Periodic inventory reconciliation, orphan detection, restore suppression, and expiry evidence | Unknown copies cannot be governed; production deployment must enumerate every copy class | Open / Blocking |
+| THR-012 | Platform email across BND-010 is spoofed, misdirected, or discloses data to an unintended recipient | CTL-008, CTL-009 | Address change, verification, and preference audit events with masked addresses; delivery outcomes without full addresses or bodies | Copies at the relay and in mailboxes are outside stamp control; sender authentication, bounce handling, and relay residency are unresolved; minimal content limits exposure | Open / Blocking |
 
 ## Encryption And Secret Handling
 
@@ -220,6 +222,10 @@ persistent copy class before accepting data. Movement to another location,
 operator, or legal boundary requires authorization, encryption, an inventory
 update, and an audit event. This policy does not select a geography or provider.
 Unknown residency or an untracked replica or backup is production-blocking.
+Email messages submitted to the stamp's relay leave the stamp across `BND-010`;
+the relay's location and operator are part of the stamp's residency
+declaration, and message content stays minimal as
+[Email Notifications](email-notifications.md#message-content) requires.
 
 ## Audit Events
 
@@ -237,6 +243,7 @@ At minimum, authentication and authorization decisions, role changes, Manager
 registration and revocation, credential lifecycle, artifact authorization,
 attempt rejection and acceptance, policy changes, data export, deletion,
 retention expiry, hold lifecycle, restore suppression, vulnerability decisions,
+email address and notification-preference changes (with masked addresses),
 and declared security incidents require audit evidence.
 
 ## Supply Chain And Vulnerability Handling
@@ -331,7 +338,7 @@ uncovered when none of its reserved entries exists.
 | Actor `ACT-009` | `GOV-OWN-001` |
 | Data classes `DAT-001` through `DAT-010` | `GOV-OWN-002` through `GOV-OWN-011`, respectively |
 | Lifecycle policies `POL-001` through `POL-010` | `GOV-POL-001` through `GOV-POL-010`, respectively |
-| Threats `THR-001` through `THR-011` | `GOV-THR-001` through `GOV-THR-011`, respectively |
+| Threats `THR-001` through `THR-012` | `GOV-THR-001` through `GOV-THR-012`, respectively |
 | Copy classes Primary, Transport, Cache, Index, Telemetry, Replica, Backup, and Audit | `GOV-ENC-001` through `GOV-ENC-008`, respectively; handling is also constrained by the applicable `GOV-POL-*` and `GOV-RES-*` entries |
 | Data-class residency and movement for `DAT-001` through `DAT-010` across applicable copy classes | `GOV-RES-001` through `GOV-RES-010`, respectively |
 | Human sessions, device keys, Manager/workload tokens, NATS credentials, object grants, external identity credentials, signing keys, encryption keys, and recovery credentials | `GOV-CRED-001` through `GOV-CRED-009`, respectively |
@@ -355,7 +362,7 @@ entry range:
 | `GOV-OWN-002` through `GOV-OWN-011` | Actors and Assets / Data Classes and Data Handling Requirements (`DAT-001` through `DAT-010`) |
 | `GOV-OWN-012` through `GOV-OWN-026` | Production Deployment and Operations / Service Objectives and Ownership, Incident and Runbook Contract, and Validation and Promotion Evidence |
 | `GOV-POL-001` through `GOV-POL-010` | Retention, Deletion, And Holds / Lifecycle Policies (`POL-001` through `POL-010`) |
-| `GOV-THR-001` through `GOV-THR-011` | Threat Model (`THR-001` through `THR-011`) |
+| `GOV-THR-001` through `GOV-THR-012` | Threat Model (`THR-001` through `THR-012`) |
 | `GOV-ENC-001` through `GOV-ENC-008` | Storage And Copy Classes, Encryption And Secret Handling, and `CTL-008` |
 | `GOV-RES-001` through `GOV-RES-010` | Data Handling Requirements, Residency And Data Movement, and `DAT-001` through `DAT-010` |
 | `GOV-CRED-001` through `GOV-CRED-009` | Encryption And Secret Handling, `DAT-002`, `POL-002`, and `THR-003` |
@@ -383,7 +390,7 @@ owner, or approval value.
 | `GOV-OWN-002` through `GOV-OWN-011` | 1 | Before Production Promotion | Unresolved / Blocking - authorized data owner required per entry | Product/business; security/data-governance; accountable data-service owner | Unresolved / Blocking | Unresolved / Blocking | Accountable owner and approved handling authority for each data class | Attributable owner assignment, handling decision, and exact linked policy version |
 | `GOV-OWN-012` through `GOV-OWN-026` | 1 | Before Production Promotion | Unresolved / Blocking - authorized operational assignee required per entry | Operations; security/data-governance; architecture/change; production authority where applicable | Unresolved / Blocking | Unresolved / Blocking | Accountable assignee, delegation, coverage, and production-profile scope | Attributable assignment plus role-specific operational and approval evidence |
 | `GOV-POL-001` through `GOV-POL-010` | 1 | Before Production Promotion | Unresolved / Blocking - product/business policy owner required per entry | Product/business; security/data-governance; data-service owner; architecture/change | Unresolved / Blocking | Unresolved / Blocking | Bounded lifecycle, deletion, backup, restore-suppression, hold, owner, and review values | Joint attributable approval and lifecycle verification evidence for the exact policy version |
-| `GOV-THR-001` through `GOV-THR-011` | 1 | Before Production Promotion | Unresolved / Blocking - accountable residual-risk owner required per entry | Security/data-governance; operations; architecture/change; production authority | Unresolved / Blocking | Unresolved / Blocking | Residual-risk owner, evidence set, disposition, conditions, and acceptance authority | Threat-specific control evidence and attributable acceptance or rejection |
+| `GOV-THR-001` through `GOV-THR-012` | 1 | Before Production Promotion | Unresolved / Blocking - accountable residual-risk owner required per entry | Security/data-governance; operations; architecture/change; production authority | Unresolved / Blocking | Unresolved / Blocking | Residual-risk owner, evidence set, disposition, conditions, and acceptance authority | Threat-specific control evidence and attributable acceptance or rejection |
 | `GOV-ENC-001` through `GOV-ENC-008` | 1 | Before Production Promotion | Unresolved / Blocking - accountable technical/data-service owner required per entry | Security/data-governance; technical/data-service owner; operations | Unresolved / Blocking | Unresolved / Blocking | Deployment-applicable mechanism, custody, access, rotation, recovery, destruction, and verification | Configuration, test, access, rotation, recovery, and destruction evidence |
 | `GOV-RES-001` through `GOV-RES-010` | 1 | Before Production Promotion | Unresolved / Blocking - authorized business/legal owner required per entry | Authorized business/legal; security/data-governance; operations | Unresolved / Blocking | Unresolved / Blocking | Permitted locations, operators, movements, legal constraints, and copy-class scope | Attributable legal/business input and deployment inventory evidence |
 | `GOV-CRED-001` through `GOV-CRED-009` | 1 | Before Production Promotion | Unresolved / Blocking - credential authority owner required per entry | Security/data-governance; accountable technical/data-service owner | Unresolved / Blocking | Unresolved / Blocking | Issuance, bounded lifetime, renewal, rotation, revocation, recovery, and evidence rules | Issuer configuration, revocation, recovery, expiry, and non-secret audit evidence |
@@ -462,6 +469,7 @@ or `Open / Blocking` disposition in the Threat Model.
 | `GOV-THR-009` | `THR-009`; `CTL-009`, `CTL-010` | Unresolved / Blocking | Deletion authorization, copy inventory, inaccessible-first handling, purge, tombstone, backup expiry, hold, and restore-suppression evidence | Security/data-governance; affected data owner; operations; production authority | Unresolved / Blocking |
 | `GOV-THR-010` | `THR-010`; `CTL-001`, `CTL-008`, `CTL-010`, `CTL-012` | Unresolved / Blocking | Shared-service isolation, encryption, residency, access-denial, inventory, operator, backup, replica, cache, and telemetry evidence | Security/data-governance; operations; architecture/change; production authority | Unresolved / Blocking |
 | `GOV-THR-011` | `THR-011`; `CTL-009`, `CTL-010` | Unresolved / Blocking | Complete copy reconciliation, orphan detection, expiry, purge verification, restore suppression, and unsupported-copy failure evidence | Security/data-governance; operations; affected data owners; production authority | Unresolved / Blocking |
+| `GOV-THR-012` | `THR-012`; `CTL-008`, `CTL-009` | Unresolved / Blocking | Sender authentication (SPF, DKIM, DMARC), relay residency and access, address verification, bounce handling, content minimization, and masked-audit evidence | Security/data-governance; identity/domain owner; operations; production authority | Unresolved / Blocking |
 
 Only attributable acceptance or rejection by every listed authority for the
 exact entry version and profile scope can change an entry disposition. Missing
@@ -500,6 +508,7 @@ evidence, entry version, and profile scope.
 | `GOV-THR-009` | Unavailable - accountable `THR-009` owner, evidence, and disposition required | No proposal submitted; no rejection recorded | Unresolved / Blocking |
 | `GOV-THR-010` | Unavailable - accountable `THR-010` owner, evidence, and disposition required | No proposal submitted; no rejection recorded | Unresolved / Blocking |
 | `GOV-THR-011` | Unavailable - accountable `THR-011` owner, evidence, and disposition required | No proposal submitted; no rejection recorded | Unresolved / Blocking |
+| `GOV-THR-012` | Unavailable - accountable `THR-012` owner, evidence, and disposition required | No proposal submitted; no rejection recorded | Unresolved / Blocking |
 
 Only complete attributable approval evidence for the exact entry version and
 profile scope can change one of these entries from `Unresolved / Blocking`.

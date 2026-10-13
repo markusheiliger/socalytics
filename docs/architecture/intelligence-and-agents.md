@@ -65,8 +65,9 @@ canonical producers and dependencies for these accepted concepts.
 ## Intelligence Layer
 
 Low-level Analyst Containers generate foundational facts from video. The API
-validates and indexes accepted results. Match-level high-level ACs query those
-facts to generate soccer concepts that the API validates and indexes for domain
+validates and indexes accepted results. Match-level high-level ACs consume
+those facts, which the Analyst Manager stages for them from the API, to
+generate soccer concepts that the API validates and indexes for domain
 queries. A high-level AC may access source video only when its capability
 declaration explicitly permits short-lived, authorized lineage clips; the
 initial catalog grants that exception only to `ball-action-analysis`.
@@ -83,7 +84,7 @@ flowchart TB
     Manager -->|Completion callbacks| API
     API --> FoundationalFacts[(API-Indexed Foundational Facts)]
     HighLevel[Match-Level High-Level ACs]
-    FoundationalFacts -->|Team-authorized match queries| HighLevel
+    FoundationalFacts -->|Team-authorized match reads staged by the Manager| HighLevel
     Video -.->|Capability-declared lineage clips only| HighLevel
     HighLevel --> ConceptResults[(Soccer Concepts and Manifests)]
     HighLevel --> Manager

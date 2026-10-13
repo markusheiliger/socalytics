@@ -89,8 +89,12 @@ credentials, or host-wide control APIs. Analyst launches default to:
 
 - immutable image digests with the configured signature and provenance checks
 - a non-root container user and read-only root filesystem where supported
-- explicit writable scratch and result mounts scoped to one job
-- short-lived stamp-local object-storage credentials
+- explicit writable scratch and result mounts scoped to one job, and a
+  read-only input mount into which the AM stages the job's accepted upstream
+  results (decided, not yet implemented)
+- no object-storage write credentials: results go to the job's result mount,
+  and the AM stores them through per-object write grants (decided, not yet
+  implemented); short-lived read access only where a capability permits it
 - no privileged mode, host PID namespace, host network, or runtime socket mount
 - allowlisted devices, dropped capabilities, CPU and memory limits, and bounded
   logs
@@ -176,6 +180,7 @@ sequenceDiagram
     participant Adapter as OCI Runtime Adapter
     participant Runtime as External OCI Runtime
     participant Analyst as Analyst Container
+    participant Storage as Object Storage
 
     Manager->>Jobs: Pull compatible stamp-local job
     Jobs-->>Manager: Logical job
@@ -192,7 +197,9 @@ sequenceDiagram
         API->>Registry: Validate and renew lease
     end
     alt Attempt completes before expiry
-        Analyst-->>Manager: Result manifest and outcome
+        Analyst-->>Manager: Result manifest and outcome in the result mount
+        Manager->>API: Request per-object result write grants
+        Manager->>Storage: Store result objects with the grants
         Manager->>API: Idempotent completion with token
         API->>Registry: Accept current attempt once
     else Heartbeat lease expires
@@ -243,7 +250,9 @@ pair. Retry and fencing semantics remain identical across implementations.
 - launch and constrain the selected Analyst container through the runtime
   adapter
 - monitor execution and renew each active attempt lease through heartbeats
-- report the result manifest, checksum, runtime, image digest, and fencing token
+- check the result manifest against its contract, store the result objects
+  through per-object write grants, and report the result manifest, checksum,
+  runtime, image digest, and fencing token
 - expose local utilization, active attempts, and timestamped queue status
 - support pause, resume, drain, local unregister, and platform revocation
 - terminate and clean up active containers after security revocation

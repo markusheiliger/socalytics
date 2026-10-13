@@ -1,5 +1,21 @@
 <!--
 Sync Impact Report
+- Version change: 1.1.0 → 1.2.0
+- Modified principles: I. Architecture Is the Design Authority (materially
+  expanded: required Architecture Updates section in every plan; the
+  architecture must describe the implemented state at merge; changed design
+  decisions reach the architecture through the documentation task;
+  convergence checks it)
+- Modified sections: Development Workflow and Quality Gates (convergence
+  checks the architecture against the implementation)
+- Templates requiring updates: none in .specify/templates (managed by the
+  specify CLI); the gha extension (after_plan and before_converge hooks, the
+  diagnose and author commands), .github/scripts/speckit-author.mjs, and
+  AGENTS.md carry the rule
+- Follow-up TODOs: none
+-->
+<!--
+Earlier Sync Impact Report
 - Version change: 1.0.0 → 1.1.0
 - Modified sections: Technology and Tooling Constraints (environment features
   provide new build, test, and verification tooling before features use it)
@@ -34,6 +50,22 @@ silently. Architecture decision records are exceptional and follow
 `docs/architecture/decisions/README.md`. Unresolved decisions MUST stay
 explicit; provisional values and target-state descriptions MUST NOT be
 presented as adopted facts.
+
+Every plan MUST contain an `## Architecture Updates` section that names the
+architecture narratives the feature implements or changes, the design updates
+it applies, and the implementation-status statements anywhere in
+`docs/architecture/` that the feature makes true or false; a feature without
+architectural effect states `None` with a reason. When the feature merges,
+`docs/architecture/` MUST describe the implemented state: the feature's
+documentation task corrects every statement the feature makes false, including
+planned, future-tense, or unimplemented wording, rather than only applying
+prescribed substitutions. A design decision changed during implementation,
+including by an amendment of the spec artifacts, reaches the architecture
+through that documentation task. `/speckit-converge` checks these obligations.
+
+Rationale: implemented features left planned and unimplemented statements in
+the architecture because each documentation task changed only its own
+sentences; the authority must stay true for the merged state.
 
 ### II. Respect Source-Area Ownership
 
@@ -101,6 +133,9 @@ and never use destructive Git operations.
   `/speckit-analyze`, `/speckit-implement`, and `/speckit-converge`.
 - After each substantive edit, run the narrowest relevant check before
   widening scope.
+- `/speckit-converge` also checks `docs/architecture/` against the
+  implementation (Principle I); stale, missing, or contradicting architecture
+  statements become convergence tasks.
 - Every supported setup, build, test, and lint command is documented in
   `README.md` when it becomes available, and `AGENTS.md` stays current with
   repository conventions.
@@ -122,4 +157,4 @@ file) and MUST update dependent templates and guidance in the same change.
 Versioning follows semantic versioning: MAJOR for removed or redefined
 principles, MINOR for new principles or sections, PATCH for clarifications.
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-05 | **Last Amended**: 2026-10-06
+**Version**: 1.2.0 | **Ratified**: 2026-10-05 | **Last Amended**: 2026-10-13

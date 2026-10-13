@@ -2,7 +2,7 @@
 
 **Branch**: `20261012-145505-web-ui-environment` | **Date**: 2026-10-12 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261012-145505-web-ui-environment/spec.md`
+**Input**: Feature specification from `specs/archive/20261012-145505-web-ui-environment/spec.md`
 
 ## Summary
 
@@ -88,7 +88,7 @@ No violations; Complexity Tracking is not needed.
 ### Documentation (this feature)
 
 ```text
-specs/20261012-145505-web-ui-environment/
+specs/archive/20261012-145505-web-ui-environment/
 ├── plan.md              # This file
 ├── research.md          # Decisions R1–R6
 ├── data-model.md        # Verification scope, check steps, pins
