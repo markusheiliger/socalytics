@@ -10,6 +10,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.EndToEnd.Tests;
 
+[Collection("EndToEnd")]
 public sealed class WorkExecutionEndToEndTests
 {
     private static readonly string Digest = "sha-256:" + new string('a', 64);
@@ -64,7 +65,7 @@ public sealed class WorkExecutionEndToEndTests
         (await reader.ReadAsync(ct)).ShouldBeFalse("Exactly one accepted result is expected.");
     }
 
-    private static async Task<string> DiagnosticsAsync(EndToEndHarness harness, Guid runId, CancellationToken ct)
+    internal static async Task<string> DiagnosticsAsync(EndToEndHarness harness, Guid runId, CancellationToken ct)
     {
         await using var sql = new NpgsqlConnection(harness.Database.MigratorConnectionString);
         await sql.OpenAsync(ct);
@@ -101,7 +102,7 @@ public sealed class WorkExecutionEndToEndTests
         return text.ToString();
     }
 
-    private static async Task<long> CountAcceptedAsync(EndToEndHarness harness, Guid runId, CancellationToken ct)
+    internal static async Task<long> CountAcceptedAsync(EndToEndHarness harness, Guid runId, CancellationToken ct)
     {
         await using var sql = new NpgsqlConnection(harness.Database.MigratorConnectionString);
         await sql.OpenAsync(ct);
@@ -111,7 +112,8 @@ public sealed class WorkExecutionEndToEndTests
     }
 
     /// <summary>Creates a run with one ready match-scope job and lets readiness enqueue its outbox message.</summary>
-    private static async Task<Guid> SeedReadyJobAsync(EndToEndHarness harness, CancellationToken ct)
+    internal static async Task<Guid> SeedReadyJobAsync(
+        EndToEndHarness harness, CancellationToken ct, int leaseSeconds = 60, int staleTimeoutSeconds = 120)
     {
         var node = new WorkflowNodeRecord(
             Guid.CreateVersion7(), "e2e-match-node", EndToEndHarness.MatchCapability, "1", CapabilityTier.LowLevel, ExecutionScope.Match, 0,
@@ -126,7 +128,7 @@ public sealed class WorkExecutionEndToEndTests
         [
             new NewLogicalJob(
                 Guid.CreateVersion7(), runId, node.Id, ExecutionScope.Match, null, null, null, null, LogicalJobState.Waiting,
-                new LogicalJobSnapshotRecord(3, 60, 120, 600, Digest, Digest, null, "{\"cpu\":\"1\",\"memory\":\"1Gi\"}", "1.0.0")),
+                new LogicalJobSnapshotRecord(3, leaseSeconds, staleTimeoutSeconds, 600, Digest, Digest, null, "{\"cpu\":\"1\",\"memory\":\"1Gi\"}", "1.0.0")),
         ], ct);
         await uow.CommitAsync(ct);
 

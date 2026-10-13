@@ -33,7 +33,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
     private readonly NatsJwtContainerFixture _nats;
     private readonly SoftHsmToken _token;
     private readonly string _stateDirectory;
-    private IHost? _manager;
+    private readonly List<ManagerInstance> _managers = [];
 
     private EndToEndHarness(
         PostgresContainerFixture postgres, NatsJwtContainerFixture nats, SoftHsmToken token, string stateDirectory,
@@ -56,7 +56,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
 
     public CapturingLoggerProvider ManagerLogs { get; } = new();
 
-    public IHost Manager => _manager ?? throw new InvalidOperationException("The Manager has not been started.");
+    public IHost Manager => _managers.LastOrDefault()?.Host ?? throw new InvalidOperationException("The Manager has not been started.");
 
     public IManagerControl Control => Manager.Services.GetRequiredService<IManagerControl>();
 
@@ -83,6 +83,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             ["Messaging:Nats:ProvisionTopology"] = "true",
             ["Analysis:Workers:Enabled"] = "true",
             ["AnalystWork:QueueUrl"] = nats.ConnectionString,
+            ["Analysis:Leases:MonitorIntervalSeconds"] = "1",
         };
         var platform = new PlatformApiFactory(
             database,
@@ -111,34 +112,48 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         return new EndToEndHarness(postgres, nats, token, token.NewStateDirectory(), database, platform, admin);
     }
 
-    /// <summary>Starts the Manager, pairs it, approves it as the registrar and waits until it is active with a passed preflight.</summary>
-    public async Task StartManagerAsync(CancellationToken ct)
+    /// <summary>
+    /// Starts a Manager, pairs it, approves it as the registrar and waits until it is active with a passed preflight.
+    /// Every call starts another Manager host with its own device key and state.
+    /// </summary>
+    public async Task<IHost> StartManagerAsync(
+        CancellationToken ct, TimeSpan? runDuration = null, SimulatedOutcome outcome = SimulatedOutcome.Succeed)
     {
+        var stateDirectory = _managers.Count == 0 ? _stateDirectory : _token.NewStateDirectory();
+        var connection = new ConnectionSwitch();
         var builder = ManagerHost.CreateBuilder(["--environment", "Test"]);
         var configuration = new Dictionary<string, string?>
         {
-            ["Manager:StateDirectory"] = _stateDirectory,
+            ["Manager:StateDirectory"] = stateDirectory,
             ["Runtime:Profile"] = SimulatedRuntimeAdapter.TestProfile,
             ["Runtime:Simulated:MaxParallelAttempts"] = "2",
         };
         foreach (var capability in new[] { SegmentCapability, MatchCapability })
         {
             configuration[$"Runtime:Simulated:Capabilities:{capability}:Version"] = "1";
-            configuration[$"Runtime:Simulated:Capabilities:{capability}:RunDuration"] = RunDuration.ToString();
+            configuration[$"Runtime:Simulated:Capabilities:{capability}:RunDuration"] = (runDuration ?? RunDuration).ToString();
+            configuration[$"Runtime:Simulated:Capabilities:{capability}:Outcome"] = outcome.ToString();
         }
 
         builder.Configuration.AddInMemoryCollection(configuration);
         builder.Logging.AddProvider(ManagerLogs);
         builder.Services.RemoveAll<IDeviceKeyProvider>();
         builder.Services.AddSingleton<IDeviceKeyProvider>(
-            Pkcs11KeyProvider.CreateForTests(_token.ModulePath, SoftHsmToken.TokenLabel, _stateDirectory));
+            Pkcs11KeyProvider.CreateForTests(_token.ModulePath, SoftHsmToken.TokenLabel, stateDirectory));
         builder.Services.RemoveAll<RuntimeCompatibilityList>();
         builder.Services.AddSingleton(SimulatedRuntimeAdapter.List());
-        builder.Services.AddHttpClient<PlatformClient>().ConfigurePrimaryHttpMessageHandler(() => Platform.Server.CreateHandler());
-        _manager = builder.Build();
-        await _manager.StartAsync(ct);
+        builder.Services.AddHttpClient<PlatformClient>().ConfigurePrimaryHttpMessageHandler(() =>
+        {
+            connection.InnerHandler = Platform.Server.CreateHandler();
+            return connection;
+        });
+        var host = builder.Build();
+        var instance = new ManagerInstance(host, connection, stateDirectory);
+        _managers.Add(instance);
+        await host.StartAsync(ct);
 
-        var registered = await Control.RegisterAsync(new RegisterRequest("https://localhost", HostLabel: "e2e-manager"), ct);
+        var control = host.Services.GetRequiredService<IManagerControl>();
+        var registered = await control.RegisterAsync(new RegisterRequest("https://localhost", HostLabel: $"e2e-manager-{_managers.Count}"), ct);
         registered.Succeeded.ShouldBeTrue(registered.Code);
 
         using var submission = await Admin.SendAsync(
@@ -149,10 +164,23 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         using var approval = await Admin.SendAsync(HttpMethod.Post, $"/api/v1/analyst-manager-registrations/{registrationId}/approval", null, ct);
         approval.EnsureSuccessStatusCode();
 
-        var scheduler = Manager.Services.GetRequiredService<PreflightScheduler>();
+        var scheduler = host.Services.GetRequiredService<PreflightScheduler>();
         await WaitAsync(
-            () => Control.GetStatus().RegistrationState == "active" && scheduler.Latest?.Passed == true,
+            () => control.GetStatus().RegistrationState == "active" && scheduler.Latest?.Passed == true,
             TimeSpan.FromSeconds(60), "The Manager did not become active with a passed preflight.", ct);
+        return host;
+    }
+
+    /// <summary>
+    /// Simulates a crash: the Manager can no longer reach the platform (so it cannot report anything), then its host stops.
+    /// The platform only learns about it through the lease expiry.
+    /// </summary>
+    public async Task KillManagerAsync(IHost host)
+    {
+        var instance = _managers.Single(m => ReferenceEquals(m.Host, host));
+        instance.Connection.Down = true;
+        await host.StopAsync(CancellationToken.None);
+        instance.Stopped = true;
     }
 
     public static async Task WaitAsync(Func<bool> condition, TimeSpan timeout, string failure, CancellationToken ct)
@@ -176,10 +204,14 @@ internal sealed class EndToEndHarness : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        if (_manager is not null)
+        foreach (var instance in _managers)
         {
-            await _manager.StopAsync(CancellationToken.None);
-            _manager.Dispose();
+            if (!instance.Stopped)
+            {
+                await instance.Host.StopAsync(CancellationToken.None);
+            }
+
+            instance.Host.Dispose();
         }
 
         Admin.Dispose();
@@ -188,12 +220,34 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         await _nats.DisposeAsync();
         await _postgres.DisposeAsync();
         _token.Dispose();
-        try
+        foreach (var directory in _managers.Select(m => m.StateDirectory).Append(_stateDirectory).Distinct())
         {
-            Directory.Delete(_stateDirectory, true);
+            try
+            {
+                Directory.Delete(directory, true);
+            }
+            catch (IOException)
+            {
+            }
         }
-        catch (IOException)
-        {
-        }
+    }
+
+    private sealed class ConnectionSwitch : DelegatingHandler
+    {
+        public volatile bool Down;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Down ? throw new HttpRequestException("The platform is unreachable.") : base.SendAsync(request, cancellationToken);
+    }
+
+    private sealed class ManagerInstance(IHost host, ConnectionSwitch connection, string stateDirectory)
+    {
+        public IHost Host { get; } = host;
+
+        public ConnectionSwitch Connection { get; } = connection;
+
+        public string StateDirectory { get; } = stateDirectory;
+
+        public bool Stopped { get; set; }
     }
 }

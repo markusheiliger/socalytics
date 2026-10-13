@@ -29,7 +29,14 @@ internal sealed class SoftHsmToken : IDisposable
 
     public string UserPin { get; }
 
-    public static SoftHsmToken? TryCreate()
+    private static readonly Lazy<SoftHsmToken?> Shared = new(() => Create(), LazyThreadSafetyMode.ExecutionAndPublication);
+
+    /// <summary>
+    /// The one token of this process: the PKCS#11 module reads <c>SOFTHSM2_CONF</c> once, so every test shares the token.
+    /// </summary>
+    public static SoftHsmToken? TryCreate() => Shared.Value;
+
+    private static SoftHsmToken? Create()
     {
         if (!OperatingSystem.IsLinux())
         {
@@ -77,7 +84,9 @@ internal sealed class SoftHsmToken : IDisposable
             return null;
         }
 
-        return new SoftHsmToken(module, root, userPin);
+        var token = new SoftHsmToken(module, root, userPin);
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => token.Delete();
+        return token;
     }
 
     /// <summary>Creates a Manager state directory with an owner-only pkcs11.pin, mirroring operator provisioning.</summary>
@@ -91,6 +100,10 @@ internal sealed class SoftHsmToken : IDisposable
     }
 
     public void Dispose()
+    {
+    }
+
+    private void Delete()
     {
         try
         {
