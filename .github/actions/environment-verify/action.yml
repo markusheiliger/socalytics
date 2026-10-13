@@ -11,7 +11,13 @@ description: >-
   tests" runs when src/analysts/manager/ or contracts/analyst-manager/ (the Manager's shared golden fixtures) changed
   or in finalize mode, covers only src/analysts/manager/ (contract files stay covered by the platform scope), is
   active only while src/analysts/manager/SocAlytics.Analysts.Manager.slnx exists, and fails when its global.json sdk
-  object differs from the platform's; other paths under src/analysts/ stay uncovered; "Markdown check" follows.
+  object differs from the platform's; other paths under src/analysts/ stay uncovered; "Web UI build and tests" runs
+  when src/clients/web/ or src/platform/SocAlytics.Platform.Api/ changed or in finalize mode (the full Web UI tests
+  run in every mode), covers only src/clients/web/ (API files stay covered by the platform scope), is active only
+  while src/clients/web/package.json exists, and runs the steps install (npm ci without a browser download),
+  playwright pin (the installed @playwright/test must be 1.63.0, the version environment-setup installs), build,
+  unit tests, and browser tests through the npm scripts build, test, and test:e2e, stopping at the first failure;
+  other paths under src/clients/ stay uncovered; "Markdown check" follows.
 # Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
 # is reviewed and merged before the specs that need it start. For a new framework or source area, add one block below
 # that (1) adds its scope to COVERED only when its project exists, (2) runs only when the scope changed or in finalize
@@ -19,7 +25,9 @@ description: >-
 # created, and (4) runs its tests through run_tests, so mode task runs only the tests the change touched. Current
 # coverage: the platform scope (src/platform/ and contracts/) is covered while the platform solution
 # exists; the Analyst Manager scope (src/analysts/manager/) is covered while the Manager solution exists, and its
-# check also runs for contracts/analyst-manager/ changes without covering those files.
+# check also runs for contracts/analyst-manager/ changes without covering those files; the Web UI scope
+# (src/clients/web/) is covered while src/clients/web/package.json exists, and its check also runs for
+# src/platform/SocAlytics.Platform.Api/ changes without covering those files.
 inputs:
   workspace:
     description: Path of the code to verify
