@@ -75,6 +75,11 @@ public sealed class ManagerTokenCache(
         return own is null ? new(new PlatformSignal(PlatformOutcome.Refused), null) : new(signal, own);
     }
 
+    /// <summary>Returns the cached or freshly requested access token for DPoP-authenticated work operations.</summary>
+    public Task<(PlatformSignal Signal, string? Token)> AcquireAccessTokenAsync(
+        Uri endpoint, IDeviceKey key, string managerId, CancellationToken cancellationToken) =>
+        GetTokenAsync(endpoint, key, managerId, cancellationToken);
+
     private async Task<(PlatformSignal, string?)> GetTokenAsync(
         Uri endpoint, IDeviceKey key, string managerId, CancellationToken cancellationToken)
     {

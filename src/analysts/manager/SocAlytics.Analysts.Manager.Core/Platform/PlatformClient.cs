@@ -88,6 +88,65 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
     public HttpRequestMessage BuildUnregistrationCompletion(Uri baseUri, IDeviceKey key, string accessToken) =>
         Self(HttpMethod.Post, Endpoint(baseUri, "self/unregistration/completion"), key, accessToken);
 
+    public static Uri AnalysisEndpoint(Uri baseUri, string path)
+    {
+        if (baseUri.Scheme != Uri.UriSchemeHttps)
+        {
+            throw new PlatformException(ManagerDiagnosticCodes.InsecureEndpoint);
+        }
+
+        return new Uri($"{baseUri.GetLeftPart(UriPartial.Authority)}/api/v1/analysis/{path}");
+    }
+
+    public async Task<WorkResult<QueueCredentialsResponse>> RequestQueueCredentialsAsync(
+        PlatformSession session, string userPublicKey, IReadOnlyList<QueueCapability> capabilities,
+        CancellationToken cancellationToken = default)
+    {
+        var uri = Endpoint(session.BaseUri, "self/queue-credentials");
+        var request = Authenticated(HttpMethod.Post, uri, session);
+        request.Content = JsonContent.Create(new QueueCredentialsRequest(userPublicKey, capabilities), options: PlatformJson.Options);
+        return await ExecuteAsync<QueueCredentialsResponse>(request, cancellationToken);
+    }
+
+    public async Task<WorkResult<ClaimGranted>> ClaimAsync(
+        PlatformSession session, Guid logicalJobId, Guid readinessOccurrenceId, Guid messageId, string retryKey,
+        CancellationToken cancellationToken = default)
+    {
+        var uri = AnalysisEndpoint(session.BaseUri, $"logical-jobs/{logicalJobId}/claims");
+        var request = Authenticated(HttpMethod.Post, uri, session);
+        request.Headers.Add("Idempotency-Key", retryKey);
+        request.Content = JsonContent.Create(new ClaimRequest(readinessOccurrenceId, messageId), options: PlatformJson.Options);
+        return await ExecuteAsync<ClaimGranted>(request, cancellationToken, g => g.Replayed);
+    }
+
+    public async Task<WorkResult<LeaseRenewed>> SendHeartbeatAsync(
+        PlatformSession session, Guid attemptId, Guid logicalJobId, long fencingToken, DateTimeOffset observedAt,
+        string executionState, CancellationToken cancellationToken = default)
+    {
+        var uri = AnalysisEndpoint(session.BaseUri, $"attempts/{attemptId}/heartbeats");
+        var request = Authenticated(HttpMethod.Post, uri, session);
+        request.Content = JsonContent.Create(
+            new HeartbeatRequest(logicalJobId, fencingToken, observedAt, executionState), options: PlatformJson.Options);
+        return await ExecuteAsync<LeaseRenewed>(request, cancellationToken);
+    }
+
+    public async Task<WorkResult<CompletionOutcome>> CompleteAsync(
+        PlatformSession session, Guid attemptId, AttemptCompletion completion, string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        var uri = AnalysisEndpoint(session.BaseUri, $"attempts/{attemptId}/completion");
+        var body = JsonSerializer.SerializeToNode(completion, PlatformJson.Options)!.AsObject();
+        body["idempotencyKey"] = idempotencyKey;
+        if (!body.ContainsKey("executedModelDigest"))
+        {
+            body["executedModelDigest"] = null;
+        }
+
+        var request = Authenticated(HttpMethod.Post, uri, session);
+        request.Content = new StringContent(body.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
+        return await ExecuteAsync<CompletionOutcome>(request, cancellationToken, c => c.Replayed);
+    }
+
     public Task<PlatformResponse> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
     {
         if (request.RequestUri?.Scheme != Uri.UriSchemeHttps)
@@ -108,7 +167,9 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
             ? PlatformSignals.ClassifyToken(result.Status, body)
             : path.Contains("/self/", StringComparison.Ordinal)
                 ? PlatformSignals.ClassifyResource(result.Status, result.WwwAuthenticate, body)
-                : null;
+                : path.StartsWith("/api/v1/analysis/", StringComparison.Ordinal)
+                    ? PlatformSignals.ClassifyResource(result.Status, result.WwwAuthenticate, body)
+                    : null;
         if (sink is not null && signal is { Outcome: PlatformOutcome.Inactive, Reason: { } reason })
         {
             await sink.ReportAsync(reason);
@@ -116,6 +177,64 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
 
         return result;
     }
+
+    private async Task<WorkResult<T>> ExecuteAsync<T>(
+        HttpRequestMessage request, CancellationToken cancellationToken, Func<T, bool>? isReplay = null) where T : class
+    {
+        PlatformResponse response;
+        try
+        {
+            response = await SendAsync(request, cancellationToken);
+        }
+        catch (HttpRequestException)
+        {
+            return new(WorkResultKind.Transient);
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new(WorkResultKind.Transient);
+        }
+
+        var signal = PlatformSignals.ClassifyResource(response.Status, response.WwwAuthenticate, response.Body);
+        switch (signal.Outcome)
+        {
+            case PlatformOutcome.Success:
+                var value = response.Read<T>();
+                if (value is null)
+                {
+                    return new(WorkResultKind.Refused);
+                }
+
+                return new(isReplay?.Invoke(value) == true ? WorkResultKind.Replayed : WorkResultKind.Success, value);
+            case PlatformOutcome.Inactive:
+                return new(WorkResultKind.Inactive);
+            case PlatformOutcome.Transient:
+                return new(WorkResultKind.Transient);
+        }
+
+        var code = ReadCode(response.Body);
+        return code switch
+        {
+            "claim-obsolete" or "attempt-obsolete" => new(WorkResultKind.Obsolete, Code: code),
+            _ when response.Status == System.Net.HttpStatusCode.Conflict => new(WorkResultKind.Conflict, Code: code),
+            _ => new(WorkResultKind.Refused, Code: code),
+        };
+    }
+
+    private static string? ReadCode(string body)
+    {
+        try
+        {
+            return string.IsNullOrEmpty(body) ? null : JsonSerializer.Deserialize<Problem>(body, PlatformJson.Options)?.Code;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private HttpRequestMessage Authenticated(HttpMethod method, Uri uri, PlatformSession session) =>
+        Self(method, uri, session.Key, session.AccessToken);
 
     private HttpRequestMessage Self(HttpMethod method, Uri uri, IDeviceKey key, string accessToken)
     {
