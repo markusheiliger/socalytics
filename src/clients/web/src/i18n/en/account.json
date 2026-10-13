@@ -1,0 +1,37 @@
+{
+  "setPassword": {
+    "title": "Set your password",
+    "intro": "Enter your sign-in name and the code a Club Admin gave you, then choose a password.",
+    "signOutFirst": "Another member is signed in. Sign out before you set a password, so the code is applied to the right account.",
+    "accountName": "Sign-in name",
+    "code": "Code",
+    "newPassword": "New password",
+    "confirmPassword": "Repeat the new password",
+    "mismatch": "The new passwords do not match.",
+    "submit": "Set password",
+    "submitting": "Setting password…",
+    "policy": "The password was not set. The new password does not meet the password policy.",
+    "codeInvalid": "This code is expired, already used, or revoked. Contact a Club Admin for a new code.",
+    "refused": "The password was not set. Check your input and try again.",
+    "unreachable": "The platform is not reachable. Try again in a moment.",
+    "error": "Something went wrong while setting the password. Try again later.",
+    "done": "Your password is set. You can sign in now.",
+    "toSignIn": "Go to sign-in"
+  },
+  "account": {
+    "title": "Account",
+    "signedInAs": "Signed in as {{name}}",
+    "changePassword": "Change your password",
+    "currentPassword": "Current password",
+    "newPassword": "New password",
+    "confirmPassword": "Repeat the new password",
+    "mismatch": "The new passwords do not match.",
+    "submit": "Change password",
+    "submitting": "Changing password…",
+    "policy": "The password was not changed. The new password does not meet the password policy.",
+    "refused": "The password was not changed. Check your current password and try again.",
+    "unreachable": "The platform is not reachable. Try again in a moment.",
+    "error": "Something went wrong while changing the password. Try again later.",
+    "done": "Your password was changed."
+  }
+}

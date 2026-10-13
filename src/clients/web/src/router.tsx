@@ -2,6 +2,8 @@ import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import { useTranslation } from 'react-i18next';
 import { createBrowserRouter, useParams, type RouteObject } from 'react-router';
+import { AccountPage } from './features/account/AccountPage';
+import { SetPasswordPage } from './features/set-password/SetPasswordPage';
 import { PasswordChangePage } from './features/account/PasswordChangePage';
 import { SignOutButton } from './features/account/SignOutButton';
 import { SignInPage } from './features/sign-in/SignInPage';
@@ -41,13 +43,13 @@ const clubAdminOnly = (element: React.ReactNode) => <RequireRole allow={isClubAd
 /** Routes of contracts/routes-and-roles.md; the views are placeholders until their stories. */
 export const appRoutes: RouteObject[] = [
   { element: <RequireSignedOut />, children: [{ path: '/sign-in', element: <SignInPage /> }] },
-  { path: '/set-password', element: <Placeholder name="Set password" /> },
+  { path: '/set-password', element: <SetPasswordPage /> },
   { element: <RequirePasswordChange />, children: [{ path: '/password-change', element: <PasswordChangePage /> }] },
   {
     element: <RequireSignedIn />,
     children: [
       { path: '/', element: <Placeholder name="Home" /> },
-      { path: '/account', element: <Placeholder name="Account" /> },
+      { path: '/account', element: <AccountPage /> },
       { path: '/club', element: clubAdminOnly(<Placeholder name="Club" />) },
       { path: '/seasons', element: clubAdminOnly(<Placeholder name="Seasons" />) },
       { path: '/seasons/:seasonId', element: clubAdminOnly(<Placeholder name="Season" />) },
