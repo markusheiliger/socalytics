@@ -104,3 +104,9 @@ description: "Task list for Analyst Manager Status Report and Fleet Read API"
 1. Phase 1, then User Story 1 as the MVP (reports stored, fleet readable, Managers reporting).
 2. User Story 2 (Registrar view), then User Story 3 (label validation).
 3. Documentation and validation.
+
+---
+
+## Phase 6: Convergence
+
+- [ ] T011 Report the real active and maximum Analysts per FR-001 and plan: research.md § R6 (partial): in `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Diagnostics/StatusReportBuilder.cs` replace the hard-coded `DefaultConcurrencyLimit = 1` (and the `Math.Max(…, active)` fallback) with `ConcurrencyLimit.Effective`, and take `activeAnalysts` from `AttemptRegistry.ActiveCount` instead of `IManagerWorkTracker`/`NoManagerWork`, both from Analyst Manager Work Execution (`specs/20261012-141233-manager-work-execution`, which must be merged first); extend `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Registration/StatusReportingTests.cs` to assert that `maxAnalysts` equals the configured effective limit and that `activeAnalysts` follows the registered attempts.
