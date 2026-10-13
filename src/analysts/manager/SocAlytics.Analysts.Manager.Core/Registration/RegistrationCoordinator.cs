@@ -93,6 +93,16 @@ public sealed class RegistrationCoordinator(
             return Refuse(ManagerDiagnosticCodes.InsecureEndpoint);
         }
 
+        if (request.HostLabel is not null)
+        {
+            if (HostLabel.TryNormalize(request.HostLabel, out _) is not { } normalized)
+            {
+                return Refuse("invalid-request");
+            }
+
+            request = request with { HostLabel = normalized };
+        }
+
         CancellationTokenSource cts;
         lock (_gate)
         {

@@ -45,6 +45,14 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
 
     public string? OwnStampId { get; set; }
 
+    public double IntervalSeconds { get; set; } = 60;
+
+    public List<ReportViolation>? ReportViolations { get; set; }
+
+    public IEnumerable<JsonNode> StatusReports => Requests
+        .Where(r => r.Uri.AbsolutePath.EndsWith("/self/status", StringComparison.Ordinal))
+        .Select(r => JsonNode.Parse(r.Body)!);
+
     public int TokenRequests => Requests.Count(r => r.Uri.AbsolutePath.EndsWith("/token", StringComparison.Ordinal));
 
     public int SelfCalls => Requests.Count(r => r.Uri.AbsolutePath.EndsWith("/self/registration", StringComparison.Ordinal));
@@ -74,7 +82,8 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
         }
 
         var path = request.RequestUri!.AbsolutePath.Replace("/api/v1/analyst-managers/", string.Empty);
-        if (path is "token" or "self/registration")
+        var own = path is "self/registration" or "self/status";
+        if (path is "token" || own)
         {
             if (UnreachableCount > 0)
             {
@@ -82,12 +91,12 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
                 throw new HttpRequestException("unreachable");
             }
 
-            if (path == "self/registration" && SelfStatus is { } forced)
+            if (own && SelfStatus is { } forced)
             {
                 return new HttpResponseMessage(forced);
             }
 
-            if (Inactive && path == "self/registration")
+            if (Inactive && own)
             {
                 var denied = new HttpResponseMessage(HttpStatusCode.Unauthorized)
                 {
@@ -136,6 +145,7 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
             "pairings/activation" => Activation(body),
             "token" => Json(HttpStatusCode.OK, new TokenResponse("opaque-token", "DPoP", 300, "analyst-manager")),
             "self/registration" => Own(OwnState),
+            "self/status" => Own(OwnState, ReportViolations is { Count: > 0 } ? ReportViolations : null),
             "self/unregistration" => Own("unregistering"),
             "self/unregistration/completion" => Json(HttpStatusCode.OK, new UnregistrationResult(ManagerId ?? "m", "unregistered")),
             _ => new HttpResponseMessage(HttpStatusCode.NotFound),
@@ -196,9 +206,9 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
         return Json(HttpStatusCode.OK, new ActivationResult(ManagerId, StampId, Url("token"), JwkThumbprint.Compute(_publicKey)));
     }
 
-    private HttpResponseMessage Own(string state) => Json(HttpStatusCode.OK, new OwnRegistration(
+    private HttpResponseMessage Own(string state, IReadOnlyList<ReportViolation>? violations = null) => Json(HttpStatusCode.OK, new OwnRegistration(
         ManagerId ?? "manager-1", OwnStampId ?? StampId, state, "Club", _publicKey is null ? string.Empty : JwkThumbprint.Compute(_publicKey),
-        time.GetUtcNow(), 60));
+        time.GetUtcNow(), IntervalSeconds, violations is null, violations));
 
     private static HttpResponseMessage Json<T>(HttpStatusCode status, T value) =>
         new(status) { Content = JsonContent.Create(value, options: PlatformJson.Options) };

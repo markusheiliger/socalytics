@@ -3,6 +3,7 @@ using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Registry.Decisions;
+using SocAlytics.Platform.Application.Registry.StatusReporting;
 using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Api.Registry;
@@ -40,19 +41,46 @@ internal static class AnalystManagerRegistrationEndpoints
 		return routes;
 	}
 
-	internal static object ToDto(AnalystManagerRegistration r)
+	internal static object ToDto(AnalystManagerRegistration r) => BuildDto(r);
+
+	internal static object ToDto(FleetEntry entry)
+	{
+		var dto = BuildDto(entry.Registration);
+		if (!entry.IncludesOperations)
+		{
+			return dto;
+		}
+
+		var status = entry.Status;
+		dto["status"] = status is null
+			? null
+			: new
+			{
+				operatingState = status.Report.OperatingState.ToApiName(),
+				pausedUntil = status.Report.PausedUntil,
+				runtimeUnavailableReason = status.Report.RuntimeUnavailableReason,
+				activeAnalysts = status.Report.ActiveAnalysts,
+				maxAnalysts = status.Report.MaxAnalysts,
+				managerVersion = status.Report.ManagerVersion,
+				reportedAt = status.ReceivedAt,
+			};
+		dto["connectivity"] = entry.Connectivity.ToApiName();
+		return dto;
+	}
+
+	private static Dictionary<string, object?> BuildDto(AnalystManagerRegistration r)
 	{
 		var m = r.DeviceMetadata;
-		return new
+		return new Dictionary<string, object?>
 		{
-			registrationId = r.Id,
-			managerId = r.ManagerId,
-			stampId = r.StampId,
-			state = r.State.ToApiName(),
-			keyThumbprint = r.KeyThumbprint,
-			deviceFingerprint = r.DeviceFingerprint.Value,
+			["registrationId"] = r.Id,
+			["managerId"] = r.ManagerId,
+			["stampId"] = r.StampId,
+			["state"] = r.State.ToApiName(),
+			["keyThumbprint"] = r.KeyThumbprint,
+			["deviceFingerprint"] = r.DeviceFingerprint.Value,
 			// Claimed by the Manager, not attested by the platform.
-			deviceMetadata = new
+			["deviceMetadata"] = new
 			{
 				os = m.Os,
 				osVersion = m.OsVersion,
@@ -61,22 +89,22 @@ internal static class AnalystManagerRegistrationEndpoints
 				claimedKeyProtection = m.ClaimedKeyProtection.ToApiName(),
 				hostLabel = m.HostLabel,
 			},
-			pairingOrigin = new { sourceAddress = r.PairingSourceAddress, requestedAt = r.CreatedAt },
-			approvalNotice = r.State == RegistrationState.PendingApproval ? ApprovalNotice : null,
-			submittedBy = r.SubmittedBy,
-			submittedAt = r.SubmittedAt,
-			decidedBy = r.DecidedBy,
-			decidedAt = r.DecidedAt,
-			decisionReason = r.DecisionReason,
-			activatedAt = r.ActivatedAt,
-			endedAt = r.EndedAt,
-			endReason = r.EndReason,
-			revokedBy = r.RevokedBy,
-			pairingExpiresAt = r.PairingExpiresAt,
-			approvalExpiresAt = r.ApprovalExpiresAt,
-			activationExpiresAt = r.ActivationExpiresAt,
-			createdAt = r.CreatedAt,
-			version = r.Version,
+			["pairingOrigin"] = new { sourceAddress = r.PairingSourceAddress, requestedAt = r.CreatedAt },
+			["approvalNotice"] = r.State == RegistrationState.PendingApproval ? ApprovalNotice : null,
+			["submittedBy"] = r.SubmittedBy,
+			["submittedAt"] = r.SubmittedAt,
+			["decidedBy"] = r.DecidedBy,
+			["decidedAt"] = r.DecidedAt,
+			["decisionReason"] = r.DecisionReason,
+			["activatedAt"] = r.ActivatedAt,
+			["endedAt"] = r.EndedAt,
+			["endReason"] = r.EndReason,
+			["revokedBy"] = r.RevokedBy,
+			["pairingExpiresAt"] = r.PairingExpiresAt,
+			["approvalExpiresAt"] = r.ApprovalExpiresAt,
+			["activationExpiresAt"] = r.ActivationExpiresAt,
+			["createdAt"] = r.CreatedAt,
+			["version"] = r.Version,
 		};
 	}
 
@@ -109,7 +137,7 @@ internal static class AnalystManagerRegistrationEndpoints
 	{
 		var result = await handler.HandleAsync(state, continuationToken, cancellationToken);
 		return result.IsSuccess
-			? Results.Json(new { items = result.Value.Items.Select(ToDto).ToArray(), continuationToken = result.Value.ContinuationToken })
+			? Results.Json(new { items = result.Value.Items.Select(i => ToDto(i)).ToArray(), continuationToken = result.Value.ContinuationToken })
 			: ProblemResults.From(result.Failure);
 	}
 
@@ -122,7 +150,7 @@ internal static class AnalystManagerRegistrationEndpoints
 			return ProblemResults.From(result.Failure);
 		}
 
-		http.Response.Headers.ETag = IfMatchHeader.Format(result.Value.Version);
+		http.Response.Headers.ETag = IfMatchHeader.Format(result.Value.Registration.Version);
 		return Results.Json(ToDto(result.Value));
 	}
 

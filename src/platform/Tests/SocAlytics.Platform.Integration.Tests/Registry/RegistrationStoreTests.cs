@@ -139,14 +139,14 @@ public sealed class RegistrationStoreTests(PostgresContainerFixture postgres)
             await uow.CommitAsync(ct);
         }
 
-        var first = await store.ListAsync(null, 2, null, ct);
+        var first = await store.ListAsync(null, null, 2, null, ct);
         first.Items.Select(x => x.Id).ShouldBe([regs[2].Id, regs[1].Id]);
         first.ContinuationToken.ShouldNotBeNull();
-        var second = await store.ListAsync(null, 2, first.ContinuationToken, ct);
+        var second = await store.ListAsync(null, null, 2, first.ContinuationToken, ct);
         second.Items.Select(x => x.Id).ShouldBe([regs[0].Id]);
         second.ContinuationToken.ShouldBeNull();
-        (await store.ListAsync(RegistrationState.Active, 10, null, ct)).Items.ShouldBeEmpty();
-        (await store.ListAsync(RegistrationState.Pairing, 10, null, ct)).Items.Count.ShouldBe(3);
+        (await store.ListAsync(RegistrationState.Active, null, 10, null, ct)).Items.ShouldBeEmpty();
+        (await store.ListAsync(RegistrationState.Pairing, null, 10, null, ct)).Items.Count.ShouldBe(3);
 
         var due = await store.ListDueForExpiryAsync(regs[0].PairingExpiresAt, 10, ct);
         due.Select(x => x.Id).ShouldBe([regs[0].Id]);

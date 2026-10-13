@@ -95,7 +95,7 @@ public sealed class SubmissionTests(PostgresContainerFixture postgres)
         using var list = await admin.SendAsync(HttpMethod.Get, $"{Path}?state=pending_approval", null, ct);
         JsonDocument.Parse(await list.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("items").GetArrayLength().ShouldBe(1);
 
-        using var listDenied = await registrar.SendAsync(HttpMethod.Get, Path, null, ct);
+        using var listDenied = await plain.SendAsync(HttpMethod.Get, Path, null, ct);
         listDenied.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         using var missing = await admin.SendAsync(HttpMethod.Get, $"{Path}/{Guid.NewGuid()}", null, ct);
         missing.StatusCode.ShouldBe(HttpStatusCode.NotFound);

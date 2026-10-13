@@ -69,9 +69,18 @@
   - `OperatingStateMachine` (state and pause end);
   - the latest `PreflightResult` (the first failed check code as
     `runtimeUnavailableReason`);
-  - `AttemptRegistry.ActiveCount`;
-  - `ConcurrencyLimit.Effective` (from Analyst Manager Work Execution);
+  - the active count of `IManagerWorkTracker`;
+  - the fixed concurrency limit of 1, never below the active count;
   - the assembly version.
+
+  Refined decision: Analyst Manager Work Execution is not merged, so its
+  `AttemptRegistry.ActiveCount` and `ConcurrencyLimit.Effective` do not exist,
+  and three attempts at T011 stopped on that. On the person's decision this
+  feature ships with the tracker count and the fixed limit, and Work Execution
+  switches `StatusReportBuilder` to the registry and the effective limit when
+  it merges. Rejected alternative: creating those types here, which would
+  implement another feature's tasks and conflict with its merge. The report
+  contract is unchanged, so the later switch changes no platform behavior.
 
   `Ended` and transitional states are not reported, because the Manager only
   checks while Active.
