@@ -20,19 +20,37 @@ export default defineConfig({
       testDir: './tests/e2e/simulated',
       use: { ...devices['Desktop Chrome'] },
     },
+    // The platform specs share one platform instance, the Club Admin's changed password, and the club's single active
+    // season, so they run strictly one after another through chained projects. `--project platform` runs the whole chain.
     {
-      name: 'platform',
+      name: 'platform-session',
       testDir: './tests/e2e/platform',
-      testIgnore: /(navigation|club-structure)\.spec\.ts$/,
+      testMatch: /(session|origin)\.spec\.ts$/,
+      fullyParallel: false,
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
-      // Runs after `platform`: session.spec.ts needs the Club Admin's initial password, which this set's setup changes.
-      // These specs rely on the changed password.
-      name: 'platform-roles',
+      name: 'platform-navigation',
       testDir: './tests/e2e/platform',
-      testMatch: /(navigation|club-structure)\.spec\.ts$/,
-      dependencies: ['platform'],
+      testMatch: /navigation\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-session'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
+      name: 'platform-club-structure',
+      testDir: './tests/e2e/platform',
+      testMatch: /club-structure\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-navigation'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
+      name: 'platform',
+      testDir: './tests/e2e/platform',
+      testMatch: /members\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-club-structure'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
   ],
