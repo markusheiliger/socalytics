@@ -12,7 +12,7 @@ public sealed record UnregistrationResult(string ManagerId, string State);
 
 public sealed class CompleteUnregistrationHandler(
     IUnitOfWork unitOfWork, IRegistrationStore registrations, IManagerAccessTokenStore tokens,
-    IManagerStatusStore statuses, FenceManagerAttempts fence, IQueueCredentialStore credentials,
+    IManagerStatusStore statuses, FenceManagerAttempts fence, IQueueCredentialStore credentials, IQueueAccessRevoker revoker,
     IAuditTrail audit, TimeProvider time)
 {
     public async Task<OperationResult<UnregistrationResult>> HandleAsync(Guid registrationId, CancellationToken cancellationToken)
@@ -48,6 +48,7 @@ public sealed class CompleteUnregistrationHandler(
             ["revokedCredentials"] = revoked.ToString(System.Globalization.CultureInfo.InvariantCulture),
         }), cancellationToken);
         await scope.CommitAsync(cancellationToken);
+        await revoker.TryPushPendingAsync(cancellationToken);
         return new UnregistrationResult(registration.ManagerId.Value.ToString(), "unregistered");
     }
 }

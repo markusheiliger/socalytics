@@ -80,6 +80,8 @@ public static class InfrastructureServiceCollectionExtensions
             .ValidateOnStart();
         services.TryAddSingleton<NatsTrust>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.QueueCredentials.IQueueCredentialIssuer, NatsQueueCredentialIssuer>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.QueueCredentials.IQueueAccessRevoker, NatsQueueAccessRevoker>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.QueueRevocationWorker>();
         services.TryAddSingleton<NatsConnectionProvider>();
         services.TryAddSingleton<TransportReconnectSignal>();
         services.TryAddSingleton<NatsTopology>();

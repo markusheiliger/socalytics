@@ -11,7 +11,7 @@ namespace SocAlytics.Platform.Application.Registry.Decisions;
 
 public sealed class RevokeRegistrationHandler(
     IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IRegistrationStore store, IManagerAccessTokenStore tokens,
-    IManagerStatusStore statuses, FenceManagerAttempts fence, IQueueCredentialStore credentials,
+    IManagerStatusStore statuses, FenceManagerAttempts fence, IQueueCredentialStore credentials, IQueueAccessRevoker revoker,
     IAuditTrail audit, IRequestContext context, TimeProvider time)
 {
     public async Task<OperationResult<AnalystManagerRegistration>> HandleAsync(
@@ -61,6 +61,7 @@ public sealed class RevokeRegistrationHandler(
             ["revokedCredentials"] = revoked.ToString(System.Globalization.CultureInfo.InvariantCulture),
         }), cancellationToken);
         await scope.CommitAsync(cancellationToken);
+        await revoker.TryPushPendingAsync(cancellationToken);
         return registration.WithVersion(write.Version ?? registration.Version);
     }
 }

@@ -56,10 +56,16 @@ internal sealed class NatsTrust
         return NatsJwt.EncodeOperatorClaims(claims, op);
     }
 
-    public string BuildStampAccountJwt()
+    /// <summary>Builds the stamp account JWT; <paramref name="revocations"/> maps revoked user keys to the revocation time in Unix seconds.</summary>
+    public string BuildStampAccountJwt(IReadOnlyDictionary<string, long>? revocations = null, DateTimeOffset? issuedAt = null)
     {
         var claims = NatsJwt.NewAccountClaims(StampAccountPublicKey);
         claims.Name = StampAccountName;
+        if (revocations is { Count: > 0 })
+        {
+            claims.Account.Revocations = new Dictionary<string, long>(revocations);
+        }
+
         var limits = claims.Account.Limits;
         limits.Subs = -1;
         limits.Data = -1;
@@ -76,7 +82,17 @@ internal sealed class NatsTrust
         limits.MaxAckPending = -1;
         limits.MemoryMaxStreamBytes = -1;
         limits.DiskMaxStreamBytes = -1;
-        return NatsJwt.EncodeAccountClaims(claims, Require(_operator));
+        return NatsJwt.EncodeAccountClaims(claims, Require(_operator), issuedAt);
+    }
+
+    /// <summary>Mints a short-lived user of the system account for account claim updates.</summary>
+    public (string Jwt, string Seed) CreateSystemUser(DateTimeOffset expires)
+    {
+        var user = KeyPair.CreatePair(PrefixByte.User);
+        var claims = NatsJwt.NewUserClaims(user.GetPublicKey());
+        claims.Name = "socalytics-system";
+        claims.Expires = expires;
+        return (NatsJwt.EncodeUserClaims(claims, Require(_system)), user.GetSeed());
     }
 
     public string BuildSystemAccountJwt()
