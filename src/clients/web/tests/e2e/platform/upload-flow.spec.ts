@@ -95,4 +95,23 @@ test('uploads a 40 MiB recording directly to object storage and shows the accept
 
   expect(storagePuts.length, 'parts sent directly to object storage').toBeGreaterThan(0);
   expect(apiBodyTypes.every((type) => type.startsWith('application/json')), 'only JSON bodies to /api/v1').toBe(true);
+
+  // Finalize the accepted recording and see the set version and the run the platform created for it (SC-002).
+  await page.getByRole('link', { name: 'Finalize recordings' }).click();
+  await page.getByLabel(`Include ${displayName}`).check();
+  await page.getByRole('button', { name: 'Review and finalize' }).click();
+  await page.getByRole('button', { name: 'Finalize', exact: true }).click();
+
+  await expect(page).toHaveURL(/\/matches\/[0-9a-f-]+$/);
+  const sets = page.getByRole('list', { name: 'Finalized recording sets' });
+  await expect(sets.getByRole('listitem').first()).toContainText('1 recording(s)', { timeout: 30_000 });
+
+  // The platform creates the run asynchronously; any state counts, so Analyst execution is not needed.
+  await expect(async () => {
+    await page.reload();
+    await expect(sets.getByRole('list', { name: 'Analysis runs' }).getByRole('status').first()).toContainText(
+      /State: (Requested|Running|Partially completed|Completed|Failed|Cancelled)/,
+      { timeout: 5_000 },
+    );
+  }).toPass({ timeout: 90_000, intervals: [2_000, 5_000] });
 });
