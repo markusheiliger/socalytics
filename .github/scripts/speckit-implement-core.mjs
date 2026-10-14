@@ -83,6 +83,10 @@ export const AMEND_STATUS_END = '<!-- /speckit-amend:status -->';
 export const MAX_STALLED_ROUNDS = 3;
 export const MAX_CORRECTION_ROUNDS = 10;
 export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
+// GitHub's default label for "Extra attention is needed": an implementation, amendment, or fix spec pull request
+// carries it while it waits for a person (stopped, a diagnosis or a fix spec outcome to decide on, or ready for review)
+// and loses it once a person's action puts automation back to work or closes the pull request.
+export const ATTENTION_LABEL = 'help wanted';
 const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
 // Marks that the base branch at a commit was not merged before a phase (refused, or its conflicts need a person), so
 // the next phases do not try that commit again; a newer commit of the base branch is tried again.
@@ -455,13 +459,27 @@ export function isImplementRunOf(title, twin) {
   return title === name || String(title ?? '').startsWith(`${name} `);
 }
 
-// Diagnose, analyze, and fix runs are named "<workflow> #<twin> · <what the run does>" (run-name in their workflow
-// sources).
+// Diagnose, analyze, and fix runs are named "[<workflow>] spec #<twin> · <why the run started> (#<pull>)" (run-name
+// in their workflow sources); runs started before that format are named "<workflow> #<twin> · <what the run does>".
 const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze'], [FIX_WORKFLOW_FILE, 'Spec Kit fix']]);
 
 export function isTwinRunOf(workflowFile, title, twin) {
-  const name = `${TWIN_RUN_NAMES.get(workflowFile)} #${twin}`;
-  return title === name || String(title ?? '').startsWith(`${name} `);
+  const workflow = TWIN_RUN_NAMES.get(workflowFile);
+  const text = String(title ?? '');
+  return [`[${workflow}] spec #${twin}`, `${workflow} #${twin}`].some((name) => text === name || text.startsWith(`${name} `));
+}
+
+// Adds (`needed`) or removes ATTENTION_LABEL on a pull request; only an open pull request gets it. The label is a
+// convenience, so a failure never stops the workflow.
+export async function setAttention(client, number, needed) {
+  try {
+    const pull = await client.getPullRequest(number);
+    const has = (pull.labels ?? []).some((label) => (label?.name ?? label) === ATTENTION_LABEL);
+    if (needed && !has && pull.state === 'open') await client.addLabels(number, [ATTENTION_LABEL]);
+    if (!needed && has) await client.removeLabel(number, ATTENTION_LABEL);
+  } catch {
+    // The label only signals the state; comments and check runs carry it.
+  }
 }
 
 // The spec title of an implementation pull request, whose title is "Implement: <spec title>" (renderPullRequestTitle).

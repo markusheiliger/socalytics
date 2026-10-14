@@ -194,7 +194,11 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.equal(isImplementRunOf('Spec Kit implement spec #381', 38), false);
   assert.equal(isImplementRunOf('Spec Kit implement #38 T002 attempt 3', 38), false, 'runs of the earlier workflows are not runs of this one');
   assert.equal(isImplementRunOf('Spec Kit diagnose #38', 38), false);
-  assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #38 · why #41 stopped', 38), true);
+  assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', '[Spec Kit diagnose] spec #38 · Find out why the implementation stopped and how to continue (#41)', 38), true);
+  assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', '[Spec Kit diagnose] spec #381 · Rework the amendment with review feedback (#82)', 38), false);
+  assert.equal(isTwinRunOf('speckit-fix.lock.yml', '[Spec Kit fix] spec #38 · Author a fix spec for the cause outside the stopped implementation (#41)', 38), true);
+  assert.equal(isTwinRunOf('speckit-analyze.lock.yml', '[Spec Kit diagnose] spec #38 · Find out why the implementation stopped and how to continue (#41)', 38), false);
+  assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #38 · why #41 stopped', 38), true, 'runs named before the bracketed format');
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #38', 38), true, 'runs named before the mode was added');
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #381 · fix #82 round 1', 38), false);
   assert.equal(isTwinRunOf('speckit-analyze.lock.yml', 'Spec Kit analyze #38 · check #82 after round 1', 38), true);

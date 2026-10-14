@@ -120,6 +120,20 @@ from the implementation branch, so a branch created before it existed gets it wi
 always show as skipped. Prepare, orchestrate, and implement spec also have a `refuse` job that only runs, and fails, when
 started from a branch other than the default branch.
 
+## Pull requests that need attention
+
+Implementation, amendment, and fix spec pull requests carry GitHub's default label `help wanted` ("Extra attention is
+needed") while they wait for a person, and lose it as soon as a person's action puts automation back to work or the
+pull request is merged or closed. The label is a convenience; the comments and check runs stay authoritative.
+
+| Pull request | Labeled when | Unlabeled when |
+| --- | --- | --- |
+| Implementation | It stopped and no diagnosis runs for it (attempt limit, attention, a diagnosis that could not start or did not finish), a diagnosis reported without an amendment, an amendment or fix spec was discarded or misdirected, a fix spec could not be authored or was not implemented, or it is held for review. | A diagnosis, a `/speckit fix` authoring, a resume, a retry, or a person's push gets it going again, an amendment was merged, or it was merged or closed. |
+| Amendment or fix spec | It is presented for review, or a check or rework could not start or did not finish. | A rework starts after feedback, a check starts after a push, or it was merged, closed, or superseded. |
+
+The workflow run titles of Spec Kit diagnose, analyze, and fix read `[Spec Kit <workflow>] spec #<twin> · <why the run
+started> (#<pull request>)`.
+
 ## Copilot CLI and model levels
 
 Every Copilot CLI run of these workflows goes through the composite action

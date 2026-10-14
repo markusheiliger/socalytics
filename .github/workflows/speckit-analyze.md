@@ -55,7 +55,7 @@ on:
   # Only the Spec Kit workflows dispatch this workflow, with the repository's token; dispatching already requires
   # write access.
   roles: all
-run-name: "Spec Kit analyze #${{ inputs.twin }} · ${{ inputs.mode == 'check' && format('check #{0} after a push', inputs.amendment) || inputs.round != '0' && inputs.round != '' && format('check #{0} after round {1}', inputs.amendment, inputs.round) || format('check #{0}', inputs.amendment) }}"
+run-name: "[Spec Kit analyze] spec #${{ inputs.twin }} · ${{ inputs.mode == 'check' && format('Check the {0} for consistency after a manual push (#{1})', inputs.kind == 'fix' && 'fix spec' || 'amendment', inputs.amendment) || inputs.round != '0' && inputs.round != '' && format('Check the {0} for consistency after correction round {1} (#{2})', inputs.kind == 'fix' && 'fix spec' || 'amendment', inputs.round, inputs.amendment) || format('Check the {0} for consistency (#{1})', inputs.kind == 'fix' && 'fix spec' || 'amendment', inputs.amendment) }}"
 concurrency:
   group: speckit-analyze-${{ inputs.twin }}
   cancel-in-progress: false
