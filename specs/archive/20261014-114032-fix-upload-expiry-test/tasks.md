@@ -5,7 +5,7 @@ description: "Task list for Deterministic Upload Session Expiry Test"
 
 # Tasks: Deterministic Upload Session Expiry Test
 
-**Input**: Design documents from `specs/20261014-114032-fix-upload-expiry-test/`
+**Input**: Design documents from `specs/archive/20261014-114032-fix-upload-expiry-test/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 
