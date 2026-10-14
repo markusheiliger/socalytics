@@ -175,8 +175,10 @@ safe-outputs:
         report:
           description: >-
             The report as one JSON object, as described in the speckit-gha-diagnose skill: for a diagnosis the fields
-            category, confidence, summary, cause, evidence, artifacts, options, and questions; for a rework the fields
-            summary, artifacts, and responses.
+            category, confidence, summary, cause, evidence, artifacts, options, and questions, where every option is
+            an object {title, why, command, recommended}, exactly one is recommended, and its command fits the
+            category and can be posted as it is (no placeholders); for a rework the fields summary, artifacts, and
+            responses.
           required: true
           type: string
       steps:
@@ -234,4 +236,7 @@ defines the method, the categories, the modes, the rules for amendments, and the
   #${{ inputs.amendment }}.
 - Changes outside that spec folder are scratch work for experiments and are discarded; revert them before
   you create or push anything.
+- **`diagnose`**: write the report to a scratch file outside the repository and check it with
+  `node .speckit-tooling/.github/scripts/speckit-diagnose.mjs check-report <file>`. It prints the problems and the
+  comment a person will see; fix the report until it prints "The report is valid.".
 - Finish by calling `speckit_diagnosis` exactly once with the report.

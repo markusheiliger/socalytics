@@ -1,6 +1,8 @@
 using Dapper;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Npgsql;
 using Shouldly;
 using SocAlytics.Platform.Application;
@@ -14,6 +16,8 @@ using SocAlytics.Platform.Domain.Analysis;
 using SocAlytics.Platform.Domain.Recordings;
 using SocAlytics.Platform.Infrastructure;
 using SocAlytics.Platform.Infrastructure.Persistence;
+using SocAlytics.Platform.Infrastructure.Registry;
+using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using SocAlytics.Platform.Migrator;
 using Xunit;
@@ -22,6 +26,17 @@ namespace SocAlytics.Platform.Integration.Tests.Analysis;
 
 public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 {
+	private sealed class TestEnvironment : IHostEnvironment
+	{
+		public string EnvironmentName { get; set; } = "Test";
+
+		public string ApplicationName { get; set; } = "SocAlytics.Platform.Api";
+
+		public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+
+		public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+	}
+
 	private static string DevelopmentSettingsPath()
 	{
 		var dir = new DirectoryInfo(AppContext.BaseDirectory);
@@ -53,7 +68,16 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 		services.AddSingleton<IConfiguration>(configuration);
 		services.AddInfrastructure();
 		services.AddApplication();
+		services.AddLogging();
+		services.AddScoped<IRequestContext, TestRequestContext>();
+		services.AddHealthChecks();
+		services.AddSingleton<IHostEnvironment>(new TestEnvironment());
 		await using var provider = services.BuildServiceProvider();
+		foreach (var seeder in provider.GetServices<IHostedService>().OfType<ConfiguredWorkflowSeeder>())
+		{
+			await seeder.StartAsync(ct);
+			await seeder.StopAsync(ct);
+		}
 
 		var definition = ((WorkflowResolution.ResolvedResult)await provider.GetRequiredService<IWorkflowDefinitionResolver>()
 			.ResolveDefaultAsync(ct)).Definition;

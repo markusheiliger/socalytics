@@ -56,8 +56,10 @@ The control-plane foundation implements the stamp's database side as
 one PostgreSQL database with one application schema, `socalytics`, holding the
 singleton Club root and the `Club > Season > Team > Match` hierarchy,
 membership and Club/Team grants, immutable recording lineage, and durable run
-and accepted-result lineage. Immutable capability and model metadata will join
-it with the Registry's capability catalog. Shared migration history is kept
+and accepted-result lineage. The schema also holds the Registry's immutable
+capability declarations keyed by image digest, content-addressed Analyst
+profiles, immutable workflow definitions, and the stamp's default workflow.
+Shared migration history is kept
 apart in `socalytics_migrations`; it owns no domain records.
 
 Architecture and PostgreSQL tests verify that the Club row is a singleton,

@@ -13,6 +13,7 @@ extension with the ID `github`.
 | `speckit.gha.route` | `/speckit-gha-route` | Mandatory `before_implement` hook: choose local implementation or a GitHub request |
 | `speckit.gha.request` | `/speckit-gha-request [folder]` | Request implementation on GitHub directly |
 | `speckit.gha.diagnose` | `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` | Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause |
+| `speckit.gha.fix` | `/speckit-gha-fix [pull request] [guidance]` | Author or rework a fix spec for the cause of a stopped implementation outside its spec; locally it explains `/speckit fix` and offers to post it |
 | `speckit.gha.refine` | `/speckit-gha-refine [folder]` | Mandatory `after_tasks` hook: refine the `[P]` groups of the generated `tasks.md` so parallel tasks never change the same files |
 | `speckit.gha.archive` | `/speckit-gha-archive [folder]` | Optional `after_converge` hook: archive an implemented spec to `specs/archive/<folder>` and rewrite every reference to it before a local or manual merge |
 | `speckit.gha.architecture` | `/speckit-gha-architecture [folder]` | Mandatory `after_plan` hook: write the `## Architecture Updates` section of `plan.md` (narratives, design updates, status statements at merge) |
@@ -101,7 +102,15 @@ workflow, which runs it non-interactively when an implementation stops or a
 person comments `/speckit diagnose` on the pull request, and to rework an
 amendment pull request after consistency findings (`fix`) or a person's
 feedback (`revise`). Locally it runs interactively and asks before it changes
-anything.
+anything. Its report recommends exactly one command that fits its category and
+can be posted as it is, with the guidance written out; the agent checks it with
+`node .github/scripts/speckit-diagnose.mjs check-report <report.json>` first.
+
+`/speckit-gha-fix` is the method of the `Spec Kit fix` agentic workflow, which
+a person starts with `/speckit fix <what to fix>` when the cause lies outside
+the stopped spec. It authors a small fix spec against the default branch, which
+goes through the same consistency check and review as an amendment; once merged
+and implemented, the stopped implementation resumes by itself.
 
 `speckit.gha.route` and `speckit.gha.request` both run
 `node .github/scripts/speckit-orchestrate.mjs request`, which
@@ -136,7 +145,7 @@ without symlink support (the Git default on Windows), so commit them as regular
 files:
 
 ```powershell
-foreach ($name in 'speckit-gha-author', 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose', 'speckit-gha-refine', 'speckit-gha-archive', 'speckit-gha-architecture', 'speckit-gha-drift') {
+foreach ($name in 'speckit-gha-author', 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose', 'speckit-gha-fix', 'speckit-gha-refine', 'speckit-gha-archive', 'speckit-gha-architecture', 'speckit-gha-drift') {
     $skill = ".github/skills/$name/SKILL.md"
     $content = Get-Content -Raw ".specify/extensions/gha/.specify-dev/extension-skills/$name/SKILL.md"
     Remove-Item $skill -Force

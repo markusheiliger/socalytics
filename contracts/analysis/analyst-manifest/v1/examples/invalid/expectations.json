@@ -1,0 +1,6 @@
+{
+  "bad-digest.json": "pattern",
+  "missing-capability.json": "required",
+  "unknown-property.json": "additionalProperties",
+  "unknown-tier.json": "enum"
+}

@@ -6,7 +6,7 @@ import test from 'node:test';
 
 import { pendingFeedback, renderFeedback } from './speckit-amend.mjs';
 import { CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER } from './speckit-implement-core.mjs';
-import { main, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
+import { checkReportFile, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
 const env = (extra = {}) => ({ GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_FOLDER: 'f', ...extra });
@@ -19,9 +19,9 @@ const REPORT = {
   evidence: ['Attempt 1: D=0.55', 'Attempt 3: D=0.9'],
   artifacts: [{ file: 'specs/f/research.md', reason: 'refine R6' }],
   options: [
-    { title: 'Retry with guidance', command: '/speckit resume Use one statement', recommended: false },
-    { title: 'Review and merge the amendment', command: null, recommended: true },
-    { title: 'Ask the platform team', command: null },
+    { title: 'Retry with guidance', why: 'The agent took the slow path on one refusal path.', command: '/speckit resume Use one statement', recommended: false },
+    { title: 'Review and merge the amendment', why: 'R6 leaves the counter write open.', command: null, recommended: true },
+    { title: 'Ask the platform team', why: 'They own the counter.', command: null },
   ],
   questions: [{ question: 'Keep the counter write?', choices: ['Yes', 'No'] }],
 };
@@ -98,12 +98,13 @@ test('records the diagnosis with the amendment, questions, options, and next ste
     assert.ok(comment.body.startsWith(DIAGNOSIS_COMMENT_MARKER));
     assert.match(comment.body, /\*\*Diagnosis\*\*: the spec artifacts need an amendment \(`artifacts`, confidence high\)/);
     assert.match(comment.body, /&lt;!-- speckit-implement:resume -->/, 'agent text cannot carry workflow markers');
-    assert.match(comment.body, /\*\*Proposed amendment\*\*: #11[\s\S]*checks it for consistency first, and correction rounds fix what it finds while they make progress[\s\S]*`specs\/f\/research\.md`: refine R6/);
-    assert.match(comment.body, /\*\*Questions\*\* \(answer with `\/speckit diagnose <answers>`\)[\s\S]*Keep the counter write\?\n {3}- Yes/);
+    assert.match(comment.body, /\*\*Proposed amendment\*\*: Amend: F \(#11\) \(`speckit-amend\/f` → `speckit\/f`\)[\s\S]*checks it for consistency first, and correction rounds fix what it finds while they make progress[\s\S]*`specs\/f\/research\.md`: refine R6/);
+    assert.match(comment.body, /\*\*Questions\*\* \(answer them after `\/speckit diagnose`, numbered like the questions; the recommended choice is listed first\)[\s\S]*Keep the counter write\?\n {3}- Yes/);
     assert.doesNotMatch(comment.body, /Actions outside these commands/);
     assert.equal(comment.body.match(/\*\*Recommended next step\*\*/g).length, 1, 'exactly one recommendation');
-    assert.match(comment.body, /\*\*Recommended next step\*\*: Review the amendment #11 and merge it[\s\S]*<summary>Other options<\/summary>[\s\S]*\/speckit resume Use one statement[\s\S]*- Ask the platform team\./);
-    assert.doesNotMatch(comment.body, /Review and merge the amendment/, 'the open amendment is the recommendation');
+    assert.match(comment.body, /_`artifacts` means:_ The spec, plan, or tasks are wrong or incomplete/);
+    assert.match(comment.body, /\*\*Recommended next step\*\*: Review and merge the amendment #11: Amend: F \(being checked for consistency first\)\.\n\n- \*\*Why\*\*: [^\n]+\n- \*\*What it does\*\*: Merging applies the amendment[\s\S]*<summary>Other options<\/summary>[\s\S]*- \*\*Retry with guidance\*\*\n {2}- Why: The agent took the slow path on one refusal path\.\n {2}- What it does: First merges `main`[\s\S]*\/speckit resume Use one statement[\s\S]*- \*\*Ask the platform team\*\*\n {2}- Why: They own the counter\./);
+    assert.doesNotMatch(comment.body, /- \*\*Review and merge the amendment\*\*/, 'the open amendment is the recommendation');
     assert.doesNotMatch(comment.body, /\/speckit (apply|revise|discard)/);
     assert.match(comment.body, /\[Diagnosis run\]\(https:\/\/github\.com\/octo\/repo\/actions\/runs\/42\)/);
     const done = github.repo.checkRuns.find((run) => run.id === check.id);
@@ -115,7 +116,7 @@ test('records the diagnosis with the amendment, questions, options, and next ste
     assert.match(github.comments.find((item) => item.number === 11).body, /^<!-- speckit-amend:rework -->\n<!-- speckit-amend:cutoff \S+ -->\nThis amendment comes from the diagnosis on #9[\s\S]*handed to @dev for review/);
     const analysis = github.repo.checkRuns.at(-1);
     assert.deepEqual([analysis.name, analysis.head_sha, analysis.status, analysis.external_id], ['Spec Kit amendment', 'sha-amend', 'in_progress', 'speckit:amend-checking']);
-    assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-analyze.lock.yml', { twin: '5', pull: '9', folder: 'f', amendment: '11', round: '0', stalls: '0', previous: '', mode: 'loop', check_run: String(analysis.id) }]);
+    assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-analyze.lock.yml', { twin: '5', pull: '9', folder: 'f', amendment: '11', round: '0', stalls: '0', previous: '', mode: 'loop', check_run: String(analysis.id), kind: 'amend' }]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -155,20 +156,108 @@ test('records an unusable or missing report', async () => {
   const comment = renderDiagnosisComment({ report: validateReport(REPORT).report, round: 2 });
   assert.match(comment, /\*\*Diagnosis \(round 2\)\*\*/);
   assert.match(comment, /_No amendment pull request was created\._/);
-  assert.match(comment, /\*\*Recommended next step\*\*: Review and merge the amendment\./);
+  assert.match(comment, /\*\*Recommended next step\*\*: Diagnose again to create the amendment\.[\s\S]*```text\n\/speckit diagnose Create the amendment pull request for the spec artifact defect that the previous diagnosis found\.\n```/, 'without an amendment pull request, merging one cannot be the recommendation');
+  assert.match(comment, /_Parts of the report were adjusted: the recommended option "Review and merge the amendment" does not fit the category `artifacts`/);
   const outside = renderDiagnosisComment({
     report: validateReport({
       ...REPORT,
       category: 'outside',
       options: [
-        { title: 'Retry on a less loaded runner. Unlikely to succeed.', command: '/speckit resume Keep going', recommended: false },
-        { title: 'Make the flaky test robust on main, then sync the branch.', command: '/speckit sync', recommended: true },
+        { title: 'Retry on a less loaded runner. Unlikely to succeed.', why: 'Timing only.', command: '/speckit resume Keep going', recommended: false },
+        { title: 'Make the flaky test robust on main, then resume; resuming merges main first.', why: 'The test belongs to another feature.', command: '/speckit resume', recommended: true },
       ],
     }).report,
+    baseBranch: 'main',
   });
-  assert.match(outside, /\*\*Recommended next step\*\*: Make the flaky test robust on main, then sync the branch\.\n\nComment this on the pull request[^\n]*\n\n```text\n\/speckit sync\n```/);
-  assert.match(outside, /<summary>Other options<\/summary>[\s\S]*- Retry on a less loaded runner\. Unlikely to succeed:\n/, 'alternatives are collapsed, without doubled punctuation');
-  assert.match(validateReport({ ...REPORT, options: [{ title: 'Apply', command: '/speckit apply' }] }).reasons.join(), /option "Apply" has an invalid command/);
+  assert.match(outside, /\*\*Recommended next step\*\*: Make the flaky test robust on main, then resume; resuming merges main first\.\n\n- \*\*Why\*\*: The test belongs to another feature\.\n- \*\*What it does\*\*: First merges `main`[^\n]*\n\nComment this on the pull request[^\n]*\n\n```text\n\/speckit resume\n```/);
+  assert.match(validateReport({ ...REPORT, options: [{ title: 'Sync', why: 'x', command: '/speckit sync' }] }).reasons.join(), /option "Sync" has an invalid command/, 'sync is no command any more');
+  assert.match(outside, /<summary>Other options<\/summary>[\s\S]*- \*\*Retry on a less loaded runner\. Unlikely to succeed\*\*\n/, 'alternatives are collapsed, without doubled punctuation');
+  assert.match(validateReport({ ...REPORT, options: [{ title: 'Apply', why: 'x', command: '/speckit apply' }] }).reasons.join(), /option "Apply" has an invalid command/);
+});
+
+// The report of diagnosis round 5 on PR #75 (run 38448806133): `retry` with high confidence, but its options are plain
+// text, and the one marked as recommended asks for a resume. It used to render `/speckit diagnose [notes]`.
+const PR75_REPORT = {
+  category: 'retry',
+  confidence: 'high',
+  summary: 'The phase verification failed on one timing-sensitive test from another feature. The Registry work is not the cause, and the spec artifacts are fine.',
+  cause: 'UploadSessionExpiryTests.ExpiredSessionIsRefusedImmediatelyAndReleasedBySweep sets SessionLifetime to 2 s. On the loaded runner the presigned URL had already expired.',
+  evidence: ['Only one test failed, 1 of 851 in Integration.Tests, at UploadSessionExpiryTests.cs:63.'],
+  artifacts: [],
+  options: [
+    "Run '/speckit resume' so the phase verification runs again. A single rerun will very likely pass, because the failure is timing-dependent. This is the recommended option.",
+    "If it fails again, fix the flaky test on the base branch, for example by using a longer SessionLifetime or by uploading before the clock is advanced, then run '/speckit sync'.",
+  ],
+  questions: [],
+};
+
+test('a retry diagnosis recommends a retry with guidance, also when the agent wrote its options as text', () => {
+  const { reasons, report } = validateReport(JSON.stringify(PR75_REPORT));
+  assert.equal(report.options.length, 2, 'plain-text options are read, not dropped');
+  assert.deepEqual(report.options.map((option) => [option.command, option.recommended]), [['/speckit resume', true], [null, false]]);
+  assert.match(reasons.join('\n'), /option 1 was plain text instead of an object; it was read as "Run '\/speckit resume' so the phase verification runs again\."/);
+  const comment = renderDiagnosisComment({ report, reasons, round: 5, baseBranch: 'main', continuation: { text: 'continues with the convergence (the failed verification is not repeated by itself; the next verification, at the latest the full verification before the merge, covers it)', mergesBase: true } });
+  assert.match(comment, /^<!-- speckit-implement:diagnosis -->\n\*\*Diagnosis \(round 5\)\*\*: a retry is likely to succeed \(`retry`, confidence high\)\.\n\n_`retry` means:_ The failure was transient/);
+  assert.match(comment, /\*\*Recommended next step\*\*: Retry what stopped\.\n\n- \*\*Why\*\*: The phase verification failed on one timing-sensitive test[^\n]*The same work is expected to pass when it runs again\.\n- \*\*What it does\*\*: The implementation continues with the convergence \(the failed verification is not repeated by itself[^\n]*\), with a fresh attempt count \(at most 3 failed attempts\)\. That work merges `main` first anyway[^\n]*The text after the command goes into the next attempt's prompt as guidance\.\n\nComment this on the pull request \(people with write access\):\n\n```text\n\/speckit retry The diagnosis found: The phase verification failed on one timing-sensitive test from another feature\. The Registry work is not the cause, and the spec artifacts are fine\.\n```/);
+  assert.doesNotMatch(comment, /\/speckit diagnose \[notes\]/);
+  assert.match(comment, /- \*\*Run '\/speckit resume' so the phase verification runs again\*\*\n {2}- Why: A single rerun will very likely pass, because the failure is timing-dependent\.\n {2}- What it does: First merges `main`/, 'the agent\'s resume is another option, without its "recommended" sentence');
+  assert.match(comment, /_Parts of the report were adjusted:[^\n]*the recommended option "Run '\/speckit resume' so the phase verification runs again\." does not fit the category `retry`/);
+  for (const fence of comment.matchAll(/```text\n([\s\S]*?)```/g)) assert.doesNotMatch(fence[1], /<[A-Za-z][^>]*>|\[[A-Za-z][^\]]*\]/, `no placeholder in a command: ${fence[1]}`);
+});
+
+test('the recommended command always fits the category', () => {
+  const base = { ...REPORT, options: [], questions: [] };
+  const recommendation = (report) => recommendNextSteps(validateReport(report).report).options.find((option) => option.recommended);
+  assert.match(recommendation({ ...base, category: 'retry' }).command, /^\/speckit retry The diagnosis found: The design leaves open/);
+  assert.match(recommendation({ ...base, category: 'outside' }).command, /^\/speckit fix The design leaves open how the counter write is issued\. UserManager/);
+  assert.equal(recommendation({ ...base, category: 'unknown' }).command, '/speckit diagnose');
+  assert.equal(recommendation({ ...base, category: 'decision', questions: [{ question: 'Keep the counter write?', choices: ['Yes, keep it.', 'No'] }, { question: 'Split?', choices: ['No'] }] }).command, '/speckit diagnose 1. Yes, keep it. 2. No.');
+  const agentRetry = { title: 'Retry and keep the helper', why: 'The agent dropped the helper.', command: '/speckit retry Keep the helper in UserManager', recommended: true };
+  assert.equal(recommendation({ ...base, category: 'retry', options: [agentRetry] }).command, '/speckit retry Keep the helper in UserManager', 'a fitting agent recommendation keeps its guidance');
+  const promoted = recommendation({ ...base, category: 'outside', options: [{ ...agentRetry, recommended: true }, { title: 'Fix the test on main', why: 'It is flaky.', command: '/speckit fix Use a longer SessionLifetime', recommended: false }] });
+  assert.equal(promoted.command, '/speckit fix Use a longer SessionLifetime', 'a fitting option of the agent is preferred over the default');
+
+  const decision = renderDiagnosisComment({ report: validateReport({ ...base, category: 'decision', questions: [{ question: 'Keep the counter write?', choices: ['Yes', 'No'] }] }).report });
+  assert.match(decision, /\*\*Questions\*\* \(the recommended next step answers them with the first, recommended choice of each; change the answers before posting if you decide otherwise\)/);
+  assert.match(decision, /```text\n\/speckit diagnose 1\. Yes\.\n```/);
+});
+
+test('validates options: placeholders, a missing why, and a single recommendation', () => {
+  assert.equal(removePlaceholderArgument('/speckit resume <guidance>'), '/speckit resume');
+  assert.equal(removePlaceholderArgument('/speckit diagnose [notes]'), '/speckit diagnose');
+  assert.equal(removePlaceholderArgument('/speckit retry Use <guidance> here'), null);
+  assert.equal(removePlaceholderArgument('/speckit retry Read items[0] first'), '/speckit retry Read items[0] first');
+  assert.equal(removePlaceholderArgument('/speckit retry Return IReadOnlyList<Recording> from the query handler'), '/speckit retry Return IReadOnlyList<Recording> from the query handler', 'code is no placeholder');
+  assert.equal(removePlaceholderArgument('/speckit retry Run the [P] tasks of [US1] one after another'), '/speckit retry Run the [P] tasks of [US1] one after another', 'task tags are no placeholders');
+  assert.equal(removePlaceholderArgument('/speckit fix <what to fix>'), '/speckit fix');
+  const { reasons, report } = validateReport({
+    ...REPORT,
+    options: [
+      { title: 'Retry', command: '/speckit retry <guidance>', recommended: true },
+      { title: 'Resume', why: 'x', command: '/speckit resume Use <guidance> now', recommended: true },
+    ],
+  });
+  assert.deepEqual(report.options.map((option) => [option.command, option.recommended]), [['/speckit retry', true], [null, false]]);
+  assert.match(reasons.join('\n'), /option "Retry" does not say why it helps/);
+  assert.match(reasons.join('\n'), /option "Resume" has an invalid command/);
+  assert.match(reasons.join('\n'), /option "Resume" was marked as recommended too/);
+});
+
+test('check-report prints the problems and the comment, and fails until the report is clean', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-check-'));
+  try {
+    const lines = [];
+    const file = path.join(dir, 'report.json');
+    writeFileSync(file, JSON.stringify(PR75_REPORT));
+    assert.equal(checkReportFile(file, (line) => lines.push(line)), 1);
+    assert.match(lines.join('\n'), /^Fix these problems before you report:\n- option 1 was plain text[\s\S]*The comment would read:[\s\S]*\/speckit retry/);
+    writeFileSync(file, JSON.stringify({ ...PR75_REPORT, options: [{ title: 'Retry the convergence', why: 'Timing only.', command: '/speckit retry Rerun unchanged.', recommended: true }] }));
+    lines.length = 0;
+    assert.equal(checkReportFile(file, (line) => lines.push(line)), 0);
+    assert.match(lines[0], /^The report is valid\./);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('collects the findings to fix and the feedback to address for a rework', async () => {

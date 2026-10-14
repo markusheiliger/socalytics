@@ -126,8 +126,10 @@ idempotency, notification deduplication, and its outgoing events through the
 platform outbox. Registry-owned workflow,
 capability, Analyst-profile, model, schema, runtime, policy, resource, retry,
 and timeout versions are validated through typed Registry application queries;
-until the Registry's capability catalog exists, these queries resolve a
-configured workflow definition.
+these queries resolve the stamp's default workflow from the Registry, that is,
+approved, content-addressed Analyst profiles and their digest-keyed capability
+declarations. A configured workflow definition is used only to seed an empty
+Registry in Development and Test.
 Analysis stores the resolved capability declaration, Analyst-profile, OCI
 image, model, policy, schema, resource, retry, lease, stale-timeout, and
 execution-timeout identities and values in immutable run and node snapshots.

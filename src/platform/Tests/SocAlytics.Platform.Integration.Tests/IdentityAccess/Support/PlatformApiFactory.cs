@@ -117,6 +117,29 @@ internal sealed class PlatformApiFactory : WebApplicationFactory<Program>
 		}
 	}
 
+	// For APIs started without a workflow: /health stays unhealthy until a default workflow exists.
+	public async Task WaitUntilHealthyExceptWorkflowAsync(CancellationToken cancellationToken, TimeSpan? timeout = null)
+	{
+		using var client = CreateApiClient();
+		var health = Services.GetRequiredService<HealthCheckService>();
+		var deadline = DateTime.UtcNow + (timeout ?? TimeSpan.FromSeconds(60));
+		while (true)
+		{
+			var report = await health.CheckHealthAsync(r => r.Name != "analysis-workflow", cancellationToken);
+			if (report.Status == HealthStatus.Healthy)
+			{
+				return;
+			}
+
+			if (DateTime.UtcNow >= deadline)
+			{
+				throw new TimeoutException("The API did not become healthy in time.");
+			}
+
+			await Task.Delay(200, cancellationToken);
+		}
+	}
+
 	public async Task<HealthReportEntry> CheckBootstrapAsync(CancellationToken cancellationToken)
 	{
 		var report = await Services.GetRequiredService<HealthCheckService>()
