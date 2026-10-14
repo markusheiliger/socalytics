@@ -8,13 +8,16 @@ import {
   main,
   maintainAmendment,
   pendingFeedback,
+  resolveAmendment,
   runClosed,
   runFeedback,
   runGuard,
   runPushed,
   runRecordAnalysis,
+  startRework,
   validateAnalysis,
 } from './speckit-amend.mjs';
+import { ATTENTION_LABEL } from './speckit-implement-core.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
 const env = (extra = {}) => ({ GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', ...extra });
@@ -54,6 +57,11 @@ test('a consistent amendment is handed to the requester for review', async () =>
   const presented = github.comments.find((comment) => comment.number === 11);
   assert.match(presented.body, /^<!-- speckit-amend:presented -->\n<!-- speckit-amend:cutoff \S+ -->\n@dev ✅ \*\*Consistent\*\*[\s\S]*<summary>Findings<\/summary>[\s\S]*\*\*LOW\*\*: Wording\./);
   assert.match(github.comments.find((comment) => comment.number === 9).body, /^\*\*Amendment #11 is ready for your review\*\*/);
+  const attention = () => (amendmentPull(github).labels ?? []).some((label) => label.name === ATTENTION_LABEL);
+  assert.equal(attention(), true, 'a presented amendment waits for its reviewer');
+
+  await startRework(github, env(), await resolveAmendment(github, env(), 11), { mode: 'revise', feedback: { items: [], since: null } });
+  assert.equal(attention(), false, 'a rework after feedback is processing');
 });
 
 test('correction rounds continue while they make progress and stop after three rounds without it', async () => {

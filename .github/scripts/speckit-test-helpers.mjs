@@ -79,10 +79,21 @@ export class FakeGitHub {
     if (labels) this.find(number).labels = labels.map((name) => ({ name }));
   }
 
+  // Issues and pull requests share the labels API.
+  labelTarget(number) {
+    return this.find(number) ?? this.repoState?.pulls.find((pull) => pull.number === number);
+  }
+
+  async addLabels(number, names) {
+    const target = this.labelTarget(number);
+    target.labels ??= [];
+    for (const name of names) if (!target.labels.some((label) => label.name === name)) target.labels.push({ name });
+  }
+
   async removeLabel(number, name) {
     this.removals.push({ number, name });
-    const issue = this.find(number);
-    issue.labels = issue.labels.filter((label) => label.name !== name);
+    const target = this.labelTarget(number);
+    target.labels = (target.labels ?? []).filter((label) => label.name !== name);
   }
 
   async getIssueLabels(number) {
@@ -183,7 +194,7 @@ export class FakeGitHub {
       inputs: structuredClone(inputs),
       display_title: workflowFile === IMPLEMENT_WORKFLOW_FILE
         ? renderImplementRunName(inputs.twin, inputs.title)
-        : { 'speckit-diagnose.lock.yml': `Spec Kit diagnose #${inputs.twin} · ${inputs.mode ?? 'diagnose'}`, 'speckit-analyze.lock.yml': `Spec Kit analyze #${inputs.twin} · check #${inputs.amendment}` }[workflowFile] ?? workflowFile,
+        : { 'speckit-diagnose.lock.yml': `[Spec Kit diagnose] spec #${inputs.twin} · ${inputs.mode ?? 'diagnose'} (#${inputs.pull})`, 'speckit-analyze.lock.yml': `[Spec Kit analyze] spec #${inputs.twin} · Check the amendment for consistency (#${inputs.amendment})` }[workflowFile] ?? workflowFile,
       status: 'queued',
       conclusion: null,
       created_at: this.tick(),
