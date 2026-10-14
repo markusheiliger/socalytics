@@ -60,4 +60,4 @@ A maintainer or the implementation automation runs the verification of a phase o
 
 - The smallest fix is a per-project loop in the existing `run_tests` of `environment-verify`, reusing the discovery of task mode. Parallelism within one test project is unchanged; the observed conflicts are between projects.
 - Retries or fixed port assignments are not used, because they would hide the race instead of removing it.
-- Dependencies: the owner of the verification action is [Environment Verification Coverage](../archive/20261007-115855-environment-verification-coverage/spec.md); the implementation this fix unblocks is #72 (`specs/20261012-141233-manager-work-execution`). This is an environment spec: its implementation changes nothing but the two action folders and is held for a person's review.
+- Dependencies: the owner of the verification action is [Environment Verification Coverage](../20261007-115855-environment-verification-coverage/spec.md); the implementation this fix unblocks is #72 (`specs/20261012-141233-manager-work-execution`). This is an environment spec: its implementation changes nothing but the two action folders and is held for a person's review.
