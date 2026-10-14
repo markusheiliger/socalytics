@@ -118,3 +118,38 @@ describe('password-change and sign-out views', () => {
     await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Home' })).toBeInTheDocument());
   });
 });
+
+describe('sign-in return', () => {
+  const signInTo = async (path: string) => {
+    const adapter = fakeAdapter({
+      restore: vi.fn().mockRejectedValue(ended()),
+      signIn: vi.fn().mockResolvedValue(makeSession({ clubRoles: ['ClubAdmin'] })),
+    });
+    const { router } = renderApp(adapter, path);
+    await userEvent.type(await screen.findByLabelText(/sign-in name/i), 'ada');
+    await userEvent.type(screen.getByLabelText(/^password/i), 'secret-pw');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(router.state.location.pathname).not.toBe('/sign-in'));
+    return router;
+  };
+
+  it('sends a signed-out member from a guarded route to sign-in and back', async () => {
+    const adapter = fakeAdapter({
+      restore: vi.fn().mockRejectedValue(ended()),
+      signIn: vi.fn().mockResolvedValue(makeSession({ clubRoles: ['ClubAdmin'] })),
+    });
+    const { router } = renderApp(adapter, '/members');
+    await screen.findByLabelText(/sign-in name/i);
+    expect(router.state.location.pathname).toBe('/sign-in');
+    expect(router.state.location.search).toBe('?returnTo=%2Fmembers');
+    await userEvent.type(screen.getByLabelText(/sign-in name/i), 'ada');
+    await userEvent.type(screen.getByLabelText(/^password/i), 'secret-pw');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/members'));
+  });
+
+  it.each(['//evil.example/members', 'https://evil.example/', '/no/such/route'])('goes home for %s', async (value) => {
+    const router = await signInTo(`/sign-in?returnTo=${encodeURIComponent(value)}`);
+    expect(router.state.location.pathname).toBe('/');
+  });
+});

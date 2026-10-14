@@ -29,7 +29,7 @@ const clubAdminOnly = (element: React.ReactNode) => <RequireRole allow={isClubAd
 
 /** Routes of contracts/routes-and-roles.md; every view is implemented. */
 export const appRoutes: RouteObject[] = [
-  { element: <RequireSignedOut />, children: [{ path: '/sign-in', element: <SignInPage /> }] },
+  { element: <RequireSignedOut routes={() => appRoutes} />, children: [{ path: '/sign-in', element: <SignInPage /> }] },
   { path: '/set-password', element: <SetPasswordPage /> },
   { element: <RequirePasswordChange />, children: [{ path: '/password-change', element: <PasswordChangePage /> }] },
   {
