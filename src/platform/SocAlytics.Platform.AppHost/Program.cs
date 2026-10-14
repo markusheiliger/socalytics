@@ -107,7 +107,11 @@ else
 const string webDirectory = "../../clients/web";
 var web = builder.AddViteApp("web", webDirectory, e2eMode ? "preview" : "dev")
     .WithReference(api)
-    .WaitFor(api);
+    .WaitFor(api)
+    // Browser part uploads go straight to the object store, so the Web UI must allow that origin in its CSP
+    // and the store must allow the Web UI origin in its CORS preflight (development only).
+    .WithEnvironment("SOCALYTICS_OBJECT_STORAGE_ORIGIN", ReferenceExpression.Create($"{rustfsEndpoint.Property(EndpointProperty.Url)}"));
+rustfs.WithEnvironment("RUSTFS_CORS_ALLOWED_ORIGINS", ReferenceExpression.Create($"{web.GetEndpoint("http").Property(EndpointProperty.Url)}"));
 
 if (e2eMode)
 {

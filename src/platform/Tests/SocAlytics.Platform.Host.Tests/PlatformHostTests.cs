@@ -88,6 +88,26 @@ public sealed class PlatformHostTests
     }
 
     [Fact]
+    public async Task AppHostAllowsWebUiAndObjectStorageOriginsForBrowserUploads()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        var appHost = await CreateAppHostAsync(timeout.Token);
+
+        var web = appHost.Resources.Single(static resource => resource.Name == "web");
+        var rustfs = appHost.Resources.Single(static resource => resource.Name == "rustfs");
+
+#pragma warning disable CS0618 // the spec names this API for reading the resource environment
+        var webEnvironment = await ((IResourceWithEnvironment)web)
+            .GetEnvironmentVariableValuesAsync(DistributedApplicationOperation.Publish);
+        var rustfsEnvironment = await ((IResourceWithEnvironment)rustfs)
+            .GetEnvironmentVariableValuesAsync(DistributedApplicationOperation.Publish);
+#pragma warning restore CS0618
+
+        webEnvironment["SOCALYTICS_OBJECT_STORAGE_ORIGIN"].ShouldBe("{rustfs.bindings.s3.url}");
+        rustfsEnvironment["RUSTFS_CORS_ALLOWED_ORIGINS"].ShouldBe("{web.bindings.http.url}");
+    }
+
+    [Fact]
     public async Task AppHostDoesNotStartApiWhenMigratorFails()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));
