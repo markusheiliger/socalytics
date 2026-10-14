@@ -100,6 +100,11 @@ public sealed class MailpitContainerFixture : IAsyncLifetime
         return message.Text;
     }
 
+    public async Task<IReadOnlyDictionary<string, string[]>> GetHeadersAsync(string messageId, CancellationToken cancellationToken = default) =>
+        await Http.GetFromJsonAsync<Dictionary<string, string[]>>(
+            $"/api/v1/message/{Uri.EscapeDataString(messageId)}/headers", cancellationToken)
+        ?? throw new InvalidOperationException("Mailpit returned no headers.");
+
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
         using var response = await Http.DeleteAsync("/api/v1/messages", cancellationToken);
