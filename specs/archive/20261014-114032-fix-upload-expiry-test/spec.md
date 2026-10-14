@@ -10,7 +10,7 @@
 
 ## Problem
 
-The integration test `ExpiredSessionIsRefusedImmediatelyAndReleasedBySweep` (Recordings, introduced by [Recording Lineage and Upload](../archive/20261005-130702-recording-lineage-upload/spec.md)) starts an upload session with `SessionLifetime` of 2 seconds and then uploads the first part to the presigned URL, which is valid only until the session expires. On a loaded runner the session start and the PUT take longer than 2 s, object storage answers `403 AccessDenied: Request has expired`, and the setup assertion fails before any expiry behavior is checked.
+The integration test `ExpiredSessionIsRefusedImmediatelyAndReleasedBySweep` (Recordings, introduced by [Recording Lineage and Upload](../20261005-130702-recording-lineage-upload/spec.md)) starts an upload session with `SessionLifetime` of 2 seconds and then uploads the first part to the presigned URL, which is valid only until the session expires. On a loaded runner the session start and the PUT take longer than 2 s, object storage answers `403 AccessDenied: Request has expired`, and the setup assertion fails before any expiry behavior is checked.
 
 Evidence: run 38549094900 (phase verification of #72): Integration failed 1 of 829 with `part PUT returned 403: AccessDenied: Request has expired`; an earlier diagnosis round recorded the same test as a flake. The test file is unchanged on `main`, so the stopped implementation cannot fix it and its final merge verification will fail intermittently again.
 
@@ -57,4 +57,4 @@ A maintainer runs the Integration tests on a slow or loaded machine. The expiry 
 ## Assumptions
 
 - The smallest fix is in the test only: a 10 minute session lifetime for the setup (far above the 10 s delay of SC-001), then the session is expired through the test time provider advanced by 11 minutes (below the 30 minute BFF session idle timeout, so the admin session stays valid) and a direct update of the session's `expires_at` in the test's disposable database, after the pending ETag is read. The setup update bumps the version through the trigger, which the test asserts explicitly, so the unchanged-ETag assertion remains equivalent: it still proves the derived expired state, refusals, and report write nothing.
-- Dependencies: the feature owning the test is [Recording Lineage and Upload](../archive/20261005-130702-recording-lineage-upload/spec.md); the implementation this fix unblocks is #72 (`specs/20261012-141233-manager-work-execution`).
+- Dependencies: the feature owning the test is [Recording Lineage and Upload](../20261005-130702-recording-lineage-upload/spec.md); the implementation this fix unblocks is #72 (`specs/20261012-141233-manager-work-execution`).
