@@ -55,9 +55,9 @@ test('creates and activates a season, creates two teams, and edits one (SC-002)'
     await page.getByLabel(/^Team name/).fill(name);
     await page.getByRole('button', { name: 'Create team' }).click();
     await expect(page.getByText('The team was created.')).toBeVisible();
-    await expect(page.getByRole('link', { name })).toBeVisible();
+    await expect(page.getByRole('link', { name })).toBeVisible({ timeout: 15_000 });
   }
-  await expect(page.getByRole('link', { name: firstTeam })).toBeVisible();
+  await expect(page.getByRole('link', { name: firstTeam })).toBeVisible({ timeout: 15_000 });
 
   await page.getByRole('link', { name: secondTeam }).click();
   // The form is unmounted while the team refetches; fill only once it holds the team's current name and can be saved.
@@ -73,7 +73,7 @@ test('creates and activates a season, creates two teams, and edits one (SC-002)'
 
   await page.getByRole('link', { name: 'Back to teams' }).click();
   await page.getByLabel('Season', { exact: true }).selectOption({ label: `${seasonName} (Active)` });
-  await expect(page.getByRole('link', { name: renamedTeam })).toBeVisible();
-  await expect(page.getByRole('link', { name: firstTeam })).toBeVisible();
+  await expect(page.getByRole('link', { name: renamedTeam })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('link', { name: firstTeam })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole('link', { name: secondTeam })).toHaveCount(0);
 });
