@@ -328,9 +328,11 @@ anti-forgery protection, membership, club and team roles, team-scoped
 authorization, security audit events, and the `Club > Season > Team > Match`
 hierarchy, as specified in
 `specs/archive/20261005-130701-club-identity-foundation`. It implements no external
-OpenID Connect sign-in, MFA enforcement, or generated client. Exposure and
-access policy for operational endpoints in a production ingress remain
-unresolved.
+OpenID Connect sign-in or MFA enforcement. The Web UI's generated Kiota
+TypeScript client exists and is used behind the adapters in
+`src/clients/web/src/platform/` (see [Client Technology](#client-technology)).
+Exposure and access policy for operational endpoints in a production ingress
+remain unresolved.
 
 REST with JSON is the primary platform protocol. ASP.NET Core publishes
 a versioned OpenAPI description, and Kiota will generate TypeScript, C#, and Python
