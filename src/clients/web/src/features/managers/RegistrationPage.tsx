@@ -15,8 +15,10 @@ import { FailureAlert, useFieldError } from '../shared/FailureAlert';
 import { ApproveDialog } from './ApproveDialog';
 import { FLEET_KEY, FLEET_REFRESH_MS } from './FleetPage';
 import { RejectDialog } from './RejectDialog';
+import { RevokeDialog } from './RevokeDialog';
+import { StatusLines } from './StatusLines';
 
-type Decision = { kind: 'approve' } | { kind: 'reject'; reason: string };
+type Decision = { kind: 'approve' } | { kind: 'reject'; reason: string } | { kind: 'revoke'; reason: string };
 
 /** One registration for a Club Admin: every field of FR-007, the warnings of FR-008, and the decisions of FR-009. */
 export function RegistrationPage() {
@@ -28,15 +30,19 @@ export function RegistrationPage() {
   const queryClient = useQueryClient();
   const adapter = useMemo(() => createRegistrationAdapter(platform), [platform]);
   const key = [...FLEET_KEY, registrationId];
-  const [dialog, setDialog] = useState<'approve' | 'reject'>();
-  const [notice, setNotice] = useState<'approved' | 'rejected'>();
+  const [dialog, setDialog] = useState<'approve' | 'reject' | 'revoke'>();
+  const [notice, setNotice] = useState<'approved' | 'rejected' | 'revoked'>();
   const query = useQuery({ queryKey: key, queryFn: () => adapter.get(registrationId), retry: false, refetchInterval: FLEET_REFRESH_MS });
   const decide = useMutation({
     mutationFn: (decision: Decision) =>
-      decision.kind === 'approve' ? adapter.approve(registrationId) : adapter.reject(registrationId, decision.reason),
+      decision.kind === 'approve'
+        ? adapter.approve(registrationId)
+        : decision.kind === 'reject'
+          ? adapter.reject(registrationId, decision.reason)
+          : adapter.revoke(registrationId, decision.reason),
     onSuccess: (next, decision) => {
       queryClient.setQueryData(key, next);
-      setNotice(decision.kind === 'approve' ? 'approved' : 'rejected');
+      setNotice(decision.kind === 'approve' ? 'approved' : decision.kind === 'reject' ? 'rejected' : 'revoked');
       setDialog(undefined);
       return queryClient.invalidateQueries({ queryKey: FLEET_KEY });
     },
@@ -56,6 +62,7 @@ export function RegistrationPage() {
   const none = t('pairing.notProvided');
   const date = (value?: Date) => value?.toLocaleString();
   const pending = r?.state === 'pendingApproval';
+  const active = r?.state === 'active';
   const busy = decide.isPending || isUnreachable;
 
   return (
@@ -71,7 +78,7 @@ export function RegistrationPage() {
         ))}
       {failure &&
         (failure.kind === 'decisionConflict' ? (
-          <Alert severity="error" role="alert" sx={{ mt: 2 }}>{tc('failure.decisionConflict')}</Alert>
+          <Alert severity="error" role="alert" sx={{ mt: 2 }}>{tc(decide.variables?.kind === 'revoke' ? 'failure.revocationConflict' : 'failure.decisionConflict')}</Alert>
         ) : failure.kind === 'validation' ? null : (
           <FailureAlert failure={failure} onReload={() => void query.refetch()} />
         ))}
@@ -99,6 +106,10 @@ export function RegistrationPage() {
             {r.approvalExpiresAt && <li>{t('requests.approvalDeadline', { value: date(r.approvalExpiresAt) })}</li>}
             {r.activationExpiresAt && <li>{t('requests.activationDeadline', { value: date(r.activationExpiresAt) })}</li>}
             {r.activatedAt && <li>{t('registration.activatedAt', { value: date(r.activatedAt) })}</li>}
+            {r.revokedBy && <li>{t('registration.revokedBy', { value: r.revokedBy })}</li>}
+            {r.endedAt && <li>{t('registration.endedAt', { value: date(r.endedAt) })}</li>}
+            {r.endReason && <li>{t('registration.endReason', { value: r.endReason })}</li>}
+            <StatusLines r={r} showVersion={false} />
           </Stack>
           {pending && (
             <Stack spacing={1} sx={{ mt: 2 }}>
@@ -118,6 +129,13 @@ export function RegistrationPage() {
               </Stack>
             </Stack>
           )}
+          {active && (
+            <Stack direction="row" sx={{ mt: 2 }}>
+              <Button variant="outlined" color="error" disabled={busy} onClick={() => { decide.reset(); setNotice(undefined); setDialog('revoke'); }}>
+                {t('revoke.open')}
+              </Button>
+            </Stack>
+          )}
           <ApproveDialog
             key={`approve-${dialog === 'approve'}`}
             open={dialog === 'approve'}
@@ -132,6 +150,17 @@ export function RegistrationPage() {
             busy={busy}
             fieldError={reasonError}
             onConfirm={(reason) => decide.mutate({ kind: 'reject', reason })}
+            onClose={() => setDialog(undefined)}
+          />
+          <RevokeDialog
+            key={`revoke-${dialog === 'revoke'}`}
+            open={dialog === 'revoke'}
+            busy={busy}
+            hostLabel={r.deviceMetadata.hostLabel}
+            fingerprint={r.deviceFingerprint}
+            activeAnalysts={r.status?.activeAnalysts}
+            fieldError={reasonError}
+            onConfirm={(reason) => decide.mutate({ kind: 'revoke', reason })}
             onClose={() => setDialog(undefined)}
           />
         </>

@@ -16,6 +16,7 @@
     "pairingRefused": "The pairing code or device fingerprint was not accepted. Check both and try again.",
     "rateLimited": "Too many attempts. Try again in {{seconds}} seconds.",
     "rateLimitedUnknown": "Too many attempts. Try again in a moment.",
+    "revocationConflict": "This registration is no longer active and cannot be revoked. The current state is shown after reloading.",
     "decisionConflict": "This request can no longer be decided; it was already decided or has expired. The current state is shown after reloading."
   },
   "fieldError": {

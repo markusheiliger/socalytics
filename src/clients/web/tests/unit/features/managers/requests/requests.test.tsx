@@ -69,9 +69,9 @@ describe('my registration requests', () => {
     vi.stubGlobal('fetch', fetchMock);
     const { router } = renderApp(as('ClubAdmin', 'Registrar'), '/analyst-managers/requests');
     await vi.waitFor(() => expect(router.state.location.pathname).toBe('/analyst-managers'));
-    // Only the navigation's pending count may read the platform; the member list is not requested.
+    // Only the fleet and the navigation's pending count read the platform; the Registrar's own-requests query is disabled.
     const urls = (fetchMock.mock.calls as unknown as [string][]).map(([url]) => url);
-    expect(urls.every((url) => url.includes('state=pending_approval'))).toBe(true);
+    expect(urls.every((url) => url.includes('analyst-manager-registrations'))).toBe(true);
   });
 
   it('shows the not-permitted view without a Registrar or Club Admin role', async () => {

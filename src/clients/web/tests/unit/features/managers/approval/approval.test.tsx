@@ -52,7 +52,7 @@ describe('pending requests and decisions', () => {
   it('hides the count when nothing is pending', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => json(200, { items: [] })));
     renderApp(as('ClubAdmin'), '/analyst-managers');
-    expect(await screen.findByText('No registration requests are waiting for approval.')).toBeInTheDocument();
+    expect(await screen.findByText('No Analyst Managers match this filter.')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Analyst Managers' })).toBeInTheDocument();
   });
 
