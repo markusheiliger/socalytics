@@ -33,9 +33,16 @@ The operator uses the tray menu, or the status window where the desktop has no t
 | `resume` | Resume |
 | `exit` | Safe exit (drain, keep registration) |
 | `unregister [--discard-local]` | Unregister, or discard unusable local state |
+| `concurrency [N]` | Show the concurrency limit, or set the host-local limit (a positive integer) |
 | `autostart [on \| off]` | Per-user autostart |
 
 Exit codes: `0` success, `1` refused by the Manager (error code printed), `2` usage error, `3` Manager not running or socket not accessible. Message shapes are defined by [contracts/local-control.schema.json](contracts/local-control.schema.json); the behavior is described in the feature's `contracts/local-control.md` under `specs/archive/20261005-130704-analyst-manager-registration/`.
+
+## Work Execution
+
+An active Manager requests expiring queue credentials from the platform, pulls Analyst jobs from the NATS work queue, runs them through its runtime adapter, and reports completion or failure. The effective concurrency is the smallest of the host-local limit (`concurrency N`), the stamp maximum, and the runtime maximum; `concurrency` without an argument shows all of them. Pause, drain, revocation, and unregistration stop acquiring work, and revocation also stops running work and returns the Manager to Unregistered.
+
+The `simulated` runtime profile (`Runtime:Profile`, configured through `Runtime:Simulated`) provides a simulated runtime and Analyst with configurable outcomes (succeed, fail, hang, crash). It is registered only in Development and Test. No real Analyst execution, Analyst SDK, or container runtime exists yet.
 
 ## Device Key Providers
 

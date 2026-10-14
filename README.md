@@ -63,6 +63,13 @@ To run only the persistence integration tests:
 dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build
 ```
 
+To run only the end-to-end tests (the platform with a real Analyst Manager and a
+simulated runtime; they need Docker and, on Linux, SoftHSM2):
+
+```powershell
+dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests
+```
+
 The current executable evidence covers the ASP.NET Core API and Aspire AppHost,
 liveness at `/alive`, readiness at `/health`, the `v1` OpenAPI document at
 `/openapi/v1.json`, the layered project structure (Domain, Application,
