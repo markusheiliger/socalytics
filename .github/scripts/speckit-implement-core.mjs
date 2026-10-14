@@ -459,14 +459,15 @@ export function isImplementRunOf(title, twin) {
   return title === name || String(title ?? '').startsWith(`${name} `);
 }
 
-// Diagnose, analyze, and fix runs are named "[<workflow>] spec #<twin> · <why the run started> (#<pull>)" (run-name
-// in their workflow sources); runs started before that format are named "<workflow> #<twin> · <what the run does>".
+// Diagnose, analyze, and fix runs are named "<workflow> spec #<twin> · <why the run started>" like the implementation
+// chain (run-name in their workflow sources). Runs started earlier are named "<workflow> · spec #<twin> · …",
+// "[<workflow>] spec #<twin> · …", or "<workflow> #<twin> · …".
 const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze'], [FIX_WORKFLOW_FILE, 'Spec Kit fix']]);
 
 export function isTwinRunOf(workflowFile, title, twin) {
   const workflow = TWIN_RUN_NAMES.get(workflowFile);
   const text = String(title ?? '');
-  return [`[${workflow}] spec #${twin}`, `${workflow} #${twin}`].some((name) => text === name || text.startsWith(`${name} `));
+  return [`${workflow} spec #${twin}`, `${workflow} · spec #${twin}`, `[${workflow}] spec #${twin}`, `${workflow} #${twin}`].some((name) => text === name || text.startsWith(`${name} `));
 }
 
 // Adds (`needed`) or removes ATTENTION_LABEL on a pull request; only an open pull request gets it. The label is a
