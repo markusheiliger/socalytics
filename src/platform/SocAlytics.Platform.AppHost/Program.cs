@@ -4,6 +4,7 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 var e2eMode = string.Equals(Environment.GetEnvironmentVariable("SOCALYTICS_APPHOST_MODE"), "e2e", StringComparison.OrdinalIgnoreCase);
 const int WebE2ePort = 4174;
+const int MailpitE2ePort = 4175;
 
 var generatedPassword = new GenerateParameterDefault { MinLength = 24, Special = false };
 var migratorPassword = builder.AddParameter("socalytics-migrator-password", generatedPassword, secret: true, persist: true);
@@ -132,6 +133,9 @@ if (e2eMode)
 {
     // The built Web UI is served by `vite preview` on a fixed origin for the browser tests.
     web.WithEndpoint("http", endpoint => endpoint.Port = WebE2ePort);
+
+    // The browser tests read the confirmation messages from Mailpit's REST API on a fixed port.
+    mailpit.WithEndpoint("http", endpoint => endpoint.Port = MailpitE2ePort);
 }
 
 builder.Build().Run();
