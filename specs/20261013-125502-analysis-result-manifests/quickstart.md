@@ -5,7 +5,7 @@ readiness.
 
 ## Prerequisites
 
-- Analyst Manager Work Execution (`specs/20261012-141233-manager-work-execution`)
+- Analyst Manager Work Execution (`specs/archive/20261012-141233-manager-work-execution`)
   merged, with its end-to-end test project.
 - The .NET SDK from `src/platform/global.json`, a running Docker-compatible
   container runtime, and SoftHSM2 on Linux for the Manager tests (all provided

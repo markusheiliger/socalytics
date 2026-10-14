@@ -5,7 +5,7 @@ Builds on Analysis Result Manifests and Validated Acceptance
 `analysis_result_object_declarations`, `analysis_accepted_result_manifests`,
 `IObjectStorage` single-object operations, `ResultPublisher`, simulated result
 modes), Analyst Manager Work Execution
-(`specs/20261012-141233-manager-work-execution`: `AttemptRunner`,
+(`specs/archive/20261012-141233-manager-work-execution`: `AttemptRunner`,
 `Runtime/Simulated/`, `SocAlytics.Platform.EndToEnd.Tests`), and Durable
 Analysis Workflow (`analysis_logical_job_inputs` with `InputSnapshotEntry`:
 `UpstreamNodeKey`, `EdgeKind`, `Status` = `accepted`, `absent`, `failed`, or

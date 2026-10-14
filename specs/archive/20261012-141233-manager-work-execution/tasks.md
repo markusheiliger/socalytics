@@ -5,7 +5,7 @@ description: "Task list for Analyst Manager Work Execution With a Simulated Anal
 
 # Tasks: Analyst Manager Work Execution With a Simulated Analyst
 
-**Input**: Design documents from `specs/20261012-141233-manager-work-execution/`
+**Input**: Design documents from `specs/archive/20261012-141233-manager-work-execution/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/queue-credentials-api.md](contracts/queue-credentials-api.md), [contracts/queue-topology-and-permissions.md](contracts/queue-topology-and-permissions.md), [contracts/revocation-fencing.md](contracts/revocation-fencing.md), [contracts/local-control-active-attempts.md](contracts/local-control-active-attempts.md), [quickstart.md](quickstart.md)
 
