@@ -19,6 +19,7 @@ import {
   neutralizeMarkers,
   renderResumeComment,
   renderRetryComment,
+  setAttention,
   specTitleOfPull,
 } from './speckit-implement-core.mjs';
 
@@ -72,6 +73,7 @@ async function resolveTarget(client, env, number) {
 // pending run cannot lose it; starting the implementation chain only makes it happen right away.
 async function resumeImplementation(client, env, { implementation, twin, folder }, lead, guidance = '', render = renderResumeComment) {
   await client.createComment(implementation.number, render(lead, guidance));
+  await setAttention(client, implementation.number, false);
   try {
     await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
   } catch {

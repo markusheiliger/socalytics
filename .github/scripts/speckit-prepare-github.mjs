@@ -137,6 +137,10 @@ export class GitHubClient {
     return (await this.request('PATCH', this.repoPath(`/issues/${number}`), fields)).data;
   }
 
+  async addLabels(number, labels) {
+    await this.request('POST', this.repoPath(`/issues/${number}/labels`), { labels });
+  }
+
   async removeLabel(number, name) {
     await this.request('DELETE', this.repoPath(`/issues/${number}/labels/${encodeURIComponent(name)}`), undefined, { allow: [404] });
   }

@@ -35,6 +35,7 @@ import {
   renderResumeComment,
   readSpecTasks,
   setAmendmentStatus,
+  setAttention,
   specTitleOfPull,
   tasksPathOf,
   validateAmendment,
@@ -210,6 +211,7 @@ export async function startAnalysis(client, env, { amendment, folder, implementa
       check_run: String(check.id),
       kind,
     });
+    await setAttention(client, amendment.number, false);
     return { started: true, check };
   } catch (error) {
     await client.updateCheckRun(check.id, {
@@ -219,6 +221,7 @@ export async function startAnalysis(client, env, { amendment, folder, implementa
       output: { title: 'The consistency check could not start', summary: clip(error.message, 2000) },
     });
     await client.createComment(amendment.number, `The consistency check could not start: ${neutralizeMarkers(clip(error.message, 500))}. Comment on this pull request to try again.`);
+    await setAttention(client, amendment.number, true);
     return { started: false, check, error: error.message };
   }
 }
@@ -274,6 +277,7 @@ export async function startRework(client, env, context, { mode, round = 0, notes
       stalls: String(stalls),
       findings: findings.length > 0 ? encodeTracked(findings) : '',
     });
+    await setAttention(client, amendment.number, false);
     return { started: true, check };
   } catch (error) {
     await client.updateCheckRun(check.id, {
@@ -283,6 +287,7 @@ export async function startRework(client, env, context, { mode, round = 0, notes
       output: { title: 'The rework could not start', summary: clip(error.message, 2000) },
     });
     await client.createComment(amendment.number, `The rework could not start: ${neutralizeMarkers(clip(error.message, 500))}. Comment on this pull request to try again.`);
+    await setAttention(client, amendment.number, true);
     return { started: false, check, error: error.message };
   }
 }
@@ -473,6 +478,7 @@ export async function presentAmendment(client, env, context, { consistent, analy
     : (consistent
       ? `**Amendment ${link} is ready for your review**: it is consistent. Merge it to apply it (the implementation then continues), comment or request changes there to have it reworked, or close it to discard it.`
       : `**Amendment ${link} is not consistent** (${remaining}). Review its findings there: comment or request changes to have it reworked, or close it.`));
+  await setAttention(client, amendment.number, true);
   return { consistent, requester };
 }
 
@@ -645,6 +651,7 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
   if (comments.some((comment) => isBot(comment.user) && String(comment.body ?? '').includes(marker))) return { outcome: 'handled' };
   const amendmentComments = await client.listIssueComments(amendment.number);
   if (!amendment.merged_at && amendmentComments.some((comment) => isBot(comment.user) && String(comment.body ?? '').startsWith('Superseded by a new diagnosis'))) return { outcome: 'superseded' };
+  await setAttention(client, amendment.number, false);
   const by = actor ? `@${actor}` : 'a person';
   const base = implementationBranch(folder);
   // Merged into another branch (its base was changed, or it was merged as part of a stack): the implementation did not
@@ -655,6 +662,7 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
       '',
       ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folder)) }),
     ].join('\n'));
+    await setAttention(client, implementation.number, true);
     return { outcome: 'misdirected' };
   }
   try {
@@ -667,6 +675,7 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
       `${marker}\n**Amendment #${amendment.number} was merged** by ${by}. The implementation continues with a fresh attempt count, starting with the next unchecked task.`,
     ));
     const twin = Number(String(implementation.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
+    await setAttention(client, implementation.number, false);
     if (dispatch && Number.isInteger(twin)) {
       try {
         await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
@@ -677,6 +686,7 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
     return { outcome: 'merged' };
   }
   await client.createComment(implementation.number, [`${marker}\nAmendment #${amendment.number} was closed without merging by ${by}.`, '', ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folder)) })].join('\n'));
+  await setAttention(client, implementation.number, true);
   return { outcome: 'discarded' };
 }
 
@@ -755,6 +765,7 @@ export async function maintainOpenSpecPull(client, env, context, { now = Date.no
     report(`- Checking the changes pushed to ${noun} #${number}.`);
     return { outcome: 'checking' };
   }
+  if (state.stale) await setAttention(client, number, true);
   return { outcome: state.stale ? 'stale' : 'idle' };
 }
 

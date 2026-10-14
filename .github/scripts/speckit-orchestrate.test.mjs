@@ -8,7 +8,7 @@ import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
 import { phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
-import { CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, parseGuidance, renderAttemptMarker, renderRetryComment } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, parseGuidance, renderAttemptMarker, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -480,6 +480,13 @@ test('orchestrate starts the implementation chain and continues it only when no 
     const done = await orchestrate(github, root);
     assert.equal(chainRuns(github).length, 3);
     assert.match(done.text, /implemented and waiting for review/);
+    const attention = () => (github.repo.pulls[0].labels ?? []).some((label) => label.name === ATTENTION_LABEL);
+    assert.equal((await decide(github, root, twin)).outputs.action, 'done');
+    assert.equal(attention(), true, 'an implementation held for review needs attention');
+
+    github.closePull(pull.number, { merged: true });
+    await orchestrate(github, root);
+    assert.equal(attention(), false, 'a merged implementation no longer needs attention');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -655,13 +662,18 @@ test('chain: decide stops at the attempt limit, resumes on request with guidance
     assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_LIMIT);
     assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts[\s\S]*```text\n\/speckit diagnose\n```[\s\S]*The implementation continues with T001, with a fresh attempt count[^\n]*That work merges `main` first anyway[\s\S]*\/speckit retry/, 'T001 opens a phase that has not started, so a retry merges main as well');
     assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop', 'a stop waits for a person');
+    const attention = () => (github.repo.pulls[0].labels ?? []).some((label) => label.name === ATTENTION_LABEL);
+    assert.equal(attention(), true, 'a stop without a diagnosis needs attention');
 
     const diagnosed = await decide(github, root, twin);
     assert.match(diagnosed.text, /Started a diagnosis/);
     assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.checkRuns.at(-1).external_id], ['speckit-diagnose.lock.yml', 'speckit:diagnosing']);
+    assert.equal(attention(), false, 'a running diagnosis is processing');
 
+    await github.addLabels(pull.number, [ATTENTION_LABEL]);
     const resumed = await decide(github, root, twin, { SPECKIT_RESUME: 'true', SPECKIT_GUIDANCE: 'Use the existing helper.' });
     assert.equal(resumed.outputs.action, 'phase');
+    assert.equal(attention(), false, 'a resumed implementation is processing');
     const comment = github.comments.find((item) => item.body.startsWith(RESUME_COMMENT_MARKER));
     assert.equal(parseGuidance(comment.body), 'Use the existing helper.');
     const [first, second] = JSON.parse((await planPhase(github, root, twin, resumed.outputs.phase)).outputs.order);

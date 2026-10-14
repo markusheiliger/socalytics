@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { pendingFeedback, renderFeedback } from './speckit-amend.mjs';
-import { CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER } from './speckit-implement-core.mjs';
 import { checkReportFile, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -36,12 +36,15 @@ test('starts a diagnosis with a check run and a dispatch, and records a dispatch
   assert.match(check.output.summary, /Started by @dev\.\n\nNotes: look at R6/);
   assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', notes: 'look at R6', previous: '', check_run: String(check.id), mode: 'diagnose', amendment: '', round: '0' });
   assert.equal(github.repo.runs.at(-1).workflow, 'speckit-diagnose.lock.yml');
+  const attention = () => (github.repo.pulls.find((pull) => pull.number === 9).labels ?? []).some((label) => label.name === ATTENTION_LABEL);
+  assert.equal(attention(), false, 'a running diagnosis does not need attention');
 
   github.dispatchWorkflow = async () => { throw new Error('workflow not found'); };
   const failed = await startDiagnosis(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, pull: 9, folder: 'f', head: 'sha-impl', auto: true });
   assert.deepEqual([failed.started, failed.error], [false, 'workflow not found']);
   const failedCheck = github.repo.checkRuns.at(-1);
   assert.deepEqual([failedCheck.external_id, failedCheck.status, failedCheck.conclusion, failedCheck.output.title], [CHECK_DIAGNOSED, 'completed', 'failure', 'Diagnosis could not start']);
+  assert.equal(attention(), true, 'a diagnosis that could not start leaves the stop to a person');
 });
 
 test('collects evidence: checks, comments, failed run logs, branch state, and notes', async () => {
