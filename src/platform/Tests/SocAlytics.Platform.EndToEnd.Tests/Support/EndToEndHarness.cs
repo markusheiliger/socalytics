@@ -130,7 +130,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         };
         foreach (var capability in new[] { SegmentCapability, MatchCapability })
         {
-            configuration[$"Runtime:Simulated:Capabilities:{capability}:Version"] = "1";
+            configuration[$"Runtime:Simulated:Capabilities:{capability}:Version"] = "1.0.0";
             configuration[$"Runtime:Simulated:Capabilities:{capability}:RunDuration"] = (runDuration ?? RunDuration).ToString();
             configuration[$"Runtime:Simulated:Capabilities:{capability}:Outcome"] = outcome.ToString();
         }

@@ -116,7 +116,7 @@ public sealed class WorkExecutionEndToEndTests
         EndToEndHarness harness, CancellationToken ct, int leaseSeconds = 60, int staleTimeoutSeconds = 120)
     {
         var node = new WorkflowNodeRecord(
-            Guid.CreateVersion7(), "e2e-match-node", EndToEndHarness.MatchCapability, "1", CapabilityTier.LowLevel, ExecutionScope.Match, 0,
+            Guid.CreateVersion7(), "e2e-match-node", EndToEndHarness.MatchCapability, "1.0.0", CapabilityTier.LowLevel, ExecutionScope.Match, 0,
             WorkflowNodeState.Waiting, null, default, "{\"analystProfileId\":\"profile\",\"policyVersions\":{}}");
         await using var scope = harness.Platform.Services.CreateAsyncScope();
         var sp = scope.ServiceProvider;
