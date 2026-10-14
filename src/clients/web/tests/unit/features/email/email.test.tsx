@@ -21,8 +21,10 @@ describe('email section of the account view', () => {
   const signedIn = () => fakeAdapter({ restore: vi.fn().mockResolvedValue(makeSession()) });
 
   it('offers to set an address when none exists and sends it', async () => {
-    stubFetch((_url, init) =>
-      init.method === 'PUT'
+    stubFetch((url, init) =>
+      url.endsWith('/notification-preferences')
+        ? json(200, { items: [] })
+        : init.method === 'PUT'
         ? json(200, { address: 'ada@example.org', state: 'unverified', verifiedAt: null, version: 1 })
         : json(404, { status: 404 }),
     );
@@ -38,6 +40,7 @@ describe('email section of the account view', () => {
 
   it('shows the state, offers resend and remove, and reports the wait time when limited', async () => {
     stubFetch((url, init) => {
+      if (url.endsWith('/notification-preferences')) return json(200, { items: [] });
       if (url.endsWith('/confirmation-requests')) return json(429, { status: 429, code: 'email-confirmation-rate-limited' }, { 'Retry-After': '90' });
       return init.method === 'GET' || !init.method
         ? json(200, { address: 'ada@example.org', state: 'unverified', verifiedAt: null, version: 3 })
@@ -52,8 +55,10 @@ describe('email section of the account view', () => {
   });
 
   it('shows the field refusal of an invalid address', async () => {
-    stubFetch((_url, init) =>
-      init.method === 'PUT'
+    stubFetch((url, init) =>
+      url.endsWith('/notification-preferences')
+        ? json(200, { items: [] })
+        : init.method === 'PUT'
         ? json(400, { status: 400, code: 'email-address-invalid' })
         : json(404, { status: 404 }),
     );

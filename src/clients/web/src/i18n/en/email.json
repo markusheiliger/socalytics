@@ -22,6 +22,16 @@
     "rateLimited": "Too many links were requested. Try again in {{seconds}} seconds.",
     "rateLimitedUnknown": "Too many links were requested. Try again later."
   },
+  "preferences": {
+    "title": "Email notifications",
+    "none": "No notifications apply to your roles.",
+    "loadFailed": "The notification preferences could not be loaded.",
+    "alwaysSent": "{{type}}: always sent.",
+    "types": {
+      "email-confirmation": "Email address confirmation",
+      "registration-pending": "A registration is waiting for approval"
+    }
+  },
   "confirm": {
     "title": "Confirm your email address",
     "intro": "Confirm that this address is yours.",

@@ -1,8 +1,15 @@
 import type { ParsableFactory, Parsable, RequestInformation } from '@microsoft/kiota-abstractions';
 import { RetryHandlerOptions } from '@microsoft/kiota-http-fetchlibrary';
-import { createEmailAddressDtoFromDiscriminatorValue, type EmailAddressDto } from '../../generated/platform-api/models';
+import {
+  createEmailAddressDtoFromDiscriminatorValue,
+  createNotificationPreferenceDtoFromDiscriminatorValue,
+  createNotificationPreferenceListDtoFromDiscriminatorValue,
+  type NotificationPreferenceDto,
+  type NotificationPreferenceListDto,
+  type EmailAddressDto,
+} from '../../generated/platform-api/models';
 import { PlatformFailure, toPlatformFailure } from '../failure';
-import type { EmailAddress } from '../models/email';
+import type { EmailAddress, NotificationPreference } from '../models/email';
 import { errorMappings, withIfMatch, withJson, type PlatformApi } from './kiota';
 
 export interface EmailAdapter {
@@ -13,6 +20,16 @@ export interface EmailAdapter {
   resend(): Promise<void>;
   /** Anonymous; the token is sent only here, never stored. */
   confirm(token: string): Promise<void>;
+  /** The notification types that apply to the member's roles. */
+  preferences(): Promise<NotificationPreference[]>;
+  setPreference(type: string, enabled: boolean): Promise<NotificationPreference>;
+}
+
+export function toNotificationPreference(dto: NotificationPreferenceDto | undefined | null): NotificationPreference {
+  if (!dto || typeof dto.type !== 'string' || typeof dto.enabled !== 'boolean' || typeof dto.accountMessage !== 'boolean') {
+    throw new PlatformFailure('incompatible');
+  }
+  return { type: dto.type, enabled: dto.enabled, accountMessage: dto.accountMessage };
 }
 
 /** The platform refused for rate-limit reasons (`429`); `retryAfterSeconds` is its `Retry-After`. */
@@ -89,5 +106,20 @@ export function createEmailAdapter(api: PlatformApi): EmailAdapter {
     remove: (version) => sendNoContent(withIfMatch(email.toDeleteRequestInformation(), version)),
     resend: () => sendNoContent(email.confirmationRequests.toPostRequestInformation()),
     confirm: (token) => sendNoContent(withJson(api.client.api.v1.emailConfirmations.toPostRequestInformation(), { token })),
+    preferences: async () => {
+      const list = await send<NotificationPreferenceListDto>(
+        api.client.api.v1.me.notificationPreferences.toGetRequestInformation(),
+        createNotificationPreferenceListDtoFromDiscriminatorValue,
+      );
+      if (!Array.isArray(list.items)) throw new PlatformFailure('incompatible');
+      return list.items.map(toNotificationPreference);
+    },
+    setPreference: async (type, enabled) =>
+      toNotificationPreference(
+        await send(
+          withJson(api.client.api.v1.me.notificationPreferences.byType(type).toPutRequestInformation(), { enabled }),
+          createNotificationPreferenceDtoFromDiscriminatorValue,
+        ),
+      ),
   };
 }

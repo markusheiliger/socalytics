@@ -10,6 +10,7 @@ import { useConnectivity } from '../../connectivity/useConnectivity';
 import { toPlatformFailure } from '../../platform/failure';
 import { useSession } from '../../session/sessionContext';
 import { EmailSection } from './EmailSection';
+import { NotificationPreferencesSection } from './NotificationPreferencesSection';
 import { SessionProblemAlert } from './SessionProblemAlert';
 import { SignOutButton } from './SignOutButton';
 
@@ -112,6 +113,7 @@ export function AccountPage() {
         </Button>
       </Stack>
       <EmailSection />
+      <NotificationPreferencesSection />
       <Stack sx={{ mt: 3 }}>
         <SignOutButton />
       </Stack>

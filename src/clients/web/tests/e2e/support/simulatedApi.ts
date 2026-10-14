@@ -195,6 +195,11 @@ export class SimulatedApi {
       return json(403, problem(403, 'Password change required', { code: 'password_change_required' }));
     }
     if (method === 'GET') {
+      if (path === '/me/notification-preferences') {
+        const items = [{ type: 'email-confirmation', enabled: true, accountMessage: true }];
+        if (role === 'ClubAdmin') items.push({ type: 'registration-pending', enabled: true, accountMessage: false });
+        return json(200, { items });
+      }
       if (path === '/club') return json(200, club);
       if (path === '/seasons') {
         return json(200, { items: [season], continuationToken: null } satisfies SeasonPageDto);
