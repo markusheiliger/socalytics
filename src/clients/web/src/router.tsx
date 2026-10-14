@@ -4,6 +4,7 @@ import { SetPasswordPage } from './features/set-password/SetPasswordPage';
 import { PasswordChangePage } from './features/account/PasswordChangePage';
 import { ClubPage } from './features/club/ClubPage';
 import { HomePage } from './features/home/HomePage';
+import { FinalizePage } from './features/lineage/FinalizePage';
 import { MatchCreatePage } from './features/matches/MatchCreatePage';
 import { MatchEditPage } from './features/matches/MatchEditPage';
 import { MatchPage } from './features/matches/MatchPage';
@@ -60,6 +61,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/teams/:teamId/matches/new', element: <MatchCreateRoute /> },
           { path: '/matches/:matchId', element: <MatchPage /> },
           { path: '/matches/:matchId/edit', element: <MatchEditPage /> },
+          { path: '/matches/:matchId/finalize', element: <FinalizePage /> },
           { path: '/members', element: clubAdminOnly(<MembersPage />) },
           { path: '/members/:memberId', element: clubAdminOnly(<MemberPage />) },
         ],

@@ -11,6 +11,7 @@ import { toPlatformFailure } from '../../platform/failure';
 import { useSession } from '../../session/sessionContext';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { useUploads } from '../../uploads/uploadContext';
+import { AnalysisRunStates } from '../lineage/AnalysisRunStates';
 import { FailureAlert } from '../shared/FailureAlert';
 import { AddRecordingsPanel } from '../uploads/AddRecordingsPanel';
 import { formatBytes } from '../uploads/formatBytes';
@@ -74,6 +75,7 @@ export function MatchPage() {
   const { matchId = '' } = useParams();
   const { t } = useTranslation('matches');
   const { t: tc } = useTranslation('common');
+  const { t: tl } = useTranslation('lineage');
   const { match, team, permitted, editor, archived, canEdit } = useMatchContext(matchId);
   const m = match.data;
   const error = match.error ?? team.error;
@@ -122,10 +124,16 @@ export function MatchPage() {
               {t('matches.editAction')}
             </Button>
           )}
+          {canEdit && (
+            <Button component={Link} to={`/matches/${m.id}/finalize`} variant="contained" sx={{ mt: 2, mr: 1 }}>
+              {tl('finalize.action')}
+            </Button>
+          )}
           <Button component={Link} to={`/teams/${m.teamId}`} variant="outlined" sx={{ mt: 2 }}>
             {t('matches.backToTeam')}
           </Button>
           <RecordingsSection matchId={m.id} teamId={m.teamId} canUpload={canEdit} />
+          <AnalysisRunStates matchId={m.id} />
         </>
       )}
     </Container>
