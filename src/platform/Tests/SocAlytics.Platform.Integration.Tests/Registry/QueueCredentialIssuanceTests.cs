@@ -166,7 +166,7 @@ public sealed class QueueCredentialIssuanceTests(PostgresContainerFixture postgr
     {
         await using var scope = factory.Services.CreateAsyncScope();
         return await scope.ServiceProvider.GetRequiredService<IssueQueueCredentialsHandler>().HandleAsync(
-            new IssueQueueCredentialsCommand(registrationId, userPublicKey, [new CapabilityReference(Capability, "1")]), ct);
+            new IssueQueueCredentialsCommand(registrationId, userPublicKey, [new CapabilityReference(Capability, "1.0.0")]), ct);
     }
 
     private async Task<NatsConnection> ConnectAsync(JsonElement issued, KeyPair seedPair, CancellationToken ct)
@@ -190,7 +190,7 @@ public sealed class QueueCredentialIssuanceTests(PostgresContainerFixture postgr
         await using var s = await StartActiveAsync(ct);
         var key = NewUserKey(out _);
 
-        using var response = await IssueAsync(s, Request(key, (Capability, "1"), ("unknown-capability", "1")), ct);
+        using var response = await IssueAsync(s, Request(key, (Capability, "1.0.0"), ("unknown-capability", "1.0.0")), ct);
 
         response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(ct));
         response.Headers.CacheControl!.NoStore.ShouldBeTrue();
@@ -216,18 +216,18 @@ public sealed class QueueCredentialIssuanceTests(PostgresContainerFixture postgr
         var ct = TestContext.Current.CancellationToken;
         await using var s = await StartActiveAsync(ct);
         var key = NewUserKey(out _);
-        using (var first = await IssueAsync(s, Request(key, (Capability, "1")), ct))
+        using (var first = await IssueAsync(s, Request(key, (Capability, "1.0.0")), ct))
         {
             first.StatusCode.ShouldBe(HttpStatusCode.Created);
         }
 
-        using var reused = await IssueAsync(s, Request(key, (Capability, "1")), ct);
+        using var reused = await IssueAsync(s, Request(key, (Capability, "1.0.0")), ct);
         reused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         JsonDocument.Parse(await reused.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("code").GetString().ShouldBe("user-key-reused");
 
         foreach (var bad in new[] { "", "not-a-key", KeyPair.CreatePair(PrefixByte.Account).GetPublicKey() })
         {
-            using var invalid = await IssueAsync(s, Request(bad, (Capability, "1")), ct);
+            using var invalid = await IssueAsync(s, Request(bad, (Capability, "1.0.0")), ct);
             invalid.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
             JsonDocument.Parse(await invalid.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("code").GetString().ShouldBe("invalid-user-key");
         }
@@ -266,7 +266,7 @@ public sealed class QueueCredentialIssuanceTests(PostgresContainerFixture postgr
         revoked.IsSuccess.ShouldBeFalse();
         revoked.Failure.Code.ShouldBe("manager-not-active");
 
-        using var overHttp = await IssueAsync(s, Request(NewUserKey(out _), (Capability, "1")), ct);
+        using var overHttp = await IssueAsync(s, Request(NewUserKey(out _), (Capability, "1.0.0")), ct);
         overHttp.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
         (await CountAsync(s, "SELECT count(*) FROM socalytics.analyst_manager_queue_credential", ct)).ShouldBe(0);
     }
@@ -281,7 +281,7 @@ public sealed class QueueCredentialIssuanceTests(PostgresContainerFixture postgr
         await s.Factory.Services.GetRequiredService<NatsTopology>().EnsureAsync(ct);
 
         var key = NewUserKey(out var pair);
-        using var response = await IssueAsync(s, Request(key, (Capability, "1")), ct);
+        using var response = await IssueAsync(s, Request(key, (Capability, "1.0.0")), ct);
         response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(ct));
         var issued = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)).RootElement;
         await using var manager = await ConnectAsync(issued, pair, ct);

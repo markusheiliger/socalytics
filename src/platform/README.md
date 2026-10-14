@@ -141,7 +141,7 @@ deferred.
   requires `OperatorSeed`, `AccountSeed` (stamp account), and
   `SystemAccountSeed`. In `Jwt` mode the platform issues per-Manager user JWTs
   that only pull and acknowledge work (migration
-  `0015_registry_queue_credentials.sql`) and pushes account revocations through
+  `0016_registry_queue_credentials.sql`) and pushes account revocations through
   the system account, with a retrying revocation worker. Production key custody
   and lifetimes are unresolved under `GOV-CRED-004`.
 - `AnalystWork` options (development defaults, not production values):

@@ -195,4 +195,4 @@ T005 Shared queue-credential contract fixtures
 
 ## Phase 8: Convergence
 
-- [ ] T025 Renumber the queue-credential migration to the next free number: rename `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/0015_registry_queue_credentials.sql` to `0016_registry_queue_credentials.sql` (it collides with `0015_registry_analyst_registry.sql` from the default branch), update the migration reference in `src/platform/README.md`, and verify that the platform build and integration tests pass, per plan: Storage decision and AGENTS.md migration numbering (contradicts)
+- [x] T025 Renumber the queue-credential migration to the next free number: rename `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/0015_registry_queue_credentials.sql` to `0016_registry_queue_credentials.sql` (it collides with `0015_registry_analyst_registry.sql` from the default branch), update the migration reference in `src/platform/README.md`, and verify that the platform build and integration tests pass, per plan: Storage decision and AGENTS.md migration numbering (contradicts)
