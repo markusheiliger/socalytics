@@ -17,6 +17,21 @@
     "notProvided": "not provided",
     "again": "Pair another Manager"
   },
+  "requests": {
+    "title": "My registration requests",
+    "detailTitle": "Registration request",
+    "listLabel": "My registration requests",
+    "empty": "You have not submitted any registration requests.",
+    "listEntry": "{{host}} – {{state}}",
+    "back": "Back to my registration requests",
+    "fingerprint": "Device fingerprint: {{value}}",
+    "submittedAt": "Submitted: {{value}}",
+    "decidedAt": "Decided: {{value}}",
+    "reason": "Reason: {{value}}",
+    "approvalDeadline": "Can be approved until {{value}}",
+    "activationDeadline": "Can be activated until {{value}}",
+    "notFound": "This registration request was not found."
+  },
   "state": {
     "pairing": "Pairing",
     "pendingApproval": "Pending approval",

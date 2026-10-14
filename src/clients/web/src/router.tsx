@@ -4,6 +4,8 @@ import { SetPasswordPage } from './features/set-password/SetPasswordPage';
 import { PasswordChangePage } from './features/account/PasswordChangePage';
 import { ClubPage } from './features/club/ClubPage';
 import { HomePage } from './features/home/HomePage';
+import { MyRequestPage } from './features/managers/MyRequestPage';
+import { MyRequestsPage } from './features/managers/MyRequestsPage';
 import { PairingPage } from './features/managers/PairingPage';
 import { MemberPage } from './features/members/MemberPage';
 import { MembersPage } from './features/members/MembersPage';
@@ -49,6 +51,8 @@ export const appRoutes: RouteObject[] = [
           { path: '/members', element: clubAdminOnly(<MembersPage />) },
           { path: '/members/:memberId', element: clubAdminOnly(<MemberPage />) },
           { path: '/analyst-managers/pair', element: <RequireRole allow={canPairManagers}><PairingPage /></RequireRole> },
+          { path: '/analyst-managers/requests', element: <RequireRole allow={canPairManagers}><MyRequestsPage /></RequireRole> },
+          { path: '/analyst-managers/requests/:registrationId', element: <RequireRole allow={canPairManagers}><MyRequestPage /></RequireRole> },
         ],
       },
     ],

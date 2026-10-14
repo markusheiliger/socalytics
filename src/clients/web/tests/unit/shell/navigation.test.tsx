@@ -20,8 +20,8 @@ describe('role-based navigation', () => {
     expect(await navLinks([], [team])).toEqual(['Home', 'Teams', 'Account']);
   });
 
-  it('offers a Registrar without other roles only home, pairing, and account', async () => {
-    expect(await navLinks(['Registrar'], [])).toEqual(['Home', 'Pair a Manager', 'Account']);
+  it('offers a Registrar without other roles only home, requests, pairing, and account', async () => {
+    expect(await navLinks(['Registrar'], [])).toEqual(['Home', 'My registration requests', 'Pair a Manager', 'Account']);
   });
 
   it('shows the not-permitted view with the navigation for a disallowed address', async () => {
