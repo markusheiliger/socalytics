@@ -52,7 +52,7 @@ A maintainer or the implementation automation runs the verification of a phase o
 
 ## Success Criteria *(mandatory)*
 
-- **SC-001**: The finalize verification of the platform solution runs five or more test projects with strictly no overlap, shown by the log.
+- **SC-001**: Every `*Tests.csproj` of the platform solution (four on the default branch, five with the EndToEnd project of #72) runs in its own invocation with strictly no overlap, shown by the finalize verification log.
 - **SC-002**: The stopped merge verification of #72 passes without `address already in use` failures.
 - **SC-003**: A deliberately failing test project does not hide the results of the later projects and fails the check.
 
