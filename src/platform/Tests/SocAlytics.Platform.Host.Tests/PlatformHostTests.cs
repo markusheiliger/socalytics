@@ -29,6 +29,7 @@ public sealed class PlatformHostTests
         await app.ResourceNotifications.WaitForResourceHealthyAsync("postgres", timeout.Token);
         await app.ResourceNotifications.WaitForResourceHealthyAsync("rustfs", timeout.Token);
         await app.ResourceNotifications.WaitForResourceHealthyAsync("nats", timeout.Token);
+        await app.ResourceNotifications.WaitForResourceAsync("mailpit", KnownResourceStates.Running, timeout.Token);
         await app.ResourceNotifications.WaitForResourceAsync(
             MigratorResourceName, KnownResourceStates.Finished, timeout.Token);
         app.ResourceNotifications.TryGetCurrentState(MigratorResourceName, out var migrator).ShouldBeTrue();
@@ -42,6 +43,20 @@ public sealed class PlatformHostTests
         environment["Stamp__Id"].ShouldBe("local-dev-stamp");
         Uri.TryCreate(environment["Stamp__PublicBaseUri"], UriKind.Absolute, out var stampBase).ShouldBeTrue();
         stampBase!.Scheme.ShouldBe("http");
+        environment["Email__Smtp__Host"].ShouldNotBeNullOrWhiteSpace();
+        int.Parse(environment["Email__Smtp__Port"]!).ShouldBeGreaterThan(0);
+        environment["Email__Smtp__Security"].ShouldBe("StartTlsWhenAvailable");
+        environment["Email__SenderAddress"].ShouldBe("socalytics@localhost");
+        environment["Email__SenderName"].ShouldBe("SocAlytics");
+        environment["Email__Confirmation__Lifetime"].ShouldBe("1.00:00:00");
+        environment["Email__Confirmation__MaxPerHour"].ShouldBe("3");
+        environment["Email__Confirmation__AttemptsPerMinute"].ShouldBe("10");
+        environment["Email__Delivery__MaxAttempts"].ShouldBe("8");
+        environment["Email__Delivery__PollInterval"].ShouldBe("00:00:05");
+        environment["Email__Delivery__LeaseDuration"].ShouldBe("00:02:00");
+        environment["Notifications__CoalescingWindow"].ShouldBe("00:15:00");
+        Uri.TryCreate(environment["Notifications__WebUiBaseUri"], UriKind.Absolute, out var webBase).ShouldBeTrue();
+        webBase!.Scheme.ShouldBe("http");
 
         using var client = app.CreateHttpClient(ApiResourceName, "http");
         await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);
@@ -85,6 +100,21 @@ public sealed class PlatformHostTests
         var api = appHost.Resources.Single(static resource => resource.Name == ApiResourceName);
         web.Annotations.OfType<ResourceRelationshipAnnotation>()
             .ShouldContain(annotation => annotation.Resource == api && annotation.Type == "Reference");
+    }
+
+    [Fact]
+    public async Task AppHostComposesMailpitRelayWithPinnedImageAndEndpoints()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        var appHost = await CreateAppHostAsync(timeout.Token);
+
+        var mailpit = appHost.Resources.Single(static resource => resource.Name == "mailpit");
+        var image = mailpit.Annotations.OfType<ContainerImageAnnotation>().Single();
+        image.Image.ShouldBe("axllent/mailpit");
+        image.Tag.ShouldBe("v1.31.5");
+        var endpoints = mailpit.Annotations.OfType<EndpointAnnotation>().ToDictionary(static e => e.Name);
+        endpoints["smtp"].TargetPort.ShouldBe(1025);
+        endpoints["http"].TargetPort.ShouldBe(8025);
     }
 
     [Fact]

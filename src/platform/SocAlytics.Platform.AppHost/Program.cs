@@ -49,6 +49,11 @@ var rustfsEndpoint = rustfs.GetEndpoint("s3");
 
 var nats = builder.AddNats("nats").WithJetStream();
 
+var mailpit = builder.AddContainer("mailpit", "axllent/mailpit", "v1.31.5")
+    .WithEndpoint(targetPort: 1025, name: "smtp", scheme: "tcp")
+    .WithHttpEndpoint(targetPort: 8025, name: "http");
+var mailpitSmtp = mailpit.GetEndpoint("smtp");
+
 var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithHttpEndpoint()
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
@@ -71,6 +76,18 @@ var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithEnvironment("Recordings__Upload__MaxGrantsPerRequest", "1000")
     .WithEnvironment("Recordings__Upload__AllowedContentTypes__0", "video/mp4")
     .WithEnvironment("Recordings__Upload__AllowedContentTypes__1", "video/quicktime")
+    .WithEnvironment("Email__Smtp__Host", ReferenceExpression.Create($"{mailpitSmtp.Property(EndpointProperty.Host)}"))
+    .WithEnvironment("Email__Smtp__Port", ReferenceExpression.Create($"{mailpitSmtp.Property(EndpointProperty.Port)}"))
+    .WithEnvironment("Email__Smtp__Security", "StartTlsWhenAvailable")
+    .WithEnvironment("Email__SenderAddress", "socalytics@localhost")
+    .WithEnvironment("Email__SenderName", "SocAlytics")
+    .WithEnvironment("Email__Confirmation__Lifetime", "1.00:00:00")
+    .WithEnvironment("Email__Confirmation__MaxPerHour", "3")
+    .WithEnvironment("Email__Confirmation__AttemptsPerMinute", "10")
+    .WithEnvironment("Email__Delivery__MaxAttempts", "8")
+    .WithEnvironment("Email__Delivery__PollInterval", "00:00:05")
+    .WithEnvironment("Email__Delivery__LeaseDuration", "00:02:00")
+    .WithEnvironment("Notifications__CoalescingWindow", "00:15:00")
     .WithHttpHealthCheck("/health")
     .WithReference(appConnection)
     .WaitFor(postgres)
@@ -108,6 +125,8 @@ const string webDirectory = "../../clients/web";
 var web = builder.AddViteApp("web", webDirectory, e2eMode ? "preview" : "dev")
     .WithReference(api)
     .WaitFor(api);
+
+api.WithEnvironment("Notifications__WebUiBaseUri", ReferenceExpression.Create($"{web.GetEndpoint("http").Property(EndpointProperty.Url)}"));
 
 if (e2eMode)
 {
