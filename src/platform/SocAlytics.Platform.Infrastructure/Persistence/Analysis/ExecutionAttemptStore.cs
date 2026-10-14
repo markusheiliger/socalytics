@@ -150,4 +150,19 @@ internal sealed class ExecutionAttemptStore(IDbSession session, TimeProvider tim
             new { now, batchSize }, session.Transaction, cancellationToken: cancellationToken));
         return rows.AsList();
     }
+
+    public async Task<IReadOnlyList<ExpiredAttemptRef>> ListActiveForManagerAsync(Guid managerId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<ExpiredAttemptRef>(new CommandDefinition(
+            """
+            SELECT a.id AS AttemptId, a.logical_job_id AS LogicalJobId, j.run_id AS RunId
+            FROM socalytics.analysis_execution_attempts a
+            JOIN socalytics.analysis_logical_jobs j ON j.id = a.logical_job_id
+            WHERE a.state = 'Active' AND a.manager_id = @managerId
+            ORDER BY a.claimed_at, a.id
+            """,
+            new { managerId }, session.Transaction, cancellationToken: cancellationToken));
+        return rows.AsList();
+    }
 }

@@ -1,0 +1,9 @@
+{
+  "userJwt": "fixture-user-jwt-not-a-credential",
+  "expiresAt": "2026-10-12T14:42:33Z",
+  "queueUrl": "nats://localhost:4222",
+  "stream": "SOCALYTICS_ANALYSIS_JOBS",
+  "consumers": [ { "capability": "player-detection", "consumer": "analyst-player-detection" } ],
+  "inboxPrefix": "_INBOX_9f2c1e0a",
+  "maxConcurrentAnalysts": 0
+}

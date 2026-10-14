@@ -4,6 +4,7 @@ using Microsoft.Extensions.Time.Testing;
 using Shouldly;
 using SocAlytics.Analysts.Manager.Hosting;
 using SocAlytics.Analysts.Manager.Runtime;
+using SocAlytics.Analysts.Manager.Runtime.Simulated;
 using SocAlytics.Analysts.Manager.Tests.Support;
 using Xunit;
 

@@ -225,10 +225,13 @@ internal sealed class Pkcs11KeyProvider : IDeviceKeyProvider
     {
         var pin = ReadPin() ?? throw new DeviceKeyException(ManagerDiagnosticCodes.KeyInaccessible);
         Pkcs11LibdlResolver.EnsureRegistered();
-        var factories = new Pkcs11InteropFactories();
-        var library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, _modulePath, AppType.MultiThreaded);
+        // Module initialization and finalization are process-global, so contexts never overlap.
+        ModuleGate.Wait();
+        IPkcs11Library? library = null;
         try
         {
+            var factories = new Pkcs11InteropFactories();
+            library = factories.Pkcs11LibraryFactory.LoadPkcs11Library(factories, _modulePath, AppType.MultiThreaded);
             var slot = library.GetSlotList(SlotsType.WithTokenPresent)
                 .FirstOrDefault(s => s.GetTokenInfo().Label == _tokenLabel)
                 ?? throw new DeviceKeyException(ManagerDiagnosticCodes.KeyInaccessible);
@@ -247,10 +250,20 @@ internal sealed class Pkcs11KeyProvider : IDeviceKeyProvider
         }
         catch
         {
-            library.Dispose();
+            try
+            {
+                library?.Dispose();
+            }
+            finally
+            {
+                ModuleGate.Release();
+            }
+
             throw;
         }
     }
+
+    private static readonly SemaphoreSlim ModuleGate = new(1, 1);
 
     private sealed class Context(Pkcs11InteropFactories factories, IPkcs11Library library, ISession session) : IDisposable
     {
@@ -269,8 +282,15 @@ internal sealed class Pkcs11KeyProvider : IDeviceKeyProvider
                 // Best effort; the session is closed below.
             }
 
-            session.Dispose();
-            library.Dispose();
+            try
+            {
+                session.Dispose();
+                library.Dispose();
+            }
+            finally
+            {
+                ModuleGate.Release();
+            }
         }
     }
 

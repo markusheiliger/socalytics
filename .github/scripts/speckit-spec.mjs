@@ -48,6 +48,7 @@ import {
   renderResumeComment,
   renderSyncSkippedMarker,
   renderTaskPrompt,
+  setAttention,
   specTitleOfPull,
   summarizeTask,
   syncPullRequestTaskList,
@@ -205,7 +206,7 @@ async function stopAtLimit(client, env, { pull, folder, requester }, decision) {
 
 // Starts a diagnosis of a stopped implementation by itself, unless automatic diagnosis is off, a diagnosis already
 // reported for this stop, or the head already had the maximum number of diagnoses. A diagnosis that ended without a
-// report is closed with a comment first, so it never blocks the implementation.
+// report is closed with a comment first, so it never blocks the implementation. Returns whether a diagnosis started.
 async function maybeDiagnose(client, env, { twin, pull, folder }, diagnosis, report) {
   const allowed = autoDiagnosisEnabled(env) && diagnosis.count < MAX_AUTO_DIAGNOSES;
   if (diagnosis.state === 'stale') {
@@ -217,11 +218,12 @@ async function maybeDiagnose(client, env, { twin, pull, folder }, diagnosis, rep
       ...(allowed ? ['A new diagnosis starts automatically.'] : renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, pull, folder)) })),
     ].join('\n'));
     report.line('Closed the unfinished diagnosis.');
-    if (!allowed) return;
+    if (!allowed) return false;
   }
-  if (!allowed || diagnosis.state === 'reported') return;
+  if (!allowed || diagnosis.state === 'reported') return false;
   const started = await startDiagnosis(client, env, { twin, pull: pull.number, folder, head: pull.head.sha, auto: true });
   report.line(started.started ? 'Started a diagnosis.' : `Warning: could not start a diagnosis: ${started.error}`);
+  return started.started;
 }
 
 function readSpecInputs(env) {
@@ -402,18 +404,25 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     await client.updateCheckRun(stale.id, { status: 'completed', conclusion: 'failure', output: { title: 'Merge attempt abandoned', summary: 'The merge did not finish within 2 hours.' } });
   }
   const common = { folder, head: pull.head.sha, base_branch: baseBranchOf(pull) };
+  // A stop waits for a person unless a diagnosis runs for it; a reported diagnosis was labeled when it was recorded
+  // (an amendment it created gets the label instead). Everything else is work in progress or ready for review.
   if (decision.action === 'limit') {
     const requester = (await resolveImplementRequester(client, twin))?.login ?? null;
     await stopAtLimit(client, env, { pull, folder, requester }, decision);
     report.line(`Stopped: ${kindLabel(decision)} reached the attempt limit.`);
-    await maybeDiagnose(client, env, { twin, pull, folder }, { state: 'none', count: 0 }, report);
+    const diagnosing = await maybeDiagnose(client, env, { twin, pull, folder }, { state: 'none', count: 0 }, report);
+    await setAttention(client, pull.number, !diagnosing);
     return finish('stop', common);
   }
   if (decision.action === 'failed') {
-    if (decision.diagnosis?.state !== 'reported') await maybeDiagnose(client, env, { twin, pull, folder }, decision.diagnosis, report);
+    if (decision.diagnosis?.state !== 'reported') {
+      const diagnosing = await maybeDiagnose(client, env, { twin, pull, folder }, decision.diagnosis, report);
+      await setAttention(client, pull.number, !diagnosing);
+    }
     report.line(decision.diagnosis?.state === 'reported' ? 'Stopped; the diagnosis waits for a person\'s decision.' : 'Stopped and waiting for a person.');
     return finish('stop', common);
   }
+  if (['tasks', 'merge', 'wait', 'diagnosing', 'done'].includes(decision.action)) await setAttention(client, pull.number, decision.action === 'done');
   if (decision.action === 'merge') {
     const checkRun = await startMerge(client, { pull, attempt: decision.attempt });
     report.line(`Merging into \`${common.base_branch}\`, attempt ${decision.attempt}.`);

@@ -6,7 +6,7 @@ Recording Lineage and Upload (`specs/archive/20261005-130702-recording-lineage-u
 `IObjectStorage`, presigned grants that sign length and checksum,
 `RustFsContainerFixture`, `JsonSchemaContractValidator` with embedded
 `contracts/**/*.schema.json`), and Analyst Manager Work Execution
-(`specs/20261012-141233-manager-work-execution`: Manager `Work/`,
+(`specs/archive/20261012-141233-manager-work-execution`: Manager `Work/`,
 `Runtime/Simulated/`, `PlatformClient` with DPoP, the
 `SocAlytics.Platform.EndToEnd.Tests` project).
 

@@ -34,6 +34,7 @@ import {
   renderGuidanceMarker,
   renderNextSteps,
   renderResumeComment,
+  setAttention,
   specTitleOfPull,
 } from './speckit-implement-core.mjs';
 
@@ -130,6 +131,7 @@ export async function startFixAuthoring(client, env, { twin, implementation, gui
       findings: '',
       stamp,
     });
+    await setAttention(client, implementation.number, false);
     return { started: true, check, stamp };
   } catch (error) {
     await closeAuthoringCheck(client, check.id, 'failure', 'The fix spec authoring could not start', error.message);
@@ -333,6 +335,7 @@ export async function runRecord({ client, env, log }) {
     const why = withheld ? `the result was withheld because threat detection did not pass (result: ${detection})` : report?.refused || report?.summary || 'the agent did not create one';
     await complete('failure', 'No fix spec was created', why);
     await client.createComment(pullNumber, [`**No fix spec was created**: ${neutralizeMarkers(why)}`, '', ...(await nextSteps())].join('\n'));
+    await setAttention(client, pullNumber, true);
     log(`#${pullNumber}: no fix spec was created.`);
     return { exitCode: 0, outcome: 'none' };
   }
@@ -360,6 +363,7 @@ export async function runRecord({ client, env, log }) {
     }
     await complete('failure', 'The fix spec was rejected', broken.join('; '));
     await client.createComment(pullNumber, [`**The authored fix spec #${created} was rejected and closed**: ${broken.map(neutralizeMarkers).join('; ')}.`, '', ...(await nextSteps())].join('\n'));
+    await setAttention(client, pullNumber, true);
     log(`#${pullNumber}: rejected fix spec #${created}.`);
     return { exitCode: 0, outcome: 'rejected' };
   }
@@ -383,6 +387,7 @@ export async function settleClosedFix(client, env, { amendment: pull, folder, im
   if (events.some((event) => ['merged', 'discarded'].includes(event.event))) return { outcome: 'handled' };
   const by = actor ? `@${actor}` : 'a person';
   const defaultBranch = defaultBranchOf(env);
+  await setAttention(client, pull.number, false);
   try {
     await client.deleteBranch(fixBranch(folder));
   } catch {
@@ -400,6 +405,7 @@ export async function settleClosedFix(client, env, { amendment: pull, folder, im
     ? `**Fix spec #${pull.number} was merged into \`${pull.base?.ref}\`** by ${by}, not into \`${defaultBranch}\`, so it is not implemented and this implementation stays stopped.`
     : `Fix spec #${pull.number} was closed without merging by ${by}.`;
   await client.createComment(implementation.number, [renderFixEvent('discarded', { pull: pull.number, folder }), what, '', ...renderNextSteps({ diagnosed: true, ...context })].join('\n'));
+  await setAttention(client, implementation.number, true);
   return { outcome: pull.merged_at ? 'misdirected' : 'discarded' };
 }
 
@@ -416,6 +422,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
       await closeAuthoringCheck(client, latest.id, 'failure', 'The fix spec authoring did not finish', 'The run ended without a result.');
       await client.createComment(implementation.number, [`**The fix spec authoring did not finish**.`, '', ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) })].join('\n'));
       report(`- Closed the unfinished fix spec authoring of #${implementation.number}.`);
+      await setAttention(client, implementation.number, true);
       return { outcome: 'stale' };
     }
     return { outcome: 'none' };
@@ -487,6 +494,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) }),
   ].join('\n'));
   report(`- The fix spec of #${implementation.number} was not implemented (twin #${fixTwin.number} closed).`);
+  await setAttention(client, implementation.number, true);
   return { outcome: 'stopped' };
 }
 

@@ -2,7 +2,7 @@
 
 **Branch**: `20261012-141233-manager-work-execution` | **Date**: 2026-10-12 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261012-141233-manager-work-execution/spec.md`
+**Input**: Feature specification from `specs/archive/20261012-141233-manager-work-execution/spec.md`
 
 ## Summary
 
@@ -121,7 +121,7 @@ entries.
 ### Documentation (this feature)
 
 ```text
-specs/20261012-141233-manager-work-execution/
+specs/archive/20261012-141233-manager-work-execution/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 decisions R1–R10
 ├── data-model.md        # Entities, state machines, migration 0014
@@ -152,6 +152,7 @@ src/platform/
 │   ├── Persistence/Migrations/0014_registry_queue_credentials.sql
 │   └── Workers/QueueRevocationWorker.cs               # retries pending account pushes
 ├── SocAlytics.Platform.Api/Registry/AnalystManagerSelfEndpoints.cs   # + queue-credentials
+├── SocAlytics.Platform.Api/openapi/v1.json                           # committed OpenAPI snapshot, refreshed for queue-credentials
 ├── SocAlytics.Platform.AppHost/                       # NATS in JWT mode with generated development trust
 └── Tests/
     ├── SocAlytics.Platform.Integration.Tests/         # credential issuance, revocation fencing, consumers, JWT-mode NATS fixture
@@ -180,6 +181,12 @@ src/analysts/manager/README.md, src/platform/README.md, README.md, AGENTS.md   #
 Analysis functional areas, NATS infrastructure) and the existing Manager Core
 folders; add one Manager `Work/` and `Queue/` folder each and one platform test
 project for the cross-solution end-to-end test.
+
+## Architecture Updates
+
+- **Narratives**: [job-processing.md](../../../docs/architecture/job-processing.md) (work queue and consumers), [analyst-runtime-and-recovery.md](../../../docs/architecture/analyst-runtime-and-recovery.md) (Registration And Runtime Credentials), and [platform-implementation.md](../../../docs/architecture/platform-implementation.md) (NATS credential mechanism, recorded by T023).
+- **Design updates**: Manager consumers are provisioned per capability of the default workflow definition resolved from the Analyst Registry, and only once it resolves (the configured development workflow merely seeds an empty Registry in Development and Test). Queue-credential assignment matches a Manager's offered capability by id and by equal semantic version against that resolved definition. T028 states both in the owning narratives.
+- **Status statements to correct at merge**: any wording in `docs/architecture/` that says consumers come from configured workflow definitions or that capability versions are plain integers.
 
 ## Complexity Tracking
 

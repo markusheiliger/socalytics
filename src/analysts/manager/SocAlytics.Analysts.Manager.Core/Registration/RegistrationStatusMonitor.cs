@@ -6,6 +6,8 @@ using SocAlytics.Analysts.Manager.Diagnostics;
 using SocAlytics.Analysts.Manager.Hosting;
 using SocAlytics.Analysts.Manager.LocalState;
 using SocAlytics.Analysts.Manager.Platform;
+using SocAlytics.Analysts.Manager.Queue;
+using SocAlytics.Analysts.Manager.Work;
 
 namespace SocAlytics.Analysts.Manager.Registration;
 
@@ -13,6 +15,7 @@ namespace SocAlytics.Analysts.Manager.Registration;
 public sealed class RegistrationStatusMonitor : BackgroundService
 {
     private static readonly TimeSpan Idle = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan RevocationStopBound = TimeSpan.FromSeconds(8);
     private readonly RegistrationCoordinator _coordinator;
     private readonly ManagerTokenCache _tokens;
     private readonly SignedStateStore _store;
@@ -22,13 +25,20 @@ public sealed class RegistrationStatusMonitor : BackgroundService
     private readonly StatusReportBuilder _reports;
     private readonly TimeProvider _time;
     private readonly ILogger<RegistrationStatusMonitor> _logger;
+    private readonly AttemptRegistry _attempts;
+    private readonly QueueCredentialProvider _queueCredentials;
+    private readonly IQueueConnection _queue;
     private TimeSpan _backoff;
 
     public RegistrationStatusMonitor(
         RegistrationCoordinator coordinator, ManagerTokenCache tokens, SignedStateStore store,
         IEnumerable<IDeviceKeyProvider> providers, ProtectedStoreFailureHandler failures, InactiveSignalSink sink,
-        IOptions<PlatformOptions> options, StatusReportBuilder reports, TimeProvider time, ILogger<RegistrationStatusMonitor> logger)
+        IOptions<PlatformOptions> options, StatusReportBuilder reports, TimeProvider time, ILogger<RegistrationStatusMonitor> logger,
+        AttemptRegistry attempts, QueueCredentialProvider queueCredentials, IQueueConnection queue)
     {
+        _attempts = attempts;
+        _queueCredentials = queueCredentials;
+        _queue = queue;
         _coordinator = coordinator;
         _tokens = tokens;
         _store = store;
@@ -115,6 +125,7 @@ public sealed class RegistrationStatusMonitor : BackgroundService
         }
 
         _coordinator.EnterRevoked();
+        await StopWorkAsync();
         _tokens.Clear();
         _store.Delete();
         try
@@ -131,6 +142,29 @@ public sealed class RegistrationStatusMonitor : BackgroundService
         }
 
         _coordinator.ClearIdentity();
+    }
+
+    /// <summary>Stops every attempt without reporting, discards queue credentials, and closes the queue connection.</summary>
+    private async Task StopWorkAsync()
+    {
+        using var bound = new CancellationTokenSource(RevocationStopBound);
+        try
+        {
+            await _attempts.StopAsync(AttemptStopReason.Revoked, bound.Token);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        _queueCredentials.Discard("revoked");
+        try
+        {
+            await _queue.CloseAsync();
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            _logger.LogWarning("Closing the queue connection failed: {Error}", e.GetType().Name);
+        }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

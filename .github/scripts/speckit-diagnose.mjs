@@ -30,6 +30,7 @@ import {
   parseNextCommand,
   readSpecTasks,
   renderNextSteps,
+  setAttention,
 } from './speckit-implement-core.mjs';
 
 export { checkAmendment, findAmendment };
@@ -61,6 +62,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, no
   if (superseded) {
     await client.updatePullRequest(superseded.number, { state: 'closed' });
     await client.createComment(superseded.number, 'Superseded by a new diagnosis; a new amendment, if any, follows in its own pull request.');
+    await setAttention(client, superseded.number, false);
   }
   try {
     await client.deleteBranch(amendmentBranch(folder));
@@ -90,6 +92,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, no
       amendment: '',
       round: '0',
     });
+    await setAttention(client, pull, false);
     return { started: true, check };
   } catch (error) {
     await client.updateCheckRun(check.id, {
@@ -98,6 +101,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, no
       external_id: CHECK_DIAGNOSED,
       output: { title: 'Diagnosis could not start', summary: clip(error.message, 2000) },
     });
+    await setAttention(client, pull, true);
     return { started: false, check, error: error.message };
   }
 }
@@ -566,6 +570,8 @@ export async function runRecord({ client, env, log }) {
   if (amendment) {
     const implementation = await client.getPullRequest(pullNumber);
     await beginAmendment(client, env, { amendment, folder, implementation, twin });
+  } else {
+    await setAttention(client, pullNumber, true);
   }
   log(usable ? `Posted the diagnosis (${usable.category}) on #${pullNumber}.` : `Posted that the diagnosis had no usable report on #${pullNumber}.`);
   return { exitCode: 0, report: usable, reasons };
@@ -608,6 +614,7 @@ async function recordRework({ client, env, log, inputs }) {
     await complete('failure', mode === 'fix' ? `Correction round ${round} did not finish` : 'The rework did not finish', reasons.join('; '));
     await client.createComment(number, `The ${mode === 'fix' ? `correction round ${round}` : 'rework'} did not produce a result: ${neutralizeMarkers(reasons.join('; ') || 'no report')}. Comment on this pull request to try again.`);
     await handBack(`correction round ${round} did not finish`);
+    await setAttention(client, number, true);
     return { exitCode: 0, outcome: 'failed' };
   }
   const pushFailures = Number(env.SPECKIT_PUSH_FAILURES || 0);
@@ -629,6 +636,7 @@ async function recordRework({ client, env, log, inputs }) {
       return { exitCode: 0, outcome: 'push failed' };
     }
     await handBack(`correction round ${round} could not push its changes`);
+    await setAttention(client, number, true);
     return { exitCode: 0, outcome: 'push failed' };
   }
   // A correction round may leave findings it judges wrong; then another analysis would only repeat them.

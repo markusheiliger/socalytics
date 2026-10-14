@@ -287,7 +287,7 @@ public sealed class ExecutionAttemptTests(PostgresContainerFixture postgres, Nat
     }
 
     [Fact]
-    public async Task RevokedManagerIsRefusedAndAttemptRecoversThroughExpiry()
+    public async Task RevokedManagerIsRefusedAndAttemptIsFencedImmediately()
     {
         var ct = TestContext.Current.CancellationToken;
         var (db, host) = await StartAsync(ManagerAuthentication.Real, ct);
@@ -306,9 +306,9 @@ public sealed class ExecutionAttemptTests(PostgresContainerFixture postgres, Nat
         using var refused = await manager.SendAsync(HttpMethod.Post, path, body, null, ct);
         refused.StatusCode.ShouldBe(HttpStatusCode.Unauthorized);
 
-        host.Time.Advance(TimeSpan.FromMinutes(5));
-        (await ExpireAsync(host, ct)).ShouldBe(1);
         (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_logical_jobs WHERE state = 'Ready'", ct)).ShouldBe(1);
+        host.Time.Advance(TimeSpan.FromMinutes(5));
+        (await ExpireAsync(host, ct)).ShouldBe(0);
     }
 
     private static async Task<string?> ScalarTextAsync(IsolatedDatabase db, string sql, CancellationToken ct)

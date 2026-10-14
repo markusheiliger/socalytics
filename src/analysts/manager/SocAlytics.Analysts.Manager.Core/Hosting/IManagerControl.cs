@@ -29,6 +29,10 @@ public interface IManagerControl
 
     Task<ControlResult> SessionEndingAsync();
 
+    Work.ConcurrencySnapshot GetConcurrency();
+
+    Task<ControlResult> SetHostLocalConcurrencyAsync(int limit);
+
     Task<ControlResult> SetAutostartAsync(bool enabled);
 
     Task<RegisterResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default);
