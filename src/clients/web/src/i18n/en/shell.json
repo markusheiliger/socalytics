@@ -16,6 +16,26 @@
   "connectivity": {
     "unreachable": "The platform is not reachable. Actions that change data are disabled until it is reachable again."
   },
+  "uploads": {
+    "label": "Uploads",
+    "summary": "Uploads: {{active}} active, {{queued}} queued, {{percent}}%",
+    "overallProgress": "Overall upload progress",
+    "listLabel": "Uploads in progress",
+    "item": "{{name}} ({{size}})",
+    "itemProgress": "Progress of {{name}}",
+    "openMatch": "Open the match of {{name}}",
+    "state": {
+      "selected": "Selected",
+      "preparing": "Preparing",
+      "ready": "Ready",
+      "starting": "Starting",
+      "queued": "Waiting in the queue",
+      "transferring": "Transferring",
+      "paused": "Paused",
+      "awaitingMapping": "Waiting for the timeline mapping",
+      "completing": "Completing"
+    }
+  },
   "notPermitted": "You are not permitted to open this page.",
   "notFound": "This page does not exist."
 }
