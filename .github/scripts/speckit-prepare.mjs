@@ -6,6 +6,7 @@ import {
   ARCHIVE_DIR,
   DISCARDED_STAGE,
   IMPLEMENT_STAGE,
+  IMPLEMENTING_STAGE,
   LABELS,
   PENDING_LABEL,
   SPECS_DIR,
@@ -13,6 +14,7 @@ import {
   buildPrompt,
   buildSpecEntry,
   hasLabel,
+  isImplementRequested,
   isValidFolderName,
   parseInferenceOutput,
   planImplementRequest,
@@ -149,7 +151,7 @@ export async function updateIssueWithLabels(client, issue, { add, remove }, fiel
 
 function revocationComment(item) {
   return [
-    `The \`${stageLabel(IMPLEMENT_STAGE)}\` flag was removed because:`,
+    `The \`${stageLabel(item.requested ?? IMPLEMENT_STAGE)}\` ${item.requested === IMPLEMENTING_STAGE ? 'stage' : 'flag'} was removed because:`,
     '',
     ...item.revoked.map((reason) => `- ${reason}`),
     '',
@@ -211,7 +213,7 @@ export async function runSync({ client, rootDir, env, dryRun, promptFile, log })
   const specs = discoverSpecs(rootDir);
   const issues = await client.listTwinIssues(TWIN_LABEL);
   for (const issue of issues) {
-    if (issue.state === 'open' && hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) {
+    if (issue.state === 'open' && isImplementRequested(issue)) {
       issue.implementRequester = await resolveImplementRequester(client, issue.number);
     }
   }

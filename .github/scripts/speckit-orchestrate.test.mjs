@@ -12,6 +12,8 @@ import { CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAM
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
+const IMPLEMENTING = 'speckit:stage:implementing';
+const stagesOf = (issue) => issue.labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:'));
 const TASKS_OPEN = '- [ ] T001 one\n- [ ] T002 two\n';
 
 async function start(github, root, twin, { reset = false, requester = 'dev' } = {}) {
@@ -42,6 +44,7 @@ test('start prepares the linked branch, draft pull request, assignee, check run,
     assert.match(pull.body, /^\*\*Spec\*\*: \[`specs\/a`\]/m);
     assert.match(pull.body, /## Tasks \(2\)\n\nShort form; the full task texts are in \[`tasks\.md`\]\([^)]+\)\.\n\n### Phase 1: Setup\n\n- \[ \] T001 \[P\] Create project\n\n#### Implementation\n\n- \[ \] T002 \[US1\] Build it/);
     assert.deepEqual(pull.assignees, ['dev']);
+    assert.deepEqual(stagesOf(github.find(twin.number)), [IMPLEMENTING], 'implement >> implementing once the pull request is open');
     assert.deepEqual(github.repo.checkRuns.map((run) => [run.name, run.status, run.head_sha, run.output.title]), [[CHECK_RUN_NAME, 'queued', pull.head.sha, '0 of 2 tasks implemented']]);
     const comments = github.comments.filter((comment) => comment.number === pull.number);
     assert.equal(comments.length, 1);
@@ -146,6 +149,49 @@ test('select tracks the pull request lifecycle: in progress, fallback, and a fre
   }
 });
 
+test('a requested twin moves implement >> implementing, and sync keeps or revokes implementing like the flag', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  const sync = () => runSync({ client: github, rootDir: root, env: envFor(root), dryRun: false, promptFile: path.join(root, 'prompt.txt'), log: silent });
+  try {
+    await start(github, root, twin);
+    const issue = github.find(twin.number);
+    assert.deepEqual(stagesOf(issue), [IMPLEMENTING]);
+    const comments = github.comments.length;
+    await sync();
+    assert.deepEqual(stagesOf(issue), [IMPLEMENTING], 'sync keeps a valid implementing stage');
+    assert.equal(github.comments.length, comments);
+
+    flag(github, issue);
+    const reflagged = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.deepEqual(reflagged.inProgress.map((item) => [item.number, item.requester]), [[twin.number, 'dev']], 'the requester comes from the label history');
+    assert.deepEqual(stagesOf(issue), [IMPLEMENTING], 'a flag set again while the pull request is open moves on to implementing');
+
+    mkdirSync(path.join(root, 'specs', 'a', 'checklists'), { recursive: true });
+    writeFileSync(path.join(root, 'specs', 'a', 'checklists', 'requirements.md'), '- [ ] Open item\n');
+    await sync();
+    assert.deepEqual(stagesOf(issue), ['speckit:stage:tasked'], 'sync revokes an implementing stage whose conditions no longer hold');
+    assert.match(github.comments.at(-1).body, /^The `speckit:stage:implementing` stage was removed because:[\s\S]*checklist item/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a computed implementing stage from tasks checked on the default branch is no implementation request', async () => {
+  const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks: '- [x] T001 one\n- [ ] T002 two\n' }]);
+  try {
+    const issue = github.issues[0];
+    assert.deepEqual(stagesOf(issue), [IMPLEMENTING]);
+    const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.equal(result.ready.length + result.inProgress.length + result.inconsistent.length + result.fallback.length, 0);
+    const comments = github.comments.length;
+    await runSync({ client: github, rootDir: root, env: envFor(root), dryRun: false, promptFile: path.join(root, 'prompt.txt'), log: silent });
+    assert.deepEqual(stagesOf(issue), [IMPLEMENTING]);
+    assert.equal(github.comments.length, comments, 'nothing is revoked');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('select finalizes a twin whose pull request a person merged while the twin is still open', async () => {
   const { root, github, twin } = await flaggedRepo();
   try {
@@ -203,7 +249,7 @@ test('select leaves closed twins alone unless their pull request was merged afte
     Object.assign(github.find(twin.number), { state: 'closed', state_reason: 'not_planned' });
     const notPlanned = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
     assert.equal(notPlanned.merged.length, 0);
-    assert.ok(github.find(twin.number).labels.some((label) => label.name === IMPLEMENT));
+    assert.ok(github.find(twin.number).labels.some((label) => label.name === IMPLEMENTING));
     assert.equal(github.repo.branches['speckit/a'] !== undefined, true);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -624,7 +670,7 @@ test('chain: decide stops at the attempt limit, resumes on request with guidance
     assert.doesNotMatch(second.include[0].prompt, /Guidance/, 'guidance applies to the stopped task only');
 
     github.mergeBranchOutcome = null;
-    twin.labels = twin.labels.filter((label) => label.name !== IMPLEMENT);
+    twin.labels = twin.labels.filter((label) => ![IMPLEMENT, IMPLEMENTING].includes(label.name));
     const unflagged = await decide(github, root, twin);
     assert.deepEqual([unflagged.outputs.action, unflagged.outputs.continue], ['none', 'false']);
     assert.match(unflagged.text, /is not open and flagged for implementation/);

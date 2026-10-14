@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { IMPLEMENT_STAGE, TWIN_LABEL, countOpenChecklistItems, hasLabel, isValidFolderName, parseFixForLine, resolveTwins, stageLabel, stageLabelChange } from './speckit-prepare-core.mjs';
+import { IMPLEMENT_STAGE, TWIN_LABEL, countOpenChecklistItems, isImplementRequested, isValidFolderName, parseFixForLine, resolveTwins, stageLabelChange } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { renderFlaggedFor, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { beginAmendment, guardPullRequest, maintainOpenSpecPull } from './speckit-amend.mjs';
@@ -444,7 +444,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     } catch {
       // The dependency documents the order; the resume does not depend on it.
     }
-    if (fixTwin.state === 'open' && requester && !hasLabel(fixTwin, stageLabel(IMPLEMENT_STAGE))) {
+    if (fixTwin.state === 'open' && requester && !isImplementRequested(fixTwin)) {
       await client.createComment(fixTwin.number, [
         renderFlaggedFor(requester),
         `Implementation requested on behalf of @${requester}, who asked for this fix spec with \`/speckit fix\` on #${implementation.number}. That implementation resumes by itself once this fix has landed.`,

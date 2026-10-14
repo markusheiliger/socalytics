@@ -5,13 +5,16 @@ export const STAGES = {
   specified: { color: 'c5def5', description: 'Spec twin stage: spec.md exists, no plan yet' },
   planned: { color: '7fb8e8', description: 'Spec twin stage: plan.md exists, no task list yet' },
   tasked: { color: '1d76db', description: 'Spec twin stage: tasks.md exists, no task completed on the default branch' },
-  implement: { color: '5319e7', description: 'Spec twin stage: requested by a human; ready for the speckit-orchestrate workflow' },
-  implementing: { color: 'f9d0c4', description: 'Spec twin stage: some tasks completed on the default branch' },
+  implement: { color: '5319e7', description: 'Spec twin stage: requested by a human; waiting for the speckit-orchestrate workflow to start it' },
+  implementing: { color: 'f9d0c4', description: 'Spec twin stage: implementation pull request open, or some tasks completed on the default branch' },
   implemented: { color: '0e8a16', description: 'Spec twin stage: all tasks completed on the default branch' },
   discarded: { color: 'cfd3d7', description: 'Spec twin stage: spec folder was removed; twin closed as not planned' },
 };
 export const DISCARDED_STAGE = 'discarded';
 export const IMPLEMENT_STAGE = 'implement';
+// The stage an accepted request moves to once its implementation pull request is open (implement >> implementing >>
+// implemented). It is also the computed stage of a folder whose tasks are partly checked on the default branch.
+export const IMPLEMENTING_STAGE = 'implementing';
 // The only computed stage from which a human may request implementation.
 export const IMPLEMENTABLE_STAGE = 'tasked';
 export const LABELS = [
@@ -169,6 +172,14 @@ export function stageLabel(stage) {
   return `${STAGE_PREFIX}${stage}`;
 }
 
+// Whether the twin carries an implementation request: waiting to start (`implement`) or with its implementation pull
+// request open (`implementing`). Without a computed stage, `implementing` counts as a request; with one, only while the
+// default branch has no task checked, because otherwise it is the computed stage of a local implementation.
+export function isImplementRequested(issue, computedStage = null) {
+  if (hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) return true;
+  return hasLabel(issue, stageLabel(IMPLEMENTING_STAGE)) && (computedStage === null || computedStage === IMPLEMENTABLE_STAGE);
+}
+
 export function deriveStage(artifacts, tasksMarkdown) {
   if (artifacts.includes('tasks.md')) {
     const tasks = (tasksMarkdown ?? '')
@@ -218,16 +229,18 @@ export function implementBlockers({ folder, computedStage, openChecklistItems })
   return reasons;
 }
 
-// Decides the target stage of an open twin; a valid human implement flag is kept, otherwise the computed stage wins.
+// Decides the target stage of an open twin; a valid implementation request keeps its stage (`implement` while it
+// waits, `implementing` once the scheduler opened its pull request), otherwise the computed stage wins.
 // `twin.implementRequester` ({ login, canWrite }) is resolved by the caller from the issue's label history.
 export function targetStage(twin, folder, entry) {
   const computed = deriveStage(entry.artifacts, entry.tasks);
-  if (!hasLabel(twin, stageLabel(IMPLEMENT_STAGE))) return { stage: computed, revoked: null };
+  if (!isImplementRequested(twin, computed)) return { stage: computed, revoked: null };
+  const requested = hasLabel(twin, stageLabel(IMPLEMENT_STAGE)) ? IMPLEMENT_STAGE : IMPLEMENTING_STAGE;
   const reasons = [
     ...requesterBlockers(twin.implementRequester),
     ...implementBlockers({ folder, computedStage: computed, openChecklistItems: entry.openChecklistItems ?? 0 }),
   ];
-  return reasons.length === 0 ? { stage: IMPLEMENT_STAGE, revoked: null } : { stage: computed, revoked: reasons };
+  return reasons.length === 0 ? { stage: requested, revoked: null } : { stage: computed, revoked: reasons, requested };
 }
 
 export function requesterBlockers(requester) {
@@ -325,12 +338,12 @@ export function planSync({ specs, issues, context }) {
       }
       continue;
     }
-    const { stage, revoked } = targetStage(twin, folder, entry);
+    const { stage, revoked, requested } = targetStage(twin, folder, entry);
     const labels = stageLabelChange(twin, stage);
     if (twin.title !== title || normalizeBody(twin.body) !== normalizeBody(body)) {
-      plan.update.push({ folder, issue: twin, title, body, stage, labels, revoked });
+      plan.update.push({ folder, issue: twin, title, body, stage, labels, revoked, ...(revoked ? { requested } : {}) });
     } else if (hasLabelChange(labels)) {
-      plan.relabel.push({ folder, issue: twin, stage, labels, revoked });
+      plan.relabel.push({ folder, issue: twin, stage, labels, revoked, ...(revoked ? { requested } : {}) });
     }
   }
 
