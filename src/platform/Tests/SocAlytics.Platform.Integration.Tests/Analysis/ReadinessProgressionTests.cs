@@ -252,6 +252,7 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 			.Build();
 		var services = new ServiceCollection();
 		services.AddSingleton<IConfiguration>(configuration);
+		services.AddTestHostEnvironment();
 		services.AddInfrastructure();
 		services.AddApplication();
 		var provider = services.BuildServiceProvider();

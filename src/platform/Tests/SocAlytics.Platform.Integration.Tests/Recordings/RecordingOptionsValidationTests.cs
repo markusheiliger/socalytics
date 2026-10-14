@@ -13,6 +13,12 @@ public sealed class RecordingOptionsValidationTests
 {
 	private static Dictionary<string, string?> ValidSettings() => new()
 	{
+		["Email:Smtp:Host"] = "127.0.0.1",
+		["Email:Smtp:Port"] = "1",
+		["Email:Smtp:Security"] = "StartTlsWhenAvailable",
+		["Email:SenderAddress"] = "socalytics@localhost",
+		["Email:SenderName"] = "SocAlytics",
+		["Notifications:WebUiBaseUri"] = "http://localhost:5173",
 		["ObjectStorage:ServiceUrl"] = "http://127.0.0.1:9",
 		["ObjectStorage:AccessKey"] = "access",
 		["ObjectStorage:SecretKey"] = "secret",
@@ -36,6 +42,7 @@ public sealed class RecordingOptionsValidationTests
 		services.AddSingleton<IConfiguration>(configuration);
 		services.AddLogging();
 		services.AddApplication();
+		services.AddTestHostEnvironment();
 		services.AddInfrastructure();
 		return services.BuildServiceProvider();
 	}

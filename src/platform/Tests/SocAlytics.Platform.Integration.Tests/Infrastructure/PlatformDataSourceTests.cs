@@ -24,6 +24,7 @@ public sealed class PlatformDataSourceTests(PostgresContainerFixture postgres)
 
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
+        services.AddTestHostEnvironment();
         services.AddInfrastructure();
         await using var provider = services.BuildServiceProvider();
 
@@ -40,6 +41,7 @@ public sealed class PlatformDataSourceTests(PostgresContainerFixture postgres)
     {
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddTestHostEnvironment();
         services.AddInfrastructure();
         await using var provider = services.BuildServiceProvider();
 

@@ -39,6 +39,7 @@ public sealed class OutboxPublicationTests(PostgresContainerFixture postgres, Na
             .Build();
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
+        services.AddTestHostEnvironment();
         services.AddInfrastructure();
         return services.BuildServiceProvider();
     }

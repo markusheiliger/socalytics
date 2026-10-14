@@ -58,7 +58,7 @@ public sealed class OpenApiContractTests
 		// Recording operations are verified by RecordingsOpenApiTests and Registry operations by
 		// RegistryOpenApiTests and AnalystRegistryOpenApiTests, not against the Club contract.
 		var operationCount = paths.EnumerateObject()
-			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name))
+			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name))
 			.Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
 		operationCount.ShouldBe(ContractOperations.All.Count);
 
@@ -78,6 +78,12 @@ public sealed class OpenApiContractTests
 
 	// Analysis operations are verified against specs/archive/20261005-130703-durable-analysis-workflow/contracts/openapi.yaml
 	// by the Analysis tests and T039, not against the Club contract.
+	// Email operations are verified by the Notifications tests, not against the Club contract.
+	private static bool IsEmailPath(string path) =>
+		path == "/api/v1/me/email"
+		|| path.StartsWith("/api/v1/me/email/", StringComparison.Ordinal)
+		|| path == "/api/v1/email-confirmations";
+
 	private static bool IsAnalysisPath(string path) =>
 		path.StartsWith("/api/v1/analysis/", StringComparison.Ordinal)
 		|| path.StartsWith("/api/v1/operations/", StringComparison.Ordinal)

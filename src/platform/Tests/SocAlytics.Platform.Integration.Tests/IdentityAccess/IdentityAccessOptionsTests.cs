@@ -11,6 +11,10 @@ namespace SocAlytics.Platform.Integration.Tests.IdentityAccess;
 public sealed class IdentityAccessOptionsTests
 {
 	private static WebApplicationFactory<Program> CreateFactory(IEnumerable<KeyValuePair<string, string?>> settings) =>
+		CreateProductionFactory(settings.Where(pair => pair.Key != "Email:Smtp:Security")
+			.Append(new KeyValuePair<string, string?>("Email:Smtp:Security", "StartTls")));
+
+	private static WebApplicationFactory<Program> CreateProductionFactory(IEnumerable<KeyValuePair<string, string?>> settings) =>
 		new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
 		{
 			builder.UseEnvironment("Production");
