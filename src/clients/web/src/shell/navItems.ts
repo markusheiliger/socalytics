@@ -1,9 +1,9 @@
 import type { SessionMember } from '../platform/models/session';
-import { canViewTeams, isClubAdmin } from '../session/roles';
+import { canPairManagers, canViewTeams, isClubAdmin } from '../session/roles';
 
 export interface NavItem {
   to: string;
-  labelKey: 'home' | 'club' | 'seasons' | 'teams' | 'members' | 'account';
+  labelKey: 'home' | 'club' | 'seasons' | 'teams' | 'members' | 'pairManager' | 'account';
   allow: (member: SessionMember) => boolean;
 }
 
@@ -14,6 +14,7 @@ export const navItems: NavItem[] = [
   { to: '/seasons', labelKey: 'seasons', allow: isClubAdmin },
   { to: '/teams', labelKey: 'teams', allow: canViewTeams },
   { to: '/members', labelKey: 'members', allow: isClubAdmin },
+  { to: '/analyst-managers/pair', labelKey: 'pairManager', allow: canPairManagers },
   { to: '/account', labelKey: 'account', allow: () => true },
 ];
 

@@ -12,16 +12,16 @@ async function navLinks(clubRoles: ClubRole[], teamRoles: TeamRole[]) {
 }
 
 describe('role-based navigation', () => {
-  it('offers a Club Admin club, seasons, teams, members, and account', async () => {
-    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Account']);
+  it('offers a Club Admin club, seasons, teams, members, pairing, and account', async () => {
+    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Pair a Manager', 'Account']);
   });
 
   it('offers a team member only teams and account', async () => {
     expect(await navLinks([], [team])).toEqual(['Home', 'Teams', 'Account']);
   });
 
-  it('offers a Registrar without other roles only home and account', async () => {
-    expect(await navLinks(['Registrar'], [])).toEqual(['Home', 'Account']);
+  it('offers a Registrar without other roles only home, pairing, and account', async () => {
+    expect(await navLinks(['Registrar'], [])).toEqual(['Home', 'Pair a Manager', 'Account']);
   });
 
   it('shows the not-permitted view with the navigation for a disallowed address', async () => {

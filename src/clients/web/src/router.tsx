@@ -4,6 +4,7 @@ import { SetPasswordPage } from './features/set-password/SetPasswordPage';
 import { PasswordChangePage } from './features/account/PasswordChangePage';
 import { ClubPage } from './features/club/ClubPage';
 import { HomePage } from './features/home/HomePage';
+import { PairingPage } from './features/managers/PairingPage';
 import { MemberPage } from './features/members/MemberPage';
 import { MembersPage } from './features/members/MembersPage';
 import { SeasonPage } from './features/seasons/SeasonPage';
@@ -13,7 +14,7 @@ import { TeamPage } from './features/teams/TeamPage';
 import { TeamsPage } from './features/teams/TeamsPage';
 import { AppLayout } from './shell/AppLayout';
 import { NotFoundPage } from './shell/NotFoundPage';
-import { canViewTeam, canViewTeams, isClubAdmin } from './session/roles';
+import { canPairManagers, canViewTeam, canViewTeams, isClubAdmin } from './session/roles';
 import { RequirePasswordChange, RequireRole, RequireSignedIn, RequireSignedOut } from './session/guards';
 
 function TeamDetailRoute() {
@@ -47,6 +48,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/teams/:teamId', element: <TeamDetailRoute /> },
           { path: '/members', element: clubAdminOnly(<MembersPage />) },
           { path: '/members/:memberId', element: clubAdminOnly(<MemberPage />) },
+          { path: '/analyst-managers/pair', element: <RequireRole allow={canPairManagers}><PairingPage /></RequireRole> },
         ],
       },
     ],

@@ -1,0 +1,39 @@
+{
+  "pairing": {
+    "title": "Pair a Manager",
+    "intro": "Enter the pairing code and the device fingerprint shown on the Analyst Manager.",
+    "code": "Pairing code",
+    "fingerprint": "Device fingerprint",
+    "submit": "Submit",
+    "submitting": "Submitting…",
+    "resultTitle": "Request submitted",
+    "resultIntro": "Compare these values with the Manager's screen before you leave.",
+    "state": "State: {{state}}",
+    "hostLabel": "Host label: {{value}}",
+    "keyProtection": "Claimed key protection: {{value}}",
+    "os": "Operating system: {{value}}",
+    "fingerprintValue": "Device fingerprint: {{value}}",
+    "deadline": "Open for approval until {{value}}",
+    "notProvided": "not provided",
+    "again": "Pair another Manager"
+  },
+  "state": {
+    "pairing": "Pairing",
+    "pendingApproval": "Pending approval",
+    "approved": "Approved",
+    "active": "Active",
+    "unregistering": "Unregistering",
+    "unregistered": "Unregistered",
+    "rejected": "Rejected",
+    "expired": "Expired",
+    "revoked": "Revoked",
+    "unknown": "Unknown"
+  },
+  "keyProtection": {
+    "tpm": "TPM",
+    "secure-enclave": "Secure Enclave",
+    "pkcs11-token": "PKCS#11 token",
+    "software": "Software (not hardware-protected; the platform cannot verify any claimed protection)",
+    "unknown": "Unknown"
+  }
+}
