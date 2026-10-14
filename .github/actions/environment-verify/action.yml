@@ -117,17 +117,19 @@ runs:
         ROOT="$PWD"
 
         # run_tests <solution> <repo path prefix of the current directory> <always-run project regex>
-        # phase and finalize: every test. task: the always-run test projects; the test classes declared in the changed
-        # .cs files of a test project; the whole test project when other files of it changed (fixtures without a class,
-        # project files). A test project the task did not touch is skipped; the phase verification and the merge run it.
+        # phase and finalize: every test project, one after another in sorted order (Docker-backed projects must never
+        # run at the same time on the one daemon); a failing project does not stop the later ones. task: the always-run
+        # test projects; the test classes declared in the changed .cs files of a test project; the whole test project
+        # when other files of it changed (fixtures without a class, project files). A test project the task did not
+        # touch is skipped; the phase verification and the merge run it.
         run_tests() {
           local solution="$1" prefix="$2" always="$3" result=0 project rel files file found classes whole filter
-          if [ "$MODE" != task ]; then
-            step dotnet test "$solution" --no-build
-            return
-          fi
           while IFS= read -r project; do
             [ -n "$project" ] || continue
+            if [ "$MODE" != task ]; then
+              step dotnet test "$project" --no-build || result=1
+              continue
+            fi
             if [ -n "$always" ] && grep -qE "$always" <<< "$project"; then
               step dotnet test "$project" --no-build || result=1
               continue

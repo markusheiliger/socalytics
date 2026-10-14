@@ -13,6 +13,8 @@
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
 		<PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
 		<PackageReference Include="NATS.Client.JetStream" />
+		<PackageReference Include="NATS.Jwt" />
+		<PackageReference Include="NATS.NKeys" />
 		<PackageReference Include="Npgsql" />
 	</ItemGroup>
 
@@ -25,6 +27,7 @@
 	<ItemGroup>
 		<InternalsVisibleTo Include="SocAlytics.Platform.Migrator" />
 		<InternalsVisibleTo Include="SocAlytics.Platform.Integration.Tests" />
+		<InternalsVisibleTo Include="SocAlytics.Platform.EndToEnd.Tests" />
 	</ItemGroup>
 
 	<ItemGroup>

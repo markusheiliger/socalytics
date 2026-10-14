@@ -39,4 +39,27 @@ public class StatusWindowViewModelTests
         vm.DrainDeadline.ShouldBe("—");
         vm.Commands.PauseEnabled.ShouldBeTrue();
     }
+
+    [Fact]
+    public void Shows_effective_limit_and_one_row_per_active_attempt()
+    {
+        var control = new FakeManagerControl { Concurrency = new SocAlytics.Analysts.Manager.Work.ConcurrencySnapshot(2, 4, null, 2) };
+        var vm = new StatusWindowViewModel(control);
+        vm.ActiveAttempts.ShouldBeEmpty();
+        vm.EffectiveConcurrency.ShouldStartWith("2 ");
+        vm.EffectiveConcurrency.ShouldContain("runtime maximum unknown");
+
+        var id = Guid.NewGuid();
+        control.ActiveAttempts.Add(new SocAlytics.Analysts.Manager.Diagnostics.ActiveAttemptStatus(id, 1, "player-detection", "running", DateTimeOffset.UnixEpoch, null));
+        control.ActiveAttempts.Add(new SocAlytics.Analysts.Manager.Diagnostics.ActiveAttemptStatus(Guid.NewGuid(), 2, "ball-tracking", "preparing", DateTimeOffset.UnixEpoch, DateTimeOffset.UnixEpoch));
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        control.Raise();
+
+        vm.ActiveAttempts.Count.ShouldBe(2);
+        vm.ActiveAttempts[0].Summary.ShouldContain(id.ToString());
+        vm.ActiveAttempts[0].Summary.ShouldContain("heartbeat —");
+        raised.ShouldContain(nameof(StatusWindowViewModel.ActiveAttempts));
+        raised.ShouldContain(nameof(StatusWindowViewModel.EffectiveConcurrency));
+    }
 }

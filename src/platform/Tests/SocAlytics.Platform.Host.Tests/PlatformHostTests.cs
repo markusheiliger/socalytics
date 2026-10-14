@@ -41,6 +41,12 @@ public sealed class PlatformHostTests
         var environment = await apiResource.GetEnvironmentVariableValuesAsync();
 #pragma warning restore CS0618
         environment["Stamp__Id"].ShouldBe("local-dev-stamp");
+        environment["Nats__Authentication__Mode"].ShouldBe("Jwt");
+        environment["Nats__Authentication__OperatorSeed"].ShouldStartWith("SO");
+        environment["Nats__Authentication__AccountSeed"].ShouldStartWith("SA");
+        environment["Nats__Authentication__SystemAccountSeed"].ShouldStartWith("SA");
+        environment["AnalystWork__QueueUrl"].ShouldStartWith("nats://");
+        environment["ConnectionStrings__nats"].ShouldStartWith("nats://");
         Uri.TryCreate(environment["Stamp__PublicBaseUri"], UriKind.Absolute, out var stampBase).ShouldBeTrue();
         stampBase!.Scheme.ShouldBe("http");
         environment["Email__Smtp__Host"].ShouldNotBeNullOrWhiteSpace();

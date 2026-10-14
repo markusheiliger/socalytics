@@ -15,7 +15,8 @@ public sealed record ProtectedRegistrationState(
     string DeviceKeyThumbprint,
     OperatingIntent Intent,
     bool PendingUnregister,
-    DateTimeOffset WrittenAt)
+    DateTimeOffset WrittenAt,
+    int HostLocalConcurrency = 1)
 {
     public const int CurrentSchemaVersion = 1;
 
@@ -35,6 +36,7 @@ public sealed record ProtectedRegistrationState(
         ["operatingIntent"] = Intent.Kind.ToString(),
         ["pausedUntil"] = Intent.EndUtc?.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", CultureInfo.InvariantCulture),
         ["pendingUnregister"] = PendingUnregister,
+        ["hostLocalConcurrency"] = HostLocalConcurrency,
         ["writtenAt"] = WrittenAt.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", CultureInfo.InvariantCulture),
     };
 
@@ -70,6 +72,12 @@ public sealed record ProtectedRegistrationState(
                 return null;
             }
 
+            var hostLocal = json["hostLocalConcurrency"] is { } h ? (int)h : 1;
+            if (hostLocal < 1)
+            {
+                return null;
+            }
+
             var pending = (bool)json["pendingUnregister"]!;
             return new ProtectedRegistrationState(
                 CurrentSchemaVersion,
@@ -81,7 +89,8 @@ public sealed record ProtectedRegistrationState(
                 Required(json, "deviceKeyThumbprint"),
                 intent with { PendingUnregister = pending },
                 pending,
-                DateTimeOffset.Parse(Required(json, "writtenAt"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal));
+                DateTimeOffset.Parse(Required(json, "writtenAt"), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal),
+                hostLocal);
         }
         catch (Exception e) when (e is FormatException or InvalidOperationException or NullReferenceException or ArgumentException)
         {

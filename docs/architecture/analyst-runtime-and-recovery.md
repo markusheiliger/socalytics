@@ -108,6 +108,14 @@ the registered stamp and the subjects required to pull and acknowledge work.
 API and NATS connections use authenticated TLS. It never stores a
 registration-lifetime broker credential.
 
+The Manager offers the capabilities its validated runtime provides, each as a
+capability id and a semantic version. The platform provisions one work consumer
+per capability of the default workflow definition resolved from the Analyst
+Registry, and assigns a Manager the consumer of an offered capability only when
+the offered id and semantic version equal that resolved definition's; other
+offered capabilities are ignored. Credential lifetimes and production values
+remain unresolved under `GOV-CRED-004`.
+
 Administrative revocation immediately blocks API authorization and credential
 renewal, revokes the current NATS identity where supported, and fences every
 active attempt owned by the Manager. The platform rejects later heartbeat and

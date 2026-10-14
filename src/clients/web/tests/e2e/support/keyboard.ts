@@ -5,7 +5,7 @@ const INTERACTIVE =
 
 type Reached = { index: number; focusVisible: boolean; description: string };
 
-async function interactiveIndexes(scope: Locator): Promise<number[]> {
+async function interactiveTargets(scope: Locator): Promise<{ index: number; description: string }[]> {
   return scope.locator(INTERACTIVE).evaluateAll((elements) =>
     elements.flatMap((el, index) => {
       const html = el as HTMLElement;
@@ -14,7 +14,9 @@ async function interactiveIndexes(scope: Locator): Promise<number[]> {
       const hidden =
         style.visibility === 'hidden' || style.display === 'none' || html.getClientRects().length === 0;
       const skipped = html.tabIndex < 0;
-      return disabled || hidden || skipped ? [] : [index];
+      if (disabled || hidden || skipped) return [];
+      const description = `${html.tagName.toLowerCase()}${html.id ? `#${html.id}` : ''} "${(html.getAttribute('aria-label') ?? html.textContent ?? '').trim().slice(0, 40)}"`;
+      return [{ index, description }];
     }),
   );
 }
@@ -24,16 +26,36 @@ async function interactiveIndexes(scope: Locator): Promise<number[]> {
  * shows a visible focus indicator.
  */
 export async function expectAllReachableByKeyboard(page: Page, scope: Locator = page.locator('body')): Promise<void> {
-  const expected = await interactiveIndexes(scope);
+  // A view that is still being replaced would leave targets that vanish; wait until the set is stable.
+  let expected = await interactiveTargets(scope);
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await page.waitForTimeout(150);
+    const next = await interactiveTargets(scope);
+    const stable = JSON.stringify(next) === JSON.stringify(expected);
+    expected = next;
+    if (stable) break;
+  }
   const elements = scope.locator(INTERACTIVE);
-  const targets = new Set<number>(expected);
+  const targets = new Set<number>(expected.map((t) => t.index));
   const reached = new Map<number, Reached>();
+  const descriptions = new Map<number, string>(expected.map((t) => [t.index, t.description]));
 
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   const limit = (await page.locator(INTERACTIVE).count()) + 5;
 
   for (let step = 0; step < limit && reached.size < targets.size; step++) {
+    await page.evaluate(() => {
+      (window as unknown as { __keyboardPrevious: Element | null }).__keyboardPrevious = document.activeElement;
+    });
     await page.keyboard.press('Tab');
+    // The last element or the end of the cycle does not change focus, so a timeout is tolerated.
+    await page
+      .waitForFunction(
+        () => document.activeElement !== (window as unknown as { __keyboardPrevious: Element | null }).__keyboardPrevious,
+        undefined,
+        { timeout: 1000 },
+      )
+      .catch(() => undefined);
     const hit = await elements.evaluateAll((all) => {
       const active = document.activeElement;
       const index = all.findIndex((el) => el === active);
@@ -52,7 +74,7 @@ export async function expectAllReachableByKeyboard(page: Page, scope: Locator = 
     }
   }
 
-  const missed = [...targets].filter((index) => !reached.has(index));
+  const missed = [...targets].filter((index) => !reached.has(index)).map((index) => `#${index} ${descriptions.get(index)}`);
   expect(missed, 'interactive elements not reachable with Tab').toEqual([]);
   const withoutFocus = [...reached.values()].filter((r) => !r.focusVisible).map((r) => r.description);
   expect(withoutFocus, 'elements without a visible focus indicator').toEqual([]);

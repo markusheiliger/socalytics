@@ -13,7 +13,12 @@ internal sealed class NatsConnectionProvider : IAsyncDisposable
     private int _started;
     private int _everOpened;
 
-    public NatsConnectionProvider(IConfiguration configuration, ILogger<NatsConnectionProvider> logger, TransportReconnectSignal? signal = null)
+    public NatsConnectionProvider(
+        IConfiguration configuration,
+        ILogger<NatsConnectionProvider> logger,
+        IHostEnvironment? environment = null,
+        NatsTrust? trust = null,
+        TransportReconnectSignal? signal = null)
     {
         _logger = logger;
         _signal = signal;
@@ -23,13 +28,26 @@ internal sealed class NatsConnectionProvider : IAsyncDisposable
             return;
         }
 
-        _connection = new NatsConnection(NatsOpts.Default with
+        var opts = NatsOpts.Default with
         {
             Url = connectionString,
             Name = "socalytics-platform",
             ConnectTimeout = TimeSpan.FromSeconds(2),
             MaxReconnectRetry = -1,
-        });
+        };
+
+        if (trust is { IsJwt: true })
+        {
+            var (jwt, seed) = trust.CreatePlatformUser();
+            opts = opts with { AuthOpts = new NatsAuthOpts { Jwt = jwt, Seed = seed } };
+        }
+        else if (environment is not null && !environment.IsDevelopment() && !environment.IsEnvironment("Test"))
+        {
+            throw new InvalidOperationException(
+                "Nats:Authentication:Mode None is allowed only in the Development and Test environments.");
+        }
+
+        _connection = new NatsConnection(opts);
         _connection.ConnectionOpened += OnOpened;
     }
 

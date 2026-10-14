@@ -83,7 +83,7 @@ public sealed class PreflightRunner
             ? probe.Accelerators.Where(a => a.Passed).Select(a => a.Id).ToArray()
             : [];
         return new PreflightResult(time.GetUtcNow(), adapter.Profile, probe.RuntimeProduct, probe.RuntimeVersion,
-            probe.Backend, passed, checks, capabilities);
+            probe.Backend, passed, checks, capabilities, passed ? probe.MaxParallelAttempts : 0);
     }
 
     private static PreflightCheck From(string id, ProbeCheck check, string remediation) =>

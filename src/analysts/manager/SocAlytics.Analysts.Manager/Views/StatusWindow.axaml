@@ -21,6 +21,16 @@
     <TextBlock Name="UptimeText" Text="{Binding Uptime}" />
     <TextBlock Text="Latest preflight" FontWeight="Bold" />
     <TextBlock Name="PreflightText" Text="{Binding Preflight}" TextWrapping="Wrap" />
+    <TextBlock Text="Concurrency limit" FontWeight="Bold" />
+    <TextBlock Name="ConcurrencyText" Text="{Binding EffectiveConcurrency}" TextWrapping="Wrap" />
+    <TextBlock Text="Active attempts" FontWeight="Bold" />
+    <ItemsControl Name="AttemptsList" ItemsSource="{Binding ActiveAttempts}">
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:ActiveAttemptRow">
+          <TextBlock Text="{Binding Summary}" TextWrapping="Wrap" />
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
     <TextBlock Text="Pause remaining" FontWeight="Bold" />
     <TextBlock Name="PauseText" Text="{Binding PauseRemaining}" />
     <TextBlock Text="Drain deadline" FontWeight="Bold" />
