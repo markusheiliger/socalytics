@@ -2,7 +2,7 @@
 
 **Branch**: `20261014-180324-fix-sequential-platform-tests` | **Date**: 2026-10-14 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261014-180324-fix-sequential-platform-tests/spec.md`
+**Input**: Feature specification from `specs/archive/20261014-180324-fix-sequential-platform-tests/spec.md`
 
 ## Summary
 
@@ -31,7 +31,7 @@ In phase and finalize mode, `run_tests` of `environment-verify` runs each `*Test
 ## Project Structure
 
 ```text
-specs/20261014-180324-fix-sequential-platform-tests/
+specs/archive/20261014-180324-fix-sequential-platform-tests/
 ├── spec.md
 ├── plan.md
 ├── tasks.md
