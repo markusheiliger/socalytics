@@ -1,0 +1,72 @@
+{
+  "members": {
+    "title": "Members",
+    "memberTitle": "Member",
+    "empty": "There are no members yet.",
+    "listLabel": "Members of the club",
+    "createTitle": "Create a member",
+    "accountName": "Sign-in name",
+    "create": "Create member",
+    "creating": "Creating…",
+    "created": "The member was created. They cannot sign in until a password is set with the code.",
+    "back": "Back to members",
+    "status": {
+      "active": "Active",
+      "deactivated": "Deactivated"
+    },
+    "listEntry": "{{name}} ({{status}})",
+    "statusLabel": "Status: {{status}}",
+    "passwordSetLabel": "Password: {{value}}",
+    "passwordSet": "set",
+    "passwordNotSet": "not set yet",
+    "lockedOut": "This account is locked.",
+    "clubRolesTitle": "Club roles",
+    "clubRole": {
+      "ClubAdmin": "Club Admin",
+      "Registrar": "Registrar"
+    },
+    "noClubRoles": "No club roles.",
+    "assignClubRole": "Assign {{role}}",
+    "removeClubRole": "Remove {{role}}",
+    "teamRolesTitle": "Team roles",
+    "teamRole": {
+      "Coach": "Coach",
+      "Viewer": "Viewer"
+    },
+    "noTeamRoles": "No team roles.",
+    "teamRoleEntry": "{{team}}: {{role}}",
+    "removeTeamRole": "Remove {{role}} of {{team}}",
+    "assignTeamRoleTitle": "Assign a team role",
+    "team": "Team",
+    "role": "Role",
+    "assignTeamRole": "Assign team role",
+    "noTeams": "There are no teams to assign.",
+    "unknownTeam": "Unknown team",
+    "actionsTitle": "Actions",
+    "deactivate": "Deactivate",
+    "reactivate": "Reactivate",
+    "unlock": "Unlock",
+    "endSessions": "End sessions",
+    "issueCredential": "Issue set-password code",
+    "working": "Working…",
+    "notice": {
+      "roleAssigned": "The role was assigned.",
+      "roleRemoved": "The role was removed.",
+      "deactivated": "The member was deactivated and their sessions ended.",
+      "reactivated": "The member was reactivated.",
+      "unlocked": "The member was unlocked.",
+      "sessionsEnded": "The member's sessions were ended."
+    },
+    "refusal": {
+      "lastClubAdmin": "The platform refused this change: the club needs at least one active Club Admin.",
+      "conflict": "The platform refused this change because it conflicts with the current data, for example a sign-in name that is already taken."
+    },
+    "credential": {
+      "title": "Set-password code",
+      "intro": "Hand this code to {{name}}. It is shown only now and cannot be shown again.",
+      "codeLabel": "Code",
+      "expires": "Valid until {{date}}.",
+      "close": "I have handed over the code"
+    }
+  }
+}

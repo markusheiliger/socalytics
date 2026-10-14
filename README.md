@@ -9,8 +9,9 @@ through approved changes.
 
 - [`src/platform/`](src/platform/README.md) contains the executable control-plane
     platform host and its ownership guidance.
-- [`src/clients/`](src/clients/README.md) records the planned ownership boundary
-    of the Web UI, a Progressive Web App with an offline mode for coaches.
+- [`src/clients/`](src/clients/README.md) contains the executable online-only
+    Web UI foundation under `src/clients/web/`; the offline mode for coaches
+    is planned.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.
 - [`src/analysts/`](src/analysts/README.md) contains the executable Analyst
@@ -30,8 +31,8 @@ through approved changes.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
 
-The clients and agents source areas remain non-executable ownership
-scaffolds. The platform and the Analyst Manager contain the repository's current
+The agents source area remains a non-executable ownership scaffold. The
+platform, the Web UI, and the Analyst Manager contain the repository's current
 application projects and tests. No deployment manifests or product automation exist yet.
 
 ## Development
@@ -118,6 +119,36 @@ Operator break-glass recovery: set `BreakGlassRecovery__AccountName`,
 `break-glass-recovery.applied` audit event, then remove the directive.
 `IdentityAccess` settings exist only in `appsettings.Development.json` and
 test configuration.
+
+### Web UI
+
+The Web UI under `src/clients/web/` is a React and TypeScript single-page
+application built with Vite, developed online-only as development evidence (no
+service worker, offline mode, container image, or deployment configuration). It
+needs Node.js 24, the Kiota 1.36.0 CLI on `PATH`
+(`dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0`), and
+for browser tests the Playwright Chromium browser
+(`npx playwright@1.63.0 install chromium`). Run these commands from
+`src/clients/web/`:
+
+```powershell
+npm ci
+npm run build      # Kiota generation from the OpenAPI snapshot, type checking, production build
+npm test           # Vitest unit tests
+npm run test:e2e   # Playwright: simulated and platform projects (the platform project starts the AppHost and needs Docker)
+```
+
+The AppHost (`dotnet run --project src/platform/SocAlytics.Platform.AppHost`)
+also starts the Web UI on one origin with the API. The Kiota client is
+generated from the committed OpenAPI snapshot
+`src/platform/SocAlytics.Platform.Api/openapi/v1.json`. After API changes,
+regenerate it from the repository root with:
+
+```powershell
+$env:SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT='1'; dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests; Remove-Item Env:SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT
+```
+
+Then run the test again without the variable.
 
 ### Analyst Manager
 

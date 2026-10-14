@@ -2,7 +2,7 @@
 
 **Branch**: `20261012-150657-web-ui-foundation` | **Date**: 2026-10-12 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261012-150657-web-ui-foundation/spec.md`
+**Input**: Feature specification from `specs/archive/20261012-150657-web-ui-foundation/spec.md`
 
 ## Summary
 
@@ -69,6 +69,13 @@ storage of member data or secrets (FR-004, SC-003).
 - `npm run test:e2e`: Playwright projects `simulated` and `platform`.
   `platform` starts the AppHost in its `e2e` mode through Playwright's
   `webServer` and waits for the Web UI origin.
+  The `platform` specs share one platform instance, so they run one after
+  another in the fixed order `session`, `navigation`, `club-structure`,
+  `members` (for example chained Playwright projects, the last one named
+  `platform` so `--project platform` runs the whole chain), and a spec that
+  activates the club's single active season archives it again before it ends.
+  The cleanup and the pre-activation reset go through the platform API (a
+  shared helper in `tests/e2e/support/`), never through UI timing.
 - The platform side gets a Host test that keeps the OpenAPI snapshot current.
 
 **Target Platform**: Chromium-based browsers (automated: Chromium on Linux);
@@ -112,7 +119,7 @@ Post-design re-check: passes; no Complexity Tracking entries.
 ### Documentation (this feature)
 
 ```text
-specs/20261012-150657-web-ui-foundation/
+specs/archive/20261012-150657-web-ui-foundation/
 ├── plan.md
 ├── research.md          # Decisions R1–R10
 ├── data-model.md        # Client session model, view models, routes

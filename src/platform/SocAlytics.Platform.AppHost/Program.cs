@@ -2,6 +2,9 @@ using Microsoft.Extensions.Configuration;
 
 var builder = DistributedApplication.CreateBuilder(args);
 
+var e2eMode = string.Equals(Environment.GetEnvironmentVariable("SOCALYTICS_APPHOST_MODE"), "e2e", StringComparison.OrdinalIgnoreCase);
+const int WebE2ePort = 4174;
+
 var generatedPassword = new GenerateParameterDefault { MinLength = 24, Special = false };
 var migratorPassword = builder.AddParameter("socalytics-migrator-password", generatedPassword, secret: true, persist: true);
 var appPassword = builder.AddParameter("socalytics-app-password", generatedPassword, secret: true, persist: true);
@@ -13,7 +16,7 @@ var postgres = builder.AddPostgres("postgres")
     .WithEnvironment("SOCALYTICS_APP_PASSWORD", appPassword)
     .WithInitFiles(Path.Combine(builder.AppHostDirectory, "PostgresInit"));
 
-if (!string.Equals(builder.Configuration["SocAlytics:LocalDatabase:Persistent"], "false", StringComparison.OrdinalIgnoreCase))
+if (!e2eMode && !string.Equals(builder.Configuration["SocAlytics:LocalDatabase:Persistent"], "false", StringComparison.OrdinalIgnoreCase))
 {
     postgres.WithDataVolume("socalytics-postgres-data");
 }
@@ -79,7 +82,18 @@ var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
 api.WithEnvironment("Stamp__Id", "local-dev-stamp")
     .WithEnvironment("Registry__AllowSoftwareKeys", "true");
 
-if (builder.Configuration.GetValue("SocAlytics:ApiHttpsEndpoint", true))
+if (e2eMode)
+{
+    var e2eAdminPassword = Environment.GetEnvironmentVariable("SOCALYTICS_E2E_ADMIN_PASSWORD");
+    if (string.IsNullOrWhiteSpace(e2eAdminPassword))
+    {
+        throw new InvalidOperationException("SOCALYTICS_E2E_ADMIN_PASSWORD must be set when SOCALYTICS_APPHOST_MODE is e2e.");
+    }
+
+    api.WithEnvironment("ClubBootstrap__FirstClubAdmin__InitialPassword", e2eAdminPassword);
+}
+
+if (!e2eMode && builder.Configuration.GetValue("SocAlytics:ApiHttpsEndpoint", true))
 {
     api.WithHttpsEndpoint();
     api.WithEnvironment("Stamp__PublicBaseUri", ReferenceExpression.Create($"{api.GetEndpoint("https").Property(EndpointProperty.Url)}"));
@@ -87,6 +101,18 @@ if (builder.Configuration.GetValue("SocAlytics:ApiHttpsEndpoint", true))
 else
 {
     api.WithEnvironment("Stamp__PublicBaseUri", ReferenceExpression.Create($"{api.GetEndpoint("http").Property(EndpointProperty.Url)}"));
+}
+
+// The Web UI proxies /api and /alive to the API, so the browser sees one origin.
+const string webDirectory = "../../clients/web";
+var web = builder.AddViteApp("web", webDirectory, e2eMode ? "preview" : "dev")
+    .WithReference(api)
+    .WaitFor(api);
+
+if (e2eMode)
+{
+    // The built Web UI is served by `vite preview` on a fixed origin for the browser tests.
+    web.WithEndpoint("http", endpoint => endpoint.Port = WebE2ePort);
 }
 
 builder.Build().Run();

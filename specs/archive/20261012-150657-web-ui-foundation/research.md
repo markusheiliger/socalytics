@@ -86,7 +86,25 @@
     sign-in, the required password change, session end (sign-out and a Club
     Admin ending the session), role-based navigation for Club Admin, Coach, and
     Viewer, and one create flow each for seasons, teams, and members
-    (clarification).
+    (clarification). The specs share one platform instance and its state: the
+    first Club Admin's password, which `session.spec.ts` changes, and the
+    club's single active season, which `club-structure.spec.ts` and
+    `members.spec.ts` both need. The specs therefore run strictly one after
+    another in a fixed order (`session`, `navigation`, `club-structure`,
+    `members`), never in parallel, and a spec that activates a season archives
+    it again before it ends, so no spec depends on another's leftovers except
+    the changed Club Admin password. Evidence: in three attempts of T018 the
+    verification failed whenever two platform specs overlapped (activating a
+    season while another spec's season was active, and changing the admin
+    password while `session.spec.ts` expected the initial one).
+    Refinement: a UI-driven cleanup is not reliable, because it can run before
+    the season list has rendered and then archives nothing, and a spec that
+    needs the single active season first archives any active season through
+    the API (idempotent, no UI timing). The team rename step waits for the
+    loaded form before it fills the name. Rejected: retries in the
+    verification, which would hide the race. Evidence: after the serial
+    chain, T018 still failed with a 409 on activating the season (attempt 1)
+    and with a renamed team not listed (attempt 3), both passing on rerun.
 
   `@axe-core/playwright` runs WCAG 2.2 AA rules (`wcag2a`, `wcag2aa`,
   `wcag21a`, `wcag21aa`, `wcag22aa`) on every view in `simulated` (SC-007). A
