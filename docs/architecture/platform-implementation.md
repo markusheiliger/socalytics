@@ -501,8 +501,12 @@ stamp holds an operator key, a stamp account key, and a system account key; the
 NATS server trusts the operator and runs the full account resolver. When an
 active Manager asks for queue credentials, the platform issues a per-Manager
 user JWT that expires after `AnalystWork:QueueCredentialLifetime` and permits
-only pulling and acknowledging work on the stamp's consumer, so a Manager can
-neither publish work nor read other Managers' subjects. Revoking or
+only pulling and acknowledging work on the per-capability consumers
+(`analyst-<capability-id>`) that the platform provisions from the default
+workflow definition resolved from the Analyst Registry once it resolves. A
+Manager is assigned the consumer of an offered capability only when the offered
+capability id and semantic version equal the resolved definition's, so a
+Manager can neither publish work nor read other Managers' subjects. Revoking or
 unregistering a Manager adds its issued user keys to the `revocations` of the
 stamp account JWT; the platform re-signs that JWT with the operator key and
 pushes it through the system account, which disconnects the Manager. Pending
