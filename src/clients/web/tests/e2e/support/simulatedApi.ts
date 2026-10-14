@@ -307,7 +307,7 @@ export class SimulatedApi {
 
   private grantsFor(session: UploadSessionDto & { partDigests: string[] }, partNumbers: number[]) {
     return {
-      expiresAt: later(1),
+      expiresAt: new Date(Date.now() + 3_600_000),
       parts: partNumbers.map((partNumber) => ({
         partNumber,
         method: 'PUT',

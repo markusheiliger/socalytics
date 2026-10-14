@@ -2,13 +2,72 @@ import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
+import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
+import { createRecordingLineageAdapter } from '../../platform/adapters/recordingLineageAdapter';
 import { toPlatformFailure } from '../../platform/failure';
+import { useSession } from '../../session/sessionContext';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
+import { useUploads } from '../../uploads/uploadContext';
 import { FailureAlert } from '../shared/FailureAlert';
+import { AddRecordingsPanel } from '../uploads/AddRecordingsPanel';
+import { formatBytes } from '../uploads/formatBytes';
+import { UploadList } from '../uploads/UploadList';
 import { formatKickoff } from './MatchForm';
 import { useMatchContext } from './useMatchContext';
+
+const NO_JOBS: readonly never[] = [];
+
+/** The match's accepted recording versions and, for editors, the upload views (FR-005–FR-011). */
+function RecordingsSection({ matchId, teamId, canUpload }: { matchId: string; teamId: string; canUpload: boolean }) {
+  const { t } = useTranslation('uploads');
+  const { platform } = useSession();
+  const repository = useUploads();
+  const adapter = useMemo(() => createRecordingLineageAdapter(platform), [platform]);
+  const lineage = useQuery({ queryKey: ['matches', 'lineage', matchId], queryFn: () => adapter.getLineage(matchId), retry: false, refetchOnWindowFocus: false });
+  const jobs = useSyncExternalStore(
+    (listener) => repository?.subscribe(listener) ?? (() => undefined),
+    () => repository?.getSnapshot() ?? NO_JOBS,
+  );
+  useEffect(() => {
+    void repository?.loadMatch(matchId);
+  }, [repository, matchId]);
+  const matchJobs = useMemo(() => jobs.filter((job) => job.matchId === matchId), [jobs, matchId]);
+  const completedCount = matchJobs.filter((job) => job.state === 'completed').length;
+  const { refetch } = lineage;
+  useEffect(() => {
+    if (completedCount > 0) void refetch();
+  }, [completedCount, refetch]);
+  const versions = lineage.data?.recordingVersions ?? [];
+  const knownDigests = useMemo(() => new Set(versions.map((v) => v.contentDigest)), [versions]);
+
+  return (
+    <section aria-label={t('recordings.title')}>
+      <Typography variant="h3" component="h3" sx={{ mt: 3 }}>
+        {t('recordings.title')}
+      </Typography>
+      {lineage.error && <FailureAlert failure={toPlatformFailure(lineage.error)} onReload={() => void refetch()} />}
+      {lineage.data && versions.length === 0 && <Typography>{t('recordings.empty')}</Typography>}
+      {versions.length > 0 && (
+        <ul aria-label={t('recordings.listLabel')}>
+          {versions.map((v) => (
+            <li key={v.id}>
+              {t('recordings.version', { name: v.recording.displayName, size: formatBytes(v.totalSizeBytes), digest: v.contentDigest })}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canUpload && repository && (
+        <>
+          <AddRecordingsPanel repository={repository} matchId={matchId} teamId={teamId} />
+          <UploadList repository={repository} jobs={matchJobs} knownDigests={knownDigests} canUpload={canUpload} />
+        </>
+      )}
+    </section>
+  );
+}
 
 /** One match: details for readers; edit actions only for editors while the season is not archived. */
 export function MatchPage() {
@@ -66,6 +125,7 @@ export function MatchPage() {
           <Button component={Link} to={`/teams/${m.teamId}`} variant="outlined" sx={{ mt: 2 }}>
             {t('matches.backToTeam')}
           </Button>
+          <RecordingsSection matchId={m.id} teamId={m.teamId} canUpload={canEdit} />
         </>
       )}
     </Container>
