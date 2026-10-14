@@ -12,7 +12,11 @@
     "incompatible": "The platform answered in an unexpected way. Reload the page; this build may be outdated.",
     "error": "Something went wrong. Try again later.",
     "reference": "Reference: {{id}}",
-    "loadFailed": "The data could not be loaded."
+    "loadFailed": "The data could not be loaded.",
+    "pairingRefused": "The pairing code or device fingerprint was not accepted. Check both and try again.",
+    "rateLimited": "Too many attempts. Try again in {{seconds}} seconds.",
+    "rateLimitedUnknown": "Too many attempts. Try again in a moment.",
+    "decisionConflict": "This request can no longer be decided; it was already decided or has expired. The current state is shown after reloading."
   },
   "fieldError": {
     "required": "This field is required.",
