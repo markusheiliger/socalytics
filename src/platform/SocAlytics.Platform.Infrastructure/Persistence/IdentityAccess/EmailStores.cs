@@ -263,6 +263,17 @@ internal sealed class EmailMessageStore(IDbSession session) : IEmailMessageStore
             new { notificationType, accountId, since }, session.Transaction, cancellationToken: cancellationToken));
     }
 
+    public async Task<DateTimeOffset?> OldestCreatedSinceAsync(
+        string notificationType, Guid accountId, DateTimeOffset since, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var oldest = await connection.ExecuteScalarAsync<DateTime?>(new CommandDefinition(
+            "SELECT min(created_at) FROM socalytics.email_messages " +
+            "WHERE notification_type = @notificationType AND account_id = @accountId AND created_at >= @since",
+            new { notificationType, accountId, since }, session.Transaction, cancellationToken: cancellationToken));
+        return EmailRows.Utc(oldest);
+    }
+
     private async Task ExecuteAsync(string sql, object parameters, CancellationToken cancellationToken)
     {
         var transaction = session.RequireTransaction();

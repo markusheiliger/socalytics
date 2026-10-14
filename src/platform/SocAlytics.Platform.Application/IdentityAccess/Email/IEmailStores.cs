@@ -146,4 +146,7 @@ public interface IEmailMessageStore
 
     /// <summary>Counts messages of a type for an account created at or after <paramref name="since"/>, for coalescing and the resend limit.</summary>
     Task<int> CountCreatedSinceAsync(string notificationType, Guid accountId, DateTimeOffset since, CancellationToken cancellationToken);
+
+    /// <summary>The creation time of the oldest message counted by <see cref="CountCreatedSinceAsync"/>, for the wait time of the resend limit.</summary>
+    Task<DateTimeOffset?> OldestCreatedSinceAsync(string notificationType, Guid accountId, DateTimeOffset since, CancellationToken cancellationToken);
 }

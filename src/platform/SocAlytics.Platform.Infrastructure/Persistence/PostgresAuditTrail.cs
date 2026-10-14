@@ -55,6 +55,7 @@ internal sealed class PostgresAuditTrail(
         "previousWorkflowVersion",
         "readyJobsRepublished",
         "notificationsRepublished",
+        "maskedAddress",
     };
 
     private const string InsertSql =

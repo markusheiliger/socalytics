@@ -85,6 +85,15 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Queries.GetMatchRecordingLineageHandler>();
 
         services.TryAddScoped<SocAlytics.Platform.Application.Notifications.IEmailOutbox, SocAlytics.Platform.Application.Notifications.EmailOutbox>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.GetEmailAddressHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.SetEmailAddressHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.RemoveEmailAddressHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.ResendEmailConfirmationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.ConfirmEmailHandler>();
+        services.AddOptions<SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions.SectionName)
+            .Validate(SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions.IsValid, "Email:Confirmation:MaxPerHour and Email:Confirmation:AttemptsPerMinute must be greater than zero.")
+            .ValidateOnStart();
         services.AddOptions<SocAlytics.Platform.Application.Notifications.NotificationOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Notifications.NotificationOptions.SectionName)
             .ValidateOnStart();

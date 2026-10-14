@@ -17,6 +17,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.AddRegistryApi();
+builder.Services.AddEmailRateLimiting();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure();
 builder.Services.AddHttpContextAccessor();
@@ -62,6 +63,7 @@ app.MapDefaultEndpoints();
 app.MapOpenApi();
 app.MapSessionEndpoints();
 app.MapSelfEndpoints();
+app.MapEmailEndpoints();
 app.MapClubEndpoints();
 app.MapSeasonEndpoints();
 app.MapTeamEndpoints();
