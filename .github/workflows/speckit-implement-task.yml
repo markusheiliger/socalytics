@@ -3,8 +3,8 @@ name: Spec Kit implement task
 # One task of a spec, or consecutive `[P]` tasks that run in parallel, never started on its own: called by Spec Kit
 # implement phase once per task (from a matrix that runs one job at a time), and by Spec Kit implement spec for the
 # convergence and a conflict resolution. It starts from the tip of the implementation branch, which the chain alone
-# writes while it runs. The calling job names it: "T013" or "T014, T015 in parallel" in a phase, or "2 · Convergence"
-# or "2 · Conflict resolution" in the spec run.
+# writes while it runs. The calling job names it: "T013" or "T014, T015 in parallel" in a phase, or "Convergence"
+# or "Conflict resolution" in the spec run.
 #   work: one job per task (a matrix), named "Implement <task>", with a read-only token: runs the agent and the
 #         verification
 #   land: named "Commit and push <tasks>": re-validates, commits, pushes, and reports each result in task order; it
@@ -58,7 +58,7 @@ permissions: {}
 
 jobs:
   work:
-    name: ${{ inputs.kind == 'task' && format('Implement {0}', matrix.task) || inputs.kind == 'converge' && 'Converge' || 'Resolve conflicts' }}
+    name: ${{ inputs.kind == 'task' && format('Implement {0}', matrix.task) || inputs.kind == 'converge' && 'Check the implementation against the spec' || 'Resolve conflicts' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
@@ -194,26 +194,13 @@ jobs:
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
 
-      # One more run after a failure, so a flaky test does not use up an attempt; the verdict uses the last run.
-      - name: Verify the change again
-        id: verify-again
-        if: steps.verify.outcome == 'failure'
-        continue-on-error: true
-        uses: ./tooling/.github/actions/environment-verify
-        with:
-          workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: ${{ matrix.verify_mode || 'phase' }}
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
-          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
-
       - name: Record the verdict
         if: inputs.kind != 'converge'
         env:
           SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
-          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outcome || steps.verify-again.outcome }}
-          SPECKIT_VERIFY_CHECKS: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outputs.checks || steps.verify-again.outputs.checks }}
-          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify-again.outcome == 'skipped' && steps.verify.outputs.uncovered || steps.verify-again.outputs.uncovered }}
-          SPECKIT_VERIFY_RETRIED: ${{ steps.verify-again.outcome != 'skipped' }}
+          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-task.mjs" verdict
 
       - name: Upload the result
@@ -335,19 +322,7 @@ jobs:
           workspace: workspace
 
       - name: Verify the combined changes
-        id: verify
         if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
-        continue-on-error: true
-        uses: ./tooling/.github/actions/environment-verify
-        with:
-          workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: phase
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
-          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
-
-      # One more run after a failure, so a flaky test does not stop the implementation.
-      - name: Verify the combined changes again
-        if: steps.verify.outcome == 'failure'
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}

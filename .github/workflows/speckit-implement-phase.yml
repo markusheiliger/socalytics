@@ -1,7 +1,7 @@
 name: Spec Kit implement phase
 
 # One phase of tasks.md (a `##` heading), never started on its own: called by Spec Kit implement spec, whose phase job
-# names it "2 · <phase heading as written>". It implements the open tasks of the phase, one after another in task
+# names it after the phase heading as written. It implements the open tasks of the phase, one after another in task
 # order; consecutive `[P]` tasks under one heading run in parallel.
 #   plan:    "Plan the tasks": decides again from the state on GitHub and, while the phase still comes next,
 #            plans the order of its open tasks and shows the attempts of the first task (or first `[P]` tasks) as in
@@ -11,7 +11,7 @@ name: Spec Kit implement phase
 #            tasks that do not land cancel the tasks after them
 #   verify:  the full verification of the phase after its last task (read-only token); each task is verified only with
 #            the tests it touched, so a failure here stops the implementation for a diagnosis without using up the
-#            attempts of a task. A failed verification runs once more before it counts.
+#            attempts of a task.
 # A phase whose order needs more than 256 matrix jobs continues in the next run of the spec.
 on:
   workflow_call:
@@ -165,19 +165,7 @@ jobs:
           workspace: workspace
 
       - name: Verify the phase
-        id: verify
         if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
-        continue-on-error: true
-        uses: ./tooling/.github/actions/environment-verify
-        with:
-          workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: phase
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
-          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
-
-      # One more run after a failure, so a flaky test does not stop the implementation.
-      - name: Verify the phase again
-        if: steps.verify.outcome == 'failure'
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}

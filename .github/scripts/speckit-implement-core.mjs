@@ -451,7 +451,7 @@ export function taskSubject(kind, entries) {
 }
 
 // Name of the job that implements one entry of the task order in the run graph, which joins the names of nested jobs
-// ("2 · Phase 3: … / T013 / Implement T013") and truncates long ones, so it shows only the task IDs; the job summaries
+// ("Phase 3: … / T013 / Implement T013") and truncates long ones, so it shows only the task IDs; the job summaries
 // carry the full titles.
 export function taskJobName(entries) {
   const ids = entries.map((entry) => entry.task).filter(Boolean);

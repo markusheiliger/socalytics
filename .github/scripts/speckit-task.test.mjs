@@ -108,7 +108,7 @@ function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { 
     const ready = inputs.kind === 'merge' ? integrated.result.reasons.length === 0 && integrated.result.conflicts.length === 0 : packaged.verify;
     const verifyEnv = verify === null
       ? { SPECKIT_VERIFY_CONFIGURED: 'false' }
-      : { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: ready ? verify.outcome : 'skipped', SPECKIT_VERIFY_CHECKS: ready ? verify.checks : '', SPECKIT_VERIFY_UNCOVERED: ready ? verify.uncovered ?? '' : '', SPECKIT_VERIFY_RETRIED: verify.retried ? 'true' : 'false', SPECKIT_SELFTEST_OUTCOME: verify.selfTest ?? '' };
+      : { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: ready ? verify.outcome : 'skipped', SPECKIT_VERIFY_CHECKS: ready ? verify.checks : '', SPECKIT_VERIFY_UNCOVERED: ready ? verify.uncovered ?? '' : '', SPECKIT_SELFTEST_OUTCOME: verify.selfTest ?? '' };
     result = runVerdict({ env: verifyEnv, inputs, resultDir: repos.resultDir, log: silent }).result;
   }
   return { integrated, packaged, result, output: readFileSync(outputFile, 'utf8') };
@@ -217,21 +217,6 @@ test('task: land re-validates, commits, pushes, and reports a verified task', ()
 }));
 
 const PARALLEL_TASKS = '# Tasks\n\n## Phase 1\n\n- [ ] T001 [P] Create docs/x.md\n- [ ] T002 [P] Create docs/y.md\n';
-
-test('task: a verification that passes only on its re-run lands, and the comment points to a flaky test', () => withRepos({}, async (repos) => {
-  const { result } = work(repos, { agent: (r) => agentDoesT001(r.work), verify: { outcome: 'success', checks: 'Markdown check', retried: true } });
-  assert.deepEqual([result.verified, result.flaky], [true, true]);
-  const github = fakeGitHub();
-  assert.equal((await land(repos, github)).exitCode, 0);
-  assert.match(github.comments.at(-1).body, /- Verification: Markdown check passed\n- The first verification failed and the re-run passed, so a test may be flaky/);
-  const failed = makeGitRepos();
-  try {
-    const verdict = work(failed, { agent: (r) => agentDoesT001(r.work), verify: { outcome: 'failure', checks: 'Markdown check', retried: true } }).result;
-    assert.deepEqual([verdict.verified, verdict.flaky, verdict.reasons], [false, undefined, ['Markdown check failed']], 'a re-run that fails again counts');
-  } finally {
-    rmSync(failed.base, { recursive: true, force: true });
-  }
-}));
 
 // Simulates a parallel sibling (or a person) pushing to the implementation branch after the task started.
 function siblingLands(repos, change) {

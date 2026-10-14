@@ -302,25 +302,28 @@ their "blocked by" issues are closed.
   spec, each started by the previous one and named after the spec, for example
   `Spec Kit implement spec #35 · Recording Lineage and Upload` (the spec title
   from the pull request title). Every run decides what comes next from the
-  state on GitHub (job `decide`, shown as `1 · Decide what comes next`),
+  state on GitHub (job `decide`, shown as `Decide what comes next`),
   runs it, and starts the next run (job `continue`, shown as
-  `3 · Start the next run`), until the implementation is merged, waits for
-  review, or needs a person. What a run can do next (a phase, the
-  convergence, a conflict resolution, or the merge) is numbered `2 ·`; only
-  one of them runs, and the others show as skipped. Phases, the convergence,
+  `Start the next run`), until the implementation is merged, waits for
+  review, or needs a person. Of what a run can do next (a phase, the
+  convergence, a conflict resolution, or the merge) only one runs, and the
+  others show as skipped; job names say what a job does, and GitHub shows
+  their order. Before a phase starts (none of its tasks ticked yet), the job
+  `sync` (`Merge the base branch before the phase`) merges the base branch when it is
+  ahead. Phases, the convergence,
   and conflict resolutions run in two nested reusable workflows, which appear
   in the run as job groups. The run
   graph joins the names of nested jobs, for example
-  `2 · Phase 3: … / T013 / Implement T013`, so job names stay
+  `Phase 3: … / T013 / Implement T013`, so job names stay
   short; the job summaries carry the full titles, such as
   `Spec Kit implement task #35 · T013 [P] [US1] Create …`:
 
   | Next | Runs in | What it does |
   | --- | --- | --- |
-  | A phase | job `phase`, which calls `Spec Kit implement phase` (`speckit-implement-phase.yml`), named after the phase heading of `tasks.md` as written, for example `2 · Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP` | the phase of the first open task. Its job `plan` (`Plan the tasks`) decides itself which of the phase's tasks are still open and plans them in `tasks.md` order: the tasks run one after another, except that consecutive unchecked `[P]` tasks under the same heading run in parallel (see below). Its job `tasks` is a matrix that calls `Spec Kit implement task` (`speckit-implement-task.yml`) once per task, or once for consecutive `[P]` tasks, one job at a time, named `T013` for a single task or `T014, T015 in parallel` for `[P]` tasks. Tasks land before the next start; tasks that do not land fail, and the matrix cancels the tasks after them |
-  | Acceptance gate | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `2 · Convergence` | once all tasks are checked, `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
-  | Merge | jobs `merge-archive` (`2 · Merge: archive the spec`), `merge-verify` (`2 · Merge: integrate and verify`), and `merge-land` (`2 · Merge: merge and report`) | archives the spec on the branch, merges the base branch into the branch, runs the full verification on the result, and squash-merges the pull request into the base branch |
-  | Conflicts | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `2 · Conflict resolution` | resolves conflicts with the base branch with Copilot CLI, verifies, and pushes the merge commit; then the merge runs again |
+  | A phase | job `phase`, which calls `Spec Kit implement phase` (`speckit-implement-phase.yml`), named after the phase heading of `tasks.md` as written, for example `Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP` | the phase of the first open task. Its job `plan` (`Plan the tasks`) decides itself which of the phase's tasks are still open and plans them in `tasks.md` order: the tasks run one after another, except that consecutive unchecked `[P]` tasks under the same heading run in parallel (see below). Its job `tasks` is a matrix that calls `Spec Kit implement task` (`speckit-implement-task.yml`) once per task, or once for consecutive `[P]` tasks, one job at a time, named `T013` for a single task or `T014, T015 in parallel` for `[P]` tasks. Tasks land before the next start; tasks that do not land fail, and the matrix cancels the tasks after them |
+  | Acceptance gate | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `Convergence` | once all tasks are checked, `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
+  | Merge | jobs `merge-archive` (`Archive the spec before the merge`), `merge-verify` (`Verify the merged result`), and `merge-land` (`Merge into the base branch`) | archives the spec on the branch, merges the base branch into the branch, runs the full verification on the result, and squash-merges the pull request into the base branch |
+  | Conflicts | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `Conflict resolution` | resolves conflicts with the base branch with Copilot CLI, verifies, and pushes the merge commit; then the merge, or the phase that waits for it, runs |
 
   Each job is short, so specs of any size never hit the 6-hour job limit.
   Every call of `Spec Kit implement task`:
@@ -340,10 +343,9 @@ their "blocked by" issues are closed.
       changes of the implementation branch; if it fails, the implementation
       stops for a person (and a diagnosis) without using up the attempts of
       the task that came last. A conflict resolution and the merge run every
-      check with all tests (mode `finalize`). Every verification that fails
-      runs once more, and only the second result counts, so a flaky test does
-      not cost an attempt; a task that passes only on the re-run says so in
-      its comment;
+      check with all tests (mode `finalize`). Every verification runs once
+      and its result counts: re-running unchanged code only delayed real
+      failures, so flaky tests are fixed where they live instead;
   3. pushes the results in one "Commit and push" job (`land`) that never runs
       agent-written code:
       in task order, it re-validates each change (a task may only add its own
