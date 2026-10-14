@@ -8,14 +8,17 @@ follows the shared [API-first principle](terminology-and-principles.md#1-api-fir
 
 ## Source Ownership And Delivery
 
-The future React and TypeScript sources of the Web UI are owned under
-`src/clients`. Only the first-level source-area README exists today; there are
-no client projects, packages, manifests, containers, or builds yet.
+The React and TypeScript sources of the Web UI are owned under `src/clients`.
+The online-only Web UI foundation is implemented as development evidence in the
+npm project `src/clients/web`: a Vite build, a Kiota client generated from the
+committed OpenAPI snapshot, and Vitest and Playwright tests. The AppHost
+composes it with the platform API on one origin as a Vite resource, without
+moving Web UI source under `src/platform`.
 
-The Web UI release is coordinated with the platform API and will be built and
-deployed as a separate OCI container from `src/clients`. Future Docker Compose
-deployment and Aspire local composition may compose that container with the
-platform API without moving Web UI source under `src/platform`.
+The Web UI release is coordinated with the platform API and is intended to be
+built and deployed as a separate OCI container from `src/clients`. The service
+worker, offline mode, OCI container image, and Docker Compose deployment are
+not implemented yet.
 
 The PWA is served from a single origin. Its service worker caches the
 application shell and is versioned with each release, so an installed PWA
