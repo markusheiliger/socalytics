@@ -50,12 +50,17 @@ redefine domain behavior.
 
 ## Generated Client Boundary
 
-Kiota is planned to generate TypeScript, C#, and Python transport clients from
-the same bundled OpenAPI document. Generation will write only to ignored
-temporary output. Generated clients will be compile-tested but will not replace
+Kiota generates transport clients from the bundled OpenAPI document. The Web
+UI's TypeScript client is implemented: Kiota generates it at build time from the
+committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json`
+(kept current by the Host test `OpenApiSnapshotTests`) into the ignored
+`src/clients/web/src/generated/`. `npm run build` compile-tests it, and it is
+used only behind the adapters in `src/clients/web/src/platform/`. The C# and
+Python clients remain planned; their generation will likewise write only to
+ignored temporary output and be compile-tested. Generated clients do not replace
 application domain models.
 
-Each future application or SDK keeps generated transport code behind a local
+Each application or SDK keeps generated transport code behind a local
 adapter that owns mapping, workflow policy, and domain types. This rule does not
 decide the Open / Blocking client code-sharing question in
 [Client Applications](client-applications.md).

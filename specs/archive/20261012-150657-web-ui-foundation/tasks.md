@@ -1,0 +1,164 @@
+---
+
+description: "Task list for Web UI Foundation"
+---
+
+# Tasks: Web UI Foundation
+
+**Input**: Design documents from `specs/archive/20261012-150657-web-ui-foundation/`
+
+**Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/routes-and-roles.md](contracts/routes-and-roles.md), [contracts/platform-adapter.md](contracts/platform-adapter.md), [contracts/openapi-snapshot.md](contracts/openapi-snapshot.md), [contracts/security-headers.md](contracts/security-headers.md), [quickstart.md](quickstart.md)
+
+**Tests**: Required. The spec requires automated coverage of every acceptance scenario (SC-002) and the constitution requires focused tests. Every task adds the tests for the code it creates in the same task, so `npm run build`, `npm test`, `npm run test:e2e`, and the platform test suites stay green after each task. Browser tests in the `simulated` Playwright project run axe WCAG 2.2 AA checks, fail on any CSP violation, and check that no secret is in browser storage (support from T006).
+
+**Organization**: Tasks are grouped by user story. Merged before this feature starts (do not re-create): the Web UI verification environment `specs/archive/20261012-145505-web-ui-environment` (Kiota 1.36.0 on `PATH`, the Playwright 1.63.0 Chromium browser, the Web UI check running `npm ci`, the Playwright pin check, `npm run build`, `npm test`, `npm run test:e2e` in `src/clients/web/`) and the Club and Identity Foundation `specs/archive/20261005-130701-club-identity-foundation` (session, anti-forgery, members, roles, club hierarchy API; the Host tests in `src/platform/Tests/SocAlytics.Platform.Host.Tests`). Every dependency in `src/clients/web/package.json` is pinned to an exact version; `@playwright/test` is exactly `1.63.0`.
+
+## Format: `[ID] [P?] [Story] Description`
+
+- **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks); consecutive `[P]` tasks under one heading run in parallel, each from the same commit
+- **[Story]**: Which user story this task belongs to (US1–US4)
+- Every task names its exact file paths
+
+## Path Conventions
+
+- Web UI project: `src/clients/web/` with `src/` (application), `tests/unit/` (Vitest), `tests/e2e/simulated/`, `tests/e2e/platform/`, `tests/e2e/support/` (Playwright); generated client in the ignored `src/clients/web/src/generated/platform-api/`.
+- Platform: `src/platform/SocAlytics.Platform.Api/openapi/v1.json`, `src/platform/SocAlytics.Platform.AppHost/`, `src/platform/Tests/SocAlytics.Platform.Host.Tests/`.
+
+---
+
+## Phase 1: Setup (Shared Infrastructure)
+
+**Purpose**: The OpenAPI snapshot the client is generated from, and the Web UI project skeleton that the verification environment builds and tests.
+
+- [X] T001 OpenAPI snapshot (contracts/openapi-snapshot.md; research.md § R1; FR-002): add `src/platform/Tests/SocAlytics.Platform.Host.Tests/OpenApiSnapshotTests.cs` that starts the API as the existing Host tests do, fetches `/openapi/v1.json`, normalizes it (keys sorted, `servers` removed, LF, trailing newline), and compares it with `src/platform/SocAlytics.Platform.Api/openapi/v1.json`, failing with a short diff and the regeneration instruction; with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1` it rewrites the file instead. Generate and commit `src/platform/SocAlytics.Platform.Api/openapi/v1.json`.
+- [X] T002 Web UI project skeleton (plan.md § Technical Context, § Project Structure; research.md § R5, § R6, § R7, § R10; FR-001, FR-002, FR-021): create `src/clients/web/` with `package.json` (`"engines": { "node": ">=24 <25" }`, exact versions of React 19, React Router 7, TanStack Query 5, MUI 7 with Emotion, i18next, react-i18next, `@microsoft/kiota-bundle`, Vite 7, `@vitejs/plugin-react`, TypeScript 5, Vitest, jsdom, Testing Library, `@playwright/test` `1.63.0`, `@axe-core/playwright`; scripts `generate` = `kiota generate --language typescript --openapi ../../platform/SocAlytics.Platform.Api/openapi/v1.json --output src/generated/platform-api --class-name PlatformApiClient --clean-output`, `build` = `npm run generate && tsc -b && vite build`, `test` = `vitest run`, `test:e2e` = `playwright test`, `preview` = `vite preview`), a committed `package-lock.json`, `.gitignore` (`node_modules/`, `dist/`, `src/generated/`, `test-results/`, `playwright-report/`), `tsconfig.json` and `tsconfig.node.json` (strict), `vite.config.ts` (React plugin), `vitest.config.ts` (jsdom), `playwright.config.ts` (projects `simulated`, Chromium, against `vite preview`; `platform` added later), `index.html`, `src/main.tsx`, `src/App.tsx`, `src/theme.ts` (SocAlytics MUI theme), `src/i18n/index.ts` and `src/i18n/en/common.json`; a unit test `tests/unit/app.test.tsx` that renders the app, and a browser test `tests/e2e/simulated/smoke.spec.ts` that loads the app.
+
+**Checkpoint**: The Web UI verification environment's check passes: install, Playwright pin, build with client generation, unit tests, browser tests.
+
+---
+
+## Phase 2: Foundational (Blocking Prerequisites)
+
+**Purpose**: Platform access through the generated client, browser-test support, one-origin composition, and the security baseline. No user story starts before this phase is complete.
+
+### Access layer and test support
+
+- [X] T003 [P] Platform access layer (contracts/platform-adapter.md; research.md § R2; FR-002, FR-003, FR-005): add `src/clients/web/src/platform/client.ts` (Kiota client factory with base URL `/api/v1` of the current origin, `credentials: 'same-origin'`), `src/platform/middleware/antiforgery.ts` (`X-CSRF-Token` from the in-memory session on `POST`, `PUT`, `PATCH`, `DELETE`), `src/platform/middleware/sessionOutcome.ts` (session-ended and password-change-required events), `src/platform/middleware/connectivity.ts` (reports network failures), and `src/platform/failure.ts` (`PlatformFailure` kinds and mapping per the contract table). Only `src/platform/` imports `src/generated/`. Unit tests in `src/clients/web/tests/unit/platform/` with a fake request adapter for every middleware and every mapping row.
+- [x] T004 [P] Browser-test support (research.md § R5; SC-003, SC-006, SC-007): add `src/clients/web/tests/e2e/support/simulatedApi.ts` (routes `/api/v1/**` with `page.route`, fixtures typed from the generated models, helpers to sign in as Club Admin, Coach, or Viewer and to end the session), `tests/e2e/support/fixtures.ts` (a Playwright fixture that fails a test on any `securitypolicyviolation` event and, after each test, asserts that `localStorage`, `sessionStorage`, IndexedDB, and `document.cookie` hold no password, credential code, or anti-forgery token), and `tests/e2e/support/axe.ts` (WCAG 2.2 AA rule tags `wcag2a`, `wcag2aa`, `wcag21a`, `wcag21aa`, `wcag22aa`, asserting 0 violations), and `tests/e2e/support/keyboard.ts` (reaches every interactive element of a view with Tab, checks visible focus, and triggers the view's main action with the keyboard), used by the simulated browser tests of T009–T017 (SC-007); switch `tests/e2e/simulated/smoke.spec.ts` to these fixtures.
+
+### Connectivity, composition, and security baseline
+
+- [X] T005 Connectivity state (research.md § R9; FR-013): add `src/clients/web/src/connectivity/ConnectivityProvider.tsx` and `src/connectivity/useConnectivity.ts` (combines `navigator.onLine` and the failures reported by the connectivity middleware from T003, probes `/alive` with exponential backoff while unreachable, refetches queries on recovery), and mount the provider in `src/clients/web/src/App.tsx`. Unit tests in `tests/unit/connectivity/`.
+- [X] T006 One-origin composition and the platform test project (research.md § R3; FR-019): add the Aspire JavaScript hosting package matching Aspire 13.4.6 to `src/platform/Directory.Packages.props` and `src/platform/SocAlytics.Platform.AppHost/SocAlytics.Platform.AppHost.csproj`; in `src/platform/SocAlytics.Platform.AppHost/Program.cs` add the Web UI from `../../clients/web` as a Vite resource referencing the API, and an `e2e` mode (environment variable `SOCALYTICS_APPHOST_MODE=e2e`) that serves the built Web UI with `vite preview`, sets a known first Club Admin password from `SOCALYTICS_E2E_ADMIN_PASSWORD`, and uses non-persistent containers; in `src/clients/web/vite.config.ts` proxy `/api` and `/alive` to the API endpoint Aspire injects, in `server` and `preview`; in `src/clients/web/playwright.config.ts` add the `platform` project with a `webServer` that runs the AppHost in `e2e` mode and waits for the Web UI origin; add `tests/e2e/platform/origin.spec.ts` (the app loads and `GET /api/v1/session` through the Web UI origin answers `401` when signed out). Extend `src/platform/Tests/SocAlytics.Platform.Host.Tests/PlatformHostTests.cs` to assert the Web UI resource references the API.
+- [X] T007 Security headers and Subresource Integrity (contracts/security-headers.md; research.md § R4; FR-020, SC-006): in `src/clients/web/vite.config.ts` set the preview server headers (the Content Security Policy of the contract, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`) and a relaxed policy for the development server only; add a Subresource Integrity build plugin (exact version) to `package.json` and `vite.config.ts`; add `src/clients/web/src/trustedTypes.ts` (the `default` policy that rejects script creation) loaded first from `src/main.tsx`; bundle fonts and icons locally. Tests: `tests/unit/build/sri.test.ts` checks `dist/index.html` for `integrity` and `crossorigin` on every script and stylesheet; `tests/e2e/simulated/headers.spec.ts` asserts the response headers.
+
+**Checkpoint**: The generated client is wrapped, browser tests have their support, the AppHost serves the Web UI on one origin, and the security baseline is enforced.
+
+---
+
+## Phase 3: User Story 1 - Sign in, stay signed in safely, and sign out (Priority: P1) 🎯 MVP
+
+**Goal**: Members sign in, change a required password, set a password with a code, change their own password, sign out, and return to sign-in when the session ends.
+
+**Independent Test**: Sign in as the first Club Admin, change the required initial password, sign out, sign in again, and observe that an ended session returns to sign-in.
+
+- [X] T008 [US1] Session adapter, provider, and guards (data-model.md § Session; contracts/routes-and-roles.md § Rules; FR-004, FR-007, FR-009, FR-010): add `src/clients/web/src/platform/adapters/sessionAdapter.ts` (sign in, restore, sign out, change own password, redeem credential), `src/session/SessionProvider.tsx` (states `unknown`, `signedOut`, `passwordChangeRequired`, `signedIn`; token in memory only; clears the query cache on sign-out and session end), and `src/session/guards.tsx` (signed-in guard, password-change guard, role guard); add `src/router.tsx` with the routes of contracts/routes-and-roles.md as placeholders. Unit tests in `tests/unit/session/`.
+- [X] T009 [US1] Sign-in, required password change, and sign-out views (spec US1 scenarios 1–3, 6–8; FR-006, FR-007, FR-009, FR-010): add `src/clients/web/src/features/sign-in/SignInPage.tsx`, `src/features/account/PasswordChangePage.tsx`, the sign-out action in `src/features/account/`, and the session-ended and session-problem messages, with keys in `src/i18n/en/session.json`. Unit tests in `tests/unit/features/sign-in/`; browser tests in `tests/e2e/simulated/session.spec.ts` for scenarios 1–3 and 6–8 and the cookies-blocked edge case.
+- [X] T010 [US1] Set-password and account views (spec US1 scenarios 4–5; clarification on credential codes; FR-008): add `src/clients/web/src/features/set-password/SetPasswordPage.tsx` (sign-in name, code, new password, confirmation; asks to sign out first when signed in; the code never enters an address) and `src/features/account/AccountPage.tsx` (change own password), with keys in `src/i18n/en/account.json`. Unit tests in `tests/unit/features/account/`; browser tests in `tests/e2e/simulated/account.spec.ts` for scenarios 4–5 and the set-password-while-signed-in edge case.
+- [X] T011 [US1] Platform end-to-end set for sessions (clarification on browser tests; SC-002, SC-004): add `src/clients/web/tests/e2e/platform/session.spec.ts`: sign in as the first Club Admin with the e2e password, complete the required password change, sign out, sign in again, and observe that an ended session returns to sign-in without member data.
+
+**Checkpoint**: User Story 1 works against the simulated API and the real platform.
+
+---
+
+## Phase 4: User Story 2 - Find my way by my roles (Priority: P2)
+
+**Goal**: A role-aware shell with navigation, not-permitted handling, and connectivity state.
+
+**Independent Test**: Sign in as Club Admin, Coach, and Viewer and compare navigation; stop the platform and observe the connectivity state.
+
+- [x] T012 [US2] Shell and role-based navigation (contracts/routes-and-roles.md; FR-011, FR-012, FR-013; SC-005): add `src/clients/web/src/shell/AppLayout.tsx`, `src/shell/Navigation.tsx` (exactly the routes the member's club and team roles allow), `src/shell/NotPermittedPage.tsx`, `src/shell/NotFoundPage.tsx`, `src/features/home/HomePage.tsx`, and the connectivity indicator that disables state-changing actions while unreachable, with keys in `src/i18n/en/shell.json`; wire them into `src/router.tsx`. Add the translation-key coverage test `tests/unit/i18n/keys.test.ts` (fails on literal JSX text in `src/features/**` and `src/shell/**`). Unit tests in `tests/unit/shell/`; browser tests in `tests/e2e/simulated/navigation.spec.ts` for US2 scenarios 1–5 with axe checks on every view.
+- [X] T013 [US2] Platform end-to-end role navigation (SC-005): add `src/clients/web/tests/e2e/platform/navigation.spec.ts`, which creates a Coach and a Viewer through the API with the Club Admin's session in test setup and compares each member's navigation with contracts/routes-and-roles.md.
+
+**Checkpoint**: User Stories 1 and 2 work independently.
+
+---
+
+## Phase 5: User Story 3 - Club Admins manage the club, seasons, and teams (Priority: P3)
+
+**Goal**: Club details, seasons, and teams with conflict handling.
+
+**Independent Test**: Edit the club, create and activate a season, create and edit teams, archive a season, and provoke a concurrent edit.
+
+- [X] T014 [US3] Club and seasons (contracts/platform-adapter.md; research.md § R8; FR-014, FR-015, FR-017): add `src/clients/web/src/platform/adapters/clubAdapter.ts`, `src/platform/adapters/seasonAdapter.ts`, `src/features/club/ClubPage.tsx`, `src/features/seasons/SeasonsPage.tsx`, and `src/features/seasons/SeasonPage.tsx` (create, activate, archive; field errors from the platform; conflict message with reload), with keys in `src/i18n/en/club.json` and `src/i18n/en/seasons.json`; register the routes in `src/router.tsx`. Unit tests in `tests/unit/features/club/` and `tests/unit/features/seasons/`; browser tests in `tests/e2e/simulated/club-seasons.spec.ts` for US3 scenarios 1, 2, 4, 5.
+- [X] T015 [US3] Teams (FR-016, FR-017): add `src/clients/web/src/platform/adapters/teamAdapter.ts`, `src/features/teams/TeamsPage.tsx`, and `src/features/teams/TeamPage.tsx` (Club Admin creates teams in a season and edits them; Coach and Viewer see their teams read-only), with keys in `src/i18n/en/teams.json`; register the routes in `src/router.tsx`. Unit tests in `tests/unit/features/teams/`; browser tests in `tests/e2e/simulated/teams.spec.ts` for US3 scenario 3 and read-only views.
+- [X] T016 [US3] Platform end-to-end create flows for seasons and teams (SC-002): add `src/clients/web/tests/e2e/platform/club-structure.spec.ts`: create a season, activate it, create two teams, and edit one through the Web UI against the real platform.
+
+**Checkpoint**: User Stories 1–3 work independently.
+
+---
+
+## Phase 6: User Story 4 - Club Admins manage members and roles (Priority: P4)
+
+**Goal**: Members, credential codes, roles, deactivation, unlock, and ending sessions.
+
+**Independent Test**: Create a member, issue a code, set the password, assign the Coach role, check navigation, then deactivate the member.
+
+- [x] T017 [US4] Members and roles (contracts/platform-adapter.md; FR-018; US4 scenarios 1–6): add `src/clients/web/src/platform/adapters/memberAdapter.ts`, `src/features/members/MembersPage.tsx`, and `src/features/members/MemberPage.tsx` (create; issue a credential code shown once in a dialog and never again; assign and remove club roles and team roles; deactivate and reactivate; unlock; end sessions; the platform's refusals, for example removing the last Club Admin, shown clearly), with keys in `src/i18n/en/members.json`; register the routes in `src/router.tsx`. Unit tests in `tests/unit/features/members/`; browser tests in `tests/e2e/simulated/members.spec.ts` for US4 scenarios 1–6.
+- [x] T021 [US4] Corrective task, serial platform end-to-end specs (research.md § R5; SC-002, SC-004): the platform specs share one platform instance, its changed Club Admin password, and the club's single active season, so overlapping specs fail (T018 attempts 1–3). Change `src/clients/web/playwright.config.ts` so the `platform` specs run strictly one after another in the order `session.spec.ts`, `navigation.spec.ts`, `club-structure.spec.ts`, `members.spec.ts` (for example chained projects, the last named `platform`, so `npm run test:e2e -- --project platform` runs the whole chain; the `simulated` project stays parallel); make `tests/e2e/platform/club-structure.spec.ts` archive its season at the end, even when the test fails; and make `src/clients/web/tests/e2e/platform/members.spec.ts` (when it exists from earlier attempts; otherwise T018 adds it) do the same. Verify with the whole `platform` project, not a single file.
+- [x] T022 [US4] Corrective task, deterministic platform spec state (research.md § R5; SC-002, SC-004): after T021 the full `platform` chain still fails intermittently in specs T018 does not own (T018 attempts 1 and 3 of the second round). Cause: `club-structure.spec.ts` archives its season through the UI in `afterEach` and returns early when the season list has not rendered yet (`link.count() === 0` right after the heading appears), so the season stays active and the next spec's activation answers 409; and its team rename fills the name before the team form has settled (the form is unmounted while the team refetches), so the saved name is the old one. Fix in `src/clients/web/tests/e2e/`: add a helper `support/platformState.ts` that signs in as the Club Admin through the API and archives every active season (idempotent, no UI timing); call it in `club-structure.spec.ts` in `afterEach`, replacing the UI cleanup, and in `members.spec.ts` (and any later platform spec) before it activates a season; make the rename step of `club-structure.spec.ts` wait until the Save button is enabled and the name field holds the team's current name before filling, and assert the saved name after the save. Verify by running the whole `platform` project twice in a row.
+- [x] T018 [US4] Platform end-to-end member flow (SC-001, SC-002, SC-004): add `src/clients/web/tests/e2e/platform/members.spec.ts`: create a member, issue a code, set the member's password on `/set-password` in a second browser context, assign the Coach role, check the member's navigation, deactivate the member, and observe that their next action returns to sign-in.
+
+**Checkpoint**: All user stories work independently.
+
+---
+
+## Phase 7: Polish & Cross-Cutting Concerns
+
+- [x] T023 Corrective task, refresh the stale OpenAPI snapshot (contracts/openapi-snapshot.md; research.md § R1; FR-002): the phase verification failed `OpenApiSnapshotTests.OpenApiDocumentMatchesCommittedSnapshot` because the platform endpoints of the base branch merged into this branch (for example `POST /api/v1/analyst-managers/self/status`, operation `reportAnalystManagerStatus`, and changed `/api/v1/analyst-managers/stamp` and unregistration operations) are missing from or differ in `src/platform/SocAlytics.Platform.Api/openapi/v1.json`. Regenerate it with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests` (a local regeneration only; never set the variable in the verification environment), then run the test again without the variable and the Web UI `npm run build` and `npm test` in `src/clients/web/` so the Kiota client and the adapters still generate and type-check against the refreshed document. Change no platform source.
+- [x] T019 Documentation: record in `docs/architecture/platform-implementation.md` § Client Technology the committed OpenAPI snapshot location, the AppHost composition on one origin, and the accepted `style-src 'unsafe-inline'` trade-off, and record the concrete Content Security Policy, Trusted Types, SRI, and the accepted `style-src 'unsafe-inline'` trade-off in the Web UI security baseline of `docs/architecture/security-and-data-governance.md`; update `src/clients/README.md` (now executable: purpose, commands, Kiota and Playwright prerequisites, the `simulated` and `platform` browser-test projects), the root `README.md` (Web UI commands and the OpenAPI snapshot update command), and the "Current State" in `AGENTS.md`.
+- [X] T020 Run the validation in [quickstart.md](quickstart.md): platform build and Host tests, then in `src/clients/web/` `npm ci`, `npm run build`, `npm test`, and `npm run test:e2e` (both projects), and `node .github/scripts/check-markdown.mjs`; fix what fails.
+
+---
+
+## Dependencies & Execution Order
+
+- **Setup (Phase 1)**: T001 → T002 (the build generates the client from the snapshot).
+- **Foundational (Phase 2)**: after Setup; blocks all stories.
+- **US1 (Phase 3)**: after Foundational. **US2 (Phase 4)**: after US1 (guards and session). **US3 (Phase 5)** and **US4 (Phase 6)**: after US2 (shell and navigation).
+- **Polish (Phase 7)**: after all stories. T023 (refresh the OpenAPI snapshot) comes first, before T019 and T020. T030 (refresh it again after the Analyst Registry endpoints of the base branch) runs last, after the convergence tasks, because every base-branch merge can make the snapshot stale.
+- Within each story, the platform end-to-end task comes last. T021 and T022 come before T018 (serial, deterministic platform specs).
+
+### Parallel opportunities
+
+- Phase 2: T003 (`src/platform/`) and T004 (`tests/e2e/support/`) in parallel. T005 follows because it uses T003's connectivity middleware. T006 and T007 both change `vite.config.ts`.
+- Phase 5: none. T014 and T015 both register routes in `src/router.tsx`, and their browser tests need those routes.
+- No other phase has tasks with disjoint footprints.
+
+## Implementation Strategy
+
+1. Setup and Foundational, then User Story 1 as the MVP (sign-in works end to end).
+2. Add User Story 2 (shell), then 3 (club structure), then 4 (members).
+3. Documentation and full validation.
+
+---
+
+## Phase 8: Convergence
+
+- [X] T024 Correct `docs/architecture/client-applications.md` § Source Ownership And Delivery, which still says "The future React and TypeScript sources of the Web UI are owned under `src/clients`. Only the first-level source-area README exists today; there are no client projects, packages, manifests, containers, or builds yet." and describes Aspire local composition as future: state that the online-only Web UI foundation is implemented as development evidence in the npm project `src/clients/web` (Vite build, Kiota client generated from the committed OpenAPI snapshot, Vitest and Playwright tests), that the AppHost composes it with the API on one origin as a Vite resource, and that the service worker, offline mode, OCI container image, and Docker Compose deployment remain not implemented; change only that document, per Constitution I, FR-001, FR-019 (partial)
+- [X] T025 Correct `docs/architecture/contracts-and-compatibility.md` § Generated Client Boundary, which says "Kiota is planned to generate TypeScript, C#, and Python transport clients from the same bundled OpenAPI document. Generation will write only to ignored temporary output.": state that the Web UI's TypeScript client is generated by Kiota at build time from the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` (kept current by the Host test `OpenApiSnapshotTests`) into the ignored `src/clients/web/src/generated/`, compile-tested by `npm run build`, and used only behind the adapters in `src/clients/web/src/platform/`, while the C# and Python clients remain planned; change only that document, per Constitution I, FR-002 (partial)
+- [x] T026 Add keyboard-operation checks with `expectAllReachableByKeyboard` and `activateWithKeyboard` from `tests/e2e/support/keyboard.ts` to `src/clients/web/tests/e2e/simulated/teams.spec.ts` (teams list and team detail, editable and read-only) and `src/clients/web/tests/e2e/simulated/navigation.spec.ts` (shell navigation and home view for each role, not-permitted and not-found views), so every view in scope is proven operable by keyboard with visible focus, per SC-007 (partial)
+
+---
+
+## Phase 9: Convergence
+
+- [x] T027 Correct `docs/architecture/platform-implementation.md` § API And Identity, which says the current API "implements no external OpenID Connect sign-in, MFA enforcement, or generated client" although the Web UI's Kiota TypeScript client is generated from the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` and used behind the adapters in `src/clients/web/src/platform/`: keep the OpenID Connect and MFA statements and state that the Web UI's generated TypeScript client exists (see § Client Technology); change only that document, per Constitution I, FR-002 (partial)
+- [x] T028 Correct `docs/architecture/platform-implementation.md` § API And Identity, which says "ASP.NET Core publishes a versioned OpenAPI description, and Kiota will generate TypeScript, C#, and Python clients": state that Kiota generates the Web UI's TypeScript client at build time from the committed OpenAPI snapshot (kept current by the Host test `OpenApiSnapshotTests`), while the C# and Python clients remain planned; change only that document, per Constitution I, FR-002 (partial)
+
+---
+
+## Phase 10: Convergence
+
+- [X] T029 Correct `docs/architecture/platform-implementation.md`, the ecosystem tooling list before the ASP.NET Core baseline paragraph, which says "`pnpm` workspace for the separately packaged TypeScript client applications", "future versioned OpenAPI and JSON Schema documents for cross-language contracts", and "The remaining ecosystem tooling is future until its owning source area gains executable projects" although the Web UI in `src/clients/web` is an executable npm project with a committed `package-lock.json` and builds from the committed versioned OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json`: state that the Web UI is currently one npm project with a committed lockfile, that the `pnpm` workspace for separately packaged applications and shared packages remains the planned design once such packages exist, and that the platform's versioned OpenAPI document is committed as that snapshot while JSON Schema contract documents follow their own features; keep the Python and production statements; change only that document, per Constitution I, FR-001, FR-002 (contradicts)
+- [X] T030 Corrective task, refresh the stale OpenAPI snapshot again (contracts/openapi-snapshot.md; research.md § R1; FR-002): the phase verification and the conflict resolution failed `OpenApiSnapshotTests.OpenApiDocumentMatchesCommittedSnapshot` a second time because the base branch merged into this branch after T023 added the Analyst Registry endpoints (`/api/v1/registry/analyst-images`, `/api/v1/registry/analyst-profiles`, and the other operations of `src/platform/SocAlytics.Platform.Api/Registry/AnalystRegistryEndpoints.cs`), which are missing from `src/platform/SocAlytics.Platform.Api/openapi/v1.json`. First merge the current base branch if it is not merged yet, then regenerate the snapshot with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests` (a local regeneration only; never set the variable in the verification environment), run the test again without the variable, and run the Web UI `npm run build` and `npm test` in `src/clients/web/` so the Kiota client and the adapters still generate and type-check against the refreshed document. Change no platform source and no other file than the snapshot and this task's checkbox.

@@ -9,8 +9,9 @@ through approved changes.
 
 - [`src/platform/`](src/platform/README.md) contains the executable control-plane
     platform host and its ownership guidance.
-- [`src/clients/`](src/clients/README.md) records the planned ownership boundary
-    of the Web UI, a Progressive Web App with an offline mode for coaches.
+- [`src/clients/`](src/clients/README.md) contains the executable online-only
+    Web UI foundation under `src/clients/web/`; the offline mode for coaches
+    is planned.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.
 - [`src/analysts/`](src/analysts/README.md) contains the executable Analyst
@@ -30,8 +31,8 @@ through approved changes.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
 
-The clients and agents source areas remain non-executable ownership
-scaffolds. The platform and the Analyst Manager contain the repository's current
+The agents source area remains a non-executable ownership scaffold. The
+platform, the Web UI, and the Analyst Manager contain the repository's current
 application projects and tests. No deployment manifests or product automation exist yet.
 
 ## Development
@@ -125,6 +126,36 @@ Operator break-glass recovery: set `BreakGlassRecovery__AccountName`,
 `break-glass-recovery.applied` audit event, then remove the directive.
 `IdentityAccess` settings exist only in `appsettings.Development.json` and
 test configuration.
+
+### Web UI
+
+The Web UI under `src/clients/web/` is a React and TypeScript single-page
+application built with Vite, developed online-only as development evidence (no
+service worker, offline mode, container image, or deployment configuration). It
+needs Node.js 24, the Kiota 1.36.0 CLI on `PATH`
+(`dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0`), and
+for browser tests the Playwright Chromium browser
+(`npx playwright@1.63.0 install chromium`). Run these commands from
+`src/clients/web/`:
+
+```powershell
+npm ci
+npm run build      # Kiota generation from the OpenAPI snapshot, type checking, production build
+npm test           # Vitest unit tests
+npm run test:e2e   # Playwright: simulated and platform projects (the platform project starts the AppHost and needs Docker)
+```
+
+The AppHost (`dotnet run --project src/platform/SocAlytics.Platform.AppHost`)
+also starts the Web UI on one origin with the API. The Kiota client is
+generated from the committed OpenAPI snapshot
+`src/platform/SocAlytics.Platform.Api/openapi/v1.json`. After API changes,
+regenerate it from the repository root with:
+
+```powershell
+$env:SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT='1'; dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests; Remove-Item Env:SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT
+```
+
+Then run the test again without the variable.
 
 ### Analyst Manager
 
@@ -244,9 +275,10 @@ dry runs unless `dry_run` is unchecked.
     in its folder on the default branch: `speckit:stage:specified` (only `spec.md`),
     `speckit:stage:planned` (`plan.md`), `speckit:stage:tasked` (`tasks.md`, no
     task checked), `speckit:stage:implementing` (some tasks checked), or
-    `speckit:stage:implemented` (all tasks checked), or the human-requested
-    `speckit:stage:implement` flag described below. Implementation happens on
-    feature branches, so the implementation stages only reflect merged work. The
+    `speckit:stage:implemented` (all tasks checked), or, for a requested
+    implementation, `speckit:stage:implement` and `speckit:stage:implementing`
+    as described below. Implementation happens on
+    feature branches, so the computed implementation stages only reflect merged work. The
     `**Status**` line in `spec.md` is not used. A twin's stage, state, title, and
     description change in a single request, so no intermediate label state is
     ever visible; labels the workflow does not own are preserved.
@@ -267,7 +299,12 @@ dry runs unless `dry_run` is unchecked.
 "ready to act" flag that only people set; the sync never sets it. A flagged
 twin may still be blocked: the `Spec Kit orchestrate` workflow
 (`.github/workflows/speckit-orchestrate.yml`) picks up flagged twins once all
-their "blocked by" issues are closed.
+their "blocked by" issues are closed. A requested twin moves through
+`implement` (waiting to start) >> `implementing` (its implementation pull
+request is open) >> `implemented` (merged): the scheduler sets
+`speckit:stage:implementing` when it opens the pull request (or finds one
+open), and the merge sets `speckit:stage:implemented`. Who requested the
+implementation and when stays in the label history of `implement`.
 
 - When someone adds the label, the `validate-implement` job of
     `Spec Kit prepare` accepts it only if the person has at least write access,
@@ -275,9 +312,12 @@ their "blocked by" issues are closed.
     stage is `tasked`, and every checkbox in `specs/<folder>/checklists/*.md`
     there is checked. Otherwise the twin falls back to its computed stage, which may
     come before or after `implement`, and gets a comment with the reasons.
-- Later syncs keep a valid flag and revoke it, with a comment, once the stage
-    or checklist conditions no longer hold, for example when all tasks are
-    merged and the twin becomes `implemented`.
+- Later syncs keep a valid flag, and a valid `implementing` stage while the
+    default branch has no task checked, and revoke either one, with a comment,
+    once the stage or checklist conditions no longer hold, for example when all
+    tasks are merged and the twin becomes `implemented`. A computed
+    `implementing` stage (tasks partly checked on the default branch, as after
+    a local implementation) is no implementation request.
 - `Spec Kit orchestrate` is the scheduler. It runs after every successful
     `Spec Kit prepare` run, when an issue is closed or reopened, when a
     `speckit/**` pull request is closed or a person pushes to it, hourly as a
@@ -485,10 +525,11 @@ their "blocked by" issues are closed.
   A push by a person to the implementation branch triggers the scheduler,
   which continues the implementation with a new attempt count, so it merges
   without further approval.
-- An open implementation pull request marks the twin as in progress, so it is
-    never started twice. Preparing the implementation checks what already exists, so reruns after
+- An open implementation pull request marks the twin as in progress: it is
+    `speckit:stage:implementing`, and it is never started twice. Preparing the implementation checks what already exists, so reruns after
     partial failures complete the work.
-- Closing the pull request without merging removes the flag, and the twin
+- Closing the pull request without merging removes the implementation request
+    (`implement` or `implementing`), and the twin
     falls back to its computed stage with a comment. GitHub keeps the closed
     pull request and its branch; flagging the twin again deletes and recreates
     the branch and opens a new draft pull request. Merging the pull request,

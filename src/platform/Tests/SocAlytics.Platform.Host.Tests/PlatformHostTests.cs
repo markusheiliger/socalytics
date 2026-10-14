@@ -82,6 +82,18 @@ public sealed class PlatformHostTests
     }
 
     [Fact]
+    public async Task AppHostComposesWebUiThatReferencesApi()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        var appHost = await CreateAppHostAsync(timeout.Token);
+
+        var web = appHost.Resources.Single(static resource => resource.Name == "web");
+        var api = appHost.Resources.Single(static resource => resource.Name == ApiResourceName);
+        web.Annotations.OfType<ResourceRelationshipAnnotation>()
+            .ShouldContain(annotation => annotation.Resource == api && annotation.Type == "Reference");
+    }
+
+    [Fact]
     public async Task AppHostDoesNotStartApiWhenMigratorFails()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(5));

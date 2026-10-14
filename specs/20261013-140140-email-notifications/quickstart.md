@@ -5,7 +5,7 @@ readiness.
 
 ## Prerequisites
 
-- Web UI Foundation (`specs/20261012-150657-web-ui-foundation`) merged, with
+- Web UI Foundation (`specs/archive/20261012-150657-web-ui-foundation`) merged, with
   its prerequisites (Node.js 24, Kiota, Playwright Chromium), the .NET SDK
   from `src/platform/global.json`, and a running Docker-compatible container
   runtime (PostgreSQL, NATS, RustFS, Mailpit).

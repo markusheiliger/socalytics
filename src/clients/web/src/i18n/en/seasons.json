@@ -1,0 +1,25 @@
+{
+  "seasons": {
+    "title": "Seasons",
+    "empty": "There are no seasons yet.",
+    "listLabel": "Seasons of the club",
+    "createTitle": "Create a season",
+    "name": "Season name",
+    "create": "Create season",
+    "creating": "Creating…",
+    "created": "The season was created.",
+    "back": "Back to seasons",
+    "state": {
+      "draft": "Draft",
+      "active": "Active",
+      "archived": "Archived"
+    },
+    "stateLabel": "State: {{state}}",
+    "activate": "Activate",
+    "archive": "Archive",
+    "working": "Working…",
+    "activated": "The season is now active.",
+    "archived": "The season was archived. Its teams are read-only.",
+    "readOnlyNote": "This season is archived. Its teams are read-only."
+  }
+}

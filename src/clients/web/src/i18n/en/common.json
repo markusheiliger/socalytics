@@ -1,0 +1,22 @@
+{
+  "app": {
+    "name": "SocAlytics"
+  },
+  "loading": "Loading…",
+  "placeholder": "This view is not available yet.",
+  "failure": {
+    "conflict": "This item was changed by someone else. Reload to see the current version; your edit was not saved.",
+    "reload": "Reload",
+    "unreachable": "The platform is not reachable. Try again in a moment.",
+    "validation": "The platform refused the input. Check it and try again.",
+    "incompatible": "The platform answered in an unexpected way. Reload the page; this build may be outdated.",
+    "error": "Something went wrong. Try again later.",
+    "reference": "Reference: {{id}}",
+    "loadFailed": "The data could not be loaded."
+  },
+  "fieldError": {
+    "required": "This field is required.",
+    "too-long": "This value is too long.",
+    "other": "The platform refused this value."
+  }
+}

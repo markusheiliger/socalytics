@@ -12,8 +12,8 @@ and the API, the operational API surface, the layered project structure, and
 the persistence, club and identity, recording lineage and upload, durable
 analysis workflow, and Analyst Manager registration foundations described
 below, with host, architecture, contract, and integration tests. Analyst
-execution, external OpenID Connect sign-in, MFA enforcement, client runtimes,
-deployment configuration, and production-readiness evidence do not exist yet.
+execution, external OpenID Connect sign-in, MFA enforcement, the Web UI's
+offline mode and service worker, deployment configuration, and production-readiness evidence do not exist yet.
 
 ## Source And Runtime Baseline
 
@@ -21,7 +21,8 @@ SocAlytics uses one `src` root with these first-level ownership areas:
 
 - `src/platform` owns the platform API, control plane, and supporting platform
   services; the API, Migrator, and their layers are implemented
-- `src/clients` owns the future Web UI, a Progressive Web App
+- `src/clients` owns the Web UI, a Progressive Web App whose online-only
+  foundation is implemented under `src/clients/web`
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
 - `src/analysts` owns the Analyst Manager, whose first desktop slice is
@@ -73,14 +74,20 @@ Executable components use or will use the native workspace and dependency tools
 of each ecosystem:
 
 - .NET solution and projects for C# components
-- `pnpm` workspace for the separately packaged TypeScript client applications
-  and selected environment-neutral shared packages, as described by
-  [Client Applications](client-applications.md)
+- npm for the Web UI: `src/clients/web` is currently one npm project with a
+  committed `package-lock.json`. The `pnpm` workspace for separately packaged
+  TypeScript client applications and selected environment-neutral shared
+  packages, as described by [Client Applications](client-applications.md),
+  remains the planned design once such packages exist.
 - `uv`, `pyproject.toml`, and committed lockfiles for Python projects
-- future versioned OpenAPI and JSON Schema documents for cross-language contracts
+- versioned OpenAPI and JSON Schema documents for cross-language contracts: the
+  platform's versioned OpenAPI document is committed as the snapshot
+  `src/platform/SocAlytics.Platform.Api/openapi/v1.json`, from which the Web UI
+  builds its generated client, while JSON Schema contract documents follow
+  their own features
 
 The platform API and control-plane baseline is ASP.NET Core on .NET 10 LTS; the
-initial host implements that runtime choice. The remaining ecosystem tooling is
+initial host implements that runtime choice. The Python ecosystem tooling is
 future until its owning source area gains executable projects.
 Future deployables will use cloud-neutral OCI images. .NET Aspire owns local
 development composition, service discovery, health checks, OpenTelemetry
@@ -327,13 +334,17 @@ anti-forgery protection, membership, club and team roles, team-scoped
 authorization, security audit events, and the `Club > Season > Team > Match`
 hierarchy, as specified in
 `specs/archive/20261005-130701-club-identity-foundation`. It implements no external
-OpenID Connect sign-in, MFA enforcement, or generated client. Exposure and
-access policy for operational endpoints in a production ingress remain
-unresolved.
+OpenID Connect sign-in or MFA enforcement. The Web UI's generated Kiota
+TypeScript client exists and is used behind the adapters in
+`src/clients/web/src/platform/` (see [Client Technology](#client-technology)).
+Exposure and access policy for operational endpoints in a production ingress
+remain unresolved.
 
 REST with JSON is the primary platform protocol. ASP.NET Core publishes
-a versioned OpenAPI description, and Kiota will generate TypeScript, C#, and Python
-clients. Applications keep generated clients behind local adapter boundaries so
+a versioned OpenAPI description. Kiota generates the Web UI's TypeScript client
+at build time from the committed OpenAPI snapshot, which the Host test
+`OpenApiSnapshotTests` keeps current; the C# and Python clients remain planned.
+Applications keep generated clients behind local adapter boundaries so
 transport generation does not define their domain models.
 
 The canonical artifacts, owner map, and compatibility policy are
@@ -461,6 +472,22 @@ release is coordinated with the platform API and remains a separately
 containerized deployment unit built from `src/clients`, served from one origin.
 There is no second client application. See
 [Client Applications](client-applications.md).
+
+The online-only Web UI foundation is implemented as development evidence under
+`src/clients/web`. Its Kiota client is generated at build time from the
+committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json`,
+which belongs to the API project and is verified against the running API by a
+Host test (`OpenApiSnapshotTests`), so the generated client cannot drift from
+the API. The AppHost composes the Web UI with the API on one origin: the Vite
+server proxies `/api` and `/alive` to the API, so the browser sends the BFF
+session cookie without CORS. In end-to-end mode the AppHost serves the built
+Web UI through `vite preview` on a fixed port. Its Content Security Policy
+keeps `style-src 'unsafe-inline'`, an accepted and recorded trade-off because
+MUI's Emotion runtime injects `<style>` elements and a nonce is not possible
+for statically hosted pages; scripts stay locked down. See
+[Security And Data Governance](security-and-data-governance.md). The service
+worker, offline mode, container image, and production server configuration are
+not implemented.
 
 Future offline-mode implementation follows the decisions in
 [Client Applications](client-applications.md): an encrypted replica owned by a
@@ -618,8 +645,9 @@ choice or reveals a material operational tradeoff:
   foundation (migrations, Migrator, units of work, version triggers), domain
   persistence, outbox publication to NATS JetStream, local-account BFF
   sessions, S3-compatible upload, and Analyst Manager registration are
-  implemented. External OpenID Connect sign-in, MFA enforcement, the Web UI
-  and its offline mode, cross-runtime schema agreement, reproducible Analyst
+  implemented, and the online-only Web UI foundation exists as development
+  evidence. External OpenID Connect sign-in, MFA enforcement, the Web UI's
+  offline mode, cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix remain unsupported by
   implementation evidence.
 - **Mature enough to govern subsequent implementation — not met for
