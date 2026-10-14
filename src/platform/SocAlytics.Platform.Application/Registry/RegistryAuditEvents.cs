@@ -14,7 +14,8 @@ public static class RegistryAuditEvents
     {
         "managerId", "stampId", "keyThumbprint", "fromState", "toState", "windowExpiresAt", "os", "osVersion",
         "architecture", "managerVersion", "claimedKeyProtection", "deviceFingerprint", "pairingSourceAddress",
-        "registrationCorrelationId", "reference", "imageDigest", "capabilityId", "capabilityVersion", "modelDigest",
+        "registrationCorrelationId", "fencedAttempts", "revokedCredentials",
+        "reference", "imageDigest", "capabilityId", "capabilityVersion", "modelDigest",
         "profileId", "profileVersion", "profileDigest", "selfApproval", "workflowId", "workflowVersion", "definitionDigest",
         "previousWorkflowId", "previousWorkflowVersion",
     };

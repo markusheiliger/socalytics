@@ -10,12 +10,15 @@ public static class AnalysisMetrics
 
     private static readonly Meter Meter = new(MeterName);
     private static readonly Counter<long> LeaseExpiries = Meter.CreateCounter<long>("socalytics.analysis.lease_expiries");
+    private static readonly Counter<long> FencedAttempts = Meter.CreateCounter<long>("socalytics.analysis.attempts_fenced");
     private static readonly Counter<long> StaleCompletions = Meter.CreateCounter<long>("socalytics.analysis.completions_rejected");
     private static readonly Counter<long> RejectedHeartbeats = Meter.CreateCounter<long>("socalytics.analysis.heartbeats_rejected");
     private static readonly Counter<long> RejectedNotifications = Meter.CreateCounter<long>("socalytics.analysis.notifications_rejected");
     private static readonly Counter<long> BlockedRuns = Meter.CreateCounter<long>("socalytics.analysis.runs_blocked");
 
     public static void LeaseExpired(string? capability) => LeaseExpiries.Add(1, Tag("capability", capability));
+
+    public static void AttemptFenced(string reason) => FencedAttempts.Add(1, Tag("reason", reason));
 
     public static void CompletionRejected(string outcome) => StaleCompletions.Add(1, Tag("outcome", outcome));
 

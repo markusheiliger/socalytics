@@ -1,0 +1,28 @@
+using SocAlytics.Analysts.Manager.Platform;
+
+namespace SocAlytics.Analysts.Manager.Work;
+
+/// <summary>The parts of contracts/analysis/analyst-job/v1 the Manager reads; the payload confers no authority.</summary>
+public sealed record AnalystJobMessage(
+    string MessageId,
+    string ReadinessOccurrenceId,
+    string RunId,
+    string NodeId,
+    string LogicalJobId,
+    string TeamId,
+    string MatchId,
+    QueueCapability Capability,
+    string SchemaVersion,
+    string ExecutionScope,
+    IReadOnlyList<JobInput>? Inputs,
+    JobPinned Pinned,
+    JobResources Resources,
+    CompletionCorrelation Correlation);
+
+public sealed record JobInput(IReadOnlyList<JobAcceptedResult>? AcceptedResults);
+
+public sealed record JobAcceptedResult(string AcceptedResultId);
+
+public sealed record JobPinned(string AnalystProfileDigest, string ImageDigest, string? ModelDigest);
+
+public sealed record JobResources(int CpuMillicores, long MemoryMebibytes);

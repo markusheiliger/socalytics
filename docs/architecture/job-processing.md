@@ -37,6 +37,18 @@ Each stamp uses two JetStream streams:
 | `SOCALYTICS_EVENTS` | `matches.>`, `analysis.events.>` | limits | lifecycle notifications such as `matches.recordings-finalized` and `analysis.events.run-state-changed` |
 | `SOCALYTICS_ANALYSIS_JOBS` | `analysis.jobs.ready.>` | work queue | ready Logical Jobs on `analysis.jobs.ready.<capability-id>` |
 
+Topology provisioning creates, idempotently on `SOCALYTICS_ANALYSIS_JOBS`, one
+durable pull consumer per capability of the default workflow definition
+resolved from the Analyst Registry, and only once that definition resolves. The
+consumer is named `analyst-<capability-id>`, filters on
+`analysis.jobs.ready.<capability-id>`, uses explicit acknowledgement with
+`AnalystWork:ConsumerAckWait`, and has unlimited redelivery. A configured
+workflow definition does not provision consumers; in Development and Test it
+only seeds an empty Registry. Queue-credential assignment gives a Manager the
+consumer of an offered capability only when the offered capability id and
+semantic version equal the resolved definition's. Production stream and
+consumer values remain unresolved.
+
 The publisher sets the outbox message identity as the JetStream message ID, so
 the stream's duplicate window suppresses repeated publication of the same
 record. When reconciliation republishes a record in a later publication round,

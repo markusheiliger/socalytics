@@ -7,6 +7,8 @@
   <ItemGroup>
     <PackageReference Include="Aspire.Hosting.JavaScript" />
     <PackageReference Include="Aspire.Hosting.Nats" />
+    <PackageReference Include="NATS.Jwt" />
+    <PackageReference Include="NATS.NKeys" />
     <PackageReference Include="Aspire.Hosting.PostgreSQL" />
   </ItemGroup>
 

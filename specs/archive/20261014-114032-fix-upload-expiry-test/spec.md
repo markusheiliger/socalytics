@@ -6,7 +6,7 @@
 
 **Input**: User description: "UploadSessionExpiryTests.ExpiredSessionIsRefusedImmediatelyAndReleasedBySweep fails intermittently: SessionLifetime is 2 s and the first part PUT can run after the presigned grant expired (403 Request has expired). Make the setup independent of that window while keeping all expiry and sweep assertions."
 
-**Fix for**: #72 (implementation of `specs/20261012-141233-manager-work-execution`)
+**Fix for**: #72 (implementation of `specs/archive/20261012-141233-manager-work-execution`)
 
 ## Problem
 
@@ -57,4 +57,4 @@ A maintainer runs the Integration tests on a slow or loaded machine. The expiry 
 ## Assumptions
 
 - The smallest fix is in the test only: a 10 minute session lifetime for the setup (far above the 10 s delay of SC-001), then the session is expired through the test time provider advanced by 11 minutes (below the 30 minute BFF session idle timeout, so the admin session stays valid) and a direct update of the session's `expires_at` in the test's disposable database, after the pending ETag is read. The setup update bumps the version through the trigger, which the test asserts explicitly, so the unchanged-ETag assertion remains equivalent: it still proves the derived expired state, refusals, and report write nothing.
-- Dependencies: the feature owning the test is [Recording Lineage and Upload](../20261005-130702-recording-lineage-upload/spec.md); the implementation this fix unblocks is #72 (`specs/20261012-141233-manager-work-execution`).
+- Dependencies: the feature owning the test is [Recording Lineage and Upload](../20261005-130702-recording-lineage-upload/spec.md); the implementation this fix unblocks is #72 (`specs/archive/20261012-141233-manager-work-execution`).

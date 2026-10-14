@@ -48,6 +48,7 @@ public sealed class RegistrationCoordinator(
     private OperatingStateMachine? _machine;
     private string? _clubName;
     private bool _pendingUnregister;
+    private int _hostLocalConcurrency = 1;
     private ConnectivityStatus _connectivity = new("unknown");
     private IReadOnlyList<StatusDiagnostic> _diagnostics = [];
 
@@ -73,6 +74,8 @@ public sealed class RegistrationCoordinator(
     public string? ClubName { get { lock (_gate) { return _clubName; } } }
 
     public bool PendingUnregister { get { lock (_gate) { return _pendingUnregister; } } }
+
+    public int HostLocalConcurrency { get { lock (_gate) { return _hostLocalConcurrency; } } }
 
     public ConnectivityStatus Connectivity { get { lock (_gate) { return _connectivity; } } }
 
@@ -410,6 +413,7 @@ public sealed class RegistrationCoordinator(
             _fingerprint = DeviceFingerprint.Compute(key.PublicJwk);
             _clubName = own.ClubName;
             _pendingUnregister = state.PendingUnregister;
+            _hostLocalConcurrency = state.HostLocalConcurrency;
             _active = new ActiveRegistration(
                 state.ManagerId, state.StampId, _endpoint, state.DeviceKey, state.DeviceKeyProtection, _fingerprint);
             _diagnostics = [];
@@ -440,6 +444,7 @@ public sealed class RegistrationCoordinator(
             _active = null;
             _clubName = null;
             _pendingUnregister = false;
+            _hostLocalConcurrency = 1;
             _connectivity = new ConnectivityStatus("unknown");
             _diagnostics = [];
         }
@@ -491,6 +496,55 @@ public sealed class RegistrationCoordinator(
         return applied
             ? new ControlResult(true)
             : new ControlResult(false, "invalid-registration-state");
+    }
+
+    /// <summary>Persists the host-local concurrency limit in the re-signed state; it only affects new pulls.</summary>
+    public async Task<ControlResult> SetHostLocalConcurrencyAsync(int limit)
+    {
+        if (limit < 1)
+        {
+            return new ControlResult(false, "invalid-concurrency");
+        }
+
+        ActiveRegistration? active;
+        OperatingStateMachine? machine;
+        lock (_gate)
+        {
+            active = _active;
+            machine = _machine;
+            if (_state != ManagerRegistrationState.Active || active is null || machine is null
+                || machine.State.Kind is OperatingStateKind.Draining or OperatingStateKind.Ended || _pendingUnregister)
+            {
+                return new ControlResult(false, "invalid-registration-state");
+            }
+        }
+
+        var key = await OpenKeyAsync(active);
+        if (key is null)
+        {
+            return new ControlResult(false, ManagerDiagnosticCodes.KeyInaccessible);
+        }
+
+        try
+        {
+            store.Write(
+                new ProtectedRegistrationState(
+                    ProtectedRegistrationState.CurrentSchemaVersion, active.ManagerId, active.StampId,
+                    active.PlatformEndpoint.GetLeftPart(UriPartial.Authority), active.KeyReference, active.Protection,
+                    key.Thumbprint, machine.Intent with { PendingUnregister = false }, false, time.GetUtcNow(), limit),
+                key);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            return new ControlResult(false, ManagerDiagnosticCodes.StateUnreadable);
+        }
+
+        lock (_gate)
+        {
+            _hostLocalConcurrency = limit;
+        }
+
+        return new ControlResult(true);
     }
 
     public async Task<ControlResult> UnregisterAsync()
@@ -732,7 +786,7 @@ public sealed class RegistrationCoordinator(
             new ProtectedRegistrationState(
                 ProtectedRegistrationState.CurrentSchemaVersion, active.ManagerId, active.StampId,
                 active.PlatformEndpoint.GetLeftPart(UriPartial.Authority), active.KeyReference, active.Protection,
-                key.Thumbprint, intent with { PendingUnregister = pending }, pending, time.GetUtcNow()),
+                key.Thumbprint, intent with { PendingUnregister = pending }, pending, time.GetUtcNow(), HostLocalConcurrency),
             key);
 
     private void SetPhase(PairingPhase phase)

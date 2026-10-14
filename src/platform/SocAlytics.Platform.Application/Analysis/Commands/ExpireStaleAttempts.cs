@@ -1,7 +1,5 @@
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Analysis.Stores;
-using SocAlytics.Platform.Application.Telemetry;
-using SocAlytics.Platform.Domain.Analysis;
 
 namespace SocAlytics.Platform.Application.Analysis.Commands;
 
@@ -16,10 +14,8 @@ public sealed class AnalysisLeaseOptions
 
 public sealed class ExpireStaleAttemptsHandler(
     IUnitOfWork unitOfWork,
-    IAnalysisRunStore runs,
-    ILogicalJobStore jobs,
     IExecutionAttemptStore attempts,
-    RunReadinessCoordinator coordinator,
+    CloseAttemptAsStale closeAsStale,
     Microsoft.Extensions.Options.IOptions<AnalysisLeaseOptions> options,
     TimeProvider time)
 {
@@ -37,27 +33,9 @@ public sealed class ExpireStaleAttemptsHandler(
         foreach (var item in due)
         {
             await using var scope = await unitOfWork.BeginAsync(cancellationToken);
-            await runs.LockRunAsync(item.RunId, cancellationToken);
-            var job = await jobs.LockJobAsync(item.LogicalJobId, cancellationToken);
-            var attempt = await attempts.LockAsync(item.AttemptId, cancellationToken);
-            if (job is null
-                || attempt is null
-                || attempt.State != ExecutionAttemptState.Active
-                || attempt.LeaseExpiresAt > time.GetUtcNow())
+            if (!await closeAsStale.HandleAsync(item, LeaseExpiredReason, requireExpired: true, cancellationToken))
             {
                 continue;
-            }
-
-            if (!await attempts.TryCloseAsync(attempt.Id, ExecutionAttemptState.Active, ExecutionAttemptState.Stale, LeaseExpiredReason, cancellationToken))
-            {
-                continue;
-            }
-
-            AnalysisMetrics.LeaseExpired(null);
-            AnalysisMetrics.TagActivity(item.RunId, item.LogicalJobId, attempt.Id, attempt.ManagerId);
-            if (job.CurrentAttemptId == attempt.Id && job.State == LogicalJobState.Claimed)
-            {
-                await coordinator.RequeueOrFailAsync(job.Id, ReadinessCause.AttemptStale, cancellationToken);
             }
 
             await scope.CommitAsync(cancellationToken);
