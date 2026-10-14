@@ -155,6 +155,29 @@ async function requesterOf(client, twin) {
   }
 }
 
+// The owner of a spec pull request: for a fix spec the person who asked for it with `/speckit fix` on the
+// implementation, for an amendment (and when no such request is recorded) the person who requested the implementation.
+export async function ownerOf(client, { kind = 'amend', implementation = null, twin }) {
+  if (kind === 'fix' && implementation) {
+    try {
+      const { fixState } = await import('./speckit-fix.mjs');
+      const by = fixState(await client.listIssueComments(implementation.number)).requested?.by;
+      if (by) return by;
+    } catch {
+      // Fall back to the implementation's requester.
+    }
+  }
+  return requesterOf(client, twin);
+}
+
+async function assignOwner(client, number, owner) {
+  try {
+    await client.addAssignees(number, [owner]);
+  } catch {
+    // Assignment is a convenience.
+  }
+}
+
 function runLink(env) {
   return env.GITHUB_RUN_ID ? `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
 }
@@ -264,11 +287,12 @@ export async function startRework(client, env, context, { mode, round = 0, notes
   }
 }
 
-// The first steps for an amendment a diagnosis just created, or a fix spec `/speckit fix` just authored: mark the start
-// of the feedback window, describe the state, and start the consistency check.
+// The first steps for an amendment a diagnosis just created, or a fix spec `/speckit fix` just authored: assign its
+// owner, mark the start of the feedback window, describe the state, and start the consistency check.
 export async function beginAmendment(client, env, context) {
   const { amendment, implementation, kind = 'amend' } = context;
-  const requester = await requesterOf(client, context.twin);
+  const requester = await ownerOf(client, context);
+  if (requester) await assignOwner(client, amendment.number, requester);
   const origin = kind === 'fix'
     ? `This fix spec was requested with \`/speckit fix\` on #${implementation.number}.`
     : `This amendment comes from the diagnosis on #${implementation.number}.`;
@@ -410,19 +434,15 @@ function renderFindings(findings, rules = [], { ids = false } = {}) {
   ].join('\n');
 }
 
-// Hands the amendment to the person who requested the implementation: ready for review when it is consistent (a
-// draft otherwise), assigned, review requested, status in the description, and a note on the implementation.
+// Hands the amendment or fix spec to its owner (ownerOf): ready for review when it is consistent (a draft otherwise),
+// assigned, review requested, status in the description, and a note on the implementation.
 export async function presentAmendment(client, env, context, { consistent, analysis = null, rules = [], problem = null, since = null }) {
-  const { amendment, folder, implementation, twin, kind = 'amend' } = context;
+  const { amendment, folder, implementation, kind = 'amend' } = context;
   const current = await client.getPullRequest(amendment.number);
-  const requester = await requesterOf(client, twin);
+  const requester = await ownerOf(client, context);
   if (consistent && current.draft) await client.markReadyForReview(current.node_id);
   if (requester) {
-    try {
-      await client.addAssignees(amendment.number, [requester]);
-    } catch {
-      // Assignment is a convenience.
-    }
+    if (!(current.assignees ?? []).some((user) => user?.login === requester || user === requester)) await assignOwner(client, amendment.number, requester);
     try {
       await client.requestReviewers(amendment.number, [requester]);
     } catch {
