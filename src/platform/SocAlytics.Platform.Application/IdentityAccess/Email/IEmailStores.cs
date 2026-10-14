@@ -150,3 +150,15 @@ public interface IEmailMessageStore
     /// <summary>The creation time of the oldest message counted by <see cref="CountCreatedSinceAsync"/>, for the wait time of the resend limit.</summary>
     Task<DateTimeOffset?> OldestCreatedSinceAsync(string notificationType, Guid accountId, DateTimeOffset since, CancellationToken cancellationToken);
 }
+
+public interface INotificationRecipientStore
+{
+    /// <summary>Lists active Club Admins whose address is verified and who have not switched the type off (the default applies without a stored preference).</summary>
+    Task<IReadOnlyList<Guid>> ListVerifiedClubAdminsAsync(string notificationType, bool defaultEnabled, CancellationToken cancellationToken);
+
+    /// <summary>Takes a transaction-scoped advisory lock for the recipient and notification type, released when the unit of work ends.</summary>
+    Task LockRecipientAsync(string notificationType, Guid accountId, CancellationToken cancellationToken);
+
+    /// <summary>Whether a message of the type that is not discarded was created for the account at or after <paramref name="since"/>.</summary>
+    Task<bool> HasPendingOrSentSinceAsync(string notificationType, Guid accountId, DateTimeOffset since, CancellationToken cancellationToken);
+}

@@ -292,3 +292,40 @@ internal sealed class EmailMessageStore(IDbSession session) : IEmailMessageStore
                 EmailRows.Utc(SentAt));
     }
 }
+
+internal sealed class NotificationRecipientStore(IDbSession session) : INotificationRecipientStore
+{
+    public async Task<IReadOnlyList<Guid>> ListVerifiedClubAdminsAsync(
+        string notificationType, bool defaultEnabled, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var ids = await connection.QueryAsync<Guid>(new CommandDefinition(
+            "SELECT a.id FROM socalytics.member_account a " +
+            "JOIN socalytics.member_email_addresses e ON e.account_id = a.id AND e.state = 'verified' " +
+            "LEFT JOIN socalytics.notification_preferences p ON p.account_id = a.id AND p.notification_type = @notificationType " +
+            "WHERE a.membership_status = 'active' " +
+            "AND EXISTS (SELECT 1 FROM socalytics.club_role_assignment r WHERE r.member_account_id = a.id AND r.role = 'club-admin') " +
+            "AND COALESCE(p.enabled, @defaultEnabled) ORDER BY a.id",
+            new { notificationType, defaultEnabled }, session.Transaction, cancellationToken: cancellationToken));
+        return ids.ToList();
+    }
+
+    public async Task LockRecipientAsync(string notificationType, Guid accountId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "SELECT pg_advisory_xact_lock(hashtextextended('email-notification:' || @notificationType || ':' || @accountId::text, 0))",
+            new { notificationType, accountId = accountId.ToString() }, transaction, cancellationToken: cancellationToken));
+    }
+
+    public async Task<bool> HasPendingOrSentSinceAsync(
+        string notificationType, Guid accountId, DateTimeOffset since, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<bool>(new CommandDefinition(
+            "SELECT EXISTS (SELECT 1 FROM socalytics.email_messages " +
+            "WHERE notification_type = @notificationType AND account_id = @accountId AND state <> 'discarded' AND created_at >= @since)",
+            new { notificationType, accountId, since }, session.Transaction, cancellationToken: cancellationToken));
+    }
+}

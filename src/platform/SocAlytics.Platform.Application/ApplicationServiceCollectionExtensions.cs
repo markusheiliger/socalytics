@@ -87,6 +87,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Queries.GetMatchRecordingLineageHandler>();
 
         services.TryAddScoped<SocAlytics.Platform.Application.Notifications.IEmailOutbox, SocAlytics.Platform.Application.Notifications.EmailOutbox>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Notifications.RegistrationPendingNotifier>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.GetEmailAddressHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.SetEmailAddressHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.RemoveEmailAddressHandler>();
