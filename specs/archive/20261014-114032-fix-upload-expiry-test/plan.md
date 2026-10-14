@@ -2,7 +2,7 @@
 
 **Branch**: `20261014-114032-fix-upload-expiry-test` | **Date**: 2026-10-14 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261014-114032-fix-upload-expiry-test/spec.md`
+**Input**: Feature specification from `specs/archive/20261014-114032-fix-upload-expiry-test/spec.md`
 
 ## Summary
 
@@ -33,7 +33,7 @@ Remove the wall-clock race from `UploadSessionExpiryTests.ExpiredSessionIsRefuse
 ## Project Structure
 
 ```text
-specs/20261014-114032-fix-upload-expiry-test/
+specs/archive/20261014-114032-fix-upload-expiry-test/
 ├── spec.md
 ├── plan.md
 ├── tasks.md

@@ -34,7 +34,7 @@ public sealed class UploadSessionExpiryTests(PostgresContainerFixture postgres, 
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
 		await using var factory = new PlatformApiFactory(
 			db,
-			recordingUpload: RecordingTestData.WithKeyPrefix(RecordingTestData.NewKeyPrefix(), new Dictionary<string, string?> { ["SessionLifetime"] = "00:00:02", ["ExpirySweepInterval"] = "01:00:00" }),
+			recordingUpload: RecordingTestData.WithKeyPrefix(RecordingTestData.NewKeyPrefix(), new Dictionary<string, string?> { ["SessionLifetime"] = "00:10:00", ["ExpirySweepInterval"] = "01:00:00" }),
 			objectStorage: new Dictionary<string, string?>
 			{
 				["ServiceUrl"] = rustFs.ServiceUrl,
@@ -66,9 +66,23 @@ public sealed class UploadSessionExpiryTests(PostgresContainerFixture postgres, 
 		var sessionUrl = $"/api/v1/matches/{hierarchy.MatchId}/upload-sessions/{id}";
 		using var before = await admin.SendAsync(HttpMethod.Get, sessionUrl, null, ct);
 		before.Headers.ETag.ShouldNotBeNull();
-		var etag = before.Headers.ETag!.Tag;
+		var pendingEtag = before.Headers.ETag!.Tag;
 
-		await Task.Delay(TimeSpan.FromSeconds(3), ct);
+		// Expire deterministically: the API reads the injected clock, the sweep and completion SQL read the database clock.
+		// The advance stays below the 30 minute BFF session idle timeout so the admin session remains valid.
+		await using (var connection = new NpgsqlConnection(db.MigratorConnectionString))
+		{
+			await connection.OpenAsync(ct);
+			await using var expire = new NpgsqlCommand($"UPDATE socalytics.recording_upload_sessions SET expires_at = now() - interval '1 second' WHERE id = '{id}'", connection);
+			(await expire.ExecuteNonQueryAsync(ct)).ShouldBe(1);
+		}
+
+		using var expiredSetup = await admin.SendAsync(HttpMethod.Get, sessionUrl, null, ct);
+		expiredSetup.Headers.ETag.ShouldNotBeNull();
+		var etag = expiredSetup.Headers.ETag!.Tag;
+		etag.ShouldNotBe(pendingEtag);
+
+		factory.Time.Advance(TimeSpan.FromMinutes(11));
 
 		async Task<HttpResponseMessage> PostAsync(string path, object content)
 		{
