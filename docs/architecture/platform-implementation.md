@@ -74,14 +74,20 @@ Executable components use or will use the native workspace and dependency tools
 of each ecosystem:
 
 - .NET solution and projects for C# components
-- `pnpm` workspace for the separately packaged TypeScript client applications
-  and selected environment-neutral shared packages, as described by
-  [Client Applications](client-applications.md)
+- npm for the Web UI: `src/clients/web` is currently one npm project with a
+  committed `package-lock.json`. The `pnpm` workspace for separately packaged
+  TypeScript client applications and selected environment-neutral shared
+  packages, as described by [Client Applications](client-applications.md),
+  remains the planned design once such packages exist.
 - `uv`, `pyproject.toml`, and committed lockfiles for Python projects
-- future versioned OpenAPI and JSON Schema documents for cross-language contracts
+- versioned OpenAPI and JSON Schema documents for cross-language contracts: the
+  platform's versioned OpenAPI document is committed as the snapshot
+  `src/platform/SocAlytics.Platform.Api/openapi/v1.json`, from which the Web UI
+  builds its generated client, while JSON Schema contract documents follow
+  their own features
 
 The platform API and control-plane baseline is ASP.NET Core on .NET 10 LTS; the
-initial host implements that runtime choice. The remaining ecosystem tooling is
+initial host implements that runtime choice. The Python ecosystem tooling is
 future until its owning source area gains executable projects.
 Future deployables will use cloud-neutral OCI images. .NET Aspire owns local
 development composition, service discovery, health checks, OpenTelemetry
