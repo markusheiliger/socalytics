@@ -60,10 +60,10 @@ workflow started you): never ask, and turn every open question into a report que
    | Category | When | Typical way forward |
    | --- | --- | --- |
    | `artifacts` | The task cannot be done as written, or doing it as written cannot meet the spec: a missing, ambiguous, or contradictory design decision; a wrong assumption in research; a task too vague to diagnose its failure; a missing prerequisite task; a wrong task order; or a code fix inside this feature needed first (a **corrective task**) | an amendment pull request (step 5) that the person reviews and merges |
-   | `retry` | Transient infrastructure (timeouts, rate limits, runner or network failures, Copilot errors, a flaky test with evidence), or the agent took a poor approach although the artifacts are adequate | `/speckit resume <concrete guidance>` |
-   | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | name what must change where (a fix on the base branch, an environment spec, a tooling fix); when the fix is already on the base branch, `/speckit sync` |
-   | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered options with questions; the person answers with `/speckit diagnose <answers>` |
-   | `unknown` | Not enough evidence | what was checked and ruled out, and what to look at next |
+   | `retry` | Transient infrastructure (timeouts, rate limits, runner or network failures, Copilot errors, a flaky test with evidence), or the agent took a poor approach although the artifacts are adequate | `/speckit retry <concrete guidance>`: restarts without merging the base branch for it |
+   | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | code, tests, or environment actions: `/speckit fix <what to fix, where, and how>`, which has a fix spec authored for it; the fix is already on the base branch: `/speckit resume <guidance>`, which merges it first; tooling under `.github/` or a non-code cause: name the action in the title, then `/speckit resume <guidance>` |
+   | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered questions with the recommended choice first; `/speckit diagnose 1. <choice> 2. <choice>` prefilled with the recommended answers |
+   | `unknown` | Not enough evidence | what was checked and ruled out; `/speckit diagnose <what to examine next>` |
 
 5. **Amend (only for `artifacts`).**
    - Edit the highest wrong artifact first, then carry the change down: `spec.md` (only with a person's answer) →
@@ -92,9 +92,12 @@ workflow started you): never ask, and turn every open question into a report que
      implementation branch and push (a person's push restarts the implementation with a fresh attempt count), or
      push it to `speckit-amend/<folder>` and open a pull request against `speckit/<folder>` for review.
 6. **Report** the diagnosis.
-   - Non-interactive: call `speckit_diagnosis` exactly once with the diagnosis report below as one JSON string.
+   - Non-interactive: write the report below to a scratch file outside the repository and check it with
+     `node .speckit-tooling/.github/scripts/speckit-diagnose.mjs check-report <file>`, which prints the problems and
+     the comment a person will see. Fix the report until it prints "The report is valid.", then call
+     `speckit_diagnosis` exactly once with it as one JSON string.
    - Interactive: summarize the cause, evidence, and options; ask which option to take; carry it out, either locally
-     or by commenting the command on the pull request (`gh pr comment <n> --body "/speckit resume <guidance>"`).
+     or by commenting the command on the pull request (`gh pr comment <n> --body "/speckit retry <guidance>"`).
 7. **Fix consistency findings** (mode `fix`). The evidence lists the findings of the independent analysis (and broken
    amendment rules, if any). Fix each one in the artifacts of `<spec folder>/` on the amendment branch, following
    the rules of step 5; when a finding is wrong, leave the artifacts as they are and say why. Commit
@@ -117,19 +120,32 @@ workflow started you): never ask, and turn every open question into a report que
   "cause": "the root cause and the reasoning, in Markdown",
   "evidence": ["one line per piece of evidence, with numbers, files, and runs"],
   "artifacts": [{ "file": "specs/<folder>/research.md", "reason": "what changed and why" }],
-  "options": [{ "title": "what the option does and why", "command": "/speckit resume <guidance>", "recommended": true }],
-  "questions": [{ "question": "a decision a person must make", "choices": ["choice 1", "choice 2"] }]
+  "options": [{ "title": "what the option does, in a few words", "why": "why it solves this problem, from the evidence", "command": "/speckit retry Rerun the verification unchanged; only UploadSessionExpiryTests failed on timing.", "recommended": true }],
+  "questions": [{ "question": "a decision a person must make", "choices": ["recommended choice", "other choice"] }]
 }
 ```
 
-- Mark exactly one option as recommended: the one that **solves** the problem, not the cheapest one. It is the only
-  next step the person sees prominently, so never recommend a retry you expect to fail. A `command` is one line:
-  `/speckit resume <guidance>`, `/speckit sync`, or `/speckit diagnose <notes>`. When the solution needs an action
-  outside these commands (for example "fix the timing of the trigger test on the base branch"), describe that action
-  in the option's title and set `command` to the command that continues afterwards (usually `/speckit sync`), so the
-  recommendation is one option. Reviewing and merging the amendment pull request has `"command": null`. Add other
-  options only when they are real alternatives.
-- `artifacts` lists the changed files of the amendment; leave it empty otherwise. Ask at most three questions.
+- `options` are JSON objects, never plain text. Mark exactly one as recommended: the one that **solves** the problem,
+  not the cheapest one. It is the only next step the person sees prominently, so never recommend a retry you expect to
+  fail. The person decides from the comment alone: `why` explains in one or two sentences why the option solves this
+  problem (the comment adds what the command does).
+- The recommended command must fit the category, or the comment replaces it with the category's default: `retry` →
+  `/speckit retry`; `outside` → `/speckit fix` or `/speckit resume`; `artifacts` (without an amendment pull request),
+  `decision`, and `unknown` → `/speckit diagnose`.
+- A `command` is one line a person can post as it is: `/speckit retry <guidance>` (restarts what stopped without
+  merging the base branch for it; a phase that has not started, the convergence, and the merge always merge it first),
+  `/speckit resume <guidance>` (merges the base branch first, then
+  restarts), `/speckit fix <what to fix>` (has a fix spec authored for a cause on the base branch; the implementation
+  resumes by itself once it has landed), or `/speckit diagnose <notes or answers>`. Write the guidance, notes, or
+  answers out from your findings; never leave placeholders such as `<guidance>` or `[notes]`, and leave the text out
+  only when there is nothing useful to add. For `decision`, prefill the answers with the recommended choices:
+  `/speckit diagnose 1. <first choice> 2. <first choice>`.
+- When the solution needs an action outside these commands (for example "grant the workflow access to the
+  registry"), describe that action in the option's title and set `command` to the command that continues afterwards
+  (usually `/speckit resume <guidance>`), so the recommendation is one option. Reviewing and merging the amendment pull
+  request has `"command": null`. Add other options only when they are real alternatives, each with its `why`.
+- `artifacts` lists the changed files of the amendment; leave it empty otherwise. Ask at most three questions, each
+  with its recommended choice first.
 
 ## Rework report (modes `fix` and `revise`)
 

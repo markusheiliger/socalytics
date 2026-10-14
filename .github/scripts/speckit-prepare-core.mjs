@@ -44,6 +44,14 @@ export function isValidFolderName(folder) {
   return typeof folder === 'string' && FOLDER_PATTERN.test(folder) && folder !== '.' && folder !== '..';
 }
 
+// A fix spec (`/speckit fix`) names the implementation pull request it unblocks in spec.md: "**Fix for**: #75 …". It
+// skips dependency inference (the tooling links it to the spec it unblocks) and starts ahead of the scheduler's limit.
+const FIX_FOR_LINE = /^\*\*Fix for\*\*:[^\n]*?#(\d+)/m;
+export function parseFixForLine(specMarkdown) {
+  const match = String(specMarkdown ?? '').match(FIX_FOR_LINE);
+  return match ? Number(match[1]) : null;
+}
+
 // Builds the spec entry used by sync and request checks from raw file contents of one spec folder. `archived` marks a
 // spec in specs/archive/, which is implemented.
 export function buildSpecEntry(folder, { specMarkdown, hasPlan, tasksMarkdown, checklistMarkdowns, archived = false }) {
@@ -54,6 +62,7 @@ export function buildSpecEntry(folder, { specMarkdown, hasPlan, tasksMarkdown, c
     tasks: tasksMarkdown,
     openChecklistItems: countOpenChecklistItems(checklistMarkdowns),
     archived,
+    fixFor: parseFixForLine(specMarkdown),
   };
 }
 
@@ -306,7 +315,7 @@ export function planSync({ specs, issues, context }) {
     }
     if (!twin) {
       if (unreadable.length > 0) plan.skippedCreates.push({ folder, title });
-      else plan.create.push({ folder, title, body, stage: deriveStage(artifacts, tasks) });
+      else plan.create.push({ folder, title, body, stage: deriveStage(artifacts, tasks), fix: entry.fixFor !== null && entry.fixFor !== undefined });
       continue;
     }
     if (twin.state === 'closed') {

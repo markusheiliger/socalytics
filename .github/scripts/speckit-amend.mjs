@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { canWrite, resolveImplementRequester } from './speckit-prepare.mjs';
 import {
+  AMEND_BRANCH_PREFIX,
   AMEND_CHECK_NAME,
   AMEND_PRESENTED_MARKER,
   AMEND_REWORK_MARKER,
@@ -13,18 +14,23 @@ import {
   CHECK_AMEND_INCONSISTENT,
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_STALE_MS,
+  FIX_BRANCH_PREFIX,
+  FIX_WORKFLOW_FILE,
   MAX_CORRECTION_ROUNDS,
   MAX_STALLED_ROUNDS,
   amendmentBranch,
-  behindBaseOf,
   defaultBranchOf,
   dispatchImplementation,
+  fixBranch,
   folderOfBranch,
   implementationBranch,
   isTwinRunOf,
   latestCheckRun,
   neutralizeMarkers,
+  nextStepContext,
+  parseFixFor,
   renderAmendmentHowTo,
+  renderFixHowTo,
   renderNextSteps,
   renderResumeComment,
   readSpecTasks,
@@ -49,7 +55,7 @@ const CUTOFF_PATTERN = /<!-- speckit-amend:cutoff (\S+) -->/;
 export const renderCutoff = (iso) => `<!-- speckit-amend:cutoff ${iso} -->`;
 // Marks, on the implementation pull request, that a person's merge or close of an amendment was handled.
 export const renderClosedMarker = (number) => `<!-- speckit-amend:closed ${number} -->`;
-const AMEND_RUN_WORKFLOWS = [ANALYZE_WORKFLOW_FILE, DIAGNOSE_WORKFLOW_FILE];
+const AMEND_RUN_WORKFLOWS = [ANALYZE_WORKFLOW_FILE, DIAGNOSE_WORKFLOW_FILE, FIX_WORKFLOW_FILE];
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class AmendUsageError extends Error {}
@@ -68,13 +74,14 @@ export async function guardPullRequest(client, env, pull, { report = () => {} } 
   const folder = folderOfBranch(head);
   if (!folder || pull.state !== 'open' || (env.GITHUB_REPOSITORY && pull.head?.repo?.full_name !== env.GITHUB_REPOSITORY)) return { actions: [] };
   const isAmendment = head === amendmentBranch(folder);
+  const isFix = head === fixBranch(folder);
   const notes = [];
   const actions = [];
   if (pull.stack?.number) {
     await client.unstackPullRequests(pull.stack.number);
     actions.push('unstacked');
-    notes.push(isAmendment
-      ? 'This pull request was removed from its pull request stack. Merging a stacked pull request also merges the ones below it, so the unfinished implementation would reach its base branch with it.'
+    notes.push(isAmendment || isFix
+      ? 'This pull request was removed from its pull request stack. Merging a stacked pull request also merges the ones below it, so unfinished work would reach its base branch with it.'
       : 'This pull request was removed from its pull request stack. Spec Kit pull requests are not stacked: merging a stacked amendment would also merge this unfinished implementation into its base branch.');
   }
   const base = implementationBranch(folder);
@@ -83,6 +90,12 @@ export async function guardPullRequest(client, env, pull, { report = () => {} } 
     actions.push(`retargeted from ${pull.base?.ref}`);
     notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${base}\`: an amendment only merges into its implementation branch. The implementation reaches its base branch through its own pull request once it is complete.`);
   }
+  const defaultBranch = String(env.SPECKIT_DEFAULT_BRANCH ?? '').trim();
+  if (isFix && defaultBranch && pull.base?.ref !== defaultBranch) {
+    await client.updatePullRequest(pull.number, { base: defaultBranch });
+    actions.push(`retargeted from ${pull.base?.ref}`);
+    notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${defaultBranch}\`: a fix spec merges into the default branch, where its twin is created and its implementation starts.`);
+  }
   if (actions.length > 0) {
     await client.createComment(pull.number, notes.join('\n\n'));
     report(`- Guarded #${pull.number}: ${actions.join(', ')}.`);
@@ -90,9 +103,14 @@ export async function guardPullRequest(client, env, pull, { report = () => {} } 
   return { actions };
 }
 
-// Checks an amendment pull request against the hard rules for amendments (paths and task checks). The spec folder is
-// wherever the amendment's base (the implementation branch) has it, archived or not.
-export async function checkAmendment(client, { folder, amendment }) {
+// Checks a spec pull request against its hard rules: an amendment's paths and task checks (the spec folder is
+// wherever the amendment's base, the implementation branch, has it, archived or not), or a fix spec's rules
+// (checkFixSpec).
+export async function checkAmendment(client, { folder, amendment, kind = 'amend', implementation = null }) {
+  if (kind === 'fix') {
+    const { checkFixSpec } = await import('./speckit-fix.mjs');
+    return checkFixSpec(client, { folder, pull: amendment, implementationPull: implementation?.number ?? parseFixFor(amendment.body)?.pull ?? null });
+  }
   const files = await client.listPullRequestFiles(amendment.number);
   const changedPaths = [...new Set(files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean))];
   const { archived } = await readSpecTasks(client, folder, amendment.base.sha);
@@ -103,18 +121,30 @@ export async function checkAmendment(client, { folder, amendment }) {
   return { changedPaths, ...validateAmendment({ folder, archived, changedPaths, beforeTasks, afterTasks }) };
 }
 
-// Resolves an amendment pull request (head speckit-amend/<folder>) to its open implementation pull request and twin.
+// Resolves a spec pull request to its open implementation pull request and twin: an amendment (head
+// speckit-amend/<folder>, the implementation of the same folder) or a fix spec (head speckit-fix/<fix folder>, the
+// implementation named by its description's marker). `kind` is `amend` or `fix`; `folder` is the spec folder the pull
+// request changes.
 export async function resolveAmendment(client, env, number) {
   const amendment = await client.getPullRequest(number);
   const head = String(amendment.head?.ref ?? '');
-  const folder = head.startsWith('speckit-amend/') ? folderOfBranch(head) : null;
-  if (!folder || amendment.head?.repo?.full_name !== env.GITHUB_REPOSITORY) return { reason: 'this is not a Spec Kit amendment pull request' };
-  const listed = (await client.listPullRequestsForHead(implementationBranch(folder))).find((pull) => pull.state === 'open');
-  if (!listed) return { reason: `there is no open implementation pull request for \`specs/${folder}\``, amendment, folder };
+  const kind = head.startsWith(AMEND_BRANCH_PREFIX) ? 'amend' : head.startsWith(FIX_BRANCH_PREFIX) ? 'fix' : null;
+  const folder = kind ? folderOfBranch(head) : null;
+  if (!folder || amendment.head?.repo?.full_name !== env.GITHUB_REPOSITORY) return { reason: 'this is not a Spec Kit amendment or fix spec pull request' };
+  let listed;
+  if (kind === 'fix') {
+    const target = parseFixFor(amendment.body)?.pull;
+    if (!target) return { reason: 'the fix spec pull request does not name the implementation it unblocks', amendment, folder, kind };
+    listed = await client.getPullRequest(target);
+    if (listed.state !== 'open') return { reason: `the implementation pull request #${target} is not open`, amendment, folder, kind };
+  } else {
+    listed = (await client.listPullRequestsForHead(implementationBranch(folder))).find((pull) => pull.state === 'open');
+    if (!listed) return { reason: `there is no open implementation pull request for \`specs/${folder}\``, amendment, folder, kind };
+  }
   const implementation = await client.getPullRequest(listed.number);
   const twin = Number(String(implementation.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
-  if (!Number.isInteger(twin)) return { reason: `the implementation pull request #${implementation.number} does not name its twin`, amendment, folder };
-  return { amendment, folder, implementation, twin };
+  if (!Number.isInteger(twin)) return { reason: `the implementation pull request #${implementation.number} does not name its twin`, amendment, folder, kind };
+  return { amendment, folder, implementation, twin, kind };
 }
 
 async function requesterOf(client, twin) {
@@ -132,7 +162,7 @@ function runLink(env) {
 // Starts the independent consistency analysis of the amendment's current head. `mode` is `loop` (findings lead to
 // correction rounds) or `check` (after a person's push: report only). After a correction round, `previous` holds the
 // round's tracked findings and `stalls` the rounds without progress so far.
-export async function startAnalysis(client, env, { amendment, folder, implementation, twin }, { round, mode = 'loop', stalls = 0, previous = [] }) {
+export async function startAnalysis(client, env, { amendment, folder, implementation, twin, kind = 'amend' }, { round, mode = 'loop', stalls = 0, previous = [] }) {
   const current = await client.getPullRequest(amendment.number);
   const check = await client.createCheckRun({
     name: AMEND_CHECK_NAME,
@@ -155,6 +185,7 @@ export async function startAnalysis(client, env, { amendment, folder, implementa
       previous: previous.length > 0 ? encodeTracked(previous) : '',
       mode,
       check_run: String(check.id),
+      kind,
     });
     return { started: true, check };
   } catch (error) {
@@ -169,11 +200,12 @@ export async function startAnalysis(client, env, { amendment, folder, implementa
   }
 }
 
-// Starts a rework of the amendment: `revise` with a person's feedback (`feedback`, from pendingFeedback, handed to the
-// rework as notes), or `fix` with the findings of the consistency check. The pull request goes back to draft until it
-// is presented again.
+// Starts a rework of the amendment or fix spec: `revise` with a person's feedback (`feedback`, from pendingFeedback,
+// handed to the rework as notes), or `fix` with the findings of the consistency check. The pull request goes back to
+// draft until it is presented again. Amendments are reworked by Spec Kit diagnose, fix specs by Spec Kit fix.
 export async function startRework(client, env, context, { mode, round = 0, notes = '', feedback = null, stalls = 0, findings = [], progress = null }) {
-  const { amendment, folder, implementation, twin } = context;
+  const { amendment, folder, implementation, twin, kind = 'amend' } = context;
+  const noun = kind === 'fix' ? 'fix spec' : 'amendment';
   const current = await client.getPullRequest(amendment.number);
   if (!current.draft) await client.convertToDraft(current.node_id);
   if (mode === 'revise') {
@@ -184,7 +216,7 @@ export async function startRework(client, env, context, { mode, round = 0, notes
     await client.createComment(amendment.number, [
       AMEND_REWORK_MARKER,
       ...(cutoff ? [renderCutoff(cutoff)] : []),
-      `**Reworking this amendment** with the feedback${authors.length > 0 ? ` from ${authors.map((login) => `@${login}`).join(', ')}` : ''}. It returns here for your review once it is consistent again.`,
+      `**Reworking this ${noun}** with the feedback${authors.length > 0 ? ` from ${authors.map((login) => `@${login}`).join(', ')}` : ''}. It returns here for your review once it is consistent again.`,
     ].join('\n'));
   } else {
     await client.createComment(amendment.number, [
@@ -202,15 +234,16 @@ export async function startRework(client, env, context, { mode, round = 0, notes
     head_sha: current.head.sha,
     status: 'in_progress',
     external_id: CHECK_AMEND_CHECKING,
-    output: { title: mode === 'revise' ? 'Rework in progress' : `Correction round ${round} in progress`, summary: clip(notes, 2000) || 'Reworking the amendment.' },
+    output: { title: mode === 'revise' ? 'Rework in progress' : `Correction round ${round} in progress`, summary: clip(notes, 2000) || `Reworking the ${noun}.` },
   });
   try {
-    await client.dispatchWorkflow(DIAGNOSE_WORKFLOW_FILE, defaultBranchOf(env), {
+    // Only inputs the dispatched workflow declares: GitHub rejects a dispatch with any other input.
+    await client.dispatchWorkflow(kind === 'fix' ? FIX_WORKFLOW_FILE : DIAGNOSE_WORKFLOW_FILE, defaultBranchOf(env), {
       twin: String(twin),
       pull: String(implementation.number),
       folder,
       notes: clip(notes, 20_000),
-      previous: '',
+      ...(kind === 'fix' ? {} : { previous: '' }),
       check_run: String(check.id),
       mode,
       amendment: String(amendment.number),
@@ -231,21 +264,28 @@ export async function startRework(client, env, context, { mode, round = 0, notes
   }
 }
 
-// The first steps for an amendment a diagnosis just created: mark the start of the feedback window, describe the
-// state, and start the consistency check.
+// The first steps for an amendment a diagnosis just created, or a fix spec `/speckit fix` just authored: mark the start
+// of the feedback window, describe the state, and start the consistency check.
 export async function beginAmendment(client, env, context) {
-  const { amendment, implementation } = context;
+  const { amendment, implementation, kind = 'amend' } = context;
   const requester = await requesterOf(client, context.twin);
+  const origin = kind === 'fix'
+    ? `This fix spec was requested with \`/speckit fix\` on #${implementation.number}.`
+    : `This amendment comes from the diagnosis on #${implementation.number}.`;
   await client.createComment(amendment.number, [
     AMEND_REWORK_MARKER,
     renderCutoff(amendment.created_at ?? new Date(0).toISOString()),
-    `This amendment comes from the diagnosis on #${implementation.number}. An independent \`/speckit-analyze\` now checks it for consistency, and correction rounds fix what it finds while they make progress; then it is handed to ${requester ? `@${requester}` : 'you'} for review.`,
+    `${origin} An independent \`/speckit-analyze\` now checks it for consistency, and correction rounds fix what it finds while they make progress; then it is handed to ${requester ? `@${requester}` : 'you'} for review.`,
   ].join('\n'));
   const current = await client.getPullRequest(amendment.number);
   await client.updatePullRequest(amendment.number, {
-    body: setAmendmentStatus(current.body, ['⏳ **Being checked for consistency.** You are asked to review it when the check is done.', '', ...renderAmendmentHowTo(implementation.number)]),
+    body: setAmendmentStatus(current.body, ['⏳ **Being checked for consistency.** You are asked to review it when the check is done.', '', ...howTo(context)]),
   });
   return startAnalysis(client, env, context, { round: 0, mode: 'loop' });
+}
+
+function howTo({ kind = 'amend', implementation, amendment }) {
+  return kind === 'fix' ? renderFixHowTo(implementation.number, amendment?.base?.ref ?? null) : renderAmendmentHowTo(implementation.number);
 }
 
 // Feedback from people with write access since the last rework or presentation (their cutoff time): conversation
@@ -373,7 +413,7 @@ function renderFindings(findings, rules = [], { ids = false } = {}) {
 // Hands the amendment to the person who requested the implementation: ready for review when it is consistent (a
 // draft otherwise), assigned, review requested, status in the description, and a note on the implementation.
 export async function presentAmendment(client, env, context, { consistent, analysis = null, rules = [], problem = null, since = null }) {
-  const { amendment, folder, implementation, twin } = context;
+  const { amendment, folder, implementation, twin, kind = 'amend' } = context;
   const current = await client.getPullRequest(amendment.number);
   const requester = await requesterOf(client, twin);
   if (consistent && current.draft) await client.markReadyForReview(current.node_id);
@@ -394,7 +434,7 @@ export async function presentAmendment(client, env, context, { consistent, analy
   const status = consistent
     ? `✅ **Consistent**: an independent \`/speckit-analyze\` of \`specs/${folder}/\` found no CRITICAL, HIGH, or MEDIUM inconsistencies${findings.length > 0 ? ` (${findings.length} LOW finding(s), listed in the comments)` : ''}.`
     : `⚠️ **Not consistent**: ${problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`}. Review the findings in the comments; merging is possible but not recommended.`;
-  await client.updatePullRequest(amendment.number, { body: setAmendmentStatus(current.body, [status, '', ...renderAmendmentHowTo(implementation.number)]) });
+  await client.updatePullRequest(amendment.number, { body: setAmendmentStatus(current.body, [status, '', ...howTo(context)]) });
   await client.createComment(amendment.number, [
     AMEND_PRESENTED_MARKER,
     ...(since ? [renderCutoff(since)] : []),
@@ -402,11 +442,17 @@ export async function presentAmendment(client, env, context, { consistent, analy
     ...(analysis?.summary ? ['', neutralizeMarkers(analysis.summary)] : []),
     ...(findings.length > 0 || rules.length > 0 ? ['', '<details><summary>Findings</summary>', '', renderFindings(findings, rules), '', '</details>'] : []),
     '',
-    ...renderAmendmentHowTo(implementation.number),
+    ...howTo(context),
   ].join('\n'));
-  await client.createComment(implementation.number, consistent
-    ? `**Amendment #${amendment.number} is ready for your review**: it is consistent. Merge it to apply it (the implementation then continues), comment or request changes there to have it reworked, or close it to discard it.`
-    : `**Amendment #${amendment.number} is not consistent** (${problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`}). Review its findings there: comment or request changes to have it reworked, or close it.`);
+  const remaining = problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`;
+  const link = amendment.html_url ? `[#${amendment.number}](${amendment.html_url})` : `#${amendment.number}`;
+  await client.createComment(implementation.number, kind === 'fix'
+    ? (consistent
+      ? `**Fix spec ${link} is ready for your review**: it is consistent. Merge it to add the fix spec to \`${current.base?.ref ?? 'the default branch'}\` (it is then implemented, and this implementation resumes by itself once the fix has landed), comment or request changes there to have it reworked, or close it to discard it.`
+      : `**Fix spec ${link} is not consistent** (${remaining}). Review its findings there: comment or request changes to have it reworked, or close it.`)
+    : (consistent
+      ? `**Amendment ${link} is ready for your review**: it is consistent. Merge it to apply it (the implementation then continues), comment or request changes there to have it reworked, or close it to discard it.`
+      : `**Amendment ${link} is not consistent** (${remaining}). Review its findings there: comment or request changes to have it reworked, or close it.`));
   return { consistent, requester };
 }
 
@@ -456,7 +502,7 @@ export async function runRecordAnalysis({ client, env, log }) {
   const { reasons, analysis } = withheld
     ? { reasons: [`the analysis was withheld because threat detection did not pass (result: ${detection})`], analysis: null }
     : reports.length > 0 ? validateAnalysis(reports.at(-1)) : { reasons: ['the analysis did not report'], analysis: null };
-  const rules = (await checkAmendment(client, { folder: context.folder, amendment: context.amendment })).reasons;
+  const rules = (await checkAmendment(client, { folder: context.folder, amendment: context.amendment, kind: context.kind, implementation: context.implementation })).reasons;
   const blocking = (analysis?.findings ?? []).filter((item) => BLOCKING.has(item.severity));
   const consistent = Boolean(analysis) && rules.length === 0 && blocking.length === 0;
   const findingsText = renderFindings(analysis?.findings ?? [], rules);
@@ -587,7 +633,7 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
     await client.createComment(implementation.number, [
       `${marker}\n**Amendment #${amendment.number} was merged into \`${amendment.base?.ref}\`** by ${by}, not into \`${base}\`. The implementation did not get it and stays stopped. Revert that merge on \`${amendment.base?.ref}\`.`,
       '',
-      ...renderNextSteps({ diagnosed: true }),
+      ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folder)) }),
     ].join('\n'));
     return { outcome: 'misdirected' };
   }
@@ -610,18 +656,25 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
     }
     return { outcome: 'merged' };
   }
-  const behindBase = await behindBaseOf(client, implementation, folder);
-  await client.createComment(implementation.number, [`${marker}\nAmendment #${amendment.number} was closed without merging by ${by}.`, '', ...renderNextSteps({ diagnosed: true, behindBase })].join('\n'));
+  await client.createComment(implementation.number, [`${marker}\nAmendment #${amendment.number} was closed without merging by ${by}.`, '', ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folder)) })].join('\n'));
   return { outcome: 'discarded' };
 }
 
-// An amendment pull request was closed by a person: merged (the implementation continues on the implementation
-// pull request) or discarded.
+// A spec pull request was closed by a person: an amendment merged (the implementation continues on the implementation
+// pull request) or discarded, or a fix spec merged (it is implemented next) or discarded.
 export async function runClosed({ client, env, log }) {
   const number = Number(env.SPECKIT_PULL);
   const amendment = await client.getPullRequest(number);
   const head = String(amendment.head?.ref ?? '');
-  const folder = head.startsWith('speckit-amend/') ? folderOfBranch(head) : null;
+  if (head.startsWith(FIX_BRANCH_PREFIX)) {
+    const { settleClosedFix } = await import('./speckit-fix.mjs');
+    const context = await resolveAmendment(client, env, number);
+    if (!context.implementation) return { exitCode: 0, outcome: 'no implementation' };
+    const result = await settleClosedFix(client, env, { ...context, actor: env.SPECKIT_ACTOR || null });
+    log(`Fix spec #${number}: ${result.outcome}.`);
+    return { exitCode: 0, outcome: result.outcome };
+  }
+  const folder = head.startsWith(AMEND_BRANCH_PREFIX) ? folderOfBranch(head) : null;
   if (!folder) return { exitCode: 0, outcome: 'ignored' };
   const implementation = (await client.listPullRequestsForHead(implementationBranch(folder))).find((pull) => pull.state === 'open');
   if (!implementation) return { exitCode: 0, outcome: 'no implementation' };
@@ -655,23 +708,31 @@ export async function maintainAmendment(client, env, { folder, implementation, t
     return { outcome: settled.outcome };
   }
   await guardPullRequest(client, env, await client.getPullRequest(latest.number), { report });
-  const context = { amendment: await client.getPullRequest(latest.number), folder, implementation, twin };
+  const context = { amendment: await client.getPullRequest(latest.number), folder, implementation, twin, kind: 'amend' };
+  return maintainOpenSpecPull(client, env, context, { now, report });
+}
+
+// An open amendment or fix spec pull request (scheduler side): closes a check that never finished, starts a rework for
+// feedback no event delivered, and checks a person's push no event reported.
+export async function maintainOpenSpecPull(client, env, context, { now = Date.now(), report = () => {} } = {}) {
+  const number = context.amendment.number;
+  const noun = context.kind === 'fix' ? 'fix spec' : 'amendment';
   const state = await reworkRunning(client, context, now);
   if (state.running) return { outcome: 'running' };
   if (state.stale) {
     await closeStaleCheck(client, state.stale);
-    await client.createComment(latest.number, 'The consistency check or rework did not finish. Comment on this pull request to try again.');
-    report(`- Closed the unfinished check of amendment #${latest.number}.`);
+    await client.createComment(number, 'The consistency check or rework did not finish. Comment on this pull request to try again.');
+    report(`- Closed the unfinished check of ${noun} #${number}.`);
   }
   const pending = await pendingFeedback(client, context.amendment);
   if (pending.items.length > 0) {
     await startRework(client, env, context, { mode: 'revise', feedback: pending });
-    report(`- Started a rework of amendment #${latest.number} with ${pending.items.length} feedback item(s).`);
+    report(`- Started a rework of ${noun} #${number} with ${pending.items.length} feedback item(s).`);
     return { outcome: 'rework' };
   }
   if (!state.stale && !state.latest) {
     await startAnalysis(client, env, context, { round: 0, mode: 'check' });
-    report(`- Checking the changes pushed to amendment #${latest.number}.`);
+    report(`- Checking the changes pushed to ${noun} #${number}.`);
     return { outcome: 'checking' };
   }
   return { outcome: state.stale ? 'stale' : 'idle' };

@@ -1,13 +1,17 @@
 name: Spec Kit commands
 
 # Handles people's input on Spec Kit pull requests:
-#   - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): diagnose, resume, sync, help.
-#   - Feedback on amendment pull requests (speckit-amend/<folder>): a comment, or a review with Comment or Request
-#     changes, has the amendment reworked (Spec Kit diagnose, mode revise) and checked again (Spec Kit analyze).
-#   - Closing an amendment pull request: merged (the implementation continues) or discarded; a person's push to an
-#     amendment branch is checked again.
-#   - Guard: Spec Kit pull requests are removed from pull request stacks, and an amendment's base branch is set back to
-#     its implementation branch (the scheduler, Spec Kit orchestrate, does the same on every run, also for events this job cannot see).
+#   - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): diagnose, retry, resume, fix,
+#     help.
+#   - Feedback on amendment pull requests (speckit-amend/<folder>) and fix spec pull requests (speckit-fix/<folder>): a
+#     comment, or a review with Comment or Request changes, has it reworked (Spec Kit diagnose or Spec Kit fix, mode
+#     revise) and checked again (Spec Kit analyze).
+#   - Closing an amendment pull request: merged (the implementation continues) or discarded; closing a fix spec pull
+#     request: merged (its twin is implemented next, and the stopped implementation resumes once it has landed) or
+#     discarded. A person's push to such a branch is checked again.
+#   - Guard: Spec Kit pull requests are removed from pull request stacks, an amendment's base branch is set back to
+#     its implementation branch, and a fix spec's to the default branch (the scheduler, Spec Kit orchestrate, does the
+#     same on every run, also for events this job cannot see).
 # Only people with write access are heard; comments and reviews by bots never trigger. Reviews arrive through a small
 # forwarder job, because GitHub runs pull_request_review workflows from the pull request's merge ref; it only
 # dispatches this workflow on the default branch, where everything else runs.
@@ -104,7 +108,7 @@ jobs:
         with:
           node-version: 24
 
-      # The script ignores pull requests that are not amendments and people without write access.
+      # The script ignores pull requests that are not amendments or fix specs, and people without write access.
       - name: Handle the feedback
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -119,7 +123,8 @@ jobs:
     # Runs from the pull request's merge ref; it only hands the review to this workflow on the default branch.
     if: >-
       github.event_name == 'pull_request_review' &&
-      startsWith(github.event.pull_request.head.ref, 'speckit-amend/') &&
+      (startsWith(github.event.pull_request.head.ref, 'speckit-amend/') ||
+      startsWith(github.event.pull_request.head.ref, 'speckit-fix/')) &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.review.user.type != 'Bot' &&
       github.event.review.state != 'approved'
@@ -136,13 +141,14 @@ jobs:
         run: gh workflow run speckit-commands.yml --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH" -f pull="$PULL"
 
   amendment:
-    name: Handle the amendment change
-    # A person merged or closed an amendment pull request, or pushed to its branch. Pushes and closes by the workflow
-    # token raise no events.
+    name: Handle the amendment or fix spec change
+    # A person merged or closed an amendment or fix spec pull request, or pushed to its branch. Pushes and closes by
+    # the workflow token raise no events.
     if: >-
       github.event_name == 'pull_request_target' &&
       (github.event.action == 'closed' || github.event.action == 'synchronize') &&
-      startsWith(github.event.pull_request.head.ref, 'speckit-amend/') &&
+      (startsWith(github.event.pull_request.head.ref, 'speckit-amend/') ||
+      startsWith(github.event.pull_request.head.ref, 'speckit-fix/')) &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.sender.type != 'Bot'
     runs-on: ubuntu-latest
@@ -185,6 +191,7 @@ jobs:
       github.event_name == 'pull_request_target' &&
       github.event.action != 'closed' &&
       (startsWith(github.event.pull_request.head.ref, 'speckit-amend/') ||
+      startsWith(github.event.pull_request.head.ref, 'speckit-fix/') ||
       startsWith(github.event.pull_request.head.ref, 'speckit/')) &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -211,5 +218,6 @@ jobs:
       - name: Guard the pull request
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_PULL: ${{ github.event.pull_request.number }}
         run: node .github/scripts/speckit-amend.mjs guard
