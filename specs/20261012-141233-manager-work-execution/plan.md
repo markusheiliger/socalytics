@@ -152,6 +152,7 @@ src/platform/
 │   ├── Persistence/Migrations/0014_registry_queue_credentials.sql
 │   └── Workers/QueueRevocationWorker.cs               # retries pending account pushes
 ├── SocAlytics.Platform.Api/Registry/AnalystManagerSelfEndpoints.cs   # + queue-credentials
+├── SocAlytics.Platform.Api/openapi/v1.json                           # committed OpenAPI snapshot, refreshed for queue-credentials
 ├── SocAlytics.Platform.AppHost/                       # NATS in JWT mode with generated development trust
 └── Tests/
     ├── SocAlytics.Platform.Integration.Tests/         # credential issuance, revocation fencing, consumers, JWT-mode NATS fixture
