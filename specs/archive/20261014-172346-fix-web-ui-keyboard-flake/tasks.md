@@ -5,7 +5,7 @@ description: "Task list for Deterministic Web UI Keyboard and Club Structure Bro
 
 # Tasks: Deterministic Web UI Keyboard and Club Structure Browser Tests
 
-**Input**: Design documents from `specs/20261014-172346-fix-web-ui-keyboard-flake/`
+**Input**: Design documents from `specs/archive/20261014-172346-fix-web-ui-keyboard-flake/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 

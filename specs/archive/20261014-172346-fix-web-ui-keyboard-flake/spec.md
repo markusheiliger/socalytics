@@ -10,7 +10,7 @@
 
 ## Problem
 
-The Web UI browser tests of [Web UI Foundation](../archive/20261012-150657-web-ui-foundation/spec.md) fail intermittently and stop the verification of other features:
+The Web UI browser tests of [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md) fail intermittently and stop the verification of other features:
 
 - `[simulated] navigation.spec.ts` "shell navigation and home view of a ClubAdmin are operable by keyboard" fails with interactive elements at indexes 9 and 11 reported as not reachable with Tab. The helper `expectAllReachableByKeyboard` presses Tab and reads the focused element immediately, with no wait for the focus change to take effect, so a slow runner makes it read a stale focus and skip elements. It also reports only element indexes, which makes a failure hard to diagnose.
 - `[platform] club-structure.spec.ts` "creates and activates a season, creates two teams, and edits one" once failed because the created team link was not visible within the default 5 s assertion timeout, while the list refetches after creation on a loaded runner.
@@ -59,4 +59,4 @@ A maintainer runs the Web UI browser tests on a slow or loaded machine. The keyb
 ## Assumptions
 
 - The smallest fix is in the test support code and in the one spec: a bounded wait for focus change after each Tab and a named report in `keyboard.ts`, and an explicit timeout on the created-team link assertions in `club-structure.spec.ts`. The cause of the club-structure symptom is assumed to be refetch latency; if a longer timeout does not remove it in repeated runs, the task reports the evidence instead of loosening other assertions.
-- Dependencies: the feature owning the tests is [Web UI Foundation](../archive/20261012-150657-web-ui-foundation/spec.md); the implementation this fix unblocks is #94 (`specs/20261013-122132-web-ui-manager-fleet`).
+- Dependencies: the feature owning the tests is [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md); the implementation this fix unblocks is #94 (`specs/20261013-122132-web-ui-manager-fleet`).

@@ -2,7 +2,7 @@
 
 **Branch**: `20261014-172346-fix-web-ui-keyboard-flake` | **Date**: 2026-10-14 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261014-172346-fix-web-ui-keyboard-flake/spec.md`
+**Input**: Feature specification from `specs/archive/20261014-172346-fix-web-ui-keyboard-flake/spec.md`
 
 ## Summary
 
@@ -31,7 +31,7 @@ Make `expectAllReachableByKeyboard` wait for focus to settle after each Tab pres
 ## Project Structure
 
 ```text
-specs/20261014-172346-fix-web-ui-keyboard-flake/
+specs/archive/20261014-172346-fix-web-ui-keyboard-flake/
 ├── spec.md
 ├── plan.md
 ├── tasks.md
