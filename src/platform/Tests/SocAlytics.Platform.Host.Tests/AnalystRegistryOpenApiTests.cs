@@ -8,7 +8,7 @@ namespace SocAlytics.Platform.Host.Tests;
 
 public sealed class AnalystRegistryOpenApiTests
 {
-	// operationIds of the Analyst registry contract (specs/20261012-152148-analyst-registry/contracts/registry-api.md)
+	// operationIds of the Analyst registry contract (specs/archive/20261012-152148-analyst-registry/contracts/registry-api.md)
 	private static readonly string[] OperationIds =
 	[
 		"registerAnalystImage",

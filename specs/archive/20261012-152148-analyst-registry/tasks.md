@@ -5,7 +5,7 @@ description: "Task list for Analyst Registry: Manifests, Profiles, and Workflow 
 
 # Tasks: Analyst Registry: Manifests, Profiles, and Workflow Resolution
 
-**Input**: Design documents from `specs/20261012-152148-analyst-registry/`
+**Input**: Design documents from `specs/archive/20261012-152148-analyst-registry/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/analyst-manifest-and-packaging.md](contracts/analyst-manifest-and-packaging.md), [contracts/registry-api.md](contracts/registry-api.md), [quickstart.md](quickstart.md)
 

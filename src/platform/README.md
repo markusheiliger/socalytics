@@ -113,7 +113,7 @@ workflow, and resolves analysis runs from the default workflow.
   `approveAnalystProfile`, `retireAnalystProfile`, `defineWorkflow`,
   `listWorkflows`, `getWorkflow`, `getDefaultWorkflow`, and `setDefaultWorkflow`.
   Contracts: `contracts/analysis/analyst-manifest/v1/` and the
-  [Registry API contract](../../specs/20261012-152148-analyst-registry/contracts/registry-api.md).
+  [Registry API contract](../../specs/archive/20261012-152148-analyst-registry/contracts/registry-api.md).
 - `Registry:Images` options: `RegistryHost`, `RepositoryPrefix`, optional
   `Username` and `Token` (configured together), and `UseHttp` (Development and
   Test only; HTTPS is required elsewhere). Only digest references within the

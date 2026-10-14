@@ -2,7 +2,7 @@
 
 **Branch**: `20261012-152148-analyst-registry` | **Date**: 2026-10-12 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261012-152148-analyst-registry/spec.md`
+**Input**: Feature specification from `specs/archive/20261012-152148-analyst-registry/spec.md`
 
 ## Summary
 
@@ -96,7 +96,7 @@ Post-design re-check: passes.
 ### Documentation (this feature)
 
 ```text
-specs/20261012-152148-analyst-registry/
+specs/archive/20261012-152148-analyst-registry/
 ├── plan.md
 ├── research.md          # R1–R9
 ├── data-model.md        # Tables, states, immutability
