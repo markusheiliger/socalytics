@@ -9,13 +9,14 @@ import members from './en/members.json';
 import matches from './en/matches.json';
 import session from './en/session.json';
 import teams from './en/teams.json';
+import uploads from './en/uploads.json';
 
 void i18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'matches'],
-  resources: { en: { common, session, account, shell, club, seasons, teams, members, matches } },
+  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'matches', 'uploads'],
+  resources: { en: { common, session, account, shell, club, seasons, teams, members, matches, uploads } },
   interpolation: { escapeValue: false },
 });
 

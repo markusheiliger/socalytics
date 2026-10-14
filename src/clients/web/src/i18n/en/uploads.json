@@ -1,0 +1,19 @@
+{
+  "mapping": {
+    "title": "Timeline mapping",
+    "intro": "Relate the recording's media time to the match time. Enter times as mm:ss or hh:mm:ss.",
+    "spanLabel": "Span {{number}}",
+    "mediaStart": "Media start",
+    "mediaEnd": "Media end",
+    "matchStart": "Match time at media start",
+    "addSpan": "Add span",
+    "removeSpan": "Remove span {{number}}",
+    "durationHint": "The recording is {{duration}} long.",
+    "noDuration": "The recording's length could not be read. Enter where the media ends.",
+    "invalidTime": "Enter a time as mm:ss or hh:mm:ss.",
+    "required": "This time is required.",
+    "endBeforeStart": "The media end must be after the media start.",
+    "spanRefused": "The platform refused this span.",
+    "mappingRefused": "The platform refused this mapping."
+  }
+}
