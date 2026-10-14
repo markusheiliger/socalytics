@@ -101,3 +101,9 @@ description: "Task list for Analyst Registry: Manifests, Profiles, and Workflow 
 1. Phase 1, then User Story 1 as the MVP (images can be registered and read).
 2. User Story 2 (profiles), then User Story 3 (workflows and resolution, which switches run creation to the Registry).
 3. Documentation and validation.
+
+---
+
+## Phase 6: Convergence
+
+- [ ] T013 In `docs/architecture/job-processing.md` § Durable Foundation, replace the stale statement "until the Registry's capability catalog exists, these queries resolve a configured workflow definition" with the implemented state: the queries resolve the stamp's default workflow from the Registry (approved, content-addressed Analyst profiles and their digest-keyed capability declarations), and a configured workflow definition is used only to seed an empty Registry in Development and Test (evidence: `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs` registers `RegistryWorkflowDefinitionResolver`; `Registry/ConfiguredWorkflowSeeder.cs`); change only that document, then run `node .github/scripts/check-markdown.mjs` per Constitution I, plan: Architecture Updates, FR-012, FR-014 (partial)
