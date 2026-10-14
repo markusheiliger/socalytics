@@ -5,11 +5,13 @@ import { pathToFileURL } from 'node:url';
 
 import {
   IMPLEMENT_STAGE,
+  IMPLEMENTING_STAGE,
   TWIN_LABEL,
   buildSpecEntry,
   deriveStage,
   hasLabel,
   implementBlockers,
+  isImplementRequested,
   isValidFolderName,
   requesterBlockers,
   resolveTwins,
@@ -86,12 +88,15 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   const amendmentNotes = [];
   let amendmentActions = 0;
   for (const [folder, issue] of [...byFolder.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    if (!hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) continue;
     const open = issue.state === 'open';
+    const entry = specs.get(folder);
+    const computedStage = entry ? deriveStage(entry.artifacts, entry.tasks) : null;
+    // Requested twins wait at `implement` and are `implementing` once their pull request is open. A closed twin counts
+    // by its label alone, since its spec may already be archived.
+    if (!isImplementRequested(issue, open ? computedStage : null)) continue;
     // A person who merges a pull request held for review closes the twin through "Closes #<twin>", which leaves
     // the flag and the branch behind; such twins are finalized here like an automatic merge.
     if (!open && issue.state_reason !== 'completed') continue;
-    const entry = specs.get(folder);
     const requester = entry || !open ? await resolveImplementRequester(client, issue.number) : null;
     const lifecycle = requester
       ? decideLifecycle({ pulls: await client.listPullRequestsForHead(implementationBranch(folder)), flaggedAt: requester.labeledAt })
@@ -101,7 +106,6 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       continue;
     }
     if (!open) continue;
-    const computedStage = entry ? deriveStage(entry.artifacts, entry.tasks) : null;
     const reasons = entry
       ? [
         ...requesterBlockers(requester),
@@ -114,6 +118,9 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
     }
 
     if (lifecycle.state === 'in-progress') {
+      // The implementation pull request is open, so the twin is at `implementing` (also when a person opened it or
+      // set the flag again).
+      await markImplementing(client, issue);
       // Amendments first: a merged one resumes the implementation, which the decision must see.
       try {
         const amendment = await maintainAmendment(client, env, { folder, implementation: lifecycle.pull, twin: issue.number }, { now: now(), report: (line) => amendmentNotes.push(line) });
@@ -136,7 +143,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
     if (lifecycle.state === 'fallback') {
       await updateIssueWithLabels(client, issue, stageLabelChange(issue, computedStage));
       await client.createComment(issue.number, [
-        `Implementation pull request #${lifecycle.pull.number} was closed without merging, so the \`${stageLabel(IMPLEMENT_STAGE)}\` flag was removed.`,
+        `Implementation pull request #${lifecycle.pull.number} was closed without merging, so the implementation request was removed.`,
         '',
         `The twin is back at its computed stage \`${computedStage}\`. Flag it again to restart; the branch \`${implementationBranch(folder)}\` is then reset.`,
       ].join('\n'));
@@ -178,6 +185,13 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
 
 async function findOpenPull(client, branch) {
   return (await client.listPullRequestsForHead(branch)).find((pull) => pull.state === 'open') ?? null;
+}
+
+// Moves a requested twin from `implement` to `implementing` once its implementation pull request is open. The label
+// history keeps who requested it and when (resolveImplementRequester).
+async function markImplementing(client, issue) {
+  const change = stageLabelChange(issue, IMPLEMENTING_STAGE);
+  if (change.add.length > 0 || change.remove.length > 0) await updateIssueWithLabels(client, issue, change);
 }
 
 // Completes what the merge does after an automatic merge for a pull request that a person merged:
@@ -279,7 +293,7 @@ export async function runStart({ client, rootDir, env, issueNumber, folder, requ
   // base, which every later merge and comparison of this implementation uses.
   const baseBranch = defaultBranchOf(env);
   const issue = await client.getIssue(issueNumber);
-  if (issue.state !== 'open' || !hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) {
+  if (issue.state !== 'open' || !isImplementRequested(issue)) {
     report.line(`#${issueNumber} is no longer open and flagged; nothing to start.`);
     report.flush();
     return { exitCode: 0 };
@@ -328,6 +342,7 @@ export async function runStart({ client, rootDir, env, issueNumber, folder, requ
     if (!pull) throw new Error(`Could not create or find the pull request for ${branch}${createError ? `: ${createError.message}` : ''}`);
     report.line(`- Opened draft pull request #${pull.number}.`);
   }
+  await markImplementing(client, issue);
 
   try {
     await client.addAssignees(pull.number, [requester]);
@@ -430,8 +445,8 @@ export async function runRequest({ client, git, rootDir, env, folder, log }) {
       : 'No open blockers: the speckit-orchestrate workflow can pick it up.');
   };
 
-  if (hasLabel(twin, implementLabel)) {
-    log(`Already requested: ${url} carries ${implementLabel}.`);
+  if (isImplementRequested(twin, computedStage)) {
+    log(`Already requested: ${url} carries ${hasLabel(twin, implementLabel) ? implementLabel : stageLabel(IMPLEMENTING_STAGE)}.`);
     await reportBlockers();
     return { exitCode: 0 };
   }
