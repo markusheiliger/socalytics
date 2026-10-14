@@ -107,3 +107,9 @@ description: "Task list for Analyst Registry: Manifests, Profiles, and Workflow 
 ## Phase 6: Convergence
 
 - [X] T013 In `docs/architecture/job-processing.md` § Durable Foundation, replace the stale statement "until the Registry's capability catalog exists, these queries resolve a configured workflow definition" with the implemented state: the queries resolve the stamp's default workflow from the Registry (approved, content-addressed Analyst profiles and their digest-keyed capability declarations), and a configured workflow definition is used only to seed an empty Registry in Development and Test (evidence: `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs` registers `RegistryWorkflowDefinitionResolver`; `Registry/ConfiguredWorkflowSeeder.cs`); change only that document, then run `node .github/scripts/check-markdown.mjs` per Constitution I, plan: Architecture Updates, FR-012, FR-014 (partial)
+
+---
+
+## Phase 7: Convergence
+
+- [ ] T014 In `docs/architecture/tenancy-and-technology.md` § Stamp Persistence, replace the stale statement "Immutable capability and model metadata will join it with the Registry's capability catalog." with the implemented state: the `socalytics` schema also holds the Registry's immutable capability declarations keyed by image digest, content-addressed Analyst profiles, immutable workflow definitions, and the stamp's default workflow (evidence: `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/0015_registry_analyst_registry.sql` creates `socalytics.analyst_capability_declaration`, `socalytics.analyst_profile`, `socalytics.workflow_definition`, and `socalytics.default_workflow`); change only that document, then run `node .github/scripts/check-markdown.mjs` per Constitution I, FR-004, FR-006, FR-010 (partial)
