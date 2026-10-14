@@ -5,7 +5,7 @@ description: "Task list for Sequential Platform Test Projects in Environment Ver
 
 # Tasks: Sequential Platform Test Projects in Environment Verification
 
-**Input**: Design documents from `specs/20261014-180324-fix-sequential-platform-tests/`
+**Input**: Design documents from `specs/archive/20261014-180324-fix-sequential-platform-tests/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 
