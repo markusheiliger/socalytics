@@ -126,3 +126,48 @@ test('a Club Admin approves the pending request with the fingerprint tail and th
   await expect(page.getByText('State: Active')).toBeVisible();
   await expect(page.getByText(/^Activated: /)).toBeVisible();
 });
+
+test('a Club Admin sees the reporting Manager online in the fleet, revokes it, and finds it under the ended filter (SC-003, SC-006)', async ({
+  page,
+}) => {
+  const report = await manager.reportStatus({
+    operatingState: 'running',
+    activeAnalysts: 1,
+    maxAnalysts: 2,
+    managerVersion: '1.2.3-e2e',
+  });
+  expect(report.reportAccepted, 'the platform accepts the status report').toBe(true);
+
+  await page.goto('/');
+  await page.getByLabel('Sign-in name').fill(ADMIN_ACCOUNT);
+  await page.getByLabel('Password').fill(ADMIN_CHANGED_PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
+  await page.getByRole('navigation').getByRole('link', { name: /^Analyst Managers/ }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Analyst Managers' })).toBeVisible();
+
+  const entryLink = page.getByRole('link', { name: `${hostLabel} – Active` });
+  const entry = page.getByRole('listitem').filter({ has: entryLink });
+  await expect(entry.getByText(/^Connectivity: Online \(last report: /)).toBeVisible();
+  await expect(entry.getByText('Operating state: Running')).toBeVisible();
+  await expect(entry.getByText('Analysts: 1 of 2')).toBeVisible();
+  await expect(entry.getByText('Version: 1.2.3-e2e')).toBeVisible();
+
+  await entryLink.click();
+  await page.getByRole('button', { name: 'Revoke…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Revoke this Manager' });
+  const revoke = dialog.getByRole('button', { name: 'Revoke', exact: true });
+  await expect(revoke).toBeDisabled();
+  await dialog.getByLabel(/^Reason/).fill('End-to-end revocation');
+  await dialog.getByLabel('Type the host label to confirm').fill(hostLabel);
+  await expect(revoke).toBeEnabled();
+  await revoke.click();
+  await expect(page.getByText('The registration was revoked.')).toBeVisible();
+  await expect(page.getByText('State: Revoked')).toBeVisible();
+
+  await page.getByRole('link', { name: 'Back to Analyst Managers' }).click();
+  await expect(page.getByRole('link', { name: `${hostLabel} – Revoked` })).toHaveCount(0);
+  await page.getByLabel('Show').click();
+  await page.getByRole('option', { name: 'Ended' }).click();
+  await expect(page.getByRole('link', { name: `${hostLabel} – Revoked` })).toBeVisible();
+});
