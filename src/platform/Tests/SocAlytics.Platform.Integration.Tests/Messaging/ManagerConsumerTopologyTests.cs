@@ -5,8 +5,10 @@ using NATS.Client.Core;
 using NATS.Client.JetStream;
 using Shouldly;
 using SocAlytics.Platform.Application.Abstractions;
+using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Infrastructure;
 using SocAlytics.Platform.Infrastructure.Messaging.Nats;
+using SocAlytics.Platform.Infrastructure.Registry;
 using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using Xunit;
@@ -31,6 +33,7 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
         services.AddLogging();
+        services.AddSingleton<IWorkflowDefinitionResolver, ConfiguredWorkflowDefinitionResolver>();
         services.AddInfrastructure();
         return services.BuildServiceProvider();
     }
@@ -39,8 +42,18 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
     {
         var connection = provider.GetRequiredService<NatsConnectionProvider>();
         connection.EnsureStarted();
-        await provider.GetRequiredService<NatsTopology>().EnsureAsync(ct);
-        return new NatsJSContext(connection.Connection);
+        var js = new NatsJSContext(connection.Connection);
+        var topology = provider.GetRequiredService<NatsTopology>();
+
+        // The first run creates the stream; the deletion then removes consumers left by earlier tests.
+        await topology.EnsureAsync(ct);
+        foreach (var capability in new[] { SegmentCapability, MatchCapability })
+        {
+            await js.DeleteConsumerAsync(Stream, "analyst-" + capability, ct);
+        }
+
+        await topology.EnsureAsync(ct);
+        return js;
     }
 
     [Fact]
