@@ -14,7 +14,7 @@ Remove the wall-clock race from `UploadSessionExpiryTests.ExpiredSessionIsRefuse
 
 **Primary Dependencies**: existing `PlatformApiFactory`, `MutableTimeProvider`, `IsolatedDatabase`, `RustFsContainerFixture`; no new packages.
 
-**Storage**: PostgreSQL test database; one `UPDATE` of `expires_at` in the test (the `version` trigger bumps the version before the ETag is read).
+**Storage**: PostgreSQL test database; one `UPDATE` of `expires_at` in the test (the `version` trigger bumps the version; the pending ETag is read first, the post-update ETag is read again and asserted to differ, then used as the baseline of the unchanged-ETag assertion).
 
 **Testing**: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter-class "*UploadSessionExpiryTests"` (Docker required).
 

@@ -40,7 +40,7 @@ A maintainer runs the Integration tests on a slow or loaded machine. The expiry 
 ### Functional Requirements
 
 - **FR-001**: The test setup MUST NOT depend on the first part PUT happening within a short wall-clock window after the session start.
-- **FR-002**: The test MUST keep every existing assertion: immediate refusal of grants and completion as `upload-session-expired`, reported state `expired` with an unchanged ETag, an idempotent double sweep, storage release count, no recording version, the audit event, and the storage-side `NoSuchUpload` and not-found results.
+- **FR-002**: The test MUST keep every existing assertion: immediate refusal of grants and completion as `upload-session-expired`, reported state `expired` with an unchanged ETag (the baseline is the ETag read after the setup update, which the test first asserts differs from the pending ETag; refused grants, refused completion, and the derived `expired` read must not change it), an idempotent double sweep, storage release count, no recording version, the audit event, and the storage-side `NoSuchUpload` and not-found results.
 - **FR-003**: The session MUST be made expired by deterministic means (moving the test's time provider and the stored expiry), not by waiting for real time.
 - **FR-004**: No production code, option, default, or other test changes; no assertion is weakened, removed, or skipped.
 
@@ -56,5 +56,5 @@ A maintainer runs the Integration tests on a slow or loaded machine. The expiry 
 
 ## Assumptions
 
-- The smallest fix is in the test only: a 10 minute session lifetime for the setup (far above the 10 s delay of SC-001), then the session is expired through the test time provider advanced by 11 minutes (below the 30 minute BFF session idle timeout, so the admin session stays valid) and a direct update of the session's `expires_at` in the test's disposable database, before the ETag is read.
+- The smallest fix is in the test only: a 10 minute session lifetime for the setup (far above the 10 s delay of SC-001), then the session is expired through the test time provider advanced by 11 minutes (below the 30 minute BFF session idle timeout, so the admin session stays valid) and a direct update of the session's `expires_at` in the test's disposable database, after the pending ETag is read. The setup update bumps the version through the trigger, which the test asserts explicitly, so the unchanged-ETag assertion remains equivalent: it still proves the derived expired state, refusals, and report write nothing.
 - Dependencies: the feature owning the test is [Recording Lineage and Upload](../archive/20261005-130702-recording-lineage-upload/spec.md); the implementation this fix unblocks is #72 (`specs/20261012-141233-manager-work-execution`).
