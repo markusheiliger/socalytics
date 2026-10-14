@@ -32,6 +32,7 @@ internal static class RegistryApiRegistration
 		app.MapAnalystManagerRegistrationEndpoints();
 		app.MapAnalystManagerTokenEndpoint();
 		app.MapAnalystManagerSelfEndpoints();
+		app.MapAnalystRegistryEndpoints();
 		return app;
 	}
 }
