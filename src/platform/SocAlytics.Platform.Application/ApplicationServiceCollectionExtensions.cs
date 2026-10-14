@@ -84,6 +84,12 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Queries.GetTimelineMappingHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Recordings.Queries.GetMatchRecordingLineageHandler>();
 
+        services.TryAddScoped<SocAlytics.Platform.Application.Notifications.IEmailOutbox, SocAlytics.Platform.Application.Notifications.EmailOutbox>();
+        services.AddOptions<SocAlytics.Platform.Application.Notifications.NotificationOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Notifications.NotificationOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<SocAlytics.Platform.Application.Notifications.NotificationOptions>, SocAlytics.Platform.Application.Notifications.NotificationOptionsValidator>());
+
         services.AddOptions<RecordingUploadOptions>().BindConfiguration(RecordingUploadOptions.SectionName).ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingUploadOptions>, RecordingUploadOptionsValidator>());
         services.AddOptions<RecordingSetOptions>().BindConfiguration(RecordingSetOptions.SectionName).ValidateOnStart();
