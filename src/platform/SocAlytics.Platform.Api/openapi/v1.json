@@ -5129,6 +5129,316 @@
         ]
       }
     },
+    "/api/v1/registry/analyst-images": {
+      "get": {
+        "operationId": "listAnalystImages",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "capabilityId",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "Analyst registry"
+        ]
+      },
+      "post": {
+        "operationId": "registerAnalystImage",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analyst registry"
+        ]
+      }
+    },
+    "/api/v1/registry/analyst-images/{digest}": {
+      "get": {
+        "operationId": "getAnalystImage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "digest",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "Analyst registry"
+        ]
+      }
+    },
+    "/api/v1/registry/analyst-profiles": {
+      "get": {
+        "operationId": "listAnalystProfiles",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "capabilityId",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "Analyst registry"
+        ]
+      },
+      "post": {
+        "operationId": "createAnalystProfile",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analyst registry"
+        ]
+      }
+    },
+    "/api/v1/registry/analyst-profiles/{profileId}/versions/{version}": {
+      "get": {
+        "operationId": "getAnalystProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "Analyst registry"
+        ]
+      }
+    },
+    "/api/v1/registry/analyst-profiles/{profileId}/versions/{version}/approval": {
+      "post": {
+        "operationId": "approveAnalystProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analyst registry"
+        ]
+      }
+    },
+    "/api/v1/registry/analyst-profiles/{profileId}/versions/{version}/retirement": {
+      "post": {
+        "operationId": "retireAnalystProfile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profileId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "format": "int32",
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analyst registry"
+        ]
+      }
+    },
+    "/api/v1/registry/default-workflow": {
+      "get": {
+        "operationId": "getDefaultWorkflow",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "Analyst registry"
+        ]
+      },
+      "put": {
+        "operationId": "setDefaultWorkflow",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analyst registry"
+        ]
+      }
+    },
+    "/api/v1/registry/workflows": {
+      "get": {
+        "operationId": "listWorkflows",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "Analyst registry"
+        ]
+      },
+      "post": {
+        "operationId": "defineWorkflow",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analyst registry"
+        ]
+      }
+    },
+    "/api/v1/registry/workflows/{workflowId}/versions/{version}": {
+      "get": {
+        "operationId": "getWorkflow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workflowId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "Analyst registry"
+        ]
+      }
+    },
     "/api/v1/seasons": {
       "get": {
         "operationId": "listSeasons",
@@ -6246,6 +6556,9 @@
     },
     {
       "name": "Analyst Manager registrations"
+    },
+    {
+      "name": "Analyst registry"
     }
   ]
 }
