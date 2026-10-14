@@ -1,7 +1,7 @@
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-import { IMPLEMENT_STAGE, hasLabel, resolveTwins, stageLabel } from './speckit-prepare-core.mjs';
+import { isImplementRequested, resolveTwins } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { resolveImplementRequester } from './speckit-prepare.mjs';
 import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
@@ -381,7 +381,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   report.line();
   const reasons = [];
   if (!folder) reasons.push(`#${twin} is not a spec twin`);
-  if (issue.state !== 'open' || !hasLabel(issue, stageLabel(IMPLEMENT_STAGE))) reasons.push(`#${twin} is not open and flagged for implementation`);
+  if (issue.state !== 'open' || !isImplementRequested(issue)) reasons.push(`#${twin} is not open and flagged for implementation`);
   if (folder && (listed.state !== 'open' || listed.head?.ref !== implementationBranch(folder) || listed.head?.repo?.full_name !== env.GITHUB_REPOSITORY)) {
     reasons.push(`#${pullNumber} is not the open implementation pull request of \`specs/${folder}\``);
   }
