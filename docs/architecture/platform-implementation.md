@@ -335,8 +335,10 @@ Exposure and access policy for operational endpoints in a production ingress
 remain unresolved.
 
 REST with JSON is the primary platform protocol. ASP.NET Core publishes
-a versioned OpenAPI description, and Kiota will generate TypeScript, C#, and Python
-clients. Applications keep generated clients behind local adapter boundaries so
+a versioned OpenAPI description. Kiota generates the Web UI's TypeScript client
+at build time from the committed OpenAPI snapshot, which the Host test
+`OpenApiSnapshotTests` keeps current; the C# and Python clients remain planned.
+Applications keep generated clients behind local adapter boundaries so
 transport generation does not define their domain models.
 
 The canonical artifacts, owner map, and compatibility policy are
