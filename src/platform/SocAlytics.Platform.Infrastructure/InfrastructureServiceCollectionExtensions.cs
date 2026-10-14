@@ -49,6 +49,17 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IProofReplayStore, SocAlytics.Platform.Infrastructure.Registry.DapperProofReplayStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IManagerAccessTokenStore, SocAlytics.Platform.Infrastructure.Registry.DapperManagerAccessTokenStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IManagerProofValidator, SocAlytics.Platform.Infrastructure.Registry.JoseManagerProofValidator>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.ICapabilityDeclarationStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.CapabilityDeclarationStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.IAnalystProfileStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.AnalystProfileStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.WorkflowDefinitionStore>();
+        services.AddOptions<SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions>()
+            .BindConfiguration(SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions.SectionName);
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<Microsoft.Extensions.Options.IValidateOptions<SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions>, SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptionsValidator>());
+        services.TryAddSingleton(sp => new SocAlytics.Platform.Infrastructure.Registry.Oci.OciDistributionClient(
+            new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = TimeSpan.FromSeconds(30) },
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions>>()));
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IOciImageReader, SocAlytics.Platform.Infrastructure.Registry.Oci.OciImageReader>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IAnalystManifestValidator, SocAlytics.Platform.Infrastructure.Registry.AnalystManifestValidator>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.StatusReporting.IManagerStatusStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.ManagerStatusStore>();
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
@@ -92,7 +103,8 @@ public static class InfrastructureServiceCollectionExtensions
 
         services.AddOptions<SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowOptions>()
             .BindConfiguration(SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowOptions.SectionName);
-        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionResolver, SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowDefinitionResolver>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionResolver, SocAlytics.Platform.Infrastructure.Registry.RegistryWorkflowDefinitionResolver>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Registry.ConfiguredWorkflowSeeder>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.IWorkflowDefinitionAvailability, SocAlytics.Platform.Infrastructure.Registry.WorkflowDefinitionAvailability>();
         services.AddSingleton<SocAlytics.Platform.Infrastructure.Registry.AnalysisWorkflowHealthCheck>();
         services.AddOptions<Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckServiceOptions>()

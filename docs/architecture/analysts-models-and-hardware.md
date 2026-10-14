@@ -61,6 +61,28 @@ model digest. This accepts larger images and duplicated weights in exchange for
 reproducible execution without runtime artifact downloads or credentials.
 External digest-pinned model artifacts remain a future optimization.
 
+The packaging convention for Analyst authors, enforced when an image is
+registered by digest (`POST /api/v1/registry/analyst-images`):
+
+- `analyst-manifest.json` sits beside the Dockerfile and is validated against
+  the released manifest schema `contracts/analysis/analyst-manifest/v1/`.
+- The last Dockerfile instruction that creates a layer is
+  `COPY analyst-manifest.json /opt/socalytics/analyst-manifest.json`, so the
+  last layer contains only `opt/socalytics/analyst-manifest.json`. The Registry
+  reads only the image manifest, the configuration, and that last layer.
+- Build-time labels: `io.socalytics.analyst-manifest.version` (the manifest's
+  `manifestVersion`), `io.socalytics.analyst-manifest.sha256` (SHA-256 of the
+  file), `io.socalytics.capability.id`, `io.socalytics.capability.version`, and
+  `io.socalytics.model.digest`. A missing or differing label refuses the import
+  (`labels-mismatch`).
+- Supported layer media types are the gzip-compressed and uncompressed tar
+  layers of OCI (`application/vnd.oci.image.layer.v1.tar`, `…tar+gzip`) and
+  Docker (`application/vnd.docker.image.rootfs.diff.tar`, `…tar.gzip`);
+  others are refused (`unsupported-media-type`). Image indexes resolve to
+  `linux/amd64`.
+- References must use a digest, not a tag, and lie within the configured
+  registry host and repository prefix.
+
 ### Implementation Profile
 
 Analyst Containers use Python projects managed with `uv`, `pyproject.toml`, and

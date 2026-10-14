@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/analyst-manifest/v1/analyst-manifest.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analyst manifest v1",
+  "description": "The analyst-manifest.json an Analyst image carries in its last layer. The Registry validates it when an image is imported and stores it as the capability declaration. Unknown properties are refused, so additive changes take a new minor version.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifestVersion",
+    "capability",
+    "upstream",
+    "videoAccess",
+    "output",
+    "compatibleProfiles",
+    "model",
+    "runtime",
+    "resources",
+    "requirements",
+    "determinism"
+  ],
+  "properties": {
+    "manifestVersion": { "const": "1.0.0" },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "tier", "executionScope"],
+      "properties": {
+        "id": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "version": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+        "tier": { "enum": ["low-level", "high-level"] },
+        "executionScope": { "enum": ["segment", "match"] }
+      }
+    },
+    "upstream": {
+      "description": "Capabilities whose accepted results this Analyst consumes.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["capabilityId", "capabilityVersion", "schemaVersion", "kind"],
+        "properties": {
+          "capabilityId": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+          "capabilityVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+          "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+          "kind": { "enum": ["required", "optional", "conditional"] }
+        }
+      }
+    },
+    "videoAccess": { "enum": ["required", "optional", "forbidden"] },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion"],
+      "properties": {
+        "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" }
+      }
+    },
+    "compatibleProfiles": {
+      "description": "Identifiers of the Analyst profiles this image can run under.",
+      "type": "array",
+      "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" }
+    },
+    "model": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest"],
+      "properties": {
+        "digest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["constraints", "accelerators"],
+      "properties": {
+        "constraints": {
+          "type": "array",
+          "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" }
+        },
+        "accelerators": {
+          "type": "array",
+          "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" }
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minMaxAttempts", "minLeaseSeconds", "minStaleTimeoutSeconds", "minExecutionTimeoutSeconds"],
+      "properties": {
+        "minMaxAttempts": { "type": "integer", "minimum": 1 },
+        "minLeaseSeconds": { "type": "integer", "minimum": 1 },
+        "minStaleTimeoutSeconds": { "type": "integer", "minimum": 1 },
+        "minExecutionTimeoutSeconds": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "determinism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deterministic", "idempotent"],
+      "properties": {
+        "deterministic": { "type": "boolean" },
+        "idempotent": { "type": "boolean" }
+      }
+    }
+  }
+}
