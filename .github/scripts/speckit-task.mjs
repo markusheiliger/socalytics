@@ -14,13 +14,14 @@ import {
   CHECK_MERGE,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
+  CHECK_SYNC_CONFLICT,
   DONE_COMMENT_MARKER,
   MAX_CONVERGE_ROUNDS,
   PREPARE_WORKFLOW_FILE,
   appendPullRequestTasks,
   baseBranchFromEnv,
   baseBranchOf,
-  behindBaseOf,
+  nextStepContext,
   convergenceRounds,
   defaultBranchOf,
   environmentExclusivityReasons,
@@ -29,6 +30,7 @@ import {
   isEnvironmentPath,
   isProtectedPath,
   kindLabel,
+  latestCheckRun,
   listTasks,
   neutralizeMarkers,
   pointSpecLinks,
@@ -415,7 +417,7 @@ async function requestAttention({ client, env = {}, inputs, reason, next, result
     external_id: CHECK_LIMIT,
     output: { title: `${title(inputs)} needs a person`, summary: neutralizeMarkers(reason) },
   });
-  const behindBase = inputs.folder ? await behindBaseOf(client, await client.getPullRequest(inputs.pull), inputs.folder) : null;
+  const nextContext = inputs.folder ? await nextStepContext(client, await client.getPullRequest(inputs.pull), inputs.folder) : {};
   await client.createComment(inputs.pull, [
     ...markerLines(inputs, 'attention'),
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: ${neutralizeMarkers(reason)}`,
@@ -423,7 +425,7 @@ async function requestAttention({ client, env = {}, inputs, reason, next, result
     next.trim(),
     ...(resultDir ? agentDetails(resultDir) : []),
     '',
-    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', behindBase }),
+    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', ...nextContext }),
   ].join('\n'));
 }
 
@@ -539,11 +541,12 @@ async function push({ client, git, env, inputs, folder, resultDir, report }) {
 // The next-steps block of an attention comment lists the commands that continue from here.
 const RESUME_HINT = '';
 
-// Whether tasks.md of the spec on the checked-out branch still has unticked tasks: a conflict resolution then comes
-// before a phase (best effort) rather than before the merge.
-function openTasksIn(workspace, folder) {
-  const file = path.join(workspace, tasksPathOf(folder, { archived: isArchivedIn(workspace, folder) }));
-  return existsSync(file) && listTasks(readFileSync(file, 'utf8')).some((task) => !task.done);
+// Whether a conflict resolution follows a best-effort merge of the base branch before a phase or the convergence: the
+// latest conflict recorded on the head it started from is CHECK_SYNC_CONFLICT, not the merge's own CHECK_CONFLICT.
+async function bestEffortResolution(client, inputs, result) {
+  if (inputs.kind !== 'resolve' || !/^[0-9a-f]{40}$/.test(String(result?.head ?? ''))) return false;
+  const conflicts = (await client.listCheckRuns(result.head, CHECK_RUN_NAME)).filter((check) => [CHECK_CONFLICT, CHECK_SYNC_CONFLICT].includes(check.external_id));
+  return latestCheckRun(conflicts)?.external_id === CHECK_SYNC_CONFLICT;
 }
 
 // Lands the result of one task (write token, never runs agent-written code): re-validates the change, commits and
@@ -555,9 +558,10 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   if (!result) reasons.push(`the work job did not finish (result: ${workResult || 'unknown'})`);
   else reasons.push(...result.reasons);
   if (result && !result.verified && result.reasons.length === 0) reasons.push('the change was not verified');
+  const bestEffort = await bestEffortResolution(client, inputs, result);
 
-  if (result?.attention && inputs.kind === 'resolve' && openTasksIn(workspace, folder)) {
-    // A resolution before a phase is best effort: the implementation continues on its current base.
+  if (result?.attention && bestEffort) {
+    // A resolution before a phase or the convergence is best effort: the implementation continues on its current base.
     const baseBranch = baseBranchFromEnv(env);
     await client.updateCheckRun(inputs.checkRun, {
       status: 'completed',
@@ -567,9 +571,9 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     await client.createComment(inputs.pull, [
       ...markerLines(inputs, 'attention'),
       ...(/^[0-9a-f]{40}$/.test(String(result.baseSha ?? '')) ? [renderSyncSkippedMarker(result.baseSha)] : []),
-      `**\`${baseBranch}\` was not merged before the next phase**: ${neutralizeMarkers(reasons.join('; '))}. The implementation continues on its current base; the conflicts are resolved when it merges.`,
+      `**\`${baseBranch}\` was not merged**: ${neutralizeMarkers(reasons.join('; '))}. The implementation continues on its current base; the conflicts are resolved when it merges.`,
     ].join('\n'));
-    report.line(`${title(inputs)}: ${baseBranch} not merged before the phase: ${reasons.join('; ')}`);
+    report.line(`${title(inputs)}: ${baseBranch} not merged: ${reasons.join('; ')}`);
     report.flush();
     return { exitCode: 0, reasons };
   }
@@ -683,7 +687,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       `**Conflicts resolved** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
       '',
       `- Verification: ${result.verification === 'not-configured' ? 'no verification configured (no environment-verify action)' : checks.join(', ') || 'no checks'}`,
-      openTasksIn(workspace, folder) ? '- Next: the next phase, on the merged branch.' : `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
+      bestEffort ? '- Next: the work continues on the merged branch.' : `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
     ];
   }
   gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
@@ -866,11 +870,11 @@ export async function runCombinedVerified({ client, env, log }) {
     output: { title: 'The combined verification failed', summary: `The verification of ${tasks} together ${outcome}. Their changes to the same files merged cleanly, but the combination does not pass.` },
   });
   const { mention } = await requesterMention(client, twin);
-  const behindBase = env.SPECKIT_FOLDER ? await behindBaseOf(client, await client.getPullRequest(pull), env.SPECKIT_FOLDER) : null;
+  const nextContext = env.SPECKIT_FOLDER ? await nextStepContext(client, await client.getPullRequest(pull), env.SPECKIT_FOLDER) : {};
   await client.createComment(pull, [
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: the verification of ${tasks} together ${outcome}${run}. Each task passed its own verification and their changes to the same files merged cleanly, so the combination breaks something.`,
     '',
-    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', behindBase }),
+    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', ...nextContext }),
   ].join('\n'));
   report.line(`The verification of ${tasks} together ${outcome}; the implementation stops for a person.`);
   report.flush();

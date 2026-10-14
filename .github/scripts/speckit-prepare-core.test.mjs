@@ -256,6 +256,8 @@ test('builds spec entries from raw file contents', () => {
   assert.equal(entry.openChecklistItems, 1);
   assert.equal(entry.spec.title, 'Platform Persistence Foundation');
   assert.deepEqual(buildSpecEntry('f', { specMarkdown: SPEC, hasPlan: false, tasksMarkdown: null, checklistMarkdowns: [] }).artifacts, ['spec.md']);
+  assert.equal(entry.fixFor, null);
+  assert.equal(buildSpecEntry('g', { specMarkdown: `${SPEC}\n**Fix for**: #75 (implementation of \`specs/f\`)\n`, hasPlan: false, tasksMarkdown: null, checklistMarkdowns: [] }).fixFor, 75, 'a fix spec names the implementation it unblocks');
 });
 
 test('plans implementation requests', () => {

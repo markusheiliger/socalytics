@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { canWrite } from './speckit-prepare.mjs';
 import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
+import { startFixAuthoring } from './speckit-fix.mjs';
 import {
   BOT_LOGIN,
   CHECK_DIAGNOSING,
@@ -11,13 +12,13 @@ import {
   DIAGNOSIS_COMMENT_MARKER,
   DIAGNOSIS_STALE_MS,
   PR_COMMANDS,
-  baseBranchOf,
   dispatchImplementation,
   folderOfBranch,
   implementationBranch,
   latestCheckRun,
   neutralizeMarkers,
   renderResumeComment,
+  renderRetryComment,
   specTitleOfPull,
 } from './speckit-implement-core.mjs';
 
@@ -43,7 +44,7 @@ export function renderHelp() {
     '| --- | --- |',
     ...PR_COMMANDS.map((command) => `| \`${command.usage}\` | ${command.help} |`),
     '',
-    'An amendment pull request (`speckit-amend/<folder>`) needs no commands: merge it to apply the amendment, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
+    'An amendment pull request (`speckit-amend/<folder>`) or fix spec pull request (`speckit-fix/<folder>`) needs no commands: merge it to apply it, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
     '',
     'These are pull request comment commands, not skills. To walk through a stop locally in VS Code, use the skill `/speckit-gha-diagnose`.',
   ].join('\n');
@@ -67,10 +68,10 @@ async function resolveTarget(client, env, number) {
   return { folder, implementation: full, twin };
 }
 
-// Starts a new attempt window: the resume comment persists the request (and the guidance), so a replaced pending
-// run cannot lose it; starting the implementation chain only makes it happen right away.
-async function resumeImplementation(client, env, { implementation, twin, folder }, lead, guidance = '') {
-  await client.createComment(implementation.number, renderResumeComment(lead, guidance));
+// Starts a new attempt window: the resume or retry comment persists the request (and the guidance), so a replaced
+// pending run cannot lose it; starting the implementation chain only makes it happen right away.
+async function resumeImplementation(client, env, { implementation, twin, folder }, lead, guidance = '', render = renderResumeComment) {
+  await client.createComment(implementation.number, render(lead, guidance));
   try {
     await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
   } catch {
@@ -101,8 +102,10 @@ export async function runCommand({ client, env, log, now = Date.now }) {
     }
   }
   if (command.name === 'help' || command.name === 'unknown') {
+    const replaced = command.name === 'unknown' && command.given.toLowerCase() === 'sync';
     await reply(client, number, [
-      ...(command.name === 'unknown' ? [`Unknown command \`/speckit ${neutralizeMarkers(command.given)}\`.`, ''] : []),
+      ...(replaced ? ['`/speckit sync` was replaced by `/speckit resume`, which merges the base branch first (Copilot resolves conflicts) and then continues.', ''] : []),
+      ...(command.name === 'unknown' && !replaced ? [`Unknown command \`/speckit ${neutralizeMarkers(command.given)}\`.`, ''] : []),
       renderHelp(),
     ]);
     return { exitCode: 0, handled: true, command: command.name };
@@ -153,44 +156,33 @@ async function handleDiagnose({ client, env, actor, number, argument, now, folde
 
 async function handleResume({ client, env, actor, number, argument, folder, implementation, twin }) {
   const guidance = argument.slice(0, 4000);
-  await resumeImplementation(client, env, { implementation, twin, folder }, `Implementation resumed by @${actor}; what stopped restarts with a fresh attempt count.`, guidance);
+  await resumeImplementation(client, env, { implementation, twin, folder }, `Implementation resumed by @${actor}; the base branch is merged first, then what stopped restarts with a fresh attempt count.`, guidance);
   if (number !== implementation.number) await reply(client, number, `Resumed; the implementation continues on #${implementation.number}.`);
   return { outcome: 'resumed' };
 }
 
-async function handleSync({ client, env, actor, number, folder, implementation, twin }) {
-  const baseBranch = baseBranchOf(implementation);
-  const branch = implementationBranch(folder);
-  let result;
-  try {
-    result = await client.mergeBranch(branch, baseBranch, `Merge ${baseBranch} into ${branch} (/speckit sync by @${actor})`);
-  } catch (error) {
-    await reply(client, number, [
-      `\`${baseBranch}\` could not be merged into \`${branch}\`: ${neutralizeMarkers(error.message.slice(0, 500))}`,
-      '',
-      'Merge it locally and push (the implementation continues automatically). GitHub refuses merges that bring in workflow changes for the workflow token.',
-    ]);
-    return { outcome: 'failed' };
+async function handleRetry({ client, env, actor, number, argument, folder, implementation, twin }) {
+  const guidance = argument.slice(0, 4000);
+  await resumeImplementation(client, env, { implementation, twin, folder }, `Implementation retried by @${actor}; what stopped restarts with a fresh attempt count, without merging the base branch for it.`, guidance, renderRetryComment);
+  if (number !== implementation.number) await reply(client, number, `Retried; the implementation continues on #${implementation.number}.`);
+  return { outcome: 'retried' };
+}
+
+async function handleFix({ client, env, actor, number, argument, now, implementation, twin }) {
+  const started = await startFixAuthoring(client, env, { twin, implementation, guidance: argument.slice(0, 4000), actor, now: now() });
+  if (!started.started) {
+    await reply(client, number, `\`/speckit fix\` cannot start: ${neutralizeMarkers(started.reason)}.`);
+    return { outcome: 'refused' };
   }
-  if (result === 'conflict') {
-    await reply(client, number, [
-      `\`${baseBranch}\` conflicts with \`${branch}\`, so it was not merged.`,
-      '',
-      'Merge it locally, resolve the conflicts, and push (the implementation continues automatically), or walk through it with the skill `/speckit-gha-diagnose`.',
-    ]);
-    return { outcome: 'conflict' };
-  }
-  await resumeImplementation(client, env, { implementation, twin, folder }, result === 'up-to-date'
-    ? `\`${branch}\` already contains \`${baseBranch}\`; resumed by @${actor} with a fresh attempt count.`
-    : `@${actor} merged \`${baseBranch}\` into \`${branch}\`; what stopped restarts with a fresh attempt count.`);
-  if (number !== implementation.number) await reply(client, number, `Synced; the implementation continues on #${implementation.number}.`);
-  return { outcome: result };
+  if (number !== implementation.number) await reply(client, number, `A fix spec is being authored; its progress is reported on #${implementation.number}.`);
+  return { outcome: 'started' };
 }
 
 const HANDLERS = {
   diagnose: handleDiagnose,
+  retry: handleRetry,
   resume: handleResume,
-  sync: handleSync,
+  fix: handleFix,
 };
 
 function githubClient(env) {

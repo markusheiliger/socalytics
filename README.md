@@ -339,9 +339,10 @@ their "blocked by" issues are closed.
   review, or needs a person. Of what a run can do next (a phase, the
   convergence, a conflict resolution, or the merge) only one runs, and the
   others show as skipped; job names say what a job does, and GitHub shows
-  their order. Before a phase starts (none of its tasks ticked yet), the job
-  `sync` (`Merge the base branch before the phase`) merges the base branch when it is
-  ahead. Phases, the convergence,
+  their order. Every run starts with the job `sync` (`Merge the base branch`),
+  which merges the base branch when it is ahead and the next work is a phase
+  that has not started, the convergence, the merge, or a resume; a conflict
+  is resolved by the conflict resolution in the same run. Phases, the convergence,
   and conflict resolutions run in two nested reusable workflows, which appear
   in the run as job groups. The run
   graph joins the names of nested jobs, for example
@@ -354,7 +355,7 @@ their "blocked by" issues are closed.
   | A phase | job `phase`, which calls `Spec Kit implement phase` (`speckit-implement-phase.yml`), named after the phase heading of `tasks.md` as written, for example `Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP` | the phase of the first open task. Its job `plan` (`Plan the tasks`) decides itself which of the phase's tasks are still open and plans them in `tasks.md` order: the tasks run one after another, except that consecutive unchecked `[P]` tasks under the same heading run in parallel (see below). Its job `tasks` is a matrix that calls `Spec Kit implement task` (`speckit-implement-task.yml`) once per task, or once for consecutive `[P]` tasks, one job at a time, named `T013` for a single task or `T014, T015 in parallel` for `[P]` tasks. Tasks land before the next start; tasks that do not land fail, and the matrix cancels the tasks after them |
   | Acceptance gate | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `Convergence` | once all tasks are checked, `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
   | Merge | jobs `merge-archive` (`Archive the spec before the merge`), `merge-verify` (`Verify the merged result`), and `merge-land` (`Merge into the base branch`) | archives the spec on the branch, merges the base branch into the branch, runs the full verification on the result, and squash-merges the pull request into the base branch |
-  | Conflicts | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `Conflict resolution` | resolves conflicts with the base branch with Copilot CLI, verifies, and pushes the merge commit; then the merge, or the phase that waits for it, runs |
+  | Conflicts | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `Conflict resolution` | resolves conflicts with the base branch with Copilot CLI, verifies, and pushes the merge commit, in the run whose `sync` job or merge found them; the next run continues the work on the merged branch |
 
   Each job is short, so specs of any size never hit the 6-hour job limit.
   Every call of `Spec Kit implement task`:
@@ -540,6 +541,9 @@ makes this available from GitHub Copilot:
 - `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` walks you
     through a stopped implementation locally; see
     [When an implementation stops](#when-an-implementation-stops).
+- `/speckit-gha-fix [pull request] [guidance]` explains fix specs and offers to
+    post `/speckit fix` with guidance from the latest diagnosis; see
+    [Fix spec pull requests](#fix-spec-pull-requests).
 - `/speckit-tasks` ends with `/speckit-gha-refine [folder]`, a mandatory
     `after_tasks` hook that refines the `[P]` groups of the new `tasks.md` (see
     the `[P]` paragraph under the implementation workflow). Run it on its own
@@ -587,16 +591,22 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     ([`speckit-diagnose.md`](.github/workflows/speckit-diagnose.md), GitHub
     Agentic Workflows) collects the evidence (failure comments, logs of failed
     runs, check runs, branch state, your notes), follows the method of the
-    `/speckit-gha-diagnose` skill, and posts a **Diagnosis** comment: the cause
-    and the evidence, its confidence, and numbered options with their commands.
+    `/speckit-gha-diagnose` skill, and posts a **Diagnosis** comment: its
+    category and what that means, the cause and the evidence, its confidence,
+    and the next steps. Exactly one next step is recommended, and its command
+    always fits the category; the other options are collapsed below it. Every
+    option says **why** it should solve the problem and **what it does** (for
+    example whether the base branch is merged first and what restarts), and
+    every command can be posted as it is, with the guidance, notes, or answers
+    from the findings already written out.
 
-    | Category | Meaning | Typical way forward |
+    | Category | Meaning | Recommended next step |
     | --- | --- | --- |
-    | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | an **amendment pull request** (below) that you review and merge |
-    | `retry` | a transient failure, or the agent took a poor approach | `/speckit resume <guidance>` |
-    | `outside` | environment or tooling, another feature's code or tests on the base branch, permissions, quotas | fix it where it belongs, then `/speckit sync` or `/speckit resume` |
-    | `decision` | a trade-off only a person can make | answer its questions with `/speckit diagnose <answers>` |
-    | `unknown` | not enough evidence | what was ruled out and what to check next |
+    | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | review and merge the linked **amendment pull request** (below) |
+    | `retry` | a transient failure, or the agent took a poor approach while the artifacts are fine | `/speckit retry <guidance>` |
+    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit fix <what to fix>` for code, tests, or the environment actions (a **fix spec**, below); `/speckit resume <guidance>` once a fix is on the base branch, or after an action the comment names |
+    | `decision` | a trade-off only a person can make | `/speckit diagnose 1. … 2. …`, prefilled with the recommended answers |
+    | `unknown` | not enough evidence | `/speckit diagnose <what to examine next>` |
 
     The diagnosis never weakens requirements, success criteria, or tests. The
     agent runs read-only behind gh-aw's network firewall.
@@ -607,13 +617,18 @@ every stop is a spec problem, so the next step starts with a diagnosis:
 
     | Command | Effect |
     | --- | --- |
-    | `/speckit diagnose [notes]` | start a diagnosis; notes steer it or answer its questions (also while the implementation runs; it then waits) |
-    | `/speckit resume [guidance]` | restart what stopped with a fresh attempt count; the guidance goes into its prompt |
-    | `/speckit sync` | merge the base branch (the pull request's base) into the implementation branch (for a fix that landed there) and continue |
+    | `/speckit diagnose [notes]` | start a diagnosis; notes steer it or answer its questions (also while the implementation runs; it then waits). Nothing is retried meanwhile |
+    | `/speckit retry [guidance]` | restart what stopped with a fresh attempt count, without merging the base branch for it (a phase that has not started, the convergence, and the merge always merge it first); the guidance goes into its prompt |
+    | `/speckit resume [guidance]` | merge the base branch (the pull request's base; Copilot resolves conflicts), then restart what stopped with a fresh attempt count; the guidance goes into its prompt |
+    | `/speckit fix [guidance]` | have a fix spec authored for a cause outside this spec (below); the implementation waits and resumes by itself once the fix has landed |
     | `/speckit help` | list the commands |
 
-    Pushing a fix to the implementation branch continues the implementation as
-    well.
+    What restarts is decided from the pull request's state: the stopped task,
+    the convergence, the conflict resolution, or the merge. A failed phase
+    verification is not repeated by itself; the next verification, at the
+    latest the full verification before the merge, covers it. The next steps
+    name what a restart would continue with. Pushing a fix to the
+    implementation branch continues the implementation as well.
 
 #### Amendment Pull Requests
 
@@ -665,12 +680,44 @@ merges and closes that no event reported, picks up feedback that no event
 delivered, checks pushes that no event reported, and closes checks that never
 finished.
 
+#### Fix Spec Pull Requests
+
+When the cause lies outside the stopped spec (`outside`), for example a flaky
+test of another feature on the base branch, `/speckit fix <what to fix>` keeps
+the fix inside Spec Kit instead of patching around it:
+
+1. The `Spec Kit fix` agentic workflow
+    ([`speckit-fix.md`](.github/workflows/speckit-fix.md)) follows the skill
+    `/speckit-gha-fix` and authors a **fix spec**: a small, complete spec
+    (spec, plan, tasks, checklist, and its row in `specs/README.md`) whose
+    `spec.md` names the implementation it unblocks (`**Fix for**: #<pull>`).
+    It is proposed as a draft pull request `speckit-fix/<folder>` → the default
+    branch that may only add that spec folder. When a fix spec cannot remove the
+    cause (tooling under `.github/`, permissions, quotas, external services), it
+    changes nothing and says why. A cause in the environment actions gets an
+    environment spec, which is always held for review.
+2. Like an amendment, it is checked by an independent `/speckit-analyze` with
+    correction rounds and then handed to the person who requested the
+    implementation; comments and reviews rework it, closing discards it.
+3. Merging it adds the spec to the default branch. Its twin skips dependency
+    inference; the scheduler makes the stopped spec's twin depend on it,
+    requests its implementation on behalf of the person who asked for the fix,
+    and starts it even when `SPECKIT_MAX_ACTIVE_SPECS` implementations are
+    active. It is implemented, converged, and merged like any spec.
+4. Once its twin is implemented, the stopped implementation resumes by itself:
+    it merges the base branch, with the fix, and continues with a fresh attempt
+    count. If the fix spec is closed or not implemented, the implementation
+    pull request lists the next steps again.
+
+The implementation pull request records every step in a comment.
+
 These pull request comment commands are not skills. To walk through a stop
 locally, run the skill `/speckit-gha-diagnose [pull request, twin, or folder]`
 in GitHub Copilot: it uses the same method, asks you the decisions, and pushes
-the result. The diagnose and analyze workflows are compiled with GitHub Agentic
-Workflows; after editing `speckit-diagnose.md` or `speckit-analyze.md`, install
-the extension (`gh extension install github/gh-aw`) and run `gh aw compile`.
+the result. The diagnose, analyze, and fix workflows are compiled with GitHub
+Agentic Workflows; after editing `speckit-diagnose.md`, `speckit-analyze.md`, or
+`speckit-fix.md`, install the extension (`gh extension install github/gh-aw`)
+and run `gh aw compile`.
 Do not edit the generated `.lock.yml` files. Their Copilot engine uses the
 workflow token with the `copilot-requests` permission, so no secret is needed.
 

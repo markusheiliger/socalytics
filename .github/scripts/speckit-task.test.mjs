@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
-import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, RESUME_COMMENT_MARKER, pointSpecLinks, renderGuidanceMarker } from './speckit-implement-core.mjs';
+import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, RESUME_COMMENT_MARKER, pointSpecLinks, renderGuidanceMarker } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
   defaultGit,
@@ -522,7 +522,7 @@ test('converge: code changes are rejected, and the round limit asks the requeste
     assert.deepEqual([landed.exitCode, landed.check.conclusion, landed.check.external_id], [1, 'failure', CHECK_LIMIT]);
     assert.equal(remoteHead(repos), before);
     assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
-    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Wait for the diagnosis[\s\S]*<summary>Other options<\/summary>[\s\S]*\/speckit resume \[guidance\]/);
+    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Wait for the diagnosis[\s\S]*<summary>Other options<\/summary>[\s\S]*```text\n {2}\/speckit retry\n {2}```[\s\S]*```text\n {2}\/speckit resume\n {2}```/);
   });
 });
 
@@ -679,12 +679,16 @@ test('resolve: conflicts in protected paths ask the requester', () => withRepos(
   assert.match(github.comments.at(-1).body, /\/speckit diagnose|Wait for the diagnosis/);
 }));
 
-test('resolve before a phase: success continues with the phase, and conflicts that need a person do not stop it', async () => {
+// The job "sync" recorded a best-effort conflict (before a phase or the convergence) on the head the resolution starts from.
+const syncConflictOn = (github, repos) => github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: remoteSha(repos, 'speckit/f'), status: 'completed', conclusion: 'neutral', external_id: CHECK_SYNC_CONFLICT });
+
+test('resolve before a phase or the convergence: success continues the work, and conflicts that need a person do not stop it', async () => {
   await withRepos({ ...conflicting, tasks: TASKS }, async (repos) => {
     work(repos, { inputs: RESOLVE_INPUTS, agent: resolveShared, verify: { outcome: 'success', checks: 'platform build and tests' } });
     const github = fakeGitHub();
+    await syncConflictOn(github, repos);
     assert.equal((await land(repos, github, { inputs: RESOLVE_INPUTS })).exitCode, 0);
-    assert.match(github.comments.at(-1).body, /\*\*Conflicts resolved\*\*[\s\S]*- Next: the next phase, on the merged branch\./);
+    assert.match(github.comments.at(-1).body, /\*\*Conflicts resolved\*\*[\s\S]*- Next: the work continues on the merged branch\./);
   });
   await withRepos({
     tasks: TASKS,
@@ -694,9 +698,10 @@ test('resolve before a phase: success continues with the phase, and conflicts th
     const { integrated } = work(repos, { inputs: RESOLVE_INPUTS });
     assert.equal(integrated.result.attention, true);
     const github = fakeGitHub();
+    await syncConflictOn(github, repos);
     const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
     assert.deepEqual([landed.exitCode, landed.check.external_id === CHECK_LIMIT, landed.check.conclusion], [0, false, 'neutral'], 'the implementation does not stop');
-    assert.match(github.comments.at(-1).body, new RegExp(`^<!-- speckit-implement:attempt [^\\n]*"outcome":"attention"\\} -->\\n<!-- speckit-implement:sync-skipped ${remoteSha(repos, 'main')} -->\\n\\*\\*\`main\` was not merged before the next phase\\*\\*: conflicts in protected paths need a person`));
+    assert.match(github.comments.at(-1).body, new RegExp(`^<!-- speckit-implement:attempt [^\\n]*"outcome":"attention"\\} -->\\n<!-- speckit-implement:sync-skipped ${remoteSha(repos, 'main')} -->\\n\\*\\*\`main\` was not merged\\*\\*: conflicts in protected paths need a person`));
   });
 });
 

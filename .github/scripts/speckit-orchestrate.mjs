@@ -20,6 +20,7 @@ import {
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment } from './speckit-amend.mjs';
+import { maintainFixSpec } from './speckit-fix.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-task.mjs';
 import {
@@ -120,6 +121,13 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the amendment of #${issue.number}: ${error.message}`);
       }
+      // Fix specs: link a merged one to this implementation, and resume it once the fix has landed.
+      try {
+        const fix = await maintainFixSpec(client, env, { folder, implementation: lifecycle.pull, twin: issue.number }, { now: now(), report: (line) => amendmentNotes.push(line) });
+        if (['rework', 'checking', 'linked', 'resumed'].includes(fix.outcome)) amendmentActions += 1;
+      } catch (error) {
+        amendmentNotes.push(`- Warning: could not check the fix spec of #${issue.number}: ${error.message}`);
+      }
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
       inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active });
@@ -138,8 +146,10 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
 
     const openBlocking = openBlockers(await client.listBlockedBy(issue.number));
     if (openBlocking.length > 0) blocked.push({ number: issue.number, folder, blockers: openBlocking });
-    else ready.push({ number: issue.number, folder, requester: requester.login, reset: lifecycle.reset });
+    else ready.push({ number: issue.number, folder, requester: requester.login, reset: lifecycle.reset, fix: Boolean(entry.fixFor) });
   }
+  // Fix specs first: each unblocks an implementation that waits for it.
+  ready.sort((a, b) => Number(b.fix) - Number(a.fix));
 
   report.line('## Spec implementation selection');
   report.line();
@@ -242,7 +252,8 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     actions += 1;
   }
   for (const twin of selection.ready) {
-    if (active >= maxActive) {
+    // A fix spec starts even at the limit: the implementation it unblocks holds a slot while it waits for the fix.
+    if (active >= maxActive && !twin.fix) {
       report.line(`- Waiting: #${twin.number} \`${twin.folder}\` starts when fewer than ${maxActive} implementations are active.`);
       continue;
     }
