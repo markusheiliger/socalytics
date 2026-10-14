@@ -2,7 +2,7 @@
 
 **Branch**: `20261012-150657-web-ui-foundation` | **Date**: 2026-10-12 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261012-150657-web-ui-foundation/spec.md`
+**Input**: Feature specification from `specs/archive/20261012-150657-web-ui-foundation/spec.md`
 
 ## Summary
 
@@ -119,7 +119,7 @@ Post-design re-check: passes; no Complexity Tracking entries.
 ### Documentation (this feature)
 
 ```text
-specs/20261012-150657-web-ui-foundation/
+specs/archive/20261012-150657-web-ui-foundation/
 ├── plan.md
 ├── research.md          # Decisions R1–R10
 ├── data-model.md        # Client session model, view models, routes

@@ -1,7 +1,7 @@
 # Contract: Routes and Roles (additions)
 
 Extends the foundation's
-[routes-and-roles.md](../../20261012-150657-web-ui-foundation/contracts/routes-and-roles.md).
+[routes-and-roles.md](../../archive/20261012-150657-web-ui-foundation/contracts/routes-and-roles.md).
 "Editor" means Club Admin, or Coach of the match's team; "reader" means an
 editor or a Viewer of that team.
 

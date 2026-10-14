@@ -5,7 +5,7 @@ description: "Task list for Web UI Foundation"
 
 # Tasks: Web UI Foundation
 
-**Input**: Design documents from `specs/20261012-150657-web-ui-foundation/`
+**Input**: Design documents from `specs/archive/20261012-150657-web-ui-foundation/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/routes-and-roles.md](contracts/routes-and-roles.md), [contracts/platform-adapter.md](contracts/platform-adapter.md), [contracts/openapi-snapshot.md](contracts/openapi-snapshot.md), [contracts/security-headers.md](contracts/security-headers.md), [quickstart.md](quickstart.md)
 

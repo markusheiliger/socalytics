@@ -111,7 +111,7 @@ Post-design re-check: passes; no Complexity Tracking entries.
 - [client-applications.md](../../docs/architecture/client-applications.md) § Web UI: match creation, recording uploads, and upload finalization.
 - [match-data-pipeline.md](../../docs/architecture/match-data-pipeline.md) § Upload: the Web UI path of the direct multipart upload, timeline mapping, and finalization.
 - [platform-implementation.md](../../docs/architecture/platform-implementation.md) § Object Storage: development browser access to the local store.
-- [security-and-data-governance.md](../../docs/architecture/security-and-data-governance.md), Web UI security baseline (written by `specs/20261012-150657-web-ui-foundation`): the Content Security Policy.
+- [security-and-data-governance.md](../../docs/architecture/security-and-data-governance.md), Web UI security baseline (written by `specs/archive/20261012-150657-web-ui-foundation`): the Content Security Policy.
 
 **Design updates** (applied with this plan as decided, not implemented; the implementation turns them into present
 tense):

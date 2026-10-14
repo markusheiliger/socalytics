@@ -1,8 +1,8 @@
 # Research: Web UI Analyst Manager Fleet and Registration Approval
 
 All decisions build on Web UI Foundation
-([plan](../20261012-150657-web-ui-foundation/plan.md),
-[research](../20261012-150657-web-ui-foundation/research.md)): Kiota client
+([plan](../archive/20261012-150657-web-ui-foundation/plan.md),
+[research](../archive/20261012-150657-web-ui-foundation/research.md)): Kiota client
 behind adapters, in-memory session with `X-CSRF-Token`, TanStack Query, the
 `simulated` and `platform` Playwright projects, the committed OpenAPI snapshot,
 and the AppHost `e2e` mode. The registration operations come from

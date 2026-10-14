@@ -1,7 +1,7 @@
 # Contract: Security Headers (changes)
 
 Changes the foundation's
-[security-headers.md](../../20261012-150657-web-ui-foundation/contracts/security-headers.md).
+[security-headers.md](../../archive/20261012-150657-web-ui-foundation/contracts/security-headers.md).
 Everything not listed here is unchanged.
 
 ## Content Security Policy (preview mode and production-shaped builds)

@@ -1,7 +1,7 @@
 # Contract: Web UI Routes (additions)
 
 Extends the foundation's
-[routes-and-roles.md](../../20261012-150657-web-ui-foundation/contracts/routes-and-roles.md).
+[routes-and-roles.md](../../archive/20261012-150657-web-ui-foundation/contracts/routes-and-roles.md).
 
 | Route | View | Allowed for | Platform operations |
 | --- | --- | --- | --- |
