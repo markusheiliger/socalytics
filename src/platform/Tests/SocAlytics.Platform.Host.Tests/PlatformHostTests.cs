@@ -42,6 +42,9 @@ public sealed class PlatformHostTests
         environment["Stamp__Id"].ShouldBe("local-dev-stamp");
         Uri.TryCreate(environment["Stamp__PublicBaseUri"], UriKind.Absolute, out var stampBase).ShouldBeTrue();
         stampBase!.Scheme.ShouldBe("http");
+        Uri.TryCreate(environment["Registry__Pairing__VerificationBaseUri"], UriKind.Absolute, out var verificationBase).ShouldBeTrue();
+        verificationBase!.Scheme.ShouldBe("http");
+        verificationBase.AbsolutePath.ShouldBe("/");
 
         using var client = app.CreateHttpClient(ApiResourceName, "http");
         await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);

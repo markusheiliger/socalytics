@@ -12,6 +12,9 @@ internal static class RegistryApiRegistration
 		builder.Services.AddSingleton<IValidateOptions<StampOptions>>(
 			new StampOptionsValidator(builder.Environment.IsDevelopment()));
 		builder.Services.AddOptions<StampOptions>().ValidateOnStart();
+		builder.Services.AddSingleton<IValidateOptions<RegistryOptions>>(
+			new RegistryOptionsValidator(builder.Environment.IsDevelopment()));
+		builder.Services.AddOptions<RegistryOptions>().ValidateOnStart();
 		builder.Services.AddHostedService<RegistrationExpiryWorker>();
 		builder.Services.AddRegistryRateLimiting();
 		builder.Services.AddAuthentication()
@@ -57,5 +60,32 @@ public sealed class StampOptionsValidator(bool allowHttp) : IValidateOptions<Sta
 		}
 
 		return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+	}
+}
+
+public sealed class RegistryOptionsValidator(bool allowHttp) : IValidateOptions<RegistryOptions>
+{
+	public ValidateOptionsResult Validate(string? name, RegistryOptions options)
+	{
+		var value = options.Pairing.VerificationBaseUri;
+		if (value is null)
+		{
+			return ValidateOptionsResult.Success;
+		}
+
+		if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+			|| !(uri.Scheme == Uri.UriSchemeHttps || (allowHttp && uri.Scheme == Uri.UriSchemeHttp))
+			|| uri.AbsolutePath != "/"
+			|| !string.IsNullOrEmpty(uri.Query)
+			|| !string.IsNullOrEmpty(uri.Fragment)
+			|| !string.IsNullOrEmpty(uri.UserInfo)
+			|| value.EndsWith('?') || value.EndsWith('#'))
+		{
+			return ValidateOptionsResult.Fail(allowHttp
+				? "Registry:Pairing:VerificationBaseUri must be an absolute http or https origin without path, query, or fragment."
+				: "Registry:Pairing:VerificationBaseUri must be an absolute https origin without path, query, or fragment.");
+		}
+
+		return ValidateOptionsResult.Success;
 	}
 }

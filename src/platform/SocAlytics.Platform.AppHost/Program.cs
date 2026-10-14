@@ -115,4 +115,7 @@ if (e2eMode)
     web.WithEndpoint("http", endpoint => endpoint.Port = WebE2ePort);
 }
 
+// Managers print this origin as the address where a person enters the pairing code.
+api.WithEnvironment("Registry__Pairing__VerificationBaseUri", ReferenceExpression.Create($"{web.GetEndpoint("http").Property(EndpointProperty.Url)}"));
+
 builder.Build().Run();
