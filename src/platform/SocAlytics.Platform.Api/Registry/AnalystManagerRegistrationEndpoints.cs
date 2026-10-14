@@ -8,10 +8,6 @@ using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Api.Registry;
 
-internal sealed record PairingCodeSubmissionBody(string? PairingCode, string? DeviceFingerprint);
-
-internal sealed record ReasonRequest(string? Reason);
-
 internal static class AnalystManagerRegistrationEndpoints
 {
 	public const string ApprovalNotice =
@@ -25,86 +21,113 @@ internal static class AnalystManagerRegistrationEndpoints
 		group.MapPost("/analyst-manager-registrations", SubmitAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
 			.RequireRateLimiting(RegistryRateLimiting.CodeSubmission)
-			.WithName("submitAnalystManagerPairingCode");
+			.WithName("submitAnalystManagerPairingCode")
+			.Accepts<PairingCodeSubmissionBody>("application/json")
+			.Produces<AnalystManagerRegistrationDto>(StatusCodes.Status201Created)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status429TooManyRequests);
 		group.MapGet("/analyst-manager-registrations", ListAsync)
-			.WithName("listAnalystManagerRegistrations");
+			.WithName("listAnalystManagerRegistrations")
+			.Produces<AnalystManagerRegistrationPageDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden);
 		group.MapGet("/analyst-manager-registrations/{registrationId:guid}", GetAsync)
-			.WithName("getAnalystManagerRegistration");
+			.WithName("getAnalystManagerRegistration")
+			.Produces<AnalystManagerRegistrationDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		group.MapPost("/analyst-manager-registrations/{registrationId:guid}/approval", ApproveAsync)
-			.WithName("approveAnalystManagerRegistration");
+			.WithName("approveAnalystManagerRegistration")
+			.Produces<AnalystManagerRegistrationDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
 		group.MapPost("/analyst-manager-registrations/{registrationId:guid}/rejection", RejectAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
-			.WithName("rejectAnalystManagerRegistration");
+			.WithName("rejectAnalystManagerRegistration")
+			.Accepts<ReasonRequest>("application/json")
+			.Produces<AnalystManagerRegistrationDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
 		group.MapPost("/analyst-manager-registrations/{registrationId:guid}/revocation", RevokeAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
-			.WithName("revokeAnalystManagerRegistration");
+			.WithName("revokeAnalystManagerRegistration")
+			.Accepts<ReasonRequest>("application/json")
+			.Produces<AnalystManagerRegistrationDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
 		return routes;
 	}
 
-	internal static object ToDto(AnalystManagerRegistration r) => BuildDto(r);
+	internal static AnalystManagerRegistrationDto ToDto(AnalystManagerRegistration r) => BuildDto(r, false);
 
-	internal static object ToDto(FleetEntry entry)
+	internal static AnalystManagerRegistrationDto ToDto(FleetEntry entry)
 	{
-		var dto = BuildDto(entry.Registration);
+		var dto = BuildDto(entry.Registration, entry.IncludesOperations);
 		if (!entry.IncludesOperations)
 		{
 			return dto;
 		}
 
 		var status = entry.Status;
-		dto["status"] = status is null
-			? null
-			: new
-			{
-				operatingState = status.Report.OperatingState.ToApiName(),
-				pausedUntil = status.Report.PausedUntil,
-				runtimeUnavailableReason = status.Report.RuntimeUnavailableReason,
-				activeAnalysts = status.Report.ActiveAnalysts,
-				maxAnalysts = status.Report.MaxAnalysts,
-				managerVersion = status.Report.ManagerVersion,
-				reportedAt = status.ReceivedAt,
-			};
-		dto["connectivity"] = entry.Connectivity.ToApiName();
-		return dto;
+		return dto with
+		{
+			Status = status is null
+				? null
+				: new AnalystManagerStatusDto(
+					status.Report.OperatingState.ToApiName(),
+					status.Report.PausedUntil,
+					status.Report.RuntimeUnavailableReason,
+					status.Report.ActiveAnalysts,
+					status.Report.MaxAnalysts,
+					status.Report.ManagerVersion,
+					status.ReceivedAt),
+			Connectivity = entry.Connectivity.ToApiName(),
+		};
 	}
 
-	private static Dictionary<string, object?> BuildDto(AnalystManagerRegistration r)
+	private static AnalystManagerRegistrationDto BuildDto(AnalystManagerRegistration r, bool includesOperations)
 	{
 		var m = r.DeviceMetadata;
-		return new Dictionary<string, object?>
-		{
-			["registrationId"] = r.Id,
-			["managerId"] = r.ManagerId,
-			["stampId"] = r.StampId,
-			["state"] = r.State.ToApiName(),
-			["keyThumbprint"] = r.KeyThumbprint,
-			["deviceFingerprint"] = r.DeviceFingerprint.Value,
+		return new AnalystManagerRegistrationDto(
+			r.Id,
+			r.ManagerId,
+			r.StampId,
+			r.State.ToApiName(),
+			r.KeyThumbprint,
+			r.DeviceFingerprint.Value,
 			// Claimed by the Manager, not attested by the platform.
-			["deviceMetadata"] = new
-			{
-				os = m.Os,
-				osVersion = m.OsVersion,
-				architecture = m.Architecture,
-				managerVersion = m.ManagerVersion,
-				claimedKeyProtection = m.ClaimedKeyProtection.ToApiName(),
-				hostLabel = m.HostLabel,
-			},
-			["pairingOrigin"] = new { sourceAddress = r.PairingSourceAddress, requestedAt = r.CreatedAt },
-			["approvalNotice"] = r.State == RegistrationState.PendingApproval ? ApprovalNotice : null,
-			["submittedBy"] = r.SubmittedBy,
-			["submittedAt"] = r.SubmittedAt,
-			["decidedBy"] = r.DecidedBy,
-			["decidedAt"] = r.DecidedAt,
-			["decisionReason"] = r.DecisionReason,
-			["activatedAt"] = r.ActivatedAt,
-			["endedAt"] = r.EndedAt,
-			["endReason"] = r.EndReason,
-			["revokedBy"] = r.RevokedBy,
-			["pairingExpiresAt"] = r.PairingExpiresAt,
-			["approvalExpiresAt"] = r.ApprovalExpiresAt,
-			["activationExpiresAt"] = r.ActivationExpiresAt,
-			["createdAt"] = r.CreatedAt,
-			["version"] = r.Version,
+			new AnalystManagerDeviceMetadataDto(
+				m.Os, m.OsVersion, m.Architecture, m.ManagerVersion, m.ClaimedKeyProtection.ToApiName(), m.HostLabel),
+			new AnalystManagerPairingOriginDto(r.PairingSourceAddress, r.CreatedAt),
+			r.State == RegistrationState.PendingApproval ? ApprovalNotice : null,
+			r.SubmittedBy,
+			r.SubmittedAt,
+			r.DecidedBy,
+			r.DecidedAt,
+			r.DecisionReason,
+			r.ActivatedAt,
+			r.EndedAt,
+			r.EndReason,
+			r.RevokedBy,
+			r.PairingExpiresAt,
+			r.ApprovalExpiresAt,
+			r.ActivationExpiresAt,
+			r.CreatedAt,
+			r.Version)
+		{
+			IncludesOperations = includesOperations,
 		};
 	}
 
@@ -137,7 +160,8 @@ internal static class AnalystManagerRegistrationEndpoints
 	{
 		var result = await handler.HandleAsync(state, continuationToken, cancellationToken);
 		return result.IsSuccess
-			? Results.Json(new { items = result.Value.Items.Select(i => ToDto(i)).ToArray(), continuationToken = result.Value.ContinuationToken })
+			? Results.Json(new AnalystManagerRegistrationPageDto(
+				result.Value.Items.Select(i => ToDto(i)).ToArray(), result.Value.ContinuationToken))
 			: ProblemResults.From(result.Failure);
 	}
 

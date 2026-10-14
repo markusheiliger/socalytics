@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
+using System.Text.Json.Serialization.Metadata;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application.Registry;
@@ -15,6 +17,9 @@ internal static class RegistryApiRegistration
 		builder.Services.AddSingleton<IValidateOptions<RegistryOptions>>(
 			new RegistryOptionsValidator(builder.Environment.IsDevelopment()));
 		builder.Services.AddOptions<RegistryOptions>().ValidateOnStart();
+		builder.Services.ConfigureHttpJsonOptions(options =>
+			options.SerializerOptions.TypeInfoResolver = (options.SerializerOptions.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver())
+				.WithAddedModifier(RegistrationDtoJson.OmitOperationsUnlessIncluded));
 		builder.Services.AddHostedService<RegistrationExpiryWorker>();
 		builder.Services.AddRegistryRateLimiting();
 		builder.Services.AddAuthentication()
