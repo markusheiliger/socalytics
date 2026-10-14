@@ -2,6 +2,8 @@ import { defineConfig, devices } from '@playwright/test';
 
 const previewUrl = 'http://127.0.0.1:4173';
 
+const fakeStoragePort = 4175;
+const fakeStorageUrl = `http://127.0.0.1:${fakeStoragePort}`;
 const platformUrl = 'http://127.0.0.1:4174';
 const simulatedOnly = process.argv.some((arg, i, all) => (arg === '--project' && all[i + 1] === 'simulated') || arg === '--project=simulated');
 const adminPassword = process.env.SOCALYTICS_E2E_ADMIN_PASSWORD ?? 'E2e-Admin-Password-0001';
@@ -59,6 +61,15 @@ export default defineConfig({
       command: 'npm run preview -- --host 127.0.0.1 --port 4173 --strictPort',
       url: previewUrl,
       reuseExistingServer: !process.env.CI,
+      // The preview policy allows the fake object store in connect-src (contracts/development-storage.md).
+      env: { SOCALYTICS_OBJECT_STORAGE_ORIGIN: fakeStorageUrl },
+    },
+    // Fake S3-compatible store for the simulated upload tests; it answers CORS preflights for the preview origin only.
+    {
+      command: 'node tests/e2e/support/fakeObjectStorage.mjs',
+      url: `${fakeStorageUrl}/__control/health`,
+      reuseExistingServer: !process.env.CI,
+      env: { FAKE_STORAGE_PORT: String(fakeStoragePort), FAKE_STORAGE_ALLOWED_ORIGIN: previewUrl },
     },
     // The AppHost needs Docker, so it is skipped when only the simulated project runs.
     ...(simulatedOnly ? [] : [{
