@@ -9,6 +9,14 @@ namespace SocAlytics.Analysts.Manager.Tests.Support;
 
 internal sealed record RecordedRequest(HttpMethod Method, Uri Uri, string Body);
 
+internal enum WorkOperation
+{
+    QueueCredentials,
+    Claim,
+    Heartbeat,
+    Completion,
+}
+
 /// <summary>In-process platform: every openapi.yaml operation with configurable outcomes.</summary>
 internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
 {
@@ -20,6 +28,22 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
     private int _challengeCounter;
 
     public List<RecordedRequest> Requests { get; } = [];
+
+    /// <summary>DPoP proof and idempotency header of every work operation call.</summary>
+    public List<(WorkOperation Operation, string? DPoP, string? IdempotencyKey)> Headers { get; } = [];
+
+    private Dictionary<WorkOperation, Func<HttpResponseMessage>> WorkScripts { get; } = [];
+
+    /// <summary>Scripts the response of a work operation; a script that throws simulates an unreachable platform.</summary>
+    public void Script(WorkOperation operation, Func<HttpResponseMessage> response) => WorkScripts[operation] = response;
+
+    public void Script(WorkOperation operation, HttpStatusCode status, string body = "")
+    {
+        WorkScripts[operation] = () => new HttpResponseMessage(status)
+        {
+            Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+        };
+    }
 
     public string StampId { get; set; } = "stamp-1";
 
@@ -133,6 +157,26 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
                 };
                 denied.Headers.TryAddWithoutValidation("WWW-Authenticate", "DPoP error=\"invalid_token\"");
                 return denied;
+            }
+        }
+
+        var workPath = request.RequestUri!.AbsolutePath;
+        if (workPath.EndsWith("/self/queue-credentials", StringComparison.Ordinal)
+            || workPath.StartsWith("/api/v1/analysis/", StringComparison.Ordinal))
+        {
+            var operation = workPath.EndsWith("/self/queue-credentials", StringComparison.Ordinal) ? WorkOperation.QueueCredentials
+                : workPath.EndsWith("/claims", StringComparison.Ordinal) ? WorkOperation.Claim
+                : workPath.EndsWith("/heartbeats", StringComparison.Ordinal) ? WorkOperation.Heartbeat
+                : WorkOperation.Completion;
+            lock (Requests)
+            {
+                Headers.Add((operation, request.Headers.TryGetValues("DPoP", out var dpop) ? dpop.FirstOrDefault() : null,
+                    request.Headers.TryGetValues("Idempotency-Key", out var idem) ? idem.FirstOrDefault() : null));
+            }
+
+            if (WorkScripts.TryGetValue(operation, out var script))
+            {
+                return script();
             }
         }
 

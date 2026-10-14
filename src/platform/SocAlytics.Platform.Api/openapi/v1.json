@@ -2306,6 +2306,25 @@
         ]
       }
     },
+    "/api/v1/analyst-managers/self/queue-credentials": {
+      "post": {
+        "operationId": "issueAnalystManagerQueueCredentials",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analyst Manager self"
+        ]
+      }
+    },
     "/api/v1/analyst-managers/self/registration": {
       "get": {
         "operationId": "getOwnAnalystManagerRegistration",

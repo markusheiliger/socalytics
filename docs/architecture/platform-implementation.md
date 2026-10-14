@@ -523,6 +523,28 @@ minimum Manager version. The planned fleet view adds a Manager status report,
 sent with the periodic registration check and stored as the latest snapshot
 only, and a fleet read operation for Club Admins.
 
+Managers reach the work queue with NATS decentralized JWT authentication. The
+stamp holds an operator key, a stamp account key, and a system account key; the
+NATS server trusts the operator and runs the full account resolver. When an
+active Manager asks for queue credentials, the platform issues a per-Manager
+user JWT that expires after `AnalystWork:QueueCredentialLifetime` and permits
+only pulling and acknowledging work on the per-capability consumers
+(`analyst-<capability-id>`) that the platform provisions from the default
+workflow definition resolved from the Analyst Registry once it resolves. A
+Manager is assigned the consumer of an offered capability only when the offered
+capability id and semantic version equal the resolved definition's, so a
+Manager can neither publish work nor read other Managers' subjects. Revoking or
+unregistering a Manager adds its issued user keys to the `revocations` of the
+stamp account JWT; the platform re-signs that JWT with the operator key and
+pushes it through the system account, which disconnects the Manager. Pending
+pushes are retried after failures and restarts. `Nats:Authentication:Mode`
+`None` (no authentication) is allowed only in the Development and Test
+environments; every other environment requires `Jwt`. Production key custody,
+credential lifetimes, rotation, and recovery remain unresolved under
+`GOV-CRED-004`; the values above are development evidence. Manager work
+execution is verified against a simulated runtime and Analyst that exist only
+in Development and Test; real Analyst execution remains deferred.
+
 Analyst Containers use Python because PyTorch, ONNX Runtime, OpenCV, NumPy,
 SciPy, scikit-learn, SAHI, and accelerator-vendor tooling provide the paved
 model and computer-vision path. Each runtime image may pin a different Python

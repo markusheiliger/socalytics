@@ -6,6 +6,7 @@ using SocAlytics.Analysts.Manager.LocalState;
 using SocAlytics.Analysts.Manager.Operating;
 using SocAlytics.Analysts.Manager.Registration;
 using SocAlytics.Analysts.Manager.Runtime;
+using SocAlytics.Analysts.Manager.Runtime.Simulated;
 using SocAlytics.Analysts.Manager.Tests.Support;
 using Xunit;
 

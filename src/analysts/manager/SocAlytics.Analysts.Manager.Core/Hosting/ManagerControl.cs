@@ -13,14 +13,18 @@ public sealed class ManagerControl : IManagerControl
 
     private readonly IManagerWorkTracker _work;
     private readonly Runtime.PreflightScheduler _preflight;
+    private readonly Work.ConcurrencyLimit _concurrency;
+    private readonly Work.AttemptRegistry _attempts;
     private readonly DrainCoordinator _drain;
     private readonly Autostart.IAutostartRegistrar _autostart;
     private readonly Microsoft.Extensions.Options.IOptions<OperatingOptions> _operating;
 
     public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work, Runtime.PreflightScheduler preflight,
         DrainCoordinator drain, Microsoft.Extensions.Options.IOptions<OperatingOptions> operating,
-        Autostart.IAutostartRegistrar autostart)
+        Autostart.IAutostartRegistrar autostart, Work.ConcurrencyLimit concurrency, Work.AttemptRegistry attempts)
     {
+        _attempts = attempts;
+        _concurrency = concurrency;
         _autostart = autostart;
         _drain = drain;
         _operating = operating;
@@ -68,7 +72,23 @@ public sealed class ManagerControl : IManagerControl
             _coordinator.Protection?.ToWireValue(),
             ReadAutostart(),
             ControlSurface,
-            _coordinator.Fingerprint);
+            _coordinator.Fingerprint,
+            _concurrency.Snapshot(),
+            [.. _attempts.Attempts.Select(a => new ActiveAttemptStatus(
+                a.LogicalJobId, a.AttemptNumber, a.Capability, a.ExecutionState, a.StartedAt, a.LastConfirmedHeartbeat))]);
+    }
+
+    public Work.ConcurrencySnapshot GetConcurrency() => _concurrency.Snapshot();
+
+    public async Task<ControlResult> SetHostLocalConcurrencyAsync(int limit)
+    {
+        var result = await _coordinator.SetHostLocalConcurrencyAsync(limit);
+        if (result.Succeeded)
+        {
+            StatusChanged?.Invoke(this, EventArgs.Empty);
+        }
+
+        return result;
     }
 
     public async Task<ControlResult> SetAutostartAsync(bool enabled)

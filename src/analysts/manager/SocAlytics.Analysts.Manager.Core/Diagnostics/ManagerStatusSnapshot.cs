@@ -6,6 +6,15 @@ public sealed record DrainStatus(string Purpose, DateTimeOffset Deadline, int Ac
 
 public sealed record StatusDiagnostic(string Code, string Message, DateTimeOffset ObservedAt, string? Remediation = null);
 
+/// <summary>One claimed attempt; carries no fencing token, credential, or checksum.</summary>
+public sealed record ActiveAttemptStatus(
+    Guid LogicalJobId,
+    int AttemptNumber,
+    string Capability,
+    string ExecutionState,
+    DateTimeOffset StartedAt,
+    DateTimeOffset? LastConfirmedHeartbeatAt);
+
 /// <summary>Mirrors local-control.schema.json statusReport; never carries the pairing code or any secret.</summary>
 public sealed record ManagerStatusSnapshot(
     string RegistrationState,
@@ -27,4 +36,6 @@ public sealed record ManagerStatusSnapshot(
     string? KeyProtection,
     bool? AutostartEnabled,
     string ControlSurface,
-    string? DeviceFingerprint);
+    string? DeviceFingerprint,
+    Work.ConcurrencySnapshot Concurrency,
+    IReadOnlyList<ActiveAttemptStatus> ActiveAttempts);

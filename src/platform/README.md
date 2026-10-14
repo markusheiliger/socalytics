@@ -136,6 +136,26 @@ deferred.
 
 - The AppHost starts a `nats` resource (JetStream enabled) and injects
   `ConnectionStrings:nats` into the API. Docker is required for it.
+- NATS authentication (`Nats:Authentication`): `Mode` is `None` (default,
+  allowed only in the Development and Test environments) or `Jwt`, which
+  requires `OperatorSeed`, `AccountSeed` (stamp account), and
+  `SystemAccountSeed`. In `Jwt` mode the platform issues per-Manager user JWTs
+  that only pull and acknowledge work (migration
+  `0016_registry_queue_credentials.sql`) and pushes account revocations through
+  the system account, with a retrying revocation worker. Production key custody
+  and lifetimes are unresolved under `GOV-CRED-004`.
+- `AnalystWork` options (development defaults, not production values):
+  `MaxConcurrentAnalystsPerManager` 2, `QueueCredentialLifetime` 30 minutes,
+  `QueueUrl` `nats://localhost:4222`, `ConsumerAckWait` 30 seconds, and
+  `UnfitRedeliveryDelay` 30 seconds.
+- `Tests/SocAlytics.Platform.EndToEnd.Tests` runs the platform against a real
+  Analyst Manager with a simulated runtime. It needs Docker and SoftHSM2 (the
+  Manager's device key) and skips without SoftHSM2:
+
+  ```powershell
+  dotnet test src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests
+  ```
+
 - The API hosts the outbox publisher, retention, Job Monitor,
   recordings-finalized consumer, and reconciliation workers. The switch
   `Analysis:Workers:Enabled` (default `true`) turns them off; tests may disable

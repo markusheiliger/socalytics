@@ -54,4 +54,6 @@ public interface IExecutionAttemptStore
     Task<bool> TryRenewLeaseAsync(Guid attemptId, DateTimeOffset leaseExpiresAt, CancellationToken cancellationToken);
 
     Task<IReadOnlyList<ExpiredAttemptRef>> ListExpiredAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<ExpiredAttemptRef>> ListActiveForManagerAsync(Guid managerId, CancellationToken cancellationToken);
 }
