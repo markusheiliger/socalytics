@@ -1,0 +1,36 @@
+{
+  "matches": {
+    "listTitle": "Matches",
+    "listLabel": "Matches",
+    "empty": "This team has no matches yet.",
+    "loadMore": "Load more matches",
+    "newMatch": "New match",
+    "opponent": "Opponent",
+    "kickoff": "Kickoff time",
+    "venue": "Venue",
+    "competition": "Competition",
+    "venueOption": {
+      "home": "Home",
+      "away": "Away",
+      "neutral": "Neutral"
+    },
+    "listItem": "{{opponent}}, {{kickoff}}, {{venue}}{{competition}}",
+    "competitionSuffix": ", {{competition}}",
+    "createTitle": "New match",
+    "create": "Create match",
+    "creating": "Creating…",
+    "editTitle": "Edit match",
+    "editAction": "Edit match",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "The match was saved.",
+    "opponentFixed": "The opponent is fixed when the match is created.",
+    "matchTitle": "Match",
+    "details": "Match details",
+    "readOnlyNote": "This season is archived. Its matches are read-only.",
+    "viewOnlyNote": "You can view this match but not change it.",
+    "backToTeam": "Back to team",
+    "backToMatch": "Back to match",
+    "invalidKickoff": "Enter a valid kickoff time."
+  }
+}
