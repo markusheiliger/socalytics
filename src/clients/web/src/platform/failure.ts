@@ -4,6 +4,14 @@ export type PlatformFailureKind =
   | 'notPermitted'
   | 'validation'
   | 'conflict'
+  | 'seasonArchived'
+  | 'tooLarge'
+  | 'unsupportedType'
+  | 'uploadExpired'
+  | 'uploadCompleted'
+  | 'uploadPartsRefused'
+  | 'uploadIntegrityFailed'
+  | 'storageUnavailable'
   | 'programmingError'
   | 'sessionProblem'
   | 'unreachable'
@@ -72,6 +80,17 @@ function problemOf(error: unknown): { status?: number; problem: ProblemBody } {
   return { status, problem: parseProblem(data) };
 }
 
+const CONFLICT_KINDS: Record<string, PlatformFailureKind> = {
+  'season-archived': 'seasonArchived',
+  'upload-session-expired': 'uploadExpired',
+  'upload-session-completed': 'uploadCompleted',
+  'upload-parts-incomplete': 'uploadPartsRefused',
+  'upload-part-mismatch': 'uploadPartsRefused',
+  'upload-object-mismatch': 'uploadIntegrityFailed',
+  'integrity-evidence-unavailable': 'uploadIntegrityFailed',
+  'idempotency-key-reused': 'programmingError',
+};
+
 export function mapProblem(status: number | undefined, problem: ProblemBody): PlatformFailure {
   const details: FailureDetails = {
     status,
@@ -86,8 +105,17 @@ export function mapProblem(status: number | undefined, problem: ProblemBody): Pl
     if (problem.code === 'antiforgery-failed') return new PlatformFailure('sessionProblem', details);
     return new PlatformFailure('notPermitted', details);
   }
-  if (status === 400) return new PlatformFailure('validation', details);
-  if (status === 409 || status === 412) return new PlatformFailure('conflict', details);
+  if (status === 400) {
+    if (problem.code === 'idempotency-key-missing') return new PlatformFailure('programmingError', details);
+    return new PlatformFailure('validation', details);
+  }
+  if (status === 409) {
+    const kind = CONFLICT_KINDS[problem.code ?? ''];
+    return new PlatformFailure(kind ?? 'conflict', details);
+  }
+  if (status === 412) return new PlatformFailure('conflict', details);
+  if (status === 413) return new PlatformFailure('tooLarge', details);
+  if (status === 415) return new PlatformFailure('unsupportedType', details);
   if (status === 428) return new PlatformFailure('programmingError', details);
   if (status >= 502 && status <= 504) return new PlatformFailure('unreachable', details);
   if (status >= 500) return new PlatformFailure('unexpected', details);
