@@ -1,6 +1,7 @@
 import type { Route } from '@playwright/test';
 import { expectNoAxeViolations } from '../support/axe';
 import { expect, test } from '../support/fixtures';
+import { activateWithKeyboard, expectAllReachableByKeyboard } from '../support/keyboard';
 import { season, team } from '../support/simulatedApi';
 
 const fulfillJson = (route: Route, status: number, body: unknown) =>
@@ -31,12 +32,15 @@ test('creates and edits teams of a season (scenario 3)', async ({ page, api }) =
   await page.goto('/teams');
   await expect(page.getByRole('link', { name: 'First Team' })).toBeVisible();
   await expectNoAxeViolations(page);
+  await expectAllReachableByKeyboard(page, page.locator('main'));
   await page.getByLabel(/^Team name/).fill('Second Team');
-  await page.getByRole('button', { name: 'Create team' }).click();
+  await activateWithKeyboard(page.getByRole('button', { name: 'Create team' }));
   const link = page.getByRole('link', { name: 'Second Team' });
   await expect(link).toBeVisible();
 
-  await link.click();
+  await activateWithKeyboard(link);
+  await expect(page.getByLabel(/^Team name/)).toBeVisible();
+  await expectAllReachableByKeyboard(page, page.locator('main'));
   await page.getByLabel(/^Team name/).fill('Reserves');
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('The team was saved.')).toBeVisible();
@@ -55,10 +59,12 @@ for (const role of ['Coach', 'Viewer'] as const) {
     await expect(page.getByRole('heading', { level: 2, name: 'Teams' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Create team' })).toHaveCount(0);
     await expectNoAxeViolations(page);
-    await page.getByRole('link', { name: 'First Team' }).click();
+    await expectAllReachableByKeyboard(page, page.locator('main'));
+    await activateWithKeyboard(page.getByRole('link', { name: 'First Team' }));
     await expect(page.getByText('You can view this team but not change it.')).toBeVisible();
     await expect(page.getByLabel(/^Team name/)).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Save' })).toHaveCount(0);
     await expectNoAxeViolations(page);
+    await expectAllReachableByKeyboard(page, page.locator('main'));
   });
 }

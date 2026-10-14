@@ -1,5 +1,6 @@
 import { expectNoAxeViolations } from '../support/axe';
 import { expect, test } from '../support/fixtures';
+import { activateWithKeyboard, expectAllReachableByKeyboard } from '../support/keyboard';
 import type { SimulatedRole } from '../support/simulatedApi';
 
 const NAVIGATION: Record<SimulatedRole, string[]> = {
@@ -23,11 +24,26 @@ for (const role of Object.keys(NAVIGATION) as SimulatedRole[]) {
   });
 }
 
+for (const role of Object.keys(NAVIGATION) as SimulatedRole[]) {
+  test(`shell navigation and home view of a ${role} are operable by keyboard`, async ({ page, api }) => {
+    api.signInAs(role);
+    await page.goto('/');
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+    await expectAllReachableByKeyboard(page);
+    const nav = page.getByRole('navigation', { name: 'Main navigation' });
+    const last = NAVIGATION[role][NAVIGATION[role].length - 1];
+    await activateWithKeyboard(nav.getByRole('link', { name: last, exact: true }));
+    await expect(page).toHaveURL(new RegExp(`/${last.toLowerCase()}$`));
+    await expectAllReachableByKeyboard(page);
+  });
+}
+
 test('shows a not-permitted view without loading data (scenario 3)', async ({ page, api }) => {
   api.signInAs('Viewer');
   await page.goto('/members');
   await expect(page.getByRole('alert')).toContainText('not permitted');
   await expectNoAxeViolations(page);
+  await expectAllReachableByKeyboard(page);
   expect(api.requests.some((r) => r.path === '/members')).toBe(false);
 });
 
@@ -36,6 +52,7 @@ test('shows a not-found view for an unknown address', async ({ page, api }) => {
   await page.goto('/nowhere');
   await expect(page.getByRole('heading', { level: 2, name: 'This page does not exist.' })).toBeVisible();
   await expectNoAxeViolations(page);
+  await expectAllReachableByKeyboard(page);
 });
 
 test('shows the connectivity state, disables actions, and recovers (scenario 4)', async ({ page, api, context }) => {
