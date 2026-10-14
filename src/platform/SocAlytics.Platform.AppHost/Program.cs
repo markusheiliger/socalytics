@@ -121,6 +121,9 @@ if (e2eMode)
     }
 
     api.WithEnvironment("ClubBootstrap__FirstClubAdmin__InitialPassword", e2eAdminPassword);
+
+    // The e2e API has no HTTPS endpoint; the scripted Analyst Manager declares the scheme through X-Forwarded-Proto.
+    api.WithEnvironment("ASPNETCORE_FORWARDEDHEADERS_ENABLED", "true");
 }
 
 if (!e2eMode && builder.Configuration.GetValue("SocAlytics:ApiHttpsEndpoint", true))

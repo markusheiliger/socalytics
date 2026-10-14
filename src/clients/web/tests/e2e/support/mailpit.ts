@@ -12,10 +12,11 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 /** Waits until Mailpit holds a message addressed to the recipient and returns its plain-text body. */
-export async function waitForMessageText(recipient: string, timeoutMs = 90_000): Promise<string> {
+export async function waitForMessageText(recipient: string, timeoutMs = 90_000, subject?: string): Promise<string> {
   const deadline = Date.now() + timeoutMs;
+  const query = subject ? `to:${recipient} subject:"${subject}"` : `to:${recipient}`;
   for (;;) {
-    const found = await getJson<MailpitSearch>(`/api/v1/search?query=${encodeURIComponent(`to:${recipient}`)}`);
+    const found = await getJson<MailpitSearch>(`/api/v1/search?query=${encodeURIComponent(query)}`);
     const latest = found.messages[0];
     if (latest) return (await getJson<MailpitMessage>(`/api/v1/message/${encodeURIComponent(latest.ID)}`)).Text;
     if (Date.now() > deadline) throw new Error(`No message for ${recipient} arrived in Mailpit within ${timeoutMs} ms.`);
