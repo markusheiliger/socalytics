@@ -50,5 +50,51 @@
     "pkcs11-token": "PKCS#11 token",
     "software": "Software (not hardware-protected; the platform cannot verify any claimed protection)",
     "unknown": "Unknown"
+  },
+  "fleet": {
+    "title": "Analyst Managers",
+    "pendingHeading": "Requests waiting for approval",
+    "noPending": "No registration requests are waiting for approval."
+  },
+  "registration": {
+    "title": "Registration",
+    "back": "Back to Analyst Managers",
+    "details": "Registration details",
+    "os": "Operating system: {{value}}",
+    "architecture": "Architecture: {{value}}",
+    "managerVersion": "Manager version: {{value}}",
+    "requestedAt": "Pairing requested: {{value}}",
+    "sourceAddress": "Pairing request origin: {{value}}",
+    "submittedBy": "Submitted by member: {{value}}",
+    "decidedBy": "Decided by member: {{value}}",
+    "pairingDeadline": "Pairing open until {{value}}",
+    "activatedAt": "Activated: {{value}}",
+    "physicalWarning": "Approve only Managers you can physically identify.",
+    "softwareWarning": "This Manager claims a software-backed key. The key is not hardware-protected, and the platform cannot verify any claimed protection.",
+    "claimedNotVerified": "Key protection is claimed by the Manager and is not verified by the platform.",
+    "notice": {
+      "approved": "Approved. The request now waits for the Manager to activate.",
+      "rejected": "The request was rejected."
+    }
+  },
+  "approve": {
+    "open": "Approve…",
+    "title": "Approve this Manager",
+    "intro": "Enter the last 6 characters of the fingerprint shown on the Manager's screen. Separators and letter case are ignored.",
+    "confirmation": "Last 6 characters of the fingerprint",
+    "mismatch": "This does not match the fingerprint of this request.",
+    "confirm": "Approve"
+  },
+  "reject": {
+    "open": "Reject…",
+    "title": "Reject this request",
+    "intro": "Give the reason for rejecting this request.",
+    "reason": "Reason",
+    "hint": "Required, up to {{max}} characters.",
+    "tooLong": "The reason may have at most {{max}} characters.",
+    "confirm": "Reject"
+  },
+  "decision": {
+    "cancel": "Cancel"
   }
 }

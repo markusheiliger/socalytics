@@ -6,9 +6,11 @@
     "seasons": "Seasons",
     "teams": "Teams",
     "members": "Members",
+    "analystManagers": "Analyst Managers",
     "myRequests": "My registration requests",
     "pairManager": "Pair a Manager",
-    "account": "Account"
+    "account": "Account",
+    "analystManagersPending": "Analyst Managers ({{count}} pending)"
   },
   "home": {
     "title": "Home",

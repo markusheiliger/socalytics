@@ -43,7 +43,8 @@ describe('pairing page', () => {
     expect(screen.getByLabelText(/pairing code/i)).toHaveValue('');
     expect(screen.getByLabelText(/device fingerprint/i)).toHaveValue('');
     const calls = fetchMock.mock.calls as unknown as [string, RequestInit][];
-    expect(JSON.parse(new TextDecoder().decode(calls[0][1].body as ArrayBuffer))).toEqual({ pairingCode: 'ABCD-1234', deviceFingerprint: 'ABCD-EF12-3456' });
+    const post = calls.find(([, init]) => init.method === 'POST')!;
+    expect(JSON.parse(new TextDecoder().decode(post[1].body as ArrayBuffer))).toEqual({ pairingCode: 'ABCD-1234', deviceFingerprint: 'ABCD-EF12-3456' });
     expect(router.state.location.search).toBe('');
   });
 

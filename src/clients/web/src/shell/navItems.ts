@@ -3,7 +3,7 @@ import { canPairManagers, canViewTeams, isClubAdmin, isRegistrar } from '../sess
 
 export interface NavItem {
   to: string;
-  labelKey: 'home' | 'club' | 'seasons' | 'teams' | 'members' | 'myRequests' | 'pairManager' | 'account';
+  labelKey: 'home' | 'club' | 'seasons' | 'teams' | 'members' | 'analystManagers' | 'myRequests' | 'pairManager' | 'account';
   allow: (member: SessionMember) => boolean;
 }
 
@@ -14,6 +14,7 @@ export const navItems: NavItem[] = [
   { to: '/seasons', labelKey: 'seasons', allow: isClubAdmin },
   { to: '/teams', labelKey: 'teams', allow: canViewTeams },
   { to: '/members', labelKey: 'members', allow: isClubAdmin },
+  { to: '/analyst-managers', labelKey: 'analystManagers', allow: isClubAdmin },
   { to: '/analyst-managers/requests', labelKey: 'myRequests', allow: (m) => isRegistrar(m) && !isClubAdmin(m) },
   { to: '/analyst-managers/pair', labelKey: 'pairManager', allow: canPairManagers },
   { to: '/account', labelKey: 'account', allow: () => true },

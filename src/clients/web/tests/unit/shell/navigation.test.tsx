@@ -12,8 +12,13 @@ async function navLinks(clubRoles: ClubRole[], teamRoles: TeamRole[]) {
 }
 
 describe('role-based navigation', () => {
-  it('offers a Club Admin club, seasons, teams, members, pairing, and account', async () => {
-    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Pair a Manager', 'Account']);
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('offers a Club Admin club, seasons, teams, members, Analyst Managers, pairing, and account', async () => {
+    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Pair a Manager', 'Account']);
   });
 
   it('offers a team member only teams and account', async () => {
