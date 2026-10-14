@@ -17,6 +17,8 @@ const test = base.extend<{ secrets: string[] }>({
 const run = Date.now().toString(36);
 const registrarName = `e2e-registrar-${run}`;
 const hostLabel = `scripted-manager-${run}`;
+// The first test pairs this Manager and the second one approves and activates it, so the tests run in file order.
+let manager: ScriptedManager;
 
 // The Club Admin gives a new member the Registrar role through the API, so the test only exercises the pairing flow.
 test.beforeAll(async ({ baseURL }) => {
@@ -59,7 +61,7 @@ test('a Registrar pairs a scripted Manager through the verification address and 
   page,
   baseURL,
 }) => {
-  const manager = new ScriptedManager({ origin: baseURL!, hostLabel });
+  manager = new ScriptedManager({ origin: baseURL!, hostLabel });
   const started = await manager.startPairing();
   const verificationUri = new URL(started.verificationUri);
   // The AppHost names the Web UI endpoint `localhost`; the browser tests address the same server as 127.0.0.1.
@@ -83,4 +85,44 @@ test('a Registrar pairs a scripted Manager through the verification address and 
   await expect(page.getByText(`Host label: ${hostLabel}`)).toBeVisible();
   await expect(page.getByText(`Device fingerprint: ${started.deviceFingerprint}`)).toBeVisible();
   expect(page.url()).not.toContain(started.pairingCode);
+});
+
+test('a Club Admin approves the pending request with the fingerprint tail and the scripted Manager activates (SC-002, SC-003)', async ({
+  page,
+}) => {
+  const { deviceFingerprint } = manager.pairingStart;
+  const tail = deviceFingerprint.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(-6);
+
+  await page.goto('/');
+  await page.getByLabel('Sign-in name').fill(ADMIN_ACCOUNT);
+  await page.getByLabel('Password').fill(ADMIN_CHANGED_PASSWORD);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
+
+  const navEntry = page.getByRole('navigation').getByRole('link', { name: /^Analyst Managers \(\d+ pending\)$/ });
+  await expect(navEntry).toBeVisible();
+  await navEntry.click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Analyst Managers' })).toBeVisible();
+
+  await page.getByRole('link', { name: `${hostLabel} – Pending approval` }).click();
+  await expect(page.getByText('State: Pending approval')).toBeVisible();
+  await expect(page.getByText(`Device fingerprint: ${deviceFingerprint}`)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Approve…' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Approve this Manager' });
+  const approve = dialog.getByRole('button', { name: 'Approve', exact: true });
+  await expect(approve).toBeDisabled();
+  await dialog.getByLabel('Last 6 characters of the fingerprint').fill(tail);
+  await expect(approve).toBeEnabled();
+  await approve.click();
+  await expect(page.getByText('Approved. The request now waits for the Manager to activate.')).toBeVisible();
+  await expect(page.getByText('State: Approved')).toBeVisible();
+
+  const approved = await manager.waitForApproval();
+  const activated = await manager.activate(approved.challenge!);
+  expect(activated.managerId).toBeTruthy();
+
+  await page.reload();
+  await expect(page.getByText('State: Active')).toBeVisible();
+  await expect(page.getByText(/^Activated: /)).toBeVisible();
 });
