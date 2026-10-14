@@ -17,7 +17,7 @@ export type UploadJobState =
   | 'expired'
   | 'failed';
 
-export type PausedReason = 'retriesExhausted' | 'unreachable' | 'storageUnavailable' | 'sessionEnded' | 'runningElsewhere';
+export type PausedReason = 'retriesExhausted' | 'unreachable' | 'storageUnavailable' | 'sessionEnded' | 'runningElsewhere' | 'memberRequested';
 export type FailedReason = 'fileChanged' | 'objectMismatch' | 'integrityUnavailable';
 export type RefusedReason = 'partsIncomplete' | 'partMismatch' | 'fileMismatch';
 
@@ -26,7 +26,7 @@ export type UploadJobReason = PausedReason | FailedReason | RefusedReason;
 export const finalStates: readonly UploadJobState[] = ['completed', 'abandoned', 'expired', 'cancelled', 'failed'];
 
 const reasonsByState: Partial<Record<UploadJobState, readonly UploadJobReason[]>> = {
-  paused: ['retriesExhausted', 'unreachable', 'storageUnavailable', 'sessionEnded', 'runningElsewhere'],
+  paused: ['retriesExhausted', 'unreachable', 'storageUnavailable', 'sessionEnded', 'runningElsewhere', 'memberRequested'],
   failed: ['fileChanged', 'objectMismatch', 'integrityUnavailable'],
   refused: ['partsIncomplete', 'partMismatch', 'fileMismatch'],
 };
@@ -34,15 +34,17 @@ const reasonsByState: Partial<Record<UploadJobState, readonly UploadJobReason[]>
 const transitions: Record<UploadJobState, readonly UploadJobState[]> = {
   selected: ['preparing'],
   preparing: ['ready', 'queued', 'cancelled', 'refused'],
-  ready: ['starting'],
-  starting: ['queued'],
+  ready: ['starting', 'cancelled'],
+  // A refused or unreachable start returns to ready; the retry reuses the start key.
+  starting: ['queued', 'ready', 'cancelled'],
   queued: ['transferring', 'paused'],
   transferring: ['awaitingMapping', 'completing', 'paused', 'queued'],
-  paused: ['queued', 'transferring'],
+  paused: ['queued', 'transferring', 'awaitingMapping', 'completing'],
   awaitingMapping: ['completing', 'paused'],
   completing: ['completed', 'refused', 'paused'],
-  refused: ['queued', 'preparing'],
-  needsFile: ['preparing'],
+  // A reloaded job whose session the platform reports as completed ends without its file.
+  refused: ['queued', 'preparing', 'completed'],
+  needsFile: ['preparing', 'completed'],
   notPermitted: ['abandoned'],
   completed: [],
   cancelled: [],
