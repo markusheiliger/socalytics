@@ -9,7 +9,9 @@ name: Spec Kit orchestrate
 #     (the chain broke, a person pushed, or a diagnosis went stale);
 #   - finalizes implementations a person merged, and sends twins whose pull request was closed without merging back to
 #     their computed stage;
-#   - settles amendment pull requests and keeps Spec Kit pull requests out of pull request stacks.
+#   - settles amendment and fix spec pull requests and keeps Spec Kit pull requests out of pull request stacks;
+#   - links a merged fix spec to the implementation it unblocks (dependency, implementation request on behalf of the
+#     person who asked for it, started regardless of the limit), and resumes that implementation once the fix landed.
 on:
   workflow_run:
     workflows: [Spec Kit prepare]

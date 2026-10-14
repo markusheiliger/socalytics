@@ -24,6 +24,8 @@ import {
 } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
 
+// The workflow token's user, which sets the implement flag on a fix spec for the person who asked for it.
+const BOT_LOGIN = 'github-actions[bot]';
 function readOptional(filePath) {
   return existsSync(filePath) ? readFileSync(filePath, 'utf8') : null;
 }
@@ -158,10 +160,12 @@ function revocationComment(item) {
 async function applyPlan(client, plan, issues) {
   for (const label of LABELS) await client.ensureLabel(label);
   for (const item of plan.create) {
+    // A fix spec gets no dependency inference: the tooling links it to the spec it unblocks, and an inferred
+    // dependency on that spec would make each wait for the other.
     item.issue = await client.createIssue({
       title: item.title,
       body: item.body,
-      labels: [TWIN_LABEL, PENDING_LABEL, stageLabel(item.stage)],
+      labels: [TWIN_LABEL, ...(item.fix ? [] : [PENDING_LABEL]), stageLabel(item.stage)],
     });
     issues.push(item.issue);
   }
@@ -246,15 +250,28 @@ export function canWrite(permission) {
 }
 
 // Finds who most recently added the implement label, using the issue's event history rather than the
-// workflow trigger, so a flag counts only if its actual author has write access.
+// workflow trigger, so a flag counts only if its actual author has write access. A flag the workflow set for a fix
+// spec counts for the person it names in its own comment on the twin (renderFlaggedFor), who asked for the fix.
 export async function resolveImplementRequester(client, issueNumber, fallbackLogin = null) {
   const implementLabel = stageLabel(IMPLEMENT_STAGE);
   const events = await client.listIssueEvents(issueNumber);
   const last = events.filter((event) => event.event === 'labeled' && event.label?.name === implementLabel).at(-1);
-  const login = last?.actor?.login ?? fallbackLogin;
+  let login = last?.actor?.login ?? fallbackLogin;
+  if (login === BOT_LOGIN) {
+    const comments = await client.listIssueComments(issueNumber);
+    login = comments
+      .filter((comment) => comment.user?.login === BOT_LOGIN)
+      .map((comment) => String(comment.body ?? '').match(FLAGGED_FOR_PATTERN)?.[1])
+      .filter(Boolean)
+      .at(-1) ?? login;
+  }
   if (!login) return null;
   return { login, canWrite: canWrite(await client.getPermission(login)), labeledAt: last?.created_at ?? null };
 }
+
+// Only at the start of the workflow's own comment, so text it quotes from elsewhere cannot name another requester.
+const FLAGGED_FOR_PATTERN = /^<!-- speckit:flagged-for ([A-Za-z0-9-]+) -->/;
+export const renderFlaggedFor = (login) => `<!-- speckit:flagged-for ${login} -->`;
 
 export async function runValidateImplement({ client, rootDir, env, issueNumber, actor, log }) {
   const report = createReporter(env, log);

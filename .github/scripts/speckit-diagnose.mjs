@@ -7,6 +7,7 @@ import { GitHubClient } from './speckit-prepare-github.mjs';
 import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
 import {
   BOT_LOGIN,
+  CATEGORY_MEANING,
   CHECK_AMEND_CHECKING,
   CHECK_AMEND_INCONSISTENT,
   CHECK_DIAGNOSED,
@@ -19,13 +20,14 @@ import {
   MAX_STALLED_ROUNDS,
   amendmentBranch,
   baseBranchOf,
-  behindBaseOf,
   defaultBranchOf,
   implementationBranch,
   isImplementRunOf,
   isTwinRunOf,
   neutralizeMarkers,
+  nextStepContext,
   nextTaskGroup,
+  parseNextCommand,
   readSpecTasks,
   renderNextSteps,
 } from './speckit-implement-core.mjs';
@@ -35,7 +37,11 @@ export { checkAmendment, findAmendment };
 export const CATEGORIES = ['artifacts', 'retry', 'outside', 'decision', 'unknown'];
 export const CONFIDENCE = ['high', 'medium', 'low'];
 export const MODES = ['diagnose', 'fix', 'revise'];
-const COMMAND_PATTERN = /^\/speckit (diagnose|resume|sync)( [^\n]*)?$/;
+const COMMAND_PATTERN = /^\/speckit (diagnose|retry|resume|fix)( [^\n]*)?$/;
+// A placeholder an agent may copy from a usage line instead of writing the text: `<guidance>`, `[notes]`, `<answers>`.
+// Only these words count, so code such as `IReadOnlyList<Recording>` or task tags such as `[P]` stay intact.
+const PLACEHOLDER_PATTERN = /<(?:concrete |your )?(?:guidance|notes|answers?|notes or answers|choice|first choice|what to examine next|what to fix[^<>\n]{0,60})>|\[(?:concrete |your )?(?:guidance|notes|answers?|notes or answers)\]/gi;
+const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|resume|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|resume|fix))\b/;
 const MAX_EVIDENCE_BYTES = 200_000;
 const LOG_TAIL_LINES = 150;
 
@@ -246,8 +252,8 @@ export function validateReport(raw, { requireCategory = true } = {}) {
       .filter((item) => item.file)
       .slice(0, 20),
     options: (Array.isArray(report.options) ? report.options : [])
-      .map((item) => ({ title: text(item?.title, 400), command: typeof item?.command === 'string' ? item.command.trim() : null, recommended: item?.recommended === true }))
-      .filter((item) => item.title)
+      .map((item, index) => normalizeOption(item, index, reasons))
+      .filter(Boolean)
       .slice(0, 6),
     questions: (Array.isArray(report.questions) ? report.questions : [])
       .map((item) => ({ question: text(item?.question, 600), choices: (Array.isArray(item?.choices) ? item.choices : []).map((choice) => text(choice, 300)).filter(Boolean).slice(0, 5) }))
@@ -261,13 +267,66 @@ export function validateReport(raw, { requireCategory = true } = {}) {
   if (requireCategory && !normalized.category) reasons.push(`the category must be one of ${CATEGORIES.join(', ')}`);
   if (!normalized.summary) reasons.push('the summary is missing');
   for (const option of normalized.options) {
-    if (option.command && (!COMMAND_PATTERN.test(option.command) || option.command.length > 600)) {
+    if (!option.command) continue;
+    const command = removePlaceholderArgument(option.command);
+    if (command === null || !COMMAND_PATTERN.test(command) || command.length > 600 || command.includes('```')) {
       reasons.push(`option "${option.title}" has an invalid command`);
       option.command = null;
+    } else {
+      option.command = command;
     }
+  }
+  // Exactly one recommendation: the first one the agent marked.
+  let recommended = false;
+  for (const option of normalized.options) {
+    if (option.recommended && recommended) {
+      reasons.push(`option "${option.title}" was marked as recommended too; only the first recommendation counts`);
+      option.recommended = false;
+    }
+    recommended ||= option.recommended;
   }
   normalized.options.sort((a, b) => Number(b.recommended) - Number(a.recommended));
   return { reasons, report: normalized };
+}
+
+// One option of a report: { title, why, command, recommended }. An option given as plain text (agents sometimes write
+// the option as one sentence) keeps its first sentence as the title, the rest as why, and a `/speckit` command it
+// mentions as its command. Options without a usable title are dropped with a reason.
+function normalizeOption(item, index, reasons) {
+  const text = (value, max) => (typeof value === 'string' ? clip(value.trim(), max) : '');
+  if (typeof item === 'string') {
+    const value = item.trim().replace(/\s+/g, ' ');
+    if (!value) return null;
+    const match = value.match(COMMAND_IN_TEXT);
+    const [first, ...rest] = value.split(/(?<=[.!?])\s+/);
+    reasons.push(`option ${index + 1} was plain text instead of an object; it was read as "${clip(first, 120)}"`);
+    return {
+      title: clip(first, 400),
+      // A sentence that only marks the option as recommended says nothing about why it helps.
+      why: clip(rest.filter((sentence) => !/\brecommended\b/i.test(sentence)).join(' '), 400),
+      command: match ? (match[1] ?? match[2]).trim() : null,
+      recommended: /\brecommended\b/i.test(value) && !/\bnot recommended\b/i.test(value),
+    };
+  }
+  const title = text(item?.title, 400);
+  if (!title) {
+    reasons.push(`option ${index + 1} has no title and was dropped`);
+    return null;
+  }
+  const why = text(item?.why, 400);
+  if (!why) reasons.push(`option "${clip(title, 120)}" does not say why it helps`);
+  return { title, why, command: typeof item?.command === 'string' ? item.command.trim() : null, recommended: item?.recommended === true };
+}
+
+// A command whose text after the verb is only a placeholder (`/speckit resume <guidance>`) is reduced to the bare
+// command; a placeholder inside other text makes the command unusable (null), because a person could not post it as
+// it is.
+export function removePlaceholderArgument(command) {
+  const parsed = parseNextCommand(command);
+  if (!parsed || !parsed.argument) return String(command ?? '').trim();
+  const rest = parsed.argument.replace(PLACEHOLDER_PATTERN, '').trim();
+  if (rest === parsed.argument) return String(command).trim();
+  return /^[\s.,;:-]*$/.test(rest) ? `/speckit ${parsed.verb}` : null;
 }
 
 function readAgentItems(env, type) {
@@ -281,8 +340,9 @@ function readAgentItems(env, type) {
   }
 }
 
+// Diagnose reports its results as `speckit_diagnosis`; Spec Kit fix reports reworks of a fix spec as `speckit_fix`.
 function readAgentReports(env) {
-  return readAgentItems(env, 'speckit_diagnosis').map((item) => item.report ?? item);
+  return [...readAgentItems(env, 'speckit_diagnosis'), ...readAgentItems(env, 'speckit_fix')].map((item) => item.report ?? item);
 }
 
 // Whether the diagnose run tracked by a still-open diagnosis check run has ended without reporting (agent failure,
@@ -330,20 +390,111 @@ const CATEGORY_TEXT = {
   unknown: 'the cause is not clear yet',
 };
 
-export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null }) {
+// The commands that fit each category: a recommendation must use one of them, so the headline and the recommended
+// command never disagree. The first is the category's default.
+export const CATEGORY_COMMANDS = Object.freeze({
+  retry: ['retry'],
+  outside: ['fix', 'resume'],
+  artifacts: ['diagnose'],
+  decision: ['diagnose'],
+  unknown: ['diagnose'],
+});
+
+// One line of guidance for the agent of the next attempt, from the diagnosis' findings.
+export function guidanceFrom(report, max = 500) {
+  const text = [report.summary, report.cause].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const end = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('; '));
+  return end > max / 2 ? cut.slice(0, end + 1) : `${cut.replace(/\s+\S*$/, '')}…`;
+}
+
+// The category's own recommendation, used when the report has none that fits.
+function defaultRecommendation(report) {
+  const guidance = guidanceFrom(report);
+  switch (report.category) {
+    case 'retry':
+      return {
+        title: 'Retry what stopped',
+        why: `${report.summary} The same work is expected to pass when it runs again.`,
+        command: `/speckit retry The diagnosis found: ${guidanceFrom({ summary: report.summary }, 400)}`,
+      };
+    case 'outside':
+      return {
+        title: 'Fix the cause in a fix spec, then continue by itself',
+        why: `${report.summary} The cause lies outside this spec, so running the work here again cannot remove it.`,
+        command: `/speckit fix ${guidance}`,
+      };
+    case 'artifacts':
+      return {
+        title: 'Diagnose again to create the amendment',
+        why: 'The diagnosis found a defect in the spec artifacts, but no amendment pull request was created for it.',
+        command: '/speckit diagnose Create the amendment pull request for the spec artifact defect that the previous diagnosis found.',
+      };
+    case 'decision': {
+      const answers = report.questions
+        .map((item, index) => (item.choices[0] ? `${index + 1}. ${item.choices[0].replace(/\s+/g, ' ').replace(/[.\s]+$/, '')}.` : null))
+        .filter(Boolean);
+      return {
+        title: answers.length > 0 ? 'Answer the questions with the recommended choices' : 'Answer the questions',
+        why: answers.length > 0
+          ? 'Only a person can make this trade-off. The command answers with the first, recommended choice of each question; change the answers before posting if you decide otherwise.'
+          : 'Only a person can make this trade-off; add your answers after the command, numbered like the questions.',
+        command: answers.length > 0 ? `/speckit diagnose ${answers.join(' ')}` : '/speckit diagnose',
+      };
+    }
+    default:
+      return {
+        title: 'Diagnose again',
+        why: 'The evidence was not enough to name a cause; a new diagnosis looks at the current state with these findings as context.',
+        command: '/speckit diagnose',
+      };
+  }
+}
+
+// The options of a diagnosis comment with exactly one recommendation that fits the category: the agent's recommended
+// option when its command fits, else its first option that fits, else the category's default. An agent recommendation
+// that does not fit stays as another option, with a note. With an amendment, the amendment is the recommendation.
+export function recommendNextSteps(report, { amendment = null } = {}) {
+  const notes = [];
+  const options = report.options.map((option) => ({ ...option }));
+  if (amendment) {
+    for (const option of options) if (option.command) option.recommended = false;
+    return { options, notes };
+  }
+  const fits = (option) => Boolean(option.command) && CATEGORY_COMMANDS[report.category].includes(parseNextCommand(option.command)?.verb);
+  const agentPick = options.find((option) => option.recommended) ?? null;
+  if (agentPick && fits(agentPick)) return { options, notes };
+  if (agentPick) {
+    agentPick.recommended = false;
+    notes.push(`the recommended option "${agentPick.title}" does not fit the category \`${report.category}\`, so it is listed under the other options`);
+  }
+  const fitting = options.find(fits);
+  if (fitting) {
+    fitting.recommended = true;
+    return { options: [fitting, ...options.filter((option) => option !== fitting)], notes };
+  }
+  return { options: [{ ...defaultRecommendation(report), recommended: true }, ...options], notes };
+}
+
+export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null, baseBranch = null, continuation = null }) {
   const lines = [DIAGNOSIS_COMMENT_MARKER];
+  const context = { behindBase, baseBranch, continuation, diagnosed: true };
   if (!report) {
     lines.push(
       `**Diagnosis${round > 1 ? ` (round ${round})` : ''} did not produce a usable report**: ${reasons.map(neutralizeMarkers).join('; ') || 'no report'}.`,
       '',
       ...(runUrl ? [`See the [diagnosis run](${runUrl}).`, ''] : []),
-      ...renderNextSteps({ behindBase, diagnosed: true }),
+      ...renderNextSteps(context),
     );
     return lines.join('\n');
   }
   const safe = (value) => neutralizeMarkers(value);
+  const { options, notes } = recommendNextSteps(report, { amendment });
   lines.push(
     `**Diagnosis${round > 1 ? ` (round ${round})` : ''}**: ${CATEGORY_TEXT[report.category]} (\`${report.category}\`, confidence ${report.confidence}).`,
+    '',
+    `_\`${report.category}\` means:_ ${CATEGORY_MEANING[report.category]}`,
     '',
     safe(report.summary),
   );
@@ -352,9 +503,10 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
     lines.push('', '<details><summary>Evidence</summary>', '', ...report.evidence.map((item) => `- ${safe(item)}`), '', '</details>');
   }
   if (amendment) {
+    const title = `${safe(amendment.title ?? 'Amendment')} (#${amendment.number})`;
     lines.push(
       '',
-      `**Proposed amendment**: #${amendment.number} (\`${amendment.head.ref}\` → \`${amendment.base.ref}\`). An independent \`/speckit-analyze\` checks it for consistency first, and correction rounds fix what it finds while they make progress; you get a review request there when it is ready.`,
+      `**Proposed amendment**: ${amendment.html_url ? `[${title}](${amendment.html_url})` : title} (\`${amendment.head.ref}\` → \`${amendment.base.ref}\`). An independent \`/speckit-analyze\` checks it for consistency first, and correction rounds fix what it finds while they make progress; you get a review request there when it is ready.`,
       '',
     );
     for (const item of report.artifacts) lines.push(`- \`${safe(item.file)}\`${item.reason ? `: ${safe(item.reason)}` : ''}`);
@@ -362,14 +514,20 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
     lines.push('', '_No amendment pull request was created._');
   }
   if (report.questions.length > 0) {
-    lines.push('', '**Questions** (answer with `/speckit diagnose <answers>`)', '');
+    const prefilled = !amendment && report.category === 'decision' && parseNextCommand(options.find((option) => option.recommended)?.command)?.argument;
+    lines.push('', prefilled
+      ? '**Questions** (the recommended next step answers them with the first, recommended choice of each; change the answers before posting if you decide otherwise)'
+      : '**Questions** (answer them after `/speckit diagnose`, numbered like the questions; the recommended choice is listed first)', '');
     report.questions.forEach((item, index) => {
       lines.push(`${index + 1}. ${safe(item.question)}`);
       for (const choice of item.choices) lines.push(`   - ${safe(choice)}`);
     });
   }
-  lines.push('', ...renderNextSteps({ options: report.options.map((option) => ({ ...option, title: safe(option.title) })), amendmentPull: amendment?.number ?? null, behindBase, diagnosed: true }));
-  if (reasons.length > 0) lines.push('', `_Parts of the report were dropped: ${reasons.map(safe).join('; ')}._`);
+  const pending = amendment ? { number: amendment.number, title: amendment.title ?? null, html_url: amendment.html_url ?? null, status: 'being checked for consistency first' } : null;
+  const shown = options.map((option) => ({ ...option, title: safe(option.title), why: safe(option.why ?? ''), command: option.command ? safe(option.command) : null }));
+  lines.push('', ...renderNextSteps({ ...context, options: shown, amendment: pending }));
+  const adjusted = [...reasons, ...notes];
+  if (adjusted.length > 0) lines.push('', `_Parts of the report were adjusted: ${adjusted.map(safe).join('; ')}._`);
   if (runUrl) lines.push('', `<sub>[Diagnosis run](${runUrl})</sub>`);
   return lines.join('\n');
 }
@@ -391,9 +549,9 @@ export async function runRecord({ client, env, log }) {
   const comments = await client.listIssueComments(pullNumber);
   const round = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).length + 1;
   const amendment = usable ? await createdAmendment(client, env, folder, reasons) : null;
-  const behindBase = await behindBaseOf(client, await client.getPullRequest(pullNumber), folder);
+  const context = await nextStepContext(client, await client.getPullRequest(pullNumber), folder);
   const runUrl = env.GITHUB_RUN_ID ? `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
-  await client.createComment(pullNumber, renderDiagnosisComment({ report: usable, reasons, round, runUrl, amendment, behindBase }));
+  await client.createComment(pullNumber, renderDiagnosisComment({ report: usable, reasons, round, runUrl, amendment, ...context }));
   const checkRun = Number(env.SPECKIT_CHECK_RUN);
   if (Number.isInteger(checkRun) && checkRun > 0) {
     await client.updateCheckRun(checkRun, {
@@ -507,11 +665,24 @@ function githubClient(env) {
 }
 
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
-  const [command] = argv;
+  const [command, file] = argv;
+  if (command === 'check-report') return checkReportFile(file, log);
   const run = { client: client ?? githubClient(env), env, log };
   if (command === 'evidence') return (await runEvidence(run)).exitCode;
   if (command === 'record') return (await runRecord(run)).exitCode;
-  throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs <evidence | record>');
+  throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs <evidence | record | check-report <report.json>>');
+}
+
+// The agent's self-check before it reports: prints what validation changes and the comment a person would see. Exits
+// with 1 while anything had to be adjusted, so the agent can fix its report first.
+export function checkReportFile(file, log = console.log) {
+  if (!file || !existsSync(file)) throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs check-report <report.json>');
+  const { reasons, report } = validateReport(readFileSync(file, 'utf8'));
+  const notes = report?.category ? recommendNextSteps(report).notes : [];
+  const problems = [...reasons, ...notes];
+  log(problems.length > 0 ? `Fix these problems before you report:\n${problems.map((item) => `- ${item}`).join('\n')}` : 'The report is valid.');
+  if (report?.category) log(`\nThe comment would read:\n\n${renderDiagnosisComment({ report, reasons, round: 1 })}`);
+  return problems.length > 0 || !report?.category ? 1 : 0;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -1,0 +1,522 @@
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import { IMPLEMENT_STAGE, TWIN_LABEL, countOpenChecklistItems, hasLabel, isValidFolderName, parseFixForLine, resolveTwins, stageLabel, stageLabelChange } from './speckit-prepare-core.mjs';
+import { GitHubClient } from './speckit-prepare-github.mjs';
+import { renderFlaggedFor, updateIssueWithLabels } from './speckit-prepare.mjs';
+import { beginAmendment, guardPullRequest, maintainOpenSpecPull } from './speckit-amend.mjs';
+import {
+  BOT_LOGIN,
+  CHECK_FIX_AUTHORED,
+  CHECK_FIX_AUTHORING,
+  DIAGNOSIS_COMMENT_MARKER,
+  FIX_BRANCH_PREFIX,
+  FIX_CHECK_NAME,
+  FIX_TITLE_PREFIX,
+  FIX_WORKFLOW_FILE,
+  MAX_CORRECTION_ROUNDS,
+  MAX_STALLED_ROUNDS,
+  ORCHESTRATE_WORKFLOW_FILE,
+  baseBranchOf,
+  defaultBranchOf,
+  dispatchImplementation,
+  fixBranch,
+  folderOfBranch,
+  isTwinRunOf,
+  latestCheckRun,
+  neutralizeMarkers,
+  nextStepContext,
+  parseFixEvents,
+  parseGuidance,
+  renderFixEvent,
+  renderFixFor,
+  renderGuidanceMarker,
+  renderNextSteps,
+  renderResumeComment,
+  specTitleOfPull,
+} from './speckit-implement-core.mjs';
+
+// Fix specs (`/speckit fix`): when a diagnosis finds the cause of a stop outside the stopped spec (code or tests of
+// another feature on the base branch, or the environment actions), an agent authors a small, complete spec for the fix
+// and proposes it as a pull request from speckit-fix/<fix folder> against the default branch. It runs through the same
+// consistency check, correction rounds, and review as an amendment (speckit-amend.mjs, kind `fix`). Once a person merges
+// it, the scheduler links its twin to the stopped spec, requests its implementation on behalf of the person who asked
+// for it, and resumes the stopped implementation when the fix has landed. The lifecycle is recorded as markers in the
+// workflow's comments on the implementation pull request (renderFixEvent).
+
+export class FixUsageError extends Error {}
+
+export const FIX_MODES = ['author', 'fix', 'revise'];
+// An authoring run that has not reported after this long belongs to a cancelled or crashed run.
+const AUTHORING_STALE_MS = 2 * 60 * 60 * 1000;
+const MAX_EVIDENCE_BYTES = 150_000;
+const README_PATH = 'specs/README.md';
+
+const clip = (text, max) => {
+  const value = String(text ?? '');
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+};
+
+// The UTC time prefix of a new spec folder (feature_numbering `timestamp`).
+export function fixStamp(now = Date.now()) {
+  const date = new Date(now);
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`;
+}
+
+// The latest fix spec of an implementation pull request and what happened to it, from the workflow's comments.
+export function fixState(comments) {
+  const events = parseFixEvents(comments);
+  const created = events.filter((event) => event.event === 'created').at(-1) ?? null;
+  const of = (name) => (created ? events.filter((event) => event.event === name && event.pull === created.pull).at(-1) ?? null : null);
+  const requested = events.filter((event) => event.event === 'requested' && (!created || Date.parse(event.at) <= Date.parse(created.at))).at(-1) ?? null;
+  return { events, requested, created, merged: of('merged'), discarded: of('discarded'), linked: of('linked'), landed: of('landed'), stopped: of('stopped') };
+}
+
+// `/speckit fix [guidance]`: records the request on the implementation pull request and starts the authoring run. The
+// implementation keeps waiting. Refused while a fix spec of this implementation is being authored, open, or merged but
+// not implemented yet.
+export async function startFixAuthoring(client, env, { twin, implementation, guidance = '', actor, now = Date.now() }) {
+  const folder = folderOfBranch(implementation.head?.ref);
+  const baseBranch = baseBranchOf(implementation);
+  const defaultBranch = defaultBranchOf(env);
+  if (baseBranch !== defaultBranch) {
+    return { started: false, reason: `the implementation's base branch \`${baseBranch}\` is not the default branch \`${defaultBranch}\`, where fix specs are added` };
+  }
+  const state = fixState(await client.listIssueComments(implementation.number));
+  if (state.created && !state.discarded && !state.landed && !state.stopped) {
+    const pull = await client.getPullRequest(state.created.pull);
+    if (pull.state === 'open') return { started: false, reason: `fix spec #${pull.number} is still open; review it there, or close it first` };
+    if (pull.merged_at) return { started: false, reason: `fix spec #${pull.number} was merged and is not implemented yet; this implementation resumes by itself once it has landed` };
+  }
+  const latest = latestCheckRun(await client.listCheckRuns(implementation.head.sha, FIX_CHECK_NAME));
+  if (latest && latest.status !== 'completed') {
+    if (now - Date.parse(latest.started_at ?? latest.created_at ?? 0) < AUTHORING_STALE_MS) return { started: false, reason: 'a fix spec is already being authored' };
+    await closeAuthoringCheck(client, latest.id, 'failure', 'The fix spec authoring did not finish', 'The run ended without a result.');
+  }
+  const stamp = fixStamp(now);
+  const value = String(guidance ?? '').trim();
+  const check = await client.createCheckRun({
+    name: FIX_CHECK_NAME,
+    head_sha: implementation.head.sha,
+    status: 'in_progress',
+    external_id: CHECK_FIX_AUTHORING,
+    output: { title: 'Authoring a fix spec', summary: `Requested by @${actor}.${value ? `\n\nGuidance: ${clip(value, 2000)}` : ''}` },
+  });
+  await client.createComment(implementation.number, [
+    renderFixEvent('requested', { by: actor, stamp }),
+    ...(value ? [renderGuidanceMarker(value)] : []),
+    `**A fix spec is being authored**, requested by @${actor}. An agent writes a small spec for the cause outside this spec and opens it as a pull request against \`${baseBranch}\`; it is checked for consistency and then handed over for review. This implementation waits meanwhile.`,
+    ...(value ? ['', 'Guidance for the agent:', '', ...neutralizeMarkers(value).split('\n').map((line) => `> ${line}`)] : []),
+  ].join('\n'));
+  try {
+    await client.dispatchWorkflow(FIX_WORKFLOW_FILE, defaultBranch, {
+      twin: String(twin),
+      pull: String(implementation.number),
+      folder,
+      notes: clip(value, 4000),
+      check_run: String(check.id),
+      mode: 'author',
+      amendment: '',
+      round: '0',
+      stalls: '0',
+      findings: '',
+      stamp,
+    });
+    return { started: true, check, stamp };
+  } catch (error) {
+    await closeAuthoringCheck(client, check.id, 'failure', 'The fix spec authoring could not start', error.message);
+    return { started: false, reason: `the authoring could not start: ${error.message}` };
+  }
+}
+
+async function closeAuthoringCheck(client, id, conclusion, title, summary) {
+  await client.updateCheckRun(id, { status: 'completed', conclusion, external_id: CHECK_FIX_AUTHORED, output: { title, summary: clip(summary || title, 2000) } });
+}
+
+function inputsFrom(env) {
+  const twin = Number(env.SPECKIT_TWIN);
+  const pull = Number(env.SPECKIT_PULL);
+  const folder = String(env.SPECKIT_FOLDER ?? '');
+  if (!Number.isInteger(twin) || twin <= 0 || !Number.isInteger(pull) || pull <= 0 || !isValidFolderName(folder)) {
+    throw new FixUsageError('Expected SPECKIT_TWIN and SPECKIT_PULL as positive integers and SPECKIT_FOLDER as a spec folder name.');
+  }
+  const mode = FIX_MODES.includes(env.SPECKIT_MODE) ? env.SPECKIT_MODE : 'author';
+  const amendment = Number(env.SPECKIT_AMENDMENT);
+  if (mode !== 'author' && (!Number.isInteger(amendment) || amendment <= 0)) throw new FixUsageError(`Mode ${mode} needs SPECKIT_AMENDMENT (the fix spec pull request).`);
+  return { twin, pull, folder, mode, amendment: mode === 'author' ? null : amendment, round: Math.max(0, Number(env.SPECKIT_ROUND) || 0), stalls: Math.max(0, Number(env.SPECKIT_STALLS) || 0) };
+}
+
+// Agent job of Spec Kit fix, before the agent: what the agent needs and cannot fetch itself, in evidence.md and
+// context.json. `author` writes a new fix spec for the stop of the implementation pull request (SPECKIT_FOLDER is the
+// stopped spec); `fix` and `revise` rework the fix spec pull request SPECKIT_AMENDMENT (SPECKIT_FOLDER is the fix spec).
+export async function runEvidence({ client, env, log, now = Date.now }) {
+  const { twin, pull: pullNumber, folder, mode, amendment, round, stalls } = inputsFrom(env);
+  const outDir = path.resolve(env.SPECKIT_EVIDENCE_DIR || '.speckit-fix');
+  mkdirSync(outDir, { recursive: true });
+  const implementation = await client.getPullRequest(pullNumber);
+  const blockedFolder = folderOfBranch(implementation.head?.ref);
+  const baseBranch = baseBranchOf(implementation);
+  const comments = await client.listIssueComments(pullNumber);
+  const sections = [];
+  let context;
+  if (mode === 'author') {
+    const stamp = /^\d{8}-\d{6}$/.test(String(env.SPECKIT_STAMP ?? '')) ? env.SPECKIT_STAMP : fixStamp(now());
+    const requested = fixState(comments).events.filter((event) => event.event === 'requested').at(-1);
+    const requestComment = requested ? comments.find((comment) => comment.id === requested.commentId) : null;
+    const guidance = (requestComment ? parseGuidance(requestComment.body) : null) ?? (env.SPECKIT_NOTES?.trim() || null);
+    const diagnosis = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).at(-1);
+    sections.push(
+      `# Evidence for a fix spec that unblocks #${pullNumber}`,
+      '',
+      `- Stopped spec: \`specs/${blockedFolder}\` (twin #${twin}), implementation pull request #${pullNumber} on \`${implementation.head?.ref}\``,
+      `- Base branch: \`${baseBranch}\` (the fix spec is proposed against it)`,
+      `- Requested by: ${requested?.by ? `@${requested.by}` : 'unknown'}`,
+      '',
+      '## Guidance from the person who asked for the fix spec',
+      '',
+      guidance ?? '_None._',
+      '',
+      '## Latest diagnosis',
+      '',
+      diagnosis ? clip(diagnosis.body, 30_000) : '_None._',
+      '',
+      '## Recent pull request comments (oldest first)',
+      '',
+    );
+    for (const comment of comments.slice(-12)) sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 6000), '');
+    context = {
+      mode,
+      twin,
+      pull: pullNumber,
+      blockedFolder,
+      baseBranch,
+      folderPrefix: `${stamp}-fix-`,
+      branchPrefix: FIX_BRANCH_PREFIX,
+      titlePrefix: FIX_TITLE_PREFIX,
+      fixForLine: `**Fix for**: #${pullNumber} (implementation of \`specs/${blockedFolder}\`)`,
+      specsReadme: README_PATH,
+    };
+  } else {
+    const fix = await client.getPullRequest(amendment);
+    sections.push(
+      `# Evidence for ${mode === 'fix' ? `correction round ${round} of` : 'a rework of'} fix spec #${amendment}`,
+      '',
+      `- Fix spec: \`specs/${folder}\` on \`${fix.head?.ref}\` against \`${fix.base?.ref}\``,
+      `- It unblocks: #${pullNumber} (\`specs/${blockedFolder}\`)`,
+      ...(mode === 'fix' ? [`- Rounds without progress so far: ${stalls} of ${MAX_STALLED_ROUNDS}`] : []),
+      '',
+      mode === 'fix' ? '## Findings of the consistency check to fix' : '## Feedback on the fix spec to address',
+      '',
+      env.SPECKIT_NOTES?.trim() || '_None._',
+      '',
+      '## Earlier comments on the fix spec (oldest first)',
+      '',
+    );
+    for (const comment of (await client.listIssueComments(amendment)).slice(-10)) sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 4000), '');
+    context = {
+      mode,
+      twin,
+      pull: pullNumber,
+      folder,
+      specDir: `specs/${folder}`,
+      fixPull: amendment,
+      branch: fixBranch(folder),
+      baseBranch: fix.base?.ref ?? baseBranch,
+      blockedFolder,
+      round,
+      stalls,
+      maxCorrectionRounds: MAX_CORRECTION_ROUNDS,
+      maxStalledRounds: MAX_STALLED_ROUNDS,
+      fixForLine: `**Fix for**: #${pullNumber} (implementation of \`specs/${blockedFolder}\`)`,
+      specsReadme: README_PATH,
+    };
+  }
+  let evidence = sections.join('\n');
+  if (Buffer.byteLength(evidence) > MAX_EVIDENCE_BYTES) evidence = `${evidence.slice(0, MAX_EVIDENCE_BYTES)}\n\n_(evidence truncated)_\n`;
+  writeFileSync(path.join(outDir, 'evidence.md'), evidence);
+  writeFileSync(path.join(outDir, 'context.json'), `${JSON.stringify(context, null, 2)}\n`);
+  log(`Wrote the ${mode} evidence for #${pullNumber} to ${outDir}.`);
+  return { exitCode: 0, context };
+}
+
+// Checks a fix spec pull request: it only adds a new spec folder (plus its row in specs/README.md), names the
+// implementation it unblocks in spec.md, and is ready for implementation like a published spec (publishBlockers).
+// Every reason is a rule the consistency check's correction rounds fix.
+export async function checkFixSpec(client, { folder, pull, implementationPull = null }) {
+  const { architectureUpdates, publishBlockers } = await import('./speckit-author.mjs');
+  const prefix = `specs/${folder}/`;
+  const files = await client.listPullRequestFiles(pull.number);
+  const changedPaths = [...new Set(files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean))];
+  const reasons = [];
+  const outside = changedPaths.filter((file) => !file.startsWith(prefix) && file !== README_PATH);
+  if (outside.length > 0) reasons.push(`a fix spec may only add \`${prefix}\` and its row in \`${README_PATH}\`, but it changes ${outside.map((file) => `\`${file}\``).join(', ')}`);
+  if (!isValidFolderName(folder) || !/^\d{8}-\d{6}-/.test(folder)) reasons.push(`the folder \`${folder}\` must start with a UTC time stamp (YYYYMMDD-HHMMSS-)`);
+  if (await client.getFileContent(`${prefix}spec.md`, pull.base?.ref)) reasons.push(`\`${prefix}\` already exists on \`${pull.base?.ref}\`; a fix spec adds a new spec folder`);
+  const head = pull.head?.sha ?? pull.head?.ref;
+  const read = (file) => client.getFileContent(file, head);
+  const specMarkdown = await read(`${prefix}spec.md`);
+  const planMarkdown = await read(`${prefix}plan.md`);
+  const tasksMarkdown = await read(`${prefix}tasks.md`);
+  const readme = await read(README_PATH);
+  const checklists = [];
+  for (const file of changedPaths.filter((item) => item.startsWith(`${prefix}checklists/`) && item.endsWith('.md'))) checklists.push((await read(file)) ?? '');
+  reasons.push(...publishBlockers({
+    folder,
+    hasSpec: specMarkdown !== null,
+    artifacts: [...(specMarkdown === null ? [] : ['spec.md']), ...(planMarkdown === null ? [] : ['plan.md']), ...(tasksMarkdown === null ? [] : ['tasks.md'])],
+    tasksMarkdown,
+    architecture: planMarkdown === null ? null : architectureUpdates(planMarkdown),
+    openClarificationMarkers: (String(specMarkdown ?? '').match(/\[NEEDS CLARIFICATION/g) ?? []).length,
+    openChecklistItems: countOpenChecklistItems(checklists),
+    listedInSpecsReadme: String(readme ?? '').includes(`${folder}/`),
+  }));
+  const fixFor = parseFixForLine(specMarkdown);
+  if (specMarkdown !== null && (fixFor === null || (implementationPull && fixFor !== implementationPull))) {
+    reasons.push(`spec.md must name the implementation it unblocks in a line \`**Fix for**: #${implementationPull ?? '<pull request>'}\``);
+  }
+  return { changedPaths, reasons, notes: [] };
+}
+
+function readAgentItems(env, type) {
+  const file = env.GH_AW_AGENT_OUTPUT;
+  if (!file || !existsSync(file)) return [];
+  try {
+    return (JSON.parse(readFileSync(file, 'utf8')).items ?? []).filter((item) => item.type === type);
+  } catch {
+    return [];
+  }
+}
+
+// The author's report: { folder, summary, refused }. Untrusted, so only clipped strings are kept.
+export function parseAuthorReport(raw) {
+  let report = raw;
+  if (typeof raw === 'string') {
+    try {
+      report = JSON.parse(raw);
+    } catch {
+      return { summary: '', refused: '', folder: '' };
+    }
+  }
+  const text = (value, max) => (typeof value === 'string' ? clip(value.trim(), max) : '');
+  return { summary: text(report?.summary, 1500), refused: text(report?.refused, 1500), folder: text(report?.folder, 200) };
+}
+
+// Custom safe-output job of Spec Kit fix. `author`: validates the pull request the agent created, links it to the
+// implementation, and starts its consistency check; a refusal or a broken pull request goes back to the implementation
+// with the next steps. `fix` and `revise` are recorded like a rework of an amendment.
+export async function runRecord({ client, env, log }) {
+  const inputs = inputsFrom(env);
+  if (inputs.mode !== 'author') {
+    const { runRecord: recordRework } = await import('./speckit-diagnose.mjs');
+    return recordRework({ client, env, log });
+  }
+  const { twin, pull: pullNumber, folder: blockedFolder } = inputs;
+  const implementation = await client.getPullRequest(pullNumber);
+  const checkRun = Number(env.SPECKIT_CHECK_RUN);
+  const complete = async (conclusion, title, summary) => {
+    if (Number.isInteger(checkRun) && checkRun > 0) await closeAuthoringCheck(client, checkRun, conclusion, title, summary);
+  };
+  const detection = String(env.SPECKIT_DETECTION ?? '').trim();
+  const withheld = detection && detection !== 'success';
+  const report = withheld ? null : parseAuthorReport(readAgentItems(env, 'speckit_fix').map((item) => item.report ?? item).at(-1) ?? null);
+  const created = Number(env.SPECKIT_CREATED_PULL);
+  const nextSteps = async () => renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, blockedFolder)) });
+  if (!Number.isInteger(created) || created <= 0) {
+    const why = withheld ? `the result was withheld because threat detection did not pass (result: ${detection})` : report?.refused || report?.summary || 'the agent did not create one';
+    await complete('failure', 'No fix spec was created', why);
+    await client.createComment(pullNumber, [`**No fix spec was created**: ${neutralizeMarkers(why)}`, '', ...(await nextSteps())].join('\n'));
+    log(`#${pullNumber}: no fix spec was created.`);
+    return { exitCode: 0, outcome: 'none' };
+  }
+  const pull = await client.getPullRequest(created);
+  const fixFolder = folderOfBranch(pull.head?.ref);
+  const defaultBranch = defaultBranchOf(env);
+  const broken = [];
+  if (!String(pull.head?.ref ?? '').startsWith(FIX_BRANCH_PREFIX) || !fixFolder) broken.push(`its branch \`${pull.head?.ref}\` is not \`${FIX_BRANCH_PREFIX}<folder>\``);
+  if (pull.base?.ref !== defaultBranch) broken.push(`it targets \`${pull.base?.ref}\` instead of \`${defaultBranch}\``);
+  if (pull.state !== 'open') broken.push('it is not open');
+  if (fixFolder) {
+    const files = await client.listPullRequestFiles(created);
+    const outside = files.map((file) => file.filename).filter((file) => !file.startsWith(`specs/${fixFolder}/`) && file !== README_PATH);
+    if (outside.length > 0) broken.push(`it changes files outside \`specs/${fixFolder}/\` and \`${README_PATH}\`: ${outside.map((file) => `\`${file}\``).join(', ')}`);
+    if (await client.getFileContent(`specs/${fixFolder}/spec.md`, defaultBranch)) broken.push(`\`specs/${fixFolder}/\` already exists on \`${defaultBranch}\``);
+  }
+  if (broken.length > 0) {
+    if (pull.state === 'open') await client.updatePullRequest(created, { state: 'closed' });
+    if (String(pull.head?.ref ?? '').startsWith(FIX_BRANCH_PREFIX)) {
+      try {
+        await client.deleteBranch(pull.head.ref);
+      } catch {
+        // Already gone.
+      }
+    }
+    await complete('failure', 'The fix spec was rejected', broken.join('; '));
+    await client.createComment(pullNumber, [`**The authored fix spec #${created} was rejected and closed**: ${broken.map(neutralizeMarkers).join('; ')}.`, '', ...(await nextSteps())].join('\n'));
+    log(`#${pullNumber}: rejected fix spec #${created}.`);
+    return { exitCode: 0, outcome: 'rejected' };
+  }
+  await client.updatePullRequest(created, { body: [renderFixFor({ pull: pullNumber, twin, folder: blockedFolder }), '', neutralizeMarkers(pull.body ?? '')].join('\n') });
+  await client.createComment(pullNumber, [
+    renderFixEvent('created', { pull: created, folder: fixFolder }),
+    `**Fix spec [${neutralizeMarkers(pull.title ?? `#${created}`)} (#${created})](${pull.html_url ?? ''}) was authored** for \`specs/${fixFolder}\`. An independent \`/speckit-analyze\` checks it for consistency first, and correction rounds fix what it finds; then it is handed over for review. Merging it adds the fix spec to \`${defaultBranch}\`, where it is implemented; this implementation resumes by itself once the fix has landed.`,
+    ...(report?.summary ? ['', neutralizeMarkers(report.summary)] : []),
+  ].join('\n'));
+  await complete('success', `Fix spec #${created} authored`, report?.summary || `specs/${fixFolder}`);
+  await beginAmendment(client, env, { amendment: await client.getPullRequest(created), folder: fixFolder, implementation, twin, kind: 'fix' });
+  log(`#${pullNumber}: fix spec #${created} authored; its consistency check started.`);
+  return { exitCode: 0, outcome: 'created', pull: created };
+}
+
+// Handles a person's merge or close of a fix spec pull request once (markers on the implementation pull request record
+// it). A merge into the default branch waits for the twin, which the scheduler then links (maintainFixSpec).
+export async function settleClosedFix(client, env, { amendment: pull, folder, implementation, actor = null }) {
+  if (pull.state === 'open') return { outcome: 'open' };
+  const events = parseFixEvents(await client.listIssueComments(implementation.number)).filter((event) => event.pull === pull.number);
+  if (events.some((event) => ['merged', 'discarded'].includes(event.event))) return { outcome: 'handled' };
+  const by = actor ? `@${actor}` : 'a person';
+  const defaultBranch = defaultBranchOf(env);
+  try {
+    await client.deleteBranch(fixBranch(folder));
+  } catch {
+    // Already gone, or GitHub deleted it.
+  }
+  if (pull.merged_at && pull.base?.ref === defaultBranch) {
+    await client.createComment(implementation.number, [
+      renderFixEvent('merged', { pull: pull.number, folder }),
+      `**Fix spec #${pull.number} was merged** into \`${defaultBranch}\` by ${by}. It becomes a spec twin and is requested for implementation; this implementation waits for it and resumes by itself once the fix has landed.`,
+    ].join('\n'));
+    return { outcome: 'merged' };
+  }
+  const context = await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref));
+  const what = pull.merged_at
+    ? `**Fix spec #${pull.number} was merged into \`${pull.base?.ref}\`** by ${by}, not into \`${defaultBranch}\`, so it is not implemented and this implementation stays stopped.`
+    : `Fix spec #${pull.number} was closed without merging by ${by}.`;
+  await client.createComment(implementation.number, [renderFixEvent('discarded', { pull: pull.number, folder }), what, '', ...renderNextSteps({ diagnosed: true, ...context })].join('\n'));
+  return { outcome: pull.merged_at ? 'misdirected' : 'discarded' };
+}
+
+// Scheduler side (Spec Kit orchestrate), for every implementation in progress: maintains its open fix spec pull
+// request like an amendment, settles a closed one, links a merged one to this spec once its twin exists (dependency,
+// implementation request on behalf of the person who asked for it), and resumes this implementation once the fix twin
+// is implemented. An authoring run that never reported is closed.
+export async function maintainFixSpec(client, env, { implementation, twin }, { now = Date.now(), report = () => {} } = {}) {
+  const comments = await client.listIssueComments(implementation.number);
+  const state = fixState(comments);
+  if (!state.created) {
+    const latest = latestCheckRun(await client.listCheckRuns(implementation.head.sha, FIX_CHECK_NAME));
+    if (latest && latest.status !== 'completed' && now - Date.parse(latest.started_at ?? latest.created_at ?? 0) >= AUTHORING_STALE_MS && !(await authoringRunning(client, twin, now))) {
+      await closeAuthoringCheck(client, latest.id, 'failure', 'The fix spec authoring did not finish', 'The run ended without a result.');
+      await client.createComment(implementation.number, [`**The fix spec authoring did not finish**.`, '', ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) })].join('\n'));
+      report(`- Closed the unfinished fix spec authoring of #${implementation.number}.`);
+      return { outcome: 'stale' };
+    }
+    return { outcome: 'none' };
+  }
+  if (state.discarded || state.landed || state.stopped) return { outcome: 'done' };
+  const fixFolder = state.created.folder;
+  const pull = await client.getPullRequest(state.created.pull);
+  if (pull.state === 'open') {
+    await guardPullRequest(client, env, pull, { report });
+    return maintainOpenSpecPull(client, env, { amendment: await client.getPullRequest(pull.number), folder: fixFolder, implementation, twin, kind: 'fix' }, { now, report });
+  }
+  if (!state.merged) {
+    const settled = await settleClosedFix(client, env, { amendment: pull, folder: fixFolder, implementation, actor: pull.merged_by?.login ?? null });
+    if (settled.outcome !== 'handled') report(`- Fix spec #${pull.number} was ${settled.outcome}.`);
+    if (settled.outcome !== 'merged') return settled;
+  }
+  if (!state.linked) {
+    const fixTwin = resolveTwins(await client.listTwinIssues(TWIN_LABEL)).byFolder.get(fixFolder);
+    if (!fixTwin) {
+      report(`- Fix spec #${pull.number} is merged; its twin does not exist yet.`);
+      return { outcome: 'waiting' };
+    }
+    const requester = state.requested?.by ?? null;
+    try {
+      await client.addBlockedBy(twin, fixTwin.id);
+    } catch {
+      // The dependency documents the order; the resume does not depend on it.
+    }
+    if (fixTwin.state === 'open' && requester && !hasLabel(fixTwin, stageLabel(IMPLEMENT_STAGE))) {
+      await client.createComment(fixTwin.number, [
+        renderFlaggedFor(requester),
+        `Implementation requested on behalf of @${requester}, who asked for this fix spec with \`/speckit fix\` on #${implementation.number}. That implementation resumes by itself once this fix has landed.`,
+      ].join('\n'));
+      await updateIssueWithLabels(client, fixTwin, stageLabelChange(fixTwin, IMPLEMENT_STAGE));
+    }
+    await client.createComment(implementation.number, [
+      renderFixEvent('linked', { pull: pull.number, folder: fixFolder, twin: fixTwin.number }),
+      `**Fix spec #${pull.number} is spec twin #${fixTwin.number}**${requester ? `, requested for implementation on behalf of @${requester}` : ''}. This implementation resumes by itself once #${fixTwin.number} is implemented.`,
+    ].join('\n'));
+    try {
+      await client.dispatchWorkflow(ORCHESTRATE_WORKFLOW_FILE, defaultBranchOf(env), {});
+    } catch {
+      // The hourly scheduler run starts it.
+    }
+    report(`- Linked fix spec #${pull.number} (twin #${fixTwin.number}) to #${implementation.number}.`);
+    return { outcome: 'linked' };
+  }
+  const fixTwin = await client.getIssue(state.linked.twin);
+  if (fixTwin.state !== 'closed') return { outcome: 'waiting' };
+  if (fixTwin.state_reason === 'completed') {
+    const lead = [
+      renderFixEvent('landed', { pull: pull.number, twin: fixTwin.number }),
+      `**The fix has landed**: spec twin #${fixTwin.number} (\`specs/${fixFolder}\`) is implemented. The implementation resumes with a fresh attempt count; the base branch is merged first, so it includes the fix.`,
+    ].join('\n');
+    const guidance = `The cause that stopped this implementation was fixed outside this spec by the fix spec specs/${fixFolder} (twin #${fixTwin.number}), which is now on the base branch. Continue as planned; do not work around that cause in this spec.`;
+    await client.createComment(implementation.number, renderResumeComment(lead, guidance));
+    try {
+      await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
+    } catch {
+      // The resume comment persists the request; the next scheduler run continues the implementation.
+    }
+    report(`- The fix of #${implementation.number} landed (twin #${fixTwin.number}); resumed it.`);
+    return { outcome: 'resumed' };
+  }
+  await client.createComment(implementation.number, [
+    renderFixEvent('stopped', { pull: pull.number, twin: fixTwin.number }),
+    `**The fix spec was not implemented**: spec twin #${fixTwin.number} was closed without being implemented, so this implementation stays stopped.`,
+    '',
+    ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) }),
+  ].join('\n'));
+  report(`- The fix spec of #${implementation.number} was not implemented (twin #${fixTwin.number} closed).`);
+  return { outcome: 'stopped' };
+}
+
+async function authoringRunning(client, twin, now) {
+  const since = new Date(now - 2 * AUTHORING_STALE_MS).toISOString();
+  const runs = (await client.listWorkflowRuns(FIX_WORKFLOW_FILE, since, 1)).filter((run) => isTwinRunOf(FIX_WORKFLOW_FILE, run.display_title, twin));
+  return runs.some((run) => run.status !== 'completed');
+}
+
+function githubClient(env) {
+  return new GitHubClient({
+    token: env.GITHUB_TOKEN || env.GH_TOKEN,
+    repository: env.GITHUB_REPOSITORY,
+    apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
+    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
+  });
+}
+
+export async function main(argv, { env = process.env, log = console.log, client } = {}) {
+  const [command] = argv;
+  const run = { client: client ?? githubClient(env), env, log };
+  const handlers = { evidence: runEvidence, record: runRecord };
+  if (!handlers[command]) throw new FixUsageError(`Usage: speckit-fix.mjs <${Object.keys(handlers).join(' | ')}>`);
+  const result = await handlers[command](run);
+  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `outcome=${result.outcome ?? ''}\n`);
+  return result.exitCode;
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      console.error(error.message);
+      process.exitCode = error instanceof FixUsageError ? 2 : 1;
+    },
+  );
+}

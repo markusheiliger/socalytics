@@ -14,12 +14,16 @@ const run = (github, body, { pull = 9, actor = 'dev' } = {}) => runCommand({
 
 test('parses commands: the first word, the name, and the rest as argument', () => {
   assert.deepEqual(parseCommand('/speckit resume Use the helper\nand keep the test'), { name: 'resume', given: 'resume', argument: 'Use the helper\nand keep the test' });
-  assert.deepEqual(parseCommand('  /speckit SYNC'), { name: 'sync', given: 'SYNC', argument: '' });
+  assert.deepEqual(parseCommand('  /speckit RESUME'), { name: 'resume', given: 'RESUME', argument: '' });
   assert.deepEqual(parseCommand('/speckit'), { name: 'help', given: '', argument: '' });
   assert.equal(parseCommand('/speckit deploy now').name, 'unknown');
+  assert.equal(parseCommand('/speckit sync').name, 'unknown', 'resume replaced sync');
   assert.equal(parseCommand('please /speckit resume'), null);
   assert.equal(parseCommand('/speckit-gha-diagnose'), null, 'a skill name is not a command');
-  assert.match(renderHelp(), /\| `\/speckit sync` \|[\s\S]*An amendment pull request[\s\S]*skill `\/speckit-gha-diagnose`/);
+  assert.match(renderHelp(), /\| `\/speckit retry \[guidance\]` \| restart what stopped with a fresh attempt count, without merging the base branch for it[\s\S]*\| `\/speckit resume \[guidance\]` \| merge the base branch into the implementation branch first \(Copilot resolves conflicts\), then restart[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*fix spec pull request[\s\S]*skill `\/speckit-gha-diagnose`/);
+  assert.equal(parseCommand('/speckit retry Rerun as is').name, 'retry');
+  assert.equal(parseCommand('/speckit fix Make the test robust').name, 'fix');
+  assert.doesNotMatch(renderHelp(), /\/speckit sync/);
 });
 
 test('ignores people without write access and bots, reacts, and answers help and unknown commands', async () => {
@@ -72,42 +76,56 @@ test('apply, revise, and discard are no commands: the amendment pull request is 
   for (const name of ['apply', 'revise', 'discard']) {
     assert.equal(parseCommand(`/speckit ${name}`).name, 'unknown');
     await run(github, `/speckit ${name}`);
-    assert.match(github.comments.at(-1).body, new RegExp(`^Unknown command \`/speckit ${name}\`[\\s\\S]*merge it to apply the amendment, comment or submit a review`));
+    assert.match(github.comments.at(-1).body, new RegExp(`^Unknown command \`/speckit ${name}\`[\\s\\S]*merge it to apply it, comment or submit a review`));
   }
   assert.equal(github.repo.merges.length, 0);
 });
 
-test('resume passes guidance; sync merges the base branch', async () => {
+test('resume passes guidance and merges the base branch first; sync points to resume', async () => {
   const github = diagnosisRepo();
   await run(github, '/speckit resume Use one statement on every refusal path');
   assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }], 'the implementation chain continues, named after the spec');
   const resumed = github.comments.at(-1);
   assert.equal(parseGuidance(resumed.body), 'Use one statement on every refusal path');
-  assert.match(resumed.body, /^<!-- speckit-implement:resume -->[\s\S]*Implementation resumed by @dev[\s\S]*> Use one statement on every refusal path/);
+  assert.match(resumed.body, /^<!-- speckit-implement:resume -->[\s\S]*Implementation resumed by @dev; the base branch is merged first[\s\S]*> Use one statement on every refusal path/);
 
-  github.repo.commits['sha-main2'] = { tree: 't', parents: ['sha-main'] };
-  github.repo.branches.main = 'sha-main2';
-  assert.equal((await run(github, '/speckit sync')).outcome, 'merged');
-  assert.deepEqual(github.repo.commits[github.repo.branches['speckit/f']].parents, ['sha-impl', 'sha-main2']);
-  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:resume -->\n@dev merged `main` into `speckit\/f`/);
-  assert.equal((await run(github, '/speckit sync')).outcome, 'up-to-date');
-  github.mergeBranchOutcome = 'conflict';
-  assert.equal((await run(github, '/speckit sync')).outcome, 'conflict');
-  assert.match(github.comments.at(-1).body, /conflicts with `speckit\/f`[\s\S]*\/speckit-gha-diagnose/);
-  github.mergeBranch = async () => { throw new Error('POST /merges failed with HTTP 403: refusing to allow a GitHub App to create or update workflow'); };
-  assert.equal((await run(github, '/speckit sync')).outcome, 'failed');
-  assert.match(github.comments.at(-1).body, /could not be merged into `speckit\/f`: [\s\S]*HTTP 403[\s\S]*Merge it locally and push/);
+  const runs = github.repo.runs.length;
+  const branch = github.repo.branches['speckit/f'];
+  const sync = await run(github, '/speckit sync');
+  assert.equal(sync.command, 'unknown');
+  assert.match(github.comments.at(-1).body, /^`\/speckit sync` was replaced by `\/speckit resume`, which merges the base branch first[\s\S]*\*\*Spec Kit commands\*\*/);
+  assert.equal(github.repo.runs.length, runs, 'sync starts nothing');
+  assert.equal(github.repo.branches['speckit/f'], branch, 'the commands never merge themselves; the chain pulls the base branch');
   await assert.rejects(() => main(['other'], { env: {}, client: github }), /Usage/);
+});
 
-  const release = diagnosisRepo();
-  release.repo.pulls.find((pull) => pull.number === 9).base = { ref: 'release' };
-  release.repo.commits['sha-release'] = { tree: 't', parents: ['sha-main'] };
-  release.repo.branches.release = 'sha-release';
-  release.repo.commits['sha-main3'] = { tree: 't', parents: ['sha-main'] };
-  release.repo.branches.main = 'sha-main3';
-  assert.equal((await run(release, '/speckit sync')).outcome, 'merged');
-  assert.deepEqual(release.repo.commits[release.repo.branches['speckit/f']].parents, ['sha-impl', 'sha-release'], 'sync merges the pull request base, not the default branch');
-  assert.match(release.comments.at(-1).body, /@dev merged `release` into `speckit\/f`/);
+test('retry restarts what stopped with guidance, on the branch as it is', async () => {
+  const github = diagnosisRepo();
+  const result = await run(github, '/speckit retry Rerun the verification unchanged');
+  assert.equal(result.outcome, 'retried');
+  assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }]);
+  const retried = github.comments.at(-1);
+  assert.match(retried.body, /^<!-- speckit-implement:retry -->[\s\S]*Implementation retried by @dev; what stopped restarts with a fresh attempt count, without merging the base branch for it\.[\s\S]*> Rerun the verification unchanged/);
+  assert.doesNotMatch(retried.body, /speckit-implement:resume/, 'a retry is no resume, so the chain does not merge the base branch for it');
+  assert.equal(parseGuidance(retried.body), 'Rerun the verification unchanged');
+});
+
+test('fix starts the authoring of a fix spec once, and refuses while one is pending', async () => {
+  const github = diagnosisRepo();
+  const started = await run(github, '/speckit fix Make UploadSessionExpiryTests independent of runner load');
+  assert.equal(started.outcome, 'started');
+  const check = github.repo.checkRuns.at(-1);
+  assert.deepEqual([check.name, check.external_id, check.status], ['Spec Kit fix spec', 'speckit:fix-authoring', 'in_progress'], 'its own check run, apart from the implementation');
+  const dispatched = github.repo.runs.at(-1);
+  assert.equal(dispatched.workflow, 'speckit-fix.lock.yml');
+  assert.deepEqual({ ...dispatched.inputs, stamp: 'x' }, { twin: '5', pull: '9', folder: 'f', notes: 'Make UploadSessionExpiryTests independent of runner load', check_run: String(check.id), mode: 'author', amendment: '', round: '0', stalls: '0', findings: '', stamp: 'x' });
+  assert.match(dispatched.inputs.stamp, /^\d{8}-\d{6}$/);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-fix:requested \{"by":"dev"[\s\S]*\*\*A fix spec is being authored\*\*, requested by @dev[\s\S]*> Make UploadSessionExpiryTests/);
+  assert.equal(parseGuidance(github.comments.at(-1).body), 'Make UploadSessionExpiryTests independent of runner load');
+
+  const again = await run(github, '/speckit fix');
+  assert.equal(again.outcome, 'refused');
+  assert.match(github.comments.at(-1).body, /^`\/speckit fix` cannot start: a fix spec is already being authored\./);
 });
 test('commands need an open implementation pull request with a twin', async () => {
   const github = diagnosisRepo();
