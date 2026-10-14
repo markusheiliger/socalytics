@@ -58,7 +58,7 @@ on:
   # Only the Spec Kit workflows dispatch this workflow, with the repository's token; dispatching already requires
   # write access.
   roles: all
-run-name: "[Spec Kit fix] spec #${{ inputs.twin }} · ${{ inputs.mode == 'fix' && format('Correct the fix spec after consistency findings in round {0} (#{1})', inputs.round, inputs.amendment) || inputs.mode == 'revise' && format('Rework the fix spec with review feedback (#{0})', inputs.amendment) || format('Author a fix spec for the cause outside the stopped implementation (#{0})', inputs.pull) }}"
+run-name: "Spec Kit fix spec #${{ inputs.twin }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the fix spec, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the fix spec with review feedback' || 'Write a fix spec that unblocks the implementation' }}"
 # One run per twin at a time; runs for different twins run side by side.
 concurrency:
   group: speckit-fix-${{ inputs.twin }}

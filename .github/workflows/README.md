@@ -131,8 +131,9 @@ pull request is merged or closed. The label is a convenience; the comments and c
 | Implementation | It stopped and no diagnosis runs for it (attempt limit, attention, a diagnosis that could not start or did not finish), a diagnosis reported without an amendment, an amendment or fix spec was discarded or misdirected, a fix spec could not be authored or was not implemented, or it is held for review. | A diagnosis, a `/speckit fix` authoring, a resume, a retry, or a person's push gets it going again, an amendment was merged, or it was merged or closed. |
 | Amendment or fix spec | It is presented for review, or a check or rework could not start or did not finish. | A rework starts after feedback, a check starts after a push, or it was merged, closed, or superseded. |
 
-The workflow run titles of Spec Kit diagnose, analyze, and fix read `[Spec Kit <workflow>] spec #<twin> · <why the run
-started> (#<pull request>)`.
+The workflow run titles of Spec Kit diagnose, analyze, and fix follow Spec Kit implement spec: `Spec Kit <workflow>
+spec #<twin> · <why the run started>`, for example `Spec Kit fix spec #66 · Write a fix spec that unblocks the
+implementation`.
 
 ## Copilot CLI and model levels
 
