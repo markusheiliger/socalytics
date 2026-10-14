@@ -582,7 +582,13 @@ test('the implementation workflows nest spec, phase, and task; the phase runs it
   assert.match(job(spec, 'phase'), /name: \$\{\{ needs\.decide\.outputs\.action == 'phase' && needs\.decide\.outputs\.job_name \|\| 'Implement a phase' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-phase\.yml/);
   assert.match(job(spec, 'converge-or-resolve'), /name: \$\{\{ \(needs\.decide\.outputs\.action == 'converge' \|\| needs\.decide\.outputs\.action == 'resolve'\) && needs\.decide\.outputs\.job_name \|\| 'Convergence or conflict resolution' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-task\.yml[\s\S]*kind: \$\{\{ needs\.decide\.outputs\.action \}\}/);
   // Before a phase starts, its own job merges the base branch; the phase waits for it and skips after a conflict.
-  assert.match(job(spec, 'sync'), /name: \$\{\{ needs\.decide\.outputs\.sync == 'true' && format\('Merge \{0\} into the branch', needs\.decide\.outputs\.base_branch\)[\s\S]*if: needs\.decide\.outputs\.action == 'phase' && needs\.decide\.outputs\.sync == 'true'[\s\S]*run: node \.github\/scripts\/speckit-spec\.mjs sync/);
+  assert.match(job(spec, 'sync'), /name: Merge the base branch before the phase\n[\s\S]*if: needs\.decide\.outputs\.action == 'phase' && needs\.decide\.outputs\.sync == 'true'[\s\S]*run: node \.github\/scripts\/speckit-spec\.mjs sync/);
+  // GitHub shows the name of a skipped job that is not a reusable workflow call unevaluated, so such jobs have fixed names.
+  for (const [label, workflow] of [['spec', spec], ['phase', phase], ['task', task]]) {
+    for (const [, name, body] of workflow.matchAll(/^ {2}([\w-]+):\n((?: {4}[^\n]*\n|\n)+)/gm)) {
+      if (/^ {4}name: \$\{\{/m.test(body) && /^ {4}if: (?!always\(\))/m.test(body) && !/^ {4}uses: /m.test(body)) assert.fail(`${label}: job ${name} can be skipped, so its name must not be an expression`);
+    }
+  }
   assert.match(job(spec, 'phase'), /needs: \[decide, sync\]\n[\s\S]*if: \$\{\{ !cancelled\(\) && needs\.decide\.outputs\.action == 'phase' && needs\.sync\.result != 'failure' && needs\.sync\.outputs\.result != 'conflict' \}\}/);
   assert.match(job(spec, 'continue'), /needs: \[decide, sync, phase,/);
   for (const [label, workflow] of [['spec', spec], ['phase', phase], ['task', task]]) {

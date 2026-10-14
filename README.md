@@ -309,7 +309,7 @@ their "blocked by" issues are closed.
   convergence, a conflict resolution, or the merge) only one runs, and the
   others show as skipped; job names say what a job does, and GitHub shows
   their order. Before a phase starts (none of its tasks ticked yet), the job
-  `sync` (`Merge main into the branch`) merges the base branch when it is
+  `sync` (`Merge the base branch before the phase`) merges the base branch when it is
   ahead. Phases, the convergence,
   and conflict resolutions run in two nested reusable workflows, which appear
   in the run as job groups. The run
@@ -322,7 +322,7 @@ their "blocked by" issues are closed.
   | --- | --- | --- |
   | A phase | job `phase`, which calls `Spec Kit implement phase` (`speckit-implement-phase.yml`), named after the phase heading of `tasks.md` as written, for example `Phase 3: User Story 1 - Upload a Source Recording for a Match (Priority: P1) 🎯 MVP` | the phase of the first open task. Its job `plan` (`Plan the tasks`) decides itself which of the phase's tasks are still open and plans them in `tasks.md` order: the tasks run one after another, except that consecutive unchecked `[P]` tasks under the same heading run in parallel (see below). Its job `tasks` is a matrix that calls `Spec Kit implement task` (`speckit-implement-task.yml`) once per task, or once for consecutive `[P]` tasks, one job at a time, named `T013` for a single task or `T014, T015 in parallel` for `[P]` tasks. Tasks land before the next start; tasks that do not land fail, and the matrix cancels the tasks after them |
   | Acceptance gate | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `Convergence` | once all tasks are checked, `/speckit-converge`; gaps are appended as a `Phase N: Convergence` section with new tasks, which the next runs implement before convergence runs again (at most 3 rounds) |
-  | Merge | jobs `merge-archive` (`Merge: archive the spec`), `merge-verify` (`Merge: integrate and verify`), and `merge-land` (`Merge: merge and report`) | archives the spec on the branch, merges the base branch into the branch, runs the full verification on the result, and squash-merges the pull request into the base branch |
+  | Merge | jobs `merge-archive` (`Archive the spec before the merge`), `merge-verify` (`Verify the merged result`), and `merge-land` (`Merge into the base branch`) | archives the spec on the branch, merges the base branch into the branch, runs the full verification on the result, and squash-merges the pull request into the base branch |
   | Conflicts | job `converge-or-resolve`, which calls `Spec Kit implement task`, named `Conflict resolution` | resolves conflicts with the base branch with Copilot CLI, verifies, and pushes the merge commit; then the merge, or the phase that waits for it, runs |
 
   Each job is short, so specs of any size never hit the 6-hour job limit.

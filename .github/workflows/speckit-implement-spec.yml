@@ -11,7 +11,7 @@ name: Spec Kit implement spec
 #                        (attempt limit, diagnosis); before a phase starts (none of its tasks ticked yet) it tells the
 #                        job sync to merge the base branch first when it is ahead (repository variable
 #                        SPECKIT_SYNC_BASE, default true)
-#   sync:                "Merge <base branch> into the branch": merges the base branch into the implementation branch
+#   sync:                "Merge the base branch before the phase": merges the base branch into the implementation branch
 #                        through the GitHub API, so the phase builds on it; on a conflict the phase does not run and the
 #                        next run resolves the conflicts first ("Conflict resolution", best effort); a merge GitHub
 #                        refuses or conflicts that need a person are left to the merge at the end (write token, never
@@ -21,12 +21,12 @@ name: Spec Kit implement spec
 #                        "Implement a phase" when skipped
 #   converge-or-resolve: "Convergence" or "Conflict resolution" in Spec Kit implement task, which belong to no phase;
 #                        "Convergence or conflict resolution" when skipped
-#   merge-archive:       "Merge: archive the spec": moves the spec folder to specs/archive/<folder> on the
+#   merge-archive:       "Archive the spec before the merge": moves the spec folder to specs/archive/<folder> on the
 #                        implementation branch and rewrites the references to it (write token, never runs agent-written
 #                        code)
-#   merge-verify:        "Merge: integrate and verify": merges the base branch and runs the full verification
+#   merge-verify:        "Verify the merged result": merges the base branch and runs the full verification
 #                        (read-only token)
-#   merge-land:          "Merge: merge and report": squash-merges the pull request, or asks for review (never runs
+#   merge-land:          "Merge into the base branch": squash-merges the pull request, or asks for review (never runs
 #                        agent-written code)
 #   continue:            "Start the next run": dispatches the next run of the chain
 run-name: "Spec Kit implement spec #${{ inputs.twin }}${{ inputs.title && format(' · {0}', inputs.title) || '' }}"
@@ -129,7 +129,7 @@ jobs:
   # phase builds on it (write token, never runs agent-written code). On a conflict the phase does not run, and the next
   # run resolves the conflicts first; a merge GitHub refuses is left to the merge at the end.
   sync:
-    name: ${{ needs.decide.outputs.sync == 'true' && format('Merge {0} into the branch', needs.decide.outputs.base_branch) || 'Merge the base branch into the branch' }}
+    name: Merge the base branch before the phase
     needs: decide
     if: needs.decide.outputs.action == 'phase' && needs.decide.outputs.sync == 'true'
     runs-on: ubuntu-latest
@@ -211,7 +211,7 @@ jobs:
   # references, and pushes. The verification and the merge then work on that head, so the base branch never has broken
   # links. On conflicts with the base branch it changes nothing, and the conflict resolution runs first.
   merge-archive:
-    name: "Merge: archive the spec"
+    name: Archive the spec before the merge
     needs: decide
     if: needs.decide.outputs.action == 'merge'
     runs-on: ubuntu-latest
@@ -262,7 +262,7 @@ jobs:
 
   # Runs agent-written code (the full verification), so it holds a read-only token.
   merge-verify:
-    name: "Merge: integrate and verify"
+    name: Verify the merged result
     needs: [decide, merge-archive]
     if: needs.decide.outputs.action == 'merge'
     runs-on: ubuntu-latest
@@ -309,7 +309,7 @@ jobs:
         with:
           workspace: workspace
 
-      - name: Merge the default branch
+      - name: Merge the base branch
         id: integrate
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-task.mjs" integrate
 
@@ -374,7 +374,7 @@ jobs:
 
   # Never checks out or runs workspace code; it only uses the GitHub API.
   merge-land:
-    name: "Merge: merge and report"
+    name: Merge into the base branch
     needs: [decide, merge-archive, merge-verify]
     if: always() && needs.decide.outputs.action == 'merge'
     runs-on: ubuntu-latest
