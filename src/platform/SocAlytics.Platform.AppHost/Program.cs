@@ -129,6 +129,9 @@ if (e2eMode)
 {
     // The built Web UI is served by `vite preview` on a fixed origin for the browser tests.
     web.WithEndpoint("http", endpoint => endpoint.Port = WebE2ePort);
+    // The endpoint reference above resolves to the container network's host alias, which is not the origin the browser
+    // sends; the fixed e2e port makes the browser origins known.
+    rustfs.WithEnvironment("RUSTFS_CORS_ALLOWED_ORIGINS", string.Concat("http://127.0.0.1:", WebE2ePort.ToString(), ",http://localhost:", WebE2ePort.ToString()));
 }
 
 builder.Build().Run();
