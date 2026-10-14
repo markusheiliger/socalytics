@@ -6,16 +6,16 @@
   retention and subjects `analysis.jobs.ready.>`. The outbox publisher keeps
   publishing ready work to `analysis.jobs.ready.<capabilityId>` with
   `Nats-Msg-Id`.
-- **Consumers**: one durable pull consumer per capability declared by the
-  configured workflow definitions, with:
+- **Consumers**: one durable pull consumer per capability of the default
+  workflow definition resolved from the Analyst Registry, with:
   - name `analyst-<capabilityId>`;
   - `FilterSubject` `analysis.jobs.ready.<capabilityId>`;
   - `AckPolicy` explicit;
   - `AckWait` `AnalystWork:ConsumerAckWait`;
   - `MaxDeliver` unlimited.
 
-  The consumers are provisioned idempotently at platform startup with the
-  existing topology provisioning.
+  The consumers are provisioned idempotently with the existing topology
+  provisioning, once the default workflow resolves.
 - **Accounts** (JWT mode):
   - the operator;
   - the system account;

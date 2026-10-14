@@ -40,7 +40,8 @@ What each project proves:
    Migrator, and the API.
 2. Run the Manager in the `Development` environment with
    `Runtime:Profile=simulated` and a `Runtime:Simulated:Capabilities` entry for
-   a capability of the configured workflow definition. Register it as the
+   a capability of the default workflow (id and semantic version, for example
+   `1.0.0`, as the seeded Registry states them). Register it as the
    registration feature describes.
 3. Finalize a recording set to start a run, then watch
    `socalytics-manager status` list active attempts until the run completes.

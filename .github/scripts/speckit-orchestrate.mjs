@@ -44,6 +44,7 @@ import {
   renderPullRequestTitle,
   readSpecTasks,
   renderStartComment,
+  setAttention,
   specTitleOfPull,
 } from './speckit-implement-core.mjs';
 export class UsageError extends Error {}
@@ -141,6 +142,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       continue;
     }
     if (lifecycle.state === 'fallback') {
+      await setAttention(client, lifecycle.pull.number, false);
       await updateIssueWithLabels(client, issue, stageLabelChange(issue, computedStage));
       await client.createComment(issue.number, [
         `Implementation pull request #${lifecycle.pull.number} was closed without merging, so the implementation request was removed.`,
@@ -199,6 +201,7 @@ async function markImplementing(client, issue) {
 async function finalizeMerged(client, env, issue, folder, pull) {
   const pullNumber = pull.number;
   const baseBranch = baseBranchOf(pull);
+  await setAttention(client, pullNumber, false);
   const { archived } = await readSpecTasks(client, folder, pull.merge_commit_sha || baseBranch);
   await updateIssueWithLabels(client, issue, stageLabelChange(issue, 'implemented'), {
     ...(issue.state === 'open' ? { state: 'closed', state_reason: 'completed' } : {}),

@@ -2,6 +2,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Http" />
+    <PackageReference Include="NATS.Net" />
+    <PackageReference Include="NATS.NKeys" />
     <PackageReference Include="Pkcs11Interop" />
   </ItemGroup>
 
@@ -11,5 +13,6 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="SocAlytics.Analysts.Manager.Tests" />
+    <InternalsVisibleTo Include="SocAlytics.Platform.EndToEnd.Tests" />
   </ItemGroup>
 </Project>

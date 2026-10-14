@@ -39,6 +39,9 @@ public sealed record OperationFailure(
     public static OperationFailure Forbidden() =>
         new(OperationFailureKind.Forbidden, "forbidden", NoViolations, null);
 
+    public static OperationFailure Forbidden(string code) =>
+        new(OperationFailureKind.Forbidden, code, NoViolations, null);
+
     public static OperationFailure Conflict(string code) =>
         new(OperationFailureKind.Conflict, code, NoViolations, null);
 

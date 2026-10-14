@@ -42,7 +42,9 @@ Each decision lists what was chosen, why, and what else was considered.
 
 - **Decision**: The platform provisions, next to the existing
   `SOCALYTICS_ANALYSIS_JOBS` work-queue stream, one durable pull consumer per
-  capability declared by the configured workflow definitions:
+  capability of the default workflow definition resolved from the Analyst
+  Registry (the configured development workflow only seeds an empty Registry
+  in Development and Test, with semantic capability versions such as `1.0.0`):
   - name `analyst-<capabilityId>`, filter `analysis.jobs.ready.<capabilityId>`;
   - explicit acknowledgement, configured `AckWait`, unlimited redelivery.
 
@@ -50,6 +52,16 @@ Each decision lists what was chosen, why, and what else was considered.
   offers (FR-003). A delivery whose pinned resource requirements the host
   cannot meet is negatively acknowledged with a configured delay and never
   claimed, so other Managers can take it.
+- **Refinement (found by the phase verification of Phase 8)**: the Registry
+  feature merged from the default branch moved workflow resolution from
+  configuration to the database, and its seed normalizes capability versions
+  to semantic versions (`1` becomes `1.0.0`). Consumers therefore exist only
+  after the default workflow resolves, and a Manager is assigned consumers only
+  for capabilities whose id and version equal those of the resolved definition.
+  Topology tests that run without a database must supply the configured
+  resolver, and the simulated capabilities must offer the semantic version.
+  Rejected alternative: provisioning consumers from configuration only, which
+  would bypass the Registry that now owns the default workflow.
 - **Rationale**: Work-queue streams forbid overlapping consumer filters, so
   per-Manager consumers are impossible. Per-capability consumers deliver only
   compatible work and need no Manager-side filtering of foreign capabilities.

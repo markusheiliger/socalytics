@@ -22,11 +22,17 @@ public sealed record RuntimeProbe(
     ProbeCheck RegistryAuthentication,
     ProbeCheck ImagePlatformCompatible,
     ProbeCheck ResourceLimitsFeasible,
-    IReadOnlyList<AcceleratorProbe> Accelerators);
+    IReadOnlyList<AcceleratorProbe> Accelerators,
+    int MaxParallelAttempts = 1);
 
 public interface IContainerRuntimeAdapter
 {
     string Profile { get; }
 
+    /// <summary>The analyst capabilities this runtime offers to the queue once its preflight passed.</summary>
+    IReadOnlyList<Platform.QueueCapability> Capabilities => [];
+
     Task<RuntimeProbe> ProbeAsync(RuntimeProbeRequest request, CancellationToken cancellationToken);
+
+    Task<IAttemptExecution> StartAttemptAsync(AttemptLaunch launch, CancellationToken cancellationToken);
 }

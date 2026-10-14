@@ -57,7 +57,7 @@ on:
   # Only the Spec Kit workflows dispatch this workflow, with the repository's token; dispatching already requires
   # write access.
   roles: all
-run-name: "Spec Kit diagnose #${{ inputs.twin }} · ${{ inputs.mode == 'fix' && format('fix #{0} round {1}', inputs.amendment, inputs.round) || inputs.mode == 'revise' && format('revise #{0} with feedback', inputs.amendment) || format('why #{0} stopped', inputs.pull) }}"
+run-name: "Spec Kit diagnose spec #${{ inputs.twin }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the amendment, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the amendment with review feedback' || 'Diagnose why the implementation stopped' }}"
 # One run per twin at a time; runs for different twins run side by side.
 concurrency:
   group: speckit-diagnose-${{ inputs.twin }}
