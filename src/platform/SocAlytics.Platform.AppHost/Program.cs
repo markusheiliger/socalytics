@@ -44,7 +44,14 @@ var rustfs = builder.AddContainer("rustfs", "rustfs/rustfs", "1.0.1")
     .WithHttpHealthCheck("/health", endpointName: "s3");
 var rustfsEndpoint = rustfs.GetEndpoint("s3");
 
-var nats = builder.AddNats("nats").WithJetStream();
+var natsTrust = new LocalNatsTrust();
+var nats = builder.AddContainer("nats", "nats", "2.14")
+    .WithEndpoint(targetPort: 4222, name: "client", scheme: "nats")
+    .WithHttpEndpoint(targetPort: 8222, name: "monitor")
+    .WithContainerFiles("/etc/nats", [new ContainerFile { Name = "nats.conf", Contents = natsTrust.BuildServerConfig() }])
+    .WithArgs("-c", "/etc/nats/nats.conf")
+    .WithHttpHealthCheck("/healthz", endpointName: "monitor");
+var natsUrl = ReferenceExpression.Create($"{nats.GetEndpoint("client").Property(EndpointProperty.Url)}");
 
 var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithHttpEndpoint()
@@ -72,8 +79,13 @@ var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithReference(appConnection)
     .WaitFor(postgres)
     .WaitFor(rustfs)
-    .WithReference(nats)
+    .WithEnvironment("ConnectionStrings__nats", natsUrl)
     .WaitFor(nats)
+    .WithEnvironment("Nats__Authentication__Mode", "Jwt")
+    .WithEnvironment("Nats__Authentication__OperatorSeed", natsTrust.OperatorSeed)
+    .WithEnvironment("Nats__Authentication__AccountSeed", natsTrust.AccountSeed)
+    .WithEnvironment("Nats__Authentication__SystemAccountSeed", natsTrust.SystemAccountSeed)
+    .WithEnvironment("AnalystWork__QueueUrl", natsUrl)
     .WaitForCompletion(migrator);
 
 api.WithEnvironment("Stamp__Id", "local-dev-stamp")
