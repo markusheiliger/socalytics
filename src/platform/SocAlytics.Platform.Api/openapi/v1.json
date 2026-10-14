@@ -2319,6 +2319,25 @@
         ]
       }
     },
+    "/api/v1/analyst-managers/self/status": {
+      "post": {
+        "operationId": "reportAnalystManagerStatus",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analyst Manager self"
+        ]
+      }
+    },
     "/api/v1/analyst-managers/self/unregistration": {
       "post": {
         "operationId": "beginAnalystManagerUnregistration",
