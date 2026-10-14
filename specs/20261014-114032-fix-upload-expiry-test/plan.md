@@ -6,7 +6,7 @@
 
 ## Summary
 
-Remove the wall-clock race from `UploadSessionExpiryTests.ExpiredSessionIsRefusedImmediatelyAndReleasedBySweep`: start the session with a long lifetime, upload the first part, then expire the session deterministically (advance the test `MutableTimeProvider` and set the session's `expires_at` in the past in the test database) instead of `Task.Delay`. All assertions stay.
+Remove the wall-clock race from `UploadSessionExpiryTests.ExpiredSessionIsRefusedImmediatelyAndReleasedBySweep`: start the session with a 10 minute lifetime, upload the first part, then expire the session deterministically (advance the test `MutableTimeProvider` by 11 minutes and set the session's `expires_at` in the past in the test database) instead of `Task.Delay`. All assertions stay.
 
 ## Technical Context
 
@@ -18,7 +18,7 @@ Remove the wall-clock race from `UploadSessionExpiryTests.ExpiredSessionIsRefuse
 
 **Testing**: `dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --filter-class "*UploadSessionExpiryTests"` (Docker required).
 
-**Constraints**: test-only change; the API reads expiry from the injected `TimeProvider`, while the sweep and completion SQL compare with the database `now()`, so both must be moved.
+**Constraints**: test-only change; the API reads expiry from the injected `TimeProvider`, while the sweep and completion SQL compare with the database `now()`, so both must be moved. The test BFF session has a 30 minute idle timeout validated against the same `TimeProvider`, so the clock advance must stay below 30 minutes (11 minutes, just beyond the 10 minute upload lifetime) or later admin requests would fail as unauthenticated.
 
 ## Constitution Check
 

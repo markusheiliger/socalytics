@@ -26,7 +26,7 @@ A maintainer runs the Integration tests on a slow or loaded machine. The expiry 
 
 **Acceptance Scenarios**:
 
-1. **Given** a started upload session with a lifetime far longer than the test takes, **When** the first part is uploaded however slowly, **Then** the upload succeeds.
+1. **Given** a started upload session with a lifetime (10 minutes) far longer than the test takes, **When** the first part is uploaded however slowly, **Then** the upload succeeds.
 2. **Given** that session is made expired afterwards, **When** grants or completion are requested, **Then** both are refused with the `upload-session-expired` conflict, and the session reads as `expired` with an unchanged ETag.
 3. **Given** the expired session, **When** the expiry sweep runs twice, **Then** the outcome is exactly as before: state `expired`, storage released once, no recording version, one `recording.upload.expire` audit event, and the multipart upload and object are gone from storage.
 
@@ -56,5 +56,5 @@ A maintainer runs the Integration tests on a slow or loaded machine. The expiry 
 
 ## Assumptions
 
-- The smallest fix is in the test only: a regular session lifetime for the setup, then the session is expired through the test time provider and a direct update of the session's `expires_at` in the test's disposable database, before the ETag is read.
+- The smallest fix is in the test only: a 10 minute session lifetime for the setup (far above the 10 s delay of SC-001), then the session is expired through the test time provider advanced by 11 minutes (below the 30 minute BFF session idle timeout, so the admin session stays valid) and a direct update of the session's `expires_at` in the test's disposable database, before the ETag is read.
 - Dependencies: the feature owning the test is [Recording Lineage and Upload](../archive/20261005-130702-recording-lineage-upload/spec.md); the implementation this fix unblocks is #72 (`specs/20261012-141233-manager-work-execution`).
