@@ -938,6 +938,28 @@ Integrity, and no third-party scripts. The residual risk is that a script
 compromise on the origin can read the unlocked replica as the active user, as
 it can already read everything that user sees online.
 
+The implemented online-only Web UI foundation applies this baseline as
+development evidence. Preview mode and production-shaped builds send
+`default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
+img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none';
+base-uri 'none'; frame-ancestors 'none'; form-action 'self';
+require-trusted-types-for 'script'; trusted-types default react-dom`, together
+with `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a
+`Permissions-Policy` that disables camera, microphone, and geolocation. Trusted
+Types is enforced for script sinks with only the `default` and `react-dom`
+policies. Every emitted script and stylesheet in the build carries a SHA-384
+Subresource Integrity attribute, and fonts and icons are bundled, so no
+third-party origin is used. The development server uses a relaxed policy for
+hot reload that is never used to measure the policy. Browser tests fail on any
+`securitypolicyviolation` event.
+
+`style-src 'unsafe-inline'` is an accepted trade-off: MUI's Emotion runtime
+injects `<style>` elements, and a nonce is not possible for statically hosted
+pages. It permits injected styles, but `connect-src 'self'` and
+`img-src 'self' data:` mitigate CSS-based data exfiltration, and scripts stay
+fully locked down. It can be revisited with build-time CSS extraction. The
+production server configuration is not implemented and remains deferred.
+
 REST delta synchronization and offline entitlement are bound to the current
 user, one club stamp, authorized teams and matches, roles, policy version, and
 compatible contract version. The entitlement is bound to a non-exportable

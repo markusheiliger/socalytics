@@ -12,8 +12,8 @@ and the API, the operational API surface, the layered project structure, and
 the persistence, club and identity, recording lineage and upload, durable
 analysis workflow, and Analyst Manager registration foundations described
 below, with host, architecture, contract, and integration tests. Analyst
-execution, external OpenID Connect sign-in, MFA enforcement, client runtimes,
-deployment configuration, and production-readiness evidence do not exist yet.
+execution, external OpenID Connect sign-in, MFA enforcement, the Web UI's
+offline mode and service worker, deployment configuration, and production-readiness evidence do not exist yet.
 
 ## Source And Runtime Baseline
 
@@ -21,7 +21,8 @@ SocAlytics uses one `src` root with these first-level ownership areas:
 
 - `src/platform` owns the platform API, control plane, and supporting platform
   services; the API, Migrator, and their layers are implemented
-- `src/clients` owns the future Web UI, a Progressive Web App
+- `src/clients` owns the Web UI, a Progressive Web App whose online-only
+  foundation is implemented under `src/clients/web`
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
 - `src/analysts` owns the Analyst Manager, whose first desktop slice is
@@ -462,6 +463,22 @@ containerized deployment unit built from `src/clients`, served from one origin.
 There is no second client application. See
 [Client Applications](client-applications.md).
 
+The online-only Web UI foundation is implemented as development evidence under
+`src/clients/web`. Its Kiota client is generated at build time from the
+committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json`,
+which belongs to the API project and is verified against the running API by a
+Host test (`OpenApiSnapshotTests`), so the generated client cannot drift from
+the API. The AppHost composes the Web UI with the API on one origin: the Vite
+server proxies `/api` and `/alive` to the API, so the browser sends the BFF
+session cookie without CORS. In end-to-end mode the AppHost serves the built
+Web UI through `vite preview` on a fixed port. Its Content Security Policy
+keeps `style-src 'unsafe-inline'`, an accepted and recorded trade-off because
+MUI's Emotion runtime injects `<style>` elements and a nonce is not possible
+for statically hosted pages; scripts stay locked down. See
+[Security And Data Governance](security-and-data-governance.md). The service
+worker, offline mode, container image, and production server configuration are
+not implemented.
+
 Future offline-mode implementation follows the decisions in
 [Client Applications](client-applications.md): an encrypted replica owned by a
 dedicated worker, opaque-cursor REST deltas, explicit clips, read-only first
@@ -596,8 +613,9 @@ choice or reveals a material operational tradeoff:
   foundation (migrations, Migrator, units of work, version triggers), domain
   persistence, outbox publication to NATS JetStream, local-account BFF
   sessions, S3-compatible upload, and Analyst Manager registration are
-  implemented. External OpenID Connect sign-in, MFA enforcement, the Web UI
-  and its offline mode, cross-runtime schema agreement, reproducible Analyst
+  implemented, and the online-only Web UI foundation exists as development
+  evidence. External OpenID Connect sign-in, MFA enforcement, the Web UI's
+  offline mode, cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix remain unsupported by
   implementation evidence.
 - **Mature enough to govern subsequent implementation — not met for
