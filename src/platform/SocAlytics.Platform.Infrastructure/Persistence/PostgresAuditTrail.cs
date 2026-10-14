@@ -58,6 +58,8 @@ internal sealed class PostgresAuditTrail(
         "readyJobsRepublished",
         "notificationsRepublished",
         "maskedAddress",
+        "notificationType",
+        "enabled",
     };
 
     private const string InsertSql =

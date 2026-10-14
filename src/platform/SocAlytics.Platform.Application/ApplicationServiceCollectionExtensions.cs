@@ -93,6 +93,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.RemoveEmailAddressHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.ResendEmailConfirmationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.ConfirmEmailHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.ListNotificationPreferencesHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.SetNotificationPreferenceHandler>();
         services.AddOptions<SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions.SectionName)
             .Validate(SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions.IsValid, "Email:Confirmation:MaxPerHour and Email:Confirmation:AttemptsPerMinute must be greater than zero.")

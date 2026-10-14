@@ -10,6 +10,12 @@ internal sealed record SetEmailAddressRequest(string? Address);
 
 internal sealed record ConfirmEmailRequest(string? Token);
 
+internal sealed record SetNotificationPreferenceRequest(bool? Enabled);
+
+internal sealed record NotificationPreferenceDto(string Type, bool Enabled, bool AccountMessage);
+
+internal sealed record NotificationPreferenceListDto(IReadOnlyList<NotificationPreferenceDto> Items);
+
 internal sealed record EmailAddressDto(string Address, string State, DateTimeOffset? VerifiedAt, long Version);
 
 internal static class EmailEndpoints
@@ -49,6 +55,19 @@ internal static class EmailEndpoints
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict)
 			.ProducesProblem(StatusCodes.Status429TooManyRequests);
+		members.MapGet("/me/notification-preferences", GetOwnNotificationPreferencesAsync)
+			.WithName("getOwnNotificationPreferences")
+			.WithTags("Email")
+			.Produces<NotificationPreferenceListDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized);
+		members.MapPut("/me/notification-preferences/{type}", SetOwnNotificationPreferenceAsync)
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("setOwnNotificationPreference")
+			.WithTags("Email")
+			.Produces<NotificationPreferenceDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
 
 		routes.MapPost(MemberApiRouteGroup.Prefix + "/email-confirmations", ConfirmEmailAsync)
 			.AllowAnonymous()
@@ -189,4 +208,56 @@ internal static class EmailEndpoints
 		var result = await handler.HandleAsync(new ConfirmEmailCommand(body?.Token), cancellationToken);
 		return result.IsSuccess ? Results.NoContent() : ProblemResults.From(result.Failure);
 	}
+
+	private static async Task<IResult> GetOwnNotificationPreferencesAsync(
+		HttpContext http,
+		IRequestContext context,
+		ListNotificationPreferencesHandler handler,
+		CancellationToken cancellationToken)
+	{
+		if (context.MemberAccountId is not { } accountId)
+		{
+			return ProblemResults.From(OperationFailure.Unauthenticated());
+		}
+
+		var result = await handler.HandleAsync(accountId, cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Ok(new NotificationPreferenceListDto(result.Value.Select(ToDto).ToList()));
+	}
+
+	private static async Task<IResult> SetOwnNotificationPreferenceAsync(
+		HttpContext http,
+		IRequestContext context,
+		string type,
+		SetNotificationPreferenceHandler handler,
+		CancellationToken cancellationToken)
+	{
+		if (context.MemberAccountId is not { } accountId)
+		{
+			return ProblemResults.From(OperationFailure.Unauthenticated());
+		}
+
+		var body = await ReadBodyAsync<SetNotificationPreferenceRequest>(http, cancellationToken);
+		if (body?.Enabled is not { } enabled)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("enabled", "required")));
+		}
+
+		var result = await handler.HandleAsync(new SetNotificationPreferenceCommand(accountId, type, enabled), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Ok(ToDto(result.Value));
+	}
+
+	private static NotificationPreferenceDto ToDto(NotificationPreferenceItem item) =>
+		new(item.Type, item.Enabled, item.AccountMessage);
 }
