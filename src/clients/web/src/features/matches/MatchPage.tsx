@@ -12,6 +12,7 @@ import { useSession } from '../../session/sessionContext';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { useUploads } from '../../uploads/uploadContext';
 import { AnalysisRunStates } from '../lineage/AnalysisRunStates';
+import { LineageSection } from '../lineage/LineageSection';
 import { FailureAlert } from '../shared/FailureAlert';
 import { AddRecordingsPanel } from '../uploads/AddRecordingsPanel';
 import { formatBytes } from '../uploads/formatBytes';
@@ -136,6 +137,7 @@ export function MatchPage() {
           </Button>
           <RecordingsSection matchId={m.id} teamId={m.teamId} canUpload={canEdit} />
           <AnalysisRunStates matchId={m.id} />
+          <LineageSection matchId={m.id} />
         </>
       )}
     </Container>
