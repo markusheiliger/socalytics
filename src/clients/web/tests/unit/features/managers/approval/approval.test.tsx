@@ -68,7 +68,8 @@ describe('pending requests and decisions', () => {
     expect(screen.getByText('Approve only known machines.')).toBeInTheDocument();
     expect(screen.getByText('Approve only Managers you can physically identify.')).toBeInTheDocument();
     expect(screen.getByText(/claims a software-backed key/)).toBeInTheDocument();
-    expect(screen.getByText(/claimed by the Manager and is not verified/)).toBeInTheDocument();
+    expect(screen.getByText('Profile (claimed): Not reported')).toBeInTheDocument();
+    expect(screen.getByText(/claimed by the Manager and are not verified/)).toBeInTheDocument();
   });
 
   it('enables approval only for the matching last 6 characters, then approves', async () => {

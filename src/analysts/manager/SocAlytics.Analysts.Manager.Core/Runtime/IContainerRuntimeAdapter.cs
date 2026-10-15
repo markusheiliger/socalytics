@@ -23,7 +23,15 @@ public sealed record RuntimeProbe(
     ProbeCheck ImagePlatformCompatible,
     ProbeCheck ResourceLimitsFeasible,
     IReadOnlyList<AcceleratorProbe> Accelerators,
-    int MaxParallelAttempts = 1);
+    int MaxParallelAttempts = 1,
+    string? DaemonAccess = null);
+
+/// <summary>How the Manager's account reaches the container daemon (<see cref="RuntimeProbe.DaemonAccess"/>).</summary>
+public static class DaemonAccessKinds
+{
+    public const string Rootless = "rootless";
+    public const string RootfulGroup = "rootful-group";
+}
 
 public interface IContainerRuntimeAdapter
 {

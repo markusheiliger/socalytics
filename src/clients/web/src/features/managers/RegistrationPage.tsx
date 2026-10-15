@@ -92,6 +92,7 @@ export function RegistrationPage() {
             <li>{t('pairing.hostLabel', { value: r.deviceMetadata.hostLabel ?? none })}</li>
             <li>{t('pairing.fingerprintValue', { value: r.deviceFingerprint })}</li>
             <li>{t('pairing.keyProtection', { value: t(`keyProtection.${r.deviceMetadata.claimedKeyProtection}`) })}</li>
+            <li>{t('pairing.profile', { value: t(`applicationProfile.${r.deviceMetadata.claimedApplicationProfile ?? 'notReported'}`) })}</li>
             <li>{t('registration.os', { value: [r.deviceMetadata.os, r.deviceMetadata.osVersion].filter(Boolean).join(' ') || none })}</li>
             <li>{t('registration.architecture', { value: r.deviceMetadata.architecture ?? none })}</li>
             <li>{t('registration.managerVersion', { value: r.deviceMetadata.managerVersion ?? none })}</li>

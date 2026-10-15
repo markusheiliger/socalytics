@@ -18,7 +18,12 @@ const dto = (n: number, state: string, over: Record<string, unknown> = {}) => ({
   version: 1,
   state,
   deviceFingerprint: 'THNN-PKJR',
-  deviceMetadata: { managerVersion: '1.2.3', claimedKeyProtection: 'tpm', hostLabel: `host-${n}` },
+  deviceMetadata: {
+    managerVersion: '1.2.3',
+    claimedKeyProtection: 'tpm',
+    hostLabel: `host-${n}`,
+    ...(n === 1 ? { claimedApplicationProfile: 'headless-server' } : {}),
+  },
   createdAt: `2030-01-0${n}T09:00:00Z`,
   ...over,
 });
@@ -113,6 +118,8 @@ describe('fleet page', () => {
     expect(within(list).getByText('Submitted by you')).toBeInTheDocument();
     expect(within(list).getByText('Connectivity: Offline (no report yet)')).toBeInTheDocument();
     expect(within(list).getAllByText('Claimed key protection: TPM').length).toBeGreaterThan(0);
+    expect(within(list).getAllByText('Profile (claimed): Headless server').length).toBe(1);
+    expect(within(list).getAllByText('Profile (claimed): Not reported').length).toBeGreaterThan(0);
   });
 
   it('shows unknown values and shortens long labels without failing', async () => {

@@ -11,6 +11,7 @@
     "state": "State: {{state}}",
     "hostLabel": "Host label: {{value}}",
     "keyProtection": "Claimed key protection: {{value}}",
+    "profile": "Profile (claimed): {{value}}",
     "os": "Operating system: {{value}}",
     "fingerprintValue": "Device fingerprint: {{value}}",
     "deadline": "Open for approval until {{value}}",
@@ -51,6 +52,11 @@
     "software": "Software (not hardware-protected; the platform cannot verify any claimed protection)",
     "unknown": "Unknown"
   },
+  "applicationProfile": {
+    "headless-server": "Headless server",
+    "tray": "Tray",
+    "notReported": "Not reported"
+  },
   "fleet": {
     "title": "Analyst Managers",
     "listLabel": "Analyst Managers",
@@ -63,6 +69,7 @@
     "empty": "No Analyst Managers match this filter.",
     "ownSubmission": "Submitted by you",
     "keyProtection": "Claimed key protection: {{value}}",
+    "profile": "Profile (claimed): {{value}}",
     "connectivity": "Connectivity: {{value}}",
     "connectivityWithReport": "Connectivity: {{value}} (last report: {{time}})",
     "connectivityNoReport": "Connectivity: {{value}} (no report yet)",
@@ -102,7 +109,7 @@
     "activatedAt": "Activated: {{value}}",
     "physicalWarning": "Approve only Managers you can physically identify.",
     "softwareWarning": "This Manager claims a software-backed key. The key is not hardware-protected, and the platform cannot verify any claimed protection.",
-    "claimedNotVerified": "Key protection is claimed by the Manager and is not verified by the platform.",
+    "claimedNotVerified": "Key protection and profile are claimed by the Manager and are not verified by the platform.",
     "revokedBy": "Revoked by member: {{value}}",
     "endedAt": "Ended: {{value}}",
     "endReason": "End reason: {{value}}",

@@ -37,6 +37,11 @@ internal static class ProblemResults
 				["code"] = code,
 				["correlationId"] = (Activity.Current?.TraceId ?? ActivityTraceId.CreateRandom()).ToHexString(),
 			};
+			if (Detail(code) is { } detail)
+			{
+				body["detail"] = detail;
+			}
+
 			if (violations is { Count: > 0 })
 			{
 				body["errors"] = violations.Select(v => new { field = v.Field, code = v.Code }).ToArray();
@@ -45,6 +50,12 @@ internal static class ProblemResults
 			return Results.Json(body, statusCode: status, contentType: "application/problem+json").ExecuteAsync(httpContext);
 		}
 	}
+
+	private static string? Detail(string code) => code switch
+	{
+		"analyst-manager-software-key-not-allowed" => "This stamp requires hardware-backed key storage for this Manager profile.",
+		_ => null,
+	};
 
 	private static string Title(string code) => code switch
 	{

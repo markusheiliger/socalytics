@@ -113,4 +113,56 @@ public sealed class CliTests : IDisposable
         var bad = await RunAsync("unregister", "--discard-local");
         bad.Code.ShouldBe(0);
     }
+
+    private async Task<(int Code, string Out, string Err)> RunRegisterAsync(ManagerCliEnvironment environment, params string[] extra)
+    {
+        var o = new StringWriter();
+        var e = new StringWriter();
+        var code = await ManagerCli.RunAsync(
+            ["register", "--platform", "https://platform.example", .. extra], SocketPath, o, e, environment);
+        return (code, o.ToString(), e.ToString());
+    }
+
+    [Fact]
+    public async Task Register_prompts_for_the_host_label_when_interactive()
+    {
+        Assert.SkipUnless(OperatingSystem.IsLinux(), "Unix sockets");
+        Start(new FakeManagerControl());
+        var r = await RunRegisterAsync(
+            new ManagerCliEnvironment { Input = new StringReader("build-agent\n"), IsInteractive = true, PollInterval = TimeSpan.FromMilliseconds(10) });
+        r.Code.ShouldBe(0);
+        r.Out.ShouldContain("Host label:");
+        r.Out.ShouldContain("ABCD-1234");
+        r.Out.ShouldContain("fp-xyz");
+    }
+
+    [Fact]
+    public async Task Register_without_label_in_a_non_interactive_session_exits_with_2()
+    {
+        Assert.SkipUnless(OperatingSystem.IsLinux(), "Unix sockets");
+        Start(new FakeManagerControl());
+        var r = await RunRegisterAsync(new ManagerCliEnvironment { Input = new StringReader(""), IsInteractive = false });
+        r.Code.ShouldBe(2);
+        r.Err.ShouldContain("Pass --host-label in a non-interactive session.");
+        r.Out.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Ctrl_c_during_register_cancels_the_pairing()
+    {
+        Assert.SkipUnless(OperatingSystem.IsLinux(), "Unix sockets");
+        var control = new FakeManagerControl { State = "pairing" };
+        Start(control);
+        using var interrupt = new CancellationTokenSource();
+        var run = RunRegisterAsync(
+            new ManagerCliEnvironment { IsInteractive = false, Interrupt = interrupt.Token, PollInterval = TimeSpan.FromMilliseconds(10) },
+            "--host-label", "h");
+        await Task.Delay(200, TestContext.Current.CancellationToken);
+        await interrupt.CancelAsync();
+        var r = await run;
+        r.Code.ShouldBe(ManagerCli.Interrupted);
+        r.Out.ShouldContain("Registration cancelled.");
+        control.Calls.ShouldContain("cancel-registration");
+        control.State.ShouldBe("pairing");
+    }
 }

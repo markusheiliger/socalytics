@@ -166,9 +166,9 @@ Then run the test again without the variable.
 
 The Analyst Manager is a per-user tray application for Windows, macOS, and
 Linux in a separate .NET 10 solution that pins the same SDK as the platform in
-its own `global.json`. A headless profile for Linux servers (systemd user
-service controlled by the CLI) and Velopack installers and updates are planned,
-not implemented. Run these commands from the
+its own `global.json`. A headless server executable for Linux (systemd user
+service controlled by the CLI) exists; Velopack installers and updates are
+planned, not implemented. Run these commands from the
 repository root:
 
 ```powershell
@@ -176,6 +176,7 @@ dotnet restore src/analysts/manager/SocAlytics.Analysts.Manager.slnx
 dotnet build src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-restore
 dotnet test src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-build
 dotnet run --project src/analysts/manager/SocAlytics.Analysts.Manager
+dotnet run --project src/analysts/manager/SocAlytics.Analysts.Manager.Server  # Linux only (headless server profile)
 ```
 
 The tray menu (or the status window where no tray area exists) offers

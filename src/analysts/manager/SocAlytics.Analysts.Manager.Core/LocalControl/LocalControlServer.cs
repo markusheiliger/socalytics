@@ -191,6 +191,9 @@ public sealed class LocalControlServer : IDisposable
                 return Accepted(control, command);
             case "register":
                 return await RegisterAsync(control, args);
+            case "cancel-registration":
+                await control.CancelRegistrationAsync();
+                return Accepted(control, command);
             case "pause":
                 return await PauseAsync(control, args);
             case "resume":
@@ -234,7 +237,7 @@ public sealed class LocalControlServer : IDisposable
             endpoint, args["stampId"]?.GetValue<string>(), args["hostLabel"]?.GetValue<string>()));
         if (!result.Succeeded)
         {
-            return Refused(new ControlResult(false, result.Code));
+            return Refused(new ControlResult(false, result.Code, result.Notice));
         }
 
         return LocalControlResponse.Success(new JsonObject

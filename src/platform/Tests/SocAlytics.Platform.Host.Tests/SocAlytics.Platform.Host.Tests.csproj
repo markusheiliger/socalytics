@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Platform.AppHost\SocAlytics.Platform.AppHost.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Platform.Application\SocAlytics.Platform.Application.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" />
