@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 const previewUrl = 'http://127.0.0.1:4173';
 
-const fakeStoragePort = 4175;
+const fakeStoragePort = 4176;
 const fakeStorageUrl = `http://127.0.0.1:${fakeStoragePort}`;
 const platformUrl = 'http://127.0.0.1:4174';
 const simulatedOnly = process.argv.some((arg, i, all) => (arg === '--project' && all[i + 1] === 'simulated') || arg === '--project=simulated');

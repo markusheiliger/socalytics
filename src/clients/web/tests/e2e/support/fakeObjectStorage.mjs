@@ -151,7 +151,7 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
 // Started by Playwright as a `webServer`: FAKE_STORAGE_PORT and FAKE_STORAGE_ALLOWED_ORIGIN come from playwright.config.ts.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { origin } = await startFakeObjectStorage({
-    port: Number(process.env.FAKE_STORAGE_PORT ?? 4175),
+    port: Number(process.env.FAKE_STORAGE_PORT ?? 4176),
     allowedOrigin: process.env.FAKE_STORAGE_ALLOWED_ORIGIN ?? 'http://127.0.0.1:4173',
   });
   console.log(`Fake object storage listening on ${origin}`);
