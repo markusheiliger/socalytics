@@ -200,6 +200,27 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
             expiresAt);
     }
 
+    public ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt)
+    {
+        var request = new GetPreSignedUrlRequest
+        {
+            BucketName = _bucket,
+            Key = objectKey,
+            Verb = HttpVerb.GET,
+            Expires = expiresAt.UtcDateTime,
+            Protocol = _useHttp ? Protocol.HTTP : Protocol.HTTPS,
+        };
+
+        try
+        {
+            return new ObjectReadGrant(new Uri(_client.GetPreSignedURL(request)), expiresAt);
+        }
+        catch (Exception ex) when (ex is AmazonClientException)
+        {
+            throw new ObjectStorageUnavailableException(ex);
+        }
+    }
+
     public async Task<ObjectChecksum?> GetObjectChecksumAsync(string objectKey, CancellationToken cancellationToken)
     {
         GetObjectMetadataResponse response;
