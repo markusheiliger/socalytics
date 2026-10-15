@@ -235,7 +235,10 @@ the attempt's read-only input mount. The AC reads only from that mount. The read
 returns exactly the accepted results recorded in the job's input snapshot, so
 the staged inputs equal what acceptance checks as lineage. Staged inputs are
 bounded by a configured size and deleted when the attempt ends. This
-Manager-mediated read is decided but not yet implemented.
+Manager-mediated read, the staging, and the coverage are implemented as
+development evidence against the simulated Analyst, whose match-level lineage
+is built from the staged inputs; real Analyst execution and production evidence
+remain future work, as does source-video access for ACs.
 
 Only accepted results are visible. Every response and reference is constrained
 to the job's authorized team and match, and Analysts never query PostgreSQL
@@ -320,8 +323,13 @@ matrix and evidence must support the desktop, registration, runtime ownership,
 security, accelerator, job, callback, and provenance boundaries above before
 additional host profiles are supported.
 
+Development evidence for high-level read authorization exists: the
+Manager-mediated upstream read refuses other runs, non-upstream capabilities,
+and fenced attempts without disclosure, and the staged inputs equal the lineage
+that acceptance checks, proven end to end against the simulated Analyst.
 Workflow evidence must additionally validate capability and result-manifest
-schema compatibility, complete upstream lineage, high-level API authorization,
+schema compatibility, complete upstream lineage, and high-level API
+authorization against real Analysts and production credentials, and validate
 presigned video access, and the performance and cost of match-level high-level
 ACs on participating hosts.
 

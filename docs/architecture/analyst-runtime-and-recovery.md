@@ -91,7 +91,7 @@ credentials, or host-wide control APIs. Analyst launches default to:
 - a non-root container user and read-only root filesystem where supported
 - explicit writable scratch and result mounts scoped to one job, and a
   read-only input mount into which the AM stages the job's accepted upstream
-  results (decided, not yet implemented)
+  results before launch
 - no object-storage write credentials: results go to the job's result mount,
   and the AM stores them through per-object write grants; short-lived read
   access only where a capability permits it
@@ -252,6 +252,9 @@ pair. Retry and fencing semantics remain identical across implementations.
 - validate the external runtime profile before advertising capabilities
 - enforce the effective concurrency limit and pause state before pulling work
 - pull compatible stamp-local analysis jobs from NATS and claim execution attempts
+- read and stage accepted upstream results (manifests, artifacts, and coverage,
+  digest-verified and size-bounded) into the attempt's read-only input mount
+  before launching high-level attempts, and delete them when the attempt ends
 - combine Analyst type, requested model, and host capabilities to select a
   runtime-tagged image
 - pull the image and resolve its immutable OCI digest

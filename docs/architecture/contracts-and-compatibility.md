@@ -72,9 +72,10 @@ with the recordings-finalized event schema. Durable Analysis added the shared
 definitions under `contracts/common/v1` and the Analyst job, attempt-completion,
 and run-state-changed schemas, and Analyst Manager Registration added the
 registration golden fixtures. Analysis Result Manifests added the
-result-manifest and result-grants contracts under `contracts/analysis/`. The
-remaining documented Analyst workflow contracts (logical segments, capability
-declarations, and accepted upstream facts) will follow and extend the same
+result-manifest and result-grants contracts under `contracts/analysis/`, and
+Analysis Result Read for Jobs added the upstream-results envelope for accepted
+upstream facts. The remaining documented Analyst workflow contracts (logical
+segments and capability declarations) will follow and extend the same
 directory, index, and contract command. It excludes service implementation, unrelated administration and
 identity APIs, deployment contracts, production SDK adapters, and AsyncAPI.
 
