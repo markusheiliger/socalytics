@@ -62,4 +62,7 @@ public sealed class RuntimeOptions
     public TimeSpan PreflightInterval { get; set; } = TimeSpan.FromSeconds(60);
 
     public string? ProbeImage { get; set; }
+
+    /// <summary>Development and Test only: a file with extra compatibility entries for manual verification; refused elsewhere.</summary>
+    public string? CompatibilityListPath { get; set; }
 }
