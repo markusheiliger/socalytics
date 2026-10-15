@@ -51,6 +51,8 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
 
     public bool SoftwareKeysAllowed { get; set; }
 
+    public IReadOnlyList<string>? SoftwareKeysAllowedFor { get; set; }
+
     public bool CorruptFingerprint { get; set; }
 
     public int PendingPolls { get; set; } = 1;
@@ -208,7 +210,7 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
         return path switch
         {
             "stamp" => Json(HttpStatusCode.OK, new StampDiscovery(
-                StampId, SoftwareKeysAllowed, Url("pairings"), Url("pairings/activation"), Url("token"))),
+                StampId, SoftwareKeysAllowed, Url("pairings"), Url("pairings/activation"), Url("token"), SoftwareKeysAllowedFor)),
             "pairings" => Pairing(body),
             "pairings/status" => Status(),
             "pairings/activation" => Activation(body),

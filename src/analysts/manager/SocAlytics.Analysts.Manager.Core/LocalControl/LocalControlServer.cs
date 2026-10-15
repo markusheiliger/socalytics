@@ -237,7 +237,7 @@ public sealed class LocalControlServer : IDisposable
             endpoint, args["stampId"]?.GetValue<string>(), args["hostLabel"]?.GetValue<string>()));
         if (!result.Succeeded)
         {
-            return Refused(new ControlResult(false, result.Code));
+            return Refused(new ControlResult(false, result.Code, result.Notice));
         }
 
         return LocalControlResponse.Success(new JsonObject

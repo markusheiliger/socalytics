@@ -5,7 +5,8 @@ using SocAlytics.Analysts.Manager.DeviceKeys;
 namespace SocAlytics.Analysts.Manager.Platform;
 
 public sealed record StampDiscovery(
-    string StampId, bool SoftwareKeysAllowed, string PairingEndpoint, string ActivationEndpoint, string TokenEndpoint);
+    string StampId, bool SoftwareKeysAllowed, string PairingEndpoint, string ActivationEndpoint, string TokenEndpoint,
+    IReadOnlyList<string>? SoftwareKeysAllowedFor = null);
 
 public sealed record DeviceMetadata(
     string Os, string ClaimedKeyProtection, string OsVersion, string Architecture, string ManagerVersion, string? HostLabel = null,
