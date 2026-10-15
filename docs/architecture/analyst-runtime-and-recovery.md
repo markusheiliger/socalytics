@@ -93,8 +93,8 @@ credentials, or host-wide control APIs. Analyst launches default to:
   read-only input mount into which the AM stages the job's accepted upstream
   results (decided, not yet implemented)
 - no object-storage write credentials: results go to the job's result mount,
-  and the AM stores them through per-object write grants (decided, not yet
-  implemented); short-lived read access only where a capability permits it
+  and the AM stores them through per-object write grants; short-lived read
+  access only where a capability permits it
 - no privileged mode, host PID namespace, host network, or runtime socket mount
 - allowlisted devices, dropped capabilities, CPU and memory limits, and bounded
   logs
