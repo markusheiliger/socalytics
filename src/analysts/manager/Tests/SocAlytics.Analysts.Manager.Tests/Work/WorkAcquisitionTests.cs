@@ -50,12 +50,14 @@ public sealed class WorkAcquisitionTests
         ["logicalJobId"] = Guid.NewGuid().ToString(),
         ["teamId"] = "team-1",
         ["matchId"] = "match-1",
+        ["recordingSetVersionId"] = "rsv-1",
         ["capability"] = new JsonObject { ["id"] = Detection, ["version"] = "1.0.0" },
         ["schemaVersion"] = "1.0.0",
         ["executionScope"] = "match",
         ["inputs"] = new JsonArray(),
         ["pinned"] = new JsonObject
         {
+            ["analystProfileId"] = "profile-1",
             ["analystProfileDigest"] = "sha-256:" + new string('3', 64),
             ["imageDigest"] = "sha-256:" + new string('4', 64),
             ["modelDigest"] = "sha-256:" + new string('5', 64),

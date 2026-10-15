@@ -28,6 +28,8 @@ internal sealed class ManagerTestHost : IAsyncDisposable
         builder.Services.RemoveAll<TimeProvider>();
         builder.Services.AddSingleton<TimeProvider>(Time);
         builder.Services.AddHttpClient<SocAlytics.Analysts.Manager.Platform.PlatformClient>().ConfigurePrimaryHttpMessageHandler(() => Platform);
+        builder.Services.AddHttpClient(SocAlytics.Analysts.Manager.Work.ResultPublisher.StorageClientName)
+            .ConfigurePrimaryHttpMessageHandler(() => Storage);
         configure?.Invoke(builder.Services);
         builder.Services.AddFakeLogging();
         builder.Logging.SetMinimumLevel(LogLevel.Trace);
@@ -39,6 +41,8 @@ internal sealed class ManagerTestHost : IAsyncDisposable
     public FakeTimeProvider Time { get; }
 
     public FakePlatform Platform { get; }
+
+    public FakeStorage Storage { get; } = new();
 
     public InMemoryDeviceKeyProvider Keys { get; }
 

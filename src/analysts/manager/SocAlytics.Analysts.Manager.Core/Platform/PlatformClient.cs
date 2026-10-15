@@ -156,6 +156,15 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
         return await ExecuteAsync<CompletionOutcome>(request, cancellationToken, c => c.Replayed);
     }
 
+    public async Task<WorkResult<ResultGrantsResponse>> RequestResultGrantsAsync(
+        PlatformSession session, Guid attemptId, ResultGrantsRequest grants, CancellationToken cancellationToken = default)
+    {
+        var uri = AnalysisEndpoint(session.BaseUri, $"attempts/{attemptId}/result-grants");
+        var request = Authenticated(HttpMethod.Post, uri, session);
+        request.Content = JsonContent.Create(grants, options: PlatformJson.Options);
+        return await ExecuteAsync<ResultGrantsResponse>(request, cancellationToken);
+    }
+
     public Task<PlatformResponse> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
     {
         if (request.RequestUri?.Scheme != Uri.UriSchemeHttps)

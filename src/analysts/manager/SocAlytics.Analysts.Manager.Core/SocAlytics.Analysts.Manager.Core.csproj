@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <PackageReference Include="JsonSchema.Net" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="NATS.Net" />
@@ -9,6 +10,8 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Runtime/runtime-compatibility.json" LogicalName="SocAlytics.Analysts.Manager.Runtime.runtime-compatibility.json" />
+    <EmbeddedResource Include="..\..\..\..\contracts\analysis\result-manifest\**\*.schema.json" Exclude="..\..\..\..\contracts\**\releases\**;..\..\..\..\contracts\**\examples\**" LogicalName="contracts/analysis/result-manifest/%(RecursiveDir)%(Filename)%(Extension)" />
+    <EmbeddedResource Include="..\..\..\..\contracts\common\**\*.schema.json" Exclude="..\..\..\..\contracts\**\releases\**;..\..\..\..\contracts\**\examples\**" LogicalName="contracts/common/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

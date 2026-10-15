@@ -31,6 +31,11 @@ public sealed class SimulatedAnalystOptions
 
     public int MaxParallelAttempts { get; set; } = 4;
 
+    /// <summary>Workflow identity the simulated Analyst records in its manifests; matches the development default workflow.</summary>
+    public string WorkflowId { get; set; } = "development-default";
+
+    public string WorkflowVersion { get; set; } = "1";
+
     /// <summary>Keyed by capability id; capabilities without an entry succeed.</summary>
     public Dictionary<string, SimulatedCapabilityOptions> Capabilities { get; set; } = new(StringComparer.Ordinal);
 }

@@ -15,6 +15,7 @@ internal enum WorkOperation
     Claim,
     Heartbeat,
     Completion,
+    ResultGrants,
 }
 
 /// <summary>In-process platform: every openapi.yaml operation with configurable outcomes.</summary>
@@ -167,6 +168,7 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
             var operation = workPath.EndsWith("/self/queue-credentials", StringComparison.Ordinal) ? WorkOperation.QueueCredentials
                 : workPath.EndsWith("/claims", StringComparison.Ordinal) ? WorkOperation.Claim
                 : workPath.EndsWith("/heartbeats", StringComparison.Ordinal) ? WorkOperation.Heartbeat
+                : workPath.EndsWith("/result-grants", StringComparison.Ordinal) ? WorkOperation.ResultGrants
                 : WorkOperation.Completion;
             lock (Requests)
             {
@@ -177,6 +179,25 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
             if (WorkScripts.TryGetValue(operation, out var script))
             {
                 return script();
+            }
+
+            if (operation == WorkOperation.ResultGrants)
+            {
+                var objects = JsonNode.Parse(body)!["objects"]!.AsArray();
+                var grants = objects.Select(o => new JsonObject
+                {
+                    ["name"] = (string?)o!["name"],
+                    ["method"] = "PUT",
+                    ["url"] = $"https://storage.test/results/{(string?)o["name"]}?X-Amz-Signature=0000",
+                    ["requiredHeaders"] = new JsonObject { ["Content-Length"] = ((long)o["sizeBytes"]!).ToString(System.Globalization.CultureInfo.InvariantCulture) },
+                    ["expiresAt"] = time.GetUtcNow().AddMinutes(5).UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
+                }).ToArray<JsonNode?>();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        new JsonObject { ["resultLocation"] = "results/r/j/a/", ["grants"] = new JsonArray(grants) }.ToJsonString(),
+                        System.Text.Encoding.UTF8, "application/json"),
+                };
             }
         }
 

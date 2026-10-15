@@ -41,7 +41,21 @@ public sealed record HeartbeatRequest(Guid LogicalJobId, long FencingToken, Date
 public sealed record LeaseRenewed(Guid AttemptId, DateTimeOffset LeaseExpiresAt);
 
 public sealed record CompletionOutcome(
-    Guid AttemptId, Guid LogicalJobId, string Outcome, Guid? AcceptedResultId, bool Replayed, string LogicalJobState);
+    Guid AttemptId, Guid LogicalJobId, string Outcome, Guid? AcceptedResultId, bool Replayed, string LogicalJobState,
+    string? Reason = null);
+
+public sealed record ResultObjectDeclaration(string Name, long SizeBytes, string Digest);
+
+public sealed record ResultGrantsRequest(long FencingToken, IReadOnlyList<ResultObjectDeclaration> Objects);
+
+/// <summary>A presigned write grant; the URL is a credential and is never logged.</summary>
+public sealed record ResultGrant(
+    string Name, string Method, string Url, IReadOnlyDictionary<string, string> RequiredHeaders, DateTimeOffset ExpiresAt)
+{
+    public override string ToString() => $"ResultGrant {{ Name = {Name} }}";
+}
+
+public sealed record ResultGrantsResponse(string ResultLocation, IReadOnlyList<ResultGrant> Grants);
 
 public sealed record CompletionCapability(string Id, string Version);
 
