@@ -95,7 +95,7 @@ description: "Task list for Analysis Result Read for Jobs"
 ## Phase 6: Polish & Cross-Cutting Concerns
 
 - [x] T009 Documentation (plan.md § Architecture Updates; Constitution Principle I): make the narratives listed in plan.md § Architecture Updates and every status statement this feature affects true for the merged state, re-reading `docs/architecture/` at implementation time; the listed rewrites are examples, not the whole job. In particular, turn the "decided, not yet implemented" wording about the Manager-mediated read and the input mount in `docs/architecture/analysts-models-and-hardware.md` and `docs/architecture/analyst-runtime-and-recovery.md` into present tense, add the staging responsibility to § Analyst Manager Responsibilities in `docs/architecture/analyst-runtime-and-recovery.md`, and update `docs/architecture/contracts-and-compatibility.md` § Scope And Dependencies, `docs/architecture/analysts-models-and-hardware.md` § Implementation Validation, and `docs/architecture/platform-implementation.md` (§ Acceptance Evidence, § Architecture Reassessment). Update `src/platform/README.md`, `src/analysts/manager/README.md`, and the "Current State" in `AGENTS.md`.
-- [ ] T010 Run the validation in [quickstart.md](quickstart.md): restore, build, and test both solutions as documented, and `node .github/scripts/check-markdown.mjs`; fix what fails.
+- [x] T010 Run the validation in [quickstart.md](quickstart.md): restore, build, and test both solutions as documented, and `node .github/scripts/check-markdown.mjs`; fix what fails.
 
 ---
 
