@@ -54,7 +54,7 @@ evidence references.
 | ACT-003 | Analyst Manager | Device-bound work claimant and local OCI runtime coordinator |
 | ACT-004 | Analyst Container | Untrusted-by-default job-scoped analysis executable |
 | ACT-005 | Hermes, Coach Agents, and Specialist Agents | Authorized consumers of API/MCP evidence and producers of advice lineage |
-| ACT-006 | Optional OIDC provider | External human identity assertion boundary |
+| ACT-006 | Optional OIDC provider | External human identity assertion boundary; enforces MFA for external sign-ins (the platform offers no MFA for local accounts) |
 | ACT-007 | OCI registry and artifact publishers | Sources of images, models, packages, signatures, and provenance |
 | ACT-008 | Data-service and deployment operators | Privileged operators of database, object storage, messaging, replicas, and backups |
 | ACT-009 | Security and data-governance approvers | Required accountable roles; assignment remains Open / Blocking for production |

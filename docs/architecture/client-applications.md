@@ -60,7 +60,10 @@ Kiota-generated clients behind application-owned adapters and repositories.
 
 Local accounts are always available, and configured external OpenID Connect
 providers appear as additional login options. Both paths establish the same
-ASP.NET Core backend-for-frontend session. Authentication tokens remain on the
+ASP.NET Core backend-for-frontend session. A member's provider identity is
+linked when the member redeems a Club Admin's link credential at the provider
+(decided, not yet implemented); SocAlytics offers no MFA for local accounts, so
+MFA comes from the external provider. Authentication tokens remain on the
 server; the browser receives a Secure, HttpOnly, SameSite cookie and uses CSRF
 protection for state-changing requests.
 

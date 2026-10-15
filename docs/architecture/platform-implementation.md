@@ -12,7 +12,7 @@ and the API, the operational API surface, the layered project structure, and
 the persistence, club and identity, recording lineage and upload, durable
 analysis workflow, and Analyst Manager registration foundations described
 below, with host, architecture, contract, and integration tests. Analyst
-execution, external OpenID Connect sign-in, MFA enforcement, the Web UI's
+execution, external OpenID Connect sign-in, the Web UI's
 offline mode and service worker, deployment configuration, and production-readiness evidence do not exist yet.
 
 ## Source And Runtime Baseline
@@ -335,7 +335,7 @@ anti-forgery protection, membership, club and team roles, team-scoped
 authorization, security audit events, and the `Club > Season > Team > Match`
 hierarchy, as specified in
 `specs/archive/20261005-130701-club-identity-foundation`. It implements no external
-OpenID Connect sign-in or MFA enforcement. The Web UI's generated Kiota
+OpenID Connect sign-in. The Web UI's generated Kiota
 TypeScript client exists and is used behind the adapters in
 `src/clients/web/src/platform/` (see [Client Technology](#client-technology)).
 Exposure and access policy for operational endpoints in a production ingress
@@ -352,10 +352,28 @@ The canonical artifacts, owner map, and compatibility policy are
 governed by [Contracts and Compatibility](contracts-and-compatibility.md).
 
 Platform-managed local accounts are always available. ASP.NET Core Identity
-provides password hashing, security stamps, recovery tokens, lockout, and MFA;
-its stores use Dapper and PostgreSQL. A stamp may additionally configure one or
+provides password hashing, security stamps, recovery tokens, and lockout;
+its stores use Dapper and PostgreSQL. SocAlytics offers no MFA for local
+accounts: a club that needs MFA signs in through an external OpenID Connect
+provider that enforces it, and the platform does not evaluate MFA or
+authentication-context claims. A stamp may additionally configure one or
 more external OpenID Connect providers. The login UI displays external options
 only when configured.
+
+External sign-in (decided, not yet implemented): the API runs the
+authorization code flow with PKCE, state, and nonce itself and keeps each
+pending sign-in in PostgreSQL, bound to the starting browser by a short-lived
+cookie and completable once, so the API still needs no shared key ring; it
+validates ID tokens against the provider's published keys and keeps no
+provider token after the sign-in. Membership stays platform data: a Club Admin
+issues a single-use link credential for a member (a purpose of the existing
+one-time credentials), the member redeems it by signing in at the provider,
+and the provider's issuer and subject are linked to exactly that member. Only
+a redeemed link credential creates a link; claims such as email or name never
+find, create, or link members. Club Admins can unlink an identity, which ends
+the member's sessions; a provider-side account change takes effect for
+existing sessions only through the normal session limits, sign-out, unlinking,
+or deactivation, since no refresh token is kept.
 
 Local and external login paths establish the same ASP.NET Core backend-for-
 frontend session. The browser receives a Secure, HttpOnly, SameSite cookie and
@@ -671,7 +689,7 @@ choice or reveals a material operational tradeoff:
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views
   and the match workflow with recording upload and finalization. External
-  OpenID Connect sign-in, MFA enforcement, the Web UI's offline mode, the other
+  OpenID Connect sign-in, the Web UI's offline mode, the other
   Web UI client workflows (analysis review and agent conversations),
   cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix remain unsupported by
@@ -689,8 +707,8 @@ cover Dapper mappings, migrations, optimistic concurrency, outbox recovery, and
 duplicate delivery. Before treating the remaining choices as
 implementation-proven, evidence must demonstrate:
 
-- optional OIDC login shares the local-account BFF session, including MFA
-  enforcement tests
+- optional OIDC login shares the local-account BFF session, with external
+  identities linked only through Club Admin link credentials
 - Kiota-generated TypeScript, C#, and Python clients compile and pass contract
   compatibility tests
 - the Web UI PWA installs, updates through its service worker, and meets the
