@@ -66,7 +66,7 @@ description: "Task list for Analyst Manager Queue Depth and Host Utilization"
 ## Phase 4: Polish & Cross-Cutting Concerns
 
 - [x] T007 Documentation (plan.md § Architecture Updates): make every narrative listed in plan.md § Architecture Updates and every status statement this feature affects anywhere in `docs/architecture/` true for the merged state, re-reading the documents now rather than only applying the listed rewrites (they are examples, not the whole job): turn the decided queue-depth paragraph in `docs/architecture/analyst-manager.md` into present tense and state in the Tray Profile list that accelerator utilization is not shown yet; mark the "expose local utilization, active attempts, and timestamped queue status" responsibility in `docs/architecture/analyst-runtime-and-recovery.md` as implemented for CPU, memory, and queue depth; note in `docs/architecture/analysts-models-and-hardware.md` (Implementation Validation) that queue depth is observable per Manager while the measurement stays open; update `src/analysts/manager/README.md` (status window and `status` output, polling, sampling), `src/platform/README.md` (the new self operation), and `AGENTS.md` Current State if it lists the Manager's self operations.
-- [ ] T008 Run the validation in [quickstart.md](quickstart.md) § Automated validation and `node .github/scripts/check-markdown.mjs`; fix what fails.
+- [x] T008 Run the validation in [quickstart.md](quickstart.md) § Automated validation and `node .github/scripts/check-markdown.mjs`; fix what fails.
 
 ---
 
