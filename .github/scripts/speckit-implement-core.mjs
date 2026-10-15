@@ -7,6 +7,7 @@ export const RESUME_COMMENT_MARKER = '<!-- speckit-implement:resume -->';
 // A retry restarts what stopped like a resume, but on the branch as it is: it never merges the base branch.
 export const RETRY_COMMENT_MARKER = '<!-- speckit-implement:retry -->';
 export const DONE_COMMENT_MARKER = '<!-- speckit-implement:done -->';
+const REPAIR_MARKER_PATTERN = /<!-- speckit-implement:repair ([A-Za-z0-9+/=]+) -->/;
 export const BOT_LOGIN = 'github-actions[bot]';
 export const MAX_TASK_ATTEMPTS = 3;
 // Default number of `[P]` tasks of one spec that run at the same time (repository variable SPECKIT_MAX_PARALLEL_TASKS).
@@ -229,6 +230,39 @@ export function parseGuidance(body) {
   } catch {
     return null;
   }
+}
+
+export function renderRepairMarker(repair) {
+  return `<!-- speckit-implement:repair ${Buffer.from(JSON.stringify(repair), 'utf8').toString('base64')} -->`;
+}
+
+export function unresolvedRepair(comments) {
+  const repairs = new Map();
+  for (const comment of comments) {
+    if (comment.user?.login !== BOT_LOGIN) continue;
+    const match = String(comment.body ?? '').match(REPAIR_MARKER_PATTERN);
+    if (!match) continue;
+    try {
+      const value = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8'));
+      if (!value?.id || !['pending', 'resolved'].includes(value.state)) continue;
+      if (value.state === 'resolved') repairs.delete(value.id);
+      else repairs.set(value.id, { ...value, at: value.at || comment.created_at, commentId: comment.id });
+    } catch {
+      // Ignore malformed workflow markers.
+    }
+  }
+  return [...repairs.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at))[0] ?? null;
+}
+
+export function renderRepairPrompt({ repair, guidance, folder }) {
+  const tasks = Array.isArray(repair.tasks) && repair.tasks.length > 0 ? repair.tasks.join(', ') : 'the implemented scope';
+  return [
+    `Repair the already-landed implementation for ${tasks} in spec ${folder}.`,
+    `The ${repair.scope} verification failed after the related tasks were committed and checked in tasks.md.`,
+    'Do not untick, rewrite, or add tasks. Do not commit. Change only implementation or directly related tests needed to make the failed verification pass.',
+    guidance ? `Writer-approved guidance: ${guidance}` : '',
+    repair.run ? `Failure evidence from workflow run ${repair.run} is available in ../failed-verification/.` : '',
+  ].filter(Boolean).join(' ');
 }
 
 // The comment that starts a new attempt window; it persists the resume, so a replaced run cannot lose
@@ -483,6 +517,14 @@ export async function setAttention(client, number, needed) {
   }
 }
 
+// Implementation pull requests stay draft until the verified result is either merged immediately or deliberately
+// handed to a person for final review. Unlike the attention label, this controls GitHub's merge affordance.
+export async function ensureImplementationDraft(client, pull) {
+  if (pull.draft) return;
+  await client.convertToDraft(pull.node_id);
+  pull.draft = true;
+}
+
 // The spec title of an implementation pull request, whose title is "Implement: <spec title>" (renderPullRequestTitle).
 export function specTitleOfPull(pull) {
   return String(pull?.title ?? '').replace(/^Implement:\s*/, '').trim();
@@ -527,7 +569,7 @@ export async function dispatchImplementation(client, env, { twin, pull, title })
   await client.dispatchWorkflow(IMPLEMENT_WORKFLOW_FILE, defaultBranchOf(env), { twin: String(twin), pull: String(pull), ...(specTitle ? { title: specTitle } : {}) });
 }
 
-// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, converge, or resolve. `outcome`
+// The attempt marker of an outcome comment. `kind` is what the attempt works on: task, repair, converge, or resolve. `outcome`
 // is success, failure, requeue (redone from a newer head; not a failure), or attention (a person is needed).
 export function renderAttemptMarker({ kind, task = null, attempt, outcome }) {
   return `<!-- speckit-implement:attempt ${JSON.stringify({ kind, task: task || null, attempt: Number(attempt), outcome })} -->`;
@@ -544,7 +586,7 @@ export function parseAttempts(comments) {
     try {
       const value = JSON.parse(match[1]);
       const kind = value.kind ?? value.step;
-      if (!['task', 'converge', 'resolve'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
+      if (!['task', 'repair', 'converge', 'resolve'].includes(kind) || !['success', 'failure', 'requeue', 'attention'].includes(value.outcome)) continue;
       attempts.push({ kind, task: value.task ?? null, attempt: Number(value.attempt) || 0, outcome: value.outcome, at: comment.created_at });
     } catch {
       // A malformed marker is ignored.
@@ -559,7 +601,7 @@ export function attemptCheckId({ kind, task = null, attempt }) {
 }
 
 export function parseAttemptCheckId(externalId) {
-  const match = String(externalId ?? '').match(/^speckit:attempt:(task|converge|resolve):(T\d{3,})?:(\d+)$/);
+  const match = String(externalId ?? '').match(/^speckit:attempt:(task|repair|converge|resolve):(T\d{3,})?:(\d+)$/);
   return match ? { kind: match[1], task: match[2] ?? null, attempt: Number(match[3]) } : null;
 }
 

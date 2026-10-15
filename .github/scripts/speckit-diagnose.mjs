@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { specDir } from './speckit-prepare-core.mjs';
-import { GitHubClient } from './speckit-prepare-github.mjs';
+import { createGitHubClient } from './speckit-script-runtime.mjs';
 import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
 import {
   BOT_LOGIN,
@@ -663,19 +663,10 @@ async function recordRework({ client, env, log, inputs }) {
   return { exitCode: 0, outcome: 'checking' };
 }
 
-function githubClient(env) {
-  return new GitHubClient({
-    token: env.GITHUB_TOKEN || env.GH_TOKEN,
-    repository: env.GITHUB_REPOSITORY,
-    apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
-    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
-  });
-}
-
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command, file] = argv;
   if (command === 'check-report') return checkReportFile(file, log);
-  const run = { client: client ?? githubClient(env), env, log };
+  const run = { client: client ?? createGitHubClient(env), env, log };
   if (command === 'evidence') return (await runEvidence(run)).exitCode;
   if (command === 'record') return (await runRecord(run)).exitCode;
   throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs <evidence | record | check-report <report.json>>');

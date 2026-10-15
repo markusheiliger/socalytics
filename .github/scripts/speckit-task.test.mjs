@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
-import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, RESUME_COMMENT_MARKER, pointSpecLinks, renderGuidanceMarker } from './speckit-implement-core.mjs';
+import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, RESUME_COMMENT_MARKER, pointSpecLinks, renderGuidanceMarker, renderRepairMarker, unresolvedRepair } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
   defaultGit,
@@ -22,8 +22,14 @@ import {
   runLand,
   runMergeLand,
   runPackage,
+  runRepairReport,
   runVerdict,
 } from './speckit-task.mjs';
+import { main as convergeMain } from './speckit-converge.mjs';
+import { main as groupMain } from './speckit-group.mjs';
+import { main as mergeMain } from './speckit-merge.mjs';
+import { main as repairMain } from './speckit-repair.mjs';
+import { main as resolveMain } from './speckit-resolve.mjs';
 import { FakeGitHub, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -34,6 +40,7 @@ const TASK_INPUTS = { kind: 'task', twin: 5, pull: 9, task: 'T001', attempt: 2 }
 const CONVERGE_INPUTS = { kind: 'converge', twin: 5, pull: 9, task: null, attempt: 1 };
 const RESOLVE_INPUTS = { kind: 'resolve', twin: 5, pull: 9, task: null, attempt: 1 };
 const MERGE_INPUTS = { kind: 'merge', twin: 5, pull: 9, task: null, attempt: 1 };
+const REPAIR_INPUTS = { kind: 'repair', twin: 5, pull: 9, task: null, attempt: 1 };
 
 function git(cwd, ...args) {
   const result = spawnSync('git', ['-c', 'user.name=test', '-c', 'user.email=test@example.invalid', ...args], { cwd, encoding: 'utf8' });
@@ -166,6 +173,7 @@ test('parses and validates task inputs', () => {
   assert.deepEqual(parseTaskInputs({ ...base, SPECKIT_TASK: 'T001' }), TASK_INPUTS);
   assert.deepEqual(parseTaskInputs({ ...base, SPECKIT_KIND: 'converge', SPECKIT_TASK: 'ignored' }), { ...CONVERGE_INPUTS, attempt: 2 });
   assert.deepEqual(parseTaskInputs({ ...base, SPECKIT_KIND: 'merge' }), { ...MERGE_INPUTS, attempt: 2 });
+  assert.deepEqual(parseTaskInputs({ ...base, SPECKIT_KIND: 'repair' }), { ...REPAIR_INPUTS, attempt: 2 });
   for (const env of [{}, { ...base, SPECKIT_TASK: 'finalize' }, { ...base, SPECKIT_TASK: 'rm -rf' }, { ...base, SPECKIT_TWIN: '0', SPECKIT_TASK: 'T001' }, { ...base, SPECKIT_KIND: 'deploy' }]) {
     assert.throws(() => parseTaskInputs(env), TaskInputError);
   }
@@ -180,6 +188,34 @@ test('task: package writes the change and the changed paths, and verdict records
   assert.deepEqual([result.verified, result.verification, result.checks], [true, 'configured', [{ name: 'Markdown check', passed: true }]]);
   assert.deepEqual(result.changedFiles.sort(), ['docs/x.md', 'specs/f/tasks.md']);
 }));
+
+test('repair: package and land change code without changing completed task checkboxes', () => withRepos({ tasks: DONE_TASKS }, async (repos) => {
+  const { result } = work(repos, {
+    inputs: REPAIR_INPUTS,
+    verify: null,
+    agent: (r) => write(r.work, 'docs/x.md', '# repaired\n'),
+  });
+  assert.deepEqual([result.verified, result.changedFiles], [true, ['docs/x.md']]);
+  const github = fakeGitHub({ body: '## Tasks (2)\n\n- [x] T001 one\n- [x] T002 two\n' });
+  const landed = await land(repos, github, { inputs: REPAIR_INPUTS });
+  assert.equal(landed.exitCode, 0);
+  assert.equal(remoteShow(repos, 'speckit/f:docs/x.md'), '# repaired\n');
+  assert.equal(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), DONE_TASKS);
+  assert.equal(landed.check.status, 'in_progress', 'the repair check stays open until reverification reports it');
+}));
+
+test('repair: package rejects task-list and protected changes', async () => {
+  for (const [file, reason] of [['specs/f/tasks.md', /protected files: specs\/f\/tasks\.md/], ['.github/workflows/evil.yml', /protected files: \.github\/workflows\/evil\.yml/]]) {
+    await withRepos({ tasks: DONE_TASKS }, (repos) => {
+      const { result } = work(repos, {
+        inputs: REPAIR_INPUTS,
+        verify: null,
+        agent: (r) => write(r.work, file, file.endsWith('tasks.md') ? `${readFileSync(path.join(r.work, file), 'utf8')}\nchanged\n` : 'changed\n'),
+      });
+      assert.match(result.reasons.join('; '), reason);
+    });
+  }
+});
 
 test('task: package rejects missing ticks, protected paths, and agent failures; verdict records failed verification', async () => {
   const cases = [
@@ -407,13 +443,42 @@ test('combined verification: success shows the next task, anything else stops th
   assert.equal(failed.exitCode, 1);
   const stop = broken.repo.checkRuns.at(-1);
   assert.deepEqual([stop.head_sha, stop.status, stop.conclusion, stop.external_id, stop.output.title], ['sha-new', 'completed', 'failure', CHECK_LIMIT, 'The combined verification failed']);
-  assert.match(broken.comments.at(-1).body, /^\*\*Implementation needs attention\*\* @dev: the verification of T001, T002 together failed \(see the \[run\]\(https:\/\/github\.com\/octo\/repo\/actions\/runs\/77\)\)/);
+  assert.match(broken.comments.at(-1).body, /\*\*Implementation needs attention\*\* @dev: the verification of T001, T002 together failed \(see the \[run\]\(https:\/\/github\.com\/octo\/repo\/actions\/runs\/77\)\)/);
+  assert.deepEqual(unresolvedRepair(broken.comments).tasks, ['T001', 'T002']);
 
   const cancelled = fakeGitHub();
   assert.equal((await runCombinedVerified({ client: cancelled, env: combinedEnv({ SPECKIT_VERIFY_RESULT: 'cancelled' }), log: silent })).exitCode, 1);
   assert.match(cancelled.comments.at(-1).body, /T001, T002 together did not finish \(cancelled\)/);
-  await assert.rejects(() => runCombinedVerified({ client: broken, env: { SPECKIT_TWIN: '5', SPECKIT_PULL: '9' }, log: silent }), /SPECKIT_HEAD/);
+  await assert.rejects(() => runCombinedVerified({ client: broken, env: { SPECKIT_TWIN: '5', SPECKIT_PULL: '9' }, log: silent }), /SPECKIT_ORDER/);
 });
+
+test('repair reporting clears durable repair state only after successful reverification', async () => {
+  const github = fakeGitHub();
+  const repair = { id: 'phase:77:sha-old', state: 'pending', scope: 'phase', tasks: ['T001'], head: 'sha-old', at: github.tick() };
+  await github.createComment(9, `${renderRepairMarker(repair)}\npending`);
+  const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-new', status: 'in_progress', external_id: 'speckit:attempt:repair::1', output: {} });
+  const env = {
+    SPECKIT_TWIN: '5',
+    SPECKIT_PULL: '9',
+    SPECKIT_ATTEMPT: '1',
+    SPECKIT_CHECK_RUN: String(check.id),
+    SPECKIT_HEAD: 'sha-new',
+    SPECKIT_REPAIR: JSON.stringify(repair),
+    SPECKIT_VERIFY_RESULT: 'success',
+  };
+  assert.equal((await runRepairReport({ client: github, env, log: silent })).exitCode, 0);
+  assert.equal(unresolvedRepair(github.comments), null);
+  assert.equal(github.repo.checkRuns.find((item) => item.id === check.id).conclusion, 'success');
+
+  const failed = fakeGitHub();
+  await failed.createComment(9, `${renderRepairMarker(repair)}\npending`);
+  const failedCheck = await failed.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-new', status: 'in_progress', external_id: 'speckit:attempt:repair::1', output: {} });
+  const result = await runRepairReport({ client: failed, env: { ...env, SPECKIT_CHECK_RUN: String(failedCheck.id), SPECKIT_VERIFY_RESULT: 'failure' }, log: silent });
+  assert.equal(result.exitCode, 1);
+  assert.equal(unresolvedRepair(failed.comments).id, repair.id);
+  assert.equal(failed.repo.checkRuns.find((item) => item.id === failedCheck.id).external_id, CHECK_LIMIT);
+});
+
 test('land: a single task finds its result where download-artifact puts a single artifact', () => withRepos({}, async (repos) => {
   workTask(repos, 'T001', (dir) => agentDoesT001(dir));
   const results = path.join(repos.base, 'results');
@@ -705,7 +770,7 @@ test('resolve before a phase or the convergence: success continues the work, and
   });
 });
 
-// merge-land only reads the result of merge-verify and talks to the GitHub API.
+// merge-land only reads the result of the merge workflow's verify job and talks to the GitHub API.
 async function mergeLand(github, result, { env = {}, workResult = 'success' } = {}) {
   const resultDir = mkdtempSync(path.join(tmpdir(), 'speckit-merge-'));
   try {
@@ -791,6 +856,7 @@ test('merge-land waits when the base branch moved, reports conflicts, and fails 
   refused.mergeRefusal = 'Pull Request is not mergeable';
   const refusal = await mergeLand(refused, verifiedMerge);
   assert.deepEqual([refusal.exitCode, refusal.check.conclusion], [1, 'failure']);
+  assert.equal(refused.repo.pulls[0].draft, true, 'a refused merge restores draft status before the implementation waits');
   assert.match(refused.comments.at(-1).body, /GitHub did not merge the pull request: Pull Request is not mergeable/);
 });
 
@@ -845,11 +911,16 @@ test('extracts the last agent message and validates commands', async () => {
   ].join('\n');
   assert.equal(lastAgentMessage(jsonl), 'last');
   const env = { SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_TASK: 'T001', SPECKIT_ATTEMPT: '1' };
-  await assert.rejects(() => main(['nope'], { env }), /integrate \| package \| verdict \| land-tasks \| combined-verified \| archive \| merge-land/);
-  await assert.rejects(() => main(['package'], { env: { ...env, SPECKIT_KIND: 'merge' } }), /The merge has no package command/);
+  await assert.rejects(() => main(['nope'], { env }), /package \| verdict \| land-tasks/);
+  await assert.rejects(() => groupMain(['package'], { env }), /speckit-group\.mjs/);
+  await assert.rejects(() => repairMain(['verdict'], { env }), /speckit-repair\.mjs/);
+  await assert.rejects(() => main(['integrate'], { env }), /speckit-task\.mjs/);
+  await assert.rejects(() => convergeMain(['verdict'], { env }), /speckit-converge\.mjs/);
+  await assert.rejects(() => resolveMain(['combined-verified'], { env }), /speckit-resolve\.mjs/);
+  await assert.rejects(() => mergeMain(['package'], { env }), /speckit-merge\.mjs/);
 });
 
-// The merge-archive job: archives the spec on the implementation branch, merged with its base branch.
+// The merge workflow's archive job archives the spec on the implementation branch, merged with its base branch.
 async function archive(repos, github, { head = remoteSha(repos, 'speckit/f'), checkRun } = {}) {
   const outputFile = path.join(repos.base, 'archive-output.txt');
   writeFileSync(outputFile, '');

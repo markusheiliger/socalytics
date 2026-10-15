@@ -1,8 +1,8 @@
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-import { GitHubClient } from './speckit-prepare-github.mjs';
 import { canWrite, resolveImplementRequester } from './speckit-prepare.mjs';
+import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   AMEND_BRANCH_PREFIX,
   AMEND_CHECK_NAME,
@@ -776,18 +776,9 @@ export async function runGuard({ client, env, log }) {
   return { exitCode: 0, outcome: actions.length > 0 ? 'guarded' : 'ok' };
 }
 
-function githubClient(env) {
-  return new GitHubClient({
-    token: env.GITHUB_TOKEN || env.GH_TOKEN,
-    repository: env.GITHUB_REPOSITORY,
-    apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
-    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
-  });
-}
-
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command] = argv;
-  const run = { client: client ?? githubClient(env), env, log };
+  const run = { client: client ?? createGitHubClient(env), env, log };
   const handlers = { 'record-analysis': runRecordAnalysis, feedback: runFeedback, closed: runClosed, pushed: runPushed, guard: runGuard };
   if (!handlers[command]) throw new AmendUsageError(`Usage: speckit-amend.mjs <${Object.keys(handlers).join(' | ')}>`);
   const result = await handlers[command](run);

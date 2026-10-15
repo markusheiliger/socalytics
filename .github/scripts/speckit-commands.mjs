@@ -1,10 +1,10 @@
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-import { GitHubClient } from './speckit-prepare-github.mjs';
 import { canWrite } from './speckit-prepare.mjs';
 import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
 import { startFixAuthoring } from './speckit-fix.mjs';
+import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   BOT_LOGIN,
   CHECK_DIAGNOSING,
@@ -187,19 +187,10 @@ const HANDLERS = {
   fix: handleFix,
 };
 
-function githubClient(env) {
-  return new GitHubClient({
-    token: env.GITHUB_TOKEN || env.GH_TOKEN,
-    repository: env.GITHUB_REPOSITORY,
-    apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
-    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
-  });
-}
-
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command] = argv;
   if (command !== 'command') throw new CommandUsageError('Usage: speckit-commands.mjs command (inputs come from SPECKIT_* environment variables)');
-  const result = await runCommand({ client: client ?? githubClient(env), env, log });
+  const result = await runCommand({ client: client ?? createGitHubClient(env), env, log });
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `handled=${result.handled}\n`);
   return result.exitCode;
 }

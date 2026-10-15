@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -24,7 +24,7 @@ import {
   stageLabel,
   validateLinks,
 } from './speckit-prepare-core.mjs';
-import { GitHubClient } from './speckit-prepare-github.mjs';
+import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 
 // The workflow token's user, which sets the implement flag on a fix spec for the person who asked for it.
 const BOT_LOGIN = 'github-actions[bot]';
@@ -64,23 +64,6 @@ export function discoverSpecs(rootDir) {
     }
   }
   return specs;
-}
-
-function createReporter(env, log) {
-  const lines = [];
-  return {
-    line(text = '') {
-      lines.push(text);
-      log(text);
-    },
-    flush() {
-      if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
-    },
-  };
-}
-
-function setOutput(env, name, value) {
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `${name}=${value}\n`);
 }
 
 function issueRef(issue) {
@@ -402,12 +385,7 @@ function parseArgs(argv) {
 
 export async function main(argv, { env = process.env, rootDir = process.cwd(), log = console.log, client } = {}) {
   const options = parseArgs(argv);
-  const githubClient = client ?? new GitHubClient({
-    token: env.GITHUB_TOKEN || env.GH_TOKEN,
-    repository: env.GITHUB_REPOSITORY,
-    apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
-    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
-  });
+  const githubClient = client ?? createGitHubClient(env);
   if (options.command === 'sync') {
     const dryRun = options.dryRun || env.SPECKIT_DRY_RUN === 'true';
     if (!dryRun && !options.promptFile) throw new Error('sync requires --prompt-file unless it is a dry run');

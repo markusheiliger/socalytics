@@ -17,9 +17,14 @@ flowchart TD
     commands["<b>Spec Kit commands</b><br/>/speckit comments and<br/>amendment feedback"]
 
     subgraph chain["Implementation chain · one per spec"]
-        spec["<b>Spec Kit implement spec</b><br/>decide → phase | convergence or conflict resolution | archive, verify, merge → continue"]
-        phase["<b>Spec Kit implement phase</b><br/>plan → tasks one at a time<br/>(consecutive [P] tasks in parallel) → verify"]
-        task["<b>Spec Kit implement task</b><br/>work: one agent per task → commit and push"]
+        spec["<b>Spec Kit implement spec</b><br/>decide → implement | repair | converge | resolve | merge → continue"]
+        phase["<b>Spec Kit implement phase</b><br/>plan → groups one at a time → verify"]
+        group["<b>Spec Kit implement group</b><br/>one task, or consecutive [P] tasks in parallel<br/>→ combined verify and report"]
+        task["<b>Spec Kit implement task</b><br/>one agent → verify → tick, commit, and push"]
+        repair["<b>Spec Kit implement repair</b><br/>guided repair → commit and push → reverify"]
+        converge["<b>Spec Kit implement convergence</b><br/>check against spec → commit and push"]
+        resolve["<b>Spec Kit implement conflict resolution</b><br/>integrate → resolve → verify → commit and push"]
+        merge["<b>Spec Kit implement merge</b><br/>archive → verify prospective tree → merge or request review"]
     end
 
     subgraph amend["Amendment and fix spec loop · spec artifact defects and causes outside the spec"]
@@ -42,12 +47,19 @@ flowchart TD
     orchestrate -- "creates branch, draft pull request" --> implPr
     orchestrate -- "starts or restarts" --> spec
 
-    spec == "phase" ==> phase
-    phase == "once per task or [P] tasks" ==> task
-    spec == "convergence, conflict resolution" ==> task
+    spec == "implement" ==> phase
+    phase == "once per ordered unit" ==> group
+    group == "once per task" ==> task
+    spec == "repair" ==> repair
+    spec == "converge" ==> converge
+    spec == "resolve" ==> resolve
+    spec == "merge" ==> merge
     spec -- "continue" --> spec
     task -- "pushes finished tasks" --> implPr
-    spec -- "merge: squash-merge or request review" --> implPr
+    repair -- "pushes and verifies approved repair" --> implPr
+    converge -- "pushes convergence tasks" --> implPr
+    resolve -- "pushes merged base and resolutions" --> implPr
+    merge -- "squash-merge or request review" --> implPr
 
     spec -- "stopped" --> diagnose
     diagnose -- "opens or reworks" --> amendPr
@@ -75,6 +87,8 @@ flowchart TD
 
 Edges: dotted arrows are GitHub events that trigger a workflow, solid arrows are workflow dispatches or effects on a
 pull request, and thick arrows are reusable workflow calls (`workflow_call`) that run inside the caller's run.
+Implementation pull requests stay draft while the chain is working, stopped for a decision, or waiting for a diagnosis.
+They become ready only after final verification, immediately before an automatic merge or an intentional review handoff.
 
 ## Workflows
 
@@ -82,24 +96,40 @@ pull request, and thick arrows are reusable workflow calls (`workflow_call`) tha
 | --- | --- | --- | --- |
 | Spec Kit prepare | [speckit-prepare.yml](speckit-prepare.yml) | Push to `specs/**`, `speckit:stage:implement` label, manual | Keeps one twin issue per spec folder, infers dependencies between new twins, validates implement requests. |
 | Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, hourly, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; fix specs start regardless), restarts broken chains, finalizes merged implementations, settles amendments and fix specs, and resumes an implementation once its fix spec has landed. |
-| Spec Kit implement spec | [speckit-implement-spec.yml](speckit-implement-spec.yml) | Orchestrate, itself, commands | One per run: a phase, the convergence, a conflict resolution, or the merge; then dispatches its next run. |
-| Spec Kit implement phase | [speckit-implement-phase.yml](speckit-implement-phase.yml) | Implement spec (`workflow_call`) | Plans the order of one phase's open tasks and runs them one at a time, consecutive `[P]` tasks in parallel; verifies the phase after its last task. |
-| Spec Kit implement task | [speckit-implement-task.yml](speckit-implement-task.yml) | Implement phase, implement spec (`workflow_call`) | One task, or consecutive `[P]` tasks: a `work` job per task runs the agent and the verification, then a "Commit and push" job commits and pushes them in task order. Parallel edits to the same file are merged and verified together; only conflicting edits are redone. |
+| Spec Kit implement spec | [speckit-implement-spec.yml](speckit-implement-spec.yml) | Orchestrate, itself, commands | One per run: a phase, a guided repair, the convergence, a conflict resolution, or the merge; then dispatches its next run. |
+| Spec Kit implement phase | [speckit-implement-phase.yml](speckit-implement-phase.yml) | Implement spec (`workflow_call`) | Plans one phase's ordered units and calls the group workflow for them serially; verifies the phase after its last unit. |
+| Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Implement phase (`workflow_call`) | Calls the single-task workflow once for a singleton or in parallel for consecutive `[P]` tasks. Multi-task groups always receive full combined verification and reporting; singleton groups add no duplicate work. |
+| Spec Kit implement task | [speckit-implement-task.yml](speckit-implement-task.yml) | Implement group (`workflow_call`) | Implements and verifies exactly one task, then validates, ticks, commits, pushes, and reports that task through a write-isolated landing job. |
+| Spec Kit implement repair | [speckit-implement-repair.yml](speckit-implement-repair.yml) | Implement spec (`workflow_call`) | Applies writer-approved diagnosis guidance to an already-landed verification failure, lands the repair without changing `tasks.md`, and resolves its durable repair state only after reverification passes. |
+| Spec Kit implement convergence | [speckit-implement-converge.yml](speckit-implement-converge.yml) | Implement spec (`workflow_call`) | Runs `/speckit-converge` against the completed implementation with the strong model, validates the tasks-only result, then commits and pushes it. |
+| Spec Kit implement conflict resolution | [speckit-implement-resolve.yml](speckit-implement-resolve.yml) | Implement spec (`workflow_call`) | Integrates the base branch, lets Copilot resolve unprotected conflicts when needed, runs final verification, then validates, commits, and pushes the resolution. |
+| Spec Kit implement merge | [speckit-implement-merge.yml](speckit-implement-merge.yml) | Implement spec (`workflow_call`) | Archives the spec, builds and verifies the prospective merged tree with a read-only token, then squash-merges the pull request or deliberately hands it to a person for review. |
 | Spec Kit commands | [speckit-commands.yml](speckit-commands.yml) | Pull request comments, reviews, and events | Handles `/speckit` commands (`diagnose`, `retry`, `resume`, `fix`, `help`) and amendment and fix spec feedback; keeps Spec Kit pull requests out of stacks. |
 | Spec Kit diagnose | [speckit-diagnose.md](speckit-diagnose.md) ([lock](speckit-diagnose.lock.yml)) | Implement spec, commands, analyze | Explains why an implementation stopped and recommends one ready-to-post command that fits the category; for spec artifact defects opens and reworks an amendment pull request. |
 | Spec Kit fix | [speckit-fix.md](speckit-fix.md) ([lock](speckit-fix.lock.yml)) | Commands (`/speckit fix`), analyze | Authors a fix spec for a cause outside the stopped spec and proposes it against the default branch; reworks it after findings or feedback. |
 | Spec Kit analyze | [speckit-analyze.md](speckit-analyze.md) ([lock](speckit-analyze.lock.yml)) | Diagnose, fix, commands | Runs a read-only `/speckit-analyze` of the amended spec folder or the new fix spec and decides between a correction round, a rework, or human review. |
+
+The six implementation work entry points use typed command scripts (`speckit-task.mjs`, `speckit-group.mjs`,
+`speckit-repair.mjs`, `speckit-converge.mjs`, `speckit-resolve.mjs`, and `speckit-merge.mjs`). Attempt accounting,
+result artifacts, verdicts, and landing stay shared
+in `speckit-implement-work.mjs`. Common Actions
+script plumbing—GitHub client construction, step summaries, and outputs—lives in `speckit-script-runtime.mjs`.
+Git runners, optional-file readers, and link contexts remain local because their buffer, error, or missing-value
+contracts differ.
 
 ## Units of work
 
 - **Spec:** one feature folder under `specs/`, one twin issue, one `speckit/<folder>` branch, and one implementation
   pull request.
 - **Phase:** a `##` heading of the spec's `tasks.md`.
-- **Task:** a checkbox line of `tasks.md`. The tasks of a phase run one after another in task order; consecutive
-  `[P]` tasks under one heading run in parallel.
+- **Group:** one ordered phase unit: either one task or consecutive `[P]` tasks under one heading.
+- **Task:** one checkbox line of `tasks.md`. Groups run serially; the tasks of a multi-task group run in parallel.
 
-Each run of Spec Kit implement spec does one of these: a phase, the convergence (`/speckit-converge`), a conflict
-resolution, or the merge. The chain keeps its branch current with the base branch by pulling: every run starts with
+Each run of Spec Kit implement spec does one of these: a phase, a guided repair, the convergence
+(`/speckit-converge`), a conflict resolution, or the merge. A failed verification of already-landed code records
+durable repair state without unticking tasks. Diagnosis recommends `/speckit retry <guidance>`; after a writer approves
+it, repair work lands through a write-isolated job and the failed scope must pass reverification before normal planning
+continues. The chain keeps its branch current with the base branch by pulling: every run starts with
 the job `sync` ("Merge the base branch"), which merges the base branch into the implementation branch through the
 GitHub API when it is ahead and the next work is a phase that has not started (none of its tasks is ticked yet), the
 convergence, the merge, or a resume (`/speckit resume`, a merged amendment, or a landed fix spec; repository variable
@@ -115,8 +145,10 @@ even when the base branch changed workflow files, because they only bring in com
 names say what a job does, without step numbers; GitHub shows their order. The convergence starts with the `gha` extension's `before_converge` hook
 `/speckit-gha-drift`, which checks `docs/architecture/` against the implementation; each stale, missing, or
 contradicting statement becomes a convergence task, so the architecture is corrected before the merge. The hook comes
-from the implementation branch, so a branch created before it existed gets it with the next merge of the base branch. The merge first archives the spec to `specs/archive/<folder>` on the implementation branch
-(job `merge-archive`), so the archive lands with the implementation. It runs only one of its `phase`, `converge-or-resolve`, or `merge-*` jobs, so the others
+from the implementation branch, so a branch created before it existed gets it with the next merge of the base branch.
+The merge workflow first archives the spec to `specs/archive/<folder>` on the implementation branch (job `archive`),
+so the archive lands with the implementation. The controller runs only one of its `phase`, `repair`, `converge`,
+`resolve`, or `merge` reusable jobs, so the others
 always show as skipped. Prepare, orchestrate, and implement spec also have a `refuse` job that only runs, and fails, when
 started from a branch other than the default branch.
 

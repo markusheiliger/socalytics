@@ -6,7 +6,7 @@ name: Spec Kit implement spec
 # merged, and when a fix spec has landed. A retry restarts on the branch as it is; a resume merges the base branch first.
 # Runs are named "Spec Kit implement spec #<twin> · <spec title>". Every run first brings the base branch in when the
 # next work needs it ("Merge the base branch"), decides what comes next ("Decide what comes next"), runs exactly one
-# alternative (a phase, the convergence, a conflict resolution, or the merge; the others show as skipped), and then
+# alternative (a phase, a repair, the convergence, a conflict resolution, or the merge; the others show as skipped), and then
 # starts the next run ("Start the next run"). Job names say what the job does; GitHub shows the order of the jobs.
 #   sync:                "Merge the base branch": pull model. When the next work is a phase that has not started (none
 #                        of its tasks ticked), the convergence, or the merge, or the implementation was just resumed, it
@@ -20,15 +20,10 @@ name: Spec Kit implement spec
 #   phase:               "<phase heading as written>": one phase of tasks.md in Spec Kit implement phase, whose tasks
 #                        run one after another in Spec Kit implement task (consecutive `[P]` tasks in parallel);
 #                        "Implement a phase" when skipped
-#   converge-or-resolve: "Convergence" or "Conflict resolution" in Spec Kit implement task, which belong to no phase;
-#                        "Convergence or conflict resolution" when skipped
-#   merge-archive:       "Archive the spec before the merge": moves the spec folder to specs/archive/<folder> on the
-#                        implementation branch and rewrites the references to it (write token, never runs agent-written
-#                        code)
-#   merge-verify:        "Verify the merged result": merges the base branch and runs the full verification
-#                        (read-only token)
-#   merge-land:          "Merge into the base branch": squash-merges the pull request, or asks for review (never runs
-#                        agent-written code)
+#   converge:            "Convergence" in Spec Kit implement convergence, which belongs to no phase
+#   resolve:             "Conflict resolution" in Spec Kit implement conflict resolution, which belongs to no phase
+#   merge:               "Merge implementation" in Spec Kit implement merge: archives the spec, verifies the
+#                        prospective merged tree, then squash-merges the pull request or asks for review
 #   continue:            "Start the next run": dispatches the next run of the chain
 run-name: "Spec Kit implement spec #${{ inputs.twin }}${{ inputs.title && format(' · {0}', inputs.title) || '' }}"
 
@@ -138,6 +133,9 @@ jobs:
       order: ${{ steps.decide.outputs.order }}
       attempt: ${{ steps.decide.outputs.attempt }}
       check_run: ${{ steps.decide.outputs.check_run }}
+      repair: ${{ steps.decide.outputs.repair }}
+      prompt: ${{ steps.decide.outputs.prompt }}
+      verify_only: ${{ steps.decide.outputs.verify_only }}
     steps:
       - name: Check out the default branch
         uses: actions/checkout@v5
@@ -164,9 +162,9 @@ jobs:
 
   # Named after the phase heading; nested jobs show below it as "<phase heading> / T013 / Implement T013".
   phase:
-    name: ${{ needs.decide.outputs.action == 'phase' && needs.decide.outputs.job_name || 'Implement a phase' }}
+    name: ${{ needs.decide.outputs.action == 'implement' && needs.decide.outputs.job_name || 'Implement a phase' }}
     needs: decide
-    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.action == 'phase' }}
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.action == 'implement' }}
     uses: ./.github/workflows/speckit-implement-phase.yml
     permissions:
       actions: read
@@ -181,12 +179,35 @@ jobs:
       folder: ${{ needs.decide.outputs.folder }}
       base: ${{ needs.decide.outputs.base_branch }}
       phase: ${{ needs.decide.outputs.phase }}
-  # The convergence or a conflict resolution, whose attempt decide already started.
-  converge-or-resolve:
-    name: ${{ (needs.decide.outputs.action == 'converge' || needs.decide.outputs.action == 'resolve') && needs.decide.outputs.job_name || 'Convergence or conflict resolution' }}
+
+  repair:
+    name: ${{ needs.decide.outputs.action == 'repair' && needs.decide.outputs.job_name || 'Repair verification failure' }}
     needs: decide
-    if: ${{ !cancelled() && needs.decide.result == 'success' && (needs.decide.outputs.action == 'converge' || needs.decide.outputs.action == 'resolve') }}
-    uses: ./.github/workflows/speckit-implement-task.yml
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.action == 'repair' }}
+    uses: ./.github/workflows/speckit-implement-repair.yml
+    permissions:
+      actions: read
+      checks: write
+      contents: write
+      copilot-requests: write
+      issues: read
+      pull-requests: write
+    with:
+      twin: ${{ inputs.twin }}
+      pull: ${{ inputs.pull }}
+      folder: ${{ needs.decide.outputs.folder }}
+      base: ${{ needs.decide.outputs.base_branch }}
+      repair: ${{ needs.decide.outputs.repair }}
+      prompt: ${{ needs.decide.outputs.prompt }}
+      verify_only: ${{ needs.decide.outputs.verify_only == 'true' }}
+      attempt: ${{ fromJSON(needs.decide.outputs.attempt) }}
+      check_run: ${{ fromJSON(needs.decide.outputs.check_run) }}
+  # The convergence attempt that decide already started.
+  converge:
+    name: ${{ needs.decide.outputs.action == 'converge' && needs.decide.outputs.job_name || 'Convergence' }}
+    needs: decide
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.action == 'converge' }}
+    uses: ./.github/workflows/speckit-implement-converge.yml
     permissions:
       checks: write
       contents: write
@@ -194,235 +215,57 @@ jobs:
       issues: read
       pull-requests: write
     with:
-      kind: ${{ needs.decide.outputs.action }}
       twin: ${{ inputs.twin }}
       pull: ${{ inputs.pull }}
       folder: ${{ needs.decide.outputs.folder }}
       base: ${{ needs.decide.outputs.base_branch }}
       order: ${{ needs.decide.outputs.order }}
-      index: 0
 
-  # Archives the implemented spec on the implementation branch right before the merge (write token, trusted tooling; it
-  # never runs agent-written code): merges the base branch, moves specs/<folder> to specs/archive/<folder>, rewrites the
-  # references, and pushes. The verification and the merge then work on that head, so the base branch never has broken
-  # links. On conflicts with the base branch it changes nothing, and the conflict resolution runs first.
-  merge-archive:
-    name: Archive the spec before the merge
+  # The conflict-resolution attempt that decide already started.
+  resolve:
+    name: ${{ needs.decide.outputs.action == 'resolve' && needs.decide.outputs.job_name || 'Conflict resolution' }}
     needs: decide
-    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.action == 'merge' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.action == 'resolve' }}
+    uses: ./.github/workflows/speckit-implement-resolve.yml
     permissions:
       checks: write
       contents: write
+      copilot-requests: write
       issues: read
       pull-requests: write
-    outputs:
-      head: ${{ steps.archive.outputs.head }}
-      check_run: ${{ steps.archive.outputs.check_run }}
-    steps:
-      - name: Check out the trusted tooling
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: tooling
-          persist-credentials: false
+    with:
+      twin: ${{ inputs.twin }}
+      pull: ${{ inputs.pull }}
+      folder: ${{ needs.decide.outputs.folder }}
+      base: ${{ needs.decide.outputs.base_branch }}
+      order: ${{ needs.decide.outputs.order }}
 
-      # Full history, so the base branch can be merged locally.
-      - name: Check out the implementation branch
-        uses: actions/checkout@v5
-        with:
-          ref: speckit/${{ needs.decide.outputs.folder }}
-          path: workspace
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-
-      - name: Archive the spec
-        id: archive
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          SPECKIT_BASE_BRANCH: ${{ needs.decide.outputs.base_branch }}
-          SPECKIT_PULL: ${{ inputs.pull }}
-          SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
-          SPECKIT_HEAD: ${{ needs.decide.outputs.head }}
-          SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
-          SPECKIT_CHECK_RUN: ${{ needs.decide.outputs.check_run }}
-          SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
-        run: node tooling/.github/scripts/speckit-task.mjs archive
-
-  # Runs agent-written code (the full verification), so it holds a read-only token.
-  merge-verify:
-    name: Verify the merged result
-    needs: [decide, merge-archive]
-    if: ${{ !cancelled() && needs.merge-archive.result == 'success' && needs.decide.outputs.action == 'merge' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    permissions:
-      contents: read
-    env:
-      SPECKIT_KIND: merge
-      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      SPECKIT_BASE_BRANCH: ${{ needs.decide.outputs.base_branch }}
-      SPECKIT_TWIN: ${{ inputs.twin }}
-      SPECKIT_PULL: ${{ inputs.pull }}
-      SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
-      SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
-      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
-      SPECKIT_TOOLING: ${{ github.workspace }}/tooling
-      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
-    steps:
-      - name: Check out the trusted tooling
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          path: tooling
-          persist-credentials: false
-
-      # Full history, so the base branch can be merged locally. The head the archive job pushed (or left unchanged).
-      - name: Check out the implementation branch
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.merge-archive.outputs.head }}
-          path: workspace
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-
-      # Optional, solution-owned extension point; loaded from the trusted tooling checkout, never from the workspace.
-      - name: Set up the solution environment
-        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
-        uses: ./tooling/.github/actions/environment-setup
-        with:
-          workspace: workspace
-
-      - name: Merge the base branch
-        id: integrate
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-task.mjs" integrate
-
-      # Optional, solution-owned extension point; every check runs on the merged result.
-      - name: Verify the merged result
-        id: verify
-        if: >-
-          steps.integrate.outputs.verify == 'true' &&
-          hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
-        continue-on-error: true
-        uses: ./tooling/.github/actions/environment-verify
-        with:
-          workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: finalize
-          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
-          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
-
-      # An environment spec changes the actions above, which the workflows load from the default branch, so its own
-      # versions have not run yet. Run them once on the merged result before the merge. This job is read-only and
-      # already runs agent-written code, so loading the actions from the workspace grants nothing new.
-      - name: Self-test the changed environment setup
-        id: selftest-setup
-        if: >-
-          steps.integrate.outputs.environment == 'true' &&
-          hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
-        continue-on-error: true
-        uses: ./workspace/.github/actions/environment-setup
-        with:
-          workspace: workspace
-
-      - name: Self-test the changed environment verification
-        id: selftest-verify
-        if: >-
-          steps.integrate.outputs.environment == 'true' &&
-          steps.selftest-setup.outcome != 'failure' &&
-          hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
-        continue-on-error: true
-        uses: ./workspace/.github/actions/environment-verify
-        with:
-          workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: finalize
-          log-file: ${{ env.SPECKIT_RESULT_DIR }}/selftest.log
-
-      - name: Record the verdict
-        env:
-          SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
-          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
-          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
-          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
-          SPECKIT_SELFTEST_OUTCOME: >-
-            ${{ steps.selftest-setup.outcome == 'failure' && 'failure' || steps.selftest-verify.outcome }}
-        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-task.mjs" verdict
-
-      - name: Upload the result
-        if: always()
-        uses: actions/upload-artifact@v7
-        with:
-          name: speckit-merge-result
-          path: ${{ github.workspace }}/speckit-result
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # Never checks out or runs workspace code; it only uses the GitHub API.
-  merge-land:
-    name: Merge into the base branch
-    needs: [decide, merge-archive, merge-verify]
-    if: always() && needs.decide.outputs.action == 'merge'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+  # The complete merge alternative: archive the spec, verify the prospective merged tree, then merge or request review.
+  merge:
+    name: Merge implementation
+    needs: decide
+    if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.action == 'merge' }}
+    uses: ./.github/workflows/speckit-implement-merge.yml
     permissions:
       actions: write
       checks: write
       contents: write
       issues: write
       pull-requests: write
-    env:
-      SPECKIT_KIND: merge
-      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-      SPECKIT_TWIN: ${{ inputs.twin }}
-      SPECKIT_PULL: ${{ inputs.pull }}
-      SPECKIT_ATTEMPT: ${{ needs.decide.outputs.attempt }}
-      SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
-      # The archive job moves the merge check run to the head it pushed.
-      SPECKIT_CHECK_RUN: ${{ needs.merge-archive.outputs.check_run || needs.decide.outputs.check_run }}
-      SPECKIT_WORK_RESULT: ${{ needs.merge-archive.result != 'success' && format('archive {0}', needs.merge-archive.result) || needs.merge-verify.result }}
-      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
-    steps:
-      - name: Check out the default branch
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.repository.default_branch }}
-          persist-credentials: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: 24
-
-      - name: Download the verification result
-        continue-on-error: true
-        uses: actions/download-artifact@v8
-        with:
-          name: speckit-merge-result
-          path: ${{ github.workspace }}/speckit-result
-
-      - name: Merge and report
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_AUTO_MERGE: ${{ vars.SPECKIT_AUTO_MERGE || 'true' }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
-        run: node .github/scripts/speckit-task.mjs merge-land
+    with:
+      twin: ${{ inputs.twin }}
+      pull: ${{ inputs.pull }}
+      folder: ${{ needs.decide.outputs.folder }}
+      base: ${{ needs.decide.outputs.base_branch }}
+      head: ${{ needs.decide.outputs.head }}
+      attempt: ${{ needs.decide.outputs.attempt }}
+      check_run: ${{ needs.decide.outputs.check_run }}
 
   # Starts the next run of the chain unless this run was cancelled; a stop (attempt limit, diagnosis, review) is decided
   # by the next run's decide job. A failed phase verification is reported here as a stop.
   continue:
     name: Start the next run
-    needs: [sync, decide, phase, converge-or-resolve, merge-archive, merge-verify, merge-land]
+    needs: [sync, decide, phase, repair, converge, resolve, merge]
     if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.continue == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -453,5 +296,7 @@ jobs:
           SPECKIT_PULL: ${{ inputs.pull }}
           SPECKIT_FOLDER: ${{ needs.decide.outputs.folder }}
           SPECKIT_PHASE_CHECK: ${{ needs.phase.outputs.verified }}
+          SPECKIT_PHASE: ${{ needs.phase.outputs.phase }}
+          SPECKIT_ORDER: ${{ needs.phase.outputs.order }}
           SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node .github/scripts/speckit-spec.mjs continue

@@ -54,6 +54,15 @@ runtime product and version, backend or VM mode, Windows version, architecture,
 and accelerator configuration. Detecting a runtime does not by itself make the
 profile supported.
 
+Verification of the Docker Desktop profile (decided, not yet implemented):
+automated verification runs the same Engine API adapter end to end against a
+Linux Docker engine through its local Unix socket, an endpoint the AM accepts
+only in Development and Test configurations; Docker Desktop on Windows itself
+is verified manually, and only those manually verified versions enter the
+shipped compatibility matrix. Automated verification on Windows runners with
+Docker Desktop is an open gap: it changes the repository's build and
+verification tooling and is outside the Spec Kit implementation flow.
+
 Adapter assemblies are versioned and shipped with the Analyst Manager. They
 share one runtime-neutral interface; installable plugins and arbitrary external
 adapter loading are unsupported.
@@ -99,6 +108,18 @@ credentials, or host-wide control APIs. Analyst launches default to:
 - allowlisted devices, dropped capabilities, CPU and memory limits, and bounded
   logs
 
+The Analyst container interface fixes what an Analyst sees (decided, not yet
+implemented): the Logical Job message read-only at `/socalytics/job.json`, the
+staged upstream results read-only at `/socalytics/inputs/`, the result mount
+at `/socalytics/result/` (where the Analyst writes its result manifest and
+artifacts), scratch space at `/socalytics/scratch/`, and a small memory-backed
+`/tmp`. Networking is disabled, and the AM sets no environment variables, so no
+credential, grant, or platform address reaches the container. Every container
+carries the AM's Manager, Logical Job, and Execution Attempt labels. The
+container's output stays on the host as a bounded log for the operator; the
+platform receives only the sanitized failure category of the attempt
+completion.
+
 ### Registration And Runtime Credentials
 
 The durable AM registration is not a durable bearer secret. The AM proves its
@@ -108,8 +129,23 @@ the registered stamp and the subjects required to pull and acknowledge work.
 API and NATS connections use authenticated TLS. It never stores a
 registration-lifetime broker credential.
 
+Through the same session an Active AM obtains short-lived, read-only OCI
+registry pull credentials (decided, not yet implemented). The platform derives
+them from its protected registry read access through the registry's token
+service, limited to the repositories of the default workflow's images inside
+the stamp's configured registry host and repository prefix (this repository's
+namespace on GitHub Container Registry in production). The AM keeps them in
+memory only, renews them before they expire, passes them only to the local
+runtime for pulls, and refuses images outside that prefix. Revoked or inactive
+Managers obtain none.
+
 The Manager offers the capabilities its validated runtime provides, each as a
-capability id and a semantic version. The platform provisions one work consumer
+capability id and a semantic version. On the Docker Desktop profile it obtains
+the capability ids, versions, and pinned resource requirements of the default
+workflow through its authenticated API and offers those that need no
+unvalidated accelerator and fit its validated CPU and memory limits, narrowed
+by an optional operator allowlist (decided, not yet implemented). The platform
+provisions one work consumer
 per capability of the default workflow definition resolved from the Analyst
 Registry, and assigns a Manager the consumer of an offered capability only when
 the offered id and semantic version equal that resolved definition's; other
@@ -268,6 +304,9 @@ pair. Retry and fencing semantics remain identical across implementations.
 - support pause, resume, drain, local unregister, and platform revocation
 - terminate and clean up active containers after security revocation
 - reconcile AM-owned runtime resources and destroy containers on completion
+- keep the images it pulled as a cache within a disk budget and an unused
+  period, and never remove images it did not pull (decided, not yet
+  implemented)
 
 The Analyst Manager understands the participating host's hardware.
 
