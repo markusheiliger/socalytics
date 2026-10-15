@@ -78,6 +78,7 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Operating.IManagerWorkTracker>(sp => sp.GetRequiredService<Work.AttemptRegistry>());
         services.AddSingleton<Work.WorkSessionProvider>();
         services.AddSingleton<Queue.QueueCredentialProvider>();
+        services.AddSingleton<Queue.QueueDepthState>();
         services.AddSingleton<Queue.IQueueConnection>(sp => new Queue.RenewingQueueConnection(
             sp.GetRequiredService<Queue.QueueCredentialProvider>(), sp.GetService<IHostEnvironment>()));
         services.AddSingleton(Work.HostCapacity.Detect());

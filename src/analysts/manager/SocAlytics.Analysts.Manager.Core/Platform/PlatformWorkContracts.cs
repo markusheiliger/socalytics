@@ -24,6 +24,10 @@ public sealed record QueueCredentialsRequest(string UserPublicKey, IReadOnlyList
 
 public sealed record QueueConsumer(string Capability, string Consumer);
 
+public sealed record QueueDepthCapability(string Id, int Waiting);
+
+public sealed record QueueDepthResponse(DateTimeOffset ObservedAt, IReadOnlyList<QueueDepthCapability> Capabilities, int Total);
+
 /// <summary>Carries a signed user JWT; never logged.</summary>
 public sealed record QueueCredentialsResponse(
     string UserJwt, DateTimeOffset ExpiresAt, string QueueUrl, string Stream,
