@@ -334,6 +334,13 @@ public sealed class LocalControlServer : IDisposable
             ["lastConfirmedHeartbeatAt"] = a.LastConfirmedHeartbeatAt?.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
         })]);
         node["queueDepth"] = QueueDepthReport(status.QueueDepth);
+        node["hostUtilization"] = new JsonObject
+        {
+            ["sampledAt"] = status.HostUtilization is { } sample ? Utc(sample.SampledAt) : null,
+            ["cpuPercent"] = status.HostUtilization?.CpuPercent is { } cpu ? JsonValue.Create((double)cpu) : null,
+            ["memoryUsedBytes"] = status.HostUtilization?.MemoryUsedBytes,
+            ["memoryTotalBytes"] = status.HostUtilization?.MemoryTotalBytes,
+        };
         return node;
     }
 

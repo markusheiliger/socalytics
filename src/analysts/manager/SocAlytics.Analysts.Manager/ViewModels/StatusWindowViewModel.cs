@@ -10,7 +10,7 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
         nameof(RegistrationState), nameof(Stamp), nameof(Club), nameof(PlatformEndpoint), nameof(Connectivity), nameof(OperatingState),
         nameof(Uptime), nameof(Preflight), nameof(PauseRemaining), nameof(DrainDeadline), nameof(DeviceFingerprint),
         nameof(KeyProtection), nameof(Diagnostics), nameof(EffectiveConcurrency), nameof(ActiveAttempts),
-        nameof(WaitingWork),
+        nameof(WaitingWork), nameof(HostUtilization),
     ];
 
     private readonly IManagerControl _control;
@@ -95,6 +95,9 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
 
     /// <summary>The "Waiting work (approximate)" section, with the same wording as the CLI.</summary>
     public string WaitingWork => string.Join(Environment.NewLine, _control.GetStatus().QueueDepth.Lines());
+
+    /// <summary>The "Host" section, with the same wording as the CLI.</summary>
+    public string HostUtilization => string.Join(Environment.NewLine, SocAlytics.Analysts.Manager.Diagnostics.HostUtilizationText.Lines(_control.GetStatus().HostUtilization));
 
     public void Dispose()
     {

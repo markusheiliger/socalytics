@@ -28,4 +28,21 @@ public sealed class StatusWindowQueueDepthTests
         vm.WaitingWork.ShouldContain("person-detection: 5");
         raised.ShouldContain(nameof(StatusWindowViewModel.WaitingWork));
     }
+
+    [Fact]
+    public void Host_section_follows_the_utilization_and_raises_on_change()
+    {
+        var control = new FakeManagerControl();
+        var vm = new StatusWindowViewModel(control);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        vm.HostUtilization.ShouldBe("CPU: not available" + Environment.NewLine + "Memory: not available");
+
+        control.HostUtilization = new HostUtilizationSample(DateTimeOffset.UnixEpoch, 12.5m, 1L << 30, 4L << 30);
+        control.Raise();
+
+        vm.HostUtilization.ShouldContain("CPU: 12.5 %");
+        vm.HostUtilization.ShouldContain("Memory: 1.0 GiB of 4.0 GiB");
+        raised.ShouldContain(nameof(StatusWindowViewModel.HostUtilization));
+    }
 }

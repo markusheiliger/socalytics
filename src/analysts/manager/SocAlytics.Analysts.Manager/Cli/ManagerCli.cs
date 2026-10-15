@@ -234,6 +234,9 @@ internal static class ManagerCli
             $"started {(string?)a?["startedAt"]}, last heartbeat {(string?)a?["lastConfirmedHeartbeatAt"] ?? "-"}"));
 
         lines.AddRange(QueueText(n["queueDepth"]));
+        var host = n["hostUtilization"];
+        lines.Add(Diagnostics.HostUtilizationText.Cpu(host?["cpuPercent"] is { } cpu ? (decimal)cpu : null));
+        lines.Add(Diagnostics.HostUtilizationText.Memory((long?)host?["memoryUsedBytes"], (long?)host?["memoryTotalBytes"]));
 
         return string.Join(Environment.NewLine, lines);
     }

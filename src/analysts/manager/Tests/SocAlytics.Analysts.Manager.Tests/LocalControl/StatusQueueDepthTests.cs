@@ -65,6 +65,81 @@ public sealed class StatusQueueDepthTests
     }
 
     [Fact]
+    public void Host_utilization_is_serialized_and_valid()
+    {
+        var sampled = new DateTimeOffset(2026, 10, 15, 19, 40, 10, TimeSpan.Zero);
+        var report = LocalControlServer.StatusReport(new FakeManagerControl
+        {
+            State = "active",
+            HostUtilization = new HostUtilizationSample(sampled, 37.5m, 8589934592, 34359738368),
+        });
+        var h = report["hostUtilization"]!;
+        h["sampledAt"]!.GetValue<string>().ShouldBe("2026-10-15T19:40:10Z");
+        h["cpuPercent"]!.GetValue<double>().ShouldBe(37.5);
+        h["memoryUsedBytes"]!.GetValue<long>().ShouldBe(8589934592);
+        h["memoryTotalBytes"]!.GetValue<long>().ShouldBe(34359738368);
+        Valid(report).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Unreadable_host_utilization_is_null_and_valid()
+    {
+        var report = Report(View(QueueDepthStatus.NotYetAvailable));
+        var h = report["hostUtilization"]!.AsObject();
+        h["sampledAt"].ShouldBeNull();
+        h["cpuPercent"].ShouldBeNull();
+        h["memoryUsedBytes"].ShouldBeNull();
+        h["memoryTotalBytes"].ShouldBeNull();
+        Valid(report).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Host_utilization_text_lines()
+    {
+        var sample = new HostUtilizationSample(Observed, 37.5m, 8589934592, 34359738368);
+        HostUtilizationText.Lines(sample).ShouldBe(["CPU: 37.5 %", "Memory: 8.0 GiB of 32.0 GiB"]);
+        HostUtilizationText.Lines(null).ShouldBe(["CPU: not available", "Memory: not available"]);
+        HostUtilizationText.Lines(new HostUtilizationSample(Observed, null, 1024, null))
+            .ShouldBe(["CPU: not available", "Memory: not available"]);
+    }
+
+    [Fact]
+    public async Task Cli_status_prints_cpu_and_memory_lines()
+    {
+        Assert.SkipUnless(OperatingSystem.IsLinux(), "Unix sockets");
+        var dir = Path.Combine(Path.GetTempPath(), "sa-hu-" + Guid.NewGuid().ToString("N")[..8]);
+        var path = Path.Combine(dir, "run", "manager.sock");
+        try
+        {
+            using var server = LocalControlServer.Bind(path);
+            var control = new FakeManagerControl
+            {
+                State = "active",
+                HostUtilization = new HostUtilizationSample(Observed, 37.5m, 8589934592, 34359738368),
+            };
+            server.Start(control);
+            var o = new StringWriter();
+            var code = await SocAlytics.Analysts.Manager.Cli.ManagerCli.RunAsync(["status"], path, o, new StringWriter());
+            code.ShouldBe(0);
+            o.ToString().ShouldContain("CPU: 37.5 %");
+            o.ToString().ShouldContain("Memory: 8.0 GiB of 32.0 GiB");
+
+            control.HostUtilization = null;
+            o = new StringWriter();
+            await SocAlytics.Analysts.Manager.Cli.ManagerCli.RunAsync(["status"], path, o, new StringWriter());
+            o.ToString().ShouldContain("CPU: not available");
+            o.ToString().ShouldContain("Memory: not available");
+        }
+        finally
+        {
+            if (Directory.Exists(dir))
+            {
+                Directory.Delete(dir, true);
+            }
+        }
+    }
+
+    [Fact]
     public void Text_lines_cover_every_state()
     {
         View(QueueDepthStatus.Available, 12, observation: true).Lines().ShouldBe(

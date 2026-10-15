@@ -590,6 +590,45 @@
         },
         "queueDepth": {
           "$ref": "#/$defs/queueDepth"
+        },
+        "hostUtilization": {
+          "$ref": "#/$defs/hostUtilization"
+        }
+      }
+    },
+    "hostUtilization": {
+      "type": "object",
+      "description": "The latest host CPU and memory sample; a value is null when it cannot be read. Never sent to the platform.",
+      "additionalProperties": false,
+      "properties": {
+        "sampledAt": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "cpuPercent": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "memoryUsedBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "memoryTotalBytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
         }
       }
     },

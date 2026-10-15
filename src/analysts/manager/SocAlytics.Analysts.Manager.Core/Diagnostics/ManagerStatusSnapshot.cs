@@ -60,6 +60,26 @@ public sealed record QueueDepthView(Queue.QueueDepthSnapshot Snapshot, double? A
     }
 }
 
+/// <summary>Host CPU and memory wording shared by the CLI and the status window; unreadable values read "not available".</summary>
+public static class HostUtilizationText
+{
+    public static string Cpu(decimal? percent) =>
+        percent is { } p ? $"CPU: {p.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} %" : "CPU: not available";
+
+    public static string Memory(long? used, long? total) =>
+        used is { } u && total is { } t ? $"Memory: {Bytes(u)} of {Bytes(t)}" : "Memory: not available";
+
+    public static string Bytes(long bytes) => bytes switch
+    {
+        >= 1L << 30 => $"{(bytes / (double)(1L << 30)).ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} GiB",
+        >= 1L << 20 => $"{(bytes / (double)(1L << 20)).ToString("F1", System.Globalization.CultureInfo.InvariantCulture)} MiB",
+        _ => $"{bytes} B",
+    };
+
+    public static IReadOnlyList<string> Lines(HostUtilizationSample? sample) =>
+        [Cpu(sample?.CpuPercent), Memory(sample?.MemoryUsedBytes, sample?.MemoryTotalBytes)];
+}
+
 /// <summary>Mirrors local-control.schema.json statusReport; never carries the pairing code or any secret.</summary>
 public sealed record ManagerStatusSnapshot(
     string RegistrationState,
@@ -84,4 +104,5 @@ public sealed record ManagerStatusSnapshot(
     string? DeviceFingerprint,
     Work.ConcurrencySnapshot Concurrency,
     IReadOnlyList<ActiveAttemptStatus> ActiveAttempts,
-    QueueDepthView QueueDepth);
+    QueueDepthView QueueDepth,
+    HostUtilizationSample? HostUtilization = null);
