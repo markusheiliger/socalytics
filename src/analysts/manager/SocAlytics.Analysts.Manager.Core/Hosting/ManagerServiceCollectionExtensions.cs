@@ -113,6 +113,7 @@ public static class ManagerServiceCollectionExtensions
             configuration.GetSection(Runtime.Simulated.SimulatedAnalystOptions.SectionName));
         services.AddSingleton(CreateRuntimeAdapterCatalog);
         services.AddSingleton(_ => Runtime.RuntimeCompatibilityList.LoadEmbedded());
+        services.AddSingleton(_ => new Runtime.AccountShell());
         services.AddSingleton<Runtime.PreflightRunner>();
         services.AddSingleton<Runtime.PreflightScheduler>();
         services.AddHostedService(sp => sp.GetRequiredService<Runtime.PreflightScheduler>());
