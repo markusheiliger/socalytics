@@ -115,6 +115,22 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
         return await ExecuteAsync<QueueCredentialsResponse>(request, cancellationToken);
     }
 
+    public async Task<WorkResult<RegistryCredentialsResponse>> RequestRegistryCredentialsAsync(
+        PlatformSession session, CancellationToken cancellationToken = default)
+    {
+        var uri = Endpoint(session.BaseUri, "self/registry-credentials");
+        var request = Authenticated(HttpMethod.Post, uri, session);
+        request.Content = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+        return await ExecuteAsync<RegistryCredentialsResponse>(request, cancellationToken);
+    }
+
+    public async Task<WorkResult<WorkflowCapabilitiesResponse>> GetWorkflowCapabilitiesAsync(
+        PlatformSession session, CancellationToken cancellationToken = default)
+    {
+        var uri = Endpoint(session.BaseUri, "self/workflow-capabilities");
+        return await ExecuteAsync<WorkflowCapabilitiesResponse>(Authenticated(HttpMethod.Get, uri, session), cancellationToken);
+    }
+
     public async Task<WorkResult<ClaimGranted>> ClaimAsync(
         PlatformSession session, Guid logicalJobId, Guid readinessOccurrenceId, Guid messageId, string retryKey,
         CancellationToken cancellationToken = default)
