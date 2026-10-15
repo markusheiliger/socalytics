@@ -6,7 +6,7 @@
 
 **Input**: User description: "Make `expectAllReachableByKeyboard` in `src/clients/web/tests/e2e/support/keyboard.ts` deterministic (wait for focus to settle after each Tab press, reporting the unreached elements) so the ClubAdmin keyboard test in `simulated/navigation.spec.ts` no longer misses elements 9 and 11, and stabilize `platform/club-structure.spec.ts` where the created team link is sometimes not visible within 5 s; do not weaken any assertion."
 
-**Fix for**: #94 (implementation of `specs/20261013-122132-web-ui-manager-fleet`)
+**Fix for**: #94 (implementation of `specs/archive/20261013-122132-web-ui-manager-fleet`)
 
 ## Problem
 
@@ -59,4 +59,4 @@ A maintainer runs the Web UI browser tests on a slow or loaded machine. The keyb
 ## Assumptions
 
 - The smallest fix is in the test support code and in the one spec: a bounded wait for focus change after each Tab and a named report in `keyboard.ts`, and an explicit timeout on the created-team link assertions in `club-structure.spec.ts`. The cause of the club-structure symptom is assumed to be refetch latency; if a longer timeout does not remove it in repeated runs, the task reports the evidence instead of loosening other assertions.
-- Dependencies: the feature owning the tests is [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md); the implementation this fix unblocks is #94 (`specs/20261013-122132-web-ui-manager-fleet`).
+- Dependencies: the feature owning the tests is [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md); the implementation this fix unblocks is #94 (`specs/archive/20261013-122132-web-ui-manager-fleet`).

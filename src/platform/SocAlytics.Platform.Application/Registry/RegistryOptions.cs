@@ -29,6 +29,9 @@ public sealed class RegistryOptions
         public TimeSpan PollingInterval { get; set; } = TimeSpan.FromSeconds(5);
 
         public string VerificationPath { get; set; } = "/analyst-managers/pair";
+
+        // Absolute origin of the page where a person enters the pairing code; Stamp:PublicBaseUri when unset.
+        public string? VerificationBaseUri { get; set; }
     }
 
     public sealed class TokenOptions
