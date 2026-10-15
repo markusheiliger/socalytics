@@ -5,7 +5,7 @@ description: "Task list for Deterministic Web UI Session Restore Retry Test"
 
 # Tasks: Deterministic Web UI Session Restore Retry Test
 
-**Input**: Design documents from `specs/20261015-202520-fix-session-restore-test/`
+**Input**: Design documents from `specs/archive/20261015-202520-fix-session-restore-test/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 

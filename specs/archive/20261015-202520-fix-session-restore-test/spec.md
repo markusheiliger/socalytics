@@ -10,7 +10,7 @@
 
 ## Problem
 
-The session provider unit test "retries restoring when connectivity returns" of [Web UI Foundation](../archive/20261012-150657-web-ui-foundation/spec.md) is racy. It waits only until the mocked `restore` has been called once, then asserts synchronously that the status is `unknown` and that `api.restoreFailure?.kind` is `unreachable`. The state update caused by the rejected restore promise has not necessarily been applied at that moment, so `restoreFailure` can still be `undefined`.
+The session provider unit test "retries restoring when connectivity returns" of [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md) is racy. It waits only until the mocked `restore` has been called once, then asserts synchronously that the status is `unknown` and that `api.restoreFailure?.kind` is `unreachable`. The state update caused by the rejected restore promise has not necessarily been applied at that moment, so `restoreFailure` can still be `undefined`.
 
 Evidence: the phase verification of #114 (run 38780484080) failed with 1 failed and 506 passed Web UI tests: `AssertionError` at `session.test.tsx:176`, expected `undefined` to be `'unreachable'`. The implementation changes no file under `src/clients/web`, so it cannot fix the test, and a repair attempt that was forbidden to touch the Web UI made no changes. The flake would stop the final verification before the merge as well.
 
@@ -50,4 +50,4 @@ A maintainer runs the Web UI unit tests on a slow or loaded machine. The retry t
 ## Assumptions
 
 - The smallest fix is in the one test: the failure kind assertion is evaluated inside `waitFor`. The test's remaining behavior stays as it is.
-- Dependencies: the feature owning the test is [Web UI Foundation](../archive/20261012-150657-web-ui-foundation/spec.md); the implementation this fix unblocks is #114 (`specs/20261015-092159-docker-runtime-adapter`).
+- Dependencies: the feature owning the test is [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md); the implementation this fix unblocks is #114 (`specs/20261015-092159-docker-runtime-adapter`).

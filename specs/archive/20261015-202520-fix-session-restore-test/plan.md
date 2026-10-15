@@ -2,7 +2,7 @@
 
 **Branch**: `20261015-202520-fix-session-restore-test` | **Date**: 2026-10-15 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261015-202520-fix-session-restore-test/spec.md`
+**Input**: Feature specification from `specs/archive/20261015-202520-fix-session-restore-test/spec.md`
 
 ## Summary
 
@@ -31,7 +31,7 @@ In the test "retries restoring when connectivity returns", wait with `waitFor` f
 ## Project Structure
 
 ```text
-specs/20261015-202520-fix-session-restore-test/
+specs/archive/20261015-202520-fix-session-restore-test/
 ├── spec.md
 ├── plan.md
 ├── tasks.md
