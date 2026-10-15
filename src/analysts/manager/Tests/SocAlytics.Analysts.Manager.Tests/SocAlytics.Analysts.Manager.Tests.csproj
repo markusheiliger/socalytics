@@ -33,5 +33,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\SocAlytics.Analysts.Manager.Core\SocAlytics.Analysts.Manager.Core.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Analysts.Manager\SocAlytics.Analysts.Manager.csproj" />
+    <ProjectReference Include="..\..\SocAlytics.Analysts.Manager.Server\SocAlytics.Analysts.Manager.Server.csproj" />
   </ItemGroup>
 </Project>

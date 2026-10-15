@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="SocAlytics.Analysts.Manager.Core/SocAlytics.Analysts.Manager.Core.csproj" />
   <Project Path="SocAlytics.Analysts.Manager/SocAlytics.Analysts.Manager.csproj" />
+  <Project Path="SocAlytics.Analysts.Manager.Server/SocAlytics.Analysts.Manager.Server.csproj" />
   <Folder Name="/Tests/">
     <Project Path="Tests/SocAlytics.Analysts.Manager.Tests/SocAlytics.Analysts.Manager.Tests.csproj" />
   </Folder>
