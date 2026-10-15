@@ -67,8 +67,8 @@ approval, activation, DPoP machine tokens, revocation, unregistration):
   `/api/v1/analyst-manager-registrations`, `GET .../{registrationId}`, and
   `POST .../{registrationId}/approval`, `/rejection`, and `/revocation`.
 - Manager `self` endpoints: `GET /api/v1/analyst-managers/self/registration`,
-  `POST .../self/status`, `POST .../self/unregistration`, and
-  `POST .../self/unregistration/completion`;
+  `GET .../self/queue-depth`, `POST .../self/status`,
+  `POST .../self/unregistration`, and `POST .../self/unregistration/completion`;
   they require the `AnalystManagerDPoP` authentication scheme and the
   `AnalystManager` authorization policy. The principal carries the claims in
   `AnalystManagerClaimTypes`: `client_id`, `socalytics:registration_id`, and
@@ -85,6 +85,16 @@ approval, activation, DPoP machine tokens, revocation, unregistration):
   without status. `Registry:StatusReporting:Interval` (60 seconds) and
   `Registry:StatusReporting:MissedIntervalsBeforeOffline` (3) are development
   values, not adopted production values.
+- Queue depth: an active Manager reads `GET /api/v1/analyst-managers/self/queue-depth`
+  with one `capability` query value per assigned capability (1–64) and receives,
+  per capability of the default workflow, the number of ready jobs its JetStream
+  consumer `analyst-<id>` has not yet delivered (`waiting`), the `total`, and
+  the platform's `observedAt`
+  (`contracts/analyst-manager/queue-depth/v1`). Unknown or unprovisioned ids are
+  omitted, a registration that is not active gets `403` `manager-not-active`,
+  and an unreachable broker gets `503` `urn:socalytics:problem:queue-unavailable`.
+  The value is operational guidance, is not audited, and is not part of the
+  status report or the fleet read.
 - `Stamp:Id` and `Stamp:PublicBaseUri` identify the stamp and build the
   verification address (development values are in `appsettings.Development.json`).
 - `Registry` option defaults: `AllowSoftwareKeys` false (true only for

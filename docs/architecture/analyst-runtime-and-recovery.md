@@ -303,6 +303,8 @@ pair. Retry and fencing semantics remain identical across implementations.
   through per-object write grants, and report the result manifest, checksum,
   runtime, image digest, and fencing token
 - expose local utilization, active attempts, and timestamped queue status
+  (implemented for CPU, memory, and queue depth; accelerator utilization
+  follows an accelerated runtime)
 - support pause, resume, drain, local unregister, and platform revocation
 - terminate and clean up active containers after security revocation
 - reconcile AM-owned runtime resources and destroy containers on completion
