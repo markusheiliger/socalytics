@@ -86,6 +86,59 @@ public sealed class UpstreamResultReadEndToEndTests
     }
 
     [Fact]
+    public async Task Partial_coverage_is_recorded_and_the_lineage_equals_exactly_the_staged_accepted_results()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(4));
+        var ct = cts.Token;
+        var started = await EndToEndHarness.StartAsync(ct);
+        if (started is null)
+        {
+            Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
+            return;
+        }
+
+        await using var harness = started;
+        await harness.StartManagerAsync(ct, TimeSpan.FromSeconds(1));
+
+        // The last segment-level job is terminal without an accepted result when the match job becomes ready.
+        var runId = await SeedSegmentsAndMatchAsync(harness, ct, withoutResult: 1);
+        const int accepted = Segments - 1;
+
+        await WaitAsync(harness, runId, async () => await WorkExecutionEndToEndTests.CountAcceptedAsync(harness, runId, ct) == accepted + 1,
+            TimeSpan.FromSeconds(120), "The accepted segment result and the match result were not both accepted.", ct);
+
+        var segmentIds = await QueryAsync(harness,
+            "SELECT id::text FROM socalytics.analysis_accepted_results WHERE run_id = @runId AND capability_id = @capability",
+            runId, EndToEndHarness.SegmentCapability, ct);
+        segmentIds.Count.ShouldBe(accepted);
+        var lineage = (await QueryAsync(harness,
+            """
+            SELECT m.upstream_lineage::text FROM socalytics.analysis_accepted_result_manifests m
+            JOIN socalytics.analysis_accepted_results r ON r.id = m.accepted_result_id
+            WHERE r.run_id = @runId AND r.capability_id = @capability
+            """, runId, EndToEndHarness.MatchCapability, ct)).Single();
+        using (var document = JsonDocument.Parse(lineage))
+        {
+            document.RootElement.EnumerateArray().Select(e => e.GetProperty("acceptedResultId").GetString()!).Order()
+                .ShouldBe(segmentIds.Order());
+        }
+
+        var reference = (await QueryAsync(harness,
+            "SELECT manifest_reference FROM socalytics.analysis_accepted_results WHERE run_id = @runId AND capability_id = @capability",
+            runId, EndToEndHarness.MatchCapability, ct)).Single();
+        using var s3 = harness.Store.CreateS3Client();
+        using var response = await s3.GetObjectAsync(harness.Store.Bucket, reference[..(reference.LastIndexOf('/') + 1)] + "facts.json", ct);
+        using var artifact = await JsonDocument.ParseAsync(response.ResponseStream, cancellationToken: ct);
+        var coverage = artifact.RootElement.GetProperty("consumedCoverage").GetProperty(EndToEndHarness.SegmentCapability).EnumerateArray().ToList();
+        coverage.Count.ShouldBe(Segments);
+        var states = coverage.GroupBy(c => c.GetProperty("state").GetString()).ToDictionary(g => g.Key!, g => g.Count());
+        states.GetValueOrDefault("accepted").ShouldBe(accepted);
+        states.Where(s => s.Key != "accepted").Sum(s => s.Value).ShouldBe(Segments - accepted);
+        coverage.Single(c => c.GetProperty("state").GetString() != "accepted").GetProperty("segmentId").GetString()!
+            .ShouldEndWith($"-{Segments}");
+    }
+
+    [Fact]
     public async Task A_lineage_that_ignores_the_staged_inputs_is_rejected()
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(4));
@@ -113,7 +166,7 @@ public sealed class UpstreamResultReadEndToEndTests
             runId, EndToEndHarness.MatchCapability, ct)).Single().ShouldBe("0");
     }
 
-    private static async Task<Guid> SeedSegmentsAndMatchAsync(EndToEndHarness harness, CancellationToken ct)
+    private static async Task<Guid> SeedSegmentsAndMatchAsync(EndToEndHarness harness, CancellationToken ct, int withoutResult = 0)
     {
         const string nodeSnapshot = "{\"analystProfileId\":\"profile\",\"policyVersions\":{},\"schemaVersion\":\"1.0.0\"}";
         var segment = new WorkflowNodeRecord(
@@ -135,7 +188,8 @@ public sealed class UpstreamResultReadEndToEndTests
 
         var snapshot = new LogicalJobSnapshotRecord(3, 60, 120, 600, Digest, Digest, null, "{\"cpu\":\"1\",\"memory\":\"1Gi\"}", "1.0.0");
         var jobs = Enumerable.Range(1, Segments).Select(n => new NewLogicalJob(
-                Guid.CreateVersion7(), runId, segment.Id, ExecutionScope.Segment, recordingVersionId, Digest, Digest, n, LogicalJobState.Waiting, snapshot))
+                Guid.CreateVersion7(), runId, segment.Id, ExecutionScope.Segment, recordingVersionId, Digest, Digest, n,
+                n > Segments - withoutResult ? LogicalJobState.Completed : LogicalJobState.Waiting, snapshot))
             .Append(new NewLogicalJob(
                 Guid.CreateVersion7(), runId, match.Id, ExecutionScope.Match, null, null, null, null, LogicalJobState.Waiting, snapshot))
             .ToList();
