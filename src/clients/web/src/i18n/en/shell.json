@@ -17,6 +17,10 @@
     "signedInAs": "Signed in as {{name}}.",
     "shortcuts": "Shortcuts"
   },
+  "update": {
+    "available": "A new version of SocAlytics is available.",
+    "action": "Update"
+  },
   "connectivity": {
     "unreachable": "The platform is not reachable. Actions that change data are disabled until it is reachable again."
   },

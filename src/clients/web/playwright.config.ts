@@ -9,6 +9,7 @@ const simulatedOnly = process.argv.some((arg, i, all) => (arg === '--project' &&
 const adminPassword = process.env.SOCALYTICS_E2E_ADMIN_PASSWORD ?? 'E2e-Admin-Password-0001';
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: './tests/e2e/support/buildReleases.ts',
   fullyParallel: true,
   // The simulated specs share one fake object store and its fault state, so spec files must not run concurrently.
   workers: 1,

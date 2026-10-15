@@ -16,7 +16,7 @@ interface WorkerScope {
   location: { origin: string };
   addEventListener(type: 'install' | 'activate', listener: (event: WorkerEvent) => void): void;
   addEventListener(type: 'fetch', listener: (event: FetchWorkerEvent) => void): void;
-  addEventListener(type: 'message', listener: (event: { data?: unknown }) => void): void;
+  addEventListener(type: 'message', listener: (event: { data?: unknown; ports?: readonly { postMessage(message: unknown): void }[] }) => void): void;
   skipWaiting(): Promise<void>;
 }
 
@@ -41,5 +41,7 @@ scope.addEventListener('fetch', (event) => {
 scope.addEventListener('message', (event) => {
   if ((event.data as { type?: unknown } | null)?.type === 'SKIP_WAITING') {
     void scope.skipWaiting();
+  } else if ((event.data as { type?: unknown } | null)?.type === 'VERSION') {
+    event.ports?.[0]?.postMessage({ version });
   }
 });
