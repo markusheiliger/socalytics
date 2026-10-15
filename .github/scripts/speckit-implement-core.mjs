@@ -88,6 +88,7 @@ export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 // carries it while it waits for a person (stopped, a diagnosis or a fix spec outcome to decide on, or ready for review)
 // and loses it once a person's action puts automation back to work or closes the pull request.
 export const ATTENTION_LABEL = 'help wanted';
+export const MAX_WRITER_GUIDANCE = 4000;
 const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
 // Marks that the base branch at a commit was not merged before a phase (refused, or its conflicts need a person), so
 // the next phases do not try that commit again; a newer commit of the base branch is tried again.
@@ -232,6 +233,15 @@ export function parseGuidance(body) {
   }
 }
 
+export function normalizeWriterGuidance(text) {
+  return String(text ?? '').trim().replace(/\s+/g, ' ').slice(0, MAX_WRITER_GUIDANCE).trim();
+}
+
+export function appendWriterGuidance(prompt, guidance, label = 'Guidance from the person who resumed this implementation') {
+  const value = normalizeWriterGuidance(guidance);
+  return value ? `${prompt} ${label}: ${value}` : prompt;
+}
+
 export function renderRepairMarker(repair) {
   return `<!-- speckit-implement:repair ${Buffer.from(JSON.stringify(repair), 'utf8').toString('base64')} -->`;
 }
@@ -256,13 +266,13 @@ export function unresolvedRepair(comments) {
 
 export function renderRepairPrompt({ repair, guidance, folder }) {
   const tasks = Array.isArray(repair.tasks) && repair.tasks.length > 0 ? repair.tasks.join(', ') : 'the implemented scope';
-  return [
+  const prompt = [
     `Repair the already-landed implementation for ${tasks} in spec ${folder}.`,
     `The ${repair.scope} verification failed after the related tasks were committed and checked in tasks.md.`,
     'Do not untick, rewrite, or add tasks. Do not commit. Change only implementation or directly related tests needed to make the failed verification pass.',
-    guidance ? `Writer-approved guidance: ${guidance}` : '',
     repair.run ? `Failure evidence from workflow run ${repair.run} is available in ../failed-verification/.` : '',
   ].filter(Boolean).join(' ');
+  return appendWriterGuidance(prompt, guidance, 'Writer-approved guidance');
 }
 
 // The comment that starts a new attempt window; it persists the resume, so a replaced run cannot lose
@@ -277,7 +287,7 @@ export function renderRetryComment(lead, guidance = '') {
 }
 
 function renderRestartComment(marker, lead, guidance) {
-  const value = String(guidance ?? '').trim();
+  const value = String(guidance ?? '').trim().slice(0, MAX_WRITER_GUIDANCE);
   return [
     marker,
     ...(value ? [renderGuidanceMarker(value)] : []),
@@ -619,8 +629,8 @@ export function renderConvergePrompt() {
   return '/speckit-converge Assess the implementation and append remaining work as new tasks if needed. Do not commit and do not push.';
 }
 
-export function renderResolvePrompt({ folder, files, base, archived = false }) {
-  return [
+export function renderResolvePrompt({ folder, files, base, archived = false, guidance = '' }) {
+  const prompt = [
     `The working tree is in the middle of merging the base branch \`${base}\` into the implementation branch of the spec \`${specDir(folder, { archived })}\`.`,
     `Git reported merge conflicts in these files: ${files.map((file) => `\`${file}\``).join(', ')}.`,
     'Resolve every conflict: edit only these files, remove all conflict markers, and combine both sides so that the',
@@ -628,6 +638,7 @@ export function renderResolvePrompt({ folder, files, base, archived = false }) {
     `\`${specDir(folder, { archived })}\` to understand the implementation side. Do not change any other file, and do not run git`,
     'commit, merge, checkout, reset, restore, stash, rebase, or push.',
   ].join(' ');
+  return appendWriterGuidance(prompt, guidance);
 }
 
 // Number of convergence phases that /speckit-converge appended to a tasks.md.
@@ -930,7 +941,7 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
 // The commands a person can comment on an implementation pull request. An amendment pull request needs none: merging
 // it applies the amendment, closing it discards it, and a comment or review asks for a rework.
 export const PR_COMMANDS = [
-  { name: 'diagnose', usage: '/speckit diagnose [notes]', help: 'diagnose why the implementation stopped; nothing runs meanwhile. Notes steer the analysis or answer its questions' },
+  { name: 'diagnose', usage: '/speckit diagnose [guidance]', help: 'diagnose why the implementation stopped; nothing runs meanwhile. Guidance steers the analysis or answers its questions' },
   { name: 'retry', usage: '/speckit retry [guidance]', help: 'restart what stopped with a fresh attempt count, without merging the base branch for it (a phase that has not started, the convergence, and the merge always merge it first); guidance goes into the next attempt\'s prompt' },
   { name: 'resume', usage: '/speckit resume [guidance]', help: 'merge the base branch into the implementation branch first (Copilot resolves conflicts), then restart what stopped with a fresh attempt count; guidance goes into the next attempt\'s prompt' },
   { name: 'fix', usage: '/speckit fix [guidance]', help: 'for a cause outside this spec: an agent authors a fix spec and opens it against the base branch for your review; once it is merged and implemented, this implementation resumes by itself' },
@@ -974,9 +985,9 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
       return `First merges ${base} into the implementation branch (Copilot resolves conflicts), so fixes that landed there are included; then the implementation ${next}, ${attempts}. ${guidance}`;
     case 'diagnose':
       return [
-        `Starts a new diagnosis${diagnosed ? ' with the previous one as context' : ''}${parsed.argument ? ' and the text after the command as notes' : ''}; an open amendment pull request is closed as superseded.`,
+        `Starts a new diagnosis${diagnosed ? ' with the previous one as context' : ''}${parsed.argument ? ' and the text after the command as guidance' : ''}; an open amendment pull request is closed as superseded.`,
         'Nothing is retried meanwhile, and the findings are posted here.',
-        ...(parsed.argument ? [] : ['Text you add after the command steers the analysis or answers its questions.']),
+        ...(parsed.argument ? [] : ['Guidance you add after the command steers the analysis or answers its questions.']),
       ].join(' ');
     case 'fix':
       return [

@@ -32,8 +32,11 @@ import {
   latestCheckRun,
   listTasks,
   markerTimes,
+  MAX_WRITER_GUIDANCE,
   MAX_PULL_BODY,
   neutralizeMarkers,
+  normalizeWriterGuidance,
+  appendWriterGuidance,
   nextTask,
   nextTaskGroup,
   parseGuidance,
@@ -53,6 +56,7 @@ import {
   describeParallelGroups,
   renderConvergePrompt,
   renderGuidanceMarker,
+  renderRepairPrompt,
   renderRepairMarker,
   unresolvedRepair,
   renderAmendmentHowTo,
@@ -65,6 +69,7 @@ import {
   renderPullRequestBody,
   renderPullRequestTitle,
   renderResolvePrompt,
+  renderResumeComment,
   renderStartComment,
   renderAttemptMarker,
   renderImplementRunName,
@@ -232,6 +237,8 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.match(renderTaskPrompt('T004', 'f'), /^\/speckit-implement Implement only task T004 of the spec in `specs\/f\/` \(its `tasks\.md`\); ignore the other specs\. Do not implement any other task\./);
   assert.match(renderConvergePrompt(), /^\/speckit-converge /);
   assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs', 'b.md'] }), /`specs\/f`[\s\S]*`a\.cs`, `b\.md`[\s\S]*Do not change any other file/);
+  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs'], base: 'main', guidance: '  Keep\nboth sides.  ' }), /Guidance from the person who resumed this implementation: Keep both sides\.$/);
+  assert.match(renderRepairPrompt({ repair: { scope: 'group', tasks: ['T001'] }, folder: 'f', guidance: '  Reuse\nexisting coverage. ' }), /Writer-approved guidance: Reuse existing coverage\.$/);
   assert.equal(kindLabel({ kind: 'task', task: 'T001' }), 'T001');
   assert.equal(kindLabel({ kind: 'converge' }), 'convergence');
 });
@@ -294,10 +301,10 @@ test('renders the next steps a person can take', () => {
   assert.doesNotMatch(diagnosed, /\/speckit (apply|revise|discard)/);
   assert.equal(diagnosed.match(/\/speckit resume/g).length, 1, 'an option already covers resume');
   assert.match(renderNextSteps({ amendmentPull: 7 }).join('\n'), /^\*\*Recommended next step\*\*: Review and merge the amendment #7\./);
-  const recommended = renderNextSteps({ options: [{ title: 'Diagnose with these notes:', command: '/speckit diagnose keep it', recommended: true }], diagnosed: true }).join('\n');
+  const recommended = renderNextSteps({ options: [{ title: 'Diagnose with this guidance:', command: '/speckit diagnose keep it', recommended: true }], diagnosed: true }).join('\n');
   assert.equal(recommended.match(/\/speckit diagnose/g).length, 1, 'a command an option suggests is not repeated');
-  assert.match(recommended, /^\*\*Recommended next step\*\*: Diagnose with these notes\.\n/, 'trailing punctuation is not doubled');
-  assert.match(recommended, /What it does\*\*: Starts a new diagnosis with the previous one as context and the text after the command as notes/);
+  assert.match(recommended, /^\*\*Recommended next step\*\*: Diagnose with this guidance\.\n/, 'trailing punctuation is not doubled');
+  assert.match(recommended, /What it does\*\*: Starts a new diagnosis with the previous one as context and the text after the command as guidance/);
   assert.equal(recommended.match(/Recommended next step/g).length, 1);
   for (const block of [plain, auto, diagnosed, recommended]) {
     for (const fence of block.matchAll(/```text\n([\s\S]*?)```/g)) assert.doesNotMatch(fence[1], /<[A-Za-z][^>]*>|\[[A-Za-z][^\]]*\]/, `no placeholder in a command: ${fence[1]}`);
@@ -337,6 +344,11 @@ test('carries guidance through a marker, and validates amendments', () => {
   assert.equal(parseGuidance(`intro\n${marker}\nrest`), 'Use `x` --> <!-- y');
   assert.equal(parseGuidance('no marker'), null);
   assert.equal(parseGuidance('<!-- speckit-implement:guidance !!! -->'), null);
+  assert.equal(normalizeWriterGuidance('  first\n\n second  '), 'first second');
+  assert.equal(normalizeWriterGuidance(` ${'x'.repeat(MAX_WRITER_GUIDANCE + 100)} `).length, MAX_WRITER_GUIDANCE);
+  assert.equal(appendWriterGuidance('Do the work.', ''), 'Do the work.');
+  const resumed = renderResumeComment('Resumed.', 'x'.repeat(MAX_WRITER_GUIDANCE + 100));
+  assert.equal(parseGuidance(resumed)?.length, MAX_WRITER_GUIDANCE, 'manual dispatch guidance is capped like comment commands');
 
   const before = '## P\n- [x] T001 Done\n- [ ] T002 Next\n- [ ] T003 Later\n';
   const ok = validateAmendment({ folder: 'f', changedPaths: ['specs/f/research.md', 'specs/f/tasks.md', 'specs/f/spec.md'], beforeTasks: before, afterTasks: '## P\n- [ ] T001 Done\n- [ ] T004 Fix first\n- [ ] T002 Next, clarified\n' });
@@ -660,6 +672,7 @@ test('the implementation workflows give task, group, repair, convergence, confli
   assert.doesNotMatch(task, /inputs\.kind|SPECKIT_KIND/, 'the task workflow has no operation discriminator');
   assert.match(converge, /speckit-converge\.mjs" package[\s\S]*speckit-converge\.mjs land-tasks/);
   assert.match(resolve, /speckit-resolve\.mjs" integrate[\s\S]*speckit-resolve\.mjs" package[\s\S]*speckit-resolve\.mjs" verdict[\s\S]*speckit-resolve\.mjs land-tasks/);
+  assert.match(job(resolve, 'work'), /SPECKIT_GUIDANCE: \$\{\{ matrix\.guidance \}\}/);
   assert.equal([...job(repair, 'work').matchAll(/^ {6}SPECKIT_REPAIR_SCOPE:/gm)].length, 1, 'repair work declares its scope once');
   // Pull model: every run first merges the base branch in its own job; decide follows, so a conflict is resolved in
   // the same run, and the work after decide also runs when that merge failed.

@@ -47,8 +47,8 @@ test('diagnose starts a diagnosis with the previous one as context, unless one i
   const started = await run(github, '/speckit diagnose look at research R6');
   assert.equal(started.outcome, 'started');
   assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_DIAGNOSING);
-  assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', notes: 'look at research R6', previous: '', check_run: String(github.repo.checkRuns.at(-1).id), mode: 'diagnose', amendment: '', round: '0' });
-  assert.match(github.comments.at(-1).body, /A diagnosis was started by @dev with your notes/);
+  assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', guidance: 'look at research R6', previous: '', check_run: String(github.repo.checkRuns.at(-1).id), mode: 'diagnose', amendment: '', round: '0' });
+  assert.match(github.comments.at(-1).body, /A diagnosis was started by @dev with your guidance/);
   assert.equal(github.repo.pulls.find((pull) => pull.number === 11).state, 'closed', 'a new diagnosis supersedes the open amendment');
   assert.equal(github.repo.branches['speckit-amend/f'], undefined, 'so the new run can create the amendment branch afresh');
   assert.match(github.comments.find((comment) => comment.number === 11).body, /Superseded by a new diagnosis/);
@@ -118,7 +118,7 @@ test('fix starts the authoring of a fix spec once, and refuses while one is pend
   assert.deepEqual([check.name, check.external_id, check.status], ['Spec Kit fix spec', 'speckit:fix-authoring', 'in_progress'], 'its own check run, apart from the implementation');
   const dispatched = github.repo.runs.at(-1);
   assert.equal(dispatched.workflow, 'speckit-fix.lock.yml');
-  assert.deepEqual({ ...dispatched.inputs, stamp: 'x' }, { twin: '5', pull: '9', folder: 'f', notes: 'Make UploadSessionExpiryTests independent of runner load', check_run: String(check.id), mode: 'author', amendment: '', round: '0', stalls: '0', findings: '', stamp: 'x' });
+  assert.deepEqual({ ...dispatched.inputs, stamp: 'x' }, { twin: '5', pull: '9', folder: 'f', guidance: 'Make UploadSessionExpiryTests independent of runner load', check_run: String(check.id), mode: 'author', amendment: '', round: '0', stalls: '0', findings: '', stamp: 'x' });
   assert.match(dispatched.inputs.stamp, /^\d{8}-\d{6}$/);
   assert.match(github.comments.at(-1).body, /^<!-- speckit-fix:requested \{"by":"dev"[\s\S]*\*\*A fix spec is being authored\*\*, requested by @dev[\s\S]*> Make UploadSessionExpiryTests/);
   assert.equal(parseGuidance(github.comments.at(-1).body), 'Make UploadSessionExpiryTests independent of runner load');

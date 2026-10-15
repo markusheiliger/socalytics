@@ -72,7 +72,7 @@ test('correction rounds continue while they make progress and stop after three r
   const fix = github.repo.runs.at(-1);
   assert.equal(fix.workflow, 'speckit-diagnose.lock.yml');
   assert.deepEqual([fix.inputs.mode, fix.inputs.amendment, fix.inputs.round, fix.inputs.stalls, fix.inputs.pull, fix.inputs.twin], ['fix', '11', '1', '0', '9', '5']);
-  assert.match(fix.inputs.notes, /- \[F1\] \*\*HIGH\*\* \(Inconsistency\) `plan\.md CI-R10`: CI-R10 still expects a residual difference\. — Update it to the refined R6\./);
+  assert.match(fix.inputs.guidance, /- \[F1\] \*\*HIGH\*\* \(Inconsistency\) `plan\.md CI-R10`: CI-R10 still expects a residual difference\. — Update it to the refined R6\./);
   const tracked = JSON.parse(fix.inputs.findings);
   assert.deepEqual(tracked.map((item) => [item.id, item.severity, item.location]), [['F1', 'HIGH', 'plan.md CI-R10']]);
   assert.match(github.comments.at(-1).body, /^\*\*Correction round 1\*\*: [\s\S]*Rounds without progress so far: 0 of 3\./);
@@ -107,7 +107,7 @@ test('correction rounds continue while they make progress and stop after three r
   const rules = diagnosisRepo({ after: '## P\n- [x] T001 Done\n- [x] T002 Next\n' });
   const ruled = await recordAnalysis(rules, { summary: 'Clean.', findings: [] }, { round: 2 });
   assert.equal(ruled.outcome, 'correcting');
-  assert.match(rules.repo.runs.at(-1).inputs.notes, /- \[R1\] \*\*RULE\*\*: an amendment may not check T002/);
+  assert.match(rules.repo.runs.at(-1).inputs.guidance, /- \[R1\] \*\*RULE\*\*: an amendment may not check T002/);
   const repaired = diagnosisRepo();
   const fixedRule = await recordAnalysis(repaired, { findings: [HIGH] }, { round: 3, stalls: 1, previous: rules.repo.runs.at(-1).inputs.findings });
   assert.deepEqual([fixedRule.outcome, fixedRule.stalls], ['correcting', 1]);
@@ -198,7 +198,7 @@ test('feedback starts a rework, unless one runs; a stale run is closed first', a
     },
   });
   assert.deepEqual([finished.outcome, polls], ['rework', 1]);
-  assert.match(github.repo.runs.at(-1).inputs.notes, /One more thing\./);
+  assert.match(github.repo.runs.at(-1).inputs.guidance, /One more thing\./);
 
   const stale = diagnosisRepo();
   stale.commentAuthor = 'dev';

@@ -243,7 +243,13 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   setOutput(env, 'agent', String(agent));
   setOutput(env, 'verify', String(inputs.kind === 'merge' && conflicts.length === 0 && result.reasons.length === 0));
   setOutput(env, 'environment', String(inputs.kind === 'merge' && result.environment));
-  setOutput(env, 'prompt', agent ? renderResolvePrompt({ folder, files: conflicts, base: baseBranch, archived: isArchivedIn(gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim(), folder) }) : '');
+  setOutput(env, 'prompt', agent ? renderResolvePrompt({
+    folder,
+    files: conflicts,
+    base: baseBranch,
+    archived: isArchivedIn(gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim(), folder),
+    guidance: env.SPECKIT_GUIDANCE,
+  }) : '');
   log(conflicts.length > 0 ? `Conflicts with ${baseBranch} (${baseSha}): ${conflicts.join(', ')}` : `Merged ${baseBranch} (${baseSha}) cleanly.`);
   return { exitCode: 0, result };
 }

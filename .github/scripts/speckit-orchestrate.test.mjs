@@ -873,8 +873,11 @@ test('chain: decide converges, merges, and resolves conflicts', async () => {
     assert.deepEqual([mergeCheck.external_id, mergeCheck.status], [CHECK_MERGE, 'in_progress']);
 
     Object.assign(mergeCheck, { status: 'completed', conclusion: 'neutral', external_id: CHECK_CONFLICT });
+    await github.createComment(pull.number, renderRetryComment('Implementation retried by @dev.', 'Keep both migration sequences and use the next free number.'));
     const resolve = await decide(github, root, twin);
-    assert.deepEqual([resolve.outputs.action, resolve.outputs.job_name, JSON.parse(resolve.outputs.order)[0].include[0].verify_mode], ['resolve', 'Conflict resolution', 'finalize']);
+    const resolveEntry = JSON.parse(resolve.outputs.order)[0].include[0];
+    assert.deepEqual([resolve.outputs.action, resolve.outputs.job_name, resolveEntry.verify_mode], ['resolve', 'Conflict resolution', 'finalize']);
+    assert.equal(resolveEntry.guidance, 'Keep both migration sequences and use the next free number.');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

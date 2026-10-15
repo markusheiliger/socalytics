@@ -35,6 +35,8 @@ import {
   listTasks,
   markerTimes,
   neutralizeMarkers,
+  appendWriterGuidance,
+  normalizeWriterGuidance,
   parseAttemptCheckId,
   parseAttempts,
   parseGuidance,
@@ -255,16 +257,17 @@ function readSpecInputs(env) {
 // verified on its own (mode `task`); the phase gets its full verification in its own job after its last task, so a
 // failure there is never charged to the task that happens to come last.
 function prepareOrder(decision, folder) {
-  const guidance = currentGuidance(decision);
-  const withGuidance = (prompt) => (guidance ? `${prompt} Guidance from the person who resumed this implementation: ${guidance.replace(/\s+/g, ' ').slice(0, 1500)}` : prompt);
+  const guidance = normalizeWriterGuidance(currentGuidance(decision));
   const texts = new Map(listTasks(decision.tasksMarkdown).map((task) => [task.id, task.text]));
   return decision.order.map((entry, index) => ({
     include: entry.map(({ task, attempt }) => {
       const prompt = decision.kind === 'task' ? renderTaskPrompt(task, folder, { archived: decision.archived }) : decision.kind === 'converge' ? renderConvergePrompt() : '';
+      const activeGuidance = index === 0 ? guidance : '';
       return {
         task: task ?? '',
         attempt,
-        prompt: index === 0 && prompt ? withGuidance(prompt) : prompt,
+        prompt: prompt ? appendWriterGuidance(prompt, activeGuidance) : prompt,
+        ...(decision.kind === 'resolve' && activeGuidance ? { guidance: activeGuidance } : {}),
         verify_mode: decision.kind === 'resolve' ? 'finalize' : 'task',
         summary: task ? neutralizeMarkers(summarizeTask(texts.get(task) ?? '')).slice(0, 300) : '',
       };

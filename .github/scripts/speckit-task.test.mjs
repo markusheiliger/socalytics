@@ -600,7 +600,7 @@ const resolveShared = (r) => write(r.work, 'docs/shared.md', '# Shared\n\nbranch
 
 test('merge: integrate merges the base branch and reports conflicts', async () => {
   await withRepos({ tasks: DONE_TASKS, main: (dir) => write(dir, 'docs/other.md', '# Other\n') }, (repos) => {
-    const { integrated, result, output } = work(repos, { inputs: MERGE_INPUTS, verify: { outcome: 'success', checks: 'platform build and tests,Markdown check' } });
+    const { integrated, result, output } = work(repos, { inputs: MERGE_INPUTS, env: { SPECKIT_GUIDANCE: 'Unused without an agent.' }, verify: { outcome: 'success', checks: 'platform build and tests,Markdown check' } });
     assert.deepEqual(integrated.result.conflicts, []);
     assert.equal(integrated.result.baseSha, remoteSha(repos, 'main'));
     assert.equal(integrated.result.head, remoteSha(repos, 'speckit/f'));
@@ -616,8 +616,14 @@ test('merge: integrate merges the base branch and reports conflicts', async () =
 });
 
 test('resolve: the agent resolution is verified, replayed, and pushed as a merge commit', () => withRepos(conflicting, async (repos) => {
-  const { integrated, result, output } = work(repos, { inputs: RESOLVE_INPUTS, agent: resolveShared, verify: { outcome: 'success', checks: 'platform build and tests' } });
+  const { integrated, result, output } = work(repos, {
+    inputs: RESOLVE_INPUTS,
+    env: { SPECKIT_GUIDANCE: '  Preserve\nboth migration sequences. ' },
+    agent: resolveShared,
+    verify: { outcome: 'success', checks: 'platform build and tests' },
+  });
   assert.match(output, /conflicts=true\nagent=true\nverify=false\nenvironment=false\nprompt=The working tree is in the middle of merging[^\n]*`docs\/shared\.md`/);
+  assert.match(output, /Guidance from the person who resumed this implementation: Preserve both migration sequences\.\n/);
   assert.deepEqual(integrated.result.conflicts, ['docs/shared.md']);
   assert.deepEqual([result.verified, result.resolutions], [true, [{ path: 'docs/shared.md', deleted: false, blob: '0' }]]);
 

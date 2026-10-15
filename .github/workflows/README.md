@@ -129,7 +129,12 @@ Each run of Spec Kit implement spec does one of these: a phase, a guided repair,
 (`/speckit-converge`), a conflict resolution, or the merge. A failed verification of already-landed code records
 durable repair state without unticking tasks. Diagnosis recommends `/speckit retry <guidance>`; after a writer approves
 it, repair work lands through a write-isolated job and the failed scope must pass reverification before normal planning
-continues. The chain keeps its branch current with the base branch by pulling: every run starts with
+continues. Writer-supplied text after `/speckit diagnose`, `retry`, `resume`, or `fix` is consistently called
+**guidance**. Retry and resume guidance is stored in a bot-authored pull request marker so a replaced dispatch or
+hourly continuation cannot lose it. Copilot-bound guidance is whitespace-normalized, capped at 4,000 characters, and
+added to every task in the first retried group, or to the first convergence, repair, or conflict-resolution prompt.
+Later units do not inherit it. A clean merge and a verification-only repair resume invoke no agent, so they consume
+no prompt guidance. The chain keeps its branch current with the base branch by pulling: every run starts with
 the job `sync` ("Merge the base branch"), which merges the base branch into the implementation branch through the
 GitHub API when it is ahead and the next work is a phase that has not started (none of its tasks is ticked yet), the
 convergence, the merge, or a resume (`/speckit resume`, a merged amendment, or a landed fix spec; repository variable

@@ -141,8 +141,8 @@ async function handleDiagnose({ client, env, actor, number, argument, now, folde
     pull: implementation.number,
     folder,
     head: implementation.head.sha,
-    notes: argument,
-    // The previous diagnosis is context, for example when the notes answer its questions.
+    guidance: argument,
+    // The previous diagnosis is context, for example when the guidance answers its questions.
     previous: previous ? previous.id : '',
     actor,
   });
@@ -151,7 +151,7 @@ async function handleDiagnose({ client, env, actor, number, argument, now, folde
     return { outcome: 'not started' };
   }
   await reply(client, number, [
-    `${previous ? 'A new diagnosis' : 'A diagnosis'} was started by @${actor}${argument ? ' with your notes' : ''}. The implementation waits; the findings will be posted on #${implementation.number}.`,
+    `${previous ? 'A new diagnosis' : 'A diagnosis'} was started by @${actor}${argument ? ' with your guidance' : ''}. The implementation waits; the findings will be posted on #${implementation.number}.`,
   ]);
   return { outcome: 'started' };
 }

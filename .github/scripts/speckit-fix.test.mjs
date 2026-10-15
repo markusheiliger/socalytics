@@ -138,7 +138,7 @@ test('a fix spec is reworked by Spec Kit fix, and its evidence names the folder 
     const evidence = readFileSync(path.join(dir, 'evidence.md'), 'utf8');
     assert.match(evidence, /## Guidance from the person who asked for the fix spec\n\nMake the test robust/);
     assert.match(evidence, /## Latest diagnosis\n\n<!-- speckit-implement:diagnosis -->\n\*\*Diagnosis\*\*: a flaky test/);
-    const { context: revise } = await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir, SPECKIT_MODE: 'revise', SPECKIT_AMENDMENT: '12', SPECKIT_FOLDER: FOLDER, SPECKIT_NOTES: 'Keep the sweep check.' }), log: silent });
+    const { context: revise } = await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir, SPECKIT_MODE: 'revise', SPECKIT_AMENDMENT: '12', SPECKIT_FOLDER: FOLDER, SPECKIT_GUIDANCE: 'Keep the sweep check.' }), log: silent });
     assert.deepEqual([revise.specDir, revise.branch, revise.fixPull, revise.baseBranch], [PREFIX, `speckit-fix/${FOLDER}`, 12, 'main']);
     assert.match(readFileSync(path.join(dir, 'evidence.md'), 'utf8'), /## Feedback on the fix spec to address\n\nKeep the sweep check\./);
   } finally {

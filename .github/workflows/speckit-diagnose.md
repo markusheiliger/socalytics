@@ -19,8 +19,8 @@ on:
         description: Spec folder name under specs/
         required: true
         type: string
-      notes:
-        description: Notes from the person who started the diagnosis, or the findings to fix (optional)
+      guidance:
+        description: Guidance from the person who started the diagnosis, or the findings or feedback to address (optional)
         required: false
         type: string
       previous:
@@ -112,7 +112,7 @@ steps:
       SPECKIT_TWIN: ${{ inputs.twin }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_FOLDER: ${{ inputs.folder }}
-      SPECKIT_NOTES: ${{ inputs.notes }}
+      SPECKIT_GUIDANCE: ${{ inputs.guidance }}
       SPECKIT_PREVIOUS: ${{ inputs.previous }}
       SPECKIT_MODE: ${{ inputs.mode }}
       SPECKIT_AMENDMENT: ${{ inputs.amendment }}
@@ -204,7 +204,7 @@ safe-outputs:
             SPECKIT_ROUND: ${{ inputs.round }}
             SPECKIT_STALLS: ${{ inputs.stalls }}
             SPECKIT_FINDINGS: ${{ inputs.findings }}
-            SPECKIT_NOTES: ${{ inputs.notes }}
+            SPECKIT_GUIDANCE: ${{ inputs.guidance }}
             # Only a report that passed threat detection is used, and only the amendment this run created is shown.
             SPECKIT_DETECTION: ${{ needs.detection.result }}
             SPECKIT_CREATED_PULL: ${{ needs.safe_outputs.outputs.created_pr_number }}

@@ -561,7 +561,7 @@ makes this available from GitHub Copilot:
     `SPECKIT_IMPLEMENT_MODE=local` or `SPECKIT_IMPLEMENT_MODE=remote` to skip the
     question; inside GitHub Actions it always implements locally.
 - `/speckit-gha-request [folder]` requests implementation directly.
-- `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` walks you
+- `/speckit-gha-diagnose [pull request, twin, or folder] [guidance]` walks you
     through a stopped implementation locally; see
     [When an implementation stops](#when-an-implementation-stops).
 - `/speckit-gha-fix [pull request] [guidance]` explains fix specs and offers to
@@ -613,14 +613,14 @@ every stop is a spec problem, so the next step starts with a diagnosis:
 2. The `Spec Kit diagnose` agentic workflow
     ([`speckit-diagnose.md`](.github/workflows/speckit-diagnose.md), GitHub
     Agentic Workflows) collects the evidence (failure comments, logs of failed
-    runs, check runs, branch state, your notes), follows the method of the
+    runs, check runs, branch state, your guidance), follows the method of the
     `/speckit-gha-diagnose` skill, and posts a **Diagnosis** comment: its
     category and what that means, the cause and the evidence, its confidence,
     and the next steps. Exactly one next step is recommended, and its command
     always fits the category; the other options are collapsed below it. Every
     option says **why** it should solve the problem and **what it does** (for
     example whether the base branch is merged first and what restarts), and
-    every command can be posted as it is, with the guidance, notes, or answers
+    every command can be posted as it is, with the guidance or answers
     from the findings already written out.
 
     | Category | Meaning | Recommended next step |
@@ -640,11 +640,18 @@ every stop is a spec problem, so the next step starts with a diagnosis:
 
     | Command | Effect |
     | --- | --- |
-    | `/speckit diagnose [notes]` | start a diagnosis; notes steer it or answer its questions (also while the implementation runs; it then waits). Nothing is retried meanwhile |
+    | `/speckit diagnose [guidance]` | start a diagnosis; guidance steers it or answers its questions (also while the implementation runs; it then waits). Nothing is retried meanwhile |
     | `/speckit retry [guidance]` | restart what stopped with a fresh attempt count, without merging the base branch for it (a phase that has not started, the convergence, and the merge always merge it first); the guidance goes into its prompt |
     | `/speckit resume [guidance]` | merge the base branch (the pull request's base; Copilot resolves conflicts), then restart what stopped with a fresh attempt count; the guidance goes into its prompt |
     | `/speckit fix [guidance]` | have a fix spec authored for a cause outside this spec (below); the implementation waits and resumes by itself once the fix has landed |
     | `/speckit help` | list the commands |
+
+    Writer guidance is capped at 4,000 characters. Retry and resume guidance
+    is persisted in a bot-authored pull request marker and reaches every task
+    in the first retried parallel group, or the first convergence, repair, or
+    conflict-resolution prompt. It expires after successful work or a newer
+    person-authored push. Clean merges and verification-only repair resumes do
+    not invoke an agent and therefore use no prompt guidance.
 
     What restarts is decided from the pull request's state: the stopped task,
     the convergence, the conflict resolution, or the merge. A failed phase

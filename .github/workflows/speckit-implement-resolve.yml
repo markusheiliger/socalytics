@@ -53,6 +53,7 @@ jobs:
       SPECKIT_TWIN: ${{ inputs.twin }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_ATTEMPT: ${{ matrix.attempt }}
+      SPECKIT_GUIDANCE: ${{ matrix.guidance }}
       SPECKIT_FOLDER: ${{ inputs.folder }}
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_TOOLING: ${{ github.workspace }}/tooling

@@ -122,7 +122,7 @@ export async function startFixAuthoring(client, env, { twin, implementation, gui
       twin: String(twin),
       pull: String(implementation.number),
       folder,
-      notes: clip(value, 4000),
+      guidance: clip(value, 4000),
       check_run: String(check.id),
       mode: 'author',
       amendment: '',
@@ -173,7 +173,7 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
     const stamp = /^\d{8}-\d{6}$/.test(String(env.SPECKIT_STAMP ?? '')) ? env.SPECKIT_STAMP : fixStamp(now());
     const requested = fixState(comments).events.filter((event) => event.event === 'requested').at(-1);
     const requestComment = requested ? comments.find((comment) => comment.id === requested.commentId) : null;
-    const guidance = (requestComment ? parseGuidance(requestComment.body) : null) ?? (env.SPECKIT_NOTES?.trim() || null);
+    const guidance = (requestComment ? parseGuidance(requestComment.body) : null) ?? (env.SPECKIT_GUIDANCE?.trim() || null);
     const diagnosis = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).at(-1);
     sections.push(
       `# Evidence for a fix spec that unblocks #${pullNumber}`,
@@ -217,7 +217,7 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
       '',
       mode === 'fix' ? '## Findings of the consistency check to fix' : '## Feedback on the fix spec to address',
       '',
-      env.SPECKIT_NOTES?.trim() || '_None._',
+      env.SPECKIT_GUIDANCE?.trim() || '_None._',
       '',
       '## Earlier comments on the fix spec (oldest first)',
       '',
