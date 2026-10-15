@@ -1,8 +1,8 @@
 # Research: Web UI Match Workflow and Recording Upload
 
 All decisions build on Web UI Foundation
-([plan](../archive/20261012-150657-web-ui-foundation/plan.md),
-[research](../archive/20261012-150657-web-ui-foundation/research.md)): Kiota client
+([plan](../20261012-150657-web-ui-foundation/plan.md),
+[research](../20261012-150657-web-ui-foundation/research.md)): Kiota client
 behind adapters, in-memory session with `X-CSRF-Token`, TanStack Query, the
 `simulated` and `platform` Playwright projects, and the AppHost `e2e` mode.
 This feature adds no platform API.

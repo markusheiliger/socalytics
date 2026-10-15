@@ -2,7 +2,7 @@
 
 **Branch**: `20261013-112844-web-ui-match-upload` | **Date**: 2026-10-13 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261013-112844-web-ui-match-upload/spec.md`
+**Input**: Feature specification from `specs/archive/20261013-112844-web-ui-match-upload/spec.md`
 
 ## Summary
 
@@ -108,10 +108,10 @@ Post-design re-check: passes; no Complexity Tracking entries.
 
 **Narratives implemented**:
 
-- [client-applications.md](../../docs/architecture/client-applications.md) § Web UI: match creation, recording uploads, and upload finalization.
-- [match-data-pipeline.md](../../docs/architecture/match-data-pipeline.md) § Upload: the Web UI path of the direct multipart upload, timeline mapping, and finalization.
-- [platform-implementation.md](../../docs/architecture/platform-implementation.md) § Object Storage: development browser access to the local store.
-- [security-and-data-governance.md](../../docs/architecture/security-and-data-governance.md), Web UI security baseline (written by `specs/archive/20261012-150657-web-ui-foundation`): the Content Security Policy.
+- [client-applications.md](../../../docs/architecture/client-applications.md) § Web UI: match creation, recording uploads, and upload finalization.
+- [match-data-pipeline.md](../../../docs/architecture/match-data-pipeline.md) § Upload: the Web UI path of the direct multipart upload, timeline mapping, and finalization.
+- [platform-implementation.md](../../../docs/architecture/platform-implementation.md) § Object Storage: development browser access to the local store.
+- [security-and-data-governance.md](../../../docs/architecture/security-and-data-governance.md), Web UI security baseline (written by `specs/archive/20261012-150657-web-ui-foundation`): the Content Security Policy.
 
 **Design updates** (applied with this plan as decided, not implemented; the implementation turns them into present
 tense):
@@ -135,7 +135,7 @@ The documentation task (T019) must make these narratives and every status statem
 ### Documentation (this feature)
 
 ```text
-specs/20261013-112844-web-ui-match-upload/
+specs/archive/20261013-112844-web-ui-match-upload/
 ├── plan.md
 ├── research.md          # Decisions R1–R14
 ├── data-model.md        # Client models, upload job states, journal record
