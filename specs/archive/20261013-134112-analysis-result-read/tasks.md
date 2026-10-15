@@ -5,7 +5,7 @@ description: "Task list for Analysis Result Read for Jobs"
 
 # Tasks: Analysis Result Read for Jobs
 
-**Input**: Design documents from `specs/20261013-134112-analysis-result-read/`
+**Input**: Design documents from `specs/archive/20261013-134112-analysis-result-read/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/upstream-results-api.md](contracts/upstream-results-api.md), [contracts/staged-inputs.md](contracts/staged-inputs.md), [quickstart.md](quickstart.md)
 
