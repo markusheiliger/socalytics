@@ -66,7 +66,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
     public IManagerControl Control => Manager.Services.GetRequiredService<IManagerControl>();
 
     /// <summary>Starts the platform; returns null when SoftHSM2 (needed for the Manager's device key) is unavailable.</summary>
-    public static async Task<EndToEndHarness?> StartAsync(CancellationToken ct)
+    public static async Task<EndToEndHarness?> StartAsync(CancellationToken ct, IReadOnlyDictionary<string, string?>? registrySettings = null)
     {
         var token = SoftHsmToken.TryCreate();
         if (token is null)
@@ -97,6 +97,11 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             ["ObjectStorage:SecretKey"] = store.SecretKey,
             ["ObjectStorage:Bucket"] = store.Bucket,
         };
+        foreach (var (key, value) in registrySettings ?? new Dictionary<string, string?>())
+        {
+            settings[key] = value;
+        }
+
         var platform = new PlatformApiFactory(
             database,
             new Dictionary<string, string?>
@@ -117,8 +122,17 @@ internal sealed class EndToEndHarness : IAsyncDisposable
                     o.RateLimits.CodeSubmissionPerMinute = 10_000;
                 });
             },
-            extraSettings: settings);
-        await platform.WaitUntilHealthyAsync(ct);
+            extraSettings: settings,
+            omitWorkflow: registrySettings is not null);
+        if (registrySettings is null)
+        {
+            await platform.WaitUntilHealthyAsync(ct);
+        }
+        else
+        {
+            await platform.WaitUntilHealthyExceptWorkflowAsync(ct);
+        }
+
         await TestMembers.SeedAsync(database, "admin-1", clubRoles: ["club-admin", "registrar"], cancellationToken: ct);
         var admin = await ApiSession.SignInAsync(platform, "admin-1", TestMembers.DefaultPassword, ct);
         return new EndToEndHarness(postgres, nats, store, token, token.NewStateDirectory(), database, platform, admin);
@@ -130,7 +144,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
     /// </summary>
     public async Task<IHost> StartManagerAsync(
         CancellationToken ct, TimeSpan? runDuration = null, SimulatedOutcome outcome = SimulatedOutcome.Succeed,
-        string resultMode = SimulatedResultModes.Valid)
+        string resultMode = SimulatedResultModes.Valid, string? dockerCompatibilityListPath = null)
     {
         var stateDirectory = _managers.Count == 0 ? _stateDirectory : _token.NewStateDirectory();
         var connection = new ConnectionSwitch();
@@ -141,12 +155,21 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             ["Runtime:Profile"] = SimulatedRuntimeAdapter.TestProfile,
             ["Runtime:Simulated:MaxParallelAttempts"] = "2",
         };
-        foreach (var capability in new[] { SegmentCapability, MatchCapability })
+        if (dockerCompatibilityListPath is null)
         {
-            configuration[$"Runtime:Simulated:Capabilities:{capability}:Version"] = "1.0.0";
-            configuration[$"Runtime:Simulated:Capabilities:{capability}:RunDuration"] = (runDuration ?? RunDuration).ToString();
-            configuration[$"Runtime:Simulated:Capabilities:{capability}:Outcome"] = outcome.ToString();
-            configuration[$"Runtime:Simulated:Capabilities:{capability}:ResultMode"] = resultMode;
+            foreach (var capability in new[] { SegmentCapability, MatchCapability })
+            {
+                configuration[$"Runtime:Simulated:Capabilities:{capability}:Version"] = "1.0.0";
+                configuration[$"Runtime:Simulated:Capabilities:{capability}:RunDuration"] = (runDuration ?? RunDuration).ToString();
+                configuration[$"Runtime:Simulated:Capabilities:{capability}:Outcome"] = outcome.ToString();
+                configuration[$"Runtime:Simulated:Capabilities:{capability}:ResultMode"] = resultMode;
+            }
+        }
+        else
+        {
+            configuration["Runtime:Profile"] = "docker-desktop";
+            configuration["Runtime:Docker:Endpoint"] = "unix:///var/run/docker.sock";
+            configuration["Runtime:CompatibilityListPath"] = dockerCompatibilityListPath;
         }
 
         builder.Configuration.AddInMemoryCollection(configuration);
@@ -154,8 +177,11 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         builder.Services.RemoveAll<IDeviceKeyProvider>();
         builder.Services.AddSingleton<IDeviceKeyProvider>(
             Pkcs11KeyProvider.CreateForTests(_token.ModulePath, SoftHsmToken.TokenLabel, stateDirectory));
-        builder.Services.RemoveAll<RuntimeCompatibilityList>();
-        builder.Services.AddSingleton(SimulatedRuntimeAdapter.List());
+        if (dockerCompatibilityListPath is null)
+        {
+            builder.Services.RemoveAll<RuntimeCompatibilityList>();
+            builder.Services.AddSingleton(SimulatedRuntimeAdapter.List());
+        }
         builder.Services.AddHttpClient<PlatformClient>().ConfigurePrimaryHttpMessageHandler(() =>
         {
             connection.InnerHandler = Platform.Server.CreateHandler();
