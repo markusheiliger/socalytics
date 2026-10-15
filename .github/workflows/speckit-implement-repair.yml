@@ -64,7 +64,6 @@ jobs:
       SPECKIT_ATTEMPT: ${{ inputs.attempt }}
       SPECKIT_REPAIR_SCOPE: ${{ fromJSON(inputs.repair).scope }}
       SPECKIT_FOLDER: ${{ inputs.folder }}
-      SPECKIT_REPAIR_SCOPE: ${{ fromJSON(inputs.repair).scope }}
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_TOOLING: ${{ github.workspace }}/tooling
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result

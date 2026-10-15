@@ -660,6 +660,7 @@ test('the implementation workflows give task, group, repair, convergence, confli
   assert.doesNotMatch(task, /inputs\.kind|SPECKIT_KIND/, 'the task workflow has no operation discriminator');
   assert.match(converge, /speckit-converge\.mjs" package[\s\S]*speckit-converge\.mjs land-tasks/);
   assert.match(resolve, /speckit-resolve\.mjs" integrate[\s\S]*speckit-resolve\.mjs" package[\s\S]*speckit-resolve\.mjs" verdict[\s\S]*speckit-resolve\.mjs land-tasks/);
+  assert.equal([...job(repair, 'work').matchAll(/^ {6}SPECKIT_REPAIR_SCOPE:/gm)].length, 1, 'repair work declares its scope once');
   // Pull model: every run first merges the base branch in its own job; decide follows, so a conflict is resolved in
   // the same run, and the work after decide also runs when that merge failed.
   assert.match(job(spec, 'sync'), /name: Merge the base branch\n\s+if: github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)[\s\S]*SPECKIT_RESUME: \$\{\{ inputs\.resume \}\}[\s\S]*run: node \.github\/scripts\/speckit-spec\.mjs sync/);
