@@ -412,11 +412,11 @@ the Registrar capability and may self-approve through a separate audited
 operation. The AM activates only after proving possession of the protected
 device key bound during pairing.
 
-The pairing response's verification URL will be built from an optional
+The pairing response's verification URL is built from an optional
 verification base address, for stamps whose Web UI and API origins differ, as
 in local development; the token, activation, and other machine-facing addresses
 and the DPoP target stay on the stamp's public base address. The registration
-operations will declare typed OpenAPI request and response schemas, so the Web
+operations declare typed OpenAPI request and response schemas, so the Web
 UI's generated client covers them.
 
 An active AM uses OAuth 2.0 client credentials with `private_key_jwt` and
@@ -519,7 +519,7 @@ started in extract-and-run mode. Signing follows once the publisher is
 decided. Each stamp serves the update feed to its Managers as a proxy for the
 Manager's GitHub Releases, after verifying their build-provenance attestation;
 it offers the releases of its chosen channel, may pin a version, and declares a
-minimum Manager version. The planned fleet view adds a Manager status report,
+minimum Manager version. The fleet view, implemented in the Web UI, rests on a Manager status report,
 sent with the periodic registration check and stored as the latest snapshot
 only, and a fleet read operation for Club Admins.
 
@@ -614,6 +614,10 @@ current and non-current migration states; and
   checksums, rejected manifests ending the attempt as failed, and immutable
   accepted-result manifest records) with a simulated Analyst and the Analyst
   Manager; and
+- Web UI browser tests cover Analyst Manager pairing, the Club Admin decision
+  view, and the fleet view with revocation: the `simulated` project against a
+  simulated API, and the `platform` project against the real platform with a
+  scripted Manager; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
   in `contracts/` and the OpenAPI document.
 
@@ -653,7 +657,7 @@ choice or reveals a material operational tradeoff:
   sessions, S3-compatible upload, Analyst Manager registration, and result
   write grants with validated result acceptance against a simulated Analyst are
   implemented, and the online-only Web UI foundation exists as development
-  evidence. External OpenID Connect sign-in, MFA enforcement, the Web UI's
+  evidence, including the Analyst Manager pairing, approval, and fleet views. External OpenID Connect sign-in, MFA enforcement, the Web UI's
   offline mode, cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix remain unsupported by
   implementation evidence.
