@@ -129,7 +129,7 @@ workflow, and resolves analysis runs from the default workflow.
   Without a default workflow, runs resolve as not configured.
 
 Member email addresses and notifications are implemented as development
-evidence (migration `0017_identityaccess_email_notifications.sql`):
+evidence (migration `0019_identityaccess_email_notifications.sql`):
 
 - Optional member addresses with single-use confirmation links, notification
   preferences, and Club Admin-visible addresses under `/api/v1`.
