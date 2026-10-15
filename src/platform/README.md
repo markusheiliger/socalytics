@@ -178,6 +178,11 @@ remain deferred.
   `0016_registry_queue_credentials.sql`) and pushes account revocations through
   the system account, with a retrying revocation worker. Production key custody
   and lifetimes are unresolved under `GOV-CRED-004`.
+- `WebUi:MinimumVersion` (default empty): the minimum Web UI release version,
+  shaped `YYYY.MMDD.HHMMSS`, validated on start. When set, every `/api/**`
+  response carries it in the `SocAlytics-Minimum-Web-Version` header so an older
+  Web UI updates itself; the platform never refuses a request by client
+  version.
 - `AnalystWork` options (development defaults, not production values):
   `MaxConcurrentAnalystsPerManager` 2, `QueueCredentialLifetime` 30 minutes,
   `QueueUrl` `nats://localhost:4222`, `ConsumerAckWait` 30 seconds, and
