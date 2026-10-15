@@ -333,7 +333,15 @@ export class SimulatedApi {
     return entity(target);
   }
 
+  /** When set, every simulated API response carries `SocAlytics-Minimum-Web-Version` with this value. */
+  minimumWebVersion: string | null = null;
+
   private async handle(route: Route): Promise<void> {
+    if (this.minimumWebVersion) {
+      const version = this.minimumWebVersion;
+      const fulfill = route.fulfill.bind(route);
+      route.fulfill = (options) => fulfill({ ...options, headers: { ...options?.headers, 'SocAlytics-Minimum-Web-Version': version } });
+    }
     const request = route.request();
     const path = new URL(request.url()).pathname.replace(/^\/api\/v1/, '');
     const method = request.method();

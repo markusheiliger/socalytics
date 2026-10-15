@@ -1,5 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
-import { applyUpdate, getUpdateState, registerServiceWorker, resetUpdateState } from '../../../src/serviceWorker/registration';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  applyUpdate,
+  getUpdateState,
+  isUpdateBlocked,
+  registerServiceWorker,
+  requireUpdate,
+  requiredReloadDelayMs,
+  resetUpdateState,
+} from '../../../src/serviceWorker/registration';
 
 describe('service worker registration', () => {
   it('registers /sw.js at the root scope without caching the script', async () => {
@@ -101,5 +109,35 @@ describe('update states', () => {
     listeners.controllerchange();
     expect(reload).toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('required update states', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    resetUpdateState();
+    vi.unstubAllEnvs();
+  });
+
+  it('enters required, blocks, and becomes reload-required after 30 seconds without a newer worker', () => {
+    vi.useFakeTimers();
+    requireUpdate('2026.1015.110000');
+    expect(getUpdateState()).toBe('required');
+    expect(isUpdateBlocked()).toBe(true);
+    vi.advanceTimersByTime(requiredReloadDelayMs);
+    expect(getUpdateState()).toBe('reload-required');
+    expect(isUpdateBlocked()).toBe(true);
+  });
+
+  it('activates a waiting worker that satisfies the minimum', async () => {
+    vi.stubEnv('VITE_SOCALYTICS_WEB_VERSION', '2026.1015.100000');
+    const postMessage = vi.fn((message: { type: string }, transfer?: Transferable[]) => {
+      if (message.type === 'VERSION') (transfer?.[0] as MessagePort).postMessage({ version: '2026.1015.110000' });
+    });
+    const registration = { waiting: { postMessage }, update: vi.fn(async () => undefined), addEventListener: vi.fn() };
+    await registerServiceWorker({ serviceWorker: { controller: undefined, register: async () => registration } }, (url) => url);
+    requireUpdate('2026.1015.110000');
+    await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }));
+    expect(registration.update).toHaveBeenCalled();
   });
 });

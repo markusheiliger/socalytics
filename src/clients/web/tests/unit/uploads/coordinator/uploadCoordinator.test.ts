@@ -162,6 +162,22 @@ describe('upload coordinator', () => {
     expect(job(id)).toMatchObject({ state: 'paused', reason: 'unreachable', failureKind: 'unreachable' });
   });
 
+  it('pauses without losing the job when a request is blocked by a required update', async () => {
+    const { worker, uploads, transferring, job } = setup();
+    const id = await transferring();
+    uploads.issueGrants.mockRejectedValueOnce(new PlatformFailure('updateRequired'));
+    worker.emit({ type: 'needGrants', jobId: id, partNumbers: [1] });
+    await flush();
+    expect(job(id)).toMatchObject({ state: 'paused', reason: 'unreachable', failureKind: 'updateRequired' });
+  });
+
+  it('pauses a transferring job when set unreachable, which a required update does', async () => {
+    const { transferring, job, coordinator } = setup();
+    const id = await transferring();
+    coordinator.setUnreachable(true);
+    expect(job(id)).toMatchObject({ state: 'paused', reason: 'unreachable' });
+  });
+
   it('completes with the completion key when the mapping exists first', async () => {
     const { worker, uploads, transferring, job, coordinator } = setup();
     const id = await transferring();

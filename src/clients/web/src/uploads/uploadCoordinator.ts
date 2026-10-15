@@ -397,6 +397,7 @@ export function createUploadCoordinator(dependencies: CoordinatorDependencies): 
     const info = { failureKind: failure.kind, failureCode: failure.code };
     switch (failure.kind) {
       case 'unreachable':
+      case 'updateRequired':
       case 'storageUnavailable':
       case 'sessionEnded': {
         const reason: PausedReason = failure.kind === 'storageUnavailable' ? 'storageUnavailable' : failure.kind === 'sessionEnded' ? 'sessionEnded' : 'unreachable';

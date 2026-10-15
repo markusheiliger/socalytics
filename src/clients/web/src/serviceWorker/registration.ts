@@ -1,7 +1,7 @@
 import { serviceWorkerScriptUrl } from '../trustedTypes';
 import { compareVersions, isVersion } from './version';
 
-export type UpdateState = 'current' | 'available';
+export type UpdateState = 'current' | 'available' | 'required' | 'reload-required';
 
 interface WorkerLike {
   state?: string;
@@ -25,6 +25,7 @@ export interface ServiceWorkerHost {
 }
 
 export const defaultCheckPeriodMs = 15 * 60 * 1000;
+export const requiredReloadDelayMs = 30_000;
 
 // The check period is a non-production value; builds for tests shorten it with VITE_SOCALYTICS_UPDATE_CHECK_MS.
 function configuredPeriod(): number {
@@ -32,9 +33,12 @@ function configuredPeriod(): number {
   return Number.isFinite(value) && value > 0 ? value : defaultCheckPeriodMs;
 }
 
-// In-memory update state (data-model.md § Update State); `required` states arrive with the version-skew work.
+// In-memory update state (data-model.md § Update State).
 let state: UpdateState = 'current';
 let waiting: WorkerLike | undefined;
+let currentRegistration: RegistrationLike | undefined;
+let requiredMinimum: string | undefined;
+let reloadTimer: ReturnType<typeof setTimeout> | undefined;
 const listeners = new Set<() => void>();
 
 export function getUpdateState(): UpdateState {
@@ -48,7 +52,14 @@ export function subscribeUpdateState(listener: () => void): () => void {
   };
 }
 
+export function isUpdateBlocked(): boolean {
+  return state === 'required' || state === 'reload-required';
+}
+
 function setUpdate(next: UpdateState, worker?: WorkerLike): void {
+  if (isUpdateBlocked()) {
+    return;
+  }
   waiting = worker;
   if (state !== next) {
     state = next;
@@ -58,6 +69,10 @@ function setUpdate(next: UpdateState, worker?: WorkerLike): void {
 
 export function resetUpdateState(): void {
   waiting = undefined;
+  currentRegistration = undefined;
+  requiredMinimum = undefined;
+  clearTimeout(reloadTimer);
+  reloadTimer = undefined;
   state = 'current';
   listeners.forEach((listener) => listener());
 }
@@ -88,11 +103,52 @@ async function offerUpdate(worker: WorkerLike): Promise<void> {
   if (isVersion(running) && isVersion(offered) && compareVersions(offered, running) <= 0) {
     return;
   }
+  if (isUpdateBlocked()) {
+    if (state === 'required' && (!isVersion(requiredMinimum) || !isVersion(offered) || compareVersions(offered, requiredMinimum) >= 0)) {
+      worker.postMessage({ type: 'SKIP_WAITING' });
+    }
+    return;
+  }
   setUpdate('available', worker);
+}
+
+function setState(next: UpdateState): void {
+  if (state !== next) {
+    state = next;
+    listeners.forEach((listener) => listener());
+  }
+}
+
+/**
+ * The platform requires a release newer than the running one: enters `required`, checks for a newer worker, and
+ * activates it as soon as one waits; without one within 30 seconds the state becomes `reload-required`.
+ */
+export function requireUpdate(minimum: string): void {
+  if (isUpdateBlocked()) {
+    return;
+  }
+  requiredMinimum = minimum;
+  const alreadyWaiting = waiting;
+  waiting = undefined;
+  setState('required');
+  reloadTimer = setTimeout(() => setState('reload-required'), requiredReloadDelayMs);
+  if (alreadyWaiting) {
+    void offerUpdate(alreadyWaiting);
+  } else if (currentRegistration?.waiting) {
+    void offerUpdate(currentRegistration.waiting);
+  }
+  currentRegistration?.update?.().catch(() => undefined);
+}
+
+export function reloadApplication(): void {
+  globalThis.location.reload();
 }
 
 /** Activates the waiting worker; every window reloads on `controllerchange`. */
 export function applyUpdate(): void {
+  if (isUpdateBlocked()) {
+    return;
+  }
   waiting?.postMessage({ type: 'SKIP_WAITING' });
 }
 
@@ -132,6 +188,7 @@ export async function registerServiceWorker(host: ServiceWorkerHost | undefined 
   try {
     const registration = (await container.register(createScriptUrl('/sw.js'), { scope: '/', updateViaCache: 'none' })) as RegistrationLike | undefined;
     if (registration) {
+      currentRegistration = registration;
       // A first installation has no controller yet and must not reload the page when it takes control.
       const hadController = !!container.controller;
       container.addEventListener?.('controllerchange', () => {

@@ -19,7 +19,10 @@
   },
   "update": {
     "available": "A new version of SocAlytics is available.",
-    "action": "Update"
+    "action": "Update",
+    "required": "SocAlytics is updating to the version this server requires. Unsaved input on this screen is lost; uploads continue after the update.",
+    "reloadRequired": "Reload SocAlytics to continue. This server requires a newer version.",
+    "reload": "Reload"
   },
   "connectivity": {
     "unreachable": "The platform is not reachable. Actions that change data are disabled until it is reachable again."

@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import '../../../src/i18n';
 import { UpdateNotice } from '../../../src/shell/UpdateNotice';
-import { registerServiceWorker, resetUpdateState } from '../../../src/serviceWorker/registration';
+import { registerServiceWorker, requireUpdate, resetUpdateState } from '../../../src/serviceWorker/registration';
 
 describe('update notice', () => {
   afterEach(() => {
@@ -29,5 +29,25 @@ describe('update notice', () => {
     expect(await screen.findByText('A new version of SocAlytics is available.')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Update' }));
     expect(postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+  });
+});
+
+describe('required update notice', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    resetUpdateState();
+  });
+
+  it('blocks with the required text, then offers "Reload" after 30 seconds', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(<UpdateNotice />);
+    act(() => requireUpdate('2026.1015.110000'));
+    expect(await screen.findByText(/updating to the version this server requires/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Reload' })).not.toBeInTheDocument();
+    act(() => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(await screen.findByText(/Reload SocAlytics to continue/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeInTheDocument();
   });
 });
