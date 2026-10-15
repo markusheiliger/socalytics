@@ -5,7 +5,7 @@ description: "Task list for Analysis Result Manifests and Validated Acceptance"
 
 # Tasks: Analysis Result Manifests and Validated Acceptance
 
-**Input**: Design documents from `specs/20261013-125502-analysis-result-manifests/`
+**Input**: Design documents from `specs/archive/20261013-125502-analysis-result-manifests/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/result-grants-api.md](contracts/result-grants-api.md), [contracts/result-manifest.md](contracts/result-manifest.md), [contracts/result-acceptance.md](contracts/result-acceptance.md), [quickstart.md](quickstart.md)
 
