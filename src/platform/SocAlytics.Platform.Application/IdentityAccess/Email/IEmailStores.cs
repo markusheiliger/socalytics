@@ -86,6 +86,8 @@ public interface IMemberEmailAddressStore
 {
     Task<StoredMemberEmailAddress?> FindAsync(Guid accountId, CancellationToken cancellationToken);
 
+    Task<IReadOnlyDictionary<Guid, MemberEmailSummary>> ListSummariesAsync(IReadOnlyCollection<Guid> accountIds, CancellationToken cancellationToken);
+
     /// <summary>Inserts an unverified address; returns false when the account already has one.</summary>
     Task<bool> InsertAsync(Guid accountId, string address, string addressNormalized, Guid setBy, DateTimeOffset now, CancellationToken cancellationToken);
 

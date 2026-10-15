@@ -68,6 +68,34 @@ internal static class EmailEndpoints
 			.ProducesProblem(StatusCodes.Status400BadRequest)
 			.ProducesProblem(StatusCodes.Status401Unauthorized)
 			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+		members.MapGet("/members/{memberId:guid}/email", GetMemberEmailAsync)
+			.WithName("getMemberEmail")
+			.WithTags("Email")
+			.Produces<EmailAddressDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapPut("/members/{memberId:guid}/email", SetMemberEmailAsync)
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithName("setMemberEmail")
+			.WithTags("Email")
+			.Produces<EmailAddressDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
+		members.MapDelete("/members/{memberId:guid}/email", RemoveMemberEmailAsync)
+			.WithName("removeMemberEmail")
+			.WithTags("Email")
+			.Produces(StatusCodes.Status204NoContent)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 
 		routes.MapPost(MemberApiRouteGroup.Prefix + "/email-confirmations", ConfirmEmailAsync)
 			.AllowAnonymous()
@@ -124,6 +152,44 @@ internal static class EmailEndpoints
 		return Address(http, await handler.HandleAsync(accountId, cancellationToken));
 	}
 
+	private static async Task<IResult> GetMemberEmailAsync(
+		Guid memberId,
+		HttpContext http,
+		GetMemberEmailHandler handler,
+		CancellationToken cancellationToken) =>
+		Address(http, await handler.HandleAsync(memberId, cancellationToken));
+
+	private static async Task<IResult> SetMemberEmailAsync(
+		Guid memberId,
+		HttpContext http,
+		IRequestContext context,
+		SetEmailAddressHandler handler,
+		CancellationToken cancellationToken)
+	{
+		if (context.MemberAccountId is not { } actorId)
+		{
+			return ProblemResults.From(OperationFailure.Unauthenticated());
+		}
+
+		return await SetEmailAsync(http, memberId, actorId, true, handler, cancellationToken);
+	}
+
+	private static async Task<IResult> RemoveMemberEmailAsync(
+		Guid memberId,
+		HttpContext http,
+		RemoveEmailAddressHandler handler,
+		CancellationToken cancellationToken)
+	{
+		var version = IfMatchHeader.Parse(http.Request);
+		if (!version.IsSuccess)
+		{
+			return ProblemResults.From(version.Failure);
+		}
+
+		var result = await handler.HandleAsync(new RemoveEmailAddressCommand(memberId, version.Value, true), cancellationToken);
+		return result.IsSuccess ? Results.NoContent() : ProblemResults.From(result.Failure);
+	}
+
 	private static async Task<IResult> SetOwnEmailAsync(
 		HttpContext http,
 		IRequestContext context,
@@ -135,6 +201,17 @@ internal static class EmailEndpoints
 			return ProblemResults.From(OperationFailure.Unauthenticated());
 		}
 
+		return await SetEmailAsync(http, accountId, accountId, false, handler, cancellationToken);
+	}
+
+	private static async Task<IResult> SetEmailAsync(
+		HttpContext http,
+		Guid accountId,
+		Guid actorId,
+		bool clubAdminAction,
+		SetEmailAddressHandler handler,
+		CancellationToken cancellationToken)
+	{
 		long? expectedVersion = null;
 		if (http.Request.Headers.ContainsKey("If-Match"))
 		{
@@ -148,7 +225,7 @@ internal static class EmailEndpoints
 		}
 
 		var body = await ReadBodyAsync<SetEmailAddressRequest>(http, cancellationToken);
-		return Address(http, await handler.HandleAsync(new SetEmailAddressCommand(accountId, accountId, body?.Address, expectedVersion), cancellationToken));
+		return Address(http, await handler.HandleAsync(new SetEmailAddressCommand(accountId, actorId, body?.Address, expectedVersion, clubAdminAction), cancellationToken));
 	}
 
 	private static async Task<IResult> RemoveOwnEmailAsync(

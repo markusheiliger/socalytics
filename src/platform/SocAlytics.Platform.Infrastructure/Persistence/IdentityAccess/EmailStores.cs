@@ -1,5 +1,6 @@
 using Dapper;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Application.IdentityAccess.Email;
 
 namespace SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess;
@@ -28,6 +29,21 @@ internal sealed class MemberEmailAddressStore(IDbSession session) : IMemberEmail
             : new StoredMemberEmailAddress(
                 row.AccountId, row.Address, row.AddressNormalized, row.State, EmailRows.Utc(row.VerifiedAt),
                 row.SetBy, EmailRows.Utc(row.UpdatedAt), row.Version);
+    }
+
+    public async Task<IReadOnlyDictionary<Guid, MemberEmailSummary>> ListSummariesAsync(
+        IReadOnlyCollection<Guid> accountIds, CancellationToken cancellationToken)
+    {
+        if (accountIds.Count == 0)
+        {
+            return new Dictionary<Guid, MemberEmailSummary>();
+        }
+
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<(Guid AccountId, string Address, string State)>(new CommandDefinition(
+            "SELECT account_id AS AccountId, address AS Address, state AS State FROM socalytics.member_email_addresses WHERE account_id = ANY(@accountIds)",
+            new { accountIds = accountIds.ToArray() }, session.Transaction, cancellationToken: cancellationToken));
+        return rows.ToDictionary(r => r.AccountId, r => new MemberEmailSummary(r.Address, r.State));
     }
 
     public async Task<bool> InsertAsync(

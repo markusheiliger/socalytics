@@ -6,9 +6,9 @@ using SocAlytics.Platform.Domain.IdentityAccess;
 
 namespace SocAlytics.Platform.Application.IdentityAccess.Email;
 
-public sealed record SetEmailAddressCommand(Guid AccountId, Guid ActorAccountId, string? Address, long? ExpectedVersion);
+public sealed record SetEmailAddressCommand(Guid AccountId, Guid ActorAccountId, string? Address, long? ExpectedVersion, bool ClubAdminAction = false);
 
-public sealed record RemoveEmailAddressCommand(Guid AccountId, long ExpectedVersion);
+public sealed record RemoveEmailAddressCommand(Guid AccountId, long ExpectedVersion, bool ClubAdminAction = false);
 
 public sealed record ResendEmailConfirmationCommand(Guid AccountId);
 
@@ -27,12 +27,50 @@ public sealed class GetEmailAddressHandler(IUnitOfWork unitOfWork, IMemberEmailA
     }
 }
 
+internal static class MemberEmailAccess
+{
+    /// <summary>Checks that the caller administers the club and the target member exists; null means allowed.</summary>
+    public static async Task<OperationFailure?> CheckAsync(
+        IAccessAuthorizer authorizer, IMemberAccountStore accounts, Guid memberId, CancellationToken cancellationToken)
+    {
+        var decision = await authorizer.AuthorizeClubAsync(
+            ClubPermission.Administer, new AuditResource("member", memberId.ToString()), cancellationToken);
+        if (!decision.IsGranted)
+        {
+            return OperationFailure.Forbidden();
+        }
+
+        return await accounts.GetAccessSnapshotAsync(memberId, cancellationToken) is null ? OperationFailure.NotFound() : null;
+    }
+}
+
+public sealed class GetMemberEmailHandler(
+    IUnitOfWork unitOfWork,
+    IAccessAuthorizer authorizer,
+    IMemberAccountStore accounts,
+    IMemberEmailAddressStore addresses)
+{
+    public async Task<OperationResult<StoredMemberEmailAddress>> HandleAsync(Guid memberId, CancellationToken cancellationToken)
+    {
+        await using var scope = await unitOfWork.BeginAsync(cancellationToken);
+        if (await MemberEmailAccess.CheckAsync(authorizer, accounts, memberId, cancellationToken) is { } failure)
+        {
+            return failure;
+        }
+
+        var stored = await addresses.FindAsync(memberId, cancellationToken);
+        return stored is null ? OperationFailure.NotFound() : stored;
+    }
+}
+
 public sealed class SetEmailAddressHandler(
     IUnitOfWork unitOfWork,
     IMemberEmailAddressStore addresses,
     IEmailConfirmationStore confirmations,
     IEmailOutbox outbox,
     IAuditTrail audit,
+    IAccessAuthorizer authorizer,
+    IMemberAccountStore accounts,
     TimeProvider time)
 {
     public async Task<OperationResult<StoredMemberEmailAddress>> HandleAsync(SetEmailAddressCommand command, CancellationToken cancellationToken)
@@ -45,6 +83,12 @@ public sealed class SetEmailAddressHandler(
         }
 
         await using var scope = await unitOfWork.BeginAsync(cancellationToken);
+        if (command.ClubAdminAction
+            && await MemberEmailAccess.CheckAsync(authorizer, accounts, command.AccountId, cancellationToken) is { } denied)
+        {
+            return denied;
+        }
+
         var existing = await addresses.FindAsync(command.AccountId, cancellationToken);
         var now = time.GetUtcNow();
         if (existing is null)
@@ -96,13 +140,21 @@ public sealed class RemoveEmailAddressHandler(
     IUnitOfWork unitOfWork,
     IMemberEmailAddressStore addresses,
     IEmailConfirmationStore confirmations,
-    IAuditTrail audit)
+    IAuditTrail audit,
+    IAccessAuthorizer authorizer,
+    IMemberAccountStore accounts)
 {
     public async Task<OperationResult<bool>> HandleAsync(RemoveEmailAddressCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
 
         await using var scope = await unitOfWork.BeginAsync(cancellationToken);
+        if (command.ClubAdminAction
+            && await MemberEmailAccess.CheckAsync(authorizer, accounts, command.AccountId, cancellationToken) is { } denied)
+        {
+            return denied;
+        }
+
         var existing = await addresses.FindAsync(command.AccountId, cancellationToken);
         if (existing is null)
         {
