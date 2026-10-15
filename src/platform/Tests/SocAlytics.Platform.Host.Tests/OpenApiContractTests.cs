@@ -82,7 +82,10 @@ public sealed class OpenApiContractTests
 	private static bool IsEmailPath(string path) =>
 		path == "/api/v1/me/email"
 		|| path.StartsWith("/api/v1/me/email/", StringComparison.Ordinal)
-		|| path == "/api/v1/email-confirmations";
+		|| path == "/api/v1/email-confirmations"
+		|| path == "/api/v1/me/notification-preferences"
+		|| path.StartsWith("/api/v1/me/notification-preferences/", StringComparison.Ordinal)
+		|| path == "/api/v1/members/{memberId}/email";
 
 	private static bool IsAnalysisPath(string path) =>
 		path.StartsWith("/api/v1/analysis/", StringComparison.Ordinal)
