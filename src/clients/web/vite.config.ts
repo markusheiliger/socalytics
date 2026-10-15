@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { sri } from 'vite-plugin-sri3';
 import { defineConfig } from 'vite';
@@ -31,12 +32,13 @@ const contentSecurityPolicy = [
   'media-src blob:',
   `connect-src ${connectSources}`,
   "worker-src 'self'",
+  "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
   "require-trusted-types-for 'script'",
-  'trusted-types default react-dom upload-worker',
+  'trusted-types default react-dom upload-worker service-worker',
 ].join('; ');
 
 // Hot reload needs inline scripts, eval, and a WebSocket; this policy is never used to measure CSP.
@@ -49,6 +51,7 @@ const developmentContentSecurityPolicy = [
   'media-src blob:',
   `connect-src ${connectSources} ws: wss:`,
   "worker-src 'self'",
+  "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",
@@ -63,7 +66,14 @@ const commonHeaders = {
 export default defineConfig({
   plugins: [react(), sri(), pwaShell()],
   // Font files must stay separate files because font-src does not allow data: URLs.
-  build: { assetsInlineLimit: 0 },
+  // The service worker is a separate, self-contained entry at the fixed URL /sw.js.
+  build: {
+    assetsInlineLimit: 0,
+    rollupOptions: {
+      input: { index: fileURLToPath(new URL('index.html', import.meta.url)), sw: fileURLToPath(new URL('src/serviceWorker/sw.ts', import.meta.url)) },
+      output: { entryFileNames: (chunk) => (chunk.name === 'sw' ? 'sw.js' : 'assets/[name]-[hash].js') },
+    },
+  },
   server: { port, proxy, headers: { ...commonHeaders, 'Content-Security-Policy': developmentContentSecurityPolicy } },
   preview: { port, proxy, headers: { ...commonHeaders, 'Content-Security-Policy': contentSecurityPolicy } },
 });
