@@ -115,7 +115,7 @@ test('resumes a 40 MiB upload after a reload and forgets it after sign-out (SC-0
   await expect(page).toHaveURL(/sign-in/);
   await signIn();
   await page.goto(matchUrl);
-  await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible();
   await expect(
     page.getByRole('list', { name: 'Pending uploads of this match' }).getByRole('listitem'),
   ).toHaveCount(0);

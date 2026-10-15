@@ -146,7 +146,7 @@ test('refuses non-video files and shows the platform reason for a refused start 
 test('offers no upload action to a Viewer (scenario 8)', async ({ page, api }) => {
   api.signInAs('Viewer');
   await page.goto(`/matches/${match.id}`);
-  await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible();
   await expect(page.getByLabel('Video files')).toHaveCount(0);
   await expectNoAxeViolations(page);
 });

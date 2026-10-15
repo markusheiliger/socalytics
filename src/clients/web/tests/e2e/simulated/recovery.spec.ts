@@ -76,7 +76,7 @@ test('abandons a pending upload with the expiry explanation (scenario 5)', async
   await item.getByRole('button', { name: 'Abandon Main camera' }).click();
   await expect(pending(page)).toHaveCount(0);
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible();
   await expect(pending(page)).toHaveCount(0);
 });
 
@@ -99,7 +99,7 @@ test('deletes the remembered uploads on explicit sign-out only (scenario 7; diff
   await expect(page).toHaveURL(/sign-in/);
   api.signInAs('Coach');
   await page.goto(`/matches/${match.id}`);
-  await expect(page.getByRole('heading', { name: 'Recordings' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recordings', exact: true })).toBeVisible();
   await expect(pending(page)).toHaveCount(0);
 });
 

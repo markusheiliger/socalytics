@@ -10,6 +10,8 @@ const adminPassword = process.env.SOCALYTICS_E2E_ADMIN_PASSWORD ?? 'E2e-Admin-Pa
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
+  // The simulated specs share one fake object store and its fault state, so spec files must not run concurrently.
+  workers: 1,
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
