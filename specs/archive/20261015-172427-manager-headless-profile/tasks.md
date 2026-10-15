@@ -5,7 +5,7 @@ description: "Task list for Analyst Manager Headless Server Profile"
 
 # Tasks: Analyst Manager Headless Server Profile
 
-**Input**: Design documents from `specs/20261015-172427-manager-headless-profile/`
+**Input**: Design documents from `specs/archive/20261015-172427-manager-headless-profile/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/headless-manager.md](contracts/headless-manager.md), [quickstart.md](quickstart.md)
 
