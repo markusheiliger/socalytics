@@ -1,0 +1,243 @@
+name: Dependency download caches
+
+on:
+  workflow_dispatch:
+    inputs:
+      benchmark-chromium:
+        description: Measure Chromium download versus cache restore on fresh runners, then delete the benchmark cache
+        type: boolean
+        default: false
+  push:
+    paths:
+      - "**/*.csproj"
+      - "**/*.fsproj"
+      - "**/*.vbproj"
+      - "**/*.props"
+      - "**/*.targets"
+      - "**/*.sln"
+      - "**/*.slnx"
+      - "**/global.json"
+      - "**/[Nn]u[Gg]et.[Cc]onfig"
+      - "**/packages.lock.json"
+      - "**/dotnet-tools.json"
+      - "**/package.json"
+      - "**/package-lock.json"
+      - "**/npm-shrinkwrap.json"
+      - "**/.npmrc"
+      - ".github/actions/environment-setup/**"
+      - ".github/actions/speckit-copilot/action.yml"
+      - ".github/workflows/dependency-cache.yml"
+
+permissions: {}
+
+concurrency:
+  group: dependency-cache-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  populate:
+    name: Populate downloads from the trusted default branch
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out the trusted default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Restore dependency downloads without installing executable tools
+        id: setup
+        uses: ./.github/actions/environment-setup
+        with:
+          workspace: .
+          install-tools: "false"
+
+      # Only this job saves shared caches. No agent, implementation checkout, build, test, or npm lifecycle script runs.
+      - name: Populate NuGet downloads
+        if: steps.setup.outputs.nuget-hit != 'true'
+        shell: bash
+        env:
+          KIOTA_VERSION: ${{ steps.setup.outputs.kiota-version }}
+        run: |
+          start=$SECONDS
+          dotnet restore src/platform/SocAlytics.Platform.slnx
+          dotnet restore src/analysts/manager/SocAlytics.Analysts.Manager.slnx
+          dotnet tool install --tool-path "$RUNNER_TEMP/cache-kiota" Microsoft.OpenApi.Kiota --version "$KIOTA_VERSION"
+          echo "NuGet population: $((SECONDS - start)) s" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Populate npm downloads without lifecycle scripts
+        if: steps.setup.outputs.npm-hit != 'true'
+        shell: bash
+        env:
+          NPM_TOOLS: ${{ steps.setup.outputs.npm-tools }}
+        run: |
+          start=$SECONDS
+          npm ci --prefix src/clients/web --ignore-scripts --no-audit --no-fund
+          read -r -a tools <<< "$NPM_TOOLS"
+          npm install --prefix "$RUNNER_TEMP/cache-npm-tools" --ignore-scripts --no-audit --no-fund "${tools[@]}"
+          echo "npm population: $((SECONDS - start)) s" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save trusted NuGet downloads
+        if: steps.setup.outputs.nuget-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.setup.outputs.nuget-path }}
+          key: ${{ steps.setup.outputs.nuget-key }}
+
+      - name: Save trusted npm downloads
+        if: steps.setup.outputs.npm-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.setup.outputs.npm-path }}
+          key: ${{ steps.setup.outputs.npm-key }}
+
+      - name: Report stored cache sizes
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUGET_KEY: ${{ steps.setup.outputs.nuget-key }}
+          NPM_KEY: ${{ steps.setup.outputs.npm-key }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync } from 'node:fs';
+          for (const key of [process.env.NUGET_KEY, process.env.NPM_KEY].filter(Boolean)) {
+            const response = await fetch(`${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/actions/caches?key=${encodeURIComponent(key)}`, {
+              headers: { Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json' },
+            });
+            if (!response.ok) { console.log(`Cache size query unavailable: ${response.status}`); continue; }
+            const caches = (await response.json()).actions_caches.filter(cache => cache.key === key && cache.ref === process.env.GITHUB_REF);
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Stored cache \`${key}\`: ${caches.reduce((sum, cache) => sum + cache.size_in_bytes, 0)} bytes (compressed).\n`);
+          }
+          JS
+
+  chromium-cold:
+    name: Benchmark a cold Chromium install
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && inputs.benchmark-chromium == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      cold-ms: ${{ steps.install.outputs.elapsed-ms }}
+      cache-key: ${{ steps.version.outputs.cache-key }}
+    steps:
+      - name: Check out the trusted default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Read the trusted Playwright pin
+        id: version
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync, readFileSync } from 'node:fs';
+          const version = readFileSync('.github/actions/environment-setup/action.yml', 'utf8').match(/playwright@([\d.]+)/)[1];
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\ncache-key=socalytics-chromium-benchmark-${process.env.RUNNER_OS}-${process.env.RUNNER_ARCH}-${version}-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}\n`);
+          JS
+
+      - name: Measure the cold browser and system dependency install
+        id: install
+        env:
+          PLAYWRIGHT_VERSION: ${{ steps.version.outputs.version }}
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/chromium-benchmark
+        run: |
+          npm install --prefix "$RUNNER_TEMP/playwright-benchmark-tool" --ignore-scripts --no-audit --no-fund "playwright@$PLAYWRIGHT_VERSION"
+          start="$(date +%s%3N)"
+          "$RUNNER_TEMP/playwright-benchmark-tool/node_modules/.bin/playwright" install --with-deps chromium
+          elapsed="$(( $(date +%s%3N) - start ))"
+          echo "elapsed-ms=$elapsed" >> "$GITHUB_OUTPUT"
+          echo "Cold Chromium + system dependencies: $elapsed ms" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the isolated benchmark browser
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/chromium-benchmark
+          key: ${{ steps.version.outputs.cache-key }}
+
+  chromium-warm:
+    name: Benchmark Chromium restore on a fresh runner
+    needs: chromium-cold
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions: {}
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Prepare the same Playwright tool outside the timed browser install
+        env:
+          PLAYWRIGHT_VERSION: ${{ needs.chromium-cold.outputs.version }}
+        run: npm install --prefix "$RUNNER_TEMP/playwright-benchmark-tool" --ignore-scripts --no-audit --no-fund "playwright@$PLAYWRIGHT_VERSION"
+
+      - name: Start the warm browser measurement
+        run: echo "CHROMIUM_START_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
+
+      - name: Restore the isolated benchmark browser
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/chromium-benchmark
+          key: ${{ needs.chromium-cold.outputs.cache-key }}
+          fail-on-cache-miss: true
+
+      - name: Measure the cached browser and fresh system dependency install
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/chromium-benchmark
+          COLD_MS: ${{ needs.chromium-cold.outputs.cold-ms }}
+        run: |
+          restored="$(date +%s%3N)"
+          "$RUNNER_TEMP/playwright-benchmark-tool/node_modules/.bin/playwright" install --with-deps chromium
+          elapsed="$(( $(date +%s%3N) - CHROMIUM_START_MS ))"
+          {
+            echo "Chromium restore: $((restored - CHROMIUM_START_MS)) ms"
+            echo "Warm restore + fresh system dependencies: $elapsed ms; cold: $COLD_MS ms"
+            echo "Benchmark only: implementation jobs still download Chromium. Enable caching only after repeated net savings."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  chromium-cleanup:
+    name: Delete the temporary Chromium benchmark cache
+    needs: [chromium-cold, chromium-warm]
+    if: always() && needs.chromium-cold.outputs.cache-key != ''
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete only this run's benchmark cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CACHE_KEY: ${{ needs.chromium-cold.outputs.cache-key }}
+        run: |
+          node --input-type=module <<'JS'
+          const base = `${process.env.GITHUB_API_URL}/repos/${process.env.GITHUB_REPOSITORY}/actions/caches`;
+          const headers = { Authorization: 'Bearer ' + process.env.GH_TOKEN, Accept: 'application/vnd.github+json' };
+          const response = await fetch(`${base}?key=${encodeURIComponent(process.env.CACHE_KEY)}`, { headers });
+          if (!response.ok) throw new Error(`Cannot list benchmark caches: ${response.status}`);
+          for (const cache of (await response.json()).actions_caches) {
+            if (cache.key !== process.env.CACHE_KEY || cache.ref !== process.env.GITHUB_REF) continue;
+            const deleted = await fetch(`${base}/${cache.id}`, { method: 'DELETE', headers });
+            if (!deleted.ok && deleted.status !== 404) throw new Error(`Cannot delete benchmark cache: ${deleted.status}`);
+          }
+          JS

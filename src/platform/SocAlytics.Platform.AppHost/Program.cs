@@ -110,7 +110,8 @@ if (e2eMode)
     api.WithEnvironment("ClubBootstrap__FirstClubAdmin__InitialPassword", e2eAdminPassword);
 }
 
-if (!e2eMode && builder.Configuration.GetValue("SocAlytics:ApiHttpsEndpoint", true))
+// The e2e mode keeps the HTTPS endpoint: the Manager endpoints require HTTPS, and the Web UI's proxy forwards to it.
+if (builder.Configuration.GetValue("SocAlytics:ApiHttpsEndpoint", true))
 {
     api.WithHttpsEndpoint();
     api.WithEnvironment("Stamp__PublicBaseUri", ReferenceExpression.Create($"{api.GetEndpoint("https").Property(EndpointProperty.Url)}"));
@@ -138,5 +139,8 @@ if (e2eMode)
     // sends; the fixed e2e port makes the browser origins known.
     rustfs.WithEnvironment("RUSTFS_CORS_ALLOWED_ORIGINS", string.Concat("http://127.0.0.1:", WebE2ePort.ToString(), ",http://localhost:", WebE2ePort.ToString()));
 }
+
+// Managers print this origin as the address where a person enters the pairing code.
+api.WithEnvironment("Registry__Pairing__VerificationBaseUri", ReferenceExpression.Create($"{web.GetEndpoint("http").Property(EndpointProperty.Url)}"));
 
 builder.Build().Run();

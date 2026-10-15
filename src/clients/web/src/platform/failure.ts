@@ -12,6 +12,9 @@ export type PlatformFailureKind =
   | 'uploadPartsRefused'
   | 'uploadIntegrityFailed'
   | 'storageUnavailable'
+  | 'pairingRefused'
+  | 'rateLimited'
+  | 'decisionConflict'
   | 'programmingError'
   | 'sessionProblem'
   | 'unreachable'
@@ -28,6 +31,7 @@ export interface FailureDetails {
   code?: string;
   correlationId?: string;
   fieldErrors?: FieldError[];
+  retryAfterSeconds?: number;
 }
 
 export class PlatformFailure extends Error {
@@ -36,6 +40,7 @@ export class PlatformFailure extends Error {
   readonly code?: string;
   readonly correlationId?: string;
   readonly fieldErrors: FieldError[];
+  readonly retryAfterSeconds?: number;
 
   constructor(kind: PlatformFailureKind, details: FailureDetails = {}) {
     super(`Platform request failed: ${kind}`);
@@ -45,6 +50,7 @@ export class PlatformFailure extends Error {
     this.code = details.code;
     this.correlationId = details.correlationId;
     this.fieldErrors = details.fieldErrors ?? [];
+    this.retryAfterSeconds = details.retryAfterSeconds;
   }
 }
 
@@ -73,11 +79,12 @@ export function parseProblem(value: unknown): ProblemBody {
 }
 
 // Kiota's ApiError carries the status; the problem fields are in `additionalData`.
-function problemOf(error: unknown): { status?: number; problem: ProblemBody } {
-  const e = error as { responseStatusCode?: unknown; additionalData?: unknown };
-  const status = typeof e.responseStatusCode === 'number' ? e.responseStatusCode : undefined;
-  const data = (e.additionalData ?? {}) as Record<string, unknown>;
-  return { status, problem: parseProblem(data) };
+function retryAfterOf(headers: unknown): number | undefined {
+  if (typeof headers !== 'object' || headers === null) return undefined;
+  const entry = Object.entries(headers).find(([name]) => name.toLowerCase() === 'retry-after');
+  const raw = Array.isArray(entry?.[1]) ? entry[1][0] : entry?.[1];
+  const seconds = typeof raw === 'string' && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : undefined;
+  return seconds;
 }
 
 const CONFLICT_KINDS: Record<string, PlatformFailureKind> = {
@@ -91,12 +98,23 @@ const CONFLICT_KINDS: Record<string, PlatformFailureKind> = {
   'idempotency-key-reused': 'programmingError',
 };
 
-export function mapProblem(status: number | undefined, problem: ProblemBody): PlatformFailure {
+function problemOf(error: unknown): { status?: number; problem: ProblemBody; retryAfterSeconds?: number } {
+  const e = error as { responseStatusCode?: unknown; additionalData?: unknown; responseHeaders?: unknown };
+  const status = typeof e.responseStatusCode === 'number' ? e.responseStatusCode : undefined;
+  const data = (e.additionalData ?? {}) as Record<string, unknown>;
+  return { status, problem: parseProblem(data), retryAfterSeconds: retryAfterOf(e.responseHeaders) };
+}
+
+const DECISION_CONFLICT_CODES = ['invalid-state-transition', 'analyst-manager-registration-expired'];
+const QUERY_FIELDS = ['state', 'continuationToken'];
+
+export function mapProblem(status: number | undefined, problem: ProblemBody, retryAfterSeconds?: number): PlatformFailure {
   const details: FailureDetails = {
     status,
     code: problem.code,
     correlationId: problem.correlationId,
     fieldErrors: problem.errors,
+    retryAfterSeconds,
   };
   if (status === undefined) return new PlatformFailure('incompatible', details);
   if (status === 401) return new PlatformFailure('sessionEnded', details);
@@ -107,9 +125,13 @@ export function mapProblem(status: number | undefined, problem: ProblemBody): Pl
   }
   if (status === 400) {
     if (problem.code === 'idempotency-key-missing') return new PlatformFailure('programmingError', details);
+    if (problem.code === 'analyst-manager-pairing-code-invalid') return new PlatformFailure('pairingRefused', details);
+    if (problem.errors?.some((e) => QUERY_FIELDS.includes(e.field))) return new PlatformFailure('programmingError', details);
     return new PlatformFailure('validation', details);
   }
+  if (status === 429 && problem.code === 'analyst-manager-rate-limited') return new PlatformFailure('rateLimited', details);
   if (status === 409) {
+    if (problem.code && DECISION_CONFLICT_CODES.includes(problem.code)) return new PlatformFailure('decisionConflict', details);
     const kind = CONFLICT_KINDS[problem.code ?? ''];
     return new PlatformFailure(kind ?? 'conflict', details);
   }
@@ -126,8 +148,8 @@ export function toPlatformFailure(error: unknown): PlatformFailure {
   if (error instanceof PlatformFailure) return error;
   if (error instanceof TypeError) return new PlatformFailure('unreachable');
   if (typeof error === 'object' && error !== null && 'responseStatusCode' in error) {
-    const { status, problem } = problemOf(error);
-    return mapProblem(status, problem);
+    const { status, problem, retryAfterSeconds } = problemOf(error);
+    return mapProblem(status, problem, retryAfterSeconds);
   }
   return new PlatformFailure('incompatible');
 }

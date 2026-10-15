@@ -170,6 +170,75 @@ The logic (level resolution, arguments, rejection detection) lives in
 [speckit-copilot.mjs](../scripts/speckit-copilot.mjs) and is covered by its tests, including a check that
 `models.json` is valid and that every `level` used in a workflow exists in it.
 
+## Dependency Download Caches
+
+[Dependency download caches](dependency-cache.yml) populates NuGet and npm downloads from a credential-free checkout
+of the default branch. It runs on dependency/tooling changes there, or manually on that branch. Non-default-branch
+runs are skipped; it has no input for another checkout ref. It never invokes an agent, builds, or tests. npm
+population disables lifecycle scripts; NuGet restore evaluates only the trusted default branch's projects.
+
+The shared [environment setup action](../actions/environment-setup/action.yml) uses explicit **restore-only** cache
+actions before installing tools. Implementation and verification jobs never save their modified caches. Restoring
+does not execute workspace restore targets or npm scripts. Existing tool installs, `dotnet restore`, `npm ci`,
+builds, and tests still run normally. Missing or unavailable caches fall back to ordinary downloads; a hit is not
+evidence of a successful build or test.
+
+Keys separate ecosystem, runner OS/architecture, actual SDK or Node/npm versions, and dependency contents. NuGet
+inputs include both solutions' central package lists, project files, props, targets, solutions, SDK pins, package
+lockfiles when present, tool manifests, and feed configuration. npm inputs include package declarations, lockfiles,
+and npm configuration. Tool versions come from the trusted setup and Copilot actions. Keys contain neither a
+commit SHA nor an absolute checkout path. There are no broad fallback keys. Bump the `socalytics-downloads-v1`
+schema in [cache-keys.mjs](../actions/environment-setup/cache-keys.mjs) when changing cache provenance or format.
+
+Only `~/.nuget/packages` and npm's `~/.npm/_cacache` are saved: no credentials/configuration, npm logs,
+`node_modules`, build outputs, test results, databases, or agent state. Configuration contents influence hashes but
+are not stored in the caches. A task that changes dependencies may miss the trusted cache until its changes land;
+its normal restore still resolves the new dependencies. Separate tasks with unchanged dependency inputs reuse the
+same downloads.
+
+### Measurements And Rollout
+
+Before changing the actions, the logs of
+[run 38701098384, job 116309370584](https://github.com/markusheiliger/socalytics/actions/runs/38701098384/job/116309370584)
+provided this uncached sample on 2026-10-15:
+
+| Operation | Observed duration |
+| --- | --- |
+| Environment setup (GitHub step timestamps) | 48 s |
+| Markdown tool install | 5.6 s |
+| Kiota install | 2.0 s |
+| Chromium and system dependency install | 19.4 s |
+| Platform restore | 6.6 s |
+| Platform build | 22.6 s |
+| Sequential platform test commands, including startup | 260.2 s |
+
+This conflict-resolution sample had pre-existing test failures and stopped before Manager/Web checks. It is an
+initial baseline, **not** a successful acceptance run, a complete phase measurement, or evidence of cache savings.
+
+Every verification now writes separate command durations and exit codes to its log and job summary. GitHub's step
+timings distinguish SDK setup, cache restores, and tool installation. Setup summaries report exact cache hits and
+uncompressed restored bytes; the population job also queries GitHub for compressed stored sizes. Population time
+is reported separately from consumer time.
+
+After this tooling reaches the default branch:
+
+1. Run **Dependency download caches** there to populate the caches, then run it again to verify exact hits and stored
+   sizes. Dependency changes also trigger population automatically.
+2. Compare successful cold and warm implementation/verification runs with equivalent dependency inputs, runner
+   images, verification modes, and test scope. Record setup, restore, build, and test durations separately.
+3. Measure the phase's elapsed wall-clock time from planning through phase verification, including scheduling and
+   commit jobs; do not add parallel task durations together. Separate Copilot execution from cache-related gains.
+4. Track exact hit rates and the sizes/evictions under the repository's Actions cache settings. Cache archives and
+   restore overhead can outweigh short restores; retain this scope only when repeated runs show net benefit.
+5. To benchmark Chromium independently, dispatch the workflow with **benchmark-chromium** enabled. Two fresh
+   runners compare download plus system dependencies with cache restore plus fresh system dependencies. Playwright
+   tool installation is outside both timed intervals. A separate always-run cleanup job deletes only that run's
+   isolated benchmark cache. If cancellation interrupts cleanup, remove its `socalytics-chromium-benchmark-` entry
+   from Actions caches manually.
+
+Chromium caching is **not enabled** for implementation jobs. Only adopt it after repeated benchmarks demonstrate
+net savings. No speedup or cold/warm phase comparison is claimed before those default-branch runs complete.
+
 ## Editing
 
 The agentic workflows are authored in their `.md` file. Recompile them with `gh aw compile` and never hand-edit the

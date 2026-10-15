@@ -15,15 +15,91 @@ inputs:
   workspace:
     description: Path of the checked-out code, relative to the GitHub workspace
     required: true
+  install-tools:
+    description: Install executable tools and browser dependencies (false only for the trusted cache population job)
+    required: false
+    default: "true"
+outputs:
+  nuget-key:
+    description: Exact NuGet download cache key
+    value: ${{ steps.cache-keys.outputs.nuget-key }}
+  npm-key:
+    description: Exact npm download cache key
+    value: ${{ steps.cache-keys.outputs.npm-key }}
+  nuget-path:
+    description: NuGet packages directory (no credentials or build outputs)
+    value: ${{ steps.cache-keys.outputs.nuget-path }}
+  npm-path:
+    description: npm content-addressed download directory (no configuration or logs)
+    value: ${{ steps.cache-keys.outputs.npm-path }}
+  nuget-hit:
+    description: Whether the exact NuGet cache was restored
+    value: ${{ steps.nuget-cache.outputs.cache-hit }}
+  npm-hit:
+    description: Whether the exact npm cache was restored
+    value: ${{ steps.npm-cache.outputs.cache-hit }}
+  npm-tools:
+    description: Pinned npm tools to download in the trusted population job
+    value: ${{ steps.cache-keys.outputs.npm-tools }}
+  kiota-version:
+    description: Pinned Kiota version to download in the trusted population job
+    value: ${{ steps.cache-keys.outputs.kiota-version }}
 runs:
   using: composite
   steps:
     - name: Set up .NET
+      id: dotnet
       uses: actions/setup-dotnet@v5
       with:
         global-json-file: ${{ inputs.workspace }}/src/platform/global.json
 
+    # Only hashes workspace files; never runs its restore targets or npm lifecycle scripts here.
+    - name: Calculate dependency cache keys
+      id: cache-keys
+      shell: bash
+      env:
+        CACHE_WORKSPACE: ${{ inputs.workspace }}
+        CACHE_DOTNET_VERSION: ${{ steps.dotnet.outputs.dotnet-version }}
+      run: node "$GITHUB_ACTION_PATH/cache-keys.mjs" "$CACHE_WORKSPACE"
+
+    # Explicit restore-only actions have no post-job save, even after the agent or tests modify these directories.
+    - name: Restore NuGet downloads
+      id: nuget-cache
+      continue-on-error: true
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache-keys.outputs.nuget-path }}
+        key: ${{ steps.cache-keys.outputs.nuget-key }}
+
+    - name: Restore npm downloads
+      id: npm-cache
+      continue-on-error: true
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.cache-keys.outputs.npm-path }}
+        key: ${{ steps.cache-keys.outputs.npm-key }}
+
+    - name: Report dependency cache restores
+      shell: bash
+      env:
+        NUGET_HIT: ${{ steps.nuget-cache.outputs.cache-hit }}
+        NPM_HIT: ${{ steps.npm-cache.outputs.cache-hit }}
+      run: |
+        {
+          echo "### Dependency download caches"
+          echo "| Ecosystem | Exact hit | Restored bytes (uncompressed) |"
+          echo "| --- | --- | --- |"
+          for ecosystem in nuget npm; do
+            if [ "$ecosystem" = nuget ]; then directory="$NUGET_PACKAGES"; hit="$NUGET_HIT"
+            else directory="$NPM_CONFIG_CACHE/_cacache"; hit="$NPM_HIT"; fi
+            bytes=0
+            if [ -d "$directory" ]; then bytes="$(du -sb "$directory" | cut -f1)"; fi
+            echo "| $ecosystem | ${hit:-false} | $bytes |"
+          done
+        } >> "$GITHUB_STEP_SUMMARY"
+
     - name: Install the Markdown linters
+      if: inputs.install-tools == 'true'
       shell: bash
       run: npm install --global markdownlint-cli2@0.23.3 markdown-link-check@3.15.0
 
@@ -31,10 +107,12 @@ runs:
     # on the stable PKCS#11 interface. No token is created here; each test run creates its own through SOFTHSM2_CONF.
     # The runner image's package lists usually suffice; refreshing them (about 15 s) only happens when the install fails.
     - name: Install the SoftHSM2 PKCS#11 token
+      if: inputs.install-tools == 'true'
       shell: bash
       run: sudo apt-get install --yes softhsm2 || { sudo apt-get update && sudo apt-get install --yes softhsm2; }
 
     - name: Install the Kiota client generator
+      if: inputs.install-tools == 'true'
       shell: bash
       run: |
         dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0
@@ -43,5 +121,6 @@ runs:
 
     # The version must equal WEB_PLAYWRIGHT in environment-verify, which checks the project's @playwright/test pin.
     - name: Install the Playwright Chromium browser
+      if: inputs.install-tools == 'true'
       shell: bash
       run: npx --yes playwright@1.63.0 install --with-deps chromium

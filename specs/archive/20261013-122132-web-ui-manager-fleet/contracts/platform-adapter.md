@@ -1,7 +1,7 @@
 # Contract: Registration Adapter (addition)
 
 Extends the foundation's
-[platform-adapter.md](../../archive/20261012-150657-web-ui-foundation/contracts/platform-adapter.md).
+[platform-adapter.md](../../20261012-150657-web-ui-foundation/contracts/platform-adapter.md).
 
 ## Adapter
 

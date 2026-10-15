@@ -32,9 +32,9 @@ The React Web UI supports connected platform and club workflows, including:
 - club, season, and team management
 - club-user and team-role management
 - platform configuration and administration
-- the Analyst Manager fleet view for Club Admins: registration approval,
-  rejection, and revocation, and each Manager's connectivity, operating state,
-  and activity (see
+- Analyst Manager pairing for Registrars and the fleet view for Club Admins
+  (implemented): registration approval, rejection, and revocation, and each
+  Manager's connectivity, operating state, and activity (see
   [Analyst Manager](analyst-manager.md#fleet-visibility-in-the-web-ui))
 - match creation, recording uploads, and upload finalization
 - team and match review, analytics, and agent conversations for coaches
