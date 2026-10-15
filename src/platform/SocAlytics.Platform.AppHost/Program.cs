@@ -127,12 +127,19 @@ else
 const string webDirectory = "../../clients/web";
 var web = builder.AddViteApp("web", webDirectory, e2eMode ? "preview" : "dev")
     .WithReference(api)
-    .WaitFor(api);
+    .WaitFor(api)
+    // Browser part uploads go straight to the object store, so the Web UI must allow that origin in its CSP
+    // and the store must allow the Web UI origin in its CORS preflight (development only).
+    .WithEnvironment("SOCALYTICS_OBJECT_STORAGE_ORIGIN", ReferenceExpression.Create($"{rustfsEndpoint.Property(EndpointProperty.Url)}"));
+rustfs.WithEnvironment("RUSTFS_CORS_ALLOWED_ORIGINS", ReferenceExpression.Create($"{web.GetEndpoint("http").Property(EndpointProperty.Url)}"));
 
 if (e2eMode)
 {
     // The built Web UI is served by `vite preview` on a fixed origin for the browser tests.
     web.WithEndpoint("http", endpoint => endpoint.Port = WebE2ePort);
+    // The endpoint reference above resolves to the container network's host alias, which is not the origin the browser
+    // sends; the fixed e2e port makes the browser origins known.
+    rustfs.WithEnvironment("RUSTFS_CORS_ALLOWED_ORIGINS", string.Concat("http://127.0.0.1:", WebE2ePort.ToString(), ",http://localhost:", WebE2ePort.ToString()));
 }
 
 // Managers print this origin as the address where a person enters the pairing code.

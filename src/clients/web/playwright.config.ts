@@ -2,12 +2,16 @@ import { defineConfig, devices } from '@playwright/test';
 
 const previewUrl = 'http://127.0.0.1:4173';
 
+const fakeStoragePort = 4175;
+const fakeStorageUrl = `http://127.0.0.1:${fakeStoragePort}`;
 const platformUrl = 'http://127.0.0.1:4174';
 const simulatedOnly = process.argv.some((arg, i, all) => (arg === '--project' && all[i + 1] === 'simulated') || arg === '--project=simulated');
 const adminPassword = process.env.SOCALYTICS_E2E_ADMIN_PASSWORD ?? 'E2e-Admin-Password-0001';
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,
+  // The simulated specs share one fake object store and its fault state, so spec files must not run concurrently.
+  workers: 1,
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
   use: {
@@ -54,11 +58,35 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
+      name: 'platform-matches',
+      testDir: './tests/e2e/platform',
+      testMatch: /matches\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-members'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
+      name: 'platform-upload',
+      testDir: './tests/e2e/platform',
+      testMatch: /upload-flow\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-matches'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
+      name: 'platform-recovery',
+      testDir: './tests/e2e/platform',
+      testMatch: /recovery\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-upload'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
       name: 'platform',
       testDir: './tests/e2e/platform',
       testMatch: /manager-fleet\.spec\.ts$/,
       fullyParallel: false,
-      dependencies: ['platform-members'],
+      dependencies: ['platform-recovery'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
   ],
@@ -67,6 +95,15 @@ export default defineConfig({
       command: 'npm run preview -- --host 127.0.0.1 --port 4173 --strictPort',
       url: previewUrl,
       reuseExistingServer: !process.env.CI,
+      // The preview policy allows the fake object store in connect-src (contracts/development-storage.md).
+      env: { SOCALYTICS_OBJECT_STORAGE_ORIGIN: fakeStorageUrl },
+    },
+    // Fake S3-compatible store for the simulated upload tests; it answers CORS preflights for the preview origin only.
+    {
+      command: 'node tests/e2e/support/fakeObjectStorage.mjs',
+      url: `${fakeStorageUrl}/__control/health`,
+      reuseExistingServer: !process.env.CI,
+      env: { FAKE_STORAGE_PORT: String(fakeStoragePort), FAKE_STORAGE_ALLOWED_ORIGIN: previewUrl },
     },
     // The AppHost needs Docker, so it is skipped when only the simulated project runs.
     ...(simulatedOnly ? [] : [{

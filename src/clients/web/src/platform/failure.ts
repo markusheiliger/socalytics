@@ -4,6 +4,14 @@ export type PlatformFailureKind =
   | 'notPermitted'
   | 'validation'
   | 'conflict'
+  | 'seasonArchived'
+  | 'tooLarge'
+  | 'unsupportedType'
+  | 'uploadExpired'
+  | 'uploadCompleted'
+  | 'uploadPartsRefused'
+  | 'uploadIntegrityFailed'
+  | 'storageUnavailable'
   | 'pairingRefused'
   | 'rateLimited'
   | 'decisionConflict'
@@ -79,6 +87,17 @@ function retryAfterOf(headers: unknown): number | undefined {
   return seconds;
 }
 
+const CONFLICT_KINDS: Record<string, PlatformFailureKind> = {
+  'season-archived': 'seasonArchived',
+  'upload-session-expired': 'uploadExpired',
+  'upload-session-completed': 'uploadCompleted',
+  'upload-parts-incomplete': 'uploadPartsRefused',
+  'upload-part-mismatch': 'uploadPartsRefused',
+  'upload-object-mismatch': 'uploadIntegrityFailed',
+  'integrity-evidence-unavailable': 'uploadIntegrityFailed',
+  'idempotency-key-reused': 'programmingError',
+};
+
 function problemOf(error: unknown): { status?: number; problem: ProblemBody; retryAfterSeconds?: number } {
   const e = error as { responseStatusCode?: unknown; additionalData?: unknown; responseHeaders?: unknown };
   const status = typeof e.responseStatusCode === 'number' ? e.responseStatusCode : undefined;
@@ -105,15 +124,20 @@ export function mapProblem(status: number | undefined, problem: ProblemBody, ret
     return new PlatformFailure('notPermitted', details);
   }
   if (status === 400) {
+    if (problem.code === 'idempotency-key-missing') return new PlatformFailure('programmingError', details);
     if (problem.code === 'analyst-manager-pairing-code-invalid') return new PlatformFailure('pairingRefused', details);
     if (problem.errors?.some((e) => QUERY_FIELDS.includes(e.field))) return new PlatformFailure('programmingError', details);
     return new PlatformFailure('validation', details);
   }
   if (status === 429 && problem.code === 'analyst-manager-rate-limited') return new PlatformFailure('rateLimited', details);
-  if (status === 409 && problem.code && DECISION_CONFLICT_CODES.includes(problem.code)) {
-    return new PlatformFailure('decisionConflict', details);
+  if (status === 409) {
+    if (problem.code && DECISION_CONFLICT_CODES.includes(problem.code)) return new PlatformFailure('decisionConflict', details);
+    const kind = CONFLICT_KINDS[problem.code ?? ''];
+    return new PlatformFailure(kind ?? 'conflict', details);
   }
-  if (status === 409 || status === 412) return new PlatformFailure('conflict', details);
+  if (status === 412) return new PlatformFailure('conflict', details);
+  if (status === 413) return new PlatformFailure('tooLarge', details);
+  if (status === 415) return new PlatformFailure('unsupportedType', details);
   if (status === 428) return new PlatformFailure('programmingError', details);
   if (status >= 502 && status <= 504) return new PlatformFailure('unreachable', details);
   if (status >= 500) return new PlatformFailure('unexpected', details);

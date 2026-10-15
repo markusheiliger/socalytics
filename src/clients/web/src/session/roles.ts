@@ -12,3 +12,7 @@ export const canViewTeam = (member: SessionMember, teamId: string) =>
   isClubAdmin(member) || member.teamRoles.some((r) => r.teamId === teamId);
 
 export const canViewTeams = (member: SessionMember) => isClubAdmin(member) || hasAnyTeamRole(member);
+
+/** Club Admins and Coaches of the team edit its matches and recordings; the platform stays authoritative. */
+export const canEditTeamMatches = (member: SessionMember, teamId: string) =>
+  isClubAdmin(member) || member.teamRoles.some((r) => r.teamId === teamId && r.role === 'Coach');

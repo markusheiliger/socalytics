@@ -29,6 +29,12 @@ export function withIfMatch(info: RequestInformation, version: number): RequestI
   return info;
 }
 
+/** The caller owns the key so a retry of the same intent reuses it (research.md § R8); adapters never generate one. */
+export function withIdempotencyKey(info: RequestInformation, key: string): RequestInformation {
+  info.headers.add('Idempotency-Key', key);
+  return info;
+}
+
 export async function sendFor<T extends Parsable>(
   api: PlatformApi,
   info: RequestInformation,

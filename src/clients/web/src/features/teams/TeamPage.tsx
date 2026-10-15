@@ -12,8 +12,9 @@ import { useConnectivity } from '../../connectivity/useConnectivity';
 import { createTeamAdapter } from '../../platform/adapters/teamAdapter';
 import { toPlatformFailure } from '../../platform/failure';
 import type { Team } from '../../platform/models/club';
-import { isClubAdmin } from '../../session/roles';
+import { canEditTeamMatches, isClubAdmin } from '../../session/roles';
 import { useSession } from '../../session/sessionContext';
+import { TeamMatches } from '../matches/TeamMatches';
 import { FailureAlert, useFieldError } from '../shared/FailureAlert';
 import { TEAMS_KEY } from './TeamsPage';
 
@@ -84,6 +85,7 @@ export function TeamPage() {
   const team = query.data;
   const admin = session ? isClubAdmin(session.member) : false;
   const editable = admin && team?.seasonState !== 'archived';
+  const canEditMatches = session ? canEditTeamMatches(session.member, teamId) : false;
   // The list shows names, so a saved edit must refresh it when the member goes back.
   const refreshLists = () => void queryClient.invalidateQueries({ queryKey: [...TEAMS_KEY], predicate: (q) => q.queryKey[1] !== 'item' });
 
@@ -98,6 +100,7 @@ export function TeamPage() {
           {team.seasonState === 'archived' && <Typography sx={{ mt: 1 }}>{t('teams.readOnlyNote')}</Typography>}
           {!admin && <Typography sx={{ mt: 1 }}>{t('teams.viewOnlyNote')}</Typography>}
           {editable && <TeamForm key={generation} team={team} queryKey={key} onReload={reload} />}
+          <TeamMatches teamId={team.id} canCreate={canEditMatches && team.seasonState !== 'archived'} />
           <Button component={Link} to="/teams" variant="outlined" sx={{ mt: 2 }} onClick={refreshLists}>
             {t('teams.back')}
           </Button>

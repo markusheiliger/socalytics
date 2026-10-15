@@ -86,10 +86,11 @@ telemetry, capacity, incidents, upgrades, and production-readiness evidence.
 The logical architecture is implemented as a .NET 10 and ASP.NET Core
 monolith structured in application layers and composed locally with Aspire,
 with one PostgreSQL database per stamp, Dapper-based logical CQRS, NATS
-JetStream, RustFS/S3, and a .NET and Avalonia Analyst Manager. React and
-TypeScript clients, Python Analyst Containers, and Hermes as a separate Python
-OCI service are planned. Source remains in one monorepo and production
-artifacts will be cloud-neutral OCI images.
+JetStream, RustFS/S3, a .NET and Avalonia Analyst Manager, and an online-only
+React and TypeScript Web UI. The Web UI's offline mode, Python Analyst
+Containers, and Hermes as a separate Python OCI service are planned. Source
+remains in one monorepo and production artifacts will be cloud-neutral OCI
+images.
 
 The canonical technologies, boundaries, and required evidence are defined in
 the [Platform Implementation Profile](platform-implementation.md).
