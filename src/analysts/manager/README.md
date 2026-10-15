@@ -44,6 +44,8 @@ An active Manager requests expiring queue credentials from the platform, pulls A
 
 The `simulated` runtime profile (`Runtime:Profile`, configured through `Runtime:Simulated`) provides a simulated runtime and Analyst with configurable outcomes (succeed, fail, hang, crash). It is registered only in Development and Test. No real Analyst execution, Analyst SDK, or container runtime exists yet.
 
+After a successful run, the Manager checks the Analyst's result manifest in the job's result mount against the `contracts/analysis/result-manifest/v1` schema, requests per-object result write grants from the platform (`contracts/analysis/result-grants/v1`), stores the manifest and artifacts through them, and only then reports completion. A manifest that violates the contract is never uploaded and the attempt is reported as failed. The simulated Analyst's `ResultMode` (per capability in `Runtime:Simulated:Capabilities`) is `valid` by default; `scope-mismatch`, `provenance-mismatch`, `lineage-mismatch`, `artifact-missing`, `validity-invalid`, and `contract-invalid` deliberately violate one acceptance rule (Development and Test only).
+
 ## Device Key Providers
 
 | OS | Provider |

@@ -6,11 +6,11 @@
 
 **Input**: User description: "In `.github/actions/environment-verify/action.yml`, run the platform test projects one after another in phase and finalize mode, so Host, Integration and EndToEnd tests no longer start Docker containers at the same time and fail with 'failed to bind host port ... address already in use'. Change only the environment action folders."
 
-**Fix for**: #72 (implementation of `specs/20261012-141233-manager-work-execution`)
+**Fix for**: #72 (implementation of `specs/archive/20261012-141233-manager-work-execution`)
 
 ## Problem
 
-The verification of the implementation of `specs/20261012-141233-manager-work-execution` stopped three times in the merge with `platform build and tests failed`, always because Docker refused to publish a host port for a test container (`failed to bind host port ... address already in use`), never because of an assertion of the feature:
+The verification of the implementation of `specs/archive/20261012-141233-manager-work-execution` stopped three times in the merge with `platform build and tests failed`, always because Docker refused to publish a host port for a test container (`failed to bind host port ... address already in use`), never because of an assertion of the feature:
 
 - Attempt 1: Integration fixtures failed on Ryuk (`8080/tcp`) and on the Migrator exit code tests (`9000/tcp`).
 - Attempt 3: `WorkFailureEndToEndTests` failed on NATS (`4222/tcp`) while Contracts (110/110), Architecture (39/39) and Host (9/9) passed.
@@ -60,4 +60,4 @@ A maintainer or the implementation automation runs the verification of a phase o
 
 - The smallest fix is a per-project loop in the existing `run_tests` of `environment-verify`, reusing the discovery of task mode. Parallelism within one test project is unchanged; the observed conflicts are between projects.
 - Retries or fixed port assignments are not used, because they would hide the race instead of removing it.
-- Dependencies: the owner of the verification action is [Environment Verification Coverage](../20261007-115855-environment-verification-coverage/spec.md); the implementation this fix unblocks is #72 (`specs/20261012-141233-manager-work-execution`). This is an environment spec: its implementation changes nothing but the two action folders and is held for a person's review.
+- Dependencies: the owner of the verification action is [Environment Verification Coverage](../20261007-115855-environment-verification-coverage/spec.md); the implementation this fix unblocks is #72 (`specs/archive/20261012-141233-manager-work-execution`). This is an environment spec: its implementation changes nothing but the two action folders and is held for a person's review.

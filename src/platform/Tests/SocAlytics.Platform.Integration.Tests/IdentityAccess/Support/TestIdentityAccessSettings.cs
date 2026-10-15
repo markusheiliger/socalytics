@@ -27,5 +27,10 @@ internal static class TestIdentityAccessSettings
 		["Recordings:Upload:MaxGrantsPerRequest"] = "1000",
 		["Recordings:Upload:AllowedContentTypes:0"] = "video/mp4",
 		["Recordings:Upload:AllowedContentTypes:1"] = "video/quicktime",
+		["Analysis:Results:GrantLifetime"] = "00:10:00",
+		["Analysis:Results:MaxObjectsPerAttempt"] = "16",
+		["Analysis:Results:MaxObjectBytes"] = "104857600",
+		["Analysis:Results:MaxAttemptBytes"] = "1073741824",
+		["Analysis:Results:MaxManifestBytes"] = "1048576",
 	};
 }

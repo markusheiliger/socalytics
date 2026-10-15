@@ -27,7 +27,7 @@ public sealed class RestartMatrixTests(NatsContainerFixture nats, PostgresContai
 
     private sealed record ReadyJob(Guid Id, Guid Node, Guid Occurrence, Guid Team, Guid Match, string NodeKey);
 
-    private sealed class Driver(AnalysisTestHost host, IsolatedDatabase db, NatsContainerFixture nats, bool restart)
+    private sealed class Driver(AnalysisTestHost host, IsolatedDatabase db, NatsContainerFixture nats, RustFsContainerFixture rustFs, bool restart)
     {
         private readonly Guid _manager = Guid.NewGuid();
 
@@ -56,7 +56,7 @@ public sealed class RestartMatrixTests(NatsContainerFixture nats, PostgresContai
             await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
             var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
                 Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "wf", "1.0.0", ["cap-s1", "cap-m1"], "all-requested-capabilities",
-                AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord("{}", Digest), records, edges), ct);
+                AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord("{\"segmentationPolicy\":{\"durationSeconds\":300}}", Digest), records, edges), ct);
             var jobs = new List<NewLogicalJob>();
             foreach (var record in records)
             {
@@ -184,6 +184,7 @@ public sealed class RestartMatrixTests(NatsContainerFixture nats, PostgresContai
                 ["correlation"] = new JsonObject { ["correlationId"] = job.Id },
                 ["result"] = new JsonObject { ["manifestReference"] = "results/" + job.Id + ".json", ["manifestChecksum"] = Digest },
             };
+            await ResultObjectsHelper.ApplyAsync(db, rustFs, a.Attempt, body, upstream.Select(n => n!.GetValue<Guid>()).ToList(), ct);
             using var client = host.Factory.CreateApiClient();
             using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/analysis/attempts/{a.Attempt}/completion")
             {
@@ -283,8 +284,8 @@ public sealed class RestartMatrixTests(NatsContainerFixture nats, PostgresContai
         await using var ___ = db;
         await using var ____ = host;
 
-        var expected = await new Driver(refHost, refDb, nats, restart: false).RunAsync(ct);
-        var driver = new Driver(host, db, nats, restart: true);
+        var expected = await new Driver(refHost, refDb, nats, rustFs, restart: false).RunAsync(ct);
+        var driver = new Driver(host, db, nats, rustFs, restart: true);
         var actual = await driver.RunAsync(ct);
 
         driver.Restarts.ShouldBeGreaterThanOrEqualTo(20);

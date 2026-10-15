@@ -2,7 +2,7 @@
 
 **Branch**: `20261013-125502-analysis-result-manifests` | **Date**: 2026-10-13 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261013-125502-analysis-result-manifests/spec.md`
+**Input**: Feature specification from `specs/archive/20261013-125502-analysis-result-manifests/spec.md`
 
 ## Summary
 
@@ -110,12 +110,12 @@ Post-design re-check: passes; no Complexity Tracking entries.
 
 **Narratives**:
 
-- [analysts-models-and-hardware.md](../../docs/architecture/analysts-models-and-hardware.md) § Analyst Containers, § Implementation Profile, § Result Manifest And Lineage, § Implementation Validation (result-manifest validation evidence).
-- [analyst-runtime-and-recovery.md](../../docs/architecture/analyst-runtime-and-recovery.md) § OCI Container Runtime Boundary (launch defaults), § Registration And Runtime Credentials (object-storage grants), the execution-attempt sequence, § Analyst Manager Responsibilities.
-- [job-processing.md](../../docs/architecture/job-processing.md) § Match Processing sequence (result write and acceptance).
-- [contracts-and-compatibility.md](../../docs/architecture/contracts-and-compatibility.md) § Scope And Dependencies.
-- [platform-implementation.md](../../docs/architecture/platform-implementation.md) § Analyst Technology, § Acceptance Evidence, § Architecture Reassessment.
-- [match-data-pipeline.md](../../docs/architecture/match-data-pipeline.md) § Segment And Match Analysis Scope (validation of accepted low-level manifests).
+- [analysts-models-and-hardware.md](../../../docs/architecture/analysts-models-and-hardware.md) § Analyst Containers, § Implementation Profile, § Result Manifest And Lineage, § Implementation Validation (result-manifest validation evidence).
+- [analyst-runtime-and-recovery.md](../../../docs/architecture/analyst-runtime-and-recovery.md) § OCI Container Runtime Boundary (launch defaults), § Registration And Runtime Credentials (object-storage grants), the execution-attempt sequence, § Analyst Manager Responsibilities.
+- [job-processing.md](../../../docs/architecture/job-processing.md) § Match Processing sequence (result write and acceptance).
+- [contracts-and-compatibility.md](../../../docs/architecture/contracts-and-compatibility.md) § Scope And Dependencies.
+- [platform-implementation.md](../../../docs/architecture/platform-implementation.md) § Analyst Technology, § Acceptance Evidence, § Architecture Reassessment.
+- [match-data-pipeline.md](../../../docs/architecture/match-data-pipeline.md) § Segment And Match Analysis Scope (validation of accepted low-level manifests).
 
 **Design updates** (applied with this plan as decided, not implemented; the implementation turns them into present tense):
 
@@ -143,7 +143,7 @@ The documentation task must make these narratives and every status statement thi
 ### Documentation (this feature)
 
 ```text
-specs/20261013-125502-analysis-result-manifests/
+specs/archive/20261013-125502-analysis-result-manifests/
 ├── plan.md
 ├── research.md          # Decisions R1–R8
 ├── data-model.md        # Result location, tables, configuration, simulated modes

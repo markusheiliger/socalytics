@@ -87,5 +87,15 @@ internal sealed class TestManagerClient : IDisposable
         return _client.SendAsync(request, ct);
     }
 
+    public Task<HttpResponseMessage> RequestResultGrantsAsync(Guid attemptId, object body, CancellationToken ct = default)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/analysis/attempts/{attemptId}/result-grants")
+        {
+            Content = JsonContent.Create(body),
+        };
+        request.Headers.Add(TestManagerAuthenticationHandler.ManagerHeader, ManagerId.ToString());
+        return _client.SendAsync(request, ct);
+    }
+
     public void Dispose() => _client.Dispose();
 }

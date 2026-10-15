@@ -1,0 +1,19 @@
+{
+  "contractVersion": "1.0.0",
+  "provenance": {
+    "capability": { "id": "player-detection", "version": "1.0.0" },
+    "schemaVersion": "1.0.0",
+    "analystProfile": { "id": "profile-1", "digest": "sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "imageDigest": "sha-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "policyVersions": [],
+    "workflow": { "id": "default-workflow", "version": "1" }
+  },
+  "attempt": { "attemptId": "attempt-1", "attemptNumber": 1 },
+  "artifacts": [],
+  "validityWindow": { "startMs": 120000, "endMs": 180000 },
+  "factCount": 0,
+  "upstreamLineage": [],
+  "outputType": "foundational-facts",
+  "confidence": 0.5,
+  "evidenceReferences": []
+}

@@ -130,9 +130,30 @@ workflow, and resolves analysis runs from the default workflow.
 
 The durable analysis workflow is implemented as development evidence (outbox,
 NATS JetStream publication, run creation from finalized recording sets,
-readiness, fenced attempts, Analyst job and completion contracts). Analyst
-execution, production transport values, and production readiness remain
-deferred.
+readiness, fenced attempts, Analyst job and completion contracts). Result
+write grants and validated result acceptance are implemented against the
+simulated Analyst as development evidence (migrations
+`0017_analysis_result_manifests.sql` and
+`0018_analysis_completion_outcome_reason.sql`):
+
+- `POST /api/v1/analysis/attempts/{attemptId}/result-grants`
+  (`issueAnalysisResultGrants`, Manager DPoP authentication) issues
+  short-lived per-object write grants for the attempt's own result location.
+- A `succeeded` completion is accepted only after the API reads the manifest
+  from object storage and passes the ordered checks (storage-attested
+  checksum, schema, scope, provenance, lineage, artifacts, validity window).
+  A rejected manifest ends the attempt as failed with a named reason under the
+  normal retry rules and writes the `analysis.result-rejected` audit event;
+  accepted results get an immutable manifest record. Fact indexing remains
+  future work.
+- `Analysis:Results` options (development defaults, not production values):
+  `GrantLifetime` 10 minutes, `MaxObjectsPerAttempt` 16, `MaxObjectBytes`
+  100 MiB, `MaxAttemptBytes` 1 GiB, and `MaxManifestBytes` 1 MiB.
+- Contracts: `contracts/analysis/result-manifest/v1/` and
+  `contracts/analysis/result-grants/v1/`.
+
+Real Analyst execution, production transport values, and production readiness
+remain deferred.
 
 - The AppHost starts a `nats` resource (JetStream enabled) and injects
   `ConnectionStrings:nats` into the API. Docker is required for it.

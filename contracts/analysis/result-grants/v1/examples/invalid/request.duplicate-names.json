@@ -1,0 +1,7 @@
+{
+  "fencingToken": 7,
+  "objects": [
+    { "name": "facts.json", "sizeBytes": 10240, "digest": "sha-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+    { "name": "facts.json", "sizeBytes": 10240, "digest": "sha-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+  ]
+}

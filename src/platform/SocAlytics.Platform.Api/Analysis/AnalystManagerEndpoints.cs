@@ -2,7 +2,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Application.Abstractions;
+using SocAlytics.Platform.Api.Recordings;
 using SocAlytics.Platform.Application.Analysis.Commands;
+using SocAlytics.Platform.Application.Analysis.Results;
 
 namespace SocAlytics.Platform.Api.Analysis;
 
@@ -14,7 +16,15 @@ internal sealed record ClaimGrantedDto(
 
 internal sealed record HeartbeatRequestDto(Guid LogicalJobId, long FencingToken, DateTimeOffset ObservedAt, string ExecutionState, int? ProgressPercent);
 
-internal sealed record CompletionOutcomeDto(Guid AttemptId, Guid LogicalJobId, string Outcome, Guid? AcceptedResultId, bool Replayed, string LogicalJobState);
+internal sealed record CompletionOutcomeDto(Guid AttemptId, Guid LogicalJobId, string Outcome, Guid? AcceptedResultId, bool Replayed, string LogicalJobState, string? Reason = null);
+
+internal sealed record ResultObjectDto(string? Name, long SizeBytes, string? Digest);
+
+internal sealed record ResultGrantsRequestDto(long FencingToken, List<ResultObjectDto?>? Objects);
+
+internal sealed record ResultGrantDto(string Name, string Method, string Url, IReadOnlyDictionary<string, string> RequiredHeaders, string ExpiresAt);
+
+internal sealed record ResultGrantsDto(string ResultLocation, IReadOnlyList<ResultGrantDto> Grants);
 
 internal sealed record LeaseRenewedDto(Guid AttemptId, DateTimeOffset LeaseExpiresAt);
 
@@ -51,6 +61,7 @@ internal static partial class AnalystManagerEndpoints
 			.ProducesProblem(StatusCodes.Status409Conflict);
 		routes.MapPost("/api/v1/analysis/attempts/{attemptId:guid}/completion", CompleteAsync)
 			.RequireAnalystManager()
+			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
 			.WithName("completeAttempt")
 			.WithTags("Analyst Manager attempts")
 			.Produces<CompletionOutcomeDto>()
@@ -58,8 +69,56 @@ internal static partial class AnalystManagerEndpoints
 			.ProducesProblem(StatusCodes.Status401Unauthorized)
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound)
-			.ProducesProblem(StatusCodes.Status409Conflict);
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+		routes.MapPost("/api/v1/analysis/attempts/{attemptId:guid}/result-grants", IssueResultGrantsAsync)
+			.RequireAnalystManager()
+			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
+			.WithName("issueAnalysisResultGrants")
+			.WithTags("Analyst Manager attempts")
+			.Produces<ResultGrantsDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 		return routes;
+	}
+
+	private static async Task<IResult> IssueResultGrantsAsync(
+		Guid attemptId, HttpContext http, IssueResultGrantsHandler handler, ILoggerFactory loggers, CancellationToken cancellationToken)
+	{
+		ResultGrantsRequestDto? body;
+		try
+		{
+			body = await JsonSerializer.DeserializeAsync<ResultGrantsRequestDto>(http.Request.Body, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+			body = null;
+		}
+
+		if (body is null || body.FencingToken <= 0)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("body", "invalid")));
+		}
+
+		var command = new IssueResultGrantsCommand(
+			attemptId, body.FencingToken, body.Objects?.Select(o => new ResultObjectRequest(o?.Name, o?.SizeBytes ?? 0, o?.Digest)).ToList());
+		var result = await handler.HandleAsync(command, cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		var v = result.Value;
+		loggers.CreateLogger("SocAlytics.Platform.Api.Analysis.ResultGrants").LogInformation(
+			"Issued {GrantCount} result grants for attempt {AttemptId} of job {LogicalJobId} in run {RunId}: {ObjectNames}",
+			v.Grants.Count, attemptId, v.LogicalJobId, v.RunId, string.Join(", ", v.Grants.Select(g => g.Name)));
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Ok(new ResultGrantsDto(
+			v.ResultLocation, v.Grants.Select(g => new ResultGrantDto(g.Name, g.Method, g.Url.AbsoluteUri, g.RequiredHeaders, g.ExpiresAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", System.Globalization.CultureInfo.InvariantCulture))).ToList()));
 	}
 
 	private static async Task<IResult> CompleteAsync(Guid attemptId, HttpContext http, CompleteAttemptHandler handler, CancellationToken cancellationToken)
@@ -87,7 +146,7 @@ internal static partial class AnalystManagerEndpoints
 		}
 
 		var v = result.Value;
-		return Results.Ok(new CompletionOutcomeDto(v.AttemptId, v.LogicalJobId, v.Outcome, v.AcceptedResultId, v.Replayed, v.LogicalJobState));
+		return Results.Ok(new CompletionOutcomeDto(v.AttemptId, v.LogicalJobId, v.Outcome, v.AcceptedResultId, v.Replayed, v.LogicalJobState, v.Reason));
 	}
 
 	private static async Task<IResult> HeartbeatAsync(Guid attemptId, HttpContext http, RenewAttemptLeaseHandler handler, CancellationToken cancellationToken)

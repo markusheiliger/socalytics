@@ -7,7 +7,8 @@ public sealed record CompletionOutcomeRecord(
     string RequestFingerprint,
     string Outcome,
     Guid? AcceptedResultId,
-    DateTimeOffset RecordedAt);
+    DateTimeOffset RecordedAt,
+    string? Reason = null);
 
 public interface ICompletionOutcomeStore
 {

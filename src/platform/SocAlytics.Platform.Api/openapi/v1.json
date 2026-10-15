@@ -518,6 +518,12 @@
           "outcome": {
             "type": "string"
           },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "replayed": {
             "type": "boolean"
           }
@@ -1367,6 +1373,54 @@
         ],
         "type": "object"
       },
+      "ResultGrantDto": {
+        "properties": {
+          "expiresAt": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "requiredHeaders": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "method",
+          "url",
+          "requiredHeaders",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "ResultGrantsDto": {
+        "properties": {
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/ResultGrantDto"
+            },
+            "type": "array"
+          },
+          "resultLocation": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "resultLocation",
+          "grants"
+        ],
+        "type": "object"
+      },
       "SeasonDto": {
         "properties": {
           "activatedAt": {
@@ -1838,6 +1892,16 @@
               }
             },
             "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -1925,6 +1989,103 @@
               }
             },
             "description": "Conflict"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analyst Manager attempts"
+        ]
+      }
+    },
+    "/api/v1/analysis/attempts/{attemptId}/result-grants": {
+      "post": {
+        "operationId": "issueAnalysisResultGrants",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attemptId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultGrantsDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [

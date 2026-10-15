@@ -14,7 +14,10 @@ public static class AnalysisMetrics
     private static readonly Counter<long> StaleCompletions = Meter.CreateCounter<long>("socalytics.analysis.completions_rejected");
     private static readonly Counter<long> RejectedHeartbeats = Meter.CreateCounter<long>("socalytics.analysis.heartbeats_rejected");
     private static readonly Counter<long> RejectedNotifications = Meter.CreateCounter<long>("socalytics.analysis.notifications_rejected");
+    private static readonly Counter<long> IssuedResultGrants = Meter.CreateCounter<long>("socalytics.analysis.result_grants_issued");
     private static readonly Counter<long> BlockedRuns = Meter.CreateCounter<long>("socalytics.analysis.runs_blocked");
+
+    public static void ResultGrantsIssued(int count) => IssuedResultGrants.Add(count);
 
     public static void LeaseExpired(string? capability) => LeaseExpiries.Add(1, Tag("capability", capability));
 

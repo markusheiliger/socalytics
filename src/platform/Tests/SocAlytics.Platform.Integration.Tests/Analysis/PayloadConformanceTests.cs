@@ -159,8 +159,13 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
         ["correlation"] = new JsonObject { ["correlationId"] = Guid.NewGuid() },
     };
 
-    private static async Task<HttpResponseMessage> CompleteAsync(FinalizationSetup s, TestManagerClient m, Guid attempt, JsonNode body, CancellationToken ct)
+    private async Task<HttpResponseMessage> CompleteAsync(FinalizationSetup s, TestManagerClient m, Guid attempt, JsonNode body, CancellationToken ct)
     {
+        if (body["result"]?["manifestReference"]?.GetValue<string>() == "results/m1.json")
+        {
+            await ResultObjectsHelper.ApplyAsync(s.Db, rustFs, attempt, body.AsObject(), ct: ct);
+        }
+
         using var client = s.Factory.CreateApiClient();
         var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/analysis/attempts/{attempt}/completion")
         {

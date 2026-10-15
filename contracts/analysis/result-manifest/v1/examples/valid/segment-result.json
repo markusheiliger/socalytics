@@ -1,0 +1,36 @@
+{
+  "contractVersion": "1.0.0",
+  "scope": {
+    "teamId": "team-1",
+    "matchId": "match-1",
+    "recordingSetVersionId": "rsv-1",
+    "runId": "run-1",
+    "nodeId": "detect-players",
+    "logicalJobId": "job-1",
+    "segment": { "segmentId": "segment-3", "windowStartMs": 120000, "windowEndMs": 180000 }
+  },
+  "provenance": {
+    "capability": { "id": "player-detection", "version": "1.0.0" },
+    "schemaVersion": "1.0.0",
+    "analystProfile": { "id": "profile-1", "digest": "sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "imageDigest": "sha-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "modelDigest": "sha-256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "policyVersions": [{ "id": "segmentation", "version": "1" }],
+    "workflow": { "id": "default-workflow", "version": "1" }
+  },
+  "attempt": { "attemptId": "attempt-1", "attemptNumber": 1 },
+  "artifacts": [
+    {
+      "name": "facts.json",
+      "digest": "sha-256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "sizeBytes": 10240,
+      "mediaType": "application/json"
+    }
+  ],
+  "validityWindow": { "startMs": 120000, "endMs": 180000 },
+  "factCount": 42,
+  "upstreamLineage": [],
+  "outputType": "foundational-facts",
+  "confidence": 0.92,
+  "evidenceReferences": ["evidence-1"]
+}
