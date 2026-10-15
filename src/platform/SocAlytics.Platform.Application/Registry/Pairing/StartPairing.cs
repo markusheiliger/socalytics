@@ -9,7 +9,7 @@ namespace SocAlytics.Platform.Application.Registry.Pairing;
 
 public sealed record StartPairingCommand(
     string? StampId, JsonElement PublicKey, string? Nonce, string? Os, string? OsVersion, string? Architecture,
-    string? ManagerVersion, string? ClaimedKeyProtection, string? HostLabel, string? SourceAddress);
+    string? ManagerVersion, string? ClaimedKeyProtection, string? ClaimedApplicationProfile, string? HostLabel, string? SourceAddress);
 
 public sealed record PairingIssuedResult(
     string PairingCode, string DeviceFingerprint, string PollingHandle, Uri VerificationUri,
@@ -55,7 +55,7 @@ public sealed class StartPairingHandler(
 
         DeviceMetadata.TryCreate(
             command.Os, command.OsVersion, command.Architecture, command.ManagerVersion,
-            command.ClaimedKeyProtection, command.HostLabel, out var metadata, out var metadataViolations);
+            command.ClaimedKeyProtection, command.ClaimedApplicationProfile, command.HostLabel, out var metadata, out var metadataViolations);
         foreach (var v in metadataViolations)
         {
             violations.Add(new($"deviceMetadata.{v.Field}", v.Message));
@@ -96,14 +96,20 @@ public sealed class StartPairingHandler(
             }
 
             await store.InsertAsync(registration, secrets.HashPairingCode(code), secrets.Hash(handle), cancellationToken);
-            await audit.RecordAsync(RegistryAuditEvents.PairingIssued(registration.Id, new Dictionary<string, string>
+            var details = new Dictionary<string, string>
             {
                 ["stampId"] = stamp.Id,
                 ["keyThumbprint"] = thumbprint.Value,
                 ["deviceFingerprint"] = registration.DeviceFingerprint.Value,
                 ["claimedKeyProtection"] = metadata.ClaimedKeyProtection.ToApiName(),
                 ["windowExpiresAt"] = registration.PairingExpiresAt.ToString("O"),
-            }), cancellationToken);
+            };
+            if (metadata.ClaimedApplicationProfile is { } claimedProfile)
+            {
+                details["claimedApplicationProfile"] = claimedProfile.ToApiName();
+            }
+
+            await audit.RecordAsync(RegistryAuditEvents.PairingIssued(registration.Id, details), cancellationToken);
             await scope.CommitAsync(cancellationToken);
         }
         catch (UniqueViolationException)

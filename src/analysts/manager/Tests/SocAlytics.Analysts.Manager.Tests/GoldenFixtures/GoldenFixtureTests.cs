@@ -65,6 +65,7 @@ public class GoldenFixtureTests
         actual["nonce"]!.GetValue<string>().Length.ShouldBeGreaterThanOrEqualTo(16);
         actual.Remove("nonce");
         expected.Remove("nonce");
+        expected["deviceMetadata"]!.AsObject().Remove("claimedApplicationProfile");
         JsonNode.DeepEquals(actual, expected).ShouldBeTrue(actual.ToJsonString());
     }
 

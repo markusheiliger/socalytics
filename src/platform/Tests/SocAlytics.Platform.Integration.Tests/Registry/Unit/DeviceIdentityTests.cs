@@ -60,16 +60,16 @@ public sealed class DeviceIdentityTests
 	[Fact]
 	public void MetadataAcceptsLimitsAndRejectsViolations()
 	{
-		DeviceMetadata.TryCreate("linux", new string('a', 64), "x64", new string('1', 32), "tpm", new string('h', 64), out var ok, out _)
+		DeviceMetadata.TryCreate("linux", new string('a', 64), "x64", new string('1', 32), "tpm", null, new string('h', 64), out var ok, out _)
 			.ShouldBeTrue();
 		ok!.ClaimedKeyProtection.ShouldBe(ClaimedKeyProtection.Tpm);
 
-		DeviceMetadata.TryCreate("plan9", new string('a', 65), "mips", new string('1', 33), "hsm", new string('h', 65), out var bad, out var violations)
+		DeviceMetadata.TryCreate("plan9", new string('a', 65), "mips", new string('1', 33), "hsm", null, new string('h', 65), out var bad, out var violations)
 			.ShouldBeFalse();
 		bad.ShouldBeNull();
 		violations.Select(v => v.Field).ShouldBe(["os", "osVersion", "architecture", "managerVersion", "claimedKeyProtection", "hostLabel"]);
 
-		DeviceMetadata.TryCreate("macos", "15", "arm64", "1.0", "secure-enclave", null, out var noLabel, out _).ShouldBeTrue();
+		DeviceMetadata.TryCreate("macos", "15", "arm64", "1.0", "secure-enclave", null, null, out var noLabel, out _).ShouldBeTrue();
 		noLabel!.HostLabel.ShouldBeNull();
 	}
 }

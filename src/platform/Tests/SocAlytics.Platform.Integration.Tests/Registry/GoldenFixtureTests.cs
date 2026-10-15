@@ -133,6 +133,7 @@ public sealed partial class GoldenFixtureTests(PostgresContainerFixture postgres
                     Load("activation.request.json"), ct),
                 "token" => await SendTokenAsync(client, Load(id.StartsWith("token-") ? "token.request.json" : file), ct),
                 "self" => await SendSelfAsync(client, Load("self-registration.request.json"), ct),
+                "pairing-negative" => await client.PostAsJsonAsync("/api/v1/analyst-managers/pairings", body, ct),
                 "negative" => body.TryGetProperty("form", out _) ? await SendTokenAsync(client, body, ct) : await SendSelfAsync(client, body, ct),
                 _ => throw new InvalidOperationException($"Unknown exchange '{exchange}'."),
             };
@@ -178,7 +179,7 @@ public sealed partial class GoldenFixtureTests(PostgresContainerFixture postgres
         "self-registration-request" => Load("self-registration.response.json"),
         "submission-valid" => null,
         "submission-wrong-fingerprint" => null,
-        _ when exchange == "negative" => null,
+        _ when exchange is "negative" or "pairing-negative" => null,
         _ => Load(file),
     };
 

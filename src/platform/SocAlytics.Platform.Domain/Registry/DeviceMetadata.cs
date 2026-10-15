@@ -37,6 +37,37 @@ public static class ClaimedKeyProtectionExtensions
     }
 }
 
+public enum ClaimedApplicationProfile
+{
+    Tray,
+    HeadlessServer,
+}
+
+public static class ClaimedApplicationProfileExtensions
+{
+    public static string ToApiName(this ClaimedApplicationProfile value) => value switch
+    {
+        ClaimedApplicationProfile.Tray => "tray",
+        ClaimedApplicationProfile.HeadlessServer => "headless-server",
+        _ => throw new ArgumentOutOfRangeException(nameof(value)),
+    };
+
+    public static bool TryParse(string? name, out ClaimedApplicationProfile value)
+    {
+        foreach (var candidate in Enum.GetValues<ClaimedApplicationProfile>())
+        {
+            if (string.Equals(candidate.ToApiName(), name, StringComparison.Ordinal))
+            {
+                value = candidate;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+}
+
 public sealed class DeviceMetadata
 {
     private static readonly string[] OperatingSystems = ["windows", "linux", "macos"];
@@ -44,13 +75,14 @@ public sealed class DeviceMetadata
 
     private DeviceMetadata(
         string os, string osVersion, string architecture, string managerVersion,
-        ClaimedKeyProtection claimedKeyProtection, string? hostLabel)
+        ClaimedKeyProtection claimedKeyProtection, ClaimedApplicationProfile? claimedApplicationProfile, string? hostLabel)
     {
         Os = os;
         OsVersion = osVersion;
         Architecture = architecture;
         ManagerVersion = managerVersion;
         ClaimedKeyProtection = claimedKeyProtection;
+        ClaimedApplicationProfile = claimedApplicationProfile;
         HostLabel = hostLabel;
     }
 
@@ -65,11 +97,14 @@ public sealed class DeviceMetadata
     // Claimed, not attested; read only by the FR-041 software-key refusal, never by a transition.
     public ClaimedKeyProtection ClaimedKeyProtection { get; }
 
+    // Claimed, not attested; null means not reported (a Manager built before the profile claim).
+    public ClaimedApplicationProfile? ClaimedApplicationProfile { get; }
+
     public string? HostLabel { get; }
 
     public static bool TryCreate(
         string? os, string? osVersion, string? architecture, string? managerVersion,
-        string? claimedKeyProtection, string? hostLabel,
+        string? claimedKeyProtection, string? claimedApplicationProfile, string? hostLabel,
         out DeviceMetadata? metadata, out IReadOnlyList<FieldViolation> violations)
     {
         var errors = new List<FieldViolation>();
@@ -98,6 +133,23 @@ public sealed class DeviceMetadata
             errors.Add(new("claimedKeyProtection", "Must be tpm, secure-enclave, pkcs11-token, or software."));
         }
 
+        ClaimedApplicationProfile? profile = null;
+        if (claimedApplicationProfile is not null)
+        {
+            if (!ClaimedApplicationProfileExtensions.TryParse(claimedApplicationProfile, out var parsedProfile))
+            {
+                errors.Add(new("claimedApplicationProfile", "Must be tray or headless-server."));
+            }
+            else
+            {
+                profile = parsedProfile;
+                if (parsedProfile == Registry.ClaimedApplicationProfile.HeadlessServer && os is not null && OperatingSystems.Contains(os) && os != "linux")
+                {
+                    errors.Add(new("claimedApplicationProfile", "The headless server profile is available only on Linux."));
+                }
+            }
+        }
+
         if (hostLabel is not null && (hostLabel.Length == 0 || hostLabel.Length > 64))
         {
             errors.Add(new("hostLabel", "Optional, 1 to 64 characters."));
@@ -109,7 +161,7 @@ public sealed class DeviceMetadata
 
         violations = errors;
         metadata = errors.Count == 0
-            ? new DeviceMetadata(os!, osVersion!, architecture!, managerVersion!, protection, hostLabel)
+            ? new DeviceMetadata(os!, osVersion!, architecture!, managerVersion!, protection, profile, hostLabel)
             : null;
         return errors.Count == 0;
     }

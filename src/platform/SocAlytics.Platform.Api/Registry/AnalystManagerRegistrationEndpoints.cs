@@ -109,7 +109,8 @@ internal static class AnalystManagerRegistrationEndpoints
 			r.DeviceFingerprint.Value,
 			// Claimed by the Manager, not attested by the platform.
 			new AnalystManagerDeviceMetadataDto(
-				m.Os, m.OsVersion, m.Architecture, m.ManagerVersion, m.ClaimedKeyProtection.ToApiName(), m.HostLabel),
+				m.Os, m.OsVersion, m.Architecture, m.ManagerVersion, m.ClaimedKeyProtection.ToApiName(),
+				m.ClaimedApplicationProfile?.ToApiName(), m.HostLabel),
 			new AnalystManagerPairingOriginDto(r.PairingSourceAddress, r.CreatedAt),
 			r.State == RegistrationState.PendingApproval ? ApprovalNotice : null,
 			r.SubmittedBy,
