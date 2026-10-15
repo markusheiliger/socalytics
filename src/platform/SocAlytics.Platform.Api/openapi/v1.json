@@ -626,6 +626,7 @@
         ],
         "type": "object"
       },
+      "JsonElement": {},
       "LeaseRenewedDto": {
         "properties": {
           "attemptId": {
@@ -1770,6 +1771,204 @@
         ],
         "type": "object"
       },
+      "UpstreamCapabilityDto": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ],
+        "type": "object"
+      },
+      "UpstreamCoverageDto": {
+        "properties": {
+          "match": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "segmentId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "segmentId",
+          "match",
+          "state"
+        ],
+        "type": "object"
+      },
+      "UpstreamDependencyDto": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/UpstreamCapabilityDto"
+          },
+          "edgeKind": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capability",
+          "schemaVersion",
+          "edgeKind"
+        ],
+        "type": "object"
+      },
+      "UpstreamGrantDto": {
+        "properties": {
+          "expiresAt": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "url",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "UpstreamResultDto": {
+        "properties": {
+          "acceptedResultId": {
+            "type": "string"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/UpstreamGrantDto"
+            },
+            "type": "array"
+          },
+          "manifest": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "manifestChecksum": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/UpstreamScopeDto"
+          }
+        },
+        "required": [
+          "acceptedResultId",
+          "scope",
+          "manifestChecksum",
+          "manifest",
+          "grants"
+        ],
+        "type": "object"
+      },
+      "UpstreamResultsDto": {
+        "properties": {
+          "continuationToken": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "contractVersion": {
+            "type": "string"
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/UpstreamCoverageDto"
+            },
+            "type": "array"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/UpstreamResultDto"
+            },
+            "type": "array"
+          },
+          "upstream": {
+            "$ref": "#/components/schemas/UpstreamDependencyDto"
+          }
+        },
+        "required": [
+          "contractVersion",
+          "upstream",
+          "results",
+          "coverage",
+          "continuationToken"
+        ],
+        "type": "object"
+      },
+      "UpstreamScopeDto": {
+        "properties": {
+          "match": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "segment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UpstreamSegmentScopeDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "segment",
+          "match"
+        ],
+        "type": "object"
+      },
+      "UpstreamSegmentScopeDto": {
+        "properties": {
+          "segmentId": {
+            "type": "string"
+          },
+          "windowEndMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "windowStartMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "segmentId",
+          "windowStartMs",
+          "windowEndMs"
+        ],
+        "type": "object"
+      },
       "WorkflowDefinitionDto": {
         "properties": {
           "category": {
@@ -2094,6 +2293,97 @@
             "sessionCookie": []
           }
         ],
+        "tags": [
+          "Analyst Manager attempts"
+        ]
+      }
+    },
+    "/api/v1/analysis/attempts/{attemptId}/upstream-results": {
+      "get": {
+        "operationId": "listAnalysisUpstreamResults",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attemptId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpstreamResultsDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
         "tags": [
           "Analyst Manager attempts"
         ]

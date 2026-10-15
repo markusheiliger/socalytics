@@ -7,6 +7,9 @@ public static class AnalysisAuditEvents
 {
     public const string ResultGrantRefusedEvent = "analysis.result-grant-refused";
     public const string ResultGrantRefusedAction = "refuse-result-grant";
+    public const string UpstreamReadRefusedEvent = "analysis.upstream-read-refused";
+    public const string UpstreamReadRefusedAction = "refuse-upstream-read";
+    public const string OutOfScopeReason = "out-of-scope";
     public const string ResultRejectedEvent = "analysis.result-rejected";
     public const string ResultRejectedAction = "reject-result";
     public const string AttemptResourceType = "analysis-attempt";
@@ -39,6 +42,23 @@ public static class AnalysisAuditEvents
         {
             EventType = ResultGrantRefusedEvent,
             Action = ResultGrantRefusedAction,
+            Outcome = AuditOutcome.Refused,
+            Resource = new AuditResource(AttemptResourceType, attemptId.ToString()),
+            ReasonCode = reason,
+            Details = new Dictionary<string, string>
+            {
+                [ManagerIdDetail] = managerId.ToString(),
+                [LogicalJobIdDetail] = logicalJobId.ToString(),
+                [RunIdDetail] = runId.ToString(),
+            },
+            ActorOverride = new AuditActorOverride(AuditActorKind.AnalystManager, null),
+        };
+
+    public static AuditEvent UpstreamReadRefused(Guid attemptId, Guid logicalJobId, Guid runId, Guid managerId, string reason) =>
+        new()
+        {
+            EventType = UpstreamReadRefusedEvent,
+            Action = UpstreamReadRefusedAction,
             Outcome = AuditOutcome.Refused,
             Resource = new AuditResource(AttemptResourceType, attemptId.ToString()),
             ReasonCode = reason,

@@ -41,6 +41,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.CompleteAttemptHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.IssueResultGrantsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.ResultManifestVerifier>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.ListUpstreamResultsHandler>();
         services.AddOptions<SocAlytics.Platform.Application.Analysis.Commands.AnalysisLeaseOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.Commands.AnalysisLeaseOptions.SectionName);
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.CloseAttemptAsStale>();

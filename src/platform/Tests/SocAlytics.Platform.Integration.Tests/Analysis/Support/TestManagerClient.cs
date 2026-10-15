@@ -97,5 +97,12 @@ internal sealed class TestManagerClient : IDisposable
         return _client.SendAsync(request, ct);
     }
 
+    public Task<HttpResponseMessage> ListUpstreamResultsAsync(Guid attemptId, string query, CancellationToken ct = default)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, $"/api/v1/analysis/attempts/{attemptId}/upstream-results?{query}");
+        request.Headers.Add(TestManagerAuthenticationHandler.ManagerHeader, ManagerId.ToString());
+        return _client.SendAsync(request, ct);
+    }
+
     public void Dispose() => _client.Dispose();
 }
