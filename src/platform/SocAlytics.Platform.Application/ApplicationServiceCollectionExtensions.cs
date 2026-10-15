@@ -100,6 +100,13 @@ public static class ApplicationServiceCollectionExtensions
             IValidateOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisResultOptions>,
             SocAlytics.Platform.Application.Analysis.Results.AnalysisResultOptionsValidator>());
 
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptions>,
+            SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptionsValidator>());
+
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.StartPairingHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.GetPairingStatusHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.ActivateRegistrationHandler>();
