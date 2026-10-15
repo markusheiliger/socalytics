@@ -32,6 +32,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<IMemberAccountStore, MemberAccountStore>();
         services.TryAddScoped<IAccountCredentialService, AccountCredentialService>();
         services.TryAddScoped<ISessionStore, SessionStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn.IExternalIdentityStore, SocAlytics.Platform.Infrastructure.IdentityAccess.ExternalIdentity.DapperExternalIdentityStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn.IPendingExternalSignInStore, SocAlytics.Platform.Infrastructure.IdentityAccess.ExternalIdentity.DapperPendingExternalSignInStore>();
         services.TryAddScoped<IClubHierarchyStore, ClubHierarchyStore>();
         services.TryAddScoped<IRecordingRetryOutcomeStore, RecordingRetryOutcomeStore>();
         services.TryAddScoped<IRecordingStore, RecordingStore>();

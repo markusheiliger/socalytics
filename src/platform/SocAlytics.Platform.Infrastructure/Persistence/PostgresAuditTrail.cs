@@ -59,6 +59,8 @@ internal sealed class PostgresAuditTrail(
         "notificationsRepublished",
         "logicalJobId",
         "runId",
+        "provider",
+        "cause",
     };
 
     private const string InsertSql =
