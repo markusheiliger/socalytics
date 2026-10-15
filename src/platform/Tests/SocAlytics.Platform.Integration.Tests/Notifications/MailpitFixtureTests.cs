@@ -6,6 +6,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Notifications;
 
+[Collection(MailpitCollection.Name)]
 public sealed class MailpitFixtureTests(MailpitContainerFixture mailpit)
 {
     [Fact]

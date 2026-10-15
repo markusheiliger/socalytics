@@ -10,6 +10,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Notifications;
 
+[Collection(MailpitCollection.Name)]
 public sealed class MemberEmailTests(PostgresContainerFixture postgres, MailpitContainerFixture mailpit)
 {
 	private static async Task<Guid> AccountIdAsync(IsolatedDatabase db, string name, CancellationToken ct)

@@ -12,6 +12,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Notifications;
 
+[Collection(MailpitCollection.Name)]
 public sealed class EmailTransportTests(MailpitContainerFixture mailpit)
 {
     private const string Token = "tok-0123456789abcdef";

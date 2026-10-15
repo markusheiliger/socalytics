@@ -113,7 +113,7 @@ description: "Task list for Member Email Addresses and Pending-Request Notificat
 ## Phase 7: Polish & Cross-Cutting Concerns
 
 - [x] T015 Documentation (plan.md § Architecture Updates; Constitution Principle I): make the narratives listed in plan.md § Architecture Updates and every status statement this feature affects true for the merged state, re-reading `docs/architecture/` at implementation time; the listed rewrites are examples, not the whole job. In particular, turn every "(decided, not yet implemented)" about the email channel in `docs/architecture/email-notifications.md`, `docs/architecture/platform-implementation.md`, and `docs/architecture/tenancy-and-technology.md` into present tense, rewrite the introduction of `docs/architecture/email-notifications.md` and the "in a later specification" sentence of `docs/architecture/analyst-manager.md` § Fleet Visibility In The Web UI, and update `docs/architecture/platform-implementation.md` § Acceptance Evidence and § Architecture Reassessment, keeping production relay values Open / Blocking. Update `src/platform/README.md`, `src/clients/README.md`, the root `README.md` (Mailpit in the AppHost), and the "Current State" in `AGENTS.md`.
-- [ ] T016 Run the validation in [quickstart.md](quickstart.md): platform restore, build, and tests, then in `src/clients/web/` `npm ci`, `npm run build`, `npm test`, and `npm run test:e2e` (both projects), and `node .github/scripts/check-markdown.mjs`; fix what fails.
+- [x] T016 Run the validation in [quickstart.md](quickstart.md): platform restore, build, and tests, then in `src/clients/web/` `npm ci`, `npm run build`, `npm test`, and `npm run test:e2e` (both projects), and `node .github/scripts/check-markdown.mjs`; fix what fails.
 
 ---
 

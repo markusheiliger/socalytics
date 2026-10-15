@@ -10,6 +10,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Notifications;
 
+[Collection(MailpitCollection.Name)]
 public sealed class PendingRequestNotificationTests(PostgresContainerFixture postgres, MailpitContainerFixture mailpit)
 {
 	private const string Registrations = "/api/v1/analyst-manager-registrations";

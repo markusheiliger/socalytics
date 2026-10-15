@@ -16,6 +16,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Notifications;
 
+[Collection(MailpitCollection.Name)]
 public sealed partial class EmailDeliveryWorkerTests(PostgresContainerFixture postgres, MailpitContainerFixture mailpit)
 {
     private sealed class Harness(IsolatedDatabase db, ServiceProvider provider, MutableTimeProvider time, CapturingLoggerProvider logs) : IAsyncDisposable

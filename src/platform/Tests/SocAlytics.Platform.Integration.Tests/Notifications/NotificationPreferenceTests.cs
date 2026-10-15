@@ -11,6 +11,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Notifications;
 
+[Collection(MailpitCollection.Name)]
 public sealed class NotificationPreferenceTests(PostgresContainerFixture postgres, MailpitContainerFixture mailpit)
 {
 	private const string Preferences = "/api/v1/me/notification-preferences";

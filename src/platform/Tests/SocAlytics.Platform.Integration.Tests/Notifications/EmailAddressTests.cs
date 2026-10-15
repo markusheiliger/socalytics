@@ -9,6 +9,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Notifications;
 
+[Collection(MailpitCollection.Name)]
 public sealed class EmailAddressTests(PostgresContainerFixture postgres, MailpitContainerFixture mailpit)
 {
 	[Fact]

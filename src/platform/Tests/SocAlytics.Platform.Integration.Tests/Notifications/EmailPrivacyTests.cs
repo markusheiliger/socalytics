@@ -11,6 +11,7 @@ using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Notifications;
 
+[Collection(MailpitCollection.Name)]
 public sealed class EmailPrivacyTests(PostgresContainerFixture postgres, MailpitContainerFixture mailpit)
 {
 	private static readonly Dictionary<string, string?> RegistrySettings = new()
