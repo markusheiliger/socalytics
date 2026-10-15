@@ -65,7 +65,7 @@ public sealed class SimulatedRuntimeAdapter : IContainerRuntimeAdapter
         var behavior = options.Capabilities.TryGetValue(launch.CapabilityId, out var configured)
             ? configured
             : new SimulatedCapabilityOptions();
-        var attempt = new SimulatedAttempt(launch, behavior, time);
+        var attempt = new SimulatedAttempt(launch, behavior, options, time);
         attempts[launch.AttemptId] = attempt;
         return Task.FromResult<IAttemptExecution>(attempt);
     }
@@ -76,11 +76,14 @@ public sealed class SimulatedAttempt : IAttemptExecution
     private readonly TaskCompletionSource<AttemptOutcome> outcome = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource stopped = new();
 
-    internal SimulatedAttempt(AttemptLaunch launch, SimulatedCapabilityOptions behavior, TimeProvider time)
+    internal SimulatedAttempt(AttemptLaunch launch, SimulatedCapabilityOptions behavior, SimulatedAnalystOptions options, TimeProvider time)
     {
         Launch = launch;
+        _options = options;
         _ = RunAsync(behavior, time);
     }
+
+    private readonly SimulatedAnalystOptions _options;
 
     public AttemptLaunch Launch { get; }
 
@@ -120,6 +123,7 @@ public sealed class SimulatedAttempt : IAttemptExecution
             switch (behavior.Outcome)
             {
                 case SimulatedOutcome.Succeed:
+                    SimulatedResultWriter.Write(Launch, _options);
                     outcome.TrySetResult(AttemptOutcome.Success(
                         behavior.ResultReference ?? $"simulated/results/{Launch.AttemptId}",
                         behavior.ResultChecksum ?? "sha-256:" + new string('0', 64)));

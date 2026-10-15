@@ -1,0 +1,196 @@
+name: Spec Kit implement group
+
+# One ordered phase unit, never started on its own: called serially by Spec Kit implement phase. A singleton delegates
+# directly to one task workflow. Consecutive `[P]` tasks fan out to task workflows and receive full combined
+# verification and reporting after every task has landed.
+on:
+  workflow_call:
+    inputs:
+      twin:
+        description: Spec twin issue number
+        required: true
+        type: string
+      pull:
+        description: Implementation pull request number
+        required: true
+        type: string
+      folder:
+        description: Spec folder name under specs/
+        required: true
+        type: string
+      base:
+        description: Base branch of the implementation pull request
+        required: true
+        type: string
+      order:
+        description: Ordered phase units as JSON
+        required: true
+        type: string
+      index:
+        description: Index of this unit in the phase order
+        required: true
+        type: number
+
+permissions: {}
+
+jobs:
+  prepare:
+    name: Prepare the group
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      head: ${{ steps.group.outputs.head }}
+      parallel: ${{ steps.group.outputs.parallel }}
+    steps:
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: speckit/${{ inputs.folder }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record the group
+        id: group
+        env:
+          ORDER: ${{ inputs.order }}
+          INDEX: ${{ inputs.index }}
+        shell: bash
+        run: |
+          count="$(node -e 'const order=JSON.parse(process.env.ORDER); console.log(order[Number(process.env.INDEX)].include.length)')"
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [ "$count" -gt 1 ]; then echo "parallel=true" >> "$GITHUB_OUTPUT"; else echo "parallel=false" >> "$GITHUB_OUTPUT"; fi
+
+  tasks:
+    name: ${{ matrix.task }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      max-parallel: ${{ fromJSON(vars.SPECKIT_MAX_PARALLEL_TASKS || '3') }}
+      matrix: ${{ fromJSON(inputs.order)[inputs.index] }}
+    uses: ./.github/workflows/speckit-implement-task.yml
+    permissions:
+      checks: write
+      contents: write
+      copilot-requests: write
+      issues: read
+      pull-requests: write
+    with:
+      twin: ${{ inputs.twin }}
+      pull: ${{ inputs.pull }}
+      folder: ${{ inputs.folder }}
+      base: ${{ inputs.base }}
+      order: ${{ inputs.order }}
+      index: ${{ inputs.index }}
+      task: ${{ matrix.task }}
+      attempt: ${{ matrix.attempt }}
+      prompt: ${{ matrix.prompt }}
+      verify_mode: ${{ matrix.verify_mode }}
+      summary: ${{ matrix.summary }}
+      defer_progress: ${{ needs.prepare.outputs.parallel == 'true' }}
+
+  verify:
+    name: Verify the parallel tasks together
+    needs: [prepare, tasks]
+    if: always() && needs.prepare.outputs.parallel == 'true' && needs.tasks.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    outputs:
+      head: ${{ steps.head.outputs.head }}
+    env:
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the parallel result
+        uses: actions/checkout@v5
+        with:
+          ref: speckit/${{ inputs.folder }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: List the group changes
+        working-directory: workspace
+        env:
+          GROUP_START: ${{ needs.prepare.outputs.head }}
+        run: |
+          mkdir -p "$SPECKIT_RESULT_DIR"
+          git diff --name-only --no-renames "$GROUP_START" HEAD > "$SPECKIT_RESULT_DIR/changed-files.txt"
+
+      - name: Record the verified head
+        id: head
+        working-directory: workspace
+        run: echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up the solution environment
+        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Verify the combined group
+        if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: phase
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      - name: Upload the group verification
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-group-verification
+          path: ${{ env.SPECKIT_RESULT_DIR }}
+          retention-days: 7
+          if-no-files-found: ignore
+
+  report:
+    name: Report the group verification
+    needs: [prepare, tasks, verify]
+    if: always() && needs.prepare.outputs.parallel == 'true' && needs.tasks.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      checks: write
+      contents: read
+      issues: read
+      pull-requests: write
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Report the verification
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_BASE_BRANCH: ${{ inputs.base }}
+          SPECKIT_TWIN: ${{ inputs.twin }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+          SPECKIT_FOLDER: ${{ inputs.folder }}
+          SPECKIT_ORDER: ${{ inputs.order }}
+          SPECKIT_ORDER_INDEX: ${{ inputs.index }}
+          SPECKIT_HEAD: ${{ needs.verify.outputs.head }}
+          SPECKIT_LAND_OK: "true"
+          SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
+          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
+        run: node .github/scripts/speckit-group.mjs combined-verified

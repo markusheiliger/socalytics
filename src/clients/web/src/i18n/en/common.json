@@ -12,7 +12,20 @@
     "incompatible": "The platform answered in an unexpected way. Reload the page; this build may be outdated.",
     "error": "Something went wrong. Try again later.",
     "reference": "Reference: {{id}}",
-    "loadFailed": "The data could not be loaded."
+    "loadFailed": "The data could not be loaded.",
+    "seasonArchived": "This season is archived, so the team and its matches are read-only.",
+    "tooLarge": "The recording is larger than the platform allows.",
+    "unsupportedType": "This video format is not accepted.",
+    "uploadExpired": "The upload session expired. Start the upload again.",
+    "uploadCompleted": "This upload was already completed.",
+    "uploadPartsRefused": "The platform did not accept all parts. The affected parts are sent again.",
+    "uploadIntegrityFailed": "The platform could not verify the uploaded recording.",
+    "storageUnavailable": "The recording storage is not available. The upload continues when it recovers.",
+    "pairingRefused": "The pairing code or device fingerprint was not accepted. Check both and try again.",
+    "rateLimited": "Too many attempts. Try again in {{seconds}} seconds.",
+    "rateLimitedUnknown": "Too many attempts. Try again in a moment.",
+    "revocationConflict": "This registration is no longer active and cannot be revoked. The current state is shown after reloading.",
+    "decisionConflict": "This request can no longer be decided; it was already decided or has expired. The current state is shown after reloading."
   },
   "fieldError": {
     "required": "This field is required.",

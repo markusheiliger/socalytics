@@ -8,7 +8,7 @@ import type { PlatformFailure } from '../../platform/failure';
 export function FailureAlert({ failure, onReload }: { failure: PlatformFailure; onReload?: () => void }) {
   const { t } = useTranslation('common');
   if (failure.kind === 'sessionProblem') return <SessionProblemAlert />;
-  const key = ['conflict', 'unreachable', 'validation', 'incompatible'].includes(failure.kind) ? failure.kind : 'error';
+  const key = ['conflict', 'unreachable', 'validation', 'incompatible', 'seasonArchived'].includes(failure.kind) ? failure.kind : 'error';
   return (
     <Alert
       severity="error"

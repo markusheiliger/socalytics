@@ -6,7 +6,7 @@ name: Spec Kit implement phase
 #   plan:    "Plan the tasks": decides again from the state on GitHub and, while the phase still comes next,
 #            plans the order of its open tasks and shows the attempts of the first task (or first `[P]` tasks) as in
 #            progress; it never runs agent-written code
-#   tasks:   a matrix that runs Spec Kit implement task once per task (or once for consecutive `[P]` tasks), one job at a
+#   groups:  a matrix that runs Spec Kit implement group once per task unit, one job at a
 #            time, named after the task IDs ("T013", "T014, T015 in parallel"): tasks land before the next start, and
 #            tasks that do not land cancel the tasks after them
 #   verify:  the full verification of the phase after its last task (read-only token); each task is verified only with
@@ -41,6 +41,12 @@ on:
       verified:
         description: Result of the phase verification (success, failure, or skipped)
         value: ${{ jobs.verify.result }}
+      order:
+        description: The ordered units planned for this phase run
+        value: ${{ jobs.plan.outputs.order }}
+      phase:
+        description: The phase heading
+        value: ${{ inputs.phase }}
 
 permissions: {}
 
@@ -87,7 +93,7 @@ jobs:
   # One matrix job per task (or per consecutive `[P]` tasks), one at a time and in order; tasks that do not land fail
   # their land job, and fail-fast cancels the tasks after them. GitHub documents the order in which matrix jobs are
   # created; with max-parallel 1 they run in that order. Each entry carries the job name it runs under.
-  tasks:
+  groups:
     name: ${{ matrix.name }}
     needs: plan
     if: needs.plan.outputs.count != '0'
@@ -95,7 +101,7 @@ jobs:
       max-parallel: 1
       fail-fast: true
       matrix: ${{ fromJSON(needs.plan.outputs.task_matrix) }}
-    uses: ./.github/workflows/speckit-implement-task.yml
+    uses: ./.github/workflows/speckit-implement-group.yml
     permissions:
       checks: write
       contents: write
@@ -103,7 +109,6 @@ jobs:
       issues: read
       pull-requests: write
     with:
-      kind: task
       twin: ${{ inputs.twin }}
       pull: ${{ inputs.pull }}
       folder: ${{ inputs.folder }}
@@ -116,9 +121,9 @@ jobs:
   # failure stops the implementation for a diagnosis instead of using up the attempts of the task that came last.
   verify:
     name: Verify the phase
-    needs: [plan, tasks]
+    needs: [plan, groups]
     if: >-
-      !cancelled() && needs.plan.outputs.phase_check == 'true' && needs.tasks.result == 'success'
+      !cancelled() && needs.plan.outputs.phase_check == 'true' && needs.groups.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -172,3 +177,12 @@ jobs:
           mode: phase
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      - name: Upload the phase verification
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-phase-verification
+          path: ${{ env.SPECKIT_RESULT_DIR }}
+          retention-days: 7
+          if-no-files-found: ignore

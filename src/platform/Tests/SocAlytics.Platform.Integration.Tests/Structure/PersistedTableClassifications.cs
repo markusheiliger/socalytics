@@ -49,6 +49,8 @@ internal static class PersistedTableClassifications
             ["analysis_claim_keys"] = TableClassification.Immutable,
             ["analysis_accepted_results"] = TableClassification.Immutable,
             ["analysis_completion_outcomes"] = TableClassification.Immutable,
+            ["analysis_result_object_declarations"] = TableClassification.Immutable,
+            ["analysis_accepted_result_manifests"] = TableClassification.Immutable,
             ["analysis_notification_receipts"] = TableClassification.Immutable,
             ["analyst_capability_declaration"] = TableClassification.Immutable,
             ["workflow_definition"] = TableClassification.Immutable,

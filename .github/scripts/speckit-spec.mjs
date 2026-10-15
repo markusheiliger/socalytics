@@ -1,11 +1,10 @@
-import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import { isImplementRequested, resolveTwins } from './speckit-prepare-core.mjs';
-import { GitHubClient } from './speckit-prepare-github.mjs';
 import { resolveImplementRequester } from './speckit-prepare.mjs';
 import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
-import { startAttemptChecks } from './speckit-task.mjs';
+import { startAttemptChecks } from './speckit-implement-work.mjs';
+import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import {
   BOT_LOGIN,
   CHECK_CONFLICT,
@@ -28,6 +27,7 @@ import {
   decideNext,
   describeParallelGroups,
   dispatchImplementation,
+  ensureImplementationDraft,
   implementationBranch,
   kindLabel,
   latestCheckRun,
@@ -35,6 +35,8 @@ import {
   listTasks,
   markerTimes,
   neutralizeMarkers,
+  appendWriterGuidance,
+  normalizeWriterGuidance,
   parseAttemptCheckId,
   parseAttempts,
   parseGuidance,
@@ -45,6 +47,8 @@ import {
   renderImplementRunName,
   renderImplementTitle,
   renderNextSteps,
+  renderRepairMarker,
+  renderRepairPrompt,
   renderResumeComment,
   renderSyncSkippedMarker,
   renderTaskPrompt,
@@ -55,31 +59,15 @@ import {
   syncSkippedShas,
   taskJobName,
   taskSubject,
+  unresolvedRepair,
 } from './speckit-implement-core.mjs';
 
 // The implementation chain of one spec (workflow Spec Kit implement spec): every run decides what comes next from the
-// state on GitHub (job "decide"), runs it (a phase in Spec Kit implement phase, the convergence or a conflict
-// resolution in Spec Kit implement task, or the merge), and starts the next run (job "continue"), until the
+// state on GitHub (job "decide"), runs it (a phase, a guided repair, the convergence, a conflict resolution, or the
+// merge), and starts the next run (job "continue"), until the
 // implementation is merged, waits for review, or needs a person.
 
 export class SpecUsageError extends Error {}
-
-function createReporter(env, log) {
-  const lines = [];
-  return {
-    line(text = '') {
-      lines.push(text);
-      log(text);
-    },
-    flush() {
-      if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
-    },
-  };
-}
-
-function setOutput(env, name, value) {
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `${name}=${value}\n`);
-}
 
 // Server and repository for links; the branch of a link is chosen where it is built (the base branch of an
 // implementation, or the default branch for twins).
@@ -118,7 +106,38 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   const done = markerTimes(comments, DONE_COMMENT_MARKER).length > 0;
   const windowStart = [pull.created_at, ...resumedAt, ...(pushedAt ? [pushedAt] : [])].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
   const latestResume = [...resumedAt].sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
-  const decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestResume, now });
+  let decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestResume, now });
+  const repair = unresolvedRepair(comments);
+  if (repair) {
+    const repairAttempts = attempts.filter((attempt) => attempt.kind === 'repair' && Date.parse(attempt.at) >= Date.parse(repair.at));
+    const latestRepairAttempt = repairAttempts.map((attempt) => Date.parse(attempt.at)).sort((a, b) => b - a)[0] ?? 0;
+    const restart = comments
+      .filter((comment) => comment.user?.login === BOT_LOGIN &&
+        [RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)) &&
+        Date.parse(comment.created_at) >= Math.max(Date.parse(repair.at), latestRepairAttempt))
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+    if (restart && repairAttempts.filter((attempt) => attempt.outcome === 'failure').length < MAX_TASK_ATTEMPTS) {
+      const guidance = parseGuidance(restart.body) ?? '';
+      decision = {
+        action: 'repair',
+        kind: 'repair',
+        repair,
+        guidance,
+        verifyOnly: String(restart.body ?? '').startsWith(RESUME_COMMENT_MARKER) && !guidance,
+        attempt: repairAttempts.length + 1,
+        stale: decision.stale ?? [],
+      };
+    } else if (repairAttempts.filter((attempt) => attempt.outcome === 'failure').length >= MAX_TASK_ATTEMPTS) {
+      decision = { action: 'limit', kind: 'repair', attempts: repairAttempts.length, stale: decision.stale ?? [] };
+    } else if (!['diagnosing'].includes(decision.action)) {
+      decision = {
+        action: 'failed',
+        repair,
+        stale: decision.stale ?? [],
+        diagnosis: decision.diagnosis ?? { state: 'none', check: latestCheckRun(checks), count: checks.filter((check) => [CHECK_DIAGNOSING, CHECK_DIAGNOSED].includes(check.external_id)).length },
+      };
+    }
+  }
   // The ledger is not called attempts, which a limit decision uses for its count.
   const state = { pull, tasksMarkdown, archived, checks, comments, ledger: attempts, pushedAt };
   if (decision.action === 'diagnosing' && (await diagnosisRunEnded(client, twin, latestCheckRun(checks)))) {
@@ -136,7 +155,7 @@ export function needsRun(decision, env) {
 }
 
 // Guidance from the latest resume or retry (`/speckit resume <guidance>`, `/speckit retry <guidance>`). It applies to
-// the stopped task, convergence, or conflict resolution only: it ends when an attempt reported success after the
+// the stopped task, repair, convergence, or conflict resolution: it ends when an attempt reported success after the
 // restart, or when a person pushed since.
 function currentGuidance({ comments, ledger, pushedAt }) {
   const resume = comments
@@ -238,16 +257,17 @@ function readSpecInputs(env) {
 // verified on its own (mode `task`); the phase gets its full verification in its own job after its last task, so a
 // failure there is never charged to the task that happens to come last.
 function prepareOrder(decision, folder) {
-  const guidance = currentGuidance(decision);
-  const withGuidance = (prompt) => (guidance ? `${prompt} Guidance from the person who resumed this implementation: ${guidance.replace(/\s+/g, ' ').slice(0, 1500)}` : prompt);
+  const guidance = normalizeWriterGuidance(currentGuidance(decision));
   const texts = new Map(listTasks(decision.tasksMarkdown).map((task) => [task.id, task.text]));
   return decision.order.map((entry, index) => ({
     include: entry.map(({ task, attempt }) => {
       const prompt = decision.kind === 'task' ? renderTaskPrompt(task, folder, { archived: decision.archived }) : decision.kind === 'converge' ? renderConvergePrompt() : '';
+      const activeGuidance = index === 0 ? guidance : '';
       return {
         task: task ?? '',
         attempt,
-        prompt: index === 0 && prompt ? withGuidance(prompt) : prompt,
+        prompt: prompt ? appendWriterGuidance(prompt, activeGuidance) : prompt,
+        ...(decision.kind === 'resolve' && activeGuidance ? { guidance: activeGuidance } : {}),
         verify_mode: decision.kind === 'resolve' ? 'finalize' : 'task',
         summary: task ? neutralizeMarkers(summarizeTask(texts.get(task) ?? '')).slice(0, 300) : '',
       };
@@ -362,8 +382,8 @@ async function reportSyncGivenUp(client, { decision, report }) {
 
 // Spec Kit implement spec, job "decide" (write access to check runs, issues, and pull requests; never runs agent
 // code): validates the twin and its pull request, reports orphaned attempts, decides what comes next, reports stops
-// (attempt limit, diagnosis), and prepares it: the phase to run (Spec Kit implement phase plans its tasks),
-// the convergence or a conflict resolution with its check run, or the merge check run. The outputs drive
+// (attempt limit, diagnosis), and prepares it: the phase to run (Spec Kit implement phase plans its tasks), a
+// writer-approved repair, the convergence or a conflict resolution with its check run, or the merge check run. The outputs drive
 // the jobs of the run; `continue` tells whether the run starts its successor.
 export async function runDecide({ client, env, log, now = Date.now }) {
   const report = createReporter(env, log);
@@ -371,7 +391,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   const finish = (action, outputs = {}) => {
     report.flush();
     setOutput(env, 'action', action);
-    setOutput(env, 'continue', String(['phase', 'converge', 'resolve', 'merge'].includes(action)));
+    setOutput(env, 'continue', String(['implement', 'repair', 'converge', 'resolve', 'merge'].includes(action)));
     for (const [name, value] of Object.entries(outputs)) setOutput(env, name, value);
     return { exitCode: 0, action, ...outputs };
   };
@@ -404,6 +424,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     await client.updateCheckRun(stale.id, { status: 'completed', conclusion: 'failure', output: { title: 'Merge attempt abandoned', summary: 'The merge did not finish within 2 hours.' } });
   }
   const common = { folder, head: pull.head.sha, base_branch: baseBranchOf(pull) };
+  if (decision.action !== 'done') await ensureImplementationDraft(client, pull);
   // A stop waits for a person unless a diagnosis runs for it; a reported diagnosis was labeled when it was recorded
   // (an amendment it created gets the label instead). Everything else is work in progress or ready for review.
   if (decision.action === 'limit') {
@@ -428,6 +449,21 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     report.line(`Merging into \`${common.base_branch}\`, attempt ${decision.attempt}.`);
     return finish('merge', { ...common, attempt: String(decision.attempt), check_run: String(checkRun) });
   }
+  if (decision.action === 'repair') {
+    const entry = { task: null, attempt: decision.attempt, summary: `Repair the failed ${decision.repair.scope} verification.` };
+    const checkRun = (await startAttemptChecks(client, { head: common.head, kind: 'repair', entries: [entry] })).repair;
+    const prompt = renderRepairPrompt({ repair: decision.repair, guidance: decision.guidance, folder });
+    report.line(`Repairing the failed ${decision.repair.scope} verification, attempt ${decision.attempt}.`);
+    return finish('repair', {
+      ...common,
+      attempt: String(decision.attempt),
+      check_run: String(checkRun),
+      repair: JSON.stringify(decision.repair),
+      prompt,
+      verify_only: String(decision.verifyOnly),
+      job_name: `Repair ${decision.repair.scope} verification`,
+    });
+  }
   if (decision.action !== 'tasks') {
     report.line({
       wait: 'Waiting: a merge is running.',
@@ -440,7 +476,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   if (decision.syncGivenUp) await reportSyncGivenUp(client, { decision, report });
   if (decision.kind === 'task') {
     report.line(`Next: ${renderImplementTitle('phase', twin, phaseSubject(decision.phase))}.`);
-    return finish('phase', { ...common, phase: decision.phase ?? '', job_name: phaseSubject(decision.phase) });
+    return finish('implement', { ...common, phase: decision.phase ?? '', job_name: phaseSubject(decision.phase) });
   }
 
   const order = prepareOrder(decision, folder);
@@ -529,6 +565,12 @@ export async function runContinue({ client, env, log }) {
   const folder = String(env.SPECKIT_FOLDER ?? '');
   const pull = await client.getPullRequest(pullNumber);
   if (String(env.SPECKIT_PHASE_CHECK ?? '') === 'failure') {
+    let repairTasks = [];
+    try {
+      repairTasks = JSON.parse(String(env.SPECKIT_ORDER ?? '[]')).flatMap((entry) => entry.include ?? []).map((entry) => entry.task).filter(Boolean);
+    } catch {
+      // The repair still records the failed phase when its task context is unavailable.
+    }
     const requester = (await resolveImplementRequester(client, twin))?.login ?? null;
     const run = env.GITHUB_RUN_ID ? `${contextFromEnv(env).serverUrl}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
     await client.createCheckRun({
@@ -540,6 +582,17 @@ export async function runContinue({ client, env, log }) {
       output: { title: 'The phase verification failed', summary: 'The full verification at the end of the phase failed, although each task passed its own verification.' },
     });
     await client.createComment(pullNumber, [
+      renderRepairMarker({
+        id: `phase:${env.GITHUB_RUN_ID || 'run'}:${pull.head.sha}`,
+        state: 'pending',
+        scope: repairTasks.length === 1 ? 'task' : 'phase',
+        phase: String(env.SPECKIT_PHASE ?? ''),
+        tasks: repairTasks,
+        head: pull.head.sha,
+        run: String(env.GITHUB_RUN_ID || ''),
+        artifact: 'speckit-phase-verification',
+        at: new Date().toISOString(),
+      }),
       `**Implementation needs attention**${requester ? ` @${requester}` : ''}: the full verification at the end of the phase failed${run ? ` (see the [run](${run}))` : ''}. Each task passed its own verification, which covers only the tests it touched, so a change of the phase breaks tests elsewhere, or the tasks break something together.`,
       '',
       ...renderNextSteps({ autoDiagnosis: autoDiagnosisEnabled(env), ...(await nextStepContext(client, pull, folder || null)) }),
@@ -553,20 +606,11 @@ export async function runContinue({ client, env, log }) {
   return { exitCode: 0 };
 }
 
-function githubClient(env) {
-  return new GitHubClient({
-    token: env.GITHUB_TOKEN || env.GH_TOKEN,
-    repository: env.GITHUB_REPOSITORY,
-    apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
-    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
-  });
-}
-
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command] = argv;
   const handlers = { decide: runDecide, sync: runSync, 'plan-phase': runPlanPhase, continue: runContinue };
   if (!handlers[command]) throw new SpecUsageError('Usage: speckit-spec.mjs <decide | sync | plan-phase | continue> (inputs come from SPECKIT_* environment variables)');
-  return (await handlers[command]({ client: client ?? githubClient(env), env, log })).exitCode;
+  return (await handlers[command]({ client: client ?? createGitHubClient(env), env, log })).exitCode;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

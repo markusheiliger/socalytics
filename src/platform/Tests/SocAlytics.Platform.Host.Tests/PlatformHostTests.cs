@@ -63,6 +63,9 @@ public sealed class PlatformHostTests
         environment["Notifications__CoalescingWindow"].ShouldBe("00:15:00");
         Uri.TryCreate(environment["Notifications__WebUiBaseUri"], UriKind.Absolute, out var webBase).ShouldBeTrue();
         webBase!.Scheme.ShouldBe("http");
+        Uri.TryCreate(environment["Registry__Pairing__VerificationBaseUri"], UriKind.Absolute, out var verificationBase).ShouldBeTrue();
+        verificationBase!.Scheme.ShouldBe("http");
+        verificationBase.AbsolutePath.ShouldBe("/");
 
         using var client = app.CreateHttpClient(ApiResourceName, "http");
         await ShouldReturnSuccessAsync(client, "/alive", timeout.Token);
@@ -121,6 +124,26 @@ public sealed class PlatformHostTests
         var endpoints = mailpit.Annotations.OfType<EndpointAnnotation>().ToDictionary(static e => e.Name);
         endpoints["smtp"].TargetPort.ShouldBe(1025);
         endpoints["http"].TargetPort.ShouldBe(8025);
+    }
+
+    [Fact]
+    public async Task AppHostAllowsWebUiAndObjectStorageOriginsForBrowserUploads()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        var appHost = await CreateAppHostAsync(timeout.Token);
+
+        var web = appHost.Resources.Single(static resource => resource.Name == "web");
+        var rustfs = appHost.Resources.Single(static resource => resource.Name == "rustfs");
+
+#pragma warning disable CS0618 // the spec names this API for reading the resource environment
+        var webEnvironment = await ((IResourceWithEnvironment)web)
+            .GetEnvironmentVariableValuesAsync(DistributedApplicationOperation.Publish);
+        var rustfsEnvironment = await ((IResourceWithEnvironment)rustfs)
+            .GetEnvironmentVariableValuesAsync(DistributedApplicationOperation.Publish);
+#pragma warning restore CS0618
+
+        webEnvironment["SOCALYTICS_OBJECT_STORAGE_ORIGIN"].ShouldBe("{rustfs.bindings.s3.url}");
+        rustfsEnvironment["RUSTFS_CORS_ALLOWED_ORIGINS"].ShouldBe("{web.bindings.http.url}");
     }
 
     [Fact]

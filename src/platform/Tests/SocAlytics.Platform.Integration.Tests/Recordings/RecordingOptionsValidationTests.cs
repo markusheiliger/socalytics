@@ -33,6 +33,13 @@ public sealed class RecordingOptionsValidationTests
 		["Recordings:Upload:MaxGrantsPerRequest"] = "1000",
 		["Recordings:Upload:AllowedContentTypes:0"] = "video/mp4",
 		["Recordings:Sets:MaxMembers"] = "100",
+		["Analysis:Results:GrantLifetime"] = "00:10:00",
+		["Analysis:Results:MaxObjectsPerAttempt"] = "16",
+		["Analysis:Results:MaxObjectBytes"] = "104857600",
+		["Analysis:Results:MaxAttemptBytes"] = "1073741824",
+		["Analysis:Results:MaxManifestBytes"] = "1048576",
+		["Analysis:Reads:GrantLifetime"] = "00:10:00",
+		["Analysis:Reads:MaxPageSize"] = "100",
 	};
 
 	private static ServiceProvider Build(Dictionary<string, string?> settings)

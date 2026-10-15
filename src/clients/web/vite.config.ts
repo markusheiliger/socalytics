@@ -14,6 +14,12 @@ const proxy = apiTarget
 
 const port = process.env.PORT ? Number(process.env.PORT) : undefined;
 
+// The development object storage origin (research.md § R11); without it uploads can only reach 'self'.
+const objectStorageOrigin = process.env.SOCALYTICS_OBJECT_STORAGE_ORIGIN
+  ? new URL(process.env.SOCALYTICS_OBJECT_STORAGE_ORIGIN).origin
+  : undefined;
+const connectSources = objectStorageOrigin ? `'self' ${objectStorageOrigin}` : "'self'";
+
 // contracts/security-headers.md: the policy of preview mode and production-shaped builds.
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -21,13 +27,15 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
-  "connect-src 'self'",
+  'media-src blob:',
+  `connect-src ${connectSources}`,
+  "worker-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
   "require-trusted-types-for 'script'",
-  'trusted-types default react-dom',
+  'trusted-types default react-dom upload-worker',
 ].join('; ');
 
 // Hot reload needs inline scripts, eval, and a WebSocket; this policy is never used to measure CSP.
@@ -37,7 +45,9 @@ const developmentContentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
-  "connect-src 'self' ws: wss:",
+  'media-src blob:',
+  `connect-src ${connectSources} ws: wss:`,
+  "worker-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "form-action 'self'",

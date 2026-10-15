@@ -20,7 +20,7 @@ on:
         description: author — the stopped spec's folder under specs/; fix and revise — the fix spec's folder
         required: true
         type: string
-      notes:
+      guidance:
         description: The guidance of the person who asked for the fix spec (author), the findings to fix (fix), or the feedback (revise)
         required: false
         type: string
@@ -113,7 +113,7 @@ steps:
       SPECKIT_TWIN: ${{ inputs.twin }}
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_FOLDER: ${{ inputs.folder }}
-      SPECKIT_NOTES: ${{ inputs.notes }}
+      SPECKIT_GUIDANCE: ${{ inputs.guidance }}
       SPECKIT_MODE: ${{ inputs.mode }}
       SPECKIT_AMENDMENT: ${{ inputs.amendment }}
       SPECKIT_ROUND: ${{ inputs.round }}
@@ -198,7 +198,7 @@ safe-outputs:
             SPECKIT_ROUND: ${{ inputs.round }}
             SPECKIT_STALLS: ${{ inputs.stalls }}
             SPECKIT_FINDINGS: ${{ inputs.findings }}
-            SPECKIT_NOTES: ${{ inputs.notes }}
+            SPECKIT_GUIDANCE: ${{ inputs.guidance }}
             # Only a result that passed threat detection is used, and only the pull request this run created is shown.
             SPECKIT_DETECTION: ${{ needs.detection.result }}
             SPECKIT_CREATED_PULL: ${{ needs.safe_outputs.outputs.created_pr_number }}

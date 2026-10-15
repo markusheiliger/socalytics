@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SocAlytics.Analysts.Manager.DeviceKeys;
 using SocAlytics.Analysts.Manager.Platform;
@@ -48,6 +49,30 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton(TimeProvider.System);
         services.AddSingleton<ProofFactory>();
         services.AddHttpClient<PlatformClient>();
+        services.AddHttpClient(Work.ResultPublisher.StorageClientName);
+        services.AddSingleton(sp =>
+        {
+            var environment = sp.GetService<IHostEnvironment>();
+            var loopbackHttp = environment is not null && (environment.IsDevelopment() || environment.IsEnvironment("Test"));
+            return new Work.ResultPublisher(
+                sp.GetRequiredService<PlatformClient>(),
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient(Work.ResultPublisher.StorageClientName),
+                sp.GetRequiredService<TimeProvider>(), loopbackHttp,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<Work.ResultPublisher>());
+        });
+        services.Configure<Work.StagingOptions>(configuration.GetSection(Work.StagingOptions.SectionName));
+        services.AddSingleton(sp =>
+        {
+            var environment = sp.GetService<IHostEnvironment>();
+            var loopbackHttp = environment is not null && (environment.IsDevelopment() || environment.IsEnvironment("Test"));
+            var staging = sp.GetRequiredService<IOptions<Work.StagingOptions>>().Value;
+            staging.Validate();
+            return new Work.UpstreamStager(
+                sp.GetRequiredService<PlatformClient>(),
+                sp.GetRequiredService<IHttpClientFactory>().CreateClient(Work.ResultPublisher.StorageClientName),
+                sp.GetRequiredService<TimeProvider>(), staging, loopbackHttp,
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<Work.UpstreamStager>());
+        });
         services.AddSingleton<Operating.AdmissionGate>();
         services.AddSingleton<Work.AttemptRegistry>();
         services.AddSingleton<Operating.IManagerWorkTracker>(sp => sp.GetRequiredService<Work.AttemptRegistry>());

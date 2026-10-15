@@ -235,7 +235,7 @@ development and test, a stamp may allow software-backed keys only for Managers
 that claim the headless server profile, for Linux servers without a TPM or
 virtual TPM; tray Managers keep requiring hardware-backed keys. The platform can
 verify neither the profile nor the protection, so the approval view shows both
-as claimed, with a warning (the first Web UI decision view shows the profile
+as claimed, with a warning (the Web UI decision view shows the profile
 only once Managers report it; see
 [Fleet Visibility In The Web UI](#fleet-visibility-in-the-web-ui)). Hardware key attestation is a later decision.
 Production approval of any store remains governed by `GOV-CRED-002` in
@@ -434,13 +434,13 @@ registration list and detail operations; see
 [the platform README](../../src/platform/README.md) and the
 [Manager status contracts](../../specs/archive/20261012-153308-manager-fleet-status/contracts/self-status-api.md).
 
-The first Web UI fleet and decision views will not show the claimed
-application profile: it follows once the headless server profile exists and
-Managers report it, while the claimed device-key protection is shown from the
-start. Approving a request will require re-entering the last six characters of
-the device fingerprint, and revoking a registration typing the Manager's host
-label. The navigation will show Club Admins the number of pending requests.
-Club Admins with a verified email address are also notified of pending
+The Web UI fleet, pairing, and decision views are implemented. They do not
+show the claimed application profile: it follows once the headless server
+profile exists and Managers report it, while the claimed device-key protection
+is shown from the start. Approving a request requires re-entering the last six
+characters of the device fingerprint, and revoking a registration requires
+typing the Manager's host label. The navigation shows Club Admins the number of
+pending requests. Club Admins with a verified email address are also notified of pending
 requests by email through the
 [email channel](email-notifications.md), which is implemented: the first
 request sends a message at once and further ones are coalesced within a

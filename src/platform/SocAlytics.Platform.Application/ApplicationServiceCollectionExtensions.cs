@@ -39,6 +39,9 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.ClaimLogicalJobHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.RenewAttemptLeaseHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.CompleteAttemptHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.IssueResultGrantsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.ResultManifestVerifier>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.ListUpstreamResultsHandler>();
         services.AddOptions<SocAlytics.Platform.Application.Analysis.Commands.AnalysisLeaseOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.Commands.AnalysisLeaseOptions.SectionName);
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.CloseAttemptAsStale>();
@@ -109,6 +112,20 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingUploadOptions>, RecordingUploadOptionsValidator>());
         services.AddOptions<RecordingSetOptions>().BindConfiguration(RecordingSetOptions.SectionName).ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingSetOptions>, RecordingSetOptionsValidator>());
+
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisResultOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.Results.AnalysisResultOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisResultOptions>,
+            SocAlytics.Platform.Application.Analysis.Results.AnalysisResultOptionsValidator>());
+
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptions>,
+            SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptionsValidator>());
 
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.StartPairingHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.GetPairingStatusHandler>();

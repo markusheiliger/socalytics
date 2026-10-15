@@ -38,12 +38,17 @@ public sealed class AttemptRunner(
     IContainerRuntimeAdapter runtime,
     TimeProvider time,
     ILogger<AttemptRunner>? logger = null,
-    ExecutedRuntime? executedRuntime = null)
+    ExecutedRuntime? executedRuntime = null,
+    ResultPublisher? publisher = null,
+    UpstreamStager? stager = null)
 {
     public static readonly TimeSpan ClaimRetryWindow = TimeSpan.FromSeconds(20);
 
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);
+
+    // Attempt directories of this process, which the start-up cleanup of a previous process's leftovers must not touch.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> LiveDirectories = new();
 
     private readonly ILogger _logger = logger ?? NullLogger<AttemptRunner>.Instance;
     private readonly ExecutedRuntime _executedRuntime = executedRuntime ?? Describe(runtime.Profile);
@@ -192,7 +197,27 @@ public sealed class AttemptRunner(
             CompletionFailure? failure = null;
             try
             {
-                execution = await runtime.StartAttemptAsync(Launch(attempt), cancellationToken);
+                string? inputsDirectory = null;
+                if (stager is not null && UpstreamStager.HasUpstream(attempt.Job))
+                {
+                    var attemptDirectory = UpstreamStager.DirectoryFor(attempt.AttemptId);
+                    LiveDirectories[attemptDirectory] = 0;
+                    var staged = await stager.StageAsync(attempt, attemptDirectory, sessions, cancellationToken);
+                    if (staged.End == StagingEnd.Obsolete)
+                    {
+                        heartbeatCts.Cancel();
+                        return AttemptRunEnd.Abandoned;
+                    }
+
+                    if (staged.End == StagingEnd.Failed)
+                    {
+                        throw new StagingFailedException(staged.FailureCategory!);
+                    }
+
+                    inputsDirectory = Path.Combine(attemptDirectory, UpstreamStager.InputsFolder);
+                }
+
+                execution = await runtime.StartAttemptAsync(Launch(attempt, inputsDirectory), cancellationToken);
                 attempt.ExecutionState = AttemptExecutionStates.Running;
 
                 using var timeoutCts = new CancellationTokenSource();
@@ -229,11 +254,40 @@ public sealed class AttemptRunner(
                 {
                     outcome = await ReadOutcomeAsync(execution);
                     failure = outcome.Succeeded ? null : new CompletionFailure("analyst-error");
+                    if (outcome.Succeeded && publisher is not null)
+                    {
+                        var published = await publisher.PublishAsync(
+                            attempt, ResultPublisher.DirectoryFor(attempt.AttemptId), sessions, cancellationToken);
+                        switch (published.End)
+                        {
+                            case ResultPublishEnd.Published:
+                                outcome = AttemptOutcome.Success(published.ManifestReference!, published.ManifestChecksum!);
+                                break;
+                            case ResultPublishEnd.Stopped:
+                                heartbeatCts.Cancel();
+                                _logger.LogWarning(
+                                    "Abandoning Logical Job {LogicalJobId} attempt {AttemptId} correlation {CorrelationId}: result grants were refused",
+                                    attempt.LogicalJobId, attempt.AttemptId, attempt.CorrelationId);
+                                return AttemptRunEnd.Abandoned;
+                            case ResultPublishEnd.Invalid:
+                                outcome = AttemptOutcome.Failure("result-manifest-schema-invalid");
+                                failure = new CompletionFailure("analyst-error");
+                                break;
+                            default:
+                                outcome = AttemptOutcome.Failure("result-storage-unavailable");
+                                failure = new CompletionFailure("runtime-unavailable");
+                                break;
+                        }
+                    }
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 failure = new CompletionFailure("cancelled-by-manager");
+            }
+            catch (StagingFailedException e)
+            {
+                failure = new CompletionFailure(e.Category);
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
@@ -261,6 +315,74 @@ public sealed class AttemptRunner(
             {
                 await CleanUpAsync(attempt, execution);
             }
+
+            if (publisher is not null)
+            {
+                DeleteResultDirectory(attempt);
+            }
+
+            if (stager is not null)
+            {
+                DeleteAttemptDirectory(attempt);
+                LiveDirectories.TryRemove(UpstreamStager.DirectoryFor(attempt.AttemptId), out _);
+            }
+        }
+    }
+
+    /// <summary>Deletes every attempt directory, with its staged inputs, left by a previous Manager process.</summary>
+    public static void DeleteLeftoverAttemptDirectories(ILogger? logger = null)
+    {
+        var root = UpstreamStager.AttemptsRoot;
+        if (!Directory.Exists(root))
+        {
+            return;
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(root))
+        {
+            if (LiveDirectories.ContainsKey(directory))
+            {
+                continue;
+            }
+
+            try
+            {
+                Directory.Delete(directory, true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                logger?.LogWarning("Removing a leftover attempt directory failed: {Error}", e.GetType().Name);
+            }
+        }
+    }
+
+    private void DeleteAttemptDirectory(ActiveAttempt attempt)
+    {
+        try
+        {
+            Directory.Delete(UpstreamStager.DirectoryFor(attempt.AttemptId), true);
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning("Removing the attempt directory of attempt {AttemptId} failed: {Error}", attempt.AttemptId, e.GetType().Name);
+        }
+    }
+
+    private void DeleteResultDirectory(ActiveAttempt attempt)
+    {
+        try
+        {
+            Directory.Delete(ResultPublisher.DirectoryFor(attempt.AttemptId), true);
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning("Removing the result directory of attempt {AttemptId} failed: {Error}", attempt.AttemptId, e.GetType().Name);
         }
     }
 
@@ -356,6 +478,14 @@ public sealed class AttemptRunner(
             {
                 case WorkResultKind.Success:
                 case WorkResultKind.Replayed:
+                    if (result.Value is { Outcome: "failed" } && completion.Outcome == "succeeded")
+                    {
+                        _logger.LogWarning(
+                            "Result of Logical Job {LogicalJobId} attempt {AttemptId} correlation {CorrelationId} was rejected ({Reason}); the attempt ends without a retry",
+                            attempt.LogicalJobId, attempt.AttemptId, attempt.CorrelationId, result.Value.Reason);
+                        return AttemptRunEnd.Completed;
+                    }
+
                     _logger.LogInformation(
                         "Completed Logical Job {LogicalJobId} attempt {AttemptId} correlation {CorrelationId} as {Outcome} (replayed: {Replayed})",
                         attempt.LogicalJobId, attempt.AttemptId, attempt.CorrelationId, completion.Outcome, result.Kind == WorkResultKind.Replayed);
@@ -389,13 +519,20 @@ public sealed class AttemptRunner(
         }
     }
 
-    private static AttemptLaunch Launch(ActiveAttempt attempt)
+    private sealed class StagingFailedException(string category) : Exception(category)
+    {
+        public string Category { get; } = category;
+    }
+
+    private AttemptLaunch Launch(ActiveAttempt attempt, string? inputsDirectory)
     {
         var job = attempt.Job;
+        var resultDirectory = publisher is null ? null : ResultPublisher.DirectoryFor(attempt.AttemptId);
         return new AttemptLaunch(
             attempt.AttemptId.ToString(), job.LogicalJobId, job.Capability.Id, $"{job.Capability.Id}:{job.Capability.Version}",
             job.ExecutionScope, job.Pinned.AnalystProfileDigest, job.Pinned.ImageDigest, job.Pinned.ModelDigest ?? string.Empty,
-            new AttemptResources(job.Resources.CpuMillicores / 1000.0, job.Resources.MemoryMebibytes * 1024 * 1024, []));
+            new AttemptResources(job.Resources.CpuMillicores / 1000.0, job.Resources.MemoryMebibytes * 1024 * 1024, []),
+            job, attempt.AttemptNumber, resultDirectory, inputsDirectory);
     }
 
     private static ExecutedRuntime Describe(string profile) => new(

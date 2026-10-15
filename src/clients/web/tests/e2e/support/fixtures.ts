@@ -11,6 +11,7 @@ type Fixtures = {
 };
 
 const SECRET_KEY = /password|credential|passcode|csrf|antiforgery|secret/i;
+const GRANT_MATERIAL = /X-Amz-Signature|x-amz-checksum-sha256|X-Amz-Credential|\/bucket\/[^"\s]*\?partNumber=|127\.0\.0\.1:4175/i;
 
 export const test = base.extend<Fixtures>({
   secrets: async ({}, use) => {
@@ -75,8 +76,12 @@ export const test = base.extend<Fixtures>({
         return entries;
       });
 
+      // The upload journal may hold digests and progress, never a grant URL, a signature, or a checksum header value (SC-007).
       const leaked = stored.filter(
-        (entry) => secrets.some((secret) => entry.includes(secret)) || SECRET_KEY.test(entry.split('=')[0] ?? ''),
+        (entry) =>
+          secrets.some((secret) => entry.includes(secret)) ||
+          SECRET_KEY.test(entry.split('=')[0] ?? '') ||
+          GRANT_MATERIAL.test(entry),
       );
       expect(leaked.map((entry) => entry.split('=')[0]), 'secrets in browser storage').toEqual([]);
     },

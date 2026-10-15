@@ -54,7 +54,7 @@ evidence references.
 | ACT-003 | Analyst Manager | Device-bound work claimant and local OCI runtime coordinator |
 | ACT-004 | Analyst Container | Untrusted-by-default job-scoped analysis executable |
 | ACT-005 | Hermes, Coach Agents, and Specialist Agents | Authorized consumers of API/MCP evidence and producers of advice lineage |
-| ACT-006 | Optional OIDC provider | External human identity assertion boundary |
+| ACT-006 | Optional OIDC provider | External human identity assertion boundary; enforces MFA for external sign-ins (the platform offers no MFA for local accounts) |
 | ACT-007 | OCI registry and artifact publishers | Sources of images, models, packages, signatures, and provenance |
 | ACT-008 | Data-service and deployment operators | Privileged operators of database, object storage, messaging, replicas, and backups |
 | ACT-009 | Security and data-governance approvers | Required accountable roles; assignment remains Open / Blocking for production |
@@ -941,22 +941,31 @@ it can already read everything that user sees online.
 The implemented online-only Web UI foundation applies this baseline as
 development evidence. Preview mode and production-shaped builds send
 `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
-img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none';
+img-src 'self' data:; font-src 'self'; media-src blob:; connect-src 'self'
+<object-storage-origin>; worker-src 'self'; object-src 'none';
 base-uri 'none'; frame-ancestors 'none'; form-action 'self';
-require-trusted-types-for 'script'; trusted-types default react-dom`, together
+require-trusted-types-for 'script'; trusted-types default react-dom
+upload-worker`, together
 with `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a
 `Permissions-Policy` that disables camera, microphone, and geolocation. Trusted
-Types is enforced for script sinks with only the `default` and `react-dom`
-policies. Every emitted script and stylesheet in the build carries a SHA-384
+Types is enforced for script sinks with only the `default`, `react-dom`, and
+`upload-worker` policies; `upload-worker` creates only the bundled upload
+worker's script URL. `<object-storage-origin>` is the object-storage origin
+from `SOCALYTICS_OBJECT_STORAGE_ORIGIN` (the local store in development);
+without it `connect-src` stays `'self'`. Part transfers go directly to object
+storage, `media-src blob:` only lets a detached video element read a local
+file's duration, and `worker-src 'self'` is explicit for the bundled worker.
+Every emitted script and stylesheet in the build carries a SHA-384
 Subresource Integrity attribute, and fonts and icons are bundled, so no
-third-party origin is used. The development server uses a relaxed policy for
+third-party script or style origin is used. The production storage origin
+remains unresolved. The development server uses a relaxed policy for
 hot reload that is never used to measure the policy. Browser tests fail on any
 `securitypolicyviolation` event.
 
 `style-src 'unsafe-inline'` is an accepted trade-off: MUI's Emotion runtime
 injects `<style>` elements, and a nonce is not possible for statically hosted
-pages. It permits injected styles, but `connect-src 'self'` and
-`img-src 'self' data:` mitigate CSS-based data exfiltration, and scripts stay
+pages. It permits injected styles, but `connect-src` (limited to the
+application and object-storage origins) and `img-src 'self' data:` mitigate CSS-based data exfiltration, and scripts stay
 fully locked down. It can be revisited with build-time CSS extraction. The
 production server configuration is not implemented and remains deferred.
 

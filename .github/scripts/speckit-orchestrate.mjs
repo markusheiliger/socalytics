@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -24,7 +24,8 @@ import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWi
 import { maintainAmendment } from './speckit-amend.mjs';
 import { maintainFixSpec } from './speckit-fix.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
-import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-task.mjs';
+import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
+import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import {
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
@@ -48,23 +49,6 @@ import {
   specTitleOfPull,
 } from './speckit-implement-core.mjs';
 export class UsageError extends Error {}
-
-function createReporter(env, log) {
-  const lines = [];
-  return {
-    line(text = '') {
-      lines.push(text);
-      log(text);
-    },
-    flush() {
-      if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`);
-    },
-  };
-}
-
-function setOutput(env, name, value) {
-  if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `${name}=${value}\n`);
-}
 
 function openBlockers(blockers) {
   return blockers.filter((blocker) => blocker.state === 'open');
@@ -496,12 +480,7 @@ function tokenFromGh() {
 
 export async function main(argv, { env = process.env, rootDir = process.cwd(), log = console.log, client, git } = {}) {
   const options = parseArgs(argv);
-  const actionsClient = () => client ?? new GitHubClient({
-    token: env.GITHUB_TOKEN || env.GH_TOKEN,
-    repository: env.GITHUB_REPOSITORY,
-    apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
-    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
-  });
+  const actionsClient = () => client ?? createGitHubClient(env);
   if (options.command === 'select') {
     return (await runSelect({ client: actionsClient(), rootDir, env, log })).exitCode;
   }

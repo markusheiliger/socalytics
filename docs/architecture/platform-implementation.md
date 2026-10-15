@@ -12,7 +12,7 @@ and the API, the operational API surface, the layered project structure, and
 the persistence, club and identity, recording lineage and upload, durable
 analysis workflow, and Analyst Manager registration foundations described
 below, with host, architecture, contract, and integration tests. Analyst
-execution, external OpenID Connect sign-in, MFA enforcement, the Web UI's
+execution, external OpenID Connect sign-in, the Web UI's
 offline mode and service worker, deployment configuration, and production-readiness evidence do not exist yet.
 
 ## Source And Runtime Baseline
@@ -318,12 +318,13 @@ their multipart uploads. Locally the Aspire AppHost runs a pinned RustFS
 container as a plain container resource, the API creates the development
 bucket, and integration tests use the same image through Testcontainers
 together with a store conformance probe that any production store must pass.
-For the Web UI's direct part uploads in local development, the AppHost will
-allow the Web UI origin in the local store's CORS configuration and pass the
-store's origin to the Web UI for its Content Security Policy.
+For the Web UI's direct part uploads in local development, the AppHost
+allows the Web UI origin in the local store's CORS configuration
+(`RUSTFS_CORS_ALLOWED_ORIGINS`) and passes the store's origin to the Web UI
+(`SOCALYTICS_OBJECT_STORAGE_ORIGIN`) for its Content Security Policy.
 Bucket provisioning, production storage selection, encryption, credentials,
-production browser CORS and origins, public endpoints, grant and session lifetimes, and lifecycle
-policy remain governed by
+production browser CORS and origins, public endpoints, grant and session
+lifetimes, and lifecycle policy remain governed by
 [Production Deployment and Operations](production-operations.md) and
 [Security and Data Governance](security-and-data-governance.md).
 
@@ -334,7 +335,7 @@ anti-forgery protection, membership, club and team roles, team-scoped
 authorization, security audit events, and the `Club > Season > Team > Match`
 hierarchy, as specified in
 `specs/archive/20261005-130701-club-identity-foundation`. It implements no external
-OpenID Connect sign-in or MFA enforcement. The Web UI's generated Kiota
+OpenID Connect sign-in. The Web UI's generated Kiota
 TypeScript client exists and is used behind the adapters in
 `src/clients/web/src/platform/` (see [Client Technology](#client-technology)).
 Exposure and access policy for operational endpoints in a production ingress
@@ -351,10 +352,28 @@ The canonical artifacts, owner map, and compatibility policy are
 governed by [Contracts and Compatibility](contracts-and-compatibility.md).
 
 Platform-managed local accounts are always available. ASP.NET Core Identity
-provides password hashing, security stamps, recovery tokens, lockout, and MFA;
-its stores use Dapper and PostgreSQL. A stamp may additionally configure one or
+provides password hashing, security stamps, recovery tokens, and lockout;
+its stores use Dapper and PostgreSQL. SocAlytics offers no MFA for local
+accounts: a club that needs MFA signs in through an external OpenID Connect
+provider that enforces it, and the platform does not evaluate MFA or
+authentication-context claims. A stamp may additionally configure one or
 more external OpenID Connect providers. The login UI displays external options
 only when configured.
+
+External sign-in (decided, not yet implemented): the API runs the
+authorization code flow with PKCE, state, and nonce itself and keeps each
+pending sign-in in PostgreSQL, bound to the starting browser by a short-lived
+cookie and completable once, so the API still needs no shared key ring; it
+validates ID tokens against the provider's published keys and keeps no
+provider token after the sign-in. Membership stays platform data: a Club Admin
+issues a single-use link credential for a member (a purpose of the existing
+one-time credentials), the member redeems it by signing in at the provider,
+and the provider's issuer and subject are linked to exactly that member. Only
+a redeemed link credential creates a link; claims such as email or name never
+find, create, or link members. Club Admins can unlink an identity, which ends
+the member's sessions; a provider-side account change takes effect for
+existing sessions only through the normal session limits, sign-out, unlinking,
+or deactivation, since no refresh token is kept.
 
 Local and external login paths establish the same ASP.NET Core backend-for-
 frontend session. The browser receives a Secure, HttpOnly, SameSite cookie and
@@ -412,11 +431,11 @@ the Registrar capability and may self-approve through a separate audited
 operation. The AM activates only after proving possession of the protected
 device key bound during pairing.
 
-The pairing response's verification URL will be built from an optional
+The pairing response's verification URL is built from an optional
 verification base address, for stamps whose Web UI and API origins differ, as
 in local development; the token, activation, and other machine-facing addresses
 and the DPoP target stay on the stamp's public base address. The registration
-operations will declare typed OpenAPI request and response schemas, so the Web
+operations declare typed OpenAPI request and response schemas, so the Web
 UI's generated client covers them.
 
 An active AM uses OAuth 2.0 client credentials with `private_key_jwt` and
@@ -519,7 +538,7 @@ started in extract-and-run mode. Signing follows once the publisher is
 decided. Each stamp serves the update feed to its Managers as a proxy for the
 Manager's GitHub Releases, after verifying their build-provenance attestation;
 it offers the releases of its chosen channel, may pin a version, and declares a
-minimum Manager version. The planned fleet view adds a Manager status report,
+minimum Manager version. The fleet view, implemented in the Web UI, rests on a Manager status report,
 sent with the periodic registration check and stored as the latest snapshot
 only, and a fleet read operation for Club Admins.
 
@@ -550,10 +569,11 @@ SciPy, scikit-learn, SAHI, and accelerator-vendor tooling provide the paved
 model and computer-vision path. Each runtime image may pin a different Python
 minor version when native or vendor compatibility requires it.
 
-Future versioned JSON Schema documents will be canonical for Analyst job and result
-contracts. The internal Analyst SDK exposes Pydantic models and validates input
-and output at the container boundary. The platform independently validates the
-same schemas. Runtime-specific OCI images use locked dependencies and record
+Versioned JSON Schema documents are canonical for Analyst job and result
+contracts (`contracts/analysis/`); the platform and the Analyst Manager validate
+result manifests against them. The planned internal Analyst SDK exposes Pydantic
+models and validates input and output at the container boundary, and the
+platform independently validates the same schemas. Runtime-specific OCI images use locked dependencies and record
 their immutable image, model, and package provenance. Preprocessing and
 postprocessing implementation is traced through the immutable OCI image rather
 than selected as a separate job artifact.
@@ -612,6 +632,25 @@ current and non-current migration states; and
   verification, notification preferences, transactional email delivery through
   the dedicated outbox including a relay outage, and the pending-request
   notification, using the Mailpit mail catcher; and
+- integration and end-to-end tests cover per-object result write grants and
+  validated result acceptance (eleven ordered manifest checks, storage-attested
+  checksums, rejected manifests ending the attempt as failed, and immutable
+  accepted-result manifest records) with a simulated Analyst and the Analyst
+  Manager; and
+- integration and end-to-end tests cover the Manager-mediated upstream read
+  (current-attempt and input-snapshot scoping, refusals without disclosure,
+  per-object read grants, coverage), digest-verified staging with cleanup in the
+  Analyst Manager, and simulated match-level lineage equal to the staged
+  results; and
+- Web UI browser tests cover Analyst Manager pairing, the Club Admin decision
+  view, and the fleet view with revocation, and the match workflow and
+  recording upload (match creation and editing, direct multipart upload with
+  resume, timeline mapping, finalization, and the development CORS access to
+  RustFS): the `simulated` project against a simulated API and a fake object
+  store, and the `platform` project against the real platform with a scripted
+  Manager and RustFS; and
+- a Host test verifies the development CORS allow-list and the storage origin
+  the AppHost passes to the Web UI; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
   in `contracts/` and the OpenAPI document.
 
@@ -648,12 +687,15 @@ choice or reveals a material operational tradeoff:
   API surface, layer composition methods, structural tests, the persistence
   foundation (migrations, Migrator, units of work, version triggers), domain
   persistence, outbox publication to NATS JetStream, local-account BFF
-  sessions, S3-compatible upload, Analyst Manager registration, and member email
-  addresses with verified, outbox-backed transactional delivery to the Mailpit
-  mail catcher are implemented, and the online-only Web UI foundation exists as development
-  evidence. External OpenID Connect sign-in, MFA enforcement, the production email
-  relay, sender authentication, and bounce handling (Open / Blocking), the Web
-  UI's offline mode, cross-runtime schema agreement, reproducible Analyst
+  sessions, S3-compatible upload, Analyst Manager registration, member email addresses with verified, outbox-backed transactional delivery to the Mailpit mail catcher, and result
+  write grants with validated result acceptance against a simulated Analyst, and the Manager-mediated
+  read and staging of accepted upstream results are
+  implemented, and the online-only Web UI foundation exists as development
+  evidence, including the Analyst Manager pairing, approval, and fleet views
+  and the match workflow with recording upload and finalization. External
+  OpenID Connect sign-in, MFA enforcement, the production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode, the other
+  Web UI client workflows (analysis review and agent conversations),
+  cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix remain unsupported by
   implementation evidence.
 - **Mature enough to govern subsequent implementation — not met for
@@ -669,13 +711,15 @@ cover Dapper mappings, migrations, optimistic concurrency, outbox recovery, and
 duplicate delivery. Before treating the remaining choices as
 implementation-proven, evidence must demonstrate:
 
-- optional OIDC login shares the local-account BFF session, including MFA
-  enforcement tests
+- optional OIDC login shares the local-account BFF session, with external
+  identities linked only through Club Admin link credentials
 - Kiota-generated TypeScript, C#, and Python clients compile and pass contract
   compatibility tests
 - the Web UI PWA installs, updates through its service worker, and meets the
   supported-browser evidence for offline mode
-- JSON Schema validation agrees at .NET and Python boundaries
+- JSON Schema validation agrees at .NET and Python boundaries (the platform
+  and the Analyst Manager already agree on result manifests at the .NET
+  boundary)
 - locked Analyst images rebuild reproducibly and emit valid manifests
 - Avalonia and OCI-runtime spikes satisfy the platform matrix in the
   [Analyst Manager architecture](analyst-manager.md)

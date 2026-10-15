@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER, parseGuidance } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER, parseGuidance } from './speckit-implement-core.mjs';
 import { main, parseCommand, renderHelp, runCommand } from './speckit-commands.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -47,8 +47,8 @@ test('diagnose starts a diagnosis with the previous one as context, unless one i
   const started = await run(github, '/speckit diagnose look at research R6');
   assert.equal(started.outcome, 'started');
   assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_DIAGNOSING);
-  assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', notes: 'look at research R6', previous: '', check_run: String(github.repo.checkRuns.at(-1).id), mode: 'diagnose', amendment: '', round: '0' });
-  assert.match(github.comments.at(-1).body, /A diagnosis was started by @dev with your notes/);
+  assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', guidance: 'look at research R6', previous: '', check_run: String(github.repo.checkRuns.at(-1).id), mode: 'diagnose', amendment: '', round: '0' });
+  assert.match(github.comments.at(-1).body, /A diagnosis was started by @dev with your guidance/);
   assert.equal(github.repo.pulls.find((pull) => pull.number === 11).state, 'closed', 'a new diagnosis supersedes the open amendment');
   assert.equal(github.repo.branches['speckit-amend/f'], undefined, 'so the new run can create the amendment branch afresh');
   assert.match(github.comments.find((comment) => comment.number === 11).body, /Superseded by a new diagnosis/);
@@ -110,6 +110,49 @@ test('retry restarts what stopped with guidance, on the branch as it is', async 
   assert.equal(parseGuidance(retried.body), 'Rerun the verification unchanged');
 });
 
+test('restarts that leave a stopped implementation unchanged are refused, unless something changed or the person insists', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  github.repo.branches.main = 'sha-main';
+  const pull = github.repo.pulls[0];
+  const stop = () => {
+    pull.labels = [{ name: ATTENTION_LABEL }];
+  };
+  const restarts = () => github.comments.filter((comment) => /^<!-- speckit-implement:(resume|retry) -->/.test(comment.body)).length;
+
+  // Restarting while the implementation runs, or once after a stop, is never refused.
+  assert.equal((await run(github, '/speckit resume Rename the migration')).outcome, 'resumed');
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:resume -->\n<!-- speckit-implement:restart-state \{"head":"sha-impl","base":"sha-main"\} -->/);
+  stop();
+  assert.equal((await run(github, '/speckit resume Rename it to 0019')).outcome, 'resumed');
+  assert.equal(pull.labels.length, 0, 'the restart clears the attention label');
+
+  // Stopped again on the same head after two restarts: the third is refused, for retry and resume alike.
+  stop();
+  const before = [restarts(), github.repo.runs.length];
+  for (const name of ['retry', 'resume']) {
+    assert.equal((await run(github, `/speckit ${name} After pushing the rename`)).outcome, 'refused');
+    assert.match(github.comments.at(-1).body, new RegExp(`^\\*\\*\`/speckit ${name}\` was not run\\*\\*: the implementation stopped again after each of the last 2 restarts, and \`speckit/f\` is still at \`sha-imp\`[\\s\\S]*\\*\\*Push\\*\\*[\\s\\S]*/speckit diagnose[\\s\\S]*/speckit fix[\\s\\S]*\`/speckit ${name} --force <guidance>\``));
+  }
+  assert.deepEqual([restarts(), github.repo.runs.length], before, 'nothing was restarted');
+
+  // New commits on the base branch let a resume through (it merges them first), but not a retry.
+  github.repo.branches.main = 'sha-main-2';
+  assert.equal((await run(github, '/speckit retry Again')).outcome, 'refused');
+  assert.equal((await run(github, '/speckit resume Merge the fix from main')).outcome, 'resumed');
+  stop();
+  assert.equal((await run(github, '/speckit resume')).outcome, 'refused', 'that resume counts as an unchanged restart too');
+
+  // The person insists: --force restarts, and is not part of the guidance.
+  assert.equal((await run(github, '/speckit retry --force The registry outage is over')).outcome, 'retried');
+  assert.equal(parseGuidance(github.comments.at(-1).body), 'The registry outage is over');
+
+  // A push moves the head: restarts count from there.
+  stop();
+  pull.head.sha = 'sha-pushed';
+  github.repo.branches['speckit/f'] = 'sha-pushed';
+  assert.equal((await run(github, '/speckit retry')).outcome, 'retried');
+});
+
 test('fix starts the authoring of a fix spec once, and refuses while one is pending', async () => {
   const github = diagnosisRepo();
   const started = await run(github, '/speckit fix Make UploadSessionExpiryTests independent of runner load');
@@ -118,7 +161,7 @@ test('fix starts the authoring of a fix spec once, and refuses while one is pend
   assert.deepEqual([check.name, check.external_id, check.status], ['Spec Kit fix spec', 'speckit:fix-authoring', 'in_progress'], 'its own check run, apart from the implementation');
   const dispatched = github.repo.runs.at(-1);
   assert.equal(dispatched.workflow, 'speckit-fix.lock.yml');
-  assert.deepEqual({ ...dispatched.inputs, stamp: 'x' }, { twin: '5', pull: '9', folder: 'f', notes: 'Make UploadSessionExpiryTests independent of runner load', check_run: String(check.id), mode: 'author', amendment: '', round: '0', stalls: '0', findings: '', stamp: 'x' });
+  assert.deepEqual({ ...dispatched.inputs, stamp: 'x' }, { twin: '5', pull: '9', folder: 'f', guidance: 'Make UploadSessionExpiryTests independent of runner load', check_run: String(check.id), mode: 'author', amendment: '', round: '0', stalls: '0', findings: '', stamp: 'x' });
   assert.match(dispatched.inputs.stamp, /^\d{8}-\d{6}$/);
   assert.match(github.comments.at(-1).body, /^<!-- speckit-fix:requested \{"by":"dev"[\s\S]*\*\*A fix spec is being authored\*\*, requested by @dev[\s\S]*> Make UploadSessionExpiryTests/);
   assert.equal(parseGuidance(github.comments.at(-1).body), 'Make UploadSessionExpiryTests independent of runner load');

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { specDir } from './speckit-prepare-core.mjs';
-import { GitHubClient } from './speckit-prepare-github.mjs';
+import { createGitHubClient } from './speckit-script-runtime.mjs';
 import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
 import {
   BOT_LOGIN,
@@ -39,9 +39,9 @@ export const CATEGORIES = ['artifacts', 'retry', 'outside', 'decision', 'unknown
 export const CONFIDENCE = ['high', 'medium', 'low'];
 export const MODES = ['diagnose', 'fix', 'revise'];
 const COMMAND_PATTERN = /^\/speckit (diagnose|retry|resume|fix)( [^\n]*)?$/;
-// A placeholder an agent may copy from a usage line instead of writing the text: `<guidance>`, `[notes]`, `<answers>`.
+// A placeholder an agent may copy from a usage line instead of writing the text: `<guidance>` or `<answers>`.
 // Only these words count, so code such as `IReadOnlyList<Recording>` or task tags such as `[P]` stay intact.
-const PLACEHOLDER_PATTERN = /<(?:concrete |your )?(?:guidance|notes|answers?|notes or answers|choice|first choice|what to examine next|what to fix[^<>\n]{0,60})>|\[(?:concrete |your )?(?:guidance|notes|answers?|notes or answers)\]/gi;
+const PLACEHOLDER_PATTERN = /<(?:concrete |your )?(?:guidance|answers?|guidance or answers|choice|first choice|what to examine next|what to fix[^<>\n]{0,60})>|\[(?:concrete |your )?(?:guidance|answers?|guidance or answers)\]/gi;
 const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|resume|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|resume|fix))\b/;
 const MAX_EVIDENCE_BYTES = 200_000;
 const LOG_TAIL_LINES = 150;
@@ -56,7 +56,7 @@ export class DiagnoseUsageError extends Error {}
 // Starts a diagnosis of the implementation pull request `pull`: a check run on the head marks the implementation as
 // waiting for the diagnosis, and the agentic diagnose workflow is dispatched. A dispatch failure leaves the check run
 // as a reported diagnosis, so the implementation waits for a person instead of for a diagnosis that never runs.
-export async function startDiagnosis(client, env, { twin, pull, folder, head, notes = '', previous = '', actor = null, auto = false }) {
+export async function startDiagnosis(client, env, { twin, pull, folder, head, guidance = '', previous = '', actor = null, auto = false }) {
   // A new diagnosis supersedes an earlier amendment; its branch must not exist when the new run proposes one.
   const superseded = await findAmendment(client, folder);
   if (superseded) {
@@ -71,7 +71,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, no
   }
   const summary = [
     auto ? 'Started automatically because the implementation stopped.' : `Started by @${actor}.`,
-    ...(notes ? ['', `Notes: ${clip(notes, 2000)}`] : []),
+    ...(guidance ? ['', `Guidance: ${clip(guidance, 2000)}`] : []),
   ].join('\n');
   const check = await client.createCheckRun({
     name: CHECK_RUN_NAME,
@@ -85,7 +85,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, no
       twin: String(twin),
       pull: String(pull),
       folder,
-      notes: clip(notes, 4000),
+      guidance: clip(guidance, 4000),
       previous: String(previous ?? ''),
       check_run: String(check.id),
       mode: 'diagnose',
@@ -171,15 +171,15 @@ export async function runEvidence({ client, env, log }) {
     '',
   ];
   if (mode === 'fix') {
-    sections.push('## Findings of the consistency check to fix', '', env.SPECKIT_NOTES?.trim() || '_None._', '');
+    sections.push('## Findings of the consistency check to fix', '', env.SPECKIT_GUIDANCE?.trim() || '_None._', '');
   } else if (mode === 'revise') {
-    // The feedback was collected when the rework started (the notes); its marker already moved the feedback window.
-    sections.push('## Feedback on the amendment to address', '', env.SPECKIT_NOTES?.trim() || '_None._', '');
+    // The feedback was collected when the rework started (as guidance); its marker already moved the feedback window.
+    sections.push('## Feedback on the amendment to address', '', env.SPECKIT_GUIDANCE?.trim() || '_None._', '');
     const comments = await client.listIssueComments(amendmentNumber);
     sections.push('## Earlier comments on the amendment (oldest first)', '');
     for (const comment of comments.slice(-10)) sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 4000), '');
   } else {
-    sections.push('## Notes from the person who started this diagnosis', '', env.SPECKIT_NOTES?.trim() ? env.SPECKIT_NOTES.trim() : '_None._', '');
+    sections.push('## Guidance from the person who started this diagnosis', '', env.SPECKIT_GUIDANCE?.trim() ? env.SPECKIT_GUIDANCE.trim() : '_None._', '');
   }
   sections.push(
     '## Check runs on the head (oldest first)',
@@ -632,7 +632,7 @@ async function recordRework({ client, env, log, inputs }) {
     ].join('\n'));
     // A refused push is a correction round without progress; the next round retries the same findings.
     if (mode === 'fix' && stalls + 1 < MAX_STALLED_ROUNDS && round < MAX_CORRECTION_ROUNDS) {
-      await startRework(client, env, context, { mode: 'fix', round: round + 1, notes: env.SPECKIT_NOTES ?? '', stalls: stalls + 1, findings, progress: `Round ${round} could not push its changes.` });
+      await startRework(client, env, context, { mode: 'fix', round: round + 1, guidance: env.SPECKIT_GUIDANCE ?? '', stalls: stalls + 1, findings, progress: `Round ${round} could not push its changes.` });
       return { exitCode: 0, outcome: 'push failed' };
     }
     await handBack(`correction round ${round} could not push its changes`);
@@ -663,19 +663,10 @@ async function recordRework({ client, env, log, inputs }) {
   return { exitCode: 0, outcome: 'checking' };
 }
 
-function githubClient(env) {
-  return new GitHubClient({
-    token: env.GITHUB_TOKEN || env.GH_TOKEN,
-    repository: env.GITHUB_REPOSITORY,
-    apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
-    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
-  });
-}
-
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command, file] = argv;
   if (command === 'check-report') return checkReportFile(file, log);
-  const run = { client: client ?? githubClient(env), env, log };
+  const run = { client: client ?? createGitHubClient(env), env, log };
   if (command === 'evidence') return (await runEvidence(run)).exitCode;
   if (command === 'record') return (await runRecord(run)).exitCode;
   throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs <evidence | record | check-report <report.json>>');

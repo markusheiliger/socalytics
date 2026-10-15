@@ -23,6 +23,16 @@ public interface IObjectStorage
 
     Task<CompositeIntegrityEvidence?> GetIntegrityEvidenceAsync(string objectKey, CancellationToken cancellationToken);
 
+    ObjectUploadGrant PresignPutObject(string objectKey, long contentLength, Sha256Digest digest, DateTimeOffset expiresAt);
+
+    ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt);
+
+    /// <summary>The full-object SHA-256 and length, or null when the object is missing or the store cannot attest a full-object checksum.</summary>
+    Task<ObjectChecksum?> GetObjectChecksumAsync(string objectKey, CancellationToken cancellationToken);
+
+    /// <summary>Reads at most <paramref name="maxBytes"/> bytes without reading further; null when the object is missing.</summary>
+    Task<ObjectReadResult?> ReadObjectAsync(string objectKey, long maxBytes, CancellationToken cancellationToken);
+
     /// <summary>An already missing upload (<c>NoSuchUpload</c>) is success.</summary>
     Task AbortMultipartUploadAsync(MultipartUploadReference upload, CancellationToken cancellationToken);
 

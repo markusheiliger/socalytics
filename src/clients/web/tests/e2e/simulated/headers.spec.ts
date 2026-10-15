@@ -6,13 +6,15 @@ const policy = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data:",
   "font-src 'self'",
-  "connect-src 'self'",
+  'media-src blob:',
+  "connect-src 'self' http://127.0.0.1:4175",
+  "worker-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
   "require-trusted-types-for 'script'",
-  'trusted-types default react-dom',
+  'trusted-types default react-dom upload-worker',
 ].join('; ');
 
 test('sends the security headers', async ({ request }) => {

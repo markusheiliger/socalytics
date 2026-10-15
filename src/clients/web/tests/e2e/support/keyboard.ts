@@ -41,7 +41,8 @@ export async function expectAllReachableByKeyboard(page: Page, scope: Locator = 
   const descriptions = new Map<number, string>(expected.map((t) => [t.index, t.description]));
 
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  const limit = (await page.locator(INTERACTIVE).count()) + 5;
+  // A date-time input takes one Tab stop per segment and one for its picker.
+  const limit = (await page.locator(INTERACTIVE).count()) + 5 + (await page.locator('input[type="datetime-local"]').count()) * 8;
 
   for (let step = 0; step < limit && reached.size < targets.size; step++) {
     await page.evaluate(() => {

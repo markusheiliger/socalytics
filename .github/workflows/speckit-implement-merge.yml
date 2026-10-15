@@ -1,0 +1,243 @@
+name: Spec Kit implement merge
+
+# The complete merge alternative of one implementation, called by Spec Kit implement spec. Trusted tooling first
+# archives the spec on the implementation branch. A read-only job constructs and verifies the prospective merged tree.
+# A final API-only job squash-merges the pull request or deliberately hands it to a person for review.
+on:
+  workflow_call:
+    inputs:
+      twin:
+        description: Spec twin issue number
+        required: true
+        type: string
+      pull:
+        description: Implementation pull request number
+        required: true
+        type: string
+      folder:
+        description: Spec folder name under specs/
+        required: true
+        type: string
+      base:
+        description: Base branch of the implementation pull request
+        required: true
+        type: string
+      head:
+        description: Expected head of the implementation branch
+        required: true
+        type: string
+      attempt:
+        description: Merge attempt number
+        required: true
+        type: string
+      check_run:
+        description: Merge check run started by the controller
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  # Write token, trusted tooling, and no agent-written code. The archive lands with the implementation, so the base
+  # branch never receives references to an active spec folder that no longer exists.
+  archive:
+    name: Archive the spec before the merge
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      checks: write
+      contents: write
+      issues: read
+      pull-requests: write
+    outputs:
+      head: ${{ steps.archive.outputs.head }}
+      check_run: ${{ steps.archive.outputs.check_run }}
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: speckit/${{ inputs.folder }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Archive the spec
+        id: archive
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          SPECKIT_BASE_BRANCH: ${{ inputs.base }}
+          SPECKIT_PULL: ${{ inputs.pull }}
+          SPECKIT_FOLDER: ${{ inputs.folder }}
+          SPECKIT_HEAD: ${{ inputs.head }}
+          SPECKIT_ATTEMPT: ${{ inputs.attempt }}
+          SPECKIT_CHECK_RUN: ${{ inputs.check_run }}
+          SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+        run: node tooling/.github/scripts/speckit-merge.mjs archive
+
+  # Runs the prospective merged tree and therefore holds only a read-only token.
+  verify:
+    name: Verify the merged result
+    needs: archive
+    if: ${{ !cancelled() && needs.archive.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_BASE_BRANCH: ${{ inputs.base }}
+      SPECKIT_TWIN: ${{ inputs.twin }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_ATTEMPT: ${{ inputs.attempt }}
+      SPECKIT_FOLDER: ${{ inputs.folder }}
+      SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
+      SPECKIT_TOOLING: ${{ github.workspace }}/tooling
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the trusted tooling
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: tooling
+          persist-credentials: false
+
+      - name: Check out the implementation branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.archive.outputs.head }}
+          path: workspace
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Set up the solution environment
+        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        uses: ./tooling/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Build the prospective merged tree
+        id: integrate
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-merge.mjs" integrate
+
+      - name: Verify the merged result
+        id: verify
+        if: >-
+          steps.integrate.outputs.verify == 'true' &&
+          hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./tooling/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: finalize
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
+
+      # Environment specs change the trusted actions that later implementations load. Exercise their own versions on
+      # the prospective merged tree once before allowing the merge.
+      - name: Self-test the changed environment setup
+        id: selftest-setup
+        if: >-
+          steps.integrate.outputs.environment == 'true' &&
+          hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
+        continue-on-error: true
+        uses: ./workspace/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Self-test the changed environment verification
+        id: selftest-verify
+        if: >-
+          steps.integrate.outputs.environment == 'true' &&
+          steps.selftest-setup.outcome != 'failure' &&
+          hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./workspace/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: finalize
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/selftest.log
+
+      - name: Record the verdict
+        env:
+          SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
+          SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
+          SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+          SPECKIT_SELFTEST_OUTCOME: >-
+            ${{ steps.selftest-setup.outcome == 'failure' && 'failure' || steps.selftest-verify.outcome }}
+        run: node "$SPECKIT_TOOLING/.github/scripts/speckit-merge.mjs" verdict
+
+      - name: Upload the result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: speckit-merge-result
+          path: ${{ github.workspace }}/speckit-result
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # API only: never checks out or runs workspace code.
+  land:
+    name: Merge into the base branch
+    needs: [archive, verify]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      actions: write
+      checks: write
+      contents: write
+      issues: write
+      pull-requests: write
+    env:
+      SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      SPECKIT_TWIN: ${{ inputs.twin }}
+      SPECKIT_PULL: ${{ inputs.pull }}
+      SPECKIT_ATTEMPT: ${{ inputs.attempt }}
+      SPECKIT_FOLDER: ${{ inputs.folder }}
+      SPECKIT_CHECK_RUN: ${{ needs.archive.outputs.check_run || inputs.check_run }}
+      SPECKIT_WORK_RESULT: ${{ needs.archive.result != 'success' && format('archive {0}', needs.archive.result) || needs.verify.result }}
+      SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Download the verification result
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: speckit-merge-result
+          path: ${{ github.workspace }}/speckit-result
+
+      - name: Merge and report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_AUTO_MERGE: ${{ vars.SPECKIT_AUTO_MERGE || 'true' }}
+          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
+        run: node .github/scripts/speckit-merge.mjs merge-land

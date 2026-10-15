@@ -135,6 +135,13 @@ public sealed class EndpointSecurityTests
                 ["Recordings:Upload:MaxPartCount"] = "10000",
                 ["Recordings:Upload:MaxGrantsPerRequest"] = "1000",
                 ["Recordings:Upload:AllowedContentTypes:0"] = "video/mp4",
+                ["Analysis:Results:GrantLifetime"] = "00:10:00",
+                ["Analysis:Results:MaxObjectsPerAttempt"] = "16",
+                ["Analysis:Results:MaxObjectBytes"] = "104857600",
+                ["Analysis:Results:MaxAttemptBytes"] = "1073741824",
+                ["Analysis:Results:MaxManifestBytes"] = "1048576",
+                ["Analysis:Reads:GrantLifetime"] = "00:10:00",
+                ["Analysis:Reads:MaxPageSize"] = "100",
             }));
             builder.ConfigureServices(services =>
             {

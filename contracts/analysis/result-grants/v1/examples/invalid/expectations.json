@@ -1,0 +1,6 @@
+{
+  "request.duplicate-names.json": "uniqueItems",
+  "request.invalid-name.json": "pattern",
+  "request.invalid-digest.json": "pattern",
+  "request.size-zero.json": "minimum"
+}

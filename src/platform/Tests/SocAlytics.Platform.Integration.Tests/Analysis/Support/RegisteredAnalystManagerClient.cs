@@ -87,7 +87,7 @@ internal sealed class RegisteredAnalystManagerClient : IDisposable
     {
         var request = new HttpRequestMessage(method, path);
         request.Headers.TryAddWithoutValidation("Authorization", "DPoP " + _token);
-        request.Headers.Add("DPoP", _key.DPoPProof(_host.Time.GetUtcNow(), method.Method, Origin + path, _token));
+        request.Headers.Add("DPoP", _key.DPoPProof(_host.Time.GetUtcNow(), method.Method, Origin + path.Split('?')[0], _token));
         foreach (var (k, v) in headers ?? new Dictionary<string, string>())
         {
             request.Headers.Add(k, v);

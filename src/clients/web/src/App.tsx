@@ -7,6 +7,7 @@ import { ConnectivityProvider } from './connectivity/ConnectivityProvider';
 import { createAppRouter } from './router';
 import { SessionProvider } from './session/SessionProvider';
 import theme from './theme';
+import { UploadProvider } from './uploads/UploadProvider';
 
 export default function App() {
   const [queryClient] = useState(() => new QueryClient());
@@ -18,7 +19,9 @@ export default function App() {
         <ThemeProvider theme={theme}>
           <CssBaseline />
           <SessionProvider>
-            <RouterProvider router={router} />
+            <UploadProvider>
+              <RouterProvider router={router} />
+            </UploadProvider>
           </SessionProvider>
         </ThemeProvider>
       </ConnectivityProvider>

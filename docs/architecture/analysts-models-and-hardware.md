@@ -95,11 +95,12 @@ native or vendor compatibility requires it. Production builds use locked
 dependencies and record package and native-library provenance; they do not
 select the newest Python release independently of the validated runtime matrix.
 
-Versioned JSON Schema documents will become canonical for job inputs and result
-manifests when the first Analyst implementation slice introduces those
-contracts. The shared internal Analyst SDK will expose Pydantic models and
-validate both boundaries. The platform will independently validate the same
-schemas rather than treating Python types as cross-language authority.
+The versioned JSON Schema documents for job inputs and result manifests in
+`contracts/analysis/` are canonical; the platform and the Analyst Manager
+validate result manifests against them. The shared internal Analyst SDK will
+expose Pydantic models and validate both boundaries; it and cross-runtime
+schema agreement remain future work. The platform validates the same schemas
+independently rather than treating Python types as cross-language authority.
 
 ### Analyst Profiles And Container-Owned Preprocessing
 
@@ -147,8 +148,9 @@ resolve tags or select an alternative image or model. It may claim the job only
 when the host satisfies the pinned profile and reports the image and model
 digests actually used after execution.
 
-The Analyst uploads its result and manifest to stamp-local object storage.
-The Manager then calls the stamp API with team, match, job, and execution
+The Analyst writes its result and manifest into the job's result mount, and the
+Manager stores them in stamp-local object storage through write grants (see
+Result Manifest And Lineage). The Manager then calls the stamp API with team, match, job, and execution
 identifiers, the manifest URI and checksum, status, idempotency key, selected
 runtime, executed image and model digests, and current lease/fencing token.
 Analysts and Analyst Managers never receive database credentials.
@@ -208,8 +210,9 @@ falls within the nominal half-open validity window. A manifest that fails any
 check ends the attempt as failed with a named reason, and the normal retry
 rules apply. The API then marks the result accepted and indexes queryable facts
 in stamp metadata. ACs never write metadata tables directly. The result write
-grants, the result-manifest contract, and this validation are decided but not
-yet implemented; fact indexing remains future work.
+grants, the result-manifest contract, and this validation are implemented as
+development evidence against the simulated Analyst; fact indexing remains
+future work.
 
 ### Capability-Scoped Result Access
 
@@ -232,7 +235,10 @@ the attempt's read-only input mount. The AC reads only from that mount. The read
 returns exactly the accepted results recorded in the job's input snapshot, so
 the staged inputs equal what acceptance checks as lineage. Staged inputs are
 bounded by a configured size and deleted when the attempt ends. This
-Manager-mediated read is decided but not yet implemented.
+Manager-mediated read, the staging, and the coverage are implemented as
+development evidence against the simulated Analyst, whose match-level lineage
+is built from the staged inputs; real Analyst execution and production evidence
+remain future work, as does source-video access for ACs.
 
 Only accepted results are visible. Every response and reference is constrained
 to the job's authorized team and match, and Analysts never query PostgreSQL
@@ -317,8 +323,13 @@ matrix and evidence must support the desktop, registration, runtime ownership,
 security, accelerator, job, callback, and provenance boundaries above before
 additional host profiles are supported.
 
+Development evidence for high-level read authorization exists: the
+Manager-mediated upstream read refuses other runs, non-upstream capabilities,
+and fenced attempts without disclosure, and the staged inputs equal the lineage
+that acceptance checks, proven end to end against the simulated Analyst.
 Workflow evidence must additionally validate capability and result-manifest
-schema compatibility, complete upstream lineage, high-level API authorization,
+schema compatibility, complete upstream lineage, and high-level API
+authorization against real Analysts and production credentials, and validate
 presigned video access, and the performance and cost of match-level high-level
 ACs on participating hosts.
 

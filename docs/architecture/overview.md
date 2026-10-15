@@ -86,10 +86,11 @@ telemetry, capacity, incidents, upgrades, and production-readiness evidence.
 The logical architecture is implemented as a .NET 10 and ASP.NET Core
 monolith structured in application layers and composed locally with Aspire,
 with one PostgreSQL database per stamp, Dapper-based logical CQRS, NATS
-JetStream, RustFS/S3, and a .NET and Avalonia Analyst Manager. React and
-TypeScript clients, Python Analyst Containers, and Hermes as a separate Python
-OCI service are planned. Source remains in one monorepo and production
-artifacts will be cloud-neutral OCI images.
+JetStream, RustFS/S3, a .NET and Avalonia Analyst Manager, and an online-only
+React and TypeScript Web UI. The Web UI's offline mode, Python Analyst
+Containers, and Hermes as a separate Python OCI service are planned. Source
+remains in one monorepo and production artifacts will be cloud-neutral OCI
+images.
 
 The canonical technologies, boundaries, and required evidence are defined in
 the [Platform Implementation Profile](platform-implementation.md).
@@ -182,9 +183,15 @@ flowchart TB
     H2 <--> S3
     H3 <--> S3
 
-    H1 -->|Query accepted facts| API
-    H2 -->|Query accepted facts| API
-    H3 -->|Query accepted facts| API
+    AM1 -->|Read accepted upstream results| API
+    AM2 -->|Read accepted upstream results| API
+    AM3 -->|Read accepted upstream results| API
+    AM1 -->|Download, verify, stage| S3
+    AM2 -->|Download, verify, stage| S3
+    AM3 -->|Download, verify, stage| S3
+    AM1 -.->|Read-only staged inputs| H1
+    AM2 -.->|Read-only staged inputs| H2
+    AM3 -.->|Read-only staged inputs| H3
 
     AM1 -->|Completion and manifest callback| API
     AM2 -->|Completion and manifest callback| API
@@ -279,7 +286,9 @@ flowchart TB
     SegmentService <--> RustFS
     LowLevel <--> RustFS
     HighLevel <--> RustFS
-    HighLevel -->|Query accepted facts| API
+    AnalystManager -->|Read accepted upstream results| API
+    AnalystManager -->|Download, verify, stage| RustFS
+    AnalystManager -.->|Read-only staged inputs| HighLevel
 
     AnalystManager -->|Completion and manifest callback| API
     API -->|Accept and index facts and concepts| PostgreSQL

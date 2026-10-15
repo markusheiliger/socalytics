@@ -1,0 +1,6 @@
+{
+  "unknown-coverage-state.json": "enum",
+  "carries-credential-field.json": "additionalProperties",
+  "extra-property.json": "additionalProperties",
+  "missing-manifest-checksum.json": "required"
+}

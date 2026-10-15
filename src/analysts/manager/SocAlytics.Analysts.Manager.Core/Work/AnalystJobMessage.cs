@@ -17,12 +17,22 @@ public sealed record AnalystJobMessage(
     IReadOnlyList<JobInput>? Inputs,
     JobPinned Pinned,
     JobResources Resources,
-    CompletionCorrelation Correlation);
+    CompletionCorrelation Correlation,
+    string? RecordingSetVersionId = null,
+    JobSegment? Segment = null);
 
-public sealed record JobInput(IReadOnlyList<JobAcceptedResult>? AcceptedResults);
+public sealed record JobSegment(string RecordingVersionId, int SegmentNumber);
 
-public sealed record JobAcceptedResult(string AcceptedResultId);
+public sealed record JobInput(
+    IReadOnlyList<JobAcceptedResult>? AcceptedResults, QueueCapability? Capability = null, string? EdgeKind = null, string? Status = null);
 
-public sealed record JobPinned(string AnalystProfileDigest, string ImageDigest, string? ModelDigest);
+public sealed record JobAcceptedResult(
+    string AcceptedResultId, QueueCapability? Capability = null, string? SchemaVersion = null, string? ManifestChecksum = null);
+
+public sealed record JobPolicy(string PolicyId, string Version);
+
+public sealed record JobPinned(
+    string AnalystProfileDigest, string ImageDigest, string? ModelDigest,
+    string? AnalystProfileId = null, IReadOnlyList<JobPolicy>? Policies = null);
 
 public sealed record JobResources(int CpuMillicores, long MemoryMebibytes);

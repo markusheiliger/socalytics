@@ -164,6 +164,138 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
         }
     }
 
+    public ObjectUploadGrant PresignPutObject(string objectKey, long contentLength, Sha256Digest digest, DateTimeOffset expiresAt)
+    {
+        var checksum = digest.ToBase64();
+        var length = contentLength.ToString(CultureInfo.InvariantCulture);
+        var request = new GetPreSignedUrlRequest
+        {
+            BucketName = _bucket,
+            Key = objectKey,
+            Verb = HttpVerb.PUT,
+            Expires = expiresAt.UtcDateTime,
+            Protocol = _useHttp ? Protocol.HTTP : Protocol.HTTPS,
+        };
+        request.Headers["Content-Length"] = length;
+        request.Headers["x-amz-checksum-sha256"] = checksum;
+
+        string url;
+        try
+        {
+            url = _client.GetPreSignedURL(request);
+        }
+        catch (Exception ex) when (ex is AmazonClientException)
+        {
+            throw new ObjectStorageUnavailableException(ex);
+        }
+
+        return new ObjectUploadGrant(
+            "PUT",
+            new Uri(url),
+            new Dictionary<string, string>
+            {
+                ["Content-Length"] = length,
+                ["x-amz-checksum-sha256"] = checksum,
+            },
+            expiresAt);
+    }
+
+    public ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt)
+    {
+        var request = new GetPreSignedUrlRequest
+        {
+            BucketName = _bucket,
+            Key = objectKey,
+            Verb = HttpVerb.GET,
+            Expires = expiresAt.UtcDateTime,
+            Protocol = _useHttp ? Protocol.HTTP : Protocol.HTTPS,
+        };
+
+        try
+        {
+            return new ObjectReadGrant(new Uri(_client.GetPreSignedURL(request)), expiresAt);
+        }
+        catch (Exception ex) when (ex is AmazonClientException)
+        {
+            throw new ObjectStorageUnavailableException(ex);
+        }
+    }
+
+    public async Task<ObjectChecksum?> GetObjectChecksumAsync(string objectKey, CancellationToken cancellationToken)
+    {
+        GetObjectMetadataResponse response;
+        try
+        {
+            response = await CallAsync(() => _client.GetObjectMetadataAsync(
+                new GetObjectMetadataRequest { BucketName = _bucket, Key = objectKey, ChecksumMode = ChecksumMode.ENABLED },
+                cancellationToken));
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+
+        // A composite checksum (multipart) is not a full-object SHA-256.
+        if (string.IsNullOrEmpty(response.ChecksumSHA256)
+            || response.ChecksumSHA256.Contains('-', StringComparison.Ordinal)
+            || (response.ChecksumType is { } type && type != ChecksumType.FULL_OBJECT))
+        {
+            return null;
+        }
+
+        try
+        {
+            var bytes = Convert.FromBase64String(response.ChecksumSHA256);
+            return bytes.Length == Sha256Digest.ByteLength
+                ? new ObjectChecksum(Sha256Digest.FromBytes(bytes), response.ContentLength)
+                : null;
+        }
+        catch (FormatException)
+        {
+            return null;
+        }
+    }
+
+    public async Task<ObjectReadResult?> ReadObjectAsync(string objectKey, long maxBytes, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(maxBytes);
+        try
+        {
+            // One byte past the limit is enough to detect an oversize object without reading further.
+            return await CallAsync(async () =>
+            {
+                using var response = await _client.GetObjectAsync(
+                    new GetObjectRequest { BucketName = _bucket, Key = objectKey, ByteRange = new ByteRange(0, maxBytes) },
+                    cancellationToken);
+                using var buffer = new MemoryStream();
+                var chunk = new byte[8192];
+                var remaining = maxBytes + 1;
+                while (remaining > 0)
+                {
+                    var read = await response.ResponseStream.ReadAsync(
+                        chunk.AsMemory(0, (int)Math.Min(chunk.Length, remaining)), cancellationToken);
+                    if (read == 0)
+                    {
+                        break;
+                    }
+
+                    buffer.Write(chunk, 0, read);
+                    remaining -= read;
+                }
+
+                return buffer.Length > maxBytes ? new ObjectReadResult(null) : new ObjectReadResult(buffer.ToArray());
+            });
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null;
+        }
+        catch (AmazonS3Exception ex) when (ex.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+        {
+            return new ObjectReadResult([]);
+        }
+    }
+
     public async Task AbortMultipartUploadAsync(MultipartUploadReference upload, CancellationToken cancellationToken)
     {
         try

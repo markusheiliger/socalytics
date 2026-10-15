@@ -96,6 +96,13 @@ var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithEnvironment("Email__Delivery__PollInterval", "00:00:05")
     .WithEnvironment("Email__Delivery__LeaseDuration", "00:02:00")
     .WithEnvironment("Notifications__CoalescingWindow", "00:15:00")
+    .WithEnvironment("Analysis__Results__GrantLifetime", "00:10:00")
+    .WithEnvironment("Analysis__Results__MaxObjectsPerAttempt", "16")
+    .WithEnvironment("Analysis__Results__MaxObjectBytes", "104857600")
+    .WithEnvironment("Analysis__Results__MaxAttemptBytes", "1073741824")
+    .WithEnvironment("Analysis__Results__MaxManifestBytes", "1048576")
+    .WithEnvironment("Analysis__Reads__GrantLifetime", "00:10:00")
+    .WithEnvironment("Analysis__Reads__MaxPageSize", "100")
     .WithHttpHealthCheck("/health")
     .WithReference(appConnection)
     .WaitFor(postgres)
@@ -126,7 +133,8 @@ if (e2eMode)
     api.WithEnvironment("ASPNETCORE_FORWARDEDHEADERS_ENABLED", "true");
 }
 
-if (!e2eMode && builder.Configuration.GetValue("SocAlytics:ApiHttpsEndpoint", true))
+// The e2e mode keeps the HTTPS endpoint: the Manager endpoints require HTTPS, and the Web UI's proxy forwards to it.
+if (builder.Configuration.GetValue("SocAlytics:ApiHttpsEndpoint", true))
 {
     api.WithHttpsEndpoint();
     api.WithEnvironment("Stamp__PublicBaseUri", ReferenceExpression.Create($"{api.GetEndpoint("https").Property(EndpointProperty.Url)}"));
@@ -140,7 +148,11 @@ else
 const string webDirectory = "../../clients/web";
 var web = builder.AddViteApp("web", webDirectory, e2eMode ? "preview" : "dev")
     .WithReference(api)
-    .WaitFor(api);
+    .WaitFor(api)
+    // Browser part uploads go straight to the object store, so the Web UI must allow that origin in its CSP
+    // and the store must allow the Web UI origin in its CORS preflight (development only).
+    .WithEnvironment("SOCALYTICS_OBJECT_STORAGE_ORIGIN", ReferenceExpression.Create($"{rustfsEndpoint.Property(EndpointProperty.Url)}"));
+rustfs.WithEnvironment("RUSTFS_CORS_ALLOWED_ORIGINS", ReferenceExpression.Create($"{web.GetEndpoint("http").Property(EndpointProperty.Url)}"));
 
 api.WithEnvironment("Notifications__WebUiBaseUri", ReferenceExpression.Create($"{web.GetEndpoint("http").Property(EndpointProperty.Url)}"));
 
@@ -151,6 +163,13 @@ if (e2eMode)
 
     // The browser tests read the confirmation messages from Mailpit's REST API on a fixed port.
     mailpit.WithEndpoint("http", endpoint => endpoint.Port = MailpitE2ePort);
+
+    // The endpoint reference above resolves to the container network's host alias, which is not the origin the browser
+    // sends; the fixed e2e port makes the browser origins known.
+    rustfs.WithEnvironment("RUSTFS_CORS_ALLOWED_ORIGINS", string.Concat("http://127.0.0.1:", WebE2ePort.ToString(), ",http://localhost:", WebE2ePort.ToString()));
 }
+
+// Managers print this origin as the address where a person enters the pairing code.
+api.WithEnvironment("Registry__Pairing__VerificationBaseUri", ReferenceExpression.Create($"{web.GetEndpoint("http").Property(EndpointProperty.Url)}"));
 
 builder.Build().Run();

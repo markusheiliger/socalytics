@@ -1,0 +1,24 @@
+{
+  "contractVersion": "1.0.0",
+  "scope": {
+    "teamId": "team-1", "matchId": "match-1", "recordingSetVersionId": "rsv-1", "runId": "run-1", "nodeId": "detect-players", "logicalJobId": "job-1",
+    "match": true
+  },
+  "provenance": {
+    "capability": { "id": "player-detection", "version": "1.0.0" },
+    "schemaVersion": "1.0.0",
+    "analystProfile": { "id": "profile-1", "digest": "sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    "imageDigest": "sha-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "policyVersions": [],
+    "workflow": { "id": "default-workflow", "version": "1" }
+  },
+  "attempt": { "attemptId": "attempt-1", "attemptNumber": 1 },
+  "artifacts": [],
+  "validityWindow": { "startMs": 0, "endMs": 5400000 },
+  "factCount": 0,
+  "upstreamLineage": [],
+  "outputType": "foundational-facts",
+  "confidence": 0.5,
+  "evidenceReferences": [],
+  "notes": "free text is not part of the contract"
+}

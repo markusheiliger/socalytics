@@ -23,6 +23,18 @@ describe('toPlatformFailure', () => {
     ['unknown error shape', new Error('x'), 'incompatible'],
     ['non-error value', 'oops', 'incompatible'],
     ['unmapped status', apiError(418), 'incompatible'],
+    ['409 season-archived', apiError(409, { code: 'season-archived' }), 'seasonArchived'],
+    ['400 upload-declaration-invalid', apiError(400, { code: 'upload-declaration-invalid' }), 'validation'],
+    ['413', apiError(413), 'tooLarge'],
+    ['415', apiError(415), 'unsupportedType'],
+    ['409 upload-session-expired', apiError(409, { code: 'upload-session-expired' }), 'uploadExpired'],
+    ['409 upload-session-completed', apiError(409, { code: 'upload-session-completed' }), 'uploadCompleted'],
+    ['409 upload-parts-incomplete', apiError(409, { code: 'upload-parts-incomplete' }), 'uploadPartsRefused'],
+    ['409 upload-part-mismatch', apiError(409, { code: 'upload-part-mismatch' }), 'uploadPartsRefused'],
+    ['409 upload-object-mismatch', apiError(409, { code: 'upload-object-mismatch' }), 'uploadIntegrityFailed'],
+    ['409 integrity-evidence-unavailable', apiError(409, { code: 'integrity-evidence-unavailable' }), 'uploadIntegrityFailed'],
+    ['400 idempotency-key-missing', apiError(400, { code: 'idempotency-key-missing' }), 'programmingError'],
+    ['409 idempotency-key-reused', apiError(409, { code: 'idempotency-key-reused' }), 'programmingError'],
   ];
 
   it.each(rows)('maps %s', (_name, error, kind) => {

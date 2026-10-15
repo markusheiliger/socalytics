@@ -1,6 +1,15 @@
+import { createHash } from 'node:crypto';
 import type { Page, Route } from '@playwright/test';
 import type {
+  AnalysisRunSummaryDto,
+  AnalystManagerRegistrationDto,
+  AnalystManagerRegistrationPageDto,
   ClubDto,
+  MatchDto,
+  RecordingSetVersionDto,
+  RecordingVersionDto,
+  TimelineMappingDto,
+  UploadSessionDto,
   CurrentMemberDto,
   MemberDto,
   MemberPageDto,
@@ -11,7 +20,13 @@ import type {
   TeamPageDto,
 } from '../../../src/generated/platform-api/models';
 
-export type SimulatedRole = 'ClubAdmin' | 'Coach' | 'Viewer';
+// Mirrors the platform's composite content digest over the declared part digests.
+function compositeDigest(partSizeBytes: number, partDigests: string[]): string {
+  const raw = Buffer.concat(partDigests.map((d) => Buffer.from(d.replace('sha-256:', ''), 'hex')));
+  return `sha-256-parts:${partSizeBytes}:${partDigests.length}:${createHash('sha256').update(raw).digest('hex')}`;
+}
+
+export type SimulatedRole = 'ClubAdmin' | 'Registrar' | 'Coach' | 'Viewer';
 
 export const ANTIFORGERY_TOKEN = 'simulated-antiforgery-token-7f3a9c';
 export const SIMULATED_PASSWORD = 'Simulated-Password-1!';
@@ -23,8 +38,12 @@ const ids = {
   session: '00000000-0000-4000-8000-000000000004',
   admin: '00000000-0000-4000-8000-000000000011',
   coach: '00000000-0000-4000-8000-000000000012',
+  registrar: '00000000-0000-4000-8000-000000000014',
   viewer: '00000000-0000-4000-8000-000000000013',
 };
+
+/** Origin of the fake object store (tests/e2e/support/fakeObjectStorage.mjs); playwright.config.ts starts it on this port. */
+export const FAKE_STORAGE_ORIGIN = 'http://127.0.0.1:4175';
 
 const now = new Date('2026-10-12T12:00:00Z');
 const later = (hours: number) => new Date(now.getTime() + hours * 3_600_000);
@@ -59,6 +78,14 @@ const members: Record<SimulatedRole, CurrentMemberDto> = {
     clubRoles: ['ClubAdmin'],
     teamRoles: [],
   },
+  Registrar: {
+    id: ids.registrar,
+    accountName: 'registrar',
+    membershipStatus: 'Active',
+    passwordChangeRequired: false,
+    clubRoles: ['Registrar'],
+    teamRoles: [],
+  },
   Coach: {
     id: ids.coach,
     accountName: 'coach',
@@ -76,6 +103,41 @@ const members: Record<SimulatedRole, CurrentMemberDto> = {
     teamRoles: [{ teamId: ids.team, teamName: team.name, seasonId: ids.season, role: 'Viewer' }],
   },
 };
+
+export const match: MatchDto = {
+  id: '00000000-0000-4000-8000-000000000021',
+  teamId: ids.team,
+  opponent: { name: 'Rivals FC' },
+  kickoffAt: later(48),
+  homeAway: 'home',
+  competition: 'League',
+  createdAt: now,
+  version: 1,
+};
+
+export const analysisRun: AnalysisRunSummaryDto = {
+  runId: '00000000-0000-4000-8000-000000000031',
+  teamId: ids.team,
+  matchId: match.id,
+  recordingSetVersionId: null,
+  workflowId: 'default',
+  workflowVersion: '1',
+  state: 'Queued',
+  createdAt: now,
+  runningAt: null,
+  terminatedAt: null,
+  failureReason: null,
+  version: 1,
+};
+
+let nextId = 100;
+const newId = () => `00000000-0000-4000-8000-${String(++nextId).padStart(12, '0')}`;
+
+/** The base64 SHA-256 a grant requires: the declared part digest may be hex or prefixed hex. */
+function checksumHeader(digest: string | undefined): string {
+  const hex = (digest ?? '').replace(/^sha-?256[:=]/i, '');
+  return /^[0-9a-f]{64}$/i.test(hex) ? Buffer.from(hex, 'hex').toString('base64') : (digest ?? '');
+}
 
 export function sessionFor(role: SimulatedRole, passwordChangeRequired = false): SessionInfoDto {
   return {
@@ -115,6 +177,14 @@ export class SimulatedApi {
   private current: { role: SimulatedRole; passwordChangeRequired: boolean } | null = null;
   private readonly overrides = new Map<string, Handler>();
   readonly requests: { method: string; path: string; headers: Record<string, string> }[] = [];
+  /** Content type of every request body sent to `/api/v1`; SC-003 asserts that all of them are JSON. */
+  readonly bodyContentTypes: string[] = [];
+  readonly matches: MatchDto[] = [match];
+  readonly uploadSessions: (UploadSessionDto & { partDigests: string[] })[] = [];
+  readonly recordingVersions: RecordingVersionDto[] = [];
+  readonly timelineMappings: TimelineMappingDto[] = [];
+  readonly recordingSetVersions: RecordingSetVersionDto[] = [];
+  readonly analysisRuns: AnalysisRunSummaryDto[] = [];
 
   constructor(private readonly page: Page) {}
 
@@ -137,11 +207,138 @@ export class SimulatedApi {
     this.overrides.set(`${method.toUpperCase()} ${path}`, handler);
   }
 
+  /** Registrations the simulated platform knows, in list order; tests may add, replace, or clear them. */
+  registrations: AnalystManagerRegistrationDto[] = [];
+  /** Pairing codes (as typed, upper-case, with dashes) the platform accepts, mapped to the registration they pair. */
+  readonly pairingCodes = new Map<string, string>();
+  /** When set, every code submission answers 429 with this `Retry-After` in seconds. */
+  rateLimitSubmissionsFor: number | null = null;
+
+  /** Adds a registration, and optionally a pairing code that submits it. */
+  addRegistration(registration: AnalystManagerRegistrationDto, pairingCode?: string): AnalystManagerRegistrationDto {
+    this.registrations.push(registration);
+    if (pairingCode) this.pairingCodes.set(pairingCode, String(registration.registrationId));
+    return registration;
+  }
+
+  private async handleRegistrations(
+    route: Route,
+    method: string,
+    path: string,
+    role: SimulatedRole,
+    json: (status: number, body: unknown) => Promise<void>,
+  ): Promise<void> {
+    const request = route.request();
+    const isAdmin = role === 'ClubAdmin';
+    if (!isAdmin && role !== 'Registrar') return json(403, problem(403, 'Forbidden'));
+    const self = String(members[role].id);
+    const visible = (r: AnalystManagerRegistrationDto) => isAdmin || String(r.submittedBy) === self;
+    // Status and connectivity belong to the Club Admin fleet view only.
+    const shape = (r: AnalystManagerRegistrationDto): AnalystManagerRegistrationDto => {
+      if (isAdmin) return r;
+      const { status: _status, connectivity: _connectivity, ...rest } = r;
+      return rest as AnalystManagerRegistrationDto;
+    };
+    const entity = (r: AnalystManagerRegistrationDto, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: 'application/json',
+        headers: { ETag: `"${r.version}"` },
+        body: JSON.stringify(shape(r)),
+      });
+    let body: Record<string, unknown> = {};
+    try {
+      body = (request.postDataJSON() ?? {}) as Record<string, unknown>;
+    } catch {
+      body = {};
+    }
+
+    if (path === '/analyst-manager-registrations') {
+      if (method === 'POST') {
+        if (this.rateLimitSubmissionsFor !== null) {
+          return route.fulfill({
+            status: 429,
+            contentType: 'application/problem+json',
+            headers: { 'Retry-After': String(this.rateLimitSubmissionsFor) },
+            body: JSON.stringify(problem(429, 'Too many requests', { code: 'analyst-manager-rate-limited' })),
+          });
+        }
+        const normalize = (value: unknown) => String(value ?? '').replace(/[^0-9a-z]/gi, '').toUpperCase();
+        const code = [...this.pairingCodes.entries()].find(([c]) => normalize(c) === normalize(body.pairingCode));
+        const found = code && this.registrations.find((r) => String(r.registrationId) === code[1]);
+        if (
+          !found ||
+          found.state !== 'pairing' ||
+          normalize(found.deviceFingerprint) !== normalize(body.deviceFingerprint)
+        ) {
+          return json(400, problem(400, 'Pairing code invalid', { code: 'analyst-manager-pairing-code-invalid' }));
+        }
+        Object.assign(found, {
+          state: 'pending_approval',
+          submittedBy: self,
+          submittedAt: now,
+          version: Number(found.version) + 1,
+        });
+        this.pairingCodes.delete(code[0]);
+        return entity(found, 201);
+      }
+      if (method === 'GET') {
+        const state = new URL(request.url()).searchParams.get('state');
+        const items = this.registrations.filter((r) => visible(r) && (!state || r.state === state)).map(shape);
+        return json(200, { items, continuationToken: null } satisfies AnalystManagerRegistrationPageDto);
+      }
+      return json(404, problem(404, 'Not found'));
+    }
+
+    const match = /^\/analyst-manager-registrations\/([^/]+)(?:\/(approval|rejection|revocation))?$/.exec(path);
+    const target = match && this.registrations.find((r) => String(r.registrationId) === match[1]);
+    if (!match || !target || !visible(target)) return json(404, problem(404, 'Not found'));
+    const action = match[2];
+    if (!action && method === 'GET') return entity(target);
+    if (!action || method !== 'POST') return json(404, problem(404, 'Not found'));
+    if (!isAdmin) return json(403, problem(403, 'Forbidden'));
+
+    const required = action === 'approval' || action === 'rejection' ? 'pending_approval' : 'active';
+    if (action !== 'approval') {
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+      if (reason.length < 1 || reason.length > 500) {
+        return json(400, problem(400, 'Validation failed', { errors: [{ field: 'reason', code: 'invalid' }] }));
+      }
+    }
+    if (target.state !== required) {
+      return json(409, problem(409, 'Invalid state transition', { code: 'invalid-state-transition' }));
+    }
+    if (
+      action !== 'revocation' &&
+      target.approvalExpiresAt &&
+      new Date(target.approvalExpiresAt).getTime() < Date.now()
+    ) {
+      return json(409, problem(409, 'Registration expired', { code: 'analyst-manager-registration-expired' }));
+    }
+    const decided = { decidedBy: self, decidedAt: new Date(), version: Number(target.version) + 1 };
+    if (action === 'approval') Object.assign(target, decided, { state: 'approved' });
+    if (action === 'rejection') {
+      Object.assign(target, decided, { state: 'rejected', decisionReason: body.reason, endedAt: decided.decidedAt });
+    }
+    if (action === 'revocation') {
+      Object.assign(target, {
+        state: 'revoked',
+        revokedBy: self,
+        endedAt: decided.decidedAt,
+        endReason: body.reason,
+        connectivity: 'not-applicable',
+        version: decided.version,
+      });
+    }
+    return entity(target);
+  }
+
   private async handle(route: Route): Promise<void> {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace(/^\/api\/v1/, '');
     const method = request.method();
     this.requests.push({ method, path, headers: request.headers() });
+    if (request.postDataBuffer()) this.bodyContentTypes.push(request.headers()['content-type'] ?? '');
 
     const override = this.overrides.get(`${method} ${path}`);
     if (override) {
@@ -194,6 +391,9 @@ export class SimulatedApi {
     if (passwordChangeRequired) {
       return json(403, problem(403, 'Password change required', { code: 'password_change_required' }));
     }
+    if (path.startsWith('/analyst-manager-registrations')) {
+      return this.handleRegistrations(route, method, path, role, json);
+    }
     if (method === 'GET') {
       if (path === '/me/notification-preferences') {
         const items = [{ type: 'email-confirmation', enabled: true, accountMessage: true }];
@@ -207,14 +407,174 @@ export class SimulatedApi {
       if (path === '/teams') {
         return json(200, { items: [team], continuationToken: null } satisfies TeamPageDto);
       }
+      const found = this.handleMatchReads(path, json);
+      if (found) return found;
       if (path === '/members') {
         if (role !== 'ClubAdmin') return json(403, problem(403, 'Forbidden'));
         return json(200, {
-          items: Object.values(members).map(memberListEntry),
+          items: [members.ClubAdmin, members.Coach, members.Viewer].map(memberListEntry),
           continuationToken: null,
         } satisfies MemberPageDto);
       }
     }
+    if (method === 'POST' || method === 'PUT') {
+      if (role === 'Viewer') return json(403, problem(403, 'Forbidden'));
+      const result = this.handleMatchWrites(method, path, request.postDataJSON?.() ?? null, json);
+      if (result) return result;
+    }
     return json(404, problem(404, 'Not found'));
+  }
+
+  private handleMatchReads(path: string, json: (status: number, body: unknown) => Promise<void>) {
+    const matchId = /^\/matches\/([^/]+)/.exec(path)?.[1];
+    if (/^\/teams\/[^/]+\/matches$/.test(path)) return json(200, { items: this.matches, continuationToken: null });
+    if (!matchId) return null;
+    const known = this.matches.find((m) => m.id === matchId);
+    if (!known) return json(404, problem(404, 'Not found'));
+    if (path === `/matches/${matchId}`) return json(200, known);
+    if (path === `/matches/${matchId}/recording-lineage`) {
+      return json(200, {
+        matchId,
+        teamId: known.teamId,
+        recordingVersions: this.recordingVersions.filter((v) => v.matchId === matchId),
+        timelineMappings: this.timelineMappings.filter((m) => m.matchId === matchId),
+        recordingSetVersions: this.recordingSetVersions.filter((v) => v.matchId === matchId),
+      });
+    }
+    if (path === `/matches/${matchId}/analysis-runs`) {
+      return json(200, { items: this.analysisRuns.filter((r) => r.matchId === matchId), continuationToken: null });
+    }
+    const upload = /^\/matches\/[^/]+\/upload-sessions\/([^/]+)$/.exec(path)?.[1];
+    if (upload) {
+      const found = this.uploadSessions.find((u) => u.id === upload);
+      return found ? json(200, this.publicSession(found)) : json(404, problem(404, 'Not found'));
+    }
+    return null;
+  }
+
+  private publicSession(session: UploadSessionDto & { partDigests: string[] }): UploadSessionDto {
+    const { partDigests: _digests, ...rest } = session;
+    return rest;
+  }
+
+  private grantsFor(session: UploadSessionDto & { partDigests: string[] }, partNumbers: number[]) {
+    return {
+      expiresAt: new Date(Date.now() + 3_600_000),
+      parts: partNumbers.map((partNumber) => ({
+        partNumber,
+        method: 'PUT',
+        url: `${FAKE_STORAGE_ORIGIN}/bucket/${session.id}/${partNumber}?partNumber=${partNumber}&X-Amz-Signature=simulated`,
+        requiredHeaders: { 'x-amz-checksum-sha256': checksumHeader(session.partDigests[partNumber - 1]) },
+      })),
+    };
+  }
+
+  private handleMatchWrites(
+    method: string,
+    path: string,
+    body: any,
+    json: (status: number, body: unknown) => Promise<void>,
+  ) {
+    const matchPath = /^\/matches\/([^/]+)\/(.+)$/.exec(path);
+    if (method === 'POST' && /^\/teams\/[^/]+\/matches$/.test(path)) {
+      const created: MatchDto = {
+        id: newId(),
+        teamId: ids.team,
+        opponent: { name: body?.opponent?.name ?? '' },
+        kickoffAt: new Date(body?.kickoffAt ?? now),
+        homeAway: body?.homeAway ?? 'home',
+        competition: body?.competition ?? null,
+        createdAt: now,
+        version: 1,
+      };
+      this.matches.push(created);
+      return json(201, created);
+    }
+    if (!matchPath) return null;
+    const [, matchId, rest] = matchPath;
+    const known = this.matches.find((m) => m.id === matchId);
+    if (!known) return json(404, problem(404, 'Not found'));
+
+    if (method === 'POST' && rest === 'upload-sessions') {
+      const total = Number(body?.totalSizeBytes ?? 0);
+      const partSize = Number(body?.partSizeBytes ?? 1);
+      const partCount = Math.ceil(total / partSize);
+      const session = {
+        id: newId(),
+        matchId,
+        teamId: known.teamId,
+        state: 'pending',
+        recording: body?.recording ?? { displayName: null, description: null, contentType: null },
+        totalSizeBytes: total,
+        partSizeBytes: partSize,
+        partCount,
+        contentDigest: compositeDigest(partSize, body?.partDigests ?? []),
+        createdAt: now,
+        expiresAt: later(24),
+        completedAt: null,
+        expiredAt: null,
+        version: 1,
+        partDigests: body?.partDigests ?? [],
+      } satisfies UploadSessionDto & { partDigests: string[] };
+      this.uploadSessions.push(session);
+      const grants = this.grantsFor(session, Array.from({ length: Math.min(partCount, 8) }, (_, i) => i + 1));
+      return json(201, { session: this.publicSession(session), grants });
+    }
+    const grantsMatch = /^upload-sessions\/([^/]+)\/grants$/.exec(rest ?? '');
+    if (method === 'POST' && grantsMatch) {
+      const session = this.uploadSessions.find((u) => u.id === grantsMatch[1]);
+      if (!session) return json(404, problem(404, 'Not found'));
+      return json(200, this.grantsFor(session, (body?.partNumbers as number[] | undefined) ?? []));
+    }
+    const completion = /^upload-sessions\/([^/]+)\/completion$/.exec(rest ?? '');
+    if (method === 'POST' && completion) {
+      const session = this.uploadSessions.find((u) => u.id === completion[1]);
+      if (!session) return json(404, problem(404, 'Not found'));
+      session.state = 'completed';
+      session.completedAt = now;
+      const recordingVersion: RecordingVersionDto = {
+        id: newId(),
+        matchId,
+        teamId: known.teamId,
+        uploadSessionId: session.id,
+        recording: session.recording,
+        totalSizeBytes: session.totalSizeBytes,
+        partSizeBytes: session.partSizeBytes,
+        partCount: session.partCount,
+        contentDigest: session.contentDigest,
+        createdAt: now,
+      };
+      const timelineMapping: TimelineMappingDto = {
+        id: newId(),
+        recordingVersionId: recordingVersion.id,
+        matchId,
+        spans: body?.timelineMapping?.spans ?? [],
+        digest: `sha256:${'1'.repeat(64)}`,
+        createdAt: now,
+      };
+      this.recordingVersions.push(recordingVersion);
+      this.timelineMappings.push(timelineMapping);
+      return json(201, { recordingVersion, timelineMapping });
+    }
+    if (method === 'POST' && rest === 'recording-set-versions') {
+      const members = (body?.members ?? []) as { recordingVersionId: string; timelineMappingId: string }[];
+      const set: RecordingSetVersionDto = {
+        id: newId(),
+        matchId,
+        teamId: known.teamId,
+        finalizedAt: now,
+        members: members.map((m, position) => ({
+          position,
+          recordingVersionId: m.recordingVersionId,
+          recordingContentDigest: this.recordingVersions.find((v) => v.id === m.recordingVersionId)?.contentDigest ?? '',
+          timelineMappingId: m.timelineMappingId,
+          timelineMappingDigest: this.timelineMappings.find((t) => t.id === m.timelineMappingId)?.digest ?? '',
+        })),
+      };
+      this.recordingSetVersions.push(set);
+      this.analysisRuns.push({ ...analysisRun, runId: newId(), matchId, recordingSetVersionId: set.id });
+      return json(201, set);
+    }
+    return null;
   }
 }

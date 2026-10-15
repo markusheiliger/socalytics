@@ -7,15 +7,19 @@ import common from './en/common.json';
 import shell from './en/shell.json';
 import seasons from './en/seasons.json';
 import members from './en/members.json';
+import lineage from './en/lineage.json';
+import matches from './en/matches.json';
+import managers from './en/managers.json';
 import session from './en/session.json';
 import teams from './en/teams.json';
+import uploads from './en/uploads.json';
 
 void i18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'email'],
-  resources: { en: { common, session, account, shell, club, seasons, teams, members, email } },
+  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'managers', 'matches', 'uploads', 'lineage', 'email'],
+  resources: { en: { common, session, account, shell, club, seasons, teams, members, managers, matches, uploads, lineage, email } },
   interpolation: { escapeValue: false },
 });
 

@@ -51,6 +51,18 @@ public sealed class CompletionVerificationTests(PostgresContainerFixture postgre
 			return faults.Evidence is null ? evidence : faults.Evidence(evidence);
 		}
 
+		public ObjectUploadGrant PresignPutObject(string objectKey, long contentLength, Sha256Digest digest, DateTimeOffset expiresAt) =>
+			inner.PresignPutObject(objectKey, contentLength, digest, expiresAt);
+
+		public ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt) =>
+			inner.PresignGetObject(objectKey, expiresAt);
+
+		public Task<ObjectChecksum?> GetObjectChecksumAsync(string objectKey, CancellationToken cancellationToken) =>
+			inner.GetObjectChecksumAsync(objectKey, cancellationToken);
+
+		public Task<ObjectReadResult?> ReadObjectAsync(string objectKey, long maxBytes, CancellationToken cancellationToken) =>
+			inner.ReadObjectAsync(objectKey, maxBytes, cancellationToken);
+
 		public Task AbortMultipartUploadAsync(MultipartUploadReference upload, CancellationToken cancellationToken) =>
 			inner.AbortMultipartUploadAsync(upload, cancellationToken);
 

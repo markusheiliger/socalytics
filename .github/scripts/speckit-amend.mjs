@@ -1,8 +1,8 @@
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-import { GitHubClient } from './speckit-prepare-github.mjs';
 import { canWrite, resolveImplementRequester } from './speckit-prepare.mjs';
+import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   AMEND_BRANCH_PREFIX,
   AMEND_CHECK_NAME,
@@ -227,9 +227,9 @@ export async function startAnalysis(client, env, { amendment, folder, implementa
 }
 
 // Starts a rework of the amendment or fix spec: `revise` with a person's feedback (`feedback`, from pendingFeedback,
-// handed to the rework as notes), or `fix` with the findings of the consistency check. The pull request goes back to
+// handed to the rework as guidance), or `fix` with the findings of the consistency check. The pull request goes back to
 // draft until it is presented again. Amendments are reworked by Spec Kit diagnose, fix specs by Spec Kit fix.
-export async function startRework(client, env, context, { mode, round = 0, notes = '', feedback = null, stalls = 0, findings = [], progress = null }) {
+export async function startRework(client, env, context, { mode, round = 0, guidance = '', feedback = null, stalls = 0, findings = [], progress = null }) {
   const { amendment, folder, implementation, twin, kind = 'amend' } = context;
   const noun = kind === 'fix' ? 'fix spec' : 'amendment';
   const current = await client.getPullRequest(amendment.number);
@@ -238,7 +238,7 @@ export async function startRework(client, env, context, { mode, round = 0, notes
     const items = feedback?.items ?? [];
     const authors = [...new Set(items.map((item) => item.author))];
     const cutoff = items.length > 0 ? items.map((item) => item.at).sort((a, b) => Date.parse(b) - Date.parse(a))[0] : feedback?.since;
-    notes = clip(renderFeedback(items), 20_000);
+    guidance = clip(renderFeedback(items), 20_000);
     await client.createComment(amendment.number, [
       AMEND_REWORK_MARKER,
       ...(cutoff ? [renderCutoff(cutoff)] : []),
@@ -250,7 +250,7 @@ export async function startRework(client, env, context, { mode, round = 0, notes
       '',
       '<details><summary>Findings</summary>',
       '',
-      neutralizeMarkers(clip(notes, 6000)),
+      neutralizeMarkers(clip(guidance, 6000)),
       '',
       '</details>',
     ].join('\n'));
@@ -260,7 +260,7 @@ export async function startRework(client, env, context, { mode, round = 0, notes
     head_sha: current.head.sha,
     status: 'in_progress',
     external_id: CHECK_AMEND_CHECKING,
-    output: { title: mode === 'revise' ? 'Rework in progress' : `Correction round ${round} in progress`, summary: clip(notes, 2000) || `Reworking the ${noun}.` },
+    output: { title: mode === 'revise' ? 'Rework in progress' : `Correction round ${round} in progress`, summary: clip(guidance, 2000) || `Reworking the ${noun}.` },
   });
   try {
     // Only inputs the dispatched workflow declares: GitHub rejects a dispatch with any other input.
@@ -268,7 +268,7 @@ export async function startRework(client, env, context, { mode, round = 0, notes
       twin: String(twin),
       pull: String(implementation.number),
       folder,
-      notes: clip(notes, 20_000),
+      guidance: clip(guidance, 20_000),
       ...(kind === 'fix' ? {} : { previous: '' }),
       check_run: String(check.id),
       mode,
@@ -552,7 +552,7 @@ export async function runRecordAnalysis({ client, env, log }) {
   const trackedBlocking = blocking.map((item, index) => ({ ...item, id: `F${index + 1}` }));
   if (!consistent && mode === 'loop' && stalls < MAX_STALLED_ROUNDS && round < MAX_CORRECTION_ROUNDS) {
     await complete('neutral', `${remaining} inconsistency(ies) found; correction round ${round + 1} follows`, [progressNote, renderFindings(trackedBlocking.concat(analysis.findings.filter((item) => !BLOCKING.has(item.severity))), rules, { ids: true })].filter(Boolean).join('\n\n'));
-    await startRework(client, env, context, { mode: 'fix', round: round + 1, notes: renderFindings(trackedBlocking, rules, { ids: true }), stalls, findings: tracked, progress: progressNote });
+    await startRework(client, env, context, { mode: 'fix', round: round + 1, guidance: renderFindings(trackedBlocking, rules, { ids: true }), stalls, findings: tracked, progress: progressNote });
     log(`Amendment #${number}: ${remaining} inconsistency(ies); started correction round ${round + 1} (${stalls} without progress).`);
     return { exitCode: 0, outcome: 'correcting', stalls };
   }
@@ -776,18 +776,9 @@ export async function runGuard({ client, env, log }) {
   return { exitCode: 0, outcome: actions.length > 0 ? 'guarded' : 'ok' };
 }
 
-function githubClient(env) {
-  return new GitHubClient({
-    token: env.GITHUB_TOKEN || env.GH_TOKEN,
-    repository: env.GITHUB_REPOSITORY,
-    apiUrl: env.GITHUB_API_URL || 'https://api.github.com',
-    graphqlUrl: env.GITHUB_GRAPHQL_URL || undefined,
-  });
-}
-
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command] = argv;
-  const run = { client: client ?? githubClient(env), env, log };
+  const run = { client: client ?? createGitHubClient(env), env, log };
   const handlers = { 'record-analysis': runRecordAnalysis, feedback: runFeedback, closed: runClosed, pushed: runPushed, guard: runGuard };
   if (!handlers[command]) throw new AmendUsageError(`Usage: speckit-amend.mjs <${Object.keys(handlers).join(' | ')}>`);
   const result = await handlers[command](run);

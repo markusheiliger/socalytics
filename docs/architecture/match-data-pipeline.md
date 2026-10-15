@@ -214,7 +214,8 @@ foundational facts only for each segment's nominal logical window. Encoded
 overlap exists for decoding context and does not authorize duplicate facts
 outside that window.
 
-The API validates and indexes accepted low-level result manifests, then exposes
+The API validates accepted low-level result manifests (implemented) and indexes
+their facts (future), then exposes
 an ordered, match-wide fact stream to authorized high-level Analyst Containers.
 The stream preserves source time ranges, capability and schema versions, result
 identities, and confidence while hiding storage layout and segment boundaries

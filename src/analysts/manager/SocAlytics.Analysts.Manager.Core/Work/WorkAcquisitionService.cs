@@ -25,7 +25,9 @@ public sealed class WorkAcquisitionService(
     HostCapacity capacity,
     IOptions<RuntimeOptions> runtimeOptions,
     TimeProvider time,
-    ILoggerFactory loggers) : BackgroundService
+    ILoggerFactory loggers,
+    ResultPublisher? publisher = null,
+    UpstreamStager? stager = null) : BackgroundService
 {
     public static readonly TimeSpan FetchWait = TimeSpan.FromSeconds(1);
 
@@ -90,6 +92,11 @@ public sealed class WorkAcquisitionService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (stager is not null)
+        {
+            AttemptRunner.DeleteLeftoverAttemptDirectories(_logger);
+        }
+
         var renewal = credentials.RunAsync(
             () => admission.TryAdmit() ? sessions.Current : null,
             () => catalog.Find(runtimeOptions.Value.Profile)?.Capabilities ?? [],
@@ -135,7 +142,7 @@ public sealed class WorkAcquisitionService(
         if (_runner is null || !ReferenceEquals(adapter, _runnerAdapter))
         {
             _runnerAdapter = adapter;
-            _runner = new AttemptRunner(platform, adapter, time, loggers.CreateLogger<AttemptRunner>());
+            _runner = new AttemptRunner(platform, adapter, time, loggers.CreateLogger<AttemptRunner>(), publisher: publisher, stager: stager);
         }
 
         var runner = _runner;
