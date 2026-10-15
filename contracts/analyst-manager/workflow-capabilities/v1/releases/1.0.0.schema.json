@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analyst-manager/workflow-capabilities/v1/workflow-capabilities.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analyst Manager workflow capabilities",
+  "description": "Response of GET /api/v1/analyst-managers/self/workflow-capabilities: the distinct capabilities of the resolved default workflow with the pinned requirements of their approved Analyst profiles. It carries no image or model digests and no registry details; jobs pin those. The socalytics.invalid domain is reserved and never dereferenced.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["workflow", "capabilities"],
+  "properties": {
+    "workflow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "version": { "type": "string", "minLength": 1, "maxLength": 100 }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/capability" }
+    }
+  },
+  "$defs": {
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "accelerators", "cpus", "memoryBytes"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[a-z0-9][a-z0-9._\\-]*$" },
+        "version": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$" },
+        "accelerators": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[A-Za-z0-9][A-Za-z0-9._+\\-]*$" }
+        },
+        "cpus": {
+          "description": "Decimal string greater than zero; the contracts carry no floating-point numbers.",
+          "type": "string",
+          "pattern": "^(?!0+(\\.0+)?$)(0|[1-9][0-9]*)(\\.[0-9]+)?$"
+        },
+        "memoryBytes": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "examples": [
+    {
+      "workflow": { "id": "default", "version": "3" },
+      "capabilities": [
+        { "id": "test-analyst", "version": "1.0.0", "accelerators": [], "cpus": "1", "memoryBytes": 536870912 }
+      ]
+    }
+  ]
+}
