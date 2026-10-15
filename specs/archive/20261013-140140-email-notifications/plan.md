@@ -2,7 +2,7 @@
 
 **Branch**: `20261013-140140-email-notifications` | **Date**: 2026-10-13 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261013-140140-email-notifications/spec.md`
+**Input**: Feature specification from `specs/archive/20261013-140140-email-notifications/spec.md`
 
 ## Summary
 
@@ -90,7 +90,7 @@ day.
 
 | Principle | Check | Result |
 | --- | --- | --- |
-| I. Architecture is the design authority | Implements [email-notifications.md](../../docs/architecture/email-notifications.md) and the email notification of `analyst-manager.md` § Fleet Visibility In The Web UI; follows `security-and-data-governance.md` (`DAT-001`, `BND-010`, `THR-012`, audit events). The dedicated email outbox table and the confirmation step on the landing page refine the narrative; they are applied through Architecture Updates. | Pass |
+| I. Architecture is the design authority | Implements [email-notifications.md](../../../docs/architecture/email-notifications.md) and the email notification of `analyst-manager.md` § Fleet Visibility In The Web UI; follows `security-and-data-governance.md` (`DAT-001`, `BND-010`, `THR-012`, audit events). The dedicated email outbox table and the confirmation step on the landing page refine the narrative; they are applied through Architecture Updates. | Pass |
 | II. Source-area ownership | Platform code in `src/platform`, Web UI code in `src/clients/web`. | Pass |
 | III. API-first control plane | All behavior is exposed as API operations; the Web UI only consumes them; the relay is reached by SMTP, a standard protocol, behind an infrastructure abstraction. | Pass |
 | IV. Evidence over claims | Integration, host, unit, and browser tests, including a relay outage and an end-to-end mail check; no production readiness claimed. | Pass |
@@ -103,13 +103,13 @@ Post-design re-check: passes; no Complexity Tracking entries.
 
 **Narratives**:
 
-- [email-notifications.md](../../docs/architecture/email-notifications.md): the whole document (Purpose And Scope, Email Addresses, Notification Preferences, Message Content, Delivery, Security And Governance).
-- [analyst-manager.md](../../docs/architecture/analyst-manager.md) § Fleet Visibility In The Web UI: the email notification of pending requests.
-- [security-and-data-governance.md](../../docs/architecture/security-and-data-governance.md): § Data Classes (`DAT-001`), § Trust Boundaries (`BND-010`), § Threat Model (`THR-012`), § Audit Events.
-- [platform-implementation.md](../../docs/architecture/platform-implementation.md) § API And Identity, § Acceptance Evidence, § Architecture Reassessment.
-- [tenancy-and-technology.md](../../docs/architecture/tenancy-and-technology.md) § Control Plane.
-- [overview.md](../../docs/architecture/overview.md) § Decision Status.
-- [production-operations.md](../../docs/architecture/production-operations.md) § Versioned Production Profile (the Email row stays Open / Blocking).
+- [email-notifications.md](../../../docs/architecture/email-notifications.md): the whole document (Purpose And Scope, Email Addresses, Notification Preferences, Message Content, Delivery, Security And Governance).
+- [analyst-manager.md](../../../docs/architecture/analyst-manager.md) § Fleet Visibility In The Web UI: the email notification of pending requests.
+- [security-and-data-governance.md](../../../docs/architecture/security-and-data-governance.md): § Data Classes (`DAT-001`), § Trust Boundaries (`BND-010`), § Threat Model (`THR-012`), § Audit Events.
+- [platform-implementation.md](../../../docs/architecture/platform-implementation.md) § API And Identity, § Acceptance Evidence, § Architecture Reassessment.
+- [tenancy-and-technology.md](../../../docs/architecture/tenancy-and-technology.md) § Control Plane.
+- [overview.md](../../../docs/architecture/overview.md) § Decision Status.
+- [production-operations.md](../../../docs/architecture/production-operations.md) § Versioned Production Profile (the Email row stays Open / Blocking).
 
 **Design updates** (applied with this plan as decided, not implemented; the implementation turns them into present tense):
 
@@ -142,7 +142,7 @@ The documentation task must make these narratives and every status statement thi
 ### Documentation (this feature)
 
 ```text
-specs/20261013-140140-email-notifications/
+specs/archive/20261013-140140-email-notifications/
 ├── plan.md
 ├── research.md          # Decisions R1–R10
 ├── data-model.md        # Tables, notification types, configuration

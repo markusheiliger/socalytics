@@ -5,7 +5,7 @@ description: "Task list for Member Email Addresses and Pending-Request Notificat
 
 # Tasks: Member Email Addresses and Pending-Request Notifications
 
-**Input**: Design documents from `specs/20261013-140140-email-notifications/`
+**Input**: Design documents from `specs/archive/20261013-140140-email-notifications/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/email-api.md](contracts/email-api.md), [contracts/email-messages.md](contracts/email-messages.md), [contracts/web-ui-routes.md](contracts/web-ui-routes.md), [quickstart.md](quickstart.md)
 

@@ -1,6 +1,6 @@
 # Research: Member Email Addresses and Pending-Request Notifications
 
-Builds on the adopted channel in [email-notifications.md](../../docs/architecture/email-notifications.md),
+Builds on the adopted channel in [email-notifications.md](../../../docs/architecture/email-notifications.md),
 Club and Identity Foundation (`member_account`, sessions, `IAuditTrail`,
 `MapMemberApi`, `IUnitOfWork`), Analyst Manager Registration
 (`SubmitPairingCode`, `RegistryAuditEvents.PendingRequestCreated`), and Web UI
