@@ -95,11 +95,12 @@ native or vendor compatibility requires it. Production builds use locked
 dependencies and record package and native-library provenance; they do not
 select the newest Python release independently of the validated runtime matrix.
 
-Versioned JSON Schema documents will become canonical for job inputs and result
-manifests when the first Analyst implementation slice introduces those
-contracts. The shared internal Analyst SDK will expose Pydantic models and
-validate both boundaries. The platform will independently validate the same
-schemas rather than treating Python types as cross-language authority.
+The versioned JSON Schema documents for job inputs and result manifests in
+`contracts/analysis/` are canonical; the platform and the Analyst Manager
+validate result manifests against them. The shared internal Analyst SDK will
+expose Pydantic models and validate both boundaries; it and cross-runtime
+schema agreement remain future work. The platform validates the same schemas
+independently rather than treating Python types as cross-language authority.
 
 ### Analyst Profiles And Container-Owned Preprocessing
 
@@ -147,8 +148,9 @@ resolve tags or select an alternative image or model. It may claim the job only
 when the host satisfies the pinned profile and reports the image and model
 digests actually used after execution.
 
-The Analyst uploads its result and manifest to stamp-local object storage.
-The Manager then calls the stamp API with team, match, job, and execution
+The Analyst writes its result and manifest into the job's result mount, and the
+Manager stores them in stamp-local object storage through write grants (see
+Result Manifest And Lineage). The Manager then calls the stamp API with team, match, job, and execution
 identifiers, the manifest URI and checksum, status, idempotency key, selected
 runtime, executed image and model digests, and current lease/fencing token.
 Analysts and Analyst Managers never receive database credentials.
@@ -208,8 +210,9 @@ falls within the nominal half-open validity window. A manifest that fails any
 check ends the attempt as failed with a named reason, and the normal retry
 rules apply. The API then marks the result accepted and indexes queryable facts
 in stamp metadata. ACs never write metadata tables directly. The result write
-grants, the result-manifest contract, and this validation are decided but not
-yet implemented; fact indexing remains future work.
+grants, the result-manifest contract, and this validation are implemented as
+development evidence against the simulated Analyst; fact indexing remains
+future work.
 
 ### Capability-Scoped Result Access
 

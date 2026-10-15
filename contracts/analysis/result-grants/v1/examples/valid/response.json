@@ -1,0 +1,15 @@
+{
+  "resultLocation": "results/run-1/job-1/attempt-1/",
+  "grants": [
+    {
+      "name": "manifest.json",
+      "method": "PUT",
+      "url": "https://store.invalid/socalytics/results/run-1/job-1/attempt-1/manifest.json?X-Amz-Signature=0000",
+      "requiredHeaders": {
+        "Content-Length": "2048",
+        "x-amz-checksum-sha256": "qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqs="
+      },
+      "expiresAt": "2026-10-13T13:20:00Z"
+    }
+  ]
+}

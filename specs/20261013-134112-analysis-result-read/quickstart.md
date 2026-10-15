@@ -6,7 +6,7 @@ readiness.
 ## Prerequisites
 
 - Analysis Result Manifests and Validated Acceptance
-  (`specs/20261013-125502-analysis-result-manifests`) and Analyst Manager Work
+  (`specs/archive/20261013-125502-analysis-result-manifests`) and Analyst Manager Work
   Execution (`specs/archive/20261012-141233-manager-work-execution`) merged.
 - The .NET SDK from `src/platform/global.json`, a running Docker-compatible
   container runtime, and SoftHSM2 on Linux (all provided by `environment-setup`).

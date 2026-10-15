@@ -550,10 +550,11 @@ SciPy, scikit-learn, SAHI, and accelerator-vendor tooling provide the paved
 model and computer-vision path. Each runtime image may pin a different Python
 minor version when native or vendor compatibility requires it.
 
-Future versioned JSON Schema documents will be canonical for Analyst job and result
-contracts. The internal Analyst SDK exposes Pydantic models and validates input
-and output at the container boundary. The platform independently validates the
-same schemas. Runtime-specific OCI images use locked dependencies and record
+Versioned JSON Schema documents are canonical for Analyst job and result
+contracts (`contracts/analysis/`); the platform and the Analyst Manager validate
+result manifests against them. The planned internal Analyst SDK exposes Pydantic
+models and validates input and output at the container boundary, and the
+platform independently validates the same schemas. Runtime-specific OCI images use locked dependencies and record
 their immutable image, model, and package provenance. Preprocessing and
 postprocessing implementation is traced through the immutable OCI image rather
 than selected as a separate job artifact.
@@ -608,6 +609,11 @@ current and non-current migration states; and
   and analysis run creation, readiness, claims, fenced completion,
   state-plus-outbox atomicity, outbox publication and retention, and recovery
   from NATS outage, restart, and duplicate notifications; and
+- integration and end-to-end tests cover per-object result write grants and
+  validated result acceptance (eleven ordered manifest checks, storage-attested
+  checksums, rejected manifests ending the attempt as failed, and immutable
+  accepted-result manifest records) with a simulated Analyst and the Analyst
+  Manager; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
   in `contracts/` and the OpenAPI document.
 
@@ -644,7 +650,8 @@ choice or reveals a material operational tradeoff:
   API surface, layer composition methods, structural tests, the persistence
   foundation (migrations, Migrator, units of work, version triggers), domain
   persistence, outbox publication to NATS JetStream, local-account BFF
-  sessions, S3-compatible upload, and Analyst Manager registration are
+  sessions, S3-compatible upload, Analyst Manager registration, and result
+  write grants with validated result acceptance against a simulated Analyst are
   implemented, and the online-only Web UI foundation exists as development
   evidence. External OpenID Connect sign-in, MFA enforcement, the Web UI's
   offline mode, cross-runtime schema agreement, reproducible Analyst
@@ -669,7 +676,9 @@ implementation-proven, evidence must demonstrate:
   compatibility tests
 - the Web UI PWA installs, updates through its service worker, and meets the
   supported-browser evidence for offline mode
-- JSON Schema validation agrees at .NET and Python boundaries
+- JSON Schema validation agrees at .NET and Python boundaries (the platform
+  and the Analyst Manager already agree on result manifests at the .NET
+  boundary)
 - locked Analyst images rebuild reproducibly and emit valid manifests
 - Avalonia and OCI-runtime spikes satisfy the platform matrix in the
   [Analyst Manager architecture](analyst-manager.md)

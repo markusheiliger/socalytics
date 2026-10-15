@@ -1,0 +1,7 @@
+{
+  "fencingToken": 7,
+  "objects": [
+    { "name": "manifest.json", "sizeBytes": 2048, "digest": "sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+    { "name": "facts.json", "sizeBytes": 10240, "digest": "sha-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+  ]
+}

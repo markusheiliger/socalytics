@@ -15,6 +15,7 @@ using SocAlytics.Analysts.Manager.Runtime.Simulated;
 using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
+using SocAlytics.Platform.Integration.Tests.Recordings;
 using SocAlytics.Platform.Migrator;
 
 namespace SocAlytics.Platform.EndToEnd.Tests.Support;
@@ -31,22 +32,26 @@ internal sealed class EndToEndHarness : IAsyncDisposable
 
     private readonly PostgresContainerFixture _postgres;
     private readonly NatsJwtContainerFixture _nats;
+    private readonly RustFsContainerFixture _store;
     private readonly SoftHsmToken _token;
     private readonly string _stateDirectory;
     private readonly List<ManagerInstance> _managers = [];
 
     private EndToEndHarness(
-        PostgresContainerFixture postgres, NatsJwtContainerFixture nats, SoftHsmToken token, string stateDirectory,
+        PostgresContainerFixture postgres, NatsJwtContainerFixture nats, RustFsContainerFixture store, SoftHsmToken token, string stateDirectory,
         IsolatedDatabase database, PlatformApiFactory platform, ApiSession admin)
     {
         _postgres = postgres;
         _nats = nats;
+        _store = store;
         _token = token;
         _stateDirectory = stateDirectory;
         Database = database;
         Platform = platform;
         Admin = admin;
     }
+
+    public RustFsContainerFixture Store => _store;
 
     public IsolatedDatabase Database { get; }
 
@@ -73,6 +78,8 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         var nats = new NatsJwtContainerFixture();
         await postgres.InitializeAsync();
         await nats.InitializeAsync();
+        var store = new RustFsContainerFixture();
+        await store.InitializeAsync();
 
         var database = await postgres.CreateDatabaseAsync(ct);
         (await MigratorHarness.RunAsync(database, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
@@ -84,6 +91,11 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             ["Analysis:Workers:Enabled"] = "true",
             ["AnalystWork:QueueUrl"] = nats.ConnectionString,
             ["Analysis:Leases:MonitorIntervalSeconds"] = "1",
+            ["ObjectStorage:ServiceUrl"] = store.ServiceUrl,
+            ["ObjectStorage:Region"] = store.Region,
+            ["ObjectStorage:AccessKey"] = store.AccessKey,
+            ["ObjectStorage:SecretKey"] = store.SecretKey,
+            ["ObjectStorage:Bucket"] = store.Bucket,
         };
         var platform = new PlatformApiFactory(
             database,
@@ -109,7 +121,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         await platform.WaitUntilHealthyAsync(ct);
         await TestMembers.SeedAsync(database, "admin-1", clubRoles: ["club-admin", "registrar"], cancellationToken: ct);
         var admin = await ApiSession.SignInAsync(platform, "admin-1", TestMembers.DefaultPassword, ct);
-        return new EndToEndHarness(postgres, nats, token, token.NewStateDirectory(), database, platform, admin);
+        return new EndToEndHarness(postgres, nats, store, token, token.NewStateDirectory(), database, platform, admin);
     }
 
     /// <summary>
@@ -117,7 +129,8 @@ internal sealed class EndToEndHarness : IAsyncDisposable
     /// Every call starts another Manager host with its own device key and state.
     /// </summary>
     public async Task<IHost> StartManagerAsync(
-        CancellationToken ct, TimeSpan? runDuration = null, SimulatedOutcome outcome = SimulatedOutcome.Succeed)
+        CancellationToken ct, TimeSpan? runDuration = null, SimulatedOutcome outcome = SimulatedOutcome.Succeed,
+        string resultMode = SimulatedResultModes.Valid)
     {
         var stateDirectory = _managers.Count == 0 ? _stateDirectory : _token.NewStateDirectory();
         var connection = new ConnectionSwitch();
@@ -133,6 +146,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             configuration[$"Runtime:Simulated:Capabilities:{capability}:Version"] = "1.0.0";
             configuration[$"Runtime:Simulated:Capabilities:{capability}:RunDuration"] = (runDuration ?? RunDuration).ToString();
             configuration[$"Runtime:Simulated:Capabilities:{capability}:Outcome"] = outcome.ToString();
+            configuration[$"Runtime:Simulated:Capabilities:{capability}:ResultMode"] = resultMode;
         }
 
         builder.Configuration.AddInMemoryCollection(configuration);
@@ -228,6 +242,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         await Platform.DisposeAsync();
         await Database.DisposeAsync();
         await _nats.DisposeAsync();
+        await _store.DisposeAsync();
         await _postgres.DisposeAsync();
         _token.Dispose();
         foreach (var directory in _managers.Select(m => m.StateDirectory).Append(_stateDirectory).Distinct())
