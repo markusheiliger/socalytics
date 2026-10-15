@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Api.Bootstrap;
 using SocAlytics.Platform.Api.Endpoints.Club;
 using SocAlytics.Platform.Api.Endpoints.IdentityAccess;
@@ -11,6 +12,7 @@ using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.IdentityAccess;
+using SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn;
 using SocAlytics.Platform.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -27,6 +29,8 @@ builder.Services.AddOptions<IdentityAccessOptions>()
 	.Bind(builder.Configuration.GetSection(IdentityAccessOptions.SectionName))
 	.ValidateDataAnnotations()
 	.ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<IdentityAccessOptions>>(new ExternalProviderOptionsValidator(
+	allowInsecureUrls: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Test")));
 builder.Services.Configure<ClubBootstrapOptions>(builder.Configuration.GetSection(ClubBootstrapOptions.SectionName));
 builder.Services.Configure<BreakGlassRecoveryOptions>(builder.Configuration.GetSection(BreakGlassRecoveryOptions.SectionName));
 builder.Services.AddSingleton<ClubBootstrapState>();
