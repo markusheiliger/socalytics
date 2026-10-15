@@ -12,17 +12,22 @@ import { PlatformFailure, toPlatformFailure } from '../failure';
 import type { EmailAddress, NotificationPreference } from '../models/email';
 import { errorMappings, withIfMatch, withJson, type PlatformApi } from './kiota';
 
-export interface EmailAdapter {
-  /** `null` when the member has no address. */
+/** The address operations of one member; `null` from `get` when the member has no address. */
+export interface MemberEmailOperations {
   get(): Promise<EmailAddress | null>;
   set(address: string, version?: number): Promise<EmailAddress>;
   remove(version: number): Promise<void>;
+}
+
+export interface EmailAdapter extends MemberEmailOperations {
   resend(): Promise<void>;
   /** Anonymous; the token is sent only here, never stored. */
   confirm(token: string): Promise<void>;
   /** The notification types that apply to the member's roles. */
   preferences(): Promise<NotificationPreference[]>;
   setPreference(type: string, enabled: boolean): Promise<NotificationPreference>;
+  /** A Club Admin's operations on another member's address. */
+  forMember(memberId: string): MemberEmailOperations;
 }
 
 export function toNotificationPreference(dto: NotificationPreferenceDto | undefined | null): NotificationPreference {
@@ -61,8 +66,13 @@ export function toEmailAddress(dto: EmailAddressDto | undefined | null): EmailAd
   return { address: dto.address, state: dto.state, verifiedAt: dto.verifiedAt ?? undefined, version: dto.version };
 }
 
+interface AddressRequests {
+  toGetRequestInformation(): RequestInformation;
+  toPutRequestInformation(): RequestInformation;
+  toDeleteRequestInformation(): RequestInformation;
+}
+
 export function createEmailAdapter(api: PlatformApi): EmailAdapter {
-  const email = api.client.api.v1.me.email;
   const failed = (error: unknown): PlatformFailure => {
     const failure = toPlatformFailure(error);
     return failure.status === 429 ? new RateLimitedFailure(retryAfterOf(error), failure) : failure;
@@ -88,7 +98,7 @@ export function createEmailAdapter(api: PlatformApi): EmailAdapter {
       throw failed(error);
     }
   };
-  return {
+  const operations = (email: AddressRequests): MemberEmailOperations => ({
     get: async () => {
       try {
         return toEmailAddress(await send(email.toGetRequestInformation(), createEmailAddressDtoFromDiscriminatorValue));
@@ -104,7 +114,12 @@ export function createEmailAdapter(api: PlatformApi): EmailAdapter {
       );
     },
     remove: (version) => sendNoContent(withIfMatch(email.toDeleteRequestInformation(), version)),
-    resend: () => sendNoContent(email.confirmationRequests.toPostRequestInformation()),
+  });
+  const own = api.client.api.v1.me.email;
+  return {
+    ...operations(own),
+    forMember: (memberId) => operations(api.client.api.v1.members.byMemberId(memberId).email),
+    resend: () => sendNoContent(own.confirmationRequests.toPostRequestInformation()),
     confirm: (token) => sendNoContent(withJson(api.client.api.v1.emailConfirmations.toPostRequestInformation(), { token })),
     preferences: async () => {
       const list = await send<NotificationPreferenceListDto>(
