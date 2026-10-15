@@ -63,7 +63,7 @@ description: "Task list for Installable Web UI with Service Worker Updates"
 
 **Independent Test**: Install, go offline, open: shell with connection required on every route; reconnect: normal operation under the session rules.
 
-- [ ] T006 [US3] Offline shell (research.md § R7; FR-013, FR-014): make every route render the existing connection-required state when `ConnectivityProvider` reports offline at start, adjusting `src/clients/web/src/shell/AppLayout.tsx` or `src/clients/web/src/connectivity/ConnectivityProvider.tsx` only where the current start-up path assumes a network (for example a session check that renders an error instead of the offline state). Tests: `src/clients/web/tests/e2e/simulated/pwa-offline.spec.ts` (offline start after a previous session shows the shell and connection required, no member, team, match, or recording data on any route, nothing queued; on reconnect the session rules apply: still signed in with a valid session, otherwise sign-in).
+- [x] T006 [US3] Offline shell (research.md § R7; FR-013, FR-014): make every route render the existing connection-required state when `ConnectivityProvider` reports offline at start, adjusting `src/clients/web/src/shell/AppLayout.tsx` or `src/clients/web/src/connectivity/ConnectivityProvider.tsx` only where the current start-up path assumes a network (for example a session check that renders an error instead of the offline state). Tests: `src/clients/web/tests/e2e/simulated/pwa-offline.spec.ts` (offline start after a previous session shows the shell and connection required, no member, team, match, or recording data on any route, nothing queued; on reconnect the session rules apply: still signed in with a valid session, otherwise sign-in).
 
 **Checkpoint**: All user stories work.
 

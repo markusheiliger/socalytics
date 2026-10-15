@@ -16,7 +16,7 @@ export interface ShellCaches {
   open(name: string): Promise<{ addAll(requests: Request[]): Promise<void> }>;
   keys(): Promise<string[]>;
   delete(name: string): Promise<boolean>;
-  match(request: string | Request, options?: { cacheName?: string }): Promise<Response | undefined>;
+  match(request: string | Request, options?: { cacheName?: string; ignoreVary?: boolean }): Promise<Response | undefined>;
 }
 
 export type ShellFetch = (input: string | Request, init?: RequestInit) => Promise<Response>;
@@ -91,6 +91,6 @@ export function classifyRequest(request: { method: string; mode: string; url: st
 // Navigations get the cached `/index.html`; listed shell URLs come from the cache; everything else goes to the network.
 export async function respondFromShell(request: Request, kind: RequestKind, version: string, caches: ShellCaches, fetcher: ShellFetch): Promise<Response> {
   const cacheName = shellCacheName(version);
-  const cached = await caches.match(kind === 'navigation' ? '/index.html' : request, { cacheName });
+  const cached = await caches.match(kind === 'navigation' ? '/index.html' : request, { cacheName, ignoreVary: true });
   return cached ?? fetcher(request);
 }

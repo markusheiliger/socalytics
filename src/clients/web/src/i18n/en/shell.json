@@ -25,6 +25,7 @@
     "reload": "Reload"
   },
   "connectivity": {
+    "connectionRequired": "A connection is required. SocAlytics shows no data and queues no actions while the platform is not reachable.",
     "unreachable": "The platform is not reachable. Actions that change data are disabled until it is reachable again."
   },
   "uploads": {

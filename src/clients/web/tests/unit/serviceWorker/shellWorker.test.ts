@@ -83,7 +83,7 @@ describe('fetch routing', () => {
     match.mockResolvedValueOnce(new Response('shell'));
     const fetcher = vi.fn(async () => new Response('network'));
     expect(await (await respondFromShell(request, 'navigation', version, caches, fetcher)).text()).toBe('shell');
-    expect(match).toHaveBeenCalledWith('/index.html', { cacheName: shellCacheName(version) });
+    expect(match).toHaveBeenCalledWith('/index.html', { cacheName: shellCacheName(version), ignoreVary: true });
     expect(fetcher).not.toHaveBeenCalled();
 
     expect(await (await respondFromShell(request, 'navigation', version, caches, fetcher)).text()).toBe('network');
@@ -95,6 +95,6 @@ describe('fetch routing', () => {
     vi.mocked(caches.match).mockResolvedValueOnce(new Response('cached'));
     const fetcher = vi.fn(async () => new Response('network'));
     expect(await (await respondFromShell(request, 'asset', version, caches, fetcher)).text()).toBe('cached');
-    expect(vi.mocked(caches.match)).toHaveBeenCalledWith(request, { cacheName: shellCacheName(version) });
+    expect(vi.mocked(caches.match)).toHaveBeenCalledWith(request, { cacheName: shellCacheName(version), ignoreVary: true });
   });
 });
