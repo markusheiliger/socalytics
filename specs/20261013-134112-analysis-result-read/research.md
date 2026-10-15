@@ -1,7 +1,7 @@
 # Research: Analysis Result Read for Jobs
 
 Builds on Analysis Result Manifests and Validated Acceptance
-(`specs/20261013-125502-analysis-result-manifests`: result locations,
+(`specs/archive/20261013-125502-analysis-result-manifests`: result locations,
 `analysis_result_object_declarations`, `analysis_accepted_result_manifests`,
 `IObjectStorage` single-object operations, `ResultPublisher`, simulated result
 modes), Analyst Manager Work Execution

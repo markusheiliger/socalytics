@@ -10,7 +10,7 @@ public class AnalysisExampleTests
 {
     private static readonly string AnalysisRoot = Path.Combine(AppContext.BaseDirectory, "contracts", "analysis");
 
-    private static readonly string[] SchemaDirectories = ["analyst-job", "attempt-completion", "run-state-changed"];
+    private static readonly string[] SchemaDirectories = ["analyst-job", "attempt-completion", "run-state-changed", "result-manifest", "result-grants"];
 
     private sealed record Outcome(string File, bool Valid, string[] Keywords);
 

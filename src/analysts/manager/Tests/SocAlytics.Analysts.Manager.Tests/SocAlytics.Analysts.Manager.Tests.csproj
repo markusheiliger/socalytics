@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <Content Include="../../../../../contracts/analyst-manager/**/*" LinkBase="contracts/analyst-manager" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../../../contracts/analysis/result-manifest/**/*" LinkBase="contracts/analysis/result-manifest" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

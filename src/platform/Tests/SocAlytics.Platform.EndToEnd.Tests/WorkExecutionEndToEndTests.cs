@@ -63,6 +63,24 @@ public sealed class WorkExecutionEndToEndTests
         reader.GetString(3).ShouldBe("Accepted");
         reader.GetString(4).ShouldBe("Completed");
         (await reader.ReadAsync(ct)).ShouldBeFalse("Exactly one accepted result is expected.");
+        await reader.DisposeAsync();
+
+        // The accepted result carries the validated manifest record.
+        await using var manifests = new NpgsqlCommand(
+            "SELECT count(*) FROM socalytics.analysis_accepted_result_manifests m JOIN socalytics.analysis_accepted_results r ON r.id = m.accepted_result_id WHERE r.run_id = @runId", sql);
+        manifests.Parameters.AddWithValue("runId", runId);
+        ((long)(await manifests.ExecuteScalarAsync(ct))!).ShouldBe(1);
+
+        // SC-003: the manifest and artifact were stored by the Manager under the result location, never through the platform.
+        await using var reference = new NpgsqlCommand("SELECT manifest_reference FROM socalytics.analysis_accepted_results WHERE run_id = @runId", sql);
+        reference.Parameters.AddWithValue("runId", runId);
+        var manifestReference = (string)(await reference.ExecuteScalarAsync(ct))!;
+        var location = manifestReference[..(manifestReference.LastIndexOf('/') + 1)];
+        using var s3 = harness.Store.CreateS3Client();
+        var listed = await s3.ListObjectsV2Async(
+            new Amazon.S3.Model.ListObjectsV2Request { BucketName = harness.Store.Bucket, Prefix = location }, ct);
+        listed.S3Objects.Select(o => o.Key).ShouldContain(manifestReference);
+        listed.S3Objects.Count.ShouldBeGreaterThan(1, "The manifest and its artifact are expected.");
     }
 
     internal static async Task<string> DiagnosticsAsync(EndToEndHarness harness, Guid runId, CancellationToken ct)
@@ -122,7 +140,7 @@ public sealed class WorkExecutionEndToEndTests
         var sp = scope.ServiceProvider;
         await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
         var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
-            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "wf", "1.0.0", [EndToEndHarness.MatchCapability], "all-requested-capabilities",
+            Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "development-default", "1", [EndToEndHarness.MatchCapability], "all-requested-capabilities",
             AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord("{}", Digest), [node], []), ct);
         await sp.GetRequiredService<ILogicalJobStore>().InsertAsync(
         [

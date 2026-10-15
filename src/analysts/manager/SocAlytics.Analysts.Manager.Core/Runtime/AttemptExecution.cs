@@ -12,7 +12,10 @@ public sealed record AttemptLaunch(
     string AnalystProfileDigest,
     string ImageDigest,
     string ModelDigest,
-    AttemptResources Resources);
+    AttemptResources Resources,
+    Work.AnalystJobMessage? Job = null,
+    int AttemptNumber = 0,
+    string? ResultDirectory = null);
 
 public sealed record AttemptOutcome
 {

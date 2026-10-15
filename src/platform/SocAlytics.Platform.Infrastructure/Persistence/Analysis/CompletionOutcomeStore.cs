@@ -7,7 +7,7 @@ internal sealed class CompletionOutcomeStore(IDbSession session) : ICompletionOu
 {
     private sealed record Row(
         Guid LogicalJobId, string IdempotencyKey, Guid AttemptId, string RequestFingerprint, string Outcome,
-        Guid? AcceptedResultId, DateTime RecordedAt);
+        Guid? AcceptedResultId, DateTime RecordedAt, string? Reason);
 
     public async Task InsertAsync(CompletionOutcomeRecord outcome, CancellationToken cancellationToken)
     {
@@ -16,8 +16,8 @@ internal sealed class CompletionOutcomeStore(IDbSession session) : ICompletionOu
         await connection.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO socalytics.analysis_completion_outcomes
-                (logical_job_id, idempotency_key, attempt_id, request_fingerprint, outcome, accepted_result_id, recorded_at)
-            VALUES (@job, @key, @attempt, @fingerprint, @outcome, @result, @recordedAt)
+                (logical_job_id, idempotency_key, attempt_id, request_fingerprint, outcome, accepted_result_id, recorded_at, reason)
+            VALUES (@job, @key, @attempt, @fingerprint, @outcome, @result, @recordedAt, @reason)
             """,
             new
             {
@@ -28,6 +28,7 @@ internal sealed class CompletionOutcomeStore(IDbSession session) : ICompletionOu
                 outcome = outcome.Outcome,
                 result = outcome.AcceptedResultId,
                 recordedAt = outcome.RecordedAt,
+                reason = outcome.Reason,
             },
             transaction,
             cancellationToken: cancellationToken));
@@ -40,7 +41,7 @@ internal sealed class CompletionOutcomeStore(IDbSession session) : ICompletionOu
             """
             SELECT logical_job_id AS LogicalJobId, idempotency_key AS IdempotencyKey, attempt_id AS AttemptId,
                    request_fingerprint AS RequestFingerprint, outcome AS Outcome,
-                   accepted_result_id AS AcceptedResultId, recorded_at AS RecordedAt
+                   accepted_result_id AS AcceptedResultId, recorded_at AS RecordedAt, reason AS Reason
             FROM socalytics.analysis_completion_outcomes
             WHERE logical_job_id = @logicalJobId AND idempotency_key = @idempotencyKey
             """,
@@ -49,6 +50,6 @@ internal sealed class CompletionOutcomeStore(IDbSession session) : ICompletionOu
             ? null
             : new CompletionOutcomeRecord(
                 r.LogicalJobId, r.IdempotencyKey, r.AttemptId, r.RequestFingerprint, r.Outcome, r.AcceptedResultId,
-                new DateTimeOffset(DateTime.SpecifyKind(r.RecordedAt, DateTimeKind.Utc)));
+                new DateTimeOffset(DateTime.SpecifyKind(r.RecordedAt, DateTimeKind.Utc)), r.Reason);
     }
 }
