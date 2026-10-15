@@ -17,6 +17,9 @@ internal sealed class ImageRegistryOptions
 
     /// <summary>Talks plain HTTP to the registry; accepted only in Development and Test.</summary>
     public bool UseHttp { get; set; }
+
+    /// <summary>Upper bound for the lifetime of a pull credential handed to an Analyst Manager.</summary>
+    public TimeSpan PullCredentialLifetime { get; set; } = TimeSpan.FromMinutes(5);
 }
 
 internal sealed class ImageRegistryOptionsValidator(IHostEnvironment environment) : IValidateOptions<ImageRegistryOptions>
@@ -32,6 +35,11 @@ internal sealed class ImageRegistryOptionsValidator(IHostEnvironment environment
         if (string.IsNullOrWhiteSpace(options.Username) != string.IsNullOrWhiteSpace(options.Token))
         {
             failures.Add("Registry:Images:Username and Registry:Images:Token must be configured together.");
+        }
+
+        if (options.PullCredentialLifetime <= TimeSpan.Zero)
+        {
+            failures.Add("Registry:Images:PullCredentialLifetime must be positive.");
         }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);

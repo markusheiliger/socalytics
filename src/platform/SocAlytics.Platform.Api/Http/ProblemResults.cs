@@ -17,6 +17,7 @@ internal static class ProblemResults
 			OperationFailureKind.VersionMismatch => StatusCodes.Status412PreconditionFailed,
 			OperationFailureKind.Unauthenticated => StatusCodes.Status401Unauthorized,
 			OperationFailureKind.PasswordChangeRequired => StatusCodes.Status403Forbidden,
+			OperationFailureKind.Unavailable => StatusCodes.Status503ServiceUnavailable,
 			_ => throw new ArgumentOutOfRangeException(nameof(failure)),
 		};
 		return Problem(status, failure.Code, failure.FieldViolations);

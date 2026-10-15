@@ -3435,6 +3435,25 @@
         ]
       }
     },
+    "/api/v1/analyst-managers/self/registry-credentials": {
+      "post": {
+        "operationId": "issueAnalystManagerRegistryCredentials",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Analyst Manager self"
+        ]
+      }
+    },
     "/api/v1/analyst-managers/self/status": {
       "post": {
         "operationId": "reportAnalystManagerStatus",
@@ -3487,6 +3506,19 @@
             "sessionCookie": []
           }
         ],
+        "tags": [
+          "Analyst Manager self"
+        ]
+      }
+    },
+    "/api/v1/analyst-managers/self/workflow-capabilities": {
+      "get": {
+        "operationId": "getAnalystManagerWorkflowCapabilities",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
         "tags": [
           "Analyst Manager self"
         ]

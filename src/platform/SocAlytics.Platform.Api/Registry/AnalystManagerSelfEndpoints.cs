@@ -3,6 +3,8 @@ using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application.Registry.MachineAccess;
 using SocAlytics.Platform.Application.Registry.QueueCredentials;
+using SocAlytics.Platform.Application.Registry.RegistryCredentials;
+using SocAlytics.Platform.Application.Registry.WorkflowCapabilities;
 
 namespace SocAlytics.Platform.Api.Registry;
 
@@ -38,7 +40,44 @@ internal static class AnalystManagerSelfEndpoints
 			.AddEndpointFilter<JsonOnlyFilter>()
 			.WithTags("Analyst Manager self")
 			.WithName("issueAnalystManagerQueueCredentials");
+		routes.MapPost("/api/v1/analyst-managers/self/registry-credentials", IssueRegistryCredentialsAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AnalystManager)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithTags("Analyst Manager self")
+			.WithName("issueAnalystManagerRegistryCredentials");
+		routes.MapGet("/api/v1/analyst-managers/self/workflow-capabilities", GetWorkflowCapabilitiesAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AnalystManager)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.WithTags("Analyst Manager self")
+			.WithName("getAnalystManagerWorkflowCapabilities");
 		return routes;
+	}
+
+	private static async Task<IResult> IssueRegistryCredentialsAsync(HttpContext http, IssueRegistryCredentialsHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		if (!Guid.TryParse(http.User.FindFirst(AnalystManagerClaimTypes.RegistrationId)?.Value, out var registrationId))
+		{
+			return ProblemResults.From(Application.Abstractions.OperationFailure.Unauthenticated());
+		}
+
+		var result = await handler.HandleAsync(registrationId, cancellationToken);
+		return result.IsSuccess
+			? Results.Json(result.Value, statusCode: StatusCodes.Status201Created)
+			: ProblemResults.From(result.Failure);
+	}
+
+	private static async Task<IResult> GetWorkflowCapabilitiesAsync(HttpContext http, GetWorkflowCapabilitiesHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		if (!Guid.TryParse(http.User.FindFirst(AnalystManagerClaimTypes.RegistrationId)?.Value, out var registrationId))
+		{
+			return ProblemResults.From(Application.Abstractions.OperationFailure.Unauthenticated());
+		}
+
+		var result = await handler.HandleAsync(registrationId, cancellationToken);
+		return result.IsSuccess ? Results.Ok(result.Value) : ProblemResults.From(result.Failure);
 	}
 
 	private sealed record StatusReportBody(
