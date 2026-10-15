@@ -34,7 +34,7 @@ public sealed class RegistrationCoordinator(
     TimeProvider time,
     ILogger<RegistrationCoordinator> logger)
 {
-    private const string ManagerVersion = "0.1.0";
+    public const string ManagerVersion = "0.1.0";
     private ManagerTokenCache tokens => services.GetRequiredService<ManagerTokenCache>();
     private readonly object _gate = new();
     private ManagerRegistrationState _state = ManagerRegistrationState.Unregistered;

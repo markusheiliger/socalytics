@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -106,6 +107,11 @@ public static class ManagerServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Runtime.PreflightScheduler>());
         services.AddSingleton<Operating.TimedPauseScheduler>();
         services.AddHostedService(sp => sp.GetRequiredService<Operating.TimedPauseScheduler>());
+        services.TryAdd(ServiceDescriptor.Singleton(typeof(ApplicationProfile), ApplicationProfile.Tray));
+        services.AddSingleton(_ => new LingeringCheck());
+        services.AddHostedService(sp => new LingeringWarningService(
+            sp.GetRequiredService<ApplicationProfile>(), sp.GetRequiredService<LingeringCheck>(),
+            sp.GetRequiredService<ILogger<LingeringWarningService>>(), Console.Error));
         services.AddSingleton<ManagerControl>();
         services.AddSingleton<IManagerControl>(sp => sp.GetRequiredService<ManagerControl>());
         return services;

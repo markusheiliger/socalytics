@@ -74,7 +74,11 @@ internal sealed class FakeManagerControl : IManagerControl
     public ManagerStatusSnapshot GetStatus() => new(
         State, null, null, "stamp-1", "https://platform.example", null, new ConnectivityStatus("unknown"), OperatingState, Intent,
         false, null, 0, PreflightValue, [], null, PauseRemaining, "tpm", Autostart, "none", Fingerprint,
-        Concurrency, ActiveAttempts);
+        Concurrency, ActiveAttempts, ApplicationProfile, Lingering);
+
+    public string ApplicationProfile { get; set; } = "tray";
+
+    public string? Lingering { get; set; }
 
     public List<ActiveAttemptStatus> ActiveAttempts { get; } = [];
 

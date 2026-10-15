@@ -581,6 +581,24 @@
         "concurrency": {
           "$ref": "#/$defs/concurrencyBounds"
         },
+        "applicationProfile": {
+          "enum": [
+            "tray",
+            "headless-server"
+          ],
+          "description": "The executable the Manager runs as; fixed at start, not configuration."
+        },
+        "lingering": {
+          "enum": [
+            "on",
+            "off",
+            "unknown"
+          ],
+          "description": "Headless server profile only: whether systemd lingering is enabled for the account."
+        },
+        "managerVersion": {
+          "type": "string"
+        },
         "activeAttempts": {
           "type": "array",
           "description": "The attempts that were claimed and have not finished; never carries fencing tokens, credentials, or result checksums.",

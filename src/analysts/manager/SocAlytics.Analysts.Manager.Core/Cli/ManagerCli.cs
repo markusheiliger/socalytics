@@ -210,13 +210,25 @@ public static class ManagerCli
     {
         var lines = new List<string>
         {
+            $"Version: {(string?)n["managerVersion"] ?? "-"}",
+            $"Profile: {(string?)n["applicationProfile"] ?? "-"}",
             $"Registration: {(string?)n["registrationState"]}",
+            $"Connectivity: {(string?)n["connectivity"]?["state"] ?? "unknown"}",
             $"Operating: {(string?)n["operatingState"] ?? "none"}",
             $"Club: {(string?)n["clubName"] ?? "-"}",
             $"Stamp: {(string?)n["stampId"] ?? "-"}",
             $"Fingerprint: {(string?)n["deviceFingerprint"] ?? "-"}",
             $"Uptime: {(double?)n["uptimeSeconds"] ?? 0:F0}s",
         };
+        if (n["lingering"] is { } lingering)
+        {
+            lines.Insert(2, $"Lingering: {(string?)lingering}");
+            if ((string?)lingering == "off")
+            {
+                lines.Insert(3, "Run 'sudo loginctl enable-linger <user>' so the Manager keeps running without a session.");
+            }
+        }
+
         if (n["pauseRemainingSeconds"] is { } rem)
         {
             lines.Add($"Pause remaining: {(double)rem:F0}s");
