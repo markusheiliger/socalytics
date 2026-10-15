@@ -165,6 +165,20 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
         return await ExecuteAsync<ResultGrantsResponse>(request, cancellationToken);
     }
 
+    public async Task<WorkResult<UpstreamResultsPage>> ReadUpstreamResultsAsync(
+        PlatformSession session, Guid attemptId, long fencingToken, string capabilityId, string capabilityVersion,
+        string schemaVersion, string? continuationToken, CancellationToken cancellationToken = default)
+    {
+        var uri = AnalysisEndpoint(session.BaseUri, $"attempts/{attemptId}/upstream-results");
+        var query = $"?fencingToken={fencingToken}&capabilityId={Uri.EscapeDataString(capabilityId)}"
+            + $"&capabilityVersion={Uri.EscapeDataString(capabilityVersion)}&schemaVersion={Uri.EscapeDataString(schemaVersion)}"
+            + (continuationToken is null ? string.Empty : $"&continuationToken={Uri.EscapeDataString(continuationToken)}");
+        // The proof binds the path without the query string.
+        var request = Authenticated(HttpMethod.Get, uri, session);
+        request.RequestUri = new Uri(uri.AbsoluteUri + query);
+        return await ExecuteAsync<UpstreamResultsPage>(request, cancellationToken);
+    }
+
     public Task<PlatformResponse> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
     {
         if (request.RequestUri?.Scheme != Uri.UriSchemeHttps)

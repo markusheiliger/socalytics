@@ -39,7 +39,8 @@ public sealed class AttemptRunner(
     TimeProvider time,
     ILogger<AttemptRunner>? logger = null,
     ExecutedRuntime? executedRuntime = null,
-    ResultPublisher? publisher = null)
+    ResultPublisher? publisher = null,
+    UpstreamStager? stager = null)
 {
     public static readonly TimeSpan ClaimRetryWindow = TimeSpan.FromSeconds(20);
 
@@ -193,7 +194,26 @@ public sealed class AttemptRunner(
             CompletionFailure? failure = null;
             try
             {
-                execution = await runtime.StartAttemptAsync(Launch(attempt), cancellationToken);
+                string? inputsDirectory = null;
+                if (stager is not null && UpstreamStager.HasUpstream(attempt.Job))
+                {
+                    var attemptDirectory = UpstreamStager.DirectoryFor(attempt.AttemptId);
+                    var staged = await stager.StageAsync(attempt, attemptDirectory, sessions, cancellationToken);
+                    if (staged.End == StagingEnd.Obsolete)
+                    {
+                        heartbeatCts.Cancel();
+                        return AttemptRunEnd.Abandoned;
+                    }
+
+                    if (staged.End == StagingEnd.Failed)
+                    {
+                        throw new StagingFailedException(staged.FailureCategory!);
+                    }
+
+                    inputsDirectory = Path.Combine(attemptDirectory, UpstreamStager.InputsFolder);
+                }
+
+                execution = await runtime.StartAttemptAsync(Launch(attempt, inputsDirectory), cancellationToken);
                 attempt.ExecutionState = AttemptExecutionStates.Running;
 
                 using var timeoutCts = new CancellationTokenSource();
@@ -260,6 +280,10 @@ public sealed class AttemptRunner(
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 failure = new CompletionFailure("cancelled-by-manager");
+            }
+            catch (StagingFailedException e)
+            {
+                failure = new CompletionFailure(e.Category);
             }
             catch (Exception e) when (e is not OperationCanceledException)
             {
@@ -443,7 +467,12 @@ public sealed class AttemptRunner(
         }
     }
 
-    private AttemptLaunch Launch(ActiveAttempt attempt)
+    private sealed class StagingFailedException(string category) : Exception(category)
+    {
+        public string Category { get; } = category;
+    }
+
+    private AttemptLaunch Launch(ActiveAttempt attempt, string? inputsDirectory)
     {
         var job = attempt.Job;
         var resultDirectory = publisher is null ? null : ResultPublisher.DirectoryFor(attempt.AttemptId);
@@ -451,7 +480,7 @@ public sealed class AttemptRunner(
             attempt.AttemptId.ToString(), job.LogicalJobId, job.Capability.Id, $"{job.Capability.Id}:{job.Capability.Version}",
             job.ExecutionScope, job.Pinned.AnalystProfileDigest, job.Pinned.ImageDigest, job.Pinned.ModelDigest ?? string.Empty,
             new AttemptResources(job.Resources.CpuMillicores / 1000.0, job.Resources.MemoryMebibytes * 1024 * 1024, []),
-            job, attempt.AttemptNumber, resultDirectory);
+            job, attempt.AttemptNumber, resultDirectory, inputsDirectory);
     }
 
     private static ExecutedRuntime Describe(string profile) => new(
