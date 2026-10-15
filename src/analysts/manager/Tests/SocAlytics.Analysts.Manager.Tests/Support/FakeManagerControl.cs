@@ -74,7 +74,10 @@ internal sealed class FakeManagerControl : IManagerControl
     public ManagerStatusSnapshot GetStatus() => new(
         State, null, null, "stamp-1", "https://platform.example", null, new ConnectivityStatus("unknown"), OperatingState, Intent,
         false, null, 0, PreflightValue, [], null, PauseRemaining, "tpm", Autostart, "none", Fingerprint,
-        Concurrency, ActiveAttempts);
+        Concurrency, ActiveAttempts, QueueDepth);
+
+    public QueueDepthView QueueDepth { get; set; } = new(
+        new SocAlytics.Analysts.Manager.Queue.QueueDepthSnapshot(SocAlytics.Analysts.Manager.Queue.QueueDepthStatus.NotYetAvailable, null, null, [], 0, null), null);
 
     public List<ActiveAttemptStatus> ActiveAttempts { get; } = [];
 

@@ -233,7 +233,37 @@ internal static class ManagerCli
             $"  {(string?)a?["logicalJobId"]} #{(int?)a?["attemptNumber"]} {(string?)a?["capability"]} {(string?)a?["executionState"]} " +
             $"started {(string?)a?["startedAt"]}, last heartbeat {(string?)a?["lastConfirmedHeartbeatAt"] ?? "-"}"));
 
+        lines.AddRange(QueueText(n["queueDepth"]));
+
         return string.Join(Environment.NewLine, lines);
+    }
+
+    private static IEnumerable<string> QueueText(JsonNode? q)
+    {
+        switch ((string?)q?["state"])
+        {
+            case "available" or "stale":
+                var age = Diagnostics.QueueDepthView.FormatAge((double?)q?["ageSeconds"] ?? 0);
+                yield return (string?)q?["state"] == "stale"
+                    ? $"Queue (approximate guidance, observed {age} ago, stale):"
+                    : $"Queue (approximate guidance, observed {age} ago):";
+                foreach (var c in q?["capabilities"] as JsonArray ?? [])
+                {
+                    yield return $"  {(string?)c?["id"]}: {(int?)c?["waiting"]}";
+                }
+
+                yield return $"  Total: {(int?)q?["total"]}";
+                break;
+            case "no-capability":
+                yield return "Queue: no capability assigned";
+                break;
+            case "unavailable":
+                yield return $"Queue: unavailable ({(string?)q?["reason"] ?? "unknown"})";
+                break;
+            case "not-yet-available":
+                yield return "Queue: no information yet";
+                break;
+        }
     }
 
     private const int ParentProcess = -1;

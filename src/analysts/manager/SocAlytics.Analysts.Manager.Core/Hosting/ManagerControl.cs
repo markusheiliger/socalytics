@@ -15,14 +15,17 @@ public sealed class ManagerControl : IManagerControl
     private readonly Runtime.PreflightScheduler _preflight;
     private readonly Work.ConcurrencyLimit _concurrency;
     private readonly Work.AttemptRegistry _attempts;
+    private readonly Queue.QueueDepthState _queueDepth;
     private readonly DrainCoordinator _drain;
     private readonly Autostart.IAutostartRegistrar _autostart;
     private readonly Microsoft.Extensions.Options.IOptions<OperatingOptions> _operating;
 
     public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work, Runtime.PreflightScheduler preflight,
         DrainCoordinator drain, Microsoft.Extensions.Options.IOptions<OperatingOptions> operating,
-        Autostart.IAutostartRegistrar autostart, Work.ConcurrencyLimit concurrency, Work.AttemptRegistry attempts)
+        Autostart.IAutostartRegistrar autostart, Work.ConcurrencyLimit concurrency, Work.AttemptRegistry attempts,
+        Queue.QueueDepthState queueDepth)
     {
+        _queueDepth = queueDepth;
         _attempts = attempts;
         _concurrency = concurrency;
         _autostart = autostart;
@@ -75,7 +78,16 @@ public sealed class ManagerControl : IManagerControl
             _coordinator.Fingerprint,
             _concurrency.Snapshot(),
             [.. _attempts.Attempts.Select(a => new ActiveAttemptStatus(
-                a.LogicalJobId, a.AttemptNumber, a.Capability, a.ExecutionState, a.StartedAt, a.LastConfirmedHeartbeat))]);
+                a.LogicalJobId, a.AttemptNumber, a.Capability, a.ExecutionState, a.StartedAt, a.LastConfirmedHeartbeat))],
+            QueueDepthView());
+    }
+
+    private QueueDepthView QueueDepthView()
+    {
+        var snapshot = _queueDepth.Snapshot();
+        return new QueueDepthView(
+            snapshot,
+            snapshot.ReceivedAt is { } received ? Math.Max(0, (_time.GetUtcNow() - received).TotalSeconds) : null);
     }
 
     public Work.ConcurrencySnapshot GetConcurrency() => _concurrency.Snapshot();

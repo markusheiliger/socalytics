@@ -10,6 +10,7 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
         nameof(RegistrationState), nameof(Stamp), nameof(Club), nameof(PlatformEndpoint), nameof(Connectivity), nameof(OperatingState),
         nameof(Uptime), nameof(Preflight), nameof(PauseRemaining), nameof(DrainDeadline), nameof(DeviceFingerprint),
         nameof(KeyProtection), nameof(Diagnostics), nameof(EffectiveConcurrency), nameof(ActiveAttempts),
+        nameof(WaitingWork),
     ];
 
     private readonly IManagerControl _control;
@@ -91,6 +92,9 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
     public IReadOnlyList<ActiveAttemptRow> ActiveAttempts => [.. _control.GetStatus().ActiveAttempts.Select(a => new ActiveAttemptRow(
         a.LogicalJobId.ToString(), a.AttemptNumber, a.Capability, a.ExecutionState, a.StartedAt.ToString("u"),
         a.LastConfirmedHeartbeatAt?.ToString("u") ?? "—"))];
+
+    /// <summary>The "Waiting work (approximate)" section, with the same wording as the CLI.</summary>
+    public string WaitingWork => string.Join(Environment.NewLine, _control.GetStatus().QueueDepth.Lines());
 
     public void Dispose()
     {
