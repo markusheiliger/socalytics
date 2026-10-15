@@ -129,7 +129,8 @@ internal sealed class EndToEndHarness : IAsyncDisposable
     /// Every call starts another Manager host with its own device key and state.
     /// </summary>
     public async Task<IHost> StartManagerAsync(
-        CancellationToken ct, TimeSpan? runDuration = null, SimulatedOutcome outcome = SimulatedOutcome.Succeed)
+        CancellationToken ct, TimeSpan? runDuration = null, SimulatedOutcome outcome = SimulatedOutcome.Succeed,
+        string resultMode = SimulatedResultModes.Valid)
     {
         var stateDirectory = _managers.Count == 0 ? _stateDirectory : _token.NewStateDirectory();
         var connection = new ConnectionSwitch();
@@ -145,6 +146,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             configuration[$"Runtime:Simulated:Capabilities:{capability}:Version"] = "1.0.0";
             configuration[$"Runtime:Simulated:Capabilities:{capability}:RunDuration"] = (runDuration ?? RunDuration).ToString();
             configuration[$"Runtime:Simulated:Capabilities:{capability}:Outcome"] = outcome.ToString();
+            configuration[$"Runtime:Simulated:Capabilities:{capability}:ResultMode"] = resultMode;
         }
 
         builder.Configuration.AddInMemoryCollection(configuration);

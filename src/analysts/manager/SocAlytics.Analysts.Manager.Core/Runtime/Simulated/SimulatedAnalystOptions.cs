@@ -8,6 +8,21 @@ public enum SimulatedOutcome
     Crash,
 }
 
+/// <summary>Result modes of the simulated Analyst; Development and Test only. Every mode but <see cref="Valid"/> deliberately violates one rule.</summary>
+public static class SimulatedResultModes
+{
+    public const string Valid = "valid";
+    public const string ScopeMismatch = "scope-mismatch";
+    public const string ProvenanceMismatch = "provenance-mismatch";
+    public const string LineageMismatch = "lineage-mismatch";
+    public const string ArtifactMissing = "artifact-missing";
+    public const string ValidityInvalid = "validity-invalid";
+    public const string ContractInvalid = "contract-invalid";
+
+    public static readonly IReadOnlyList<string> All =
+        [Valid, ScopeMismatch, ProvenanceMismatch, LineageMismatch, ArtifactMissing, ValidityInvalid, ContractInvalid];
+}
+
 public sealed class SimulatedCapabilityOptions
 {
     /// <summary>The capability version the simulated runtime offers to the queue.</summary>
@@ -18,6 +33,9 @@ public sealed class SimulatedCapabilityOptions
     public TimeSpan RunDuration { get; set; } = TimeSpan.Zero;
 
     public string FailureReason { get; set; } = "simulated failure";
+
+    /// <summary>One of <see cref="SimulatedResultModes"/>; applies to successful attempts.</summary>
+    public string ResultMode { get; set; } = SimulatedResultModes.Valid;
 
     public string? ResultReference { get; set; }
 

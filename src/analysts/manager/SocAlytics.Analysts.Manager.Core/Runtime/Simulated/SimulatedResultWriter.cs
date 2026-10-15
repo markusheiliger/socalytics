@@ -18,6 +18,14 @@ internal static class SimulatedResultWriter
             return;
         }
 
+        var mode = options.Capabilities.TryGetValue(launch.CapabilityId, out var configured)
+            ? configured.ResultMode
+            : SimulatedResultModes.Valid;
+        if (!SimulatedResultModes.All.Contains(mode))
+        {
+            throw new InvalidOperationException($"The simulated result mode '{mode}' is not supported.");
+        }
+
         Directory.CreateDirectory(directory);
         var artifact = System.Text.Encoding.UTF8.GetBytes($$"""{"capability":"{{job.Capability.Id}}","facts":[]}""");
         File.WriteAllBytes(Path.Combine(directory, ArtifactName), artifact);
@@ -64,33 +72,69 @@ internal static class SimulatedResultWriter
             provenance["modelDigest"] = model;
         }
 
+        var artifacts = new List<object>
+        {
+            new { name = ArtifactName, digest = ResultPublisher.Digest(artifact), sizeBytes = artifact.Length, mediaType = "application/json" },
+        };
+        var lineage = (job.Inputs ?? [])
+            .SelectMany(i => i.AcceptedResults ?? [])
+            .Where(r => r.Capability is not null)
+            .Select(r => new Dictionary<string, object?>
+            {
+                ["acceptedResultId"] = r.AcceptedResultId,
+                ["capability"] = new { id = r.Capability!.Id, version = r.Capability.Version },
+                ["schemaVersion"] = r.SchemaVersion,
+                ["manifestChecksum"] = r.ManifestChecksum,
+            })
+            .ToList();
+
+        switch (mode)
+        {
+            case SimulatedResultModes.ScopeMismatch:
+                scope["runId"] = Guid.NewGuid().ToString();
+                break;
+            case SimulatedResultModes.ProvenanceMismatch:
+                provenance["imageDigest"] = "sha-256:" + new string('f', 64);
+                break;
+            case SimulatedResultModes.LineageMismatch when lineage.Count > 0:
+                lineage[0]["manifestChecksum"] = "sha-256:" + new string('f', 64);
+                break;
+            case SimulatedResultModes.LineageMismatch:
+                lineage.Add(new Dictionary<string, object?>
+                {
+                    ["acceptedResultId"] = Guid.NewGuid().ToString(),
+                    ["capability"] = new { id = "unrelated-capability", version = "1.0.0" },
+                    ["schemaVersion"] = "1.0.0",
+                    ["manifestChecksum"] = "sha-256:" + new string('f', 64),
+                });
+                break;
+            case SimulatedResultModes.ArtifactMissing:
+                artifacts.Add(new { name = "missing-facts.json", digest = "sha-256:" + new string('e', 64), sizeBytes = 1, mediaType = "application/json" });
+                break;
+            case SimulatedResultModes.ValidityInvalid:
+                start = end + 1;
+                break;
+        }
+
         var manifest = new Dictionary<string, object?>
         {
             ["contractVersion"] = "1.0.0",
             ["scope"] = scope,
             ["provenance"] = provenance,
             ["attempt"] = new { attemptId = launch.AttemptId, attemptNumber = launch.AttemptNumber },
-            ["artifacts"] = new[]
-            {
-                new { name = ArtifactName, digest = ResultPublisher.Digest(artifact), sizeBytes = artifact.Length, mediaType = "application/json" },
-            },
+            ["artifacts"] = artifacts,
             ["validityWindow"] = new { startMs = start, endMs = end },
             ["factCount"] = 0,
-            ["upstreamLineage"] = (job.Inputs ?? [])
-                .SelectMany(i => i.AcceptedResults ?? [])
-                .Where(r => r.Capability is not null)
-                .Select(r => new
-                {
-                    acceptedResultId = r.AcceptedResultId,
-                    capability = new { id = r.Capability!.Id, version = r.Capability.Version },
-                    schemaVersion = r.SchemaVersion,
-                    manifestChecksum = r.ManifestChecksum,
-                })
-                .ToList(),
+            ["upstreamLineage"] = lineage,
             ["outputType"] = segment is null ? "soccer-concepts" : "foundational-facts",
             ["confidence"] = 1,
             ["evidenceReferences"] = Array.Empty<string>(),
         };
+        if (mode == SimulatedResultModes.ContractInvalid)
+        {
+            manifest.Remove("scope");
+        }
+
         File.WriteAllText(Path.Combine(directory, ResultPublisher.ManifestName), JsonSerializer.Serialize(manifest, PlatformJson.Options));
     }
 }
