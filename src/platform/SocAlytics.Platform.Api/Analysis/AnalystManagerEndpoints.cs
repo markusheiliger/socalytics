@@ -26,6 +26,30 @@ internal sealed record ResultGrantDto(string Name, string Method, string Url, IR
 
 internal sealed record ResultGrantsDto(string ResultLocation, IReadOnlyList<ResultGrantDto> Grants);
 
+internal sealed record UpstreamCapabilityDto(string Id, string Version);
+
+internal sealed record UpstreamDependencyDto(UpstreamCapabilityDto Capability, string SchemaVersion, string EdgeKind);
+
+internal sealed record UpstreamSegmentScopeDto(string SegmentId, long WindowStartMs, long WindowEndMs);
+
+internal sealed record UpstreamScopeDto(
+	[property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] UpstreamSegmentScopeDto? Segment,
+	[property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] bool? Match);
+
+internal sealed record UpstreamGrantDto(string Name, string Url, string ExpiresAt);
+
+internal sealed record UpstreamResultDto(
+	string AcceptedResultId, UpstreamScopeDto Scope, string ManifestChecksum, JsonElement Manifest, IReadOnlyList<UpstreamGrantDto> Grants);
+
+internal sealed record UpstreamCoverageDto(
+	[property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] string? SegmentId,
+	[property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] bool? Match,
+	string State);
+
+internal sealed record UpstreamResultsDto(
+	string ContractVersion, UpstreamDependencyDto Upstream, IReadOnlyList<UpstreamResultDto> Results,
+	IReadOnlyList<UpstreamCoverageDto> Coverage, string? ContinuationToken);
+
 internal sealed record LeaseRenewedDto(Guid AttemptId, DateTimeOffset LeaseExpiresAt);
 
 internal static partial class AnalystManagerEndpoints
@@ -83,7 +107,92 @@ internal static partial class AnalystManagerEndpoints
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict)
 			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+		routes.MapGet("/api/v1/analysis/attempts/{attemptId:guid}/upstream-results", ListUpstreamResultsAsync)
+			.RequireAnalystManager()
+			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
+			.WithName("listAnalysisUpstreamResults")
+			.WithTags("Analyst Manager attempts")
+			.Produces<UpstreamResultsDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 		return routes;
+	}
+
+	private static string Timestamp(DateTimeOffset value) =>
+		value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.FFFFFFF'Z'", System.Globalization.CultureInfo.InvariantCulture);
+
+	private static async Task<IResult> ListUpstreamResultsAsync(
+		Guid attemptId, HttpContext http, ListUpstreamResultsHandler handler, ILoggerFactory loggers, CancellationToken cancellationToken)
+	{
+		var q = http.Request.Query;
+		var violations = new List<FieldViolation>();
+		long? Long(string name)
+		{
+			if (!q.TryGetValue(name, out var v) || v.Count == 0)
+			{
+				return null;
+			}
+
+			if (v.Count == 1 && long.TryParse(v[0], System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var n))
+			{
+				return n;
+			}
+
+			violations.Add(new FieldViolation(name, "type"));
+			return null;
+		}
+
+		string? Text(string name) => q.TryGetValue(name, out var v) && v.Count == 1 ? v[0] : null;
+
+		var fencingToken = Long("fencingToken");
+		var matchStart = Long("matchStartMs");
+		var matchEnd = Long("matchEndMs");
+		var pageSize = Long("pageSize");
+		if (pageSize is > int.MaxValue)
+		{
+			violations.Add(new FieldViolation("pageSize", "maximum"));
+		}
+
+		if (violations.Count > 0)
+		{
+			return ProblemResults.From(OperationFailure.Validation(violations.ToArray()));
+		}
+
+		var segmentIds = q.TryGetValue("segmentIds", out var ids)
+			? ids.SelectMany(i => (i ?? string.Empty).Split(',', StringSplitOptions.RemoveEmptyEntries)).ToList()
+			: null;
+		var result = await handler.HandleAsync(
+			new ListUpstreamResultsQuery(
+				attemptId, fencingToken, Text("capabilityId"), Text("capabilityVersion"), Text("schemaVersion"),
+				segmentIds, matchStart, matchEnd, (int?)pageSize, Text("continuationToken")),
+			cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		var v = result.Value;
+		loggers.CreateLogger("SocAlytics.Platform.Api.Analysis.UpstreamResults").LogInformation(
+			"Read {ResultCount} upstream results for attempt {AttemptId} of job {LogicalJobId} in run {RunId}",
+			v.Results.Count, attemptId, v.LogicalJobId, v.RunId);
+		http.Response.Headers.CacheControl = "no-store";
+		return Results.Ok(
+			new UpstreamResultsDto(
+				"1.0.0",
+				new UpstreamDependencyDto(new UpstreamCapabilityDto(v.CapabilityId, v.CapabilityVersion), v.SchemaVersion, v.EdgeKind),
+				v.Results.Select(r => new UpstreamResultDto(
+					r.AcceptedResultId.ToString(),
+					r.SegmentId is null
+						? new UpstreamScopeDto(null, true)
+						: new UpstreamScopeDto(new UpstreamSegmentScopeDto(r.SegmentId, r.WindowStartMs!.Value, r.WindowEndMs!.Value), null),
+					r.ManifestChecksum, r.Manifest,
+					r.Grants.Select(g => new UpstreamGrantDto(g.Name, g.Url.AbsoluteUri, Timestamp(g.ExpiresAt))).ToList())).ToList(),
+				v.Coverage.Select(c => new UpstreamCoverageDto(c.SegmentId, c.SegmentId is null ? true : null, c.State.ToString().ToLowerInvariant())).ToList(),
+				v.ContinuationToken));
 	}
 
 	private static async Task<IResult> IssueResultGrantsAsync(

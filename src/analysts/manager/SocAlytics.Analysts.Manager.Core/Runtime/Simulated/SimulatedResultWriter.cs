@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using SocAlytics.Analysts.Manager.Platform;
 using SocAlytics.Analysts.Manager.Work;
 
@@ -27,7 +28,17 @@ internal static class SimulatedResultWriter
         }
 
         Directory.CreateDirectory(directory);
-        var artifact = System.Text.Encoding.UTF8.GetBytes($$"""{"capability":"{{job.Capability.Id}}","facts":[]}""");
+        var staged = launch.InputsDirectory is { } inputsDirectory && Directory.Exists(inputsDirectory)
+            ? ReadStagedInputs(inputsDirectory)
+            : null;
+        var artifact = JsonSerializer.SerializeToUtf8Bytes(
+            new Dictionary<string, object?>
+            {
+                ["capability"] = job.Capability.Id,
+                ["facts"] = Array.Empty<string>(),
+                ["consumedCoverage"] = staged?.Coverage,
+            },
+            PlatformJson.Options);
         File.WriteAllBytes(Path.Combine(directory, ArtifactName), artifact);
 
         var segment = job.Segment;
@@ -76,7 +87,7 @@ internal static class SimulatedResultWriter
         {
             new { name = ArtifactName, digest = ResultPublisher.Digest(artifact), sizeBytes = artifact.Length, mediaType = "application/json" },
         };
-        var lineage = (job.Inputs ?? [])
+        var lineage = staged?.Lineage ?? (job.Inputs ?? [])
             .SelectMany(i => i.AcceptedResults ?? [])
             .Where(r => r.Capability is not null)
             .Select(r => new Dictionary<string, object?>
@@ -90,6 +101,9 @@ internal static class SimulatedResultWriter
 
         switch (mode)
         {
+            case SimulatedResultModes.IgnoreInputs:
+                lineage.Clear();
+                break;
             case SimulatedResultModes.ScopeMismatch:
                 scope["runId"] = Guid.NewGuid().ToString();
                 break;
@@ -137,4 +151,37 @@ internal static class SimulatedResultWriter
 
         File.WriteAllText(Path.Combine(directory, ResultPublisher.ManifestName), JsonSerializer.Serialize(manifest, PlatformJson.Options));
     }
+
+    /// <summary>Builds the lineage from the staged manifests and collects the staged coverage; the layout is contracts/staged-inputs.md.</summary>
+    private static StagedInputs ReadStagedInputs(string inputsDirectory)
+    {
+        var lineage = new List<Dictionary<string, object?>>();
+        var coverage = new SortedDictionary<string, JsonNode?>(StringComparer.Ordinal);
+        foreach (var capabilityDirectory in Directory.EnumerateDirectories(inputsDirectory).Order(StringComparer.Ordinal))
+        {
+            var coveragePath = Path.Combine(capabilityDirectory, "coverage.json");
+            if (File.Exists(coveragePath))
+            {
+                coverage[Path.GetFileName(capabilityDirectory)] = JsonNode.Parse(File.ReadAllText(coveragePath))?["coverage"];
+            }
+
+            foreach (var resultDirectory in Directory.EnumerateDirectories(capabilityDirectory).Order(StringComparer.Ordinal))
+            {
+                var bytes = File.ReadAllBytes(Path.Combine(resultDirectory, ResultPublisher.ManifestName));
+                var manifest = JsonNode.Parse(bytes)!;
+                var provenance = manifest["provenance"]!;
+                lineage.Add(new Dictionary<string, object?>
+                {
+                    ["acceptedResultId"] = Path.GetFileName(resultDirectory),
+                    ["capability"] = new { id = (string)provenance["capability"]!["id"]!, version = (string)provenance["capability"]!["version"]! },
+                    ["schemaVersion"] = (string)provenance["schemaVersion"]!,
+                    ["manifestChecksum"] = ResultPublisher.Digest(bytes),
+                });
+            }
+        }
+
+        return new StagedInputs(lineage, coverage);
+    }
+
+    private sealed record StagedInputs(List<Dictionary<string, object?>> Lineage, SortedDictionary<string, JsonNode?> Coverage);
 }

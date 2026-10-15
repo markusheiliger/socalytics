@@ -54,6 +54,9 @@ public sealed class CompletionVerificationTests(PostgresContainerFixture postgre
 		public ObjectUploadGrant PresignPutObject(string objectKey, long contentLength, Sha256Digest digest, DateTimeOffset expiresAt) =>
 			inner.PresignPutObject(objectKey, contentLength, digest, expiresAt);
 
+		public ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt) =>
+			inner.PresignGetObject(objectKey, expiresAt);
+
 		public Task<ObjectChecksum?> GetObjectChecksumAsync(string objectKey, CancellationToken cancellationToken) =>
 			inner.GetObjectChecksumAsync(objectKey, cancellationToken);
 

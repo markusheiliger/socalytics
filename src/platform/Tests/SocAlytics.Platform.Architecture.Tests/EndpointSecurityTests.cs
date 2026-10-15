@@ -134,6 +134,8 @@ public sealed class EndpointSecurityTests
                 ["Analysis:Results:MaxObjectBytes"] = "104857600",
                 ["Analysis:Results:MaxAttemptBytes"] = "1073741824",
                 ["Analysis:Results:MaxManifestBytes"] = "1048576",
+                ["Analysis:Reads:GrantLifetime"] = "00:10:00",
+                ["Analysis:Reads:MaxPageSize"] = "100",
             }));
             builder.ConfigureServices(services =>
             {

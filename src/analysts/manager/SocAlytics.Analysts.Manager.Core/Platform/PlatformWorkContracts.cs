@@ -75,3 +75,22 @@ public sealed record AttemptCompletion(
     CompletionFailure? Failure, CompletionCapability Capability, string SchemaVersion, ExecutedRuntime ExecutedRuntime,
     string ExecutedImageDigest, string? ExecutedModelDigest, IReadOnlyList<string> AcceptedUpstreamResultIds,
     DateTimeOffset CompletedAt, CompletionCorrelation Correlation);
+
+public sealed record UpstreamDescriptor(QueueCapability Capability, string SchemaVersion, string EdgeKind);
+
+/// <summary>A presigned read grant; the URL is a credential and is never logged.</summary>
+public sealed record UpstreamGrant(string Name, string Url, DateTimeOffset ExpiresAt)
+{
+    public override string ToString() => $"UpstreamGrant {{ Name = {Name} }}";
+}
+
+public sealed record UpstreamResult(
+    string AcceptedResultId, System.Text.Json.JsonElement Scope, string ManifestChecksum, System.Text.Json.JsonElement Manifest,
+    IReadOnlyList<UpstreamGrant> Grants);
+
+public sealed record UpstreamCoverageEntry(string? SegmentId, bool? Match, string State);
+
+/// <summary>One page of contracts/analysis/upstream-results/v1.</summary>
+public sealed record UpstreamResultsPage(
+    string ContractVersion, UpstreamDescriptor Upstream, IReadOnlyList<UpstreamResult> Results,
+    IReadOnlyList<UpstreamCoverageEntry> Coverage, string? ContinuationToken);

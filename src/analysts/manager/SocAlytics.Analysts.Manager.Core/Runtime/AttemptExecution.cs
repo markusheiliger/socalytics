@@ -3,6 +3,7 @@ namespace SocAlytics.Analysts.Manager.Runtime;
 public sealed record AttemptResources(double Cpus, long MemoryBytes, IReadOnlyList<string> Accelerators);
 
 /// <summary>Everything the Platform pinned for one attempt; the Manager never chooses images, models, or preprocessing.</summary>
+/// <remarks><see cref="InputsDirectory"/> is the staged upstream data the runtime mounts read-only; null for jobs without upstream dependencies.</remarks>
 public sealed record AttemptLaunch(
     string AttemptId,
     string LogicalJobId,
@@ -15,7 +16,8 @@ public sealed record AttemptLaunch(
     AttemptResources Resources,
     Work.AnalystJobMessage? Job = null,
     int AttemptNumber = 0,
-    string? ResultDirectory = null);
+    string? ResultDirectory = null,
+    string? InputsDirectory = null);
 
 public sealed record AttemptOutcome
 {

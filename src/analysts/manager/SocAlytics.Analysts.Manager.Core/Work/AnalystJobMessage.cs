@@ -23,7 +23,8 @@ public sealed record AnalystJobMessage(
 
 public sealed record JobSegment(string RecordingVersionId, int SegmentNumber);
 
-public sealed record JobInput(IReadOnlyList<JobAcceptedResult>? AcceptedResults);
+public sealed record JobInput(
+    IReadOnlyList<JobAcceptedResult>? AcceptedResults, QueueCapability? Capability = null, string? EdgeKind = null, string? Status = null);
 
 public sealed record JobAcceptedResult(
     string AcceptedResultId, QueueCapability? Capability = null, string? SchemaVersion = null, string? ManifestChecksum = null);

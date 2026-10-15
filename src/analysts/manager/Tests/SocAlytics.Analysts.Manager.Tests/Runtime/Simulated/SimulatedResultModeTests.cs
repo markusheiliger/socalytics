@@ -30,7 +30,7 @@ public sealed class SimulatedResultModeTests : IDisposable
         new JobPinned("sha-256:" + new string('3', 64), "sha-256:" + new string('4', 64), null, "profile-1", []),
         new JobResources(500, 1024), new CompletionCorrelation("corr-1"), "rsv-1");
 
-    private JsonNode Write(string? mode, out AnalystJobMessage job)
+    private JsonNode Write(string? mode, out AnalystJobMessage job, string? inputs = null)
     {
         job = Job();
         var options = new SimulatedAnalystOptions();
@@ -42,7 +42,7 @@ public sealed class SimulatedResultModeTests : IDisposable
         SimulatedResultWriter.Write(
             new AttemptLaunch(
                 Guid.NewGuid().ToString(), job.LogicalJobId, Capability, "d", "match", "p", "i", "m",
-                new AttemptResources(1, 1, []), job, 1, _directory),
+                new AttemptResources(1, 1, []), job, 1, _directory, inputs),
             options);
         return JsonNode.Parse(File.ReadAllText(Path.Combine(_directory, "manifest.json")))!;
     }
@@ -122,5 +122,61 @@ public sealed class SimulatedResultModeTests : IDisposable
     public void Unknown_mode_is_refused()
     {
         Should.Throw<InvalidOperationException>(() => Write("nonsense", out _));
+    }
+
+    private string StageUpstream(string resultId, string checksumSeed, string coverageJson)
+    {
+        var inputs = Path.Combine(_directory + "-inputs");
+        var capability = Path.Combine(inputs, "player-detection");
+        Directory.CreateDirectory(Path.Combine(capability, resultId));
+        var manifest = $$"""{"provenance":{"capability":{"id":"player-detection","version":"1.0.0"},"schemaVersion":"1.0.0"},"seed":"{{checksumSeed}}"}""";
+        File.WriteAllText(Path.Combine(capability, resultId, "manifest.json"), manifest);
+        File.WriteAllText(Path.Combine(capability, "coverage.json"), coverageJson);
+        return inputs;
+    }
+
+    [Fact]
+    public void Lineage_comes_from_the_staged_manifests_and_the_consumed_coverage_is_recorded()
+    {
+        var inputs = StageUpstream("staged-res-1", "a", """{"upstream":{},"coverage":[{"segmentId":"s-1","state":"accepted"},{"segmentId":"s-2","state":"missing"}]}""");
+        try
+        {
+            var manifest = Write(null, out _, inputs);
+
+            IsSchemaValid().ShouldBeTrue();
+            var lineage = manifest["upstreamLineage"]!.AsArray();
+            lineage.Count.ShouldBe(1);
+            ((string)lineage[0]!["acceptedResultId"]!).ShouldBe("staged-res-1");
+            ((string)lineage[0]!["capability"]!["id"]!).ShouldBe("player-detection");
+            ((string)lineage[0]!["schemaVersion"]!).ShouldBe("1.0.0");
+            ((string)lineage[0]!["manifestChecksum"]!).ShouldBe(
+                ResultPublisher.Digest(File.ReadAllBytes(Path.Combine(inputs, "player-detection", "staged-res-1", "manifest.json"))));
+
+            var artifact = JsonNode.Parse(File.ReadAllText(Path.Combine(_directory, "facts.json")))!;
+            var coverage = artifact["consumedCoverage"]!["player-detection"]!.AsArray();
+            coverage.Count.ShouldBe(2);
+            ((string)coverage[1]!["state"]!).ShouldBe("missing");
+        }
+        finally
+        {
+            Directory.Delete(inputs, true);
+        }
+    }
+
+    [Fact]
+    public void Ignore_inputs_reports_an_empty_lineage_although_inputs_were_staged()
+    {
+        var inputs = StageUpstream("staged-res-1", "a", """{"upstream":{},"coverage":[{"segmentId":"s-1","state":"accepted"}]}""");
+        try
+        {
+            var manifest = Write(SimulatedResultModes.IgnoreInputs, out _, inputs);
+
+            IsSchemaValid().ShouldBeTrue();
+            manifest["upstreamLineage"]!.AsArray().Count.ShouldBe(0);
+        }
+        finally
+        {
+            Directory.Delete(inputs, true);
+        }
     }
 }

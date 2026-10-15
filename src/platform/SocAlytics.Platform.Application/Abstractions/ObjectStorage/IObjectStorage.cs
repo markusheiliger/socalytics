@@ -25,6 +25,8 @@ public interface IObjectStorage
 
     ObjectUploadGrant PresignPutObject(string objectKey, long contentLength, Sha256Digest digest, DateTimeOffset expiresAt);
 
+    ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt);
+
     /// <summary>The full-object SHA-256 and length, or null when the object is missing or the store cannot attest a full-object checksum.</summary>
     Task<ObjectChecksum?> GetObjectChecksumAsync(string objectKey, CancellationToken cancellationToken);
 
