@@ -19,8 +19,11 @@ public static class SimulatedResultModes
     public const string ValidityInvalid = "validity-invalid";
     public const string ContractInvalid = "contract-invalid";
 
+    /// <summary>Reports an empty lineage even when upstream results were staged.</summary>
+    public const string IgnoreInputs = "ignore-inputs";
+
     public static readonly IReadOnlyList<string> All =
-        [Valid, ScopeMismatch, ProvenanceMismatch, LineageMismatch, ArtifactMissing, ValidityInvalid, ContractInvalid];
+        [Valid, ScopeMismatch, ProvenanceMismatch, LineageMismatch, ArtifactMissing, ValidityInvalid, ContractInvalid, IgnoreInputs];
 }
 
 public sealed class SimulatedCapabilityOptions

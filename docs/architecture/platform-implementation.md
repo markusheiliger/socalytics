@@ -614,6 +614,11 @@ current and non-current migration states; and
   checksums, rejected manifests ending the attempt as failed, and immutable
   accepted-result manifest records) with a simulated Analyst and the Analyst
   Manager; and
+- integration and end-to-end tests cover the Manager-mediated upstream read
+  (current-attempt and input-snapshot scoping, refusals without disclosure,
+  per-object read grants, coverage), digest-verified staging with cleanup in the
+  Analyst Manager, and simulated match-level lineage equal to the staged
+  results; and
 - Web UI browser tests cover Analyst Manager pairing, the Club Admin decision
   view, and the fleet view with revocation: the `simulated` project against a
   simulated API, and the `platform` project against the real platform with a
@@ -655,7 +660,8 @@ choice or reveals a material operational tradeoff:
   foundation (migrations, Migrator, units of work, version triggers), domain
   persistence, outbox publication to NATS JetStream, local-account BFF
   sessions, S3-compatible upload, Analyst Manager registration, and result
-  write grants with validated result acceptance against a simulated Analyst are
+  write grants with validated result acceptance against a simulated Analyst, and the Manager-mediated
+  read and staging of accepted upstream results are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views. External OpenID Connect sign-in, MFA enforcement, the Web UI's
   offline mode, cross-runtime schema agreement, reproducible Analyst

@@ -2,7 +2,7 @@
 
 **Branch**: `20261013-134112-analysis-result-read` | **Date**: 2026-10-13 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261013-134112-analysis-result-read/spec.md`
+**Input**: Feature specification from `specs/archive/20261013-134112-analysis-result-read/spec.md`
 
 ## Summary
 
@@ -97,12 +97,12 @@ Post-design re-check: passes; no Complexity Tracking entries.
 
 **Narratives**:
 
-- [analysts-models-and-hardware.md](../../docs/architecture/analysts-models-and-hardware.md) § Capability-Scoped Result Access, § Implementation Validation (high-level API authorization evidence).
-- [job-processing.md](../../docs/architecture/job-processing.md) § Match Processing sequence (high-level part).
-- [analyst-runtime-and-recovery.md](../../docs/architecture/analyst-runtime-and-recovery.md) § OCI Container Runtime Boundary (launch defaults: input mount), § Analyst Manager Responsibilities.
-- [intelligence-and-agents.md](../../docs/architecture/intelligence-and-agents.md) § Intelligence Layer (text and diagram).
-- [contracts-and-compatibility.md](../../docs/architecture/contracts-and-compatibility.md) § Scope And Dependencies ("accepted upstream facts" contract).
-- [platform-implementation.md](../../docs/architecture/platform-implementation.md) § Acceptance Evidence, § Architecture Reassessment.
+- [analysts-models-and-hardware.md](../../../docs/architecture/analysts-models-and-hardware.md) § Capability-Scoped Result Access, § Implementation Validation (high-level API authorization evidence).
+- [job-processing.md](../../../docs/architecture/job-processing.md) § Match Processing sequence (high-level part).
+- [analyst-runtime-and-recovery.md](../../../docs/architecture/analyst-runtime-and-recovery.md) § OCI Container Runtime Boundary (launch defaults: input mount), § Analyst Manager Responsibilities.
+- [intelligence-and-agents.md](../../../docs/architecture/intelligence-and-agents.md) § Intelligence Layer (text and diagram).
+- [contracts-and-compatibility.md](../../../docs/architecture/contracts-and-compatibility.md) § Scope And Dependencies ("accepted upstream facts" contract).
+- [platform-implementation.md](../../../docs/architecture/platform-implementation.md) § Acceptance Evidence, § Architecture Reassessment.
 
 **Design updates** (applied with this plan as decided, not implemented; the implementation turns them into present tense):
 
@@ -130,7 +130,7 @@ The documentation task must make these narratives and every status statement thi
 ### Documentation (this feature)
 
 ```text
-specs/20261013-134112-analysis-result-read/
+specs/archive/20261013-134112-analysis-result-read/
 ├── plan.md
 ├── research.md          # Decisions R1–R7
 ├── data-model.md        # Sources, coverage mapping, query, configuration, staged layout

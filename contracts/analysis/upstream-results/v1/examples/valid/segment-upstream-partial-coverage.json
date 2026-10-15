@@ -1,0 +1,59 @@
+{
+  "contractVersion": "1.0.0",
+  "upstream": {
+    "capability": { "id": "player-detection", "version": "1.0.0" },
+    "schemaVersion": "1.0.0",
+    "edgeKind": "required"
+  },
+  "results": [
+    {
+      "acceptedResultId": "accepted-1",
+      "scope": { "segment": { "segmentId": "segment-3", "windowStartMs": 120000, "windowEndMs": 180000 } },
+      "manifestChecksum": "sha-256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "manifest": {
+        "contractVersion": "1.0.0",
+        "scope": {
+          "teamId": "team-1",
+          "matchId": "match-1",
+          "recordingSetVersionId": "rsv-1",
+          "runId": "run-1",
+          "nodeId": "detect-players",
+          "logicalJobId": "job-1",
+          "segment": { "segmentId": "segment-3", "windowStartMs": 120000, "windowEndMs": 180000 }
+        },
+        "provenance": {
+          "capability": { "id": "player-detection", "version": "1.0.0" },
+          "schemaVersion": "1.0.0",
+          "analystProfile": { "id": "profile-1", "digest": "sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+          "imageDigest": "sha-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "policyVersions": [{ "id": "segmentation", "version": "1" }],
+          "workflow": { "id": "default-workflow", "version": "1" }
+        },
+        "attempt": { "attemptId": "attempt-1", "attemptNumber": 1 },
+        "artifacts": [
+          {
+            "name": "facts.json",
+            "digest": "sha-256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            "sizeBytes": 10240,
+            "mediaType": "application/json"
+          }
+        ],
+        "validityWindow": { "startMs": 120000, "endMs": 180000 },
+        "factCount": 42,
+        "upstreamLineage": [],
+        "outputType": "foundational-facts",
+        "confidence": 0.92,
+        "evidenceReferences": ["evidence-1"]
+      },
+      "grants": [
+        { "name": "manifest.json", "url": "https://objects.example.invalid/results/run-1/job-1/attempt-1/manifest.json?signature=redacted", "expiresAt": "2026-10-15T05:00:00Z" },
+        { "name": "facts.json", "url": "https://objects.example.invalid/results/run-1/job-1/attempt-1/facts.json?signature=redacted", "expiresAt": "2026-10-15T05:00:00Z" }
+      ]
+    }
+  ],
+  "coverage": [
+    { "segmentId": "segment-3", "state": "accepted" },
+    { "segmentId": "segment-4", "state": "missing" }
+  ],
+  "continuationToken": null
+}

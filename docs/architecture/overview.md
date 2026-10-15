@@ -182,9 +182,15 @@ flowchart TB
     H2 <--> S3
     H3 <--> S3
 
-    H1 -->|Query accepted facts| API
-    H2 -->|Query accepted facts| API
-    H3 -->|Query accepted facts| API
+    AM1 -->|Read accepted upstream results| API
+    AM2 -->|Read accepted upstream results| API
+    AM3 -->|Read accepted upstream results| API
+    AM1 -->|Download, verify, stage| S3
+    AM2 -->|Download, verify, stage| S3
+    AM3 -->|Download, verify, stage| S3
+    AM1 -.->|Read-only staged inputs| H1
+    AM2 -.->|Read-only staged inputs| H2
+    AM3 -.->|Read-only staged inputs| H3
 
     AM1 -->|Completion and manifest callback| API
     AM2 -->|Completion and manifest callback| API
@@ -279,7 +285,9 @@ flowchart TB
     SegmentService <--> RustFS
     LowLevel <--> RustFS
     HighLevel <--> RustFS
-    HighLevel -->|Query accepted facts| API
+    AnalystManager -->|Read accepted upstream results| API
+    AnalystManager -->|Download, verify, stage| RustFS
+    AnalystManager -.->|Read-only staged inputs| HighLevel
 
     AnalystManager -->|Completion and manifest callback| API
     API -->|Accept and index facts and concepts| PostgreSQL

@@ -20,6 +20,9 @@
 
   <ItemGroup>
     <Content Include="../../../../../contracts/analyst-manager/**/*" LinkBase="contracts/analyst-manager" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../../../contracts/analysis/upstream-results/**/*" LinkBase="contracts/analysis/upstream-results" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../../../contracts/analysis/attempt-completion/**/*" LinkBase="contracts/analysis/attempt-completion" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="../../../../../contracts/common/**/*" LinkBase="contracts/common" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="../../../../../contracts/analysis/result-manifest/**/*" LinkBase="contracts/analysis/result-manifest" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

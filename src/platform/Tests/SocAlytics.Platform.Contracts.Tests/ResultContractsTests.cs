@@ -48,6 +48,43 @@ public class ResultContractsTests
     }
 
     [Fact]
+    public void Upstream_results_closes_every_object_and_has_a_released_copy()
+    {
+        var dir = Path.Combine(AnalysisRoot, "upstream-results", "v1");
+        var file = Path.Combine(dir, "upstream-results.schema.json");
+        var schema = JsonNode.Parse(File.ReadAllText(file))!;
+        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.0.0");
+        schema["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
+        schema["properties"]!["upstream"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
+        var defs = schema["$defs"]!;
+        defs["result"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
+        defs["result"]!["properties"]!["scope"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
+        defs["result"]!["properties"]!["grants"]!["items"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
+        defs["coverageEntry"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
+        defs["result"]!["properties"]!["manifest"]!["$ref"]!.GetValue<string>().ShouldEndWith("result-manifest/v1/result-manifest.schema.json");
+        defs["coverageEntry"]!["properties"]!["state"]!["enum"]!.AsArray().Select(n => n!.GetValue<string>())
+            .ShouldBe(["accepted", "missing", "failed", "blocked", "skipped"]);
+
+        File.ReadAllBytes(Path.Combine(dir, "releases", "1.0.0.schema.json")).ShouldBe(File.ReadAllBytes(file));
+    }
+
+    [Fact]
+    public void Upstream_results_corpus_covers_partial_coverage_empty_page_and_every_required_refusal()
+    {
+        var root = Path.Combine(AnalysisRoot, "upstream-results", "v1", "examples");
+        var valid = Directory.EnumerateFiles(Path.Combine(root, "valid"), "*.json").Select(f => JsonNode.Parse(File.ReadAllText(f))!).ToList();
+        valid.Any(p => p["results"]!.AsArray().Count > 0 && p["coverage"]!.AsArray().Any(c => c!["state"]!.GetValue<string>() != "accepted"))
+            .ShouldBeTrue("a page with partial coverage");
+        valid.Any(p => p["results"]!.AsArray().Count == 0).ShouldBeTrue("an empty page");
+
+        var expectations = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "invalid", "expectations.json")))!.AsObject();
+        foreach (var name in new[] { "unknown-coverage-state", "carries-credential-field", "extra-property", "missing-manifest-checksum" })
+        {
+            expectations.ContainsKey(name + ".json").ShouldBeTrue(name);
+        }
+    }
+
+    [Fact]
     public void Result_grants_corpus_covers_every_required_refusal()
     {
         var root = Path.Combine(AnalysisRoot, "result-grants", "v1", "examples");

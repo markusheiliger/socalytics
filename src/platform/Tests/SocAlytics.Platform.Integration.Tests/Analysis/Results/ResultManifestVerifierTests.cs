@@ -456,6 +456,9 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
         public virtual ObjectUploadGrant PresignPutObject(string objectKey, long contentLength, Sha256Digest digest, DateTimeOffset expiresAt) =>
             inner.PresignPutObject(objectKey, contentLength, digest, expiresAt);
 
+        public virtual ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt) =>
+            inner.PresignGetObject(objectKey, expiresAt);
+
         public virtual Task<ObjectChecksum?> GetObjectChecksumAsync(string objectKey, CancellationToken cancellationToken) =>
             inner.GetObjectChecksumAsync(objectKey, cancellationToken);
 

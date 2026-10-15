@@ -16,6 +16,7 @@ internal enum WorkOperation
     Heartbeat,
     Completion,
     ResultGrants,
+    UpstreamRead,
 }
 
 /// <summary>In-process platform: every openapi.yaml operation with configurable outcomes.</summary>
@@ -169,6 +170,7 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
                 : workPath.EndsWith("/claims", StringComparison.Ordinal) ? WorkOperation.Claim
                 : workPath.EndsWith("/heartbeats", StringComparison.Ordinal) ? WorkOperation.Heartbeat
                 : workPath.EndsWith("/result-grants", StringComparison.Ordinal) ? WorkOperation.ResultGrants
+                : workPath.EndsWith("/upstream-results", StringComparison.Ordinal) ? WorkOperation.UpstreamRead
                 : WorkOperation.Completion;
             lock (Requests)
             {

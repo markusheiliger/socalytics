@@ -152,6 +152,19 @@ simulated Analyst as development evidence (migrations
 - Contracts: `contracts/analysis/result-manifest/v1/` and
   `contracts/analysis/result-grants/v1/`.
 
+The Manager-mediated upstream read is implemented as development evidence:
+`GET /api/v1/analysis/attempts/{attemptId}/upstream-results`
+(`listAnalysisUpstreamResults`, Manager DPoP authentication) returns, for the
+current unfenced attempt of the owning Manager, exactly the accepted results in
+the job's input snapshot for one upstream capability and schema version, with
+manifests, short-lived per-object read grants, and coverage per expected
+segment (accepted, missing, failed, blocked, skipped). Other runs,
+non-upstream capabilities, foreign attempts, and fenced attempts are refused
+without disclosure (`analysis.upstream-read-refused` audit events). Options
+`Analysis:Reads:GrantLifetime` (10 minutes) and `Analysis:Reads:MaxPageSize`
+(100) are development values. Contract:
+`contracts/analysis/upstream-results/v1/`.
+
 Real Analyst execution, production transport values, and production readiness
 remain deferred.
 
