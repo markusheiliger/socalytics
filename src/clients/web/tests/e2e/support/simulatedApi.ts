@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { Page, Route } from '@playwright/test';
 import type {
   AnalysisRunSummaryDto,
@@ -16,6 +17,12 @@ import type {
   TeamDto,
   TeamPageDto,
 } from '../../../src/generated/platform-api/models';
+
+// Mirrors the platform's composite content digest over the declared part digests.
+function compositeDigest(partSizeBytes: number, partDigests: string[]): string {
+  const raw = Buffer.concat(partDigests.map((d) => Buffer.from(d.replace('sha-256:', ''), 'hex')));
+  return `sha-256-parts:${partSizeBytes}:${partDigests.length}:${createHash('sha256').update(raw).digest('hex')}`;
+}
 
 export type SimulatedRole = 'ClubAdmin' | 'Coach' | 'Viewer';
 
@@ -356,7 +363,7 @@ export class SimulatedApi {
         totalSizeBytes: total,
         partSizeBytes: partSize,
         partCount,
-        contentDigest: `sha256:${'0'.repeat(64)}`,
+        contentDigest: compositeDigest(partSize, body?.partDigests ?? []),
         createdAt: now,
         expiresAt: later(24),
         completedAt: null,

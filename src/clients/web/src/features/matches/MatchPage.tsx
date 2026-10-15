@@ -15,6 +15,7 @@ import { AnalysisRunStates } from '../lineage/AnalysisRunStates';
 import { FailureAlert } from '../shared/FailureAlert';
 import { AddRecordingsPanel } from '../uploads/AddRecordingsPanel';
 import { formatBytes } from '../uploads/formatBytes';
+import { PendingUploads } from '../uploads/PendingUploads';
 import { UploadList } from '../uploads/UploadList';
 import { formatKickoff } from './MatchForm';
 import { useMatchContext } from './useMatchContext';
@@ -66,6 +67,7 @@ function RecordingsSection({ matchId, teamId, canUpload }: { matchId: string; te
           <UploadList repository={repository} jobs={matchJobs} knownDigests={knownDigests} canUpload={canUpload} />
         </>
       )}
+      {repository && <PendingUploads repository={repository} jobs={matchJobs} canUpload={canUpload} />}
     </section>
   );
 }

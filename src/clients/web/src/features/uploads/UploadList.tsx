@@ -10,6 +10,7 @@ import type { UploadJob } from '../../uploads/uploadCoordinator';
 import type { UploadRepository } from '../../uploads/uploadRepository';
 import { formatBytes } from './formatBytes';
 import { createDefaultDraft, toTimelineSpans, type SpanDraft } from './mappingDraft';
+import { isRecoverable } from './PendingUploads';
 import { TimelineMappingEditor } from './TimelineMappingEditor';
 
 interface UploadListProps {
@@ -26,7 +27,7 @@ const REMOVABLE: readonly UploadJobState[] = ['preparing', 'ready', 'starting'];
 /** The member's upload queue for one match: progress, states, retry, removal, mapping, and completion (FR-008–FR-011). */
 export function UploadList({ repository, jobs, knownDigests, canUpload }: UploadListProps) {
   const { t } = useTranslation('uploads');
-  const visible = jobs.filter((job) => job.state !== 'cancelled' || job.failureKind);
+  const visible = jobs.filter((job) => !isRecoverable(job) && (job.state !== 'cancelled' || job.failureKind));
   if (visible.length === 0) return null;
   const isDuplicate = (job: UploadJob) => {
     const digest = job.summary?.contentDigest;

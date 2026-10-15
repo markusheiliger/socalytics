@@ -55,6 +55,22 @@
     "mappingSaved": "Mapping saved.",
     "mappingNeeded": "Set the timeline mapping to complete this upload."
   },
+  "pending": {
+    "title": "Pending uploads",
+    "listLabel": "Pending uploads of this match",
+    "progress": "Stored parts of {{file}}",
+    "expiresAt": "The upload session expires on {{date}}.",
+    "abandonNote": "If you abandon this upload, it is forgotten in this browser and the platform discards the stored parts when the upload expires.",
+    "expired": "The upload session expired and the platform discards the stored parts. Start again with the same file.",
+    "notPermitted": "You are no longer permitted to upload this recording. You can only abandon the upload.",
+    "startAgain": "Start again with {{file}}"
+  },
+  "signOut": {
+    "title": "Sign out while uploading?",
+    "body": "An upload is still transferring. Signing out stops it and deletes this browser's record of your uploads. The platform discards the stored parts when the upload expires.",
+    "confirm": "Stop uploads and sign out",
+    "cancel": "Keep uploading"
+  },
   "state": {
     "selected": "Selected",
     "preparing": "Preparing",
