@@ -25,7 +25,7 @@ internal static class Program
             return 0;
         }
 
-        using var host = ManagerHost.CreateBuilder(args).Build();
+        using var host = ManagerHost.CreateBuilder(args, ApplicationProfile.Tray).Build();
         host.Start();
         try
         {

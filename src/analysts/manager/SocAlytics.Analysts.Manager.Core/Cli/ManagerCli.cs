@@ -8,7 +8,7 @@ using SocAlytics.Analysts.Manager.Registration;
 
 namespace SocAlytics.Analysts.Manager.Cli;
 
-internal static class ManagerCli
+public static class ManagerCli
 {
     public const int Success = 0;
     public const int Refused = 1;
