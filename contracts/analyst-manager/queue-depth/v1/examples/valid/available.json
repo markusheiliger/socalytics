@@ -1,0 +1,8 @@
+{
+  "observedAt": "2026-10-15T19:40:00Z",
+  "capabilities": [
+    { "id": "ball-tracking", "waiting": 0 },
+    { "id": "person-detection", "waiting": 5 }
+  ],
+  "total": 5
+}
