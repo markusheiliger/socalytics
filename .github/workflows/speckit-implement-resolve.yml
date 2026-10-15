@@ -1,7 +1,8 @@
 name: Spec Kit implement conflict resolution
 
 # One conflict-resolution attempt, called by Spec Kit implement spec. The read-only work job merges the base branch,
-# lets Copilot edit only conflicted files when necessary, and runs final verification. The write-capable land job
+# lets Copilot edit conflicted files (and the implementation's own files for clashes without a textual conflict) when
+# necessary, and runs final verification. The write-capable land job
 # replays and validates the resolution, commits, pushes, and reports it without running agent-written code.
 on:
   workflow_call:

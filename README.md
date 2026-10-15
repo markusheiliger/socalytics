@@ -403,9 +403,11 @@ implementation and when stays in the label history of `implement`.
   3. pushes the result in one "Commit and push" job (`land`) that never runs
       agent-written code. It re-validates the change (a task may only add its own
       `tasks.md` tick; convergence may only append a convergence section to
-      `tasks.md`; a resolution may only change the conflicted files, none
-      under `.github/`, `.specify/`, or `specs/`, and is replayed onto git's
-      own merge), then commits, pushes, updates the pull request body and
+      `tasks.md`; a resolution may change the conflicted files, the files
+      the implementation branch changed itself, and new files, so it can fix
+      clashes git merges without a conflict, such as two migrations with the
+      same number; none under `.github/`, `.specify/`, or `specs/`; it is
+      replayed onto git's own merge), then commits, pushes, updates the pull request body and
       check run, and comments the result. The group workflow coordinates
       parallel calls: each task rebuilds safely when a sibling moved the branch,
       and after all tasks land the group always runs full combined verification.

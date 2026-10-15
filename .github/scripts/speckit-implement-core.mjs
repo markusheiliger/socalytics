@@ -276,24 +276,55 @@ export function renderRepairPrompt({ repair, guidance, folder }) {
 }
 
 // The comment that starts a new attempt window; it persists the resume, so a replaced run cannot lose
-// it. Guidance applies to the stopped task, convergence, or conflict resolution until it succeeds.
-export function renderResumeComment(lead, guidance = '') {
-  return renderRestartComment(RESUME_COMMENT_MARKER, lead, guidance);
+// it. Guidance applies to the stopped task, convergence, or conflict resolution until it succeeds. `state` records the
+// implementation branch head and the base branch head at the restart (see unchangedRestarts).
+export function renderResumeComment(lead, guidance = '', state = null) {
+  return renderRestartComment(RESUME_COMMENT_MARKER, lead, guidance, state);
 }
 
 // Like a resume comment, but the next run does not merge the base branch first.
-export function renderRetryComment(lead, guidance = '') {
-  return renderRestartComment(RETRY_COMMENT_MARKER, lead, guidance);
+export function renderRetryComment(lead, guidance = '', state = null) {
+  return renderRestartComment(RETRY_COMMENT_MARKER, lead, guidance, state);
 }
 
-function renderRestartComment(marker, lead, guidance) {
+function renderRestartComment(marker, lead, guidance, state = null) {
   const value = String(guidance ?? '').trim().slice(0, MAX_WRITER_GUIDANCE);
   return [
     marker,
+    ...(state?.head ? [renderRestartState(state)] : []),
     ...(value ? [renderGuidanceMarker(value)] : []),
     lead,
     ...(value ? ['', 'Guidance for the next attempts:', '', ...neutralizeMarkers(value).split('\n').map((line) => `> ${line}`)] : []),
   ].join('\n');
+}
+
+// A person's restart (`/speckit retry` or `/speckit resume`) that leaves the implementation branch where it was stops
+// the same way again unless something else changed. After this many restarts in a row on the same head, the commands
+// refuse another one while the implementation is stopped, unless the person insists (RESTART_FORCE_FLAG).
+export const MAX_UNCHANGED_RESTARTS = 2;
+export const RESTART_FORCE_FLAG = '--force';
+const RESTART_STATE_PATTERN = /^<!-- speckit-implement:restart-state (\{[^\n]*?\}) -->$/m;
+const renderRestartState = ({ head, base = null }) => `<!-- speckit-implement:restart-state ${JSON.stringify({ head, base })} -->`;
+
+// The latest restarts by a person, newest first, as long as each recorded `head` as the implementation branch head:
+// the restarts since which the branch has not changed. A workflow restart without a recorded state (a merged
+// amendment, a landed fix spec) ends the run of unchanged restarts.
+export function unchangedRestarts(comments, head) {
+  const restarts = [];
+  const ordered = [...comments]
+    .filter((comment) => comment.user?.login === BOT_LOGIN && [RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)))
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  for (const comment of ordered) {
+    let state = null;
+    try {
+      state = JSON.parse(String(comment.body).match(RESTART_STATE_PATTERN)?.[1] ?? 'null');
+    } catch {
+      // A damaged marker counts as unknown.
+    }
+    if (!state?.head || state.head !== head) break;
+    restarts.push({ kind: String(comment.body).startsWith(RESUME_COMMENT_MARKER) ? 'resume' : 'retry', head: state.head, base: state.base ?? null, at: comment.created_at });
+  }
+  return restarts;
 }
 
 // Extracts task checkboxes from tasks.md, keeping the headings (## to ####) that contain tasks.
@@ -629,14 +660,23 @@ export function renderConvergePrompt() {
   return '/speckit-converge Assess the implementation and append remaining work as new tasks if needed. Do not commit and do not push.';
 }
 
-export function renderResolvePrompt({ folder, files, base, archived = false, guidance = '' }) {
+export function renderResolvePrompt({ folder, files, base, forkPoint = null, archived = false, guidance = '' }) {
+  const spec = specDir(folder, { archived });
+  const own = forkPoint ? `\`git diff --name-only ${forkPoint} HEAD\`` : `\`git diff --name-only $(git merge-base HEAD MERGE_HEAD) HEAD\``;
   const prompt = [
-    `The working tree is in the middle of merging the base branch \`${base}\` into the implementation branch of the spec \`${specDir(folder, { archived })}\`.`,
+    `The working tree is in the middle of merging the base branch \`${base}\` into the implementation branch of the spec \`${spec}\`.`,
     `Git reported merge conflicts in these files: ${files.map((file) => `\`${file}\``).join(', ')}.`,
-    'Resolve every conflict: edit only these files, remove all conflict markers, and combine both sides so that the',
+    'Resolve every conflict: remove all conflict markers, and combine both sides so that the',
     `intent of the spec and the changes from \`${base}\` are both kept. Use the spec, plan, and tasks in`,
-    `\`${specDir(folder, { archived })}\` to understand the implementation side. Do not change any other file, and do not run git`,
-    'commit, merge, checkout, reset, restore, stash, rebase, or push.',
+    `\`${spec}\` to understand the implementation side.`,
+    'The merged result must also build and pass its tests as a whole. Both sides can clash without a textual conflict,',
+    'for example two migrations with the same sequence number, an identifier both sides added, or implementation code',
+    `that uses something \`${base}\` renamed or removed. Fix such clashes on the implementation's side, keeping what`,
+    `\`${base}\` has as it is: besides the conflicted files you may change the files this implementation branch changed`,
+    `itself (${own}) and add new files, for example to renumber this implementation's migration to the next free number`,
+    `(rename it with \`git mv\`) and update every reference to it. Do not change any other file of \`${base}\`, nor`,
+    'anything under `.github/`, `.specify/`, or `specs/`. Build what the merge touches and run the tests that cover it;',
+    'the full verification runs after you. Do not run git commit, merge, checkout, reset, restore, stash, rebase, or push.',
   ].join(' ');
   return appendWriterGuidance(prompt, guidance);
 }
@@ -942,8 +982,8 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
 // it applies the amendment, closing it discards it, and a comment or review asks for a rework.
 export const PR_COMMANDS = [
   { name: 'diagnose', usage: '/speckit diagnose [guidance]', help: 'diagnose why the implementation stopped; nothing runs meanwhile. Guidance steers the analysis or answers its questions' },
-  { name: 'retry', usage: '/speckit retry [guidance]', help: 'restart what stopped with a fresh attempt count, without merging the base branch for it (a phase that has not started, the convergence, and the merge always merge it first); guidance goes into the next attempt\'s prompt' },
-  { name: 'resume', usage: '/speckit resume [guidance]', help: 'merge the base branch into the implementation branch first (Copilot resolves conflicts), then restart what stopped with a fresh attempt count; guidance goes into the next attempt\'s prompt' },
+  { name: 'retry', usage: '/speckit retry [guidance]', help: 'restart what stopped with a fresh attempt count, without merging the base branch for it (a phase that has not started, the convergence, and the merge always merge it first); guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless the guidance starts with `--force`' },
+  { name: 'resume', usage: '/speckit resume [guidance]', help: 'merge the base branch into the implementation branch first (Copilot resolves conflicts), then restart what stopped with a fresh attempt count; guidance goes into the next attempt\'s prompt. Refused like retry, unless the base branch has new commits or the guidance starts with `--force`' },
   { name: 'fix', usage: '/speckit fix [guidance]', help: 'for a cause outside this spec: an agent authors a fix spec and opens it against the base branch for your review; once it is merged and implemented, this implementation resumes by itself' },
   { name: 'help', usage: '/speckit help', help: 'list these commands' },
 ];

@@ -647,8 +647,9 @@ test('resolve: markers, changes outside the conflicts, and forged resolutions ar
     assert.match(result.reasons.join(), /`docs\/shared\.md` still contains conflict markers/);
   });
   await withRepos(conflicting, (repos) => {
-    const { result } = work(repos, { inputs: RESOLVE_INPUTS, agent: (r) => { resolveShared(r); write(r.work, 'README.md', '# Changed\n'); write(r.work, 'new.txt', 'x'); } });
-    assert.match(result.reasons.join(), /changed files outside the conflicts: README\.md, new\.txt/);
+    const { result } = work(repos, { inputs: RESOLVE_INPUTS, agent: (r) => { resolveShared(r); write(r.work, 'README.md', '# Changed\n'); write(r.work, 'new.txt', 'x'); write(r.work, '.github/x.yml', 'x'); } });
+    assert.match(result.reasons.join(), /changed protected files: \.github\/x\.yml/);
+    assert.match(result.reasons.join(), /changed files that neither conflict nor belong to this implementation: README\.md(;|$)/);
   });
   await withRepos(conflicting, async (repos) => {
     work(repos, { inputs: RESOLVE_INPUTS, agent: resolveShared });
@@ -678,6 +679,80 @@ test('resolve: markers, changes outside the conflicts, and forged resolutions ar
 });
 
 const ENVIRONMENT_ACTION = '.github/actions/environment-setup/action.yml';
+
+// Both sides add migration 0017 (no textual conflict) and change docs/shared.md (a conflict).
+const clashingMigrations = {
+  tasks: DONE_TASKS,
+  branch: (dir) => {
+    conflicting.branch(dir);
+    write(dir, 'db/0017_feature.sql', 'create table feature();\n');
+    write(dir, 'docs/feature.md', 'Uses db/0017_feature.sql.\n');
+  },
+  main: (dir) => {
+    conflicting.main(dir);
+    write(dir, 'db/0017_other.sql', 'create table other();\n');
+    write(dir, 'db/0018_more.sql', 'create table more();\n');
+  },
+};
+const renumberMigration = (r) => {
+  resolveShared(r);
+  git(r.work, 'mv', 'db/0017_feature.sql', 'db/0019_feature.sql');
+  write(r.work, 'docs/feature.md', 'Uses db/0019_feature.sql.\n');
+};
+
+test('resolve: clashes without a textual conflict are fixed in the implementation\'s own files and replayed', () => withRepos(clashingMigrations, async (repos) => {
+  const { integrated, result, output } = work(repos, { inputs: RESOLVE_INPUTS, agent: renumberMigration, verify: { outcome: 'success', checks: 'platform build and tests' } });
+  const forkPoint = git(repos.work, 'merge-base', integrated.result.head, integrated.result.baseSha).trim();
+  assert.match(output, new RegExp(`two migrations with the same sequence number[^\\n]*\`git diff --name-only ${forkPoint} HEAD\`[^\\n]*Do not change any other file of \`main\``));
+  assert.deepEqual(result.reasons, []);
+  assert.deepEqual(result.changes, [
+    { path: 'db/0017_feature.sql', deleted: true },
+    { path: 'db/0019_feature.sql', deleted: false, blob: 'c1' },
+    { path: 'docs/feature.md', deleted: false, blob: 'c2' },
+  ]);
+  const github = fakeGitHub();
+  const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+  assert.equal(landed.exitCode, 0, landed.reasons?.join());
+  const tree = git(repos.base, `--git-dir=${repos.bare}`, 'ls-tree', '--name-only', 'speckit/f', 'db/').trim().split('\n');
+  assert.deepEqual(tree, ['db/0017_other.sql', 'db/0018_more.sql', 'db/0019_feature.sql']);
+  assert.equal(remoteShow(repos, 'speckit/f:docs/feature.md'), 'Uses db/0019_feature.sql.\n');
+  assert.match(github.comments.at(-1).body, /Also adapted this implementation's own files: `db\/0017_feature\.sql`, `db\/0019_feature\.sql`, `docs\/feature\.md`/);
+}));
+
+test('resolve: the land job rejects forged changes outside the implementation\'s own files', async () => {
+  const forge = async (repos, changes, content = 'x\n') => {
+    work(repos, { inputs: RESOLVE_INPUTS, agent: renumberMigration });
+    const resultFile = path.join(repos.resultDir, 'result.json');
+    writeFileSync(path.join(repos.resultDir, 'resolved', 'forged'), content);
+    writeFileSync(resultFile, JSON.stringify({ ...JSON.parse(readFileSync(resultFile, 'utf8')), changes }));
+    const before = remoteHead(repos);
+    const landed = await land(repos, fakeGitHub(), { inputs: RESOLVE_INPUTS });
+    assert.equal(landed.exitCode, 1);
+    assert.equal(remoteHead(repos), before);
+    return landed.reasons.join();
+  };
+  await withRepos(clashingMigrations, async (repos) => {
+    assert.match(await forge(repos, [{ path: 'README.md', deleted: false, blob: 'forged' }]), /neither conflict nor belong to this implementation: README\.md/);
+  });
+  await withRepos(clashingMigrations, async (repos) => {
+    assert.match(await forge(repos, [{ path: 'db/0018_more.sql', deleted: true }]), /neither conflict nor belong to this implementation: db\/0018_more\.sql/);
+  });
+  await withRepos(clashingMigrations, async (repos) => {
+    assert.match(await forge(repos, [{ path: '.github/workflows/x.yml', deleted: false, blob: 'forged' }]), /changed protected files/);
+  });
+  await withRepos(clashingMigrations, async (repos) => {
+    assert.match(await forge(repos, [{ path: '../outside.txt', deleted: false, blob: 'forged' }]), /invalid paths: \.\.\/outside\.txt/);
+  });
+  await withRepos(clashingMigrations, async (repos) => {
+    assert.match(await forge(repos, [{ path: '.git/hooks/post-commit', deleted: false, blob: 'forged' }]), /invalid paths/);
+  });
+  await withRepos(clashingMigrations, async (repos) => {
+    assert.match(await forge(repos, [{ path: 'docs/shared.md', deleted: false, blob: 'forged' }]), /invalid paths: docs\/shared\.md/, 'conflicts are replayed only from their resolutions');
+  });
+  await withRepos(clashingMigrations, async (repos) => {
+    assert.match(await forge(repos, [{ path: 'docs/feature.md', deleted: false, blob: 'forged' }], '<<<<<<< HEAD\nx\n=======\ny\n>>>>>>> main\n'), /`docs\/feature\.md` contains conflict markers/);
+  });
+});
 
 test('environment specs: a task may change the environment actions, but not together with other changes', async () => {
   await withRepos({}, async (repos) => {

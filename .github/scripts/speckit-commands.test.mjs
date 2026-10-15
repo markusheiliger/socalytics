@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER, parseGuidance } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER, parseGuidance } from './speckit-implement-core.mjs';
 import { main, parseCommand, renderHelp, runCommand } from './speckit-commands.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -108,6 +108,49 @@ test('retry restarts what stopped with guidance, on the branch as it is', async 
   assert.match(retried.body, /^<!-- speckit-implement:retry -->[\s\S]*Implementation retried by @dev; what stopped restarts with a fresh attempt count, without merging the base branch for it\.[\s\S]*> Rerun the verification unchanged/);
   assert.doesNotMatch(retried.body, /speckit-implement:resume/, 'a retry is no resume, so the chain does not merge the base branch for it');
   assert.equal(parseGuidance(retried.body), 'Rerun the verification unchanged');
+});
+
+test('restarts that leave a stopped implementation unchanged are refused, unless something changed or the person insists', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  github.repo.branches.main = 'sha-main';
+  const pull = github.repo.pulls[0];
+  const stop = () => {
+    pull.labels = [{ name: ATTENTION_LABEL }];
+  };
+  const restarts = () => github.comments.filter((comment) => /^<!-- speckit-implement:(resume|retry) -->/.test(comment.body)).length;
+
+  // Restarting while the implementation runs, or once after a stop, is never refused.
+  assert.equal((await run(github, '/speckit resume Rename the migration')).outcome, 'resumed');
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:resume -->\n<!-- speckit-implement:restart-state \{"head":"sha-impl","base":"sha-main"\} -->/);
+  stop();
+  assert.equal((await run(github, '/speckit resume Rename it to 0019')).outcome, 'resumed');
+  assert.equal(pull.labels.length, 0, 'the restart clears the attention label');
+
+  // Stopped again on the same head after two restarts: the third is refused, for retry and resume alike.
+  stop();
+  const before = [restarts(), github.repo.runs.length];
+  for (const name of ['retry', 'resume']) {
+    assert.equal((await run(github, `/speckit ${name} After pushing the rename`)).outcome, 'refused');
+    assert.match(github.comments.at(-1).body, new RegExp(`^\\*\\*\`/speckit ${name}\` was not run\\*\\*: the implementation stopped again after each of the last 2 restarts, and \`speckit/f\` is still at \`sha-imp\`[\\s\\S]*\\*\\*Push\\*\\*[\\s\\S]*/speckit diagnose[\\s\\S]*/speckit fix[\\s\\S]*\`/speckit ${name} --force <guidance>\``));
+  }
+  assert.deepEqual([restarts(), github.repo.runs.length], before, 'nothing was restarted');
+
+  // New commits on the base branch let a resume through (it merges them first), but not a retry.
+  github.repo.branches.main = 'sha-main-2';
+  assert.equal((await run(github, '/speckit retry Again')).outcome, 'refused');
+  assert.equal((await run(github, '/speckit resume Merge the fix from main')).outcome, 'resumed');
+  stop();
+  assert.equal((await run(github, '/speckit resume')).outcome, 'refused', 'that resume counts as an unchanged restart too');
+
+  // The person insists: --force restarts, and is not part of the guidance.
+  assert.equal((await run(github, '/speckit retry --force The registry outage is over')).outcome, 'retried');
+  assert.equal(parseGuidance(github.comments.at(-1).body), 'The registry outage is over');
+
+  // A push moves the head: restarts count from there.
+  stop();
+  pull.head.sha = 'sha-pushed';
+  github.repo.branches['speckit/f'] = 'sha-pushed';
+  assert.equal((await run(github, '/speckit retry')).outcome, 'retried');
 });
 
 test('fix starts the authoring of a fix spec once, and refuses while one is pending', async () => {

@@ -55,6 +55,15 @@ workflow started you): never ask, and turn every open question into a report que
    different failures to an approach or flakiness problem. Check what the task asks against what the artifacts
    decide and what the code does. Experiments are allowed (build, run the relevant tests, scratch edits); revert
    scratch edits. Code changes never leave a diagnosis.
+   Compare with earlier diagnoses too: when one named the same cause and its recommended step was taken without
+   changing the outcome (the same failure again, and nobody pushed a change in between), say so in the summary and do
+   not recommend that step again. Find out why it did not help (for example a precondition it assumed was never met,
+   or it asked the automation for something outside its scope) and recommend a step that removes that reason. After
+   2 restarts in a row that left the implementation branch at the same commit, `/speckit retry` and `/speckit resume`
+   are refused while the implementation is stopped (a resume still runs when the base branch has new commits), so
+   recommend a step that changes something: a push, a fix spec, or an amendment. Only when new guidance that differs
+   materially from what was tried can help, recommend `/speckit retry --force <guidance>` and say in `why` what is
+   different this time.
 4. **Classify** the stop:
 
    | Category | When | Typical way forward |
@@ -64,6 +73,14 @@ workflow started you): never ask, and turn every open question into a report que
    | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | code, tests, or environment actions: `/speckit fix <what to fix, where, and how>`, which has a fix spec authored for it; the fix is already on the base branch: `/speckit resume <guidance>`, which merges it first; tooling under `.github/` or a non-code cause: name the action in the title, then `/speckit resume <guidance>` |
    | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered questions with the recommended choice first; `/speckit diagnose 1. <choice> 2. <choice>` prefilled with the recommended answers |
    | `unknown` | Not enough evidence | what was checked and ruled out; `/speckit diagnose <what to examine next>` |
+
+   A merged result that fails although both sides pass alone (a conflict resolution or merge whose verification
+   fails because of a clash without a textual conflict: two migrations with the same sequence number, an identifier
+   both sides added, implementation code that uses something the base branch renamed) is this implementation's to
+   fix, not `outside`. The conflict resolution may change this branch's own files and add new files besides the
+   conflicted ones, so classify it as `retry` and recommend `/speckit retry <how to integrate>` that names the files
+   and the change (for example "renumber this feature's migration `0017_x.sql` to `0019_x.sql` with `git mv` and update
+   its references"). It is `outside` only when the fix must change files that only the base branch owns.
 
 5. **Amend (only for `artifacts`).**
    - Edit the highest wrong artifact first, then carry the change down: `spec.md` (only with a person's answer) →
@@ -142,8 +159,12 @@ workflow started you): never ask, and turn every open question into a report que
   `/speckit diagnose 1. <first choice> 2. <first choice>`.
 - When the solution needs an action outside these commands (for example "grant the workflow access to the
   registry"), describe that action in the option's title and set `command` to the command that continues afterwards
-  (usually `/speckit resume <guidance>`), so the recommendation is one option. Reviewing and merging the amendment pull
-  request has `"command": null`. Add other options only when they are real alternatives, each with its `why`.
+  (usually `/speckit resume <guidance>`), so the recommendation is one option. Its guidance must not claim that the
+  action is done ("after pushing the rename …", "the file is now renamed"): a person may post the command before
+  acting, and the work then fails again the same way. Prefer a command that lets the automation make a code change
+  itself (task, repair, or conflict-resolution guidance) over asking a person to push it. Reviewing and merging the
+  amendment pull request has `"command": null`. Add other options only when they are real alternatives, each with its
+  `why`, and give each the command that does what its title says.
 - `artifacts` lists the changed files of the amendment; leave it empty otherwise. Ask at most three questions, each
   with its recommended choice first.
 

@@ -133,14 +133,20 @@ continues. Writer-supplied text after `/speckit diagnose`, `retry`, `resume`, or
 **guidance**. Retry and resume guidance is stored in a bot-authored pull request marker so a replaced dispatch or
 hourly continuation cannot lose it. Copilot-bound guidance is whitespace-normalized, capped at 4,000 characters, and
 added to every task in the first retried group, or to the first convergence, repair, or conflict-resolution prompt.
-Later units do not inherit it. A clean merge and a verification-only repair resume invoke no agent, so they consume
+Later units do not inherit it. Each restart comment also records the implementation branch head and the base branch
+head. While the implementation is stopped (`help wanted`), `Spec Kit commands` refuses a `retry` or `resume` after
+`MAX_UNCHANGED_RESTARTS` (2) restarts in a row on the same implementation branch head, because it would most likely
+stop the same way again; a resume still runs when the base branch has new commits, and `--force` as the first word of
+the guidance insists. The refusal points to a push, `/speckit diagnose`, or `/speckit fix`. A clean merge and a verification-only repair resume invoke no agent, so they consume
 no prompt guidance. The chain keeps its branch current with the base branch by pulling: every run starts with
 the job `sync` ("Merge the base branch"), which merges the base branch into the implementation branch through the
 GitHub API when it is ahead and the next work is a phase that has not started (none of its tasks is ticked yet), the
 convergence, the merge, or a resume (`/speckit resume`, a merged amendment, or a landed fix spec; repository variable
 `SPECKIT_SYNC_BASE`, default `true`). Retries (`/speckit retry`) and continuations of a started phase keep its base. On a conflict the
-decide job of the same run starts the conflict resolution the merge uses (Copilot CLI edits only the conflicted files,
-the full verification runs), and the next run does the work on the merged branch. Before a phase or the convergence
+decide job of the same run starts the conflict resolution the merge uses (Copilot CLI edits the conflicted files and,
+to fix clashes without a textual conflict such as two migrations with the same number, the implementation branch's
+own files and new files, never other files of the base branch or protected paths; the full verification runs), and
+the next run does the work on the merged branch. Before a phase or the convergence
 this is best effort: when GitHub refuses the merge, the conflicts touch protected paths, or the resolution fails
 `MAX_SYNC_RESOLVE_ATTEMPTS` times, the implementation continues on its current base without stopping, that base commit
 is not tried again, and the merge at the end integrates it. Before the merge it is required, as the merge's own

@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { specDir, stageLabelChange } from './speckit-prepare-core.mjs';
@@ -137,6 +137,41 @@ function unmergedPaths(git) {
   return [...new Set(splitZ(gitOrThrow(git, ['diff', '--name-only', '--diff-filter=U', '-z'])))].sort();
 }
 
+// Stage-0 index entries ("<mode> <blob>" by path); conflicted paths have no stage-0 entry.
+function indexEntries(git) {
+  const entries = new Map();
+  for (const line of splitZ(gitOrThrow(git, ['ls-files', '-s', '-z']))) {
+    const match = line.match(/^(\d+) ([0-9a-f]+) (\d)\t([\s\S]+)$/);
+    if (match && match[3] === '0') entries.set(match[4], `${match[1]} ${match[2]}`);
+  }
+  return entries;
+}
+
+// A repository-relative path that cannot leave the working tree or reach into .git.
+function isSafeRelativePath(file) {
+  return typeof file === 'string' && file.length > 0 && !/[\\\0]/.test(file) && !file.startsWith('/') &&
+    !/^[A-Za-z]:/.test(file) && file.split('/').every((part) => part !== '' && part !== '.' && part !== '..' && part.toLowerCase() !== '.git');
+}
+
+// Besides the conflicted files, a conflict resolution may change the files this implementation branch changed itself
+// since it forked from the base branch, and create files the base branch does not have, so it can fix clashes that
+// git merges without a conflict (for example two migrations with the same sequence number) on the implementation's
+// side. Files that only the base branch owns, protected paths, and the environment actions stay off limits. Runs
+// during the uncommitted merge, so HEAD is the implementation branch.
+function resolutionScopeReasons({ git, baseSha, paths }) {
+  if (paths.length === 0) return [];
+  const reasons = [];
+  if (paths.length > MAX_CHANGED_FILES) reasons.push(`the resolution changes more than ${MAX_CHANGED_FILES} files besides the conflicts`);
+  const forkPoint = git(['merge-base', 'HEAD', String(baseSha)]);
+  if (forkPoint.status !== 0) return [...reasons, 'the implementation branch has no common history with its base branch'];
+  const own = new Set(splitZ(gitOrThrow(git, ['diff', '--name-only', '--no-renames', '-z', forkPoint.stdout.trim(), 'HEAD'])));
+  const protectedPaths = paths.filter((file) => isProtected(file) || isEnvironmentPath(file));
+  if (protectedPaths.length > 0) reasons.push(`the resolution changed protected files: ${protectedPaths.join(', ')}`);
+  const foreign = paths.filter((file) => !protectedPaths.includes(file) && !own.has(file) && git(['cat-file', '-e', `${baseSha}:${file}`]).status === 0);
+  if (foreign.length > 0) reasons.push(`the agent changed files that neither conflict nor belong to this implementation: ${foreign.join(', ')}`);
+  return reasons;
+}
+
 function sizeReasons(patchBytes, paths) {
   return [
     ...(patchBytes > MAX_PATCH_BYTES ? [`the change is larger than ${MAX_PATCH_BYTES} bytes`] : []),
@@ -222,9 +257,11 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   const baseBranch = baseBranchFromEnv(env);
   const baseSha = gitOrThrow(git, ['rev-parse', `refs/remotes/origin/${baseBranch}`]).trim();
   const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
+  const forkPoint = git(['merge-base', 'HEAD', baseSha]);
   const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', baseSha]);
   const conflicts = unmergedPaths(git);
   const result = { kind: inputs.kind, baseSha, head, conflicts, reasons: [], checks: [], verified: false };
+  if (conflicts.length > 0) writeFileSync(path.join(resultDir, 'merge-index.json'), `${JSON.stringify(Object.fromEntries(indexEntries(git)))}\n`);
   if (merge.status !== 0 && conflicts.length === 0) result.reasons.push(`merging ${baseBranch} failed: ${merge.stderr.trim() || merge.stdout.trim()}`);
   const protectedConflicts = conflicts.filter(isProtected);
   if (protectedConflicts.length > 0) {
@@ -247,6 +284,7 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
     folder,
     files: conflicts,
     base: baseBranch,
+    forkPoint: forkPoint.status === 0 ? forkPoint.stdout.trim() : null,
     archived: isArchivedIn(gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim(), folder),
     guidance: env.SPECKIT_GUIDANCE,
   }) : '');
@@ -288,12 +326,15 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
       result.agentExit = agent.agentExit;
       result.reasons.push(...agent.reasons);
       const conflicts = new Set(result.conflicts);
-      const touched = [
-        ...splitZ(gitOrThrow(git, ['diff', '--name-only', '-z'])),
-        ...splitZ(gitOrThrow(git, ['ls-files', '--others', '--exclude-standard', '-z'])),
-      ];
-      const outside = [...new Set(touched.filter((file) => !conflicts.has(file)))].sort();
-      if (outside.length > 0) result.reasons.push(`the agent changed files outside the conflicts: ${outside.join(', ')}`);
+      const before = readJson(path.join(resultDir, 'merge-index.json')) ?? {};
+      // Staging everything (including renames the agent staged itself) compares the whole tree with the merge as git
+      // left it, so no change escapes the scope check.
+      gitOrThrow(git, ['add', '-A']);
+      const after = indexEntries(git);
+      const changed = [...new Set([...Object.keys(before), ...after.keys()])]
+        .filter((file) => !conflicts.has(file) && before[file] !== after.get(file))
+        .sort();
+      result.reasons.push(...resolutionScopeReasons({ git, baseSha: result.baseSha, paths: changed }));
       const resolvedDir = path.join(resultDir, 'resolved');
       rmSync(resolvedDir, { recursive: true, force: true });
       mkdirSync(resolvedDir, { recursive: true });
@@ -309,6 +350,15 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
         gitOrThrow(git, ['add', '--', file]);
         return { path: file, deleted: false, blob: String(index) };
       });
+      let changedBytes = 0;
+      result.changes = changed.map((file, index) => {
+        if (!after.has(file)) return { path: file, deleted: true };
+        const content = readFileSync(path.join(workspace, file));
+        changedBytes += content.length;
+        writeFileSync(path.join(resolvedDir, `c${index}`), content);
+        return { path: file, deleted: false, blob: `c${index}` };
+      });
+      if (changedBytes > MAX_PATCH_BYTES) result.reasons.push(`the resolution changes more than ${MAX_PATCH_BYTES} bytes besides the conflicts`);
     }
   } else if (inputs.kind === 'repair') {
     const agent = agentReasons(resultDir);
@@ -699,15 +749,18 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     comment = [];
   } else {
     const files = result.conflicts ?? [];
+    const extra = (Array.isArray(result.changes) ? result.changes : []).map((change) => String(change.path));
     message = [
       `Merge ${baseBranchOf(pull)} into ${implementationBranch(folder)}`,
       files.length > 0 ? `Conflicts in ${files.join(', ')} resolved by Copilot (attempt ${inputs.attempt}).` : 'No conflicts remained.',
+      ...(extra.length > 0 ? [`Also adapted this implementation's own files: ${extra.join(', ')}.`] : []),
     ];
     checkTitle = files.length > 0 ? 'Merge conflicts resolved' : 'Base branch merged';
     const checks = (result.checks ?? []).map((check) => `${check.name} passed`);
     comment = [
       `**Conflicts resolved** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
       '',
+      ...(extra.length > 0 ? [`- Also adapted this implementation's own files: ${extra.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
       `- Verification: ${result.verification === 'not-configured' ? 'no verification configured (no environment-verify action)' : checks.join(', ') || 'no checks'}`,
       bestEffort ? '- Next: the work continues on the merged branch.' : `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
     ];
@@ -988,7 +1041,8 @@ function applyPatch({ git, resultDir, check }) {
   return check(patchBytes);
 }
 
-// Re-creates the merge in the land job and applies the agent's versions of the conflicted files only. The merged
+// Re-creates the merge in the land job and applies the agent's versions of the conflicted files and its in-scope
+// changes besides them (replayResolutionChanges). The merged
 // commit must be on the base branch, because the work result that names it is not trusted.
 function replayResolution({ git, env, result, resultDir }) {
   if (!/^[0-9a-f]{40}$/.test(String(result.baseSha ?? ''))) return ['the base branch SHA is missing'];
@@ -1027,7 +1081,62 @@ function replayResolution({ git, env, result, resultDir }) {
     }
   }
   if (reasons.length === 0 && unmergedPaths(git).length > 0) reasons.push('unresolved conflicts remain');
+  if (reasons.length === 0) reasons.push(...replayResolutionChanges({ git, result, resultDir, conflicts }));
   if (reasons.length === 0 && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0) reasons.push('there is nothing to merge from the base branch');
+  return reasons;
+}
+
+// The nearest existing directory of a path, resolved through symbolic links.
+function existingRealDir(directory) {
+  let current = directory;
+  while (!existsSync(current)) current = path.dirname(current);
+  return realpathSync(current);
+}
+
+// Applies the resolution's changes besides the conflicts (see resolutionScopeReasons), re-checking their scope here,
+// because the work result is not trusted.
+function replayResolutionChanges({ git, result, resultDir, conflicts }) {
+  const changes = Array.isArray(result.changes) ? result.changes : [];
+  if (changes.length === 0) return [];
+  const files = changes.map((change) => change?.path);
+  const invalid = files.filter((file) => !isSafeRelativePath(file) || conflicts.includes(file));
+  if (invalid.length > 0) return [`the resolution names invalid paths: ${invalid.map(String).join(', ')}`];
+  if (new Set(files).size !== files.length) return ['the resolution names a path more than once'];
+  const scope = resolutionScopeReasons({ git, baseSha: result.baseSha, paths: files });
+  if (scope.length > 0) return scope;
+  const root = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
+  const realRoot = realpathSync(root);
+  const inside = (directory) => directory === realRoot || directory.startsWith(`${realRoot}${path.sep}`);
+  const reasons = [];
+  for (const change of changes) {
+    const file = change.path;
+    const target = path.join(root, file);
+    let link = false;
+    try {
+      link = lstatSync(target).isSymbolicLink();
+    } catch {
+      // A new file.
+    }
+    if (link || !inside(existingRealDir(path.dirname(target)))) {
+      reasons.push(`\`${file}\` leads outside the working tree`);
+      continue;
+    }
+    if (change.deleted) {
+      const removed = git(['rm', '--quiet', '--ignore-unmatch', '--', file]);
+      if (removed.status !== 0) reasons.push(`\`${file}\` could not be deleted: ${removed.stderr.trim()}`);
+      continue;
+    }
+    const source = path.join(resultDir, 'resolved', path.basename(String(change.blob)));
+    if (!existsSync(source)) {
+      reasons.push(`no content for \`${file}\``);
+      continue;
+    }
+    const content = readFileSync(source);
+    if (hasConflictMarkers(content.toString('utf8'))) reasons.push(`\`${file}\` contains conflict markers`);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, content);
+    gitOrThrow(git, ['add', '--', file]);
+  }
   return reasons;
 }
 
