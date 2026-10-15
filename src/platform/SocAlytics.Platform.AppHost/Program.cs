@@ -99,7 +99,7 @@ var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WaitForCompletion(migrator);
 
 api.WithEnvironment("Stamp__Id", "local-dev-stamp")
-    .WithEnvironment("Registry__AllowSoftwareKeys", "true");
+    .WithEnvironment("Registry__SoftwareKeys", "all");
 
 if (e2eMode)
 {

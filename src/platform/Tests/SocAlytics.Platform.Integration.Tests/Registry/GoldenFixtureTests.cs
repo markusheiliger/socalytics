@@ -88,7 +88,7 @@ public sealed partial class GoldenFixtureTests(PostgresContainerFixture postgres
         {
             services.Configure<RegistryOptions>(o =>
             {
-                o.AllowSoftwareKeys = true;
+                o.SoftwareKeys = SoftwareKeyPolicy.All;
                 o.RateLimits.PairingCreationPerMinute = 10_000;
                 o.RateLimits.StatusPerMinute = 10_000;
                 o.RateLimits.ActivationPerMinute = 10_000;

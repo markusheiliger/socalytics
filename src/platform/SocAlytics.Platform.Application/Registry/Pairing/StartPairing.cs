@@ -71,9 +71,19 @@ public sealed class StartPairingHandler(
             return OperationFailure.Conflict(StampMismatch);
         }
 
-        if (metadata!.ClaimedKeyProtection == ClaimedKeyProtection.Software && !registry.AllowSoftwareKeys)
+        if (metadata!.ClaimedKeyProtection == ClaimedKeyProtection.Software
+            && !registry.SoftwareKeys.Accepts(metadata.ClaimedApplicationProfile))
         {
-            await audit.RecordIndependentAsync(RegistryAuditEvents.PairingRefused(null, "software-key-not-allowed"), cancellationToken);
+            var refusalDetails = new Dictionary<string, string>
+            {
+                ["claimedKeyProtection"] = metadata.ClaimedKeyProtection.ToApiName(),
+            };
+            if (metadata.ClaimedApplicationProfile is { } refusedProfile)
+            {
+                refusalDetails["claimedApplicationProfile"] = refusedProfile.ToApiName();
+            }
+
+            await audit.RecordIndependentAsync(RegistryAuditEvents.PairingRefused(null, "software-key-not-allowed", refusalDetails), cancellationToken);
             return OperationFailure.Conflict(SoftwareKeyNotAllowed);
         }
 

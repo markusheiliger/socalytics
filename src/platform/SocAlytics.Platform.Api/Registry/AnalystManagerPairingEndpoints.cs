@@ -31,7 +31,8 @@ internal static class AnalystManagerPairingEndpoints
 				return Results.Json(new
 				{
 					stampId = s.Id,
-					softwareKeysAllowed = registry.Value.AllowSoftwareKeys,
+					softwareKeysAllowed = registry.Value.SoftwareKeys == SoftwareKeyPolicy.All,
+					softwareKeysAllowedFor = registry.Value.SoftwareKeys.AllowedProfiles(),
 					pairingEndpoint = s.PairingUri,
 					activationEndpoint = s.ActivationUri,
 					tokenEndpoint = s.TokenUri,

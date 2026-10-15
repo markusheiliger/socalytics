@@ -139,7 +139,7 @@ public sealed class AuditAndSecretTests(PostgresContainerFixture postgres)
         var ct = TestContext.Current.CancellationToken;
         await using var db = await postgres.CreateDatabaseAsync(ct);
         (await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
-        await using var f = RegistryTestHost.Create(db, allowSoftwareKeys: false);
+        await using var f = RegistryTestHost.Create(db, softwareKeys: SoftwareKeyPolicy.Refused);
         await f.WaitUntilHealthyAsync(ct);
         await TestMembers.SeedAsync(db, "admin-1", clubRoles: ["club-admin", "registrar"], cancellationToken: ct);
         await TestMembers.SeedAsync(db, "reg-1", clubRoles: ["registrar"], cancellationToken: ct);
