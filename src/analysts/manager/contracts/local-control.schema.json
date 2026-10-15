@@ -20,6 +20,7 @@
             "status",
             "show-status",
             "register",
+            "cancel-registration",
             "pause",
             "resume",
             "exit",
@@ -123,6 +124,7 @@
                 "enum": [
                   "status",
                   "show-status",
+                  "cancel-registration",
                   "resume",
                   "exit"
                 ]
@@ -328,6 +330,7 @@
         "command": {
           "enum": [
             "show-status",
+            "cancel-registration",
             "pause",
             "resume",
             "exit",

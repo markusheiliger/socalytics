@@ -56,7 +56,7 @@ public class GoldenFixtureTests
         var expected = Load("pairing.request.json");
         var m = expected["deviceMetadata"]!.AsObject();
         var metadata = new DeviceMetadata((string)m["os"]!, (string)m["claimedKeyProtection"]!, (string)m["osVersion"]!,
-            (string)m["architecture"]!, (string)m["managerVersion"]!);
+            (string)m["architecture"]!, (string)m["managerVersion"]!, null, (string?)m["claimedApplicationProfile"]);
         using var request = _client.BuildPairing(_baseUri, (string)Manifest["stampId"]!, _key, metadata);
 
         request.Method.ShouldBe(HttpMethod.Post);
@@ -65,7 +65,6 @@ public class GoldenFixtureTests
         actual["nonce"]!.GetValue<string>().Length.ShouldBeGreaterThanOrEqualTo(16);
         actual.Remove("nonce");
         expected.Remove("nonce");
-        expected["deviceMetadata"]!.AsObject().Remove("claimedApplicationProfile");
         JsonNode.DeepEquals(actual, expected).ShouldBeTrue(actual.ToJsonString());
     }
 

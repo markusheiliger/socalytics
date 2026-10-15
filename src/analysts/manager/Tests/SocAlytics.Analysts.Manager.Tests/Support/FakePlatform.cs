@@ -95,6 +95,8 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
 
     public string? ClaimedKeyProtection { get; private set; }
 
+    public string? ClaimedApplicationProfile { get; private set; }
+
     public string? ManagerId { get; private set; }
 
     public string Fingerprint { get; private set; } = string.Empty;
@@ -226,6 +228,7 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
         var node = JsonNode.Parse(body)!;
         _publicKey = PublicJwk.FromJson(node["publicKey"]!.ToJsonString());
         ClaimedKeyProtection = (string?)node["deviceMetadata"]!["claimedKeyProtection"];
+        ClaimedApplicationProfile = (string?)node["deviceMetadata"]!["claimedApplicationProfile"];
         Fingerprint = DeviceFingerprint.Compute(_publicKey);
         return Json(HttpStatusCode.Created, new PairingIssued(
             PairingCode,

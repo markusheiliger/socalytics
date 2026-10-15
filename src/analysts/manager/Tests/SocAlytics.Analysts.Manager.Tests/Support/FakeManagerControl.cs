@@ -87,7 +87,7 @@ internal sealed class FakeManagerControl : IManagerControl
     public Task<RegisterResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default) =>
         Task.FromResult(new RegisterResult(true, null, "ABCD-1234", RegisterFingerprint, "https://platform.example/pair", DateTimeOffset.UtcNow.AddMinutes(10)));
 
-    public Task CancelRegistrationAsync() => Task.CompletedTask;
+    public Task CancelRegistrationAsync() => Record("cancel-registration");
 
     public Task<ControlResult> UnregisterAsync() => Record("unregister");
 

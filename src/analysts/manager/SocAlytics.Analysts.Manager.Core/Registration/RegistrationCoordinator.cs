@@ -32,6 +32,7 @@ public sealed class RegistrationCoordinator(
     IEnumerable<IDeviceKeyProvider> providers,
     IOptions<PlatformOptions> options,
     TimeProvider time,
+    ApplicationProfile profile,
     ILogger<RegistrationCoordinator> logger)
 {
     public const string ManagerVersion = "0.1.0";
@@ -214,7 +215,8 @@ public sealed class RegistrationCoordinator(
                 Truncate(Environment.OSVersion.VersionString, 64),
                 RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64",
                 ManagerVersion,
-                request.HostLabel);
+                request.HostLabel,
+                profile.ToApiName());
             var response = await platform.SendAsync(platform.BuildPairing(endpoint, stamp.StampId, key, metadata), ct);
             var issued = response.Status == HttpStatusCode.Created ? response.Read<PairingIssued>() : null;
             if (issued is null || issued.DeviceFingerprint != DeviceFingerprint.Compute(key.PublicJwk))

@@ -8,7 +8,8 @@ public sealed record StampDiscovery(
     string StampId, bool SoftwareKeysAllowed, string PairingEndpoint, string ActivationEndpoint, string TokenEndpoint);
 
 public sealed record DeviceMetadata(
-    string Os, string ClaimedKeyProtection, string OsVersion, string Architecture, string ManagerVersion, string? HostLabel = null);
+    string Os, string ClaimedKeyProtection, string OsVersion, string Architecture, string ManagerVersion, string? HostLabel = null,
+    string? ClaimedApplicationProfile = null);
 
 public sealed record PairingRequest(string StampId, JsonElement PublicKey, string Nonce, DeviceMetadata DeviceMetadata);
 
