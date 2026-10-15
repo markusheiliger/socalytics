@@ -106,13 +106,28 @@ runs:
         }
         tests_label() { [ "$MODE" = task ] && echo "affected tests" || echo tests; }
         step() {
+          local start end command_status
+          local -a pipeline_status
+          start="$(date +%s%3N)"
           echo "\$ $*" | tee -a "$LOG_FILE"
           "$@" 2>&1 | tee -a "$LOG_FILE"
+          pipeline_status=("${PIPESTATUS[@]}")
+          command_status="${pipeline_status[0]}"
+          [ "$command_status" -ne 0 ] || command_status="${pipeline_status[1]}"
+          end="$(date +%s%3N)"
+          echo "Duration: $((end - start)) ms; exit: $command_status; command: $*" | tee -a "$LOG_FILE"
+          printf '| `%s` | %s | %s |\n' "$*" "$((end - start))" "$command_status" >> "$GITHUB_STEP_SUMMARY"
+          return "$command_status"
         }
         sdk_pin() { node -e 'const s=require(process.argv[1]).sdk||{};console.log(JSON.stringify(Object.fromEntries(Object.entries(s).sort())))' "$PWD/$1" 2>/dev/null; }
 
         checks=()
         status=0
+        {
+          echo "### Verification command timings ($MODE)"
+          echo "| Command | Duration (ms) | Exit code |"
+          echo "| --- | --- | --- |"
+        } >> "$GITHUB_STEP_SUMMARY"
         pushd "$WORKSPACE" > /dev/null
         ROOT="$PWD"
 
