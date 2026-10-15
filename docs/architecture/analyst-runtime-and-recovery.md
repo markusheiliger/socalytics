@@ -47,7 +47,9 @@ unauthenticated remote TCP runtime APIs are unsupported.
   or Docker and also accept a rootful Docker daemon reached through the
   `docker` group; preflight reports which one is in use, and the rootful case
   requires a dedicated non-login service account for the headless server
-  profile (see [Analyst Manager](analyst-manager.md#headless-server-profile)).
+  profile (see [Analyst Manager](analyst-manager.md#headless-server-profile));
+  under a login-capable account the headless Manager reports the runtime as
+  unavailable and admits no work (decided, not yet implemented).
 
 Support is defined by a tested compatibility matrix containing the AM version,
 runtime product and version, backend or VM mode, Windows version, architecture,

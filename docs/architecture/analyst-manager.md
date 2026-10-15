@@ -142,6 +142,20 @@ device key, signed state, and local socket that belong to one account.
   claim this profile (see
   [Browser Pairing And Approval](#browser-pairing-and-approval)).
 
+Decided, not yet implemented: the headless profile is a separate console
+executable, `socalytics-manager-server`, that references only the Core worker,
+so neither Avalonia nor its native dependencies reach the server; both
+executables share one local-control CLI with identical commands. In this
+profile, `autostart on|off` installs and enables, or disables and removes, the
+systemd user unit instead of the XDG autostart entry; the unit restarts the
+Manager after a crash and stops it through the safe exit. The lingering check
+reads systemd's lingering marker for the account and only warns. The account
+rule is a preflight check: when the runtime reports a rootful daemon reached
+through group membership and the account has a login shell, preflight fails,
+so the Manager is runtime-unavailable with that reason, admits no work, and
+stays registered and visible. Windows and macOS refuse to start the headless
+executable.
+
 ### Local Control
 
 One owner-only local socket per user provides single-instance hand-off and the
@@ -240,6 +254,19 @@ only once Managers report it; see
 [Fleet Visibility In The Web UI](#fleet-visibility-in-the-web-ui)). Hardware key attestation is a later decision.
 Production approval of any store remains governed by `GOV-CRED-002` in
 [Security and Data Governance](security-and-data-governance.md#credential-class-entries).
+
+Decided, not yet implemented: the Manager claims its application profile
+(`tray` or `headless-server`) in an optional, additive field of the pairing
+request's device metadata, so the v1 registration contract stays compatible.
+Current Managers always send it; the platform refuses unknown values and
+`headless-server` claims from systems other than Linux, keeps the claim with
+the other claimed device metadata for the life of the registration, and shows
+a missing claim from an older Manager as not reported, treating it like `tray`
+for the key rule. The stamp's software key policy has three values: refused
+(the default), allowed only for `headless-server` claims, and allowed for all
+profiles, which the platform accepts only in development and test. Stamp
+discovery lists the profiles for which software-backed keys are accepted, so a
+Manager refuses to start a pairing that would be refused.
 
 The untrusted AM requests a short-lived, single-use pairing code bound to its
 public key, target stamp, nonce, expiry, and reported device metadata. The
