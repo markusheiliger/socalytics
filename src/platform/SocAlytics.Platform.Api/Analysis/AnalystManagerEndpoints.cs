@@ -16,7 +16,7 @@ internal sealed record ClaimGrantedDto(
 
 internal sealed record HeartbeatRequestDto(Guid LogicalJobId, long FencingToken, DateTimeOffset ObservedAt, string ExecutionState, int? ProgressPercent);
 
-internal sealed record CompletionOutcomeDto(Guid AttemptId, Guid LogicalJobId, string Outcome, Guid? AcceptedResultId, bool Replayed, string LogicalJobState);
+internal sealed record CompletionOutcomeDto(Guid AttemptId, Guid LogicalJobId, string Outcome, Guid? AcceptedResultId, bool Replayed, string LogicalJobState, string? Reason = null);
 
 internal sealed record ResultObjectDto(string? Name, long SizeBytes, string? Digest);
 
@@ -61,6 +61,7 @@ internal static partial class AnalystManagerEndpoints
 			.ProducesProblem(StatusCodes.Status409Conflict);
 		routes.MapPost("/api/v1/analysis/attempts/{attemptId:guid}/completion", CompleteAsync)
 			.RequireAnalystManager()
+			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
 			.WithName("completeAttempt")
 			.WithTags("Analyst Manager attempts")
 			.Produces<CompletionOutcomeDto>()
@@ -68,7 +69,8 @@ internal static partial class AnalystManagerEndpoints
 			.ProducesProblem(StatusCodes.Status401Unauthorized)
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status404NotFound)
-			.ProducesProblem(StatusCodes.Status409Conflict);
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 		routes.MapPost("/api/v1/analysis/attempts/{attemptId:guid}/result-grants", IssueResultGrantsAsync)
 			.RequireAnalystManager()
 			.AddEndpointFilter<ObjectStorageUnavailableFilter>()
@@ -144,7 +146,7 @@ internal static partial class AnalystManagerEndpoints
 		}
 
 		var v = result.Value;
-		return Results.Ok(new CompletionOutcomeDto(v.AttemptId, v.LogicalJobId, v.Outcome, v.AcceptedResultId, v.Replayed, v.LogicalJobState));
+		return Results.Ok(new CompletionOutcomeDto(v.AttemptId, v.LogicalJobId, v.Outcome, v.AcceptedResultId, v.Replayed, v.LogicalJobState, v.Reason));
 	}
 
 	private static async Task<IResult> HeartbeatAsync(Guid attemptId, HttpContext http, RenewAttemptLeaseHandler handler, CancellationToken cancellationToken)

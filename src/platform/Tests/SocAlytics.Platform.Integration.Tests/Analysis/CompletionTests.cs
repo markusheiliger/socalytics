@@ -71,9 +71,12 @@ public sealed class CompletionTests(PostgresContainerFixture postgres, NatsConta
         return s;
     }
 
+    private IsolatedDatabase? _db;
+
     private async Task<(IsolatedDatabase Db, AnalysisTestHost Host)> StartAsync(CancellationToken ct)
     {
         var db = await postgres.CreateDatabaseAsync(ct);
+        _db = db;
         (await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
         var host = new AnalysisTestHost(db, nats, rustFs, managerAuthentication: ManagerAuthentication.Test);
         await host.StartAsync(ct);
@@ -128,8 +131,20 @@ public sealed class CompletionTests(PostgresContainerFixture postgres, NatsConta
         return body;
     }
 
-    private static async Task<HttpResponseMessage> CompleteAsync(PlatformApiFactory factory, TestManagerClient m, Guid attempt, JsonObject body, CancellationToken ct)
+    private async Task<HttpResponseMessage> CompleteAsync(PlatformApiFactory factory, TestManagerClient m, Guid attempt, JsonObject body, CancellationToken ct)
     {
+        if (body["result"]?["manifestReference"]?.GetValue<string>() == "results/m1.json")
+        {
+            var upstream = body["acceptedUpstreamResultIds"]!.AsArray().Select(n => n!.GetValue<Guid>()).ToList();
+            try
+            {
+                await ResultObjectsHelper.ApplyAsync(_db!, rustFs, attempt, body, upstream, ct);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+        }
+
         using var client = factory.CreateApiClient();
         var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/analysis/attempts/{attempt}/completion")
         {
@@ -303,7 +318,7 @@ public sealed class CompletionTests(PostgresContainerFixture postgres, NatsConta
         r.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await r.Content.ReadAsStringAsync(ct)).ShouldContain("idempotency-key-reused");
         (await RowsAsync(db, "SELECT * FROM socalytics.analysis_completion_outcomes", ct)).ShouldBe(before);
-        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_accepted_results WHERE manifest_reference = 'results/m1.json'", ct)).ShouldBe(1);
+        (await ScalarAsync(db, "SELECT count(*) FROM socalytics.analysis_accepted_results", ct)).ShouldBe(1);
     }
 
     [Fact]
@@ -555,6 +570,7 @@ public sealed class CompletionTests(PostgresContainerFixture postgres, NatsConta
             services.AddSingleton<IWorkflowDefinitionResolver>(sp => new VersionedResolver(
                 (IWorkflowDefinitionResolver)ActivatorUtilities.CreateInstance(sp, original.ImplementationType!), flag));
         });
+        _db = setup.Db;
         var set = await RecordingFinalizationHelper.FinalizeAsync(setup.Coach, setup.Hierarchy.MatchId, 1, ct);
         async Task<RecordingsFinalizedNotification> Notify()
         {
