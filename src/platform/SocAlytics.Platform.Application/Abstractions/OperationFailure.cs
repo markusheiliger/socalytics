@@ -10,6 +10,7 @@ public enum OperationFailureKind
     VersionMismatch,
     Unauthenticated,
     PasswordChangeRequired,
+    Unavailable,
 }
 
 public sealed record FieldViolation(string Field, string Code);
@@ -53,6 +54,9 @@ public sealed record OperationFailure(
 
     public static OperationFailure Unauthenticated() =>
         new(OperationFailureKind.Unauthenticated, "unauthenticated", NoViolations, null);
+
+    public static OperationFailure Unavailable(string code) =>
+        new(OperationFailureKind.Unavailable, code, NoViolations, null);
 
     public static OperationFailure PasswordChangeRequired() =>
         new(OperationFailureKind.PasswordChangeRequired, "password-change-required", NoViolations, null);
