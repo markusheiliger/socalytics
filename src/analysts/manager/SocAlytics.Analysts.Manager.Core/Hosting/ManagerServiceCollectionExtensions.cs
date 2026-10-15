@@ -11,6 +11,17 @@ namespace SocAlytics.Analysts.Manager.Hosting;
 
 public static class ManagerServiceCollectionExtensions
 {
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private static void AddLinuxAutostart(IServiceCollection services)
+    {
+        services.AddSingleton<Autostart.IProcessRunner, Autostart.SystemProcessRunner>();
+        services.AddSingleton<Autostart.IAutostartRegistrar>(sp =>
+            sp.GetRequiredService<ApplicationProfile>() == ApplicationProfile.HeadlessServer
+                ? new Autostart.SystemdUserUnitRegistrar(
+                    sp.GetRequiredService<Autostart.IProcessRunner>(), sp.GetRequiredService<IOptions<OperatingOptions>>())
+                : new Autostart.XdgAutostartRegistrar());
+    }
+
     public static IServiceCollection AddManagerCore(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<ManagerOptions>(configuration.GetSection(ManagerOptions.SectionName));
@@ -35,7 +46,7 @@ public static class ManagerServiceCollectionExtensions
 
         if (OperatingSystem.IsLinux())
         {
-            services.AddSingleton<Autostart.IAutostartRegistrar, Autostart.XdgAutostartRegistrar>();
+            AddLinuxAutostart(services);
         }
         else if (OperatingSystem.IsWindows())
         {
