@@ -47,6 +47,9 @@ public sealed class AttemptRunner(
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);
 
+    // Attempt directories of this process, which the start-up cleanup of a previous process's leftovers must not touch.
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> LiveDirectories = new();
+
     private readonly ILogger _logger = logger ?? NullLogger<AttemptRunner>.Instance;
     private readonly ExecutedRuntime _executedRuntime = executedRuntime ?? Describe(runtime.Profile);
 
@@ -198,6 +201,7 @@ public sealed class AttemptRunner(
                 if (stager is not null && UpstreamStager.HasUpstream(attempt.Job))
                 {
                     var attemptDirectory = UpstreamStager.DirectoryFor(attempt.AttemptId);
+                    LiveDirectories[attemptDirectory] = 0;
                     var staged = await stager.StageAsync(attempt, attemptDirectory, sessions, cancellationToken);
                     if (staged.End == StagingEnd.Obsolete)
                     {
@@ -316,6 +320,54 @@ public sealed class AttemptRunner(
             {
                 DeleteResultDirectory(attempt);
             }
+
+            if (stager is not null)
+            {
+                DeleteAttemptDirectory(attempt);
+                LiveDirectories.TryRemove(UpstreamStager.DirectoryFor(attempt.AttemptId), out _);
+            }
+        }
+    }
+
+    /// <summary>Deletes every attempt directory, with its staged inputs, left by a previous Manager process.</summary>
+    public static void DeleteLeftoverAttemptDirectories(ILogger? logger = null)
+    {
+        var root = UpstreamStager.AttemptsRoot;
+        if (!Directory.Exists(root))
+        {
+            return;
+        }
+
+        foreach (var directory in Directory.EnumerateDirectories(root))
+        {
+            if (LiveDirectories.ContainsKey(directory))
+            {
+                continue;
+            }
+
+            try
+            {
+                Directory.Delete(directory, true);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                logger?.LogWarning("Removing a leftover attempt directory failed: {Error}", e.GetType().Name);
+            }
+        }
+    }
+
+    private void DeleteAttemptDirectory(ActiveAttempt attempt)
+    {
+        try
+        {
+            Directory.Delete(UpstreamStager.DirectoryFor(attempt.AttemptId), true);
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning("Removing the attempt directory of attempt {AttemptId} failed: {Error}", attempt.AttemptId, e.GetType().Name);
         }
     }
 

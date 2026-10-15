@@ -9,6 +9,7 @@ using Microsoft.Extensions.Time.Testing;
 using Shouldly;
 using Xunit;
 using SocAlytics.Analysts.Manager.Platform;
+using SocAlytics.Analysts.Manager.Runtime;
 using SocAlytics.Analysts.Manager.Runtime.Simulated;
 using SocAlytics.Analysts.Manager.Tests.Support;
 using SocAlytics.Analysts.Manager.Work;
@@ -58,6 +59,11 @@ public sealed class UpstreamStagerTests : IDisposable
         if (Directory.Exists(directory))
         {
             Directory.Delete(directory, true);
+        }
+
+        if (Directory.Exists(_snapshot))
+        {
+            Directory.Delete(_snapshot, true);
         }
     }
 
@@ -173,7 +179,7 @@ public sealed class UpstreamStagerTests : IDisposable
     private AttemptRunner Runner()
     {
         var stager = new UpstreamStager(_client, new HttpClient(_storage), _time, _options, false, freeSpace: _freeSpace);
-        return new AttemptRunner(_client, _runtime, _time, stager: stager);
+        return new AttemptRunner(_client, new SnapshottingAdapter(_runtime, _snapshot), _time, stager: stager);
     }
 
     private async Task<AttemptRunEnd> RunAsync(bool withUpstream = true)
@@ -193,7 +199,46 @@ public sealed class UpstreamStagerTests : IDisposable
     private JsonNode LastCompletion() =>
         JsonNode.Parse(_platform.Requests.Last(r => r.Uri.AbsolutePath.EndsWith("/completion", StringComparison.Ordinal)).Body)!;
 
+    // The staged data is deleted when the attempt ends, so the content is copied at launch time.
+    private readonly string _snapshot = Path.Combine(Path.GetTempPath(), "socalytics-stager-test-" + Guid.NewGuid().ToString("N"));
+
     private string InputsDirectory => Path.Combine(UpstreamStager.DirectoryFor(_attemptId), "inputs");
+
+    private string StagedDirectory => Path.Combine(_snapshot, "inputs");
+
+    private sealed class SnapshottingAdapter(SimulatedRuntimeAdapter inner, string snapshot) : IContainerRuntimeAdapter
+    {
+        public string Profile => inner.Profile;
+
+        public IReadOnlyList<QueueCapability> Capabilities => inner.Capabilities;
+
+        public Task<RuntimeProbe> ProbeAsync(RuntimeProbeRequest request, CancellationToken cancellationToken) =>
+            inner.ProbeAsync(request, cancellationToken);
+
+        public Task<IAttemptExecution> StartAttemptAsync(AttemptLaunch launch, CancellationToken cancellationToken)
+        {
+            if (launch.InputsDirectory is { } source)
+            {
+                CopyDirectory(source, Path.Combine(snapshot, "inputs"));
+            }
+
+            return inner.StartAttemptAsync(launch, cancellationToken);
+        }
+
+        private static void CopyDirectory(string source, string target)
+        {
+            Directory.CreateDirectory(target);
+            foreach (var file in Directory.EnumerateFiles(source))
+            {
+                File.Copy(file, Path.Combine(target, Path.GetFileName(file)));
+            }
+
+            foreach (var directory in Directory.EnumerateDirectories(source))
+            {
+                CopyDirectory(directory, Path.Combine(target, Path.GetFileName(directory)));
+            }
+        }
+    }
 
     private void ExpectFailedCompletion(string category)
     {
@@ -220,12 +265,12 @@ public sealed class UpstreamStagerTests : IDisposable
         _runtime.Attempts.Single().Launch.InputsDirectory.ShouldBe(InputsDirectory);
         foreach (var result in new[] { first, second })
         {
-            var directory = Path.Combine(InputsDirectory, Upstream, result.Id.ToString());
+            var directory = Path.Combine(StagedDirectory, Upstream, result.Id.ToString());
             File.ReadAllBytes(Path.Combine(directory, "manifest.json")).ShouldBe(result.Manifest);
             File.ReadAllBytes(Path.Combine(directory, "facts.json")).ShouldBe(result.Facts);
         }
 
-        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(InputsDirectory, Upstream, "coverage.json")))!;
+        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(StagedDirectory, Upstream, "coverage.json")))!;
         coverage["coverage"]!.AsArray().Select(c => (string)c!["segmentId"]!).ShouldBe(["seg-1", "seg-2"]);
         ((string)LastCompletion()["outcome"]!).ShouldBe("succeeded");
     }
@@ -239,7 +284,7 @@ public sealed class UpstreamStagerTests : IDisposable
 
         (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
 
-        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(InputsDirectory, Upstream, "coverage.json")))!;
+        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(StagedDirectory, Upstream, "coverage.json")))!;
         coverage["coverage"]!.AsArray().Count.ShouldBe(5);
         foreach (var entry in coverage["coverage"]!.AsArray())
         {
@@ -321,7 +366,7 @@ public sealed class UpstreamStagerTests : IDisposable
         (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
 
         Calls(WorkOperation.UpstreamRead).ShouldBe(2);
-        File.ReadAllBytes(Path.Combine(InputsDirectory, Upstream, result.Id.ToString(), "facts.json")).ShouldBe(result.Facts);
+        File.ReadAllBytes(Path.Combine(StagedDirectory, Upstream, result.Id.ToString(), "facts.json")).ShouldBe(result.Facts);
         ((string)LastCompletion()["outcome"]!).ShouldBe("succeeded");
     }
 

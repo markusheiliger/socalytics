@@ -61,8 +61,9 @@ public sealed partial class UpstreamStager(
     private readonly ILogger _logger = logger ?? NullLogger<UpstreamStager>.Instance;
     private readonly Func<string, long> _freeSpace = freeSpace ?? DefaultFreeSpace;
 
-    public static string DirectoryFor(Guid attemptId) =>
-        Path.Combine(Path.GetTempPath(), "socalytics-analyst-attempts", attemptId.ToString("N"));
+    public static string AttemptsRoot => Path.Combine(Path.GetTempPath(), "socalytics-analyst-attempts");
+
+    public static string DirectoryFor(Guid attemptId) => Path.Combine(AttemptsRoot, attemptId.ToString("N"));
 
     /// <summary>True when the job's snapshot lists accepted upstream results to stage.</summary>
     public static bool HasUpstream(AnalystJobMessage job) => Dependencies(job).Count > 0;

@@ -92,6 +92,11 @@ public sealed class WorkAcquisitionService(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        if (stager is not null)
+        {
+            AttemptRunner.DeleteLeftoverAttemptDirectories(_logger);
+        }
+
         var renewal = credentials.RunAsync(
             () => admission.TryAdmit() ? sessions.Current : null,
             () => catalog.Find(runtimeOptions.Value.Profile)?.Capabilities ?? [],
