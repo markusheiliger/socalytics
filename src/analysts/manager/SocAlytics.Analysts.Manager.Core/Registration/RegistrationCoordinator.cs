@@ -16,7 +16,7 @@ public sealed record RegisterRequest(string PlatformEndpoint, string? StampId = 
 
 public sealed record RegisterResult(
     bool Succeeded, string? Code = null, string? PairingCode = null, string? DeviceFingerprint = null,
-    string? VerificationUri = null, DateTimeOffset? ExpiresAt = null);
+    string? VerificationUri = null, DateTimeOffset? ExpiresAt = null, string? Notice = null);
 
 public sealed record ActiveRegistration(
     string ManagerId, string StampId, Uri PlatformEndpoint, DeviceKeyReference KeyReference, KeyProtection Protection,
@@ -32,9 +32,10 @@ public sealed class RegistrationCoordinator(
     IEnumerable<IDeviceKeyProvider> providers,
     IOptions<PlatformOptions> options,
     TimeProvider time,
+    ApplicationProfile profile,
     ILogger<RegistrationCoordinator> logger)
 {
-    private const string ManagerVersion = "0.1.0";
+    public const string ManagerVersion = "0.1.0";
     private ManagerTokenCache tokens => services.GetRequiredService<ManagerTokenCache>();
     private readonly object _gate = new();
     private ManagerRegistrationState _state = ManagerRegistrationState.Unregistered;
@@ -143,7 +144,7 @@ public sealed class RegistrationCoordinator(
         {
             await DiscardAsync(e.Session);
             Reset();
-            return Refuse(e.Code);
+            return Refuse(e.Code, e.Notice);
         }
         catch (Exception e) when (e is HttpRequestException or OperationCanceledException or PlatformException)
         {
@@ -173,9 +174,11 @@ public sealed class RegistrationCoordinator(
 
     private sealed record Started(PairingSession Session, PairingIssued Issued);
 
-    private sealed class RegistrationRefusedException(string code, PairingSession? session) : Exception(code)
+    private sealed class RegistrationRefusedException(string code, PairingSession? session, string? notice = null) : Exception(code)
     {
         public string Code { get; } = code;
+
+        public string? Notice { get; } = notice;
 
         public PairingSession? Session { get; } = session;
     }
@@ -194,17 +197,30 @@ public sealed class RegistrationCoordinator(
             throw new RegistrationRefusedException(ManagerDiagnosticCodes.StampMismatch, null);
         }
 
+        // The field names the profiles the stamp accepts software keys for; older platforms only send the boolean.
+        var softwareKeysAllowed = stamp.SoftwareKeysAllowedFor is { } allowedFor
+            ? allowedFor.Contains(profile.ToApiName())
+            : stamp.SoftwareKeysAllowed;
         IDeviceKeyProvider provider;
         try
         {
-            provider = selector.Select(stamp.SoftwareKeysAllowed);
+            provider = selector.Select(softwareKeysAllowed);
         }
         catch (DeviceKeyException e)
         {
-            throw new RegistrationRefusedException(e.Code, null);
+            throw new RegistrationRefusedException(e.Code, null, SoftwareKeyNotice(e.Code));
         }
 
-        var key = await provider.CreateKeyAsync(stamp.SoftwareKeysAllowed, ct);
+        IDeviceKey key;
+        try
+        {
+            key = await provider.CreateKeyAsync(softwareKeysAllowed, ct);
+        }
+        catch (DeviceKeyException e) when (e.Code == ManagerDiagnosticCodes.SoftwareKeyNotAllowed)
+        {
+            throw new RegistrationRefusedException(e.Code, null, SoftwareKeyNotice(e.Code));
+        }
+
         var holder = new PairingSession(endpoint, provider, key, string.Empty, string.Empty, string.Empty, default, default);
         try
         {
@@ -214,7 +230,8 @@ public sealed class RegistrationCoordinator(
                 Truncate(Environment.OSVersion.VersionString, 64),
                 RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64",
                 ManagerVersion,
-                request.HostLabel);
+                request.HostLabel,
+                profile.ToApiName());
             var response = await platform.SendAsync(platform.BuildPairing(endpoint, stamp.StampId, key, metadata), ct);
             var issued = response.Status == HttpStatusCode.Created ? response.Read<PairingIssued>() : null;
             if (issued is null || issued.DeviceFingerprint != DeviceFingerprint.Compute(key.PublicJwk))
@@ -836,11 +853,17 @@ public sealed class RegistrationCoordinator(
         Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    private RegisterResult Refuse(string code)
+    private RegisterResult Refuse(string code, string? notice = null)
     {
         logger.LogInformation("Registration refused: {Code}", code);
-        return new RegisterResult(false, code);
+        return new RegisterResult(false, code, Notice: notice);
     }
+
+    private string? SoftwareKeyNotice(string code) => code != ManagerDiagnosticCodes.SoftwareKeyNotAllowed
+        ? null
+        : profile == ApplicationProfile.HeadlessServer
+            ? "This host has no hardware-backed key storage, and the stamp does not accept software keys for the headless profile. A Club Admin must set the stamp's software key policy to headless-server-only."
+            : "This host has no hardware-backed key storage, and the stamp does not accept software keys for the tray profile.";
 
     private static string Truncate(string value, int max) => value.Length <= max ? value : value[..max];
 }

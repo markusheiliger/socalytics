@@ -19,7 +19,7 @@ public sealed class RegistrationContractShapeTests
 	];
 
 	private static readonly string[] DeviceMetadataProperties =
-		["os", "osVersion", "architecture", "managerVersion", "claimedKeyProtection", "hostLabel"];
+		["os", "osVersion", "architecture", "managerVersion", "claimedKeyProtection", "claimedApplicationProfile", "hostLabel"];
 
 	private static readonly string[] PairingOriginProperties = ["sourceAddress", "requestedAt"];
 

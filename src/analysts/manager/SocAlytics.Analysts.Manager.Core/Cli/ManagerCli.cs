@@ -8,12 +8,26 @@ using SocAlytics.Analysts.Manager.Registration;
 
 namespace SocAlytics.Analysts.Manager.Cli;
 
-internal static class ManagerCli
+/// <summary>What the CLI takes from the terminal; tests replace it.</summary>
+public sealed class ManagerCliEnvironment
+{
+    public TextReader Input { get; init; } = Console.In;
+
+    public bool IsInteractive { get; init; } = !Console.IsInputRedirected;
+
+    /// <summary>Cancelled when the operator presses Ctrl+C; null registers the console signal.</summary>
+    public CancellationToken? Interrupt { get; init; }
+
+    public TimeSpan PollInterval { get; init; } = TimeSpan.FromSeconds(1);
+}
+
+public static class ManagerCli
 {
     public const int Success = 0;
     public const int Refused = 1;
     public const int Usage = 2;
     public const int Unavailable = 3;
+    public const int Interrupted = 130;
 
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
 
@@ -28,8 +42,10 @@ internal static class ManagerCli
         }
     }
 
-    public static async Task<int> RunAsync(string[] args, string socketPath, TextWriter output, TextWriter error)
+    public static async Task<int> RunAsync(
+        string[] args, string socketPath, TextWriter output, TextWriter error, ManagerCliEnvironment? environment = null)
     {
+        environment ??= new ManagerCliEnvironment();
         async Task<int> Send(string command, JsonObject? arguments, Func<JsonNode, string>? render = null, bool json = false)
         {
             try
@@ -77,22 +93,37 @@ internal static class ManagerCli
         register.Options.Add(stamp);
         register.Options.Add(label);
         register.Options.Add(noWait);
-        register.SetAction(async (r, _) =>
+        register.SetAction(async (r, ct) =>
         {
             var a = new JsonObject { ["platformEndpoint"] = r.GetValue(platform) };
             if (r.GetValue(stamp) is { } s) { a["stampId"] = s; }
-            if (r.GetValue(label) is { } l)
+            var l = r.GetValue(label);
+            if (l is null)
             {
-                if (HostLabel.TryNormalize(l, out var problem) is not { } normalized)
+                if (!environment.IsInteractive)
                 {
-                    await error.WriteLineAsync(problem);
+                    await error.WriteLineAsync("Pass --host-label in a non-interactive session.");
                     return Usage;
                 }
 
-                a["hostLabel"] = normalized;
+                await output.WriteAsync("Host label: ");
+                l = await environment.Input.ReadLineAsync(ct) ?? string.Empty;
             }
 
-            return await Send("register", a, RegisterText);
+            if (HostLabel.TryNormalize(l, out var problem) is not { } normalized)
+            {
+                await error.WriteLineAsync(problem);
+                return Usage;
+            }
+
+            a["hostLabel"] = normalized;
+            var started = await Send("register", a, RegisterText);
+            if (started != Success || r.GetValue(noWait))
+            {
+                return started;
+            }
+
+            return await AwaitPairingAsync(socketPath, output, environment, ct);
         });
         root.Subcommands.Add(register);
 
@@ -196,6 +227,64 @@ internal static class ManagerCli
         return code;
     }
 
+    /// <summary>Waits until the pairing ends; Ctrl+C cancels it so no registration state changes.</summary>
+    private static async Task<int> AwaitPairingAsync(
+        string socketPath, TextWriter output, ManagerCliEnvironment environment, CancellationToken cancellationToken)
+    {
+        using var interrupt = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        ConsoleCancelEventHandler? handler = null;
+        if (environment.Interrupt is { } token)
+        {
+            token.Register(interrupt.Cancel);
+        }
+        else
+        {
+            handler = (_, e) => { e.Cancel = true; interrupt.Cancel(); };
+            Console.CancelKeyPress += handler;
+        }
+
+        try
+        {
+            while (true)
+            {
+                await Task.Delay(environment.PollInterval, interrupt.Token);
+                var status = await LocalControlClient.SendAsync(
+                    socketPath, new LocalControlRequest(LocalControlProtocol.Version, "status", null), Timeout);
+                var state = (string?)status.Result?["registrationState"];
+                if (!status.Ok || state != "pairing")
+                {
+                    await output.WriteLineAsync($"Registration: {state ?? "unknown"}");
+                    return Success;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                await LocalControlClient.SendAsync(
+                    socketPath, new LocalControlRequest(LocalControlProtocol.Version, "cancel-registration", null), Timeout);
+            }
+            catch (LocalControlUnavailableException)
+            {
+            }
+
+            await output.WriteLineAsync("Registration cancelled.");
+            return Interrupted;
+        }
+        catch (LocalControlUnavailableException)
+        {
+            return Unavailable;
+        }
+        finally
+        {
+            if (handler is not null)
+            {
+                Console.CancelKeyPress -= handler;
+            }
+        }
+    }
+
     private static string Accepted(JsonNode n) =>
         $"{(string?)n["command"]}: accepted (registration {(string?)n["registrationState"]}, operating {(string?)n["operatingState"] ?? "none"})";
 
@@ -210,13 +299,25 @@ internal static class ManagerCli
     {
         var lines = new List<string>
         {
+            $"Version: {(string?)n["managerVersion"] ?? "-"}",
+            $"Profile: {(string?)n["applicationProfile"] ?? "-"}",
             $"Registration: {(string?)n["registrationState"]}",
+            $"Connectivity: {(string?)n["connectivity"]?["state"] ?? "unknown"}",
             $"Operating: {(string?)n["operatingState"] ?? "none"}",
             $"Club: {(string?)n["clubName"] ?? "-"}",
             $"Stamp: {(string?)n["stampId"] ?? "-"}",
             $"Fingerprint: {(string?)n["deviceFingerprint"] ?? "-"}",
             $"Uptime: {(double?)n["uptimeSeconds"] ?? 0:F0}s",
         };
+        if (n["lingering"] is { } lingering)
+        {
+            lines.Insert(2, $"Lingering: {(string?)lingering}");
+            if ((string?)lingering == "off")
+            {
+                lines.Insert(3, "Run 'sudo loginctl enable-linger <user>' so the Manager keeps running without a session.");
+            }
+        }
+
         if (n["pauseRemainingSeconds"] is { } rem)
         {
             lines.Add($"Pause remaining: {(double)rem:F0}s");

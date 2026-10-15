@@ -87,8 +87,9 @@ approval, activation, DPoP machine tokens, revocation, unregistration):
   values, not adopted production values.
 - `Stamp:Id` and `Stamp:PublicBaseUri` identify the stamp and build the
   verification address (development values are in `appsettings.Development.json`).
-- `Registry` option defaults: `AllowSoftwareKeys` false (true only for
-  development and test), `Pairing:MaxFingerprintMismatches` 3,
+- `Registry` option defaults: `SoftwareKeys` `refused` (`headless-server-only`
+  accepts software keys from headless server claims, `all` only in development
+  and test; other environments fail start-up with `all`), `Pairing:MaxFingerprintMismatches` 3,
   `Pairing:Window` 10 minutes, `Pairing:ApprovalWindow` 24 hours,
   `Pairing:ActivationWindow` 10 minutes, `Pairing:ChallengeLifetime` 60 seconds,
   `Pairing:PollingInterval` 5 seconds, `Tokens:Lifetime` 5 minutes, and an

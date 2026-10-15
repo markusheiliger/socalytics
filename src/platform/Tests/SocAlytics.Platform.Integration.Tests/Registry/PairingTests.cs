@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Npgsql;
 using Shouldly;
+using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using SocAlytics.Platform.Integration.Tests.Registry.Support;
@@ -16,7 +17,7 @@ public sealed class PairingTests(PostgresContainerFixture postgres)
     {
         var db = await postgres.CreateDatabaseAsync(ct);
         (await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
-        var factory = RegistryTestHost.Create(db, software);
+        var factory = RegistryTestHost.Create(db, software ? SoftwareKeyPolicy.All : SoftwareKeyPolicy.Refused);
         await factory.WaitUntilHealthyAsync(ct);
         return (db, factory);
     }

@@ -15,7 +15,7 @@ internal static class RegistryApiRegistration
 			new StampOptionsValidator(builder.Environment.IsDevelopment()));
 		builder.Services.AddOptions<StampOptions>().ValidateOnStart();
 		builder.Services.AddSingleton<IValidateOptions<RegistryOptions>>(
-			new RegistryOptionsValidator(builder.Environment.IsDevelopment()));
+			new RegistryOptionsValidator(builder.Environment.IsDevelopment(), builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Test")));
 		builder.Services.AddOptions<RegistryOptions>().ValidateOnStart();
 		builder.Services.ConfigureHttpJsonOptions(options =>
 			options.SerializerOptions.TypeInfoResolver = (options.SerializerOptions.TypeInfoResolver ?? new DefaultJsonTypeInfoResolver())
@@ -68,10 +68,15 @@ public sealed class StampOptionsValidator(bool allowHttp) : IValidateOptions<Sta
 	}
 }
 
-public sealed class RegistryOptionsValidator(bool allowHttp) : IValidateOptions<RegistryOptions>
+public sealed class RegistryOptionsValidator(bool allowHttp, bool allowAllSoftwareKeys = false) : IValidateOptions<RegistryOptions>
 {
 	public ValidateOptionsResult Validate(string? name, RegistryOptions options)
 	{
+		if (options.SoftwareKeys == SoftwareKeyPolicy.All && !allowAllSoftwareKeys)
+		{
+			return ValidateOptionsResult.Fail("Registry:SoftwareKeys 'all' is allowed only in the Development and Test environments.");
+		}
+
 		var value = options.Pairing.VerificationBaseUri;
 		if (value is null)
 		{
