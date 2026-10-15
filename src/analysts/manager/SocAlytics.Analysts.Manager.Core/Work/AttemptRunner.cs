@@ -44,6 +44,9 @@ public sealed class AttemptRunner(
 {
     public static readonly TimeSpan ClaimRetryWindow = TimeSpan.FromSeconds(20);
 
+    public const string JobFileName = "job.json";
+    public const string ScratchFolder = "scratch";
+
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(1);
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(30);
 
@@ -198,10 +201,11 @@ public sealed class AttemptRunner(
             try
             {
                 string? inputsDirectory = null;
+                var attemptDirectory = UpstreamStager.DirectoryFor(attempt.AttemptId);
+                LiveDirectories[attemptDirectory] = 0;
+                PrepareAttemptDirectory(attempt, attemptDirectory);
                 if (stager is not null && UpstreamStager.HasUpstream(attempt.Job))
                 {
-                    var attemptDirectory = UpstreamStager.DirectoryFor(attempt.AttemptId);
-                    LiveDirectories[attemptDirectory] = 0;
                     var staged = await stager.StageAsync(attempt, attemptDirectory, sessions, cancellationToken);
                     if (staged.End == StagingEnd.Obsolete)
                     {
@@ -316,16 +320,8 @@ public sealed class AttemptRunner(
                 await CleanUpAsync(attempt, execution);
             }
 
-            if (publisher is not null)
-            {
-                DeleteResultDirectory(attempt);
-            }
-
-            if (stager is not null)
-            {
-                DeleteAttemptDirectory(attempt);
-                LiveDirectories.TryRemove(UpstreamStager.DirectoryFor(attempt.AttemptId), out _);
-            }
+            DeleteAttemptDirectory(attempt);
+            LiveDirectories.TryRemove(UpstreamStager.DirectoryFor(attempt.AttemptId), out _);
         }
     }
 
@@ -371,19 +367,13 @@ public sealed class AttemptRunner(
         }
     }
 
-    private void DeleteResultDirectory(ActiveAttempt attempt)
+    private static void PrepareAttemptDirectory(ActiveAttempt attempt, string attemptDirectory)
     {
-        try
-        {
-            Directory.Delete(ResultPublisher.DirectoryFor(attempt.AttemptId), true);
-        }
-        catch (DirectoryNotFoundException)
-        {
-        }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
-        {
-            _logger.LogWarning("Removing the result directory of attempt {AttemptId} failed: {Error}", attempt.AttemptId, e.GetType().Name);
-        }
+        Directory.CreateDirectory(attemptDirectory);
+        Directory.CreateDirectory(Path.Combine(attemptDirectory, ResultPublisher.ResultFolder));
+        Directory.CreateDirectory(Path.Combine(attemptDirectory, ScratchFolder));
+        File.WriteAllBytes(
+            Path.Combine(attemptDirectory, JobFileName), JsonSerializer.SerializeToUtf8Bytes(attempt.Job, PlatformJson.Options));
     }
 
     private static async Task<AttemptOutcome> ReadOutcomeAsync(IAttemptExecution execution)
@@ -527,12 +517,13 @@ public sealed class AttemptRunner(
     private AttemptLaunch Launch(ActiveAttempt attempt, string? inputsDirectory)
     {
         var job = attempt.Job;
-        var resultDirectory = publisher is null ? null : ResultPublisher.DirectoryFor(attempt.AttemptId);
+        var attemptDirectory = UpstreamStager.DirectoryFor(attempt.AttemptId);
         return new AttemptLaunch(
             attempt.AttemptId.ToString(), job.LogicalJobId, job.Capability.Id, $"{job.Capability.Id}:{job.Capability.Version}",
             job.ExecutionScope, job.Pinned.AnalystProfileDigest, job.Pinned.ImageDigest, job.Pinned.ModelDigest ?? string.Empty,
             new AttemptResources(job.Resources.CpuMillicores / 1000.0, job.Resources.MemoryMebibytes * 1024 * 1024, []),
-            job, attempt.AttemptNumber, resultDirectory, inputsDirectory);
+            job, attempt.AttemptNumber, publisher is null ? null : ResultPublisher.DirectoryFor(attempt.AttemptId), inputsDirectory,
+            Path.Combine(attemptDirectory, JobFileName), Path.Combine(attemptDirectory, ScratchFolder));
     }
 
     private static ExecutedRuntime Describe(string profile) => new(
