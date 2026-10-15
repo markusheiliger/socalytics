@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/result-grants/v1/result-grants.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analysis result write grants",
+  "description": "Request and response of POST /api/v1/analysis/attempts/{attemptId}/result-grants (operation issueAnalysisResultGrants). The request declares result objects by name, size, and digest; the response carries one single-object presigned PUT grant per declared object. Grant URLs and headers are never logged or audited. Repeated entries are refused structurally; repeated names with different sizes or digests are refused by the platform as a whole.",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" }
+  ],
+  "$defs": {
+    "objectName": {
+      "description": "Relative object name in the attempt's result location. The manifest is always manifest.json.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._\\-]{0,127}$"
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fencingToken", "objects"],
+      "properties": {
+        "fencingToken": { "$ref": "../../../common/v1/common.schema.json#/$defs/fencingToken" },
+        "objects": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "sizeBytes", "digest"],
+            "properties": {
+              "name": { "$ref": "#/$defs/objectName" },
+              "sizeBytes": { "type": "integer", "minimum": 1 },
+              "digest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" }
+            }
+          }
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resultLocation", "grants"],
+      "properties": {
+        "resultLocation": {
+          "description": "Derived result location results/<runId>/<logicalJobId>/<attemptId>/.",
+          "type": "string",
+          "maxLength": 1024,
+          "pattern": "^results/[A-Za-z0-9][A-Za-z0-9._\\-]*/[A-Za-z0-9][A-Za-z0-9._\\-]*/[A-Za-z0-9][A-Za-z0-9._\\-]*/$"
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "method", "url", "requiredHeaders", "expiresAt"],
+            "properties": {
+              "name": { "$ref": "#/$defs/objectName" },
+              "method": { "const": "PUT" },
+              "url": { "type": "string", "minLength": 1, "maxLength": 4096 },
+              "requiredHeaders": {
+                "type": "object",
+                "additionalProperties": { "type": "string", "maxLength": 1024 }
+              },
+              "expiresAt": { "$ref": "../../../common/v1/common.schema.json#/$defs/timestamp" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

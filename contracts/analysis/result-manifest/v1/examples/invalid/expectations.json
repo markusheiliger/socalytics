@@ -1,0 +1,10 @@
+{
+  "missing-scope.json": "required",
+  "missing-contract-version.json": "required",
+  "unknown-property.json": "additionalProperties",
+  "presigned-url-in-artifact-name.json": "pattern",
+  "carries-credential-field.json": "additionalProperties",
+  "carries-inline-media.json": "additionalProperties",
+  "negative-fact-count.json": "minimum",
+  "confidence-above-one.json": "maximum"
+}
