@@ -89,7 +89,7 @@ test('a request decided meanwhile shows the refusal and the current state (scena
   await page.getByRole('button', { name: 'Approve…' }).click();
   await page.getByRole('dialog').getByLabel(CONFIRMATION).fill('NNPKJR');
   await page.getByRole('dialog').getByRole('button', { name: 'Approve', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('can no longer be decided');
+  await expect(page.getByRole('alert').filter({ hasText: 'can no longer be decided' })).toBeVisible();
   await expect(page.getByText('State: Rejected')).toBeVisible();
   await expect(page.getByText('Reason: Someone else')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Approve…' })).toHaveCount(0);
