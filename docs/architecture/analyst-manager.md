@@ -99,6 +99,17 @@ Queue depth is operational guidance, not a transactional guarantee. The AM
 obtains it through the registered stamp API and does not infer permission to
 pull work from the displayed value.
 
+Decided, not yet implemented: the stamp operation
+`GET /api/v1/analyst-managers/self/queue-depth` returns, for the capability ids
+the Manager is assigned through its queue credentials, the number of ready
+jobs each capability's JetStream consumer has not yet delivered, with the
+platform's observation time. The Manager asks for it after each registration
+check, keeps only the latest observation in memory, and marks it stale after a
+failed request or two check intervals. It samples host CPU and memory locally
+every few seconds. Neither value leaves the host: the status report and the
+fleet view carry neither. Accelerator utilization follows an accelerated
+runtime.
+
 Avalonia supplies the tray and status UI in the same process as the Core
 worker, without embedding a browser runtime alongside Analyst workloads. The
 tray menu offers status, pause, pause for a chosen time with automatic resume,
