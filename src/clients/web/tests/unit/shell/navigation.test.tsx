@@ -12,16 +12,21 @@ async function navLinks(clubRoles: ClubRole[], teamRoles: TeamRole[]) {
 }
 
 describe('role-based navigation', () => {
-  it('offers a Club Admin club, seasons, teams, members, and account', async () => {
-    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Account']);
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })));
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('offers a Club Admin club, seasons, teams, members, Analyst Managers, pairing, and account', async () => {
+    expect(await navLinks(['ClubAdmin'], [])).toEqual(['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Pair a Manager', 'Account']);
   });
 
   it('offers a team member only teams and account', async () => {
     expect(await navLinks([], [team])).toEqual(['Home', 'Teams', 'Account']);
   });
 
-  it('offers a Registrar without other roles only home and account', async () => {
-    expect(await navLinks(['Registrar'], [])).toEqual(['Home', 'Account']);
+  it('offers a Registrar without other roles only home, requests, pairing, and account', async () => {
+    expect(await navLinks(['Registrar'], [])).toEqual(['Home', 'My registration requests', 'Pair a Manager', 'Account']);
   });
 
   it('shows the not-permitted view with the navigation for a disallowed address', async () => {

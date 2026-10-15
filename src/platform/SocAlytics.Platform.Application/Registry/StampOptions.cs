@@ -21,7 +21,10 @@ public sealed class StampOptions
     public Uri VerificationUri(RegistryOptions registry)
     {
         ArgumentNullException.ThrowIfNull(registry);
-        return Build(registry.Pairing.VerificationPath);
+        var baseUri = string.IsNullOrWhiteSpace(registry.Pairing.VerificationBaseUri)
+            ? PublicBaseUri
+            : registry.Pairing.VerificationBaseUri;
+        return new(baseUri.TrimEnd('/') + "/" + registry.Pairing.VerificationPath.TrimStart('/'), UriKind.Absolute);
     }
 
     public Uri Build(string path) =>

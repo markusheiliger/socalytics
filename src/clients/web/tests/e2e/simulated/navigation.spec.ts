@@ -3,13 +3,13 @@ import { expect, test } from '../support/fixtures';
 import { activateWithKeyboard, expectAllReachableByKeyboard } from '../support/keyboard';
 import type { SimulatedRole } from '../support/simulatedApi';
 
-const NAVIGATION: Record<SimulatedRole, string[]> = {
-  ClubAdmin: ['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Account'],
+const NAVIGATION: Record<Exclude<SimulatedRole, 'Registrar'>, string[]> = {
+  ClubAdmin: ['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Pair a Manager', 'Account'],
   Coach: ['Home', 'Teams', 'Account'],
   Viewer: ['Home', 'Teams', 'Account'],
 };
 
-for (const role of Object.keys(NAVIGATION) as SimulatedRole[]) {
+for (const role of Object.keys(NAVIGATION) as (keyof typeof NAVIGATION)[]) {
   test(`navigation of a ${role} offers exactly the allowed routes (scenarios 1, 2)`, async ({ page, api }) => {
     api.signInAs(role);
     await page.goto('/');
@@ -24,7 +24,7 @@ for (const role of Object.keys(NAVIGATION) as SimulatedRole[]) {
   });
 }
 
-for (const role of Object.keys(NAVIGATION) as SimulatedRole[]) {
+for (const role of Object.keys(NAVIGATION) as (keyof typeof NAVIGATION)[]) {
   test(`shell navigation and home view of a ${role} are operable by keyboard`, async ({ page, api }) => {
     api.signInAs(role);
     await page.goto('/');

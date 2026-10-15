@@ -1,0 +1,151 @@
+{
+  "pairing": {
+    "title": "Pair a Manager",
+    "intro": "Enter the pairing code and the device fingerprint shown on the Analyst Manager.",
+    "code": "Pairing code",
+    "fingerprint": "Device fingerprint",
+    "submit": "Submit",
+    "submitting": "Submitting…",
+    "resultTitle": "Request submitted",
+    "resultIntro": "Compare these values with the Manager's screen before you leave.",
+    "state": "State: {{state}}",
+    "hostLabel": "Host label: {{value}}",
+    "keyProtection": "Claimed key protection: {{value}}",
+    "os": "Operating system: {{value}}",
+    "fingerprintValue": "Device fingerprint: {{value}}",
+    "deadline": "Open for approval until {{value}}",
+    "notProvided": "not provided",
+    "again": "Pair another Manager"
+  },
+  "requests": {
+    "title": "My registration requests",
+    "detailTitle": "Registration request",
+    "listLabel": "My registration requests",
+    "empty": "You have not submitted any registration requests.",
+    "listEntry": "{{host}} – {{state}}",
+    "back": "Back to my registration requests",
+    "fingerprint": "Device fingerprint: {{value}}",
+    "submittedAt": "Submitted: {{value}}",
+    "decidedAt": "Decided: {{value}}",
+    "reason": "Reason: {{value}}",
+    "approvalDeadline": "Can be approved until {{value}}",
+    "activationDeadline": "Can be activated until {{value}}",
+    "notFound": "This registration request was not found."
+  },
+  "state": {
+    "pairing": "Pairing",
+    "pendingApproval": "Pending approval",
+    "approved": "Approved",
+    "active": "Active",
+    "unregistering": "Unregistering",
+    "unregistered": "Unregistered",
+    "rejected": "Rejected",
+    "expired": "Expired",
+    "revoked": "Revoked",
+    "unknown": "Unknown"
+  },
+  "keyProtection": {
+    "tpm": "TPM",
+    "secure-enclave": "Secure Enclave",
+    "pkcs11-token": "PKCS#11 token",
+    "software": "Software (not hardware-protected; the platform cannot verify any claimed protection)",
+    "unknown": "Unknown"
+  },
+  "fleet": {
+    "title": "Analyst Managers",
+    "listLabel": "Analyst Managers",
+    "filter": "Show",
+    "filters": {
+      "current": "Current",
+      "ended": "Ended",
+      "all": "All"
+    },
+    "empty": "No Analyst Managers match this filter.",
+    "ownSubmission": "Submitted by you",
+    "keyProtection": "Claimed key protection: {{value}}",
+    "connectivity": "Connectivity: {{value}}",
+    "connectivityWithReport": "Connectivity: {{value}} (last report: {{time}})",
+    "connectivityNoReport": "Connectivity: {{value}} (no report yet)",
+    "operatingState": "Operating state: {{value}}",
+    "analysts": "Analysts: {{active}} of {{max}}",
+    "analystsActiveOnly": "Active Analysts: {{active}}",
+    "analystsMaxOnly": "Maximum Analysts: {{max}}",
+    "version": "Version: {{value}}"
+  },
+  "connectivity": {
+    "online": "Online",
+    "offline": "Offline",
+    "notApplicable": "Not applicable",
+    "unknown": "Unknown"
+  },
+  "operating": {
+    "running": "Running",
+    "paused": "Paused",
+    "pausedUntil": "Paused until {{value}}",
+    "runtimeUnavailable": "Runtime unavailable",
+    "runtimeUnavailableReason": "Runtime unavailable: {{reason}}",
+    "draining": "Draining",
+    "unknown": "Unknown"
+  },
+  "registration": {
+    "title": "Registration",
+    "back": "Back to Analyst Managers",
+    "details": "Registration details",
+    "os": "Operating system: {{value}}",
+    "architecture": "Architecture: {{value}}",
+    "managerVersion": "Manager version: {{value}}",
+    "requestedAt": "Pairing requested: {{value}}",
+    "sourceAddress": "Pairing request origin: {{value}}",
+    "submittedBy": "Submitted by member: {{value}}",
+    "decidedBy": "Decided by member: {{value}}",
+    "pairingDeadline": "Pairing open until {{value}}",
+    "activatedAt": "Activated: {{value}}",
+    "physicalWarning": "Approve only Managers you can physically identify.",
+    "softwareWarning": "This Manager claims a software-backed key. The key is not hardware-protected, and the platform cannot verify any claimed protection.",
+    "claimedNotVerified": "Key protection is claimed by the Manager and is not verified by the platform.",
+    "revokedBy": "Revoked by member: {{value}}",
+    "endedAt": "Ended: {{value}}",
+    "endReason": "End reason: {{value}}",
+    "notice": {
+      "approved": "Approved. The request now waits for the Manager to activate.",
+      "rejected": "The request was rejected.",
+      "revoked": "The registration was revoked."
+    }
+  },
+  "revoke": {
+    "open": "Revoke…",
+    "title": "Revoke this Manager",
+    "host": "Host label: {{value}}",
+    "noHost": "This Manager has no host label.",
+    "active": "Active Analysts: {{value}}",
+    "activeUnknown": "Active Analysts: not reported",
+    "consequences": "Revocation cannot be undone. The Manager's running work is stopped and, where attempts remain, retried by another Manager. The Manager must be registered again before it can work for the club.",
+    "reason": "Reason",
+    "hint": "Required, up to {{max}} characters.",
+    "tooLong": "The reason may have at most {{max}} characters.",
+    "confirmationHost": "Type the host label to confirm",
+    "confirmationFingerprint": "Type the last 6 characters of the fingerprint to confirm",
+    "mismatch": "This does not match.",
+    "confirm": "Revoke"
+  },
+  "approve": {
+    "open": "Approve…",
+    "title": "Approve this Manager",
+    "intro": "Enter the last 6 characters of the fingerprint shown on the Manager's screen. Separators and letter case are ignored.",
+    "confirmation": "Last 6 characters of the fingerprint",
+    "mismatch": "This does not match the fingerprint of this request.",
+    "confirm": "Approve"
+  },
+  "reject": {
+    "open": "Reject…",
+    "title": "Reject this request",
+    "intro": "Give the reason for rejecting this request.",
+    "reason": "Reason",
+    "hint": "Required, up to {{max}} characters.",
+    "tooLong": "The reason may have at most {{max}} characters.",
+    "confirm": "Reject"
+  },
+  "decision": {
+    "cancel": "Cancel"
+  }
+}

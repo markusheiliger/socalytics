@@ -1,5 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import type {
+  AnalystManagerRegistrationDto,
+  AnalystManagerRegistrationPageDto,
   ClubDto,
   CurrentMemberDto,
   MemberDto,
@@ -11,7 +13,7 @@ import type {
   TeamPageDto,
 } from '../../../src/generated/platform-api/models';
 
-export type SimulatedRole = 'ClubAdmin' | 'Coach' | 'Viewer';
+export type SimulatedRole = 'ClubAdmin' | 'Registrar' | 'Coach' | 'Viewer';
 
 export const ANTIFORGERY_TOKEN = 'simulated-antiforgery-token-7f3a9c';
 export const SIMULATED_PASSWORD = 'Simulated-Password-1!';
@@ -23,6 +25,7 @@ const ids = {
   session: '00000000-0000-4000-8000-000000000004',
   admin: '00000000-0000-4000-8000-000000000011',
   coach: '00000000-0000-4000-8000-000000000012',
+  registrar: '00000000-0000-4000-8000-000000000014',
   viewer: '00000000-0000-4000-8000-000000000013',
 };
 
@@ -57,6 +60,14 @@ const members: Record<SimulatedRole, CurrentMemberDto> = {
     membershipStatus: 'Active',
     passwordChangeRequired: false,
     clubRoles: ['ClubAdmin'],
+    teamRoles: [],
+  },
+  Registrar: {
+    id: ids.registrar,
+    accountName: 'registrar',
+    membershipStatus: 'Active',
+    passwordChangeRequired: false,
+    clubRoles: ['Registrar'],
     teamRoles: [],
   },
   Coach: {
@@ -137,6 +148,132 @@ export class SimulatedApi {
     this.overrides.set(`${method.toUpperCase()} ${path}`, handler);
   }
 
+  /** Registrations the simulated platform knows, in list order; tests may add, replace, or clear them. */
+  registrations: AnalystManagerRegistrationDto[] = [];
+  /** Pairing codes (as typed, upper-case, with dashes) the platform accepts, mapped to the registration they pair. */
+  readonly pairingCodes = new Map<string, string>();
+  /** When set, every code submission answers 429 with this `Retry-After` in seconds. */
+  rateLimitSubmissionsFor: number | null = null;
+
+  /** Adds a registration, and optionally a pairing code that submits it. */
+  addRegistration(registration: AnalystManagerRegistrationDto, pairingCode?: string): AnalystManagerRegistrationDto {
+    this.registrations.push(registration);
+    if (pairingCode) this.pairingCodes.set(pairingCode, String(registration.registrationId));
+    return registration;
+  }
+
+  private async handleRegistrations(
+    route: Route,
+    method: string,
+    path: string,
+    role: SimulatedRole,
+    json: (status: number, body: unknown) => Promise<void>,
+  ): Promise<void> {
+    const request = route.request();
+    const isAdmin = role === 'ClubAdmin';
+    if (!isAdmin && role !== 'Registrar') return json(403, problem(403, 'Forbidden'));
+    const self = String(members[role].id);
+    const visible = (r: AnalystManagerRegistrationDto) => isAdmin || String(r.submittedBy) === self;
+    // Status and connectivity belong to the Club Admin fleet view only.
+    const shape = (r: AnalystManagerRegistrationDto): AnalystManagerRegistrationDto => {
+      if (isAdmin) return r;
+      const { status: _status, connectivity: _connectivity, ...rest } = r;
+      return rest as AnalystManagerRegistrationDto;
+    };
+    const entity = (r: AnalystManagerRegistrationDto, status = 200) =>
+      route.fulfill({
+        status,
+        contentType: 'application/json',
+        headers: { ETag: `"${r.version}"` },
+        body: JSON.stringify(shape(r)),
+      });
+    let body: Record<string, unknown> = {};
+    try {
+      body = (request.postDataJSON() ?? {}) as Record<string, unknown>;
+    } catch {
+      body = {};
+    }
+
+    if (path === '/analyst-manager-registrations') {
+      if (method === 'POST') {
+        if (this.rateLimitSubmissionsFor !== null) {
+          return route.fulfill({
+            status: 429,
+            contentType: 'application/problem+json',
+            headers: { 'Retry-After': String(this.rateLimitSubmissionsFor) },
+            body: JSON.stringify(problem(429, 'Too many requests', { code: 'analyst-manager-rate-limited' })),
+          });
+        }
+        const normalize = (value: unknown) => String(value ?? '').replace(/[^0-9a-z]/gi, '').toUpperCase();
+        const code = [...this.pairingCodes.entries()].find(([c]) => normalize(c) === normalize(body.pairingCode));
+        const found = code && this.registrations.find((r) => String(r.registrationId) === code[1]);
+        if (
+          !found ||
+          found.state !== 'pairing' ||
+          normalize(found.deviceFingerprint) !== normalize(body.deviceFingerprint)
+        ) {
+          return json(400, problem(400, 'Pairing code invalid', { code: 'analyst-manager-pairing-code-invalid' }));
+        }
+        Object.assign(found, {
+          state: 'pending_approval',
+          submittedBy: self,
+          submittedAt: now,
+          version: Number(found.version) + 1,
+        });
+        this.pairingCodes.delete(code[0]);
+        return entity(found, 201);
+      }
+      if (method === 'GET') {
+        const state = new URL(request.url()).searchParams.get('state');
+        const items = this.registrations.filter((r) => visible(r) && (!state || r.state === state)).map(shape);
+        return json(200, { items, continuationToken: null } satisfies AnalystManagerRegistrationPageDto);
+      }
+      return json(404, problem(404, 'Not found'));
+    }
+
+    const match = /^\/analyst-manager-registrations\/([^/]+)(?:\/(approval|rejection|revocation))?$/.exec(path);
+    const target = match && this.registrations.find((r) => String(r.registrationId) === match[1]);
+    if (!match || !target || !visible(target)) return json(404, problem(404, 'Not found'));
+    const action = match[2];
+    if (!action && method === 'GET') return entity(target);
+    if (!action || method !== 'POST') return json(404, problem(404, 'Not found'));
+    if (!isAdmin) return json(403, problem(403, 'Forbidden'));
+
+    const required = action === 'approval' || action === 'rejection' ? 'pending_approval' : 'active';
+    if (action !== 'approval') {
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+      if (reason.length < 1 || reason.length > 500) {
+        return json(400, problem(400, 'Validation failed', { errors: [{ field: 'reason', code: 'invalid' }] }));
+      }
+    }
+    if (target.state !== required) {
+      return json(409, problem(409, 'Invalid state transition', { code: 'invalid-state-transition' }));
+    }
+    if (
+      action !== 'revocation' &&
+      target.approvalExpiresAt &&
+      new Date(target.approvalExpiresAt).getTime() < Date.now()
+    ) {
+      return json(409, problem(409, 'Registration expired', { code: 'analyst-manager-registration-expired' }));
+    }
+    const decided = { decidedBy: self, decidedAt: new Date(), version: Number(target.version) + 1 };
+    if (action === 'approval') Object.assign(target, decided, { state: 'approved' });
+    if (action === 'rejection') {
+      Object.assign(target, decided, { state: 'rejected', decisionReason: body.reason, endedAt: decided.decidedAt });
+    }
+    if (action === 'revocation') {
+      Object.assign(target, {
+        state: 'revoked',
+        revokedBy: self,
+        endedAt: decided.decidedAt,
+        endReason: body.reason,
+        connectivity: 'not-applicable',
+        version: decided.version,
+      });
+    }
+    return entity(target);
+  }
+
   private async handle(route: Route): Promise<void> {
     const request = route.request();
     const path = new URL(request.url()).pathname.replace(/^\/api\/v1/, '');
@@ -194,6 +331,9 @@ export class SimulatedApi {
     if (passwordChangeRequired) {
       return json(403, problem(403, 'Password change required', { code: 'password_change_required' }));
     }
+    if (path.startsWith('/analyst-manager-registrations')) {
+      return this.handleRegistrations(route, method, path, role, json);
+    }
     if (method === 'GET') {
       if (path === '/club') return json(200, club);
       if (path === '/seasons') {
@@ -205,7 +345,7 @@ export class SimulatedApi {
       if (path === '/members') {
         if (role !== 'ClubAdmin') return json(403, problem(403, 'Forbidden'));
         return json(200, {
-          items: Object.values(members).map(memberListEntry),
+          items: [members.ClubAdmin, members.Coach, members.Viewer].map(memberListEntry),
           continuationToken: null,
         } satisfies MemberPageDto);
       }
