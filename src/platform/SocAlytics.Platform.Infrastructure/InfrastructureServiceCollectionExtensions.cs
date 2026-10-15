@@ -43,6 +43,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IExecutionAttemptStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.ExecutionAttemptStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IAcceptedResultStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AcceptedResultStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.ICompletionOutcomeStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.CompletionOutcomeStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.IResultDeclarationStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.ResultDeclarationStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.IAcceptedResultManifestStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AcceptedResultManifestStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.INotificationReceiptStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.NotificationReceiptStore>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Abstractions.IRegistrySecretGenerator, SocAlytics.Platform.Infrastructure.Registry.RegistrySecretGenerator>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Abstractions.IRegistrationStore, SocAlytics.Platform.Infrastructure.Registry.DapperRegistrationStore>();
