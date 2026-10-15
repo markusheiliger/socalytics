@@ -37,6 +37,11 @@ application projects and tests. No deployment manifests or product automation ex
 
 ## Development
 
+Implementation workflows reuse trusted NuGet and npm download caches without skipping installs, builds, or tests.
+See [dependency cache operation and measurements](.github/workflows/README.md#dependency-download-caches).
+Run the workflow tooling regression tests from the repository root with
+`node --test .github/scripts/*.test.mjs`.
+
 ### Platform Host
 
 The platform uses the .NET 10 SDK. Run these commands from the repository root:
