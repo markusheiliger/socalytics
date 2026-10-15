@@ -2,7 +2,7 @@
 
 **Branch**: `20261013-122132-web-ui-manager-fleet` | **Date**: 2026-10-13 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261013-122132-web-ui-manager-fleet/spec.md`
+**Input**: Feature specification from `specs/archive/20261013-122132-web-ui-manager-fleet/spec.md`
 
 ## Summary
 
@@ -102,10 +102,10 @@ Post-design re-check: passes; no Complexity Tracking entries.
 
 **Narratives implemented**:
 
-- [analyst-manager.md](../../docs/architecture/analyst-manager.md) § Browser Pairing And Approval: the browser side, meaning the pairing page and the Club Admin decision view.
-- [analyst-manager.md](../../docs/architecture/analyst-manager.md) § Fleet Visibility In The Web UI.
-- [client-applications.md](../../docs/architecture/client-applications.md) § Web UI: the Analyst Manager fleet view.
-- [platform-implementation.md](../../docs/architecture/platform-implementation.md) § API And Identity: the Analyst Manager registration operations.
+- [analyst-manager.md](../../../docs/architecture/analyst-manager.md) § Browser Pairing And Approval: the browser side, meaning the pairing page and the Club Admin decision view.
+- [analyst-manager.md](../../../docs/architecture/analyst-manager.md) § Fleet Visibility In The Web UI.
+- [client-applications.md](../../../docs/architecture/client-applications.md) § Web UI: the Analyst Manager fleet view.
+- [platform-implementation.md](../../../docs/architecture/platform-implementation.md) § API And Identity: the Analyst Manager registration operations.
 
 **Design updates** (applied with this plan as decided, not implemented; the implementation turns them into present
 tense):
@@ -131,7 +131,7 @@ The documentation task (T013) must make these narratives and every status statem
 ### Documentation (this feature)
 
 ```text
-specs/20261013-122132-web-ui-manager-fleet/
+specs/archive/20261013-122132-web-ui-manager-fleet/
 ├── plan.md
 ├── research.md          # Decisions R1–R8
 ├── data-model.md        # Registration client view, filters, forms, pending count

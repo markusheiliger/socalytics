@@ -5,7 +5,7 @@ description: "Task list for Web UI Analyst Manager Fleet and Registration Approv
 
 # Tasks: Web UI Analyst Manager Fleet and Registration Approval
 
-**Input**: Design documents from `specs/20261013-122132-web-ui-manager-fleet/`
+**Input**: Design documents from `specs/archive/20261013-122132-web-ui-manager-fleet/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/routes-and-roles.md](contracts/routes-and-roles.md), [contracts/platform-adapter.md](contracts/platform-adapter.md), [contracts/platform-changes.md](contracts/platform-changes.md), [quickstart.md](quickstart.md)
 
