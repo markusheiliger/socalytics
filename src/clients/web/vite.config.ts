@@ -1,6 +1,7 @@
 import react from '@vitejs/plugin-react';
 import { sri } from 'vite-plugin-sri3';
 import { defineConfig } from 'vite';
+import { pwaShell } from './build/pwaShell';
 
 // Aspire injects the API endpoint as services__api__http__0 (or https) and the Web UI port as PORT.
 const apiTarget = process.env.services__api__https__0 ?? process.env.services__api__http__0;
@@ -60,7 +61,7 @@ const commonHeaders = {
 };
 
 export default defineConfig({
-  plugins: [react(), sri()],
+  plugins: [react(), sri(), pwaShell()],
   // Font files must stay separate files because font-src does not allow data: URLs.
   build: { assetsInlineLimit: 0 },
   server: { port, proxy, headers: { ...commonHeaders, 'Content-Security-Policy': developmentContentSecurityPolicy } },
