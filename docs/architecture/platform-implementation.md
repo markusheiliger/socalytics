@@ -403,8 +403,8 @@ worker that submits them with MailKit by authenticated, TLS-protected SMTP to
 the stamp's configured relay; the Aspire AppHost and tests use a Mailpit
 mail-catcher container. Self-service password
 recovery and invitations may use this channel through their own
-specifications. The channel is decided, not yet implemented; see
-[Email Notifications](email-notifications.md).
+specifications. The channel is implemented as development evidence against
+Mailpit; see [Email Notifications](email-notifications.md).
 
 Analyst Manager registration uses browser device-code pairing initiated by a
 club `Registrar` and explicitly approved by a `Club Admin`. Club Admin inherits
@@ -608,6 +608,10 @@ current and non-current migration states; and
   and analysis run creation, readiness, claims, fenced completion,
   state-plus-outbox atomicity, outbox publication and retention, and recovery
   from NATS outage, restart, and duplicate notifications; and
+- integration, host, and browser tests cover member email addresses and their
+  verification, notification preferences, transactional email delivery through
+  the dedicated outbox including a relay outage, and the pending-request
+  notification, using the Mailpit mail catcher; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
   in `contracts/` and the OpenAPI document.
 
@@ -644,10 +648,12 @@ choice or reveals a material operational tradeoff:
   API surface, layer composition methods, structural tests, the persistence
   foundation (migrations, Migrator, units of work, version triggers), domain
   persistence, outbox publication to NATS JetStream, local-account BFF
-  sessions, S3-compatible upload, and Analyst Manager registration are
-  implemented, and the online-only Web UI foundation exists as development
-  evidence. External OpenID Connect sign-in, MFA enforcement, the Web UI's
-  offline mode, cross-runtime schema agreement, reproducible Analyst
+  sessions, S3-compatible upload, Analyst Manager registration, and member email
+  addresses with verified, outbox-backed transactional delivery to the Mailpit
+  mail catcher are implemented, and the online-only Web UI foundation exists as development
+  evidence. External OpenID Connect sign-in, MFA enforcement, the production email
+  relay, sender authentication, and bounce handling (Open / Blocking), the Web
+  UI's offline mode, cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix remain unsupported by
   implementation evidence.
 - **Mature enough to govern subsequent implementation — not met for
