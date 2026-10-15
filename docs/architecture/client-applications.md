@@ -36,16 +36,18 @@ The React Web UI supports connected platform and club workflows, including:
   (implemented): registration approval, rejection, and revocation, and each
   Manager's connectivity, operating state, and activity (see
   [Analyst Manager](analyst-manager.md#fleet-visibility-in-the-web-ui))
-- match creation, recording uploads, and upload finalization
+- match creation, recording uploads, and upload finalization (implemented as
+  connected workflows)
 - team and match review, analytics, and agent conversations for coaches
+  (analysis review and agent conversations are not implemented yet)
 
 What a user sees is decided by their roles and team authorization, online and
 offline alike.
 
-Recording uploads will run in a dedicated upload worker that hashes the parts
+Recording uploads run in a dedicated upload worker that hashes the parts
 and transfers them directly to object storage with the platform's per-part
 grants; screens reach it only through an application-owned upload coordinator
-and repository. The worker will keep a resume journal in worker-owned
+and repository. The worker keeps a resume journal in worker-owned
 IndexedDB so an interrupted upload can continue after a reload. The journal is
 member-scoped, holds identifiers and progress only, never grants or file
 contents, and is purged on explicit sign-out. It is not the offline replica:

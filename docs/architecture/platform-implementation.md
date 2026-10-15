@@ -318,12 +318,13 @@ their multipart uploads. Locally the Aspire AppHost runs a pinned RustFS
 container as a plain container resource, the API creates the development
 bucket, and integration tests use the same image through Testcontainers
 together with a store conformance probe that any production store must pass.
-For the Web UI's direct part uploads in local development, the AppHost will
-allow the Web UI origin in the local store's CORS configuration and pass the
-store's origin to the Web UI for its Content Security Policy.
+For the Web UI's direct part uploads in local development, the AppHost
+allows the Web UI origin in the local store's CORS configuration
+(`RUSTFS_CORS_ALLOWED_ORIGINS`) and passes the store's origin to the Web UI
+(`SOCALYTICS_OBJECT_STORAGE_ORIGIN`) for its Content Security Policy.
 Bucket provisioning, production storage selection, encryption, credentials,
-production browser CORS and origins, public endpoints, grant and session lifetimes, and lifecycle
-policy remain governed by
+production browser CORS and origins, public endpoints, grant and session
+lifetimes, and lifecycle policy remain governed by
 [Production Deployment and Operations](production-operations.md) and
 [Security and Data Governance](security-and-data-governance.md).
 
@@ -615,9 +616,14 @@ current and non-current migration states; and
   accepted-result manifest records) with a simulated Analyst and the Analyst
   Manager; and
 - Web UI browser tests cover Analyst Manager pairing, the Club Admin decision
-  view, and the fleet view with revocation: the `simulated` project against a
-  simulated API, and the `platform` project against the real platform with a
-  scripted Manager; and
+  view, and the fleet view with revocation, and the match workflow and
+  recording upload (match creation and editing, direct multipart upload with
+  resume, timeline mapping, finalization, and the development CORS access to
+  RustFS): the `simulated` project against a simulated API and a fake object
+  store, and the `platform` project against the real platform with a scripted
+  Manager and RustFS; and
+- a Host test verifies the development CORS allow-list and the storage origin
+  the AppHost passes to the Web UI; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
   in `contracts/` and the OpenAPI document.
 
@@ -657,8 +663,11 @@ choice or reveals a material operational tradeoff:
   sessions, S3-compatible upload, Analyst Manager registration, and result
   write grants with validated result acceptance against a simulated Analyst are
   implemented, and the online-only Web UI foundation exists as development
-  evidence, including the Analyst Manager pairing, approval, and fleet views. External OpenID Connect sign-in, MFA enforcement, the Web UI's
-  offline mode, cross-runtime schema agreement, reproducible Analyst
+  evidence, including the Analyst Manager pairing, approval, and fleet views
+  and the match workflow with recording upload and finalization. External
+  OpenID Connect sign-in, MFA enforcement, the Web UI's offline mode, the other
+  Web UI client workflows (analysis review and agent conversations),
+  cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix remain unsupported by
   implementation evidence.
 - **Mature enough to govern subsequent implementation — not met for
