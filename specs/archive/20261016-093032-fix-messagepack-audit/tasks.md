@@ -5,7 +5,7 @@ description: "Task list for Patched MessagePack Pin for the Platform Restore"
 
 # Tasks: Patched MessagePack Pin for the Platform Restore
 
-**Input**: Design documents from `specs/20261016-093032-fix-messagepack-audit/`
+**Input**: Design documents from `specs/archive/20261016-093032-fix-messagepack-audit/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 
