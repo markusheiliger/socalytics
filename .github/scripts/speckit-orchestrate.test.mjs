@@ -517,6 +517,56 @@ test('orchestrate does not continue an implementation that is blocked by its fix
   }
 });
 
+// A stopped implementation of twin "a" waiting for the merged fix spec #99, linked to fix twin #77.
+async function blockedByLinkedFix() {
+  const { root, github, twin } = await flaggedRepo();
+  await orchestrate(github, root);
+  const pull = github.repo.pulls[0];
+  github.completeRun(github.repo.runs.at(-1).id, 'success');
+  await limitCheck(github, github.repo.branches['speckit/a']);
+  const fixFolder = '20261016-000000-fix-x';
+  github.repo.pulls.push({ number: 99, state: 'closed', merged_at: github.tick(), base: { ref: 'main' }, head: { ref: `speckit-fix/${fixFolder}`, sha: 'x' }, labels: [] });
+  github.issues.push({ number: 77, id: 77000, node_id: 'I_77', state: 'open', state_reason: null, title: 'Fix x', body: '', labels: [] });
+  await github.createComment(pull.number, renderFixEvent('created', { pull: 99, folder: fixFolder }));
+  await github.createComment(pull.number, renderFixEvent('merged', { pull: 99, folder: fixFolder }));
+  await github.createComment(pull.number, renderFixEvent('linked', { pull: 99, folder: fixFolder, twin: 77 }));
+  await orchestrate(github, root);
+  assert.ok(pull.labels.some((label) => label.name === BLOCKED_LABEL));
+  return { root, github, twin, pull };
+}
+
+test('orchestrate lifts the block and retries the implementation in the run after its fix landed', async () => {
+  const { root, github, pull } = await blockedByLinkedFix();
+  try {
+    const before = chainRuns(github).length;
+    Object.assign(github.find(77), { state: 'closed', state_reason: 'completed' });
+    const result = await orchestrate(github, root);
+    assert.equal(pull.labels.some((label) => label.name === BLOCKED_LABEL), false);
+    assert.equal(chainRuns(github).length, before + 1, 'the implementation is retried once');
+    assert.match(result.text, /The fix of #\d+ landed \(twin #77\); retried it\./);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('orchestrate lifts the block of a blocked implementation whose twin is not in progress', async () => {
+  const { root, github, twin, pull } = await blockedByLinkedFix();
+  try {
+    // The twin lost its implementation request, so the twin loop skips it.
+    twin.labels = twin.labels.filter((label) => !label.name.startsWith('speckit:stage:'));
+    const before = chainRuns(github).length;
+    Object.assign(github.find(77), { state: 'closed', state_reason: 'completed' });
+    const result = await orchestrate(github, root);
+    assert.equal(pull.labels.some((label) => label.name === BLOCKED_LABEL), false, 'the sweep lifts the block');
+    assert.equal(chainRuns(github).length, before + 1, 'and retries the implementation');
+    assert.match(result.text, new RegExp(`Lifted the block of #${pull.number} \\(retried\\)`));
+    await orchestrate(github, root);
+    assert.equal(chainRuns(github).length, before + 1, 'an unblocked pull request is not swept again');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('orchestrate starts no more than SPECKIT_MAX_ACTIVE_SPECS implementations', async () => {
   const tasks = '## Phase 1\n\n- [ ] T001 one\n';
   const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks }, { folder: 'b', plan: true, tasks }]);

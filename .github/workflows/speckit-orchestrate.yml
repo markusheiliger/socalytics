@@ -13,6 +13,11 @@ name: Spec Kit orchestrate
 #   - settles amendment and fix spec pull requests and keeps Spec Kit pull requests out of pull request stacks;
 #   - links a merged fix spec to the implementation it unblocks (dependency, implementation request on behalf of the
 #     person who asked for it, started regardless of the limit), and retries that implementation once the fix landed.
+#   - lifts the block of every implementation pull request labelled `blocked` whose fix landed, also when its twin is
+#     not in progress.
+# Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows, so the merge and
+# every dispatched, applying Spec Kit prepare run dispatch this workflow; that is the main path after a merge. The
+# schedule is only a fallback for runs that GitHub drops or delays.
 on:
   workflow_run:
     workflows: [Spec Kit prepare]
@@ -22,8 +27,9 @@ on:
   pull_request_target:
     types: [closed, synchronize]
   schedule:
-    # Safety net: continues implementations whose chain broke.
+    # Fallback only: continues implementations whose chain broke. Two entries, because GitHub may drop scheduled runs.
     - cron: "17 * * * *"
+    - cron: "47 * * * *"
   workflow_dispatch:
 
 permissions: {}

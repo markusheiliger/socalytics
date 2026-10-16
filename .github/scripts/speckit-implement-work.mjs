@@ -16,6 +16,7 @@ import {
   CHECK_SYNC_CONFLICT,
   DONE_COMMENT_MARKER,
   MAX_CONVERGE_ROUNDS,
+  ORCHESTRATE_WORKFLOW_FILE,
   PREPARE_WORKFLOW_FILE,
   appendPullRequestTasks,
   baseBranchFromEnv,
@@ -1367,6 +1368,13 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     await client.dispatchWorkflow(PREPARE_WORKFLOW_FILE, defaultBranchOf(env), { dry_run: 'false' });
   } catch (error) {
     notes.push(`Spec Kit prepare could not be started: ${error.message}`);
+  }
+  // Events caused by the workflow token (this merge, the closed twin) start no workflows, so the scheduler is started
+  // explicitly: it lifts the blocks this merge resolves (a landed fix spec) and starts the next implementations.
+  try {
+    await client.dispatchWorkflow(ORCHESTRATE_WORKFLOW_FILE, defaultBranchOf(env), {});
+  } catch (error) {
+    notes.push(`Spec Kit orchestrate could not be started: ${error.message}`);
   }
   await client.createComment(inputs.pull, [
     DONE_COMMENT_MARKER,
