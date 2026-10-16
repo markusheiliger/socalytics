@@ -88,6 +88,7 @@ export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 // carries it while it waits for a person (stopped, a diagnosis or a fix spec outcome to decide on, or ready for review)
 // and loses it once a person's action puts automation back to work or closes the pull request.
 export const ATTENTION_LABEL = 'help wanted';
+export const BLOCKED_LABEL = 'blocked';
 export const MAX_WRITER_GUIDANCE = 4000;
 const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
 // Marks that the base branch at a commit was not merged before a phase (refused, or its conflicts need a person), so
@@ -554,6 +555,20 @@ export async function setAttention(client, number, needed) {
     const has = (pull.labels ?? []).some((label) => (label?.name ?? label) === ATTENTION_LABEL);
     if (needed && !has && pull.state === 'open') await client.addLabels(number, [ATTENTION_LABEL]);
     if (!needed && has) await client.removeLabel(number, ATTENTION_LABEL);
+  } catch {
+    // The label only signals the state; comments and check runs carry it.
+  }
+}
+
+export async function setBlocked(client, number, blocked) {
+  try {
+    const pull = await client.getPullRequest(number);
+    const has = (pull.labels ?? []).some((label) => (label?.name ?? label) === BLOCKED_LABEL);
+    if (blocked && !has && pull.state === 'open') {
+      await client.ensureLabel({ name: BLOCKED_LABEL, color: 'd93f0b', description: 'Implementation is on hold waiting for a prerequisite fix' });
+      await client.addLabels(number, [BLOCKED_LABEL]);
+    }
+    if ((!blocked || pull.state !== 'open') && has) await client.removeLabel(number, BLOCKED_LABEL);
   } catch {
     // The label only signals the state; comments and check runs carry it.
   }

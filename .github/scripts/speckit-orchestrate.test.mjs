@@ -8,7 +8,7 @@ import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
 import { phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
-import { ATTENTION_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderRepairMarker, renderResumeComment, renderRetryComment } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderRepairMarker, renderResumeComment, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -128,8 +128,10 @@ test('select tracks the pull request lifecycle: in progress, fallback, and a fre
     assert.deepEqual(inProgress.inProgress.map(({ number, folder, pull }) => ({ number, folder, pull })), [{ number: twin.number, folder: 'a', pull: first.number }]);
     assert.equal(inProgress.ready.length, 0);
 
+    await github.addLabels(first.number, [BLOCKED_LABEL]);
     github.closePull(first.number);
     const fallback = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.ok(!first.labels.some((label) => label.name === BLOCKED_LABEL));
     assert.deepEqual(fallback.fallback.map((item) => item.pull), [first.number]);
     const issue = github.find(twin.number);
     assert.deepEqual(issue.labels.map((label) => label.name).filter((name) => name.startsWith('speckit:stage:')), ['speckit:stage:tasked']);
@@ -196,8 +198,10 @@ test('select finalizes a twin whose pull request a person merged while the twin 
   const { root, github, twin } = await flaggedRepo();
   try {
     await start(github, root, twin);
+    await github.addLabels(github.repo.pulls[0].number, [BLOCKED_LABEL]);
     github.closePull(github.repo.pulls[0].number, { merged: true });
     const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.ok(!github.repo.pulls[0].labels.some((label) => label.name === BLOCKED_LABEL));
     assert.deepEqual(result.merged, [{ number: twin.number, folder: 'a', pull: github.repo.pulls[0].number, branchDeleted: true, note: null }]);
     assert.equal(result.ready.length + result.fallback.length, 0);
     const issue = github.find(twin.number);
