@@ -7,6 +7,7 @@ import {
 import type { Guid, ParsableFactory } from '@microsoft/kiota-abstractions';
 import { PlatformFailure } from '../failure';
 import type {
+  ApplicationProfile,
   Connectivity,
   KeyProtection,
   OperatingState,
@@ -38,6 +39,7 @@ const STATE_WIRE: Record<Exclude<RegistrationState, 'unknown'>, string> = {
   revoked: 'revoked',
 };
 const KEY_PROTECTIONS: readonly KeyProtection[] = ['tpm', 'secure-enclave', 'pkcs11-token', 'software'];
+const APPLICATION_PROFILES: readonly ApplicationProfile[] = ['tray', 'headless-server'];
 const OPERATING_WIRE: Record<string, OperatingState> = {
   running: 'running',
   paused: 'paused',
@@ -82,6 +84,7 @@ export function toRegistration(dto: AnalystManagerRegistrationDto | undefined | 
       architecture: text(meta?.architecture),
       managerVersion: text(meta?.managerVersion),
       claimedKeyProtection: KEY_PROTECTIONS.find((k) => k === meta?.claimedKeyProtection) ?? 'unknown',
+      claimedApplicationProfile: APPLICATION_PROFILES.find((p) => p === meta?.claimedApplicationProfile),
       hostLabel: text(meta?.hostLabel),
     },
     pairingOrigin: origin ? { sourceAddress: text(origin.sourceAddress), requestedAt: date(origin.requestedAt) } : undefined,

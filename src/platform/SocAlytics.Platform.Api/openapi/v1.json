@@ -384,6 +384,12 @@
           "architecture": {
             "type": "string"
           },
+          "claimedApplicationProfile": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "claimedKeyProtection": {
             "type": "string"
           },
@@ -409,6 +415,7 @@
           "architecture",
           "managerVersion",
           "claimedKeyProtection",
+          "claimedApplicationProfile",
           "hostLabel"
         ],
         "type": "object"

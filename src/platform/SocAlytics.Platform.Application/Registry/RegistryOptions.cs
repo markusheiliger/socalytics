@@ -4,7 +4,7 @@ public sealed class RegistryOptions
 {
     public const string SectionName = "Registry";
 
-    public bool AllowSoftwareKeys { get; set; }
+    public SoftwareKeyPolicy SoftwareKeys { get; set; } = SoftwareKeyPolicy.Refused;
 
     public PairingOptions Pairing { get; set; } = new();
 

@@ -13,7 +13,8 @@ the persistence, club and identity, recording lineage and upload, durable
 analysis workflow, and Analyst Manager registration foundations described
 below, with host, architecture, contract, and integration tests. Analyst
 execution, external OpenID Connect sign-in, the Web UI's
-offline mode and service worker, deployment configuration, and production-readiness evidence do not exist yet.
+offline mode, deployment configuration, and production-readiness evidence do not exist yet. The
+Web UI's installable PWA shell and service worker exist as development evidence.
 
 ## Source And Runtime Baseline
 
@@ -21,8 +22,8 @@ SocAlytics uses one `src` root with these first-level ownership areas:
 
 - `src/platform` owns the platform API, control plane, and supporting platform
   services; the API, Migrator, and their layers are implemented
-- `src/clients` owns the Web UI, a Progressive Web App whose online-only
-  foundation is implemented under `src/clients/web`
+- `src/clients` owns the Web UI, a Progressive Web App whose foundation,
+  including its service worker and install and update flow, without offline mode, is implemented under `src/clients/web`
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
 - `src/analysts` owns the Analyst Manager, whose first desktop slice is
@@ -485,8 +486,9 @@ workflows remain future implementation work.
 
 The Web UI is one React and TypeScript Progressive Web App built with Vite.
 React Router handles navigation, TanStack Query manages remote server state, and
-MUI supplies accessible components under a SocAlytics theme. A service worker
-caches the application shell and is versioned with each release. The Web UI
+MUI supplies accessible components under a SocAlytics theme. A hand-written
+service worker precaches the integrity-verified application shell of one
+release, holds no user data, and is versioned with each release. The Web UI
 release is coordinated with the platform API and remains a separately
 containerized deployment unit built from `src/clients`, served from one origin.
 There is no second client application. See
@@ -505,8 +507,8 @@ keeps `style-src 'unsafe-inline'`, an accepted and recorded trade-off because
 MUI's Emotion runtime injects `<style>` elements and a nonce is not possible
 for statically hosted pages; scripts stay locked down. See
 [Security And Data Governance](security-and-data-governance.md). The service
-worker, offline mode, container image, and production server configuration are
-not implemented.
+worker is implemented as development evidence; offline mode, the container
+image, and production server configuration are not implemented.
 
 Future offline-mode implementation follows the decisions in
 [Client Applications](client-applications.md): an encrypted replica owned by a
@@ -522,9 +524,10 @@ under `src/analysts/manager` with its own tests. A .NET 10 Generic Host worker
 in a library without UI dependencies owns lifecycle, registration, key
 providers, signed local state, queue, hardware, autostart, and OCI-runtime
 responsibilities. In the tray profile, Avalonia supplies the cross-platform
-tray and status UI in the same process; in the planned headless server profile,
-the worker runs without Avalonia as a Linux systemd user service controlled by
-the local-control CLI. Device keys use Windows CNG, a small Swift
+tray and status UI in the same process; in the headless server profile, a
+separate console executable (`socalytics-manager-server`) runs the worker
+without Avalonia as a Linux systemd user service controlled by the
+local-control CLI. Device keys use Windows CNG, a small Swift
 bridge over CryptoKit and the Keychain on macOS, and PKCS#11 through
 Pkcs11Interop on Linux. The worker and UI are tested without a display using
 Avalonia headless tests; Linux CI uses a SoftHSM2 token, while the Windows and
@@ -689,11 +692,18 @@ choice or reveals a material operational tradeoff:
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views
   and the match workflow with recording upload and finalization. External
-  OpenID Connect sign-in, the Web UI's offline mode, the other
+  OpenID Connect sign-in, the Web UI's offline mode (the PWA installs and
+  updates through its service worker as development evidence on Chromium), the other
   Web UI client workflows (analysis review and agent conversations),
   cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix remain unsupported by
-  implementation evidence.
+  implementation evidence. The headless server profile adds automated
+  evidence (an executable without Avalonia, the lingering check, the generated
+  systemd user unit, the account rule against the simulated runtime, and the
+  claimed profile and software key policy), but the manual validation on
+  Ubuntu Server 22.04 and 24.04 LTS is open until a person performs it after
+  the merge, and the matrix stays incomplete without real Linux runtime
+  adapters.
 - **Mature enough to govern subsequent implementation — not met for
   promotion.** The foundation can guide further reversible implementation, but
   the incomplete identity, client, Scheduler, Analyst runtime, production
@@ -711,8 +721,9 @@ implementation-proven, evidence must demonstrate:
   identities linked only through Club Admin link credentials
 - Kiota-generated TypeScript, C#, and Python clients compile and pass contract
   compatibility tests
-- the Web UI PWA installs, updates through its service worker, and meets the
-  supported-browser evidence for offline mode
+- the Web UI PWA meets the supported-browser evidence for offline mode
+  (installation and service-worker updates are evidenced on Chromium; the
+  offline-mode rows stay open)
 - JSON Schema validation agrees at .NET and Python boundaries (the platform
   and the Analyst Manager already agree on result manifests at the .NET
   boundary)

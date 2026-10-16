@@ -34,6 +34,8 @@
     { "id": "negative-wrong-key", "exchange": "negative", "file": "negative/wrong-key.json", "seedState": { "registration": "Active", "managerId": "manifest" }, "expected": { "status": 400, "error": "invalid_dpop_proof" } },
     { "id": "negative-stale-iat", "exchange": "negative", "file": "negative/stale-iat.json", "seedState": { "registration": "Active", "managerId": "manifest" }, "expected": { "status": 400, "error": "invalid_dpop_proof" } },
     { "id": "negative-wrong-htu", "exchange": "negative", "file": "negative/wrong-htu.json", "seedState": { "registration": "Active", "managerId": "manifest" }, "expected": { "status": 400, "error": "invalid_dpop_proof" } },
+    { "id": "negative-unknown-application-profile", "exchange": "pairing-negative", "file": "negative/unknown-application-profile.json", "expected": { "status": 400 } },
+    { "id": "negative-headless-profile-on-windows", "exchange": "pairing-negative", "file": "negative/headless-profile-on-windows.json", "expected": { "status": 400 } },
     { "id": "negative-missing-ath", "exchange": "negative", "file": "negative/missing-ath.json", "seedState": { "registration": "Active", "managerId": "manifest", "accessToken": "manifest" }, "expected": { "status": 401 } }
   ]
 }

@@ -8,6 +8,7 @@ using SocAlytics.Platform.Api.Operations;
 using SocAlytics.Platform.Api.Recordings;
 using SocAlytics.Platform.Api.Registry;
 using SocAlytics.Platform.Api.Security;
+using SocAlytics.Platform.Api.WebUi;
 using SocAlytics.Platform.Application;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.IdentityAccess;
@@ -27,6 +28,7 @@ builder.Services.AddOptions<IdentityAccessOptions>()
 	.Bind(builder.Configuration.GetSection(IdentityAccessOptions.SectionName))
 	.ValidateDataAnnotations()
 	.ValidateOnStart();
+builder.Services.AddMinimumWebVersion(builder.Configuration);
 builder.Services.Configure<ClubBootstrapOptions>(builder.Configuration.GetSection(ClubBootstrapOptions.SectionName));
 builder.Services.Configure<BreakGlassRecoveryOptions>(builder.Configuration.GetSection(BreakGlassRecoveryOptions.SectionName));
 builder.Services.AddSingleton<ClubBootstrapState>();
@@ -55,6 +57,7 @@ builder.Services.AddAuthorizationBuilder()
 
 var app = builder.Build();
 
+app.UseMinimumWebVersion();
 app.UseAuthentication();
 app.UseAuthorization();
 

@@ -5,6 +5,7 @@ using NATS.Client.Core;
 using NATS.Client.JetStream;
 using NATS.Client.JetStream.Models;
 using SocAlytics.Platform.Api.Registry;
+using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using SocAlytics.Platform.Integration.Tests.Recordings;
@@ -88,7 +89,7 @@ internal sealed class AnalysisTestHost : IAsyncDisposable
                 {
                     services.Configure<SocAlytics.Platform.Application.Registry.RegistryOptions>(o =>
                     {
-                        o.AllowSoftwareKeys = true;
+                        o.SoftwareKeys = SoftwareKeyPolicy.All;
                         o.RateLimits.PairingCreationPerMinute = 10_000;
                         o.RateLimits.StatusPerMinute = 10_000;
                         o.RateLimits.ActivationPerMinute = 10_000;

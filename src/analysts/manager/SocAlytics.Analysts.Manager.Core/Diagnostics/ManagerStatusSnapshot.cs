@@ -38,4 +38,7 @@ public sealed record ManagerStatusSnapshot(
     string ControlSurface,
     string? DeviceFingerprint,
     Work.ConcurrencySnapshot Concurrency,
-    IReadOnlyList<ActiveAttemptStatus> ActiveAttempts);
+    IReadOnlyList<ActiveAttemptStatus> ActiveAttempts,
+    string ApplicationProfile = "tray",
+    string? Lingering = null,
+    string ManagerVersion = "0.1.0");

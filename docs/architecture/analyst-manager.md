@@ -153,7 +153,7 @@ device key, signed state, and local socket that belong to one account.
   claim this profile (see
   [Browser Pairing And Approval](#browser-pairing-and-approval)).
 
-Decided, not yet implemented: the headless profile is a separate console
+The headless profile is a separate console
 executable, `socalytics-manager-server`, that references only the Core worker,
 so neither Avalonia nor its native dependencies reach the server; both
 executables share one local-control CLI with identical commands. In this
@@ -165,7 +165,12 @@ rule is a preflight check: when the runtime reports a rootful daemon reached
 through group membership and the account has a login shell, preflight fails,
 so the Manager is runtime-unavailable with that reason, admits no work, and
 stays registered and visible. Windows and macOS refuse to start the headless
-executable.
+executable. Automated tests cover the executable's closure without Avalonia,
+the shared CLI, the lingering check, the generated user unit, and the account
+rule against the simulated runtime. The boot behavior on Ubuntu Server 22.04
+and 24.04 LTS is a manual validation that a person performs after the merge;
+it is open evidence until then (see
+[Analysts, Models, and Hardware](analysts-models-and-hardware.md#implementation-validation)).
 
 ### Local Control
 
@@ -260,13 +265,13 @@ development and test, a stamp may allow software-backed keys only for Managers
 that claim the headless server profile, for Linux servers without a TPM or
 virtual TPM; tray Managers keep requiring hardware-backed keys. The platform can
 verify neither the profile nor the protection, so the approval view shows both
-as claimed, with a warning (the Web UI decision view shows the profile
-only once Managers report it; see
+as claimed, with a warning (the Web UI decision view shows the claimed profile,
+or "not reported" for older registrations; see
 [Fleet Visibility In The Web UI](#fleet-visibility-in-the-web-ui)). Hardware key attestation is a later decision.
 Production approval of any store remains governed by `GOV-CRED-002` in
 [Security and Data Governance](security-and-data-governance.md#credential-class-entries).
 
-Decided, not yet implemented: the Manager claims its application profile
+The Manager claims its application profile
 (`tray` or `headless-server`) in an optional, additive field of the pairing
 request's device metadata, so the v1 registration contract stays compatible.
 Current Managers always send it; the platform refuses unknown values and
@@ -473,9 +478,9 @@ registration list and detail operations; see
 [Manager status contracts](../../specs/archive/20261012-153308-manager-fleet-status/contracts/self-status-api.md).
 
 The Web UI fleet, pairing, and decision views are implemented. They do not
-show the claimed application profile: it follows once the headless server
-profile exists and Managers report it, while the claimed device-key protection
-is shown from the start. Approving a request requires re-entering the last six
+show the claimed application profile and the claimed device-key protection,
+with "not reported" for registrations of Managers that did not claim a
+profile. Approving a request requires re-entering the last six
 characters of the device fingerprint, and revoking a registration requires
 typing the Manager's host label. The navigation shows Club Admins the number of
 pending requests. Notification of Club Admins with a verified email address

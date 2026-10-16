@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { useConnectivity } from '../connectivity/useConnectivity';
 import { createRecordingLineageAdapter } from '../platform/adapters/recordingLineageAdapter';
 import { createRecordingUploadAdapter } from '../platform/adapters/recordingUploadAdapter';
+import { getUpdateState, isUpdateBlocked, subscribeUpdateState } from '../serviceWorker/registration';
 import { useSession } from '../session/sessionContext';
 import { UploadContext } from './uploadContext';
 import { createUploadCoordinator, type UploadCoordinator, type WorkerLike } from './uploadCoordinator';
@@ -18,7 +19,10 @@ export interface UploadProviderProps {
 // of the same member; an explicit sign-out forgets the member's local upload records.
 export function UploadProvider({ children, createWorker = () => createUploadWorker() as unknown as WorkerLike }: UploadProviderProps) {
   const { status, session, reason, platform } = useSession();
-  const { isUnreachable } = useConnectivity();
+  const { isUnreachable: connectivityUnreachable } = useConnectivity();
+  // While the platform requires a newer release no part request is issued; the resume journal is kept.
+  const updateBlocked = useSyncExternalStore(subscribeUpdateState, () => (getUpdateState(), isUpdateBlocked()));
+  const isUnreachable = connectivityUnreachable || updateBlocked;
   // The member stays known while the platform ended the session, so jobs pause instead of being dropped.
   const [memberId, setMemberId] = useState<string>();
   const sessionMemberId = session?.member.id;

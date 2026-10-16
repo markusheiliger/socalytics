@@ -9,9 +9,9 @@ through approved changes.
 
 - [`src/platform/`](src/platform/README.md) contains the executable control-plane
     platform host and its ownership guidance.
-- [`src/clients/`](src/clients/README.md) contains the executable online-only
-    Web UI foundation under `src/clients/web/`; the offline mode for coaches
-    is planned.
+- [`src/clients/`](src/clients/README.md) contains the executable
+    Web UI foundation (without offline mode), including its installable PWA shell, under
+    `src/clients/web/`; the offline mode for coaches is planned.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.
 - [`src/analysts/`](src/analysts/README.md) contains the executable Analyst
@@ -135,8 +135,11 @@ test configuration.
 ### Web UI
 
 The Web UI under `src/clients/web/` is a React and TypeScript single-page
-application built with Vite, developed online-only as development evidence (no
-service worker, offline mode, container image, or deployment configuration). It
+application built with Vite, developed as development evidence: an installable PWA whose service worker
+precaches only the application shell and updates with each release (the platform
+option `WebUi:MinimumVersion` sets the minimum Web UI version sent in the
+`SocAlytics-Minimum-Web-Version` response header), with no offline mode, container
+image, or deployment configuration. It
 needs Node.js 24, the Kiota 1.36.0 CLI on `PATH`
 (`dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0`), and
 for browser tests the Playwright Chromium browser
@@ -166,9 +169,9 @@ Then run the test again without the variable.
 
 The Analyst Manager is a per-user tray application for Windows, macOS, and
 Linux in a separate .NET 10 solution that pins the same SDK as the platform in
-its own `global.json`. A headless profile for Linux servers (systemd user
-service controlled by the CLI) and Velopack installers and updates are planned,
-not implemented. Run these commands from the
+its own `global.json`. A headless server executable for Linux (systemd user
+service controlled by the CLI) exists; Velopack installers and updates are
+planned, not implemented. Run these commands from the
 repository root:
 
 ```powershell
@@ -176,6 +179,7 @@ dotnet restore src/analysts/manager/SocAlytics.Analysts.Manager.slnx
 dotnet build src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-restore
 dotnet test src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-build
 dotnet run --project src/analysts/manager/SocAlytics.Analysts.Manager
+dotnet run --project src/analysts/manager/SocAlytics.Analysts.Manager.Server  # Linux only (headless server profile)
 ```
 
 The tray menu (or the status window where no tray area exists) offers
