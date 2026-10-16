@@ -122,6 +122,9 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       }
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
+      // Reconcile old stops too, including implementations blocked on an amendment or a fix spec.
+      // Those stops may never get another chain run to update their label.
+      await setAttention(client, lifecycle.pull.number, !active && ['failed', 'limit', 'done'].includes(decision.action));
       inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active });
       continue;
     }

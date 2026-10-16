@@ -8,7 +8,7 @@ import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
 import { phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
-import { ATTENTION_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderRepairMarker, renderResumeComment, renderRetryComment } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, CHECK_CONFLICT, CHECK_DIAGNOSED, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderRepairMarker, renderResumeComment, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -144,6 +144,52 @@ test('select tracks the pull request lifecycle: in progress, fallback, and a fre
     assert.notEqual(github.repo.branches['speckit/a'], staleHead);
     assert.equal(await github.aheadBy('main', 'speckit/a'), 1);
     assert.equal(github.repo.linked.length, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+for (const externalId of [CHECK_LIMIT, CHECK_DIAGNOSED, CHECK_DONE]) {
+test(`select backfills help wanted for an inactive implementation at ${externalId}`, async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    const pull = github.repo.pulls[0];
+    await github.addLabels(pull.number, ['bug']);
+    await github.createCheckRun({
+      name: CHECK_RUN_NAME, head_sha: pull.head.sha, status: 'completed',
+      conclusion: externalId === CHECK_LIMIT ? 'failure' : 'success', external_id: externalId,
+    });
+    const select = () => runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    const selected = await select();
+    assert.equal(selected.inProgress[0].decision.action, externalId === CHECK_DONE ? 'done' : 'failed');
+    assert.deepEqual(pull.labels.map((label) => label.name).sort(), [ATTENTION_LABEL, 'bug'].sort());
+    await select();
+    assert.equal(pull.labels.filter((label) => label.name === ATTENTION_LABEL).length, 1, 'reconciliation is idempotent');
+
+    if (externalId !== CHECK_DONE) {
+      await github.createComment(pull.number, renderRetryComment('Implementation retried by @dev.'));
+      assert.equal((await select()).inProgress[0].decision.action, 'tasks');
+      assert.deepEqual(pull.labels.map((label) => label.name), ['bug'], 'resumed work clears only the attention label');
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+}
+
+test('select labels a pending phase repair even without a stop check', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    const pull = github.repo.pulls[0];
+    await github.createComment(pull.number, renderRepairMarker({
+      id: 'phase:verification', state: 'pending', scope: 'phase',
+      tasks: ['T001', 'T002'], head: pull.head.sha, at: github.tick(),
+    }));
+    const selected = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
+    assert.equal(selected.inProgress[0].decision.action, 'failed');
+    assert.ok(pull.labels.some((label) => label.name === ATTENTION_LABEL));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

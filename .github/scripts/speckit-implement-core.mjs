@@ -85,8 +85,8 @@ export const MAX_STALLED_ROUNDS = 3;
 export const MAX_CORRECTION_ROUNDS = 10;
 export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 // GitHub's default label for "Extra attention is needed": an implementation, amendment, or fix spec pull request
-// carries it while it waits for a person (stopped, a diagnosis or a fix spec outcome to decide on, or ready for review)
-// and loses it once a person's action puts automation back to work or closes the pull request.
+// carries it while stopped or waiting for review. The scheduler also labels implementations blocked on an amendment
+// or fix spec, and clears the label when implementation work resumes or the pull request closes.
 export const ATTENTION_LABEL = 'help wanted';
 export const MAX_WRITER_GUIDANCE = 4000;
 const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
