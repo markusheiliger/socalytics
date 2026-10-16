@@ -87,6 +87,11 @@ public sealed class ManagerControl : IManagerControl
 
     private QueueDepthView QueueDepthView()
     {
+        if (_coordinator.State != Registration.ManagerRegistrationState.Active)
+        {
+            _queueDepth.Clear();
+        }
+
         var snapshot = _queueDepth.Snapshot();
         return new QueueDepthView(
             snapshot,

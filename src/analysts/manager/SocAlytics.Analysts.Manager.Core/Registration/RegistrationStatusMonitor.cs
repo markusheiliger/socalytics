@@ -63,6 +63,11 @@ public sealed class RegistrationStatusMonitor : BackgroundService
     /// <summary>Performs one status check and returns the delay until the next one.</summary>
     public async Task<TimeSpan> CheckOnceAsync(CancellationToken ct)
     {
+        if (_coordinator.State != ManagerRegistrationState.Active)
+        {
+            _depth.Clear();
+        }
+
         if (!Monitored || _coordinator.Active is not { } active)
         {
             return Idle;

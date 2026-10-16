@@ -101,6 +101,24 @@ public sealed class QueueDepthPollingTests
     }
 
     [Fact]
+    public async Task Clears_when_a_local_unregistration_completes_without_a_status_check()
+    {
+        var (host, monitor) = await Active();
+        await using var _ = host;
+        ScriptDepth(host, 5, 1);
+        await monitor.CheckOnceAsync(TestContext.Current.CancellationToken);
+        host.Control.GetStatus().QueueDepth.Snapshot.State.ShouldBe(QueueDepthStatus.Available);
+
+        (await host.Control.UnregisterAsync()).Succeeded.ShouldBeTrue();
+
+        var status = host.Control.GetStatus();
+        status.RegistrationState.ShouldBe("unregistered");
+        status.QueueDepth.Snapshot.State.ShouldBe(QueueDepthStatus.NotYetAvailable);
+        status.QueueDepth.AgeSeconds.ShouldBeNull();
+        host.Services.GetRequiredService<QueueDepthState>().Snapshot().State.ShouldBe(QueueDepthStatus.NotYetAvailable);
+    }
+
+    [Fact]
     public async Task Failed_request_marks_the_observation_stale()
     {
         var (host, monitor) = await Active();
