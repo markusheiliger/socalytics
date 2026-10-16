@@ -42,6 +42,8 @@ import {
   renderRepairMarker,
   renderResolvePrompt,
   renderSyncSkippedMarker,
+  renderBaseOwnedMarker,
+  baseOwnedChanges,
   summarizeTask,
   syncPullRequestTaskList,
   syncPullRequestTicks,
@@ -156,20 +158,24 @@ function isSafeRelativePath(file) {
 // Besides the conflicted files, a conflict resolution may change the files this implementation branch changed itself
 // since it forked from the base branch, and create files the base branch does not have, so it can fix clashes that
 // git merges without a conflict (for example two migrations with the same sequence number) on the implementation's
-// side. Files that only the base branch owns, protected paths, and the environment actions stay off limits. Runs
-// during the uncommitted merge, so HEAD is the implementation branch.
-function resolutionScopeReasons({ git, baseSha, paths }) {
-  if (paths.length === 0) return [];
+// side. It may also change files that only the base branch owns when the merged result needs it (for example a test
+// the base branch added that does not know a setting this implementation made required): those are returned as
+// `baseOwned`, recorded on the pull request, and hold the final merge for a person's review. Deleting such files,
+// protected paths, and the environment actions stay off limits. Runs during the uncommitted merge, so HEAD is the
+// implementation branch.
+function resolutionScope({ git, baseSha, paths, deleted = [] }) {
+  if (paths.length === 0) return { reasons: [], baseOwned: [] };
   const reasons = [];
   if (paths.length > MAX_CHANGED_FILES) reasons.push(`the resolution changes more than ${MAX_CHANGED_FILES} files besides the conflicts`);
   const forkPoint = git(['merge-base', 'HEAD', String(baseSha)]);
-  if (forkPoint.status !== 0) return [...reasons, 'the implementation branch has no common history with its base branch'];
+  if (forkPoint.status !== 0) return { reasons: [...reasons, 'the implementation branch has no common history with its base branch'], baseOwned: [] };
   const own = new Set(splitZ(gitOrThrow(git, ['diff', '--name-only', '--no-renames', '-z', forkPoint.stdout.trim(), 'HEAD'])));
   const protectedPaths = paths.filter((file) => isProtected(file) || isEnvironmentPath(file));
   if (protectedPaths.length > 0) reasons.push(`the resolution changed protected files: ${protectedPaths.join(', ')}`);
   const foreign = paths.filter((file) => !protectedPaths.includes(file) && !own.has(file) && git(['cat-file', '-e', `${baseSha}:${file}`]).status === 0);
-  if (foreign.length > 0) reasons.push(`the agent changed files that neither conflict nor belong to this implementation: ${foreign.join(', ')}`);
-  return reasons;
+  const removed = foreign.filter((file) => deleted.includes(file));
+  if (removed.length > 0) reasons.push(`the resolution deleted files that only the base branch owns: ${removed.join(', ')}`);
+  return { reasons, baseOwned: foreign.filter((file) => !removed.includes(file)) };
 }
 
 function sizeReasons(patchBytes, paths) {
@@ -333,7 +339,9 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
       const changed = [...new Set([...Object.keys(before), ...after.keys()])]
         .filter((file) => !conflicts.has(file) && before[file] !== after.get(file))
         .sort();
-      result.reasons.push(...resolutionScopeReasons({ git, baseSha: result.baseSha, paths: changed }));
+      const scope = resolutionScope({ git, baseSha: result.baseSha, paths: changed, deleted: changed.filter((file) => !after.has(file)) });
+      result.reasons.push(...scope.reasons);
+      result.baseOwned = scope.baseOwned;
       const resolvedDir = path.join(resultDir, 'resolved');
       rmSync(resolvedDir, { recursive: true, force: true });
       mkdirSync(resolvedDir, { recursive: true });
@@ -680,7 +688,12 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       return { exitCode: 1, reasons };
     }
   }
-  if (reasons.length === 0 && inputs.kind === 'resolve') reasons.push(...replayResolution({ git, env, result, resultDir }));
+  let baseOwned = [];
+  if (reasons.length === 0 && inputs.kind === 'resolve') {
+    const replayed = replayResolution({ git, env, result, resultDir });
+    reasons.push(...replayed.reasons);
+    baseOwned = replayed.baseOwned;
+  }
   if (reasons.length > 0) {
     await reportFailure({ client, inputs, reasons, resultDir });
     report.line(`${title(inputs)} failed: ${reasons.join('; ')}`);
@@ -759,20 +772,25 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     comment = [];
   } else {
     const files = result.conflicts ?? [];
-    const extra = (Array.isArray(result.changes) ? result.changes : []).map((change) => String(change.path));
+    const owned = new Set(baseOwned);
+    const extra = (Array.isArray(result.changes) ? result.changes : []).map((change) => String(change.path)).filter((file) => !owned.has(file));
     message = [
       `Merge ${baseBranchOf(pull)} into ${implementationBranch(folder)}`,
       files.length > 0 ? `Conflicts in ${files.join(', ')} resolved by Copilot (attempt ${inputs.attempt}).` : 'No conflicts remained.',
       ...(extra.length > 0 ? [`Also adapted this implementation's own files: ${extra.join(', ')}.`] : []),
+      ...(baseOwned.length > 0 ? [`Also adapted files of ${baseBranchOf(pull)} for the merged result (held for review): ${baseOwned.join(', ')}.`] : []),
     ];
     checkTitle = files.length > 0 ? 'Merge conflicts resolved' : 'Base branch merged';
     const checks = (result.checks ?? []).map((check) => `${check.name} passed`);
     comment = [
+      ...(baseOwned.length > 0 ? [renderBaseOwnedMarker(baseOwned)] : []),
       `**Conflicts resolved** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
       '',
       ...(extra.length > 0 ? [`- Also adapted this implementation's own files: ${extra.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
+      ...(baseOwned.length > 0 ? [`- Also adapted files of \`${baseBranchOf(pull)}\` that the merged result needed: ${baseOwned.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}. The final merge waits for a person's review of these changes.`] : []),
       `- Verification: ${result.verification === 'not-configured' ? 'no verification configured (no environment-verify action)' : checks.join(', ') || 'no checks'}`,
       bestEffort ? '- Next: the work continues on the merged branch.' : `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
+      ...baseOwnedDiff(git, result.baseSha, baseOwned, baseBranchOf(pull)),
     ];
   }
   gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
@@ -1062,18 +1080,20 @@ function applyPatch({ git, resultDir, check, allowEmpty = false }) {
 
 // Re-creates the merge in the land job and applies the agent's versions of the conflicted files and its in-scope
 // changes besides them (replayResolutionChanges). The merged
-// commit must be on the base branch, because the work result that names it is not trusted.
+// commit must be on the base branch, because the work result that names it is not trusted. Returns the reasons to
+// refuse the resolution and the files only the base branch owns that it changed (`baseOwned`).
 function replayResolution({ git, env, result, resultDir }) {
-  if (!/^[0-9a-f]{40}$/.test(String(result.baseSha ?? ''))) return ['the base branch SHA is missing'];
-  if (git(['cat-file', '-e', `${result.baseSha}^{commit}`]).status !== 0) return [`commit ${result.baseSha} is not available`];
+  const refuse = (reasons) => ({ reasons, baseOwned: [] });
+  if (!/^[0-9a-f]{40}$/.test(String(result.baseSha ?? ''))) return refuse(['the base branch SHA is missing']);
+  if (git(['cat-file', '-e', `${result.baseSha}^{commit}`]).status !== 0) return refuse([`commit ${result.baseSha} is not available`]);
   const baseBranch = baseBranchFromEnv(env);
   if (git(['merge-base', '--is-ancestor', result.baseSha, `refs/remotes/origin/${baseBranch}`]).status !== 0) {
-    return [`commit ${result.baseSha} is not on the base branch ${baseBranch}`];
+    return refuse([`commit ${result.baseSha} is not on the base branch ${baseBranch}`]);
   }
   git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', result.baseSha]);
   const conflicts = unmergedPaths(git);
   const expected = [...(result.conflicts ?? [])].sort();
-  if (conflicts.join('\0') !== expected.join('\0')) return [`the merge conflicts changed: expected ${expected.join(', ') || 'none'}, found ${conflicts.join(', ') || 'none'}`];
+  if (conflicts.join('\0') !== expected.join('\0')) return refuse([`the merge conflicts changed: expected ${expected.join(', ') || 'none'}, found ${conflicts.join(', ') || 'none'}`]);
   const reasons = [];
   const resolutions = new Map((result.resolutions ?? []).map((item) => [item.path, item]));
   for (const file of conflicts) {
@@ -1100,9 +1120,14 @@ function replayResolution({ git, env, result, resultDir }) {
     }
   }
   if (reasons.length === 0 && unmergedPaths(git).length > 0) reasons.push('unresolved conflicts remain');
-  if (reasons.length === 0) reasons.push(...replayResolutionChanges({ git, result, resultDir, conflicts }));
+  let baseOwned = [];
+  if (reasons.length === 0) {
+    const changes = replayResolutionChanges({ git, result, resultDir, conflicts });
+    reasons.push(...changes.reasons);
+    baseOwned = changes.baseOwned;
+  }
   if (reasons.length === 0 && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0) reasons.push('there is nothing to merge from the base branch');
-  return reasons;
+  return { reasons, baseOwned };
 }
 
 // The nearest existing directory of a path, resolved through symbolic links.
@@ -1112,17 +1137,18 @@ function existingRealDir(directory) {
   return realpathSync(current);
 }
 
-// Applies the resolution's changes besides the conflicts (see resolutionScopeReasons), re-checking their scope here,
-// because the work result is not trusted.
+// Applies the resolution's changes besides the conflicts (see resolutionScope), re-checking their scope here,
+// because the work result is not trusted. Returns the reasons to refuse it and the changed files that only the base
+// branch owns, as found here.
 function replayResolutionChanges({ git, result, resultDir, conflicts }) {
   const changes = Array.isArray(result.changes) ? result.changes : [];
-  if (changes.length === 0) return [];
+  if (changes.length === 0) return { reasons: [], baseOwned: [] };
   const files = changes.map((change) => change?.path);
   const invalid = files.filter((file) => !isSafeRelativePath(file) || conflicts.includes(file));
-  if (invalid.length > 0) return [`the resolution names invalid paths: ${invalid.map(String).join(', ')}`];
-  if (new Set(files).size !== files.length) return ['the resolution names a path more than once'];
-  const scope = resolutionScopeReasons({ git, baseSha: result.baseSha, paths: files });
-  if (scope.length > 0) return scope;
+  if (invalid.length > 0) return { reasons: [`the resolution names invalid paths: ${invalid.map(String).join(', ')}`], baseOwned: [] };
+  if (new Set(files).size !== files.length) return { reasons: ['the resolution names a path more than once'], baseOwned: [] };
+  const scope = resolutionScope({ git, baseSha: result.baseSha, paths: files, deleted: changes.filter((change) => change.deleted).map((change) => change.path) });
+  if (scope.reasons.length > 0) return scope;
   const root = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
   const realRoot = realpathSync(root);
   const inside = (directory) => directory === realRoot || directory.startsWith(`${realRoot}${path.sep}`);
@@ -1156,7 +1182,19 @@ function replayResolutionChanges({ git, result, resultDir, conflicts }) {
     writeFileSync(target, content);
     gitOrThrow(git, ['add', '--', file]);
   }
-  return reasons;
+  return { reasons, baseOwned: scope.baseOwned };
+}
+
+const MAX_BASE_OWNED_DIFF = 20000;
+
+// A collapsed diff of the staged resolution against the base branch for the files only the base branch owns, so the
+// reviewer sees exactly what changed in them.
+function baseOwnedDiff(git, baseSha, files, baseBranch) {
+  if (files.length === 0) return [];
+  const diff = git(['diff', '--cached', '--no-color', String(baseSha), '--', ...files]);
+  let text = diff.status === 0 ? diff.stdout.trimEnd() : `git diff failed: ${diff.stderr.trim()}`;
+  if (text.length > MAX_BASE_OWNED_DIFF) text = `${text.slice(0, MAX_BASE_OWNED_DIFF)}\n… (cut off; see the merge commit)`;
+  return ['', `<details><summary>Changes to files of \`${baseBranch}\`</summary>`, '', ['```diff', neutralizeMarkers(text).replaceAll('```', "'''"), '```'].join('\n'), '', '</details>'];
 }
 
 // Spec Kit implement merge, job "land" (write token, no checkout of workspace code): reports the verified integration
@@ -1232,9 +1270,11 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
   // both paths; a list cut off at GitHub's limit is held for review because it may hide environment changes.
   const pullFiles = await client.listPullRequestFiles(inputs.pull);
   const environmentFiles = [...new Set(pullFiles.flatMap((file) => [file.filename, file.previous_filename]).filter((file) => file && isEnvironmentPath(file)))];
+  const baseOwned = baseOwnedChanges(await client.listIssueComments(inputs.pull));
   const reviewReasons = [
     ...(String(env.SPECKIT_AUTO_MERGE ?? 'true').toLowerCase() === 'false' ? ['automatic merging is off (`SPECKIT_AUTO_MERGE=false`)'] : []),
     ...(environmentFiles.length > 0 ? [`it changes the environment actions (${environmentFiles.map((file) => `\`${file}\``).join(', ')}), which every later implementation is verified with, so a person reviews it`] : []),
+    ...(baseOwned.length > 0 ? [`a conflict resolution changed files of \`${baseBranch}\` that this implementation does not own (${baseOwned.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}) so the merged result passes; review those changes (see the conflict resolution comments)`] : []),
     ...(pullFiles.length >= MAX_PULL_FILES ? [`it changes ${MAX_PULL_FILES} or more files, more than GitHub lists for a pull request`] : []),
     ...((result.uncovered ?? []).length > 0 ? [`no check covers ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}; extend the environment actions with a standalone environment spec`] : []),
   ];

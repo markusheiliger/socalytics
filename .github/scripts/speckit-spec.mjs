@@ -19,7 +19,7 @@ import {
   MAX_AUTO_DIAGNOSES,
   MAX_SYNC_RESOLVE_ATTEMPTS,
   MAX_TASK_ATTEMPTS,
-  RESUME_COMMENT_MARKER,
+  RESTART_COMMENT_MARKERS,
   RETRY_COMMENT_MARKER,
   baseBranchOf,
   nextStepContext,
@@ -49,7 +49,6 @@ import {
   renderNextSteps,
   renderRepairMarker,
   renderRepairPrompt,
-  renderResumeComment,
   renderSyncSkippedMarker,
   renderTaskPrompt,
   setAttention,
@@ -84,8 +83,7 @@ export function autoDiagnosisEnabled(env) {
 
 // Reads the state of an open implementation pull request and decides how to continue it (decideNext). It also renders
 // the task list of the pull request body from the branch's tasks.md, because amendments and convergence change tasks.
-// `assumeResumed` decides as if a resume were recorded now (the job "sync" runs before the decide job records it).
-export async function decideForPull(client, { twin, folder, pullNumber, now = Date.now(), context, assumeResumed = false }) {
+export async function decideForPull(client, { twin, folder, pullNumber, now = Date.now(), context }) {
   const pull = await client.getPullRequest(pullNumber);
   // The branch archives the spec folder right before the merge, so it may be in either place.
   const { tasksMarkdown, archived } = await readSpecTasks(client, folder, pull.head.sha);
@@ -101,25 +99,27 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   const checks = await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME);
   const comments = await client.listIssueComments(pullNumber);
   const attempts = parseAttempts(comments);
-  const resumedAt = [...markerTimes(comments, RESUME_COMMENT_MARKER), ...markerTimes(comments, RETRY_COMMENT_MARKER), ...(assumeResumed ? [new Date(now).toISOString()] : [])];
+  const restartedAt = RESTART_COMMENT_MARKERS.flatMap((marker) => markerTimes(comments, marker));
   const pushedAt = latestHumanCommit(await client.listPullRequestCommits(pullNumber));
   const done = markerTimes(comments, DONE_COMMENT_MARKER).length > 0;
-  const windowStart = [pull.created_at, ...resumedAt, ...(pushedAt ? [pushedAt] : [])].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
-  const latestResume = [...resumedAt].sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
-  let decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestResume, now });
+  const windowStart = [pull.created_at, ...restartedAt, ...(pushedAt ? [pushedAt] : [])].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+  const latestRestart = [...restartedAt].sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
+  let decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestRestart, now });
   const repair = unresolvedRepair(comments);
   if (repair) {
+    // Every failed repair attempt stops for a person, so each attempt follows a restart (retry, a merged
+    // amendment, or a landed fix spec) newer than the repair and its latest attempt. A restart gets a fresh attempt;
+    // without one, the stop stands (and is reported once; a recorded stop or diagnosis is kept as it is).
     const repairAttempts = attempts.filter((attempt) => attempt.kind === 'repair' && Date.parse(attempt.at) >= Date.parse(repair.at));
     const latestRepairAttempt = repairAttempts.map((attempt) => Date.parse(attempt.at)).sort((a, b) => b - a)[0] ?? 0;
     const restart = comments
       .filter((comment) => comment.user?.login === BOT_LOGIN &&
-        [RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)) &&
+        RESTART_COMMENT_MARKERS.some((marker) => String(comment.body ?? '').startsWith(marker)) &&
         Date.parse(comment.created_at) >= Math.max(Date.parse(repair.at), latestRepairAttempt))
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? (assumeResumed ? { body: RESUME_COMMENT_MARKER } : null);
-    if (restart && repairAttempts.filter((attempt) => attempt.outcome === 'failure').length < MAX_TASK_ATTEMPTS) {
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+    if (restart) {
       const guidance = parseGuidance(restart.body) ?? '';
-      const resumed = String(restart.body ?? '').startsWith(RESUME_COMMENT_MARKER);
-      decision = resumed && decision.action === 'tasks' && decision.kind === 'resolve' && decision.sync ? { ...decision, repair } : {
+      decision = {
         action: 'repair',
         kind: 'repair',
         repair,
@@ -129,8 +129,6 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
         stale: decision.stale ?? [],
         ...(decision.syncGivenUp ? { syncGivenUp: decision.syncGivenUp } : {}),
       };
-    } else if (repairAttempts.filter((attempt) => attempt.outcome === 'failure').length >= MAX_TASK_ATTEMPTS) {
-      decision = { action: 'limit', kind: 'repair', attempts: repairAttempts.length, stale: decision.stale ?? [] };
     } else if (!['diagnosing'].includes(decision.action)) {
       decision = {
         action: 'failed',
@@ -156,17 +154,17 @@ export function needsRun(decision, env) {
   return decision.diagnosis?.state === 'stale' || (autoDiagnosisEnabled(env) && (decision.diagnosis?.count ?? 0) < MAX_AUTO_DIAGNOSES);
 }
 
-// Guidance from the latest resume or retry (`/speckit resume <guidance>`, `/speckit retry <guidance>`). It applies to
+// Guidance from the latest retry (`/speckit retry <guidance>`). It applies to
 // the stopped task, repair, convergence, or conflict resolution: it ends when an attempt reported success after the
 // restart, or when a person pushed since.
 function currentGuidance({ comments, ledger, pushedAt }) {
-  const resume = comments
-    .filter((comment) => comment.user?.login === BOT_LOGIN && [RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)))
+  const restart = comments
+    .filter((comment) => comment.user?.login === BOT_LOGIN && RESTART_COMMENT_MARKERS.some((marker) => String(comment.body ?? '').startsWith(marker)))
     .at(-1);
-  const guidance = resume ? parseGuidance(resume.body) : null;
+  const guidance = restart ? parseGuidance(restart.body) : null;
   if (!guidance) return null;
-  if (pushedAt && Date.parse(pushedAt) > Date.parse(resume.created_at)) return null;
-  if (ledger.some((attempt) => attempt.outcome === 'success' && Date.parse(attempt.at) > Date.parse(resume.created_at))) return null;
+  if (pushedAt && Date.parse(pushedAt) > Date.parse(restart.created_at)) return null;
+  if (ledger.some((attempt) => attempt.outcome === 'success' && Date.parse(attempt.at) > Date.parse(restart.created_at))) return null;
   return guidance;
 }
 
@@ -255,7 +253,7 @@ function readSpecInputs(env) {
 }
 
 // The matrix entries of each entry of a decision's task order (decideNext, action "tasks"): prompts, verify modes, and
-// task summaries. Guidance from a resume applies to the stopped task, convergence, or conflict resolution, which is always the first entry. Every task is
+// task summaries. Guidance from a retry applies to the stopped task, convergence, or conflict resolution, which is always the first entry. Every task is
 // verified on its own (mode `task`); the phase gets its full verification in its own job after its last task, so a
 // failure there is never charged to the task that happens to come last.
 function prepareOrder(decision, folder) {
@@ -290,32 +288,14 @@ export function syncBaseEnabled(env) {
 
 export { phaseNotStarted };
 
-// Whether a resume has not been worked on yet. A pending repair's preparatory sync resolution does not consume it.
-export function resumePending(decision) {
-  if (decision.repair) {
-    const restart = (decision.comments ?? [])
-      .filter((comment) => comment.user?.login === BOT_LOGIN &&
-        [RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)))
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
-    if (!restart || !String(restart.body).startsWith(RESUME_COMMENT_MARKER)) return false;
-    // Sync resolutions prepare the repair; only a repair attempt consumes this resume.
-    return !(decision.ledger ?? []).some((attempt) => attempt.kind === 'repair' && Date.parse(attempt.at) >= Date.parse(restart.created_at));
-  }
-  const resume = markerTimes(decision.comments ?? [], RESUME_COMMENT_MARKER).map(Date.parse).sort((a, b) => b - a)[0];
-  if (!resume) return false;
-  const worked = (decision.ledger ?? []).some((attempt) => Date.parse(attempt.at) >= resume)
-    || (decision.checks ?? []).some((check) => check.external_id === CHECK_MERGE && Date.parse(check.started_at ?? check.created_at ?? 0) >= resume);
-  return !worked;
-}
-
 // Which work the base branch is merged before, or null: a phase that has not started, the convergence, and the merge,
-// and a pending repair after a resume. Before the merge integration is required; before other work it is best effort.
-export function integrationTarget(decision, { resumed = false } = {}) {
+// Before the merge integration is required; before other work it is best effort.
+export function integrationTarget(decision) {
   if (decision.action === 'merge') return 'merge';
-  if (decision.action === 'repair') return resumed && !decision.syncGivenUp ? 'repair' : null;
+  if (decision.action === 'repair') return null;
   if (decision.action !== 'tasks' || decision.syncGivenUp) return null;
   if (decision.kind === 'converge') return 'convergence';
-  if (decision.kind === 'task' && (resumed || phaseNotStarted(decision.tasksMarkdown))) return 'phase';
+  if (decision.kind === 'task' && phaseNotStarted(decision.tasksMarkdown)) return 'phase';
   return null;
 }
 
@@ -325,9 +305,9 @@ export function integrationTarget(decision, { resumed = false } = {}) {
 // base commit was skipped before a phase or the convergence. A conflict before the merge is recorded like the merge's
 // own (CHECK_CONFLICT, resolution required); before other work as CHECK_SYNC_CONFLICT (best effort). Either way the
 // decide job of the same run then starts the conflict resolution.
-export async function integrateBase(client, env, { decision, folder, report, resumed = false }) {
+export async function integrateBase(client, env, { decision, folder, report }) {
   if (!syncBaseEnabled(env)) return 'none';
-  const target = integrationTarget(decision, { resumed });
+  const target = integrationTarget(decision);
   if (!target) return 'none';
   const { pull } = decision;
   const base = baseBranchOf(pull);
@@ -422,10 +402,6 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     report.line(`Nothing to do: ${reasons.join('; ')}.`);
     return finish('none');
   }
-  if (String(env.SPECKIT_RESUME ?? '').toLowerCase() === 'true') {
-    await client.createComment(pullNumber, renderResumeComment('Implementation resumed on request; the attempt count starts over.', env.SPECKIT_GUIDANCE));
-    report.line('Resumed on request.');
-  }
   const orphaned = await closeOrphanedAttempts(client, listed);
   if (orphaned > 0) report.line(`Recorded ${orphaned} attempt(s) of an earlier run that ended without reporting as failed.`);
 
@@ -461,6 +437,8 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     return finish('merge', { ...common, attempt: String(decision.attempt), check_run: String(checkRun) });
   }
   if (decision.action === 'repair') {
+    // A retried repair continues on its current base.
+    if (decision.syncGivenUp) await reportSyncGivenUp(client, { decision, report });
     const entry = { task: null, attempt: decision.attempt, summary: `Repair the failed ${decision.repair.scope} verification.` };
     const checkRun = (await startAttemptChecks(client, { head: common.head, kind: 'repair', entries: [entry] })).repair;
     const prompt = renderRepairPrompt({ repair: decision.repair, guidance: decision.guidance, folder });
@@ -500,7 +478,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
 
 // Spec Kit implement spec, job "sync" ("Merge the base branch"; write access to contents, check runs, and pull
 // requests; never runs agent code). It runs first in every run of the chain (pull model): when the next work is a phase
-// that has not started, the convergence, or the merge, or the implementation was just resumed, it merges the base
+// that has not started, the convergence, or the merge, it merges the base
 // branch into the implementation branch (integrateBase). A conflict is recorded on the head, so the decide job of the
 // same run starts the conflict resolution with Copilot CLI.
 export async function runSync({ client, env, log, now = Date.now }) {
@@ -519,9 +497,8 @@ export async function runSync({ client, env, log, now = Date.now }) {
     report.line('Nothing to merge: no open implementation pull request.');
     return finish('none');
   }
-  const resuming = String(env.SPECKIT_RESUME ?? '').toLowerCase() === 'true';
-  const decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env), assumeResumed: resuming });
-  const result = await integrateBase(client, env, { decision, folder, report, resumed: resuming || resumePending(decision) });
+  const decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env) });
+  const result = await integrateBase(client, env, { decision, folder, report });
   if (result === 'none') report.line('Nothing to merge: the branch is up to date, or the next work does not merge the base branch.');
   return finish(result);
 }

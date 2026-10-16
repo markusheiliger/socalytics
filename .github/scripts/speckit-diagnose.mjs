@@ -38,11 +38,11 @@ export { checkAmendment, findAmendment };
 export const CATEGORIES = ['artifacts', 'retry', 'outside', 'decision', 'unknown'];
 export const CONFIDENCE = ['high', 'medium', 'low'];
 export const MODES = ['diagnose', 'fix', 'revise'];
-const COMMAND_PATTERN = /^\/speckit (diagnose|retry|resume|fix)( [^\n]*)?$/;
+const COMMAND_PATTERN = /^\/speckit (diagnose|retry|fix)( [^\n]*)?$/;
 // A placeholder an agent may copy from a usage line instead of writing the text: `<guidance>` or `<answers>`.
 // Only these words count, so code such as `IReadOnlyList<Recording>` or task tags such as `[P]` stay intact.
 const PLACEHOLDER_PATTERN = /<(?:concrete |your )?(?:guidance|answers?|guidance or answers|choice|first choice|what to examine next|what to fix[^<>\n]{0,60})>|\[(?:concrete |your )?(?:guidance|answers?|guidance or answers)\]/gi;
-const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|resume|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|resume|fix))\b/;
+const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|fix))\b/;
 const MAX_EVIDENCE_BYTES = 200_000;
 const LOG_TAIL_LINES = 150;
 
@@ -322,7 +322,7 @@ function normalizeOption(item, index, reasons) {
   return { title, why, command: typeof item?.command === 'string' ? item.command.trim() : null, recommended: item?.recommended === true };
 }
 
-// A command whose text after the verb is only a placeholder (`/speckit resume <guidance>`) is reduced to the bare
+// A command whose text after the verb is only a placeholder (`/speckit retry <guidance>`) is reduced to the bare
 // command; a placeholder inside other text makes the command unusable (null), because a person could not post it as
 // it is.
 export function removePlaceholderArgument(command) {
@@ -398,7 +398,7 @@ const CATEGORY_TEXT = {
 // command never disagree. The first is the category's default.
 export const CATEGORY_COMMANDS = Object.freeze({
   retry: ['retry'],
-  outside: ['fix', 'resume'],
+  outside: ['fix'],
   artifacts: ['diagnose'],
   decision: ['diagnose'],
   unknown: ['diagnose'],

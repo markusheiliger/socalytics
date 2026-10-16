@@ -107,23 +107,25 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       // The implementation pull request is open, so the twin is at `implementing` (also when a person opened it or
       // set the flag again).
       await markImplementing(client, issue);
-      // Amendments first: a merged one resumes the implementation, which the decision must see.
+      // Amendments first: a merged one retries the implementation, which the decision must see.
       try {
         const amendment = await maintainAmendment(client, env, { folder, implementation: lifecycle.pull, twin: issue.number }, { now: now(), report: (line) => amendmentNotes.push(line) });
         if (amendment.outcome === 'rework' || amendment.outcome === 'checking') amendmentActions += 1;
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the amendment of #${issue.number}: ${error.message}`);
       }
-      // Fix specs: link a merged one to this implementation, and resume it once the fix has landed.
+      // Fix specs: link a merged one to this implementation, and retry it once the fix has landed.
+      let blockedByFix = false;
       try {
         const fix = await maintainFixSpec(client, env, { folder, implementation: lifecycle.pull, twin: issue.number }, { now: now(), report: (line) => amendmentNotes.push(line) });
-        if (['rework', 'checking', 'linked', 'resumed'].includes(fix.outcome)) amendmentActions += 1;
+        if (['rework', 'checking', 'linked', 'retried'].includes(fix.outcome)) amendmentActions += 1;
+        blockedByFix = fix.blocked === true;
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the fix spec of #${issue.number}: ${error.message}`);
       }
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
-      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active });
+      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active, blockedByFix });
       continue;
     }
     if (lifecycle.state === 'fallback') {
@@ -216,13 +218,14 @@ async function finalizeMerged(client, env, issue, folder, pull) {
 function describeDecision(twin) {
   const { decision } = twin;
   if (twin.active) return 'its implementation run is active';
+  if (twin.blockedByFix) return 'blocked; it waits for its fix spec';
   switch (decision.action) {
     case 'wait': return 'a merge is running';
     case 'done': return 'implemented and waiting for review';
     case 'diagnosing': return 'stopped; a diagnosis is running';
     case 'failed': return decision.diagnosis?.state === 'reported'
       ? 'stopped; the diagnosis waits for a person\'s decision'
-      : 'stopped and waiting for a person (comment `/speckit diagnose`, `/speckit resume`, or push a fix)';
+      : 'stopped and waiting for a person (comment `/speckit diagnose`, `/speckit retry`, or push a fix)';
     case 'limit': return `${kindLabel(decision)} reached the attempt limit`;
     case 'tasks': return `next is ${decision.order[0].map(({ task, attempt }) => `${kindLabel({ kind: decision.kind, task })} attempt ${attempt}`).join(', ')}`;
     case 'merge': return `next is the merge, attempt ${decision.attempt}`;
@@ -248,9 +251,11 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
   report.line();
   let actions = selection.amendmentActions ?? 0;
   const maxActive = parseMaxActiveSpecs(env.SPECKIT_MAX_ACTIVE_SPECS);
-  let active = selection.inProgress.filter((twin) => twin.active || needsRun(twin.decision, env)).length;
+  // A blocked implementation is not continued: it waits for its fix spec, which retries it.
+  const continues = (twin) => !twin.active && !twin.blockedByFix && needsRun(twin.decision, env);
+  let active = selection.inProgress.filter((twin) => twin.active || continues(twin)).length;
   for (const twin of selection.inProgress) {
-    if (twin.active || !needsRun(twin.decision, env)) continue;
+    if (!continues(twin)) continue;
     await dispatchImplementation(client, env, { twin: twin.number, pull: twin.pull });
     report.line(`- Continued #${twin.number} (pull request #${twin.pull}): ${describeDecision(twin)}.`);
     actions += 1;

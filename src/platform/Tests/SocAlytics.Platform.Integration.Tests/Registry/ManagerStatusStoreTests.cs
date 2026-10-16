@@ -30,6 +30,7 @@ public sealed class ManagerStatusStoreTests(PostgresContainerFixture postgres)
         }).Build();
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
+        services.AddTestHostEnvironment();
         services.AddInfrastructure();
         services.AddApplication();
         return (db, services.BuildServiceProvider());

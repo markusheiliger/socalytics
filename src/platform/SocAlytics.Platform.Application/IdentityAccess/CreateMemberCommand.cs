@@ -17,6 +17,10 @@ public sealed record MemberDetails(
     IReadOnlySet<ClubRole> ClubRoles,
     IReadOnlyList<MemberTeamAssignment> TeamRoles,
     DateTimeOffset CreatedAt,
-    long Version);
+    long Version,
+    MemberEmailSummary? Email = null);
+
+/// <summary>The address and verification state shown to Club Admins in member views.</summary>
+public sealed record MemberEmailSummary(string Address, string State);
 
 public sealed record MemberCreation(MemberDetails Member, IssuedCredential SetPasswordCredential);

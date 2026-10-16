@@ -108,6 +108,15 @@ Analyst Manager registration is implemented as development evidence: pairing,
 approval, activation, DPoP machine tokens, and revocation, with golden
 fixtures shared with the Analyst Manager tests.
 
+Member email addresses and notifications are implemented as development
+evidence: optional addresses verified through a single-use confirmation link,
+notification preferences, transactional delivery through a dedicated email
+outbox and MailKit, and the notification of Club Admins about pending Analyst
+Manager registration requests. The AppHost starts a Mailpit mail catcher
+(`axllent/mailpit`, pinned) as the SMTP relay; its web interface shows the
+messages and no message leaves the machine. The production relay, sender
+authentication, and bounce handling remain deferred.
+
 The AppHost bootstraps the first club with these parameters:
 
 - `first-club-admin-password`: generated and persisted in the AppHost user

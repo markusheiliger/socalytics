@@ -3,13 +3,15 @@ import { artifactUrl, renderSpecLine, specDir } from './speckit-prepare-core.mjs
 export const BRANCH_PREFIX = 'speckit/';
 export const CHECK_RUN_NAME = 'Spec Kit implementation';
 export const START_COMMENT_MARKER = '<!-- speckit-implement:start -->';
-export const RESUME_COMMENT_MARKER = '<!-- speckit-implement:resume -->';
-// A retry restarts what stopped like a resume, but on the branch as it is: it never merges the base branch.
 export const RETRY_COMMENT_MARKER = '<!-- speckit-implement:retry -->';
+// Existing pull requests may carry this marker from before `/speckit resume` was removed. It remains a restart marker
+// for attempt accounting and guidance, but no longer causes a base-branch merge.
+export const LEGACY_RESUME_COMMENT_MARKER = '<!-- speckit-implement:resume -->';
+export const RESTART_COMMENT_MARKERS = Object.freeze([RETRY_COMMENT_MARKER, LEGACY_RESUME_COMMENT_MARKER]);
 export const DONE_COMMENT_MARKER = '<!-- speckit-implement:done -->';
 const REPAIR_MARKER_PATTERN = /<!-- speckit-implement:repair ([A-Za-z0-9+/=]+) -->/;
 export const BOT_LOGIN = 'github-actions[bot]';
-export const MAX_TASK_ATTEMPTS = 3;
+export const MAX_TASK_ATTEMPTS = 2;
 // Default number of `[P]` tasks of one spec that run at the same time (repository variable SPECKIT_MAX_PARALLEL_TASKS).
 export const DEFAULT_MAX_PARALLEL_TASKS = 3;
 export const MAX_CONVERGE_ROUNDS = 3;
@@ -86,9 +88,30 @@ export const MAX_CORRECTION_ROUNDS = 10;
 export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 // GitHub's default label for "Extra attention is needed": an implementation, amendment, or fix spec pull request
 // carries it while it waits for a person (stopped, a diagnosis or a fix spec outcome to decide on, or ready for review)
-// and loses it once a person's action puts automation back to work or closes the pull request.
+// and loses it once a person's action puts automation back to work or closes the pull request. It is only added together
+// with a comment that recommends what to do, never while a diagnosis runs, and never on a blocked pull request.
 export const ATTENTION_LABEL = 'help wanted';
+// An implementation that waits for a prerequisite (a fix spec) carries BLOCKED_LABEL instead of ATTENTION_LABEL. It is
+// only added together with a comment that says what it waits for and how it is unblocked (setBlocked).
 export const BLOCKED_LABEL = 'blocked';
+const BLOCKED_MARKER_PATTERN = /<!-- speckit-implement:blocked (\{[^\n]*?\}) -->/g;
+export const renderBlockedMarker = (key) => `<!-- speckit-implement:blocked ${JSON.stringify(key)} -->`;
+
+// Whether a workflow comment already explains the block `key` (renderBlockedMarker).
+export function blockExplained(comments, key) {
+  const wanted = JSON.stringify(key);
+  for (const comment of comments ?? []) {
+    if (comment.user?.login !== BOT_LOGIN) continue;
+    for (const match of String(comment.body ?? '').matchAll(BLOCKED_MARKER_PATTERN)) {
+      try {
+        if (JSON.stringify(JSON.parse(match[1])) === wanted) return true;
+      } catch {
+        // A damaged marker explains nothing.
+      }
+    }
+  }
+  return false;
+}
 export const MAX_WRITER_GUIDANCE = 4000;
 const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
 // Marks that the base branch at a commit was not merged before a phase (refused, or its conflicts need a person), so
@@ -102,6 +125,29 @@ export function syncSkippedShas(comments) {
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .map((comment) => String(comment.body ?? '').match(SYNC_SKIPPED_PATTERN)?.[1])
     .filter(Boolean));
+}
+// Marks that a conflict resolution changed files that only the base branch owns, to fix a clash of the merged result.
+// The land job writes it from the files it found while replaying the resolution; the final merge then waits for a
+// person's review (baseOwnedChanges). Base64 JSON, so file names cannot end the comment.
+const BASE_OWNED_PATTERN = /<!-- speckit-implement:base-owned ([A-Za-z0-9+/=]+) -->/g;
+export const renderBaseOwnedMarker = (files) => `<!-- speckit-implement:base-owned ${Buffer.from(JSON.stringify([...files].sort())).toString('base64')} -->`;
+
+// The files only the base branch owns that conflict resolutions changed on this pull request, from the workflow's
+// comments (sorted, without duplicates).
+export function baseOwnedChanges(comments) {
+  const files = new Set();
+  for (const comment of comments ?? []) {
+    if (comment.user?.login !== BOT_LOGIN) continue;
+    for (const match of String(comment.body ?? '').matchAll(BASE_OWNED_PATTERN)) {
+      try {
+        const list = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8'));
+        if (Array.isArray(list)) for (const file of list) if (typeof file === 'string' && file) files.add(file);
+      } catch {
+        // A damaged marker names no files.
+      }
+    }
+  }
+  return [...files].sort();
 }
 // Paths the agent must never change; specs/<folder>/tasks.md may only receive the target task's tick.
 export const PROTECTED_PREFIXES = ['.github/', '.specify/', 'specs/'];
@@ -181,7 +227,6 @@ export function baseBranchFromEnv(env) {
 }
 
 // The base branch of an implementation pull request when it has commits the implementation branch lacks, else null.
-// Only used to mention that a resume merges the base branch first, so errors count as not behind.
 export async function behindBaseOf(client, pull, folder) {
   try {
     const base = baseBranchOf(pull);
@@ -217,8 +262,7 @@ export function latestHumanCommit(commits) {
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
 }
 
-// Guidance a person gave with `/speckit resume` or `/speckit retry` (the text after the command), carried in the
-// workflow's resume or retry comment.
+// Guidance a person gave with `/speckit retry` (the text after the command), carried in the retry comment.
 export function renderGuidanceMarker(text) {
   return `<!-- speckit-implement:guidance ${Buffer.from(JSON.stringify({ text: String(text) }), 'utf8').toString('base64')} -->`;
 }
@@ -238,7 +282,7 @@ export function normalizeWriterGuidance(text) {
   return String(text ?? '').trim().replace(/\s+/g, ' ').slice(0, MAX_WRITER_GUIDANCE).trim();
 }
 
-export function appendWriterGuidance(prompt, guidance, label = 'Guidance from the person who resumed this implementation') {
+export function appendWriterGuidance(prompt, guidance, label = 'Guidance from the person who retried this implementation') {
   const value = normalizeWriterGuidance(guidance);
   return value ? `${prompt} ${label}: ${value}` : prompt;
 }
@@ -277,14 +321,9 @@ export function renderRepairPrompt({ repair, guidance, folder }) {
   return appendWriterGuidance(prompt, guidance, 'Writer-approved guidance');
 }
 
-// The comment that starts a new attempt window; it persists the resume, so a replaced run cannot lose
+// The comment that starts a new attempt window; it persists the retry, so a replaced run cannot lose
 // it. Guidance applies to the stopped task, convergence, or conflict resolution until it succeeds. `state` records the
 // implementation branch head and the base branch head at the restart (see unchangedRestarts).
-export function renderResumeComment(lead, guidance = '', state = null) {
-  return renderRestartComment(RESUME_COMMENT_MARKER, lead, guidance, state);
-}
-
-// Like a resume comment, but the next run does not merge the base branch first.
 export function renderRetryComment(lead, guidance = '', state = null) {
   return renderRestartComment(RETRY_COMMENT_MARKER, lead, guidance, state);
 }
@@ -300,7 +339,7 @@ function renderRestartComment(marker, lead, guidance, state = null) {
   ].join('\n');
 }
 
-// A person's restart (`/speckit retry` or `/speckit resume`) that leaves the implementation branch where it was stops
+// A person's `/speckit retry` that leaves the implementation branch where it was stops
 // the same way again unless something else changed. After this many restarts in a row on the same head, the commands
 // refuse another one while the implementation is stopped, unless the person insists (RESTART_FORCE_FLAG).
 export const MAX_UNCHANGED_RESTARTS = 2;
@@ -314,7 +353,7 @@ const renderRestartState = ({ head, base = null }) => `<!-- speckit-implement:re
 export function unchangedRestarts(comments, head) {
   const restarts = [];
   const ordered = [...comments]
-    .filter((comment) => comment.user?.login === BOT_LOGIN && [RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)))
+    .filter((comment) => comment.user?.login === BOT_LOGIN && RESTART_COMMENT_MARKERS.some((marker) => String(comment.body ?? '').startsWith(marker)))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   for (const comment of ordered) {
     let state = null;
@@ -324,7 +363,7 @@ export function unchangedRestarts(comments, head) {
       // A damaged marker counts as unknown.
     }
     if (!state?.head || state.head !== head) break;
-    restarts.push({ kind: String(comment.body).startsWith(RESUME_COMMENT_MARKER) ? 'resume' : 'retry', head: state.head, base: state.base ?? null, at: comment.created_at });
+    restarts.push({ kind: 'retry', head: state.head, base: state.base ?? null, at: comment.created_at });
   }
   return restarts;
 }
@@ -547,26 +586,39 @@ export function isTwinRunOf(workflowFile, title, twin) {
   return [`${workflow} spec #${twin}`, `${workflow} · spec #${twin}`, `[${workflow}] spec #${twin}`, `${workflow} #${twin}`].some((name) => text === name || text.startsWith(`${name} `));
 }
 
-// Adds (`needed`) or removes ATTENTION_LABEL on a pull request; only an open pull request gets it. The label is a
-// convenience, so a failure never stops the workflow.
+// Adds (`needed`) or removes ATTENTION_LABEL on a pull request; only an open pull request that is not blocked gets it.
+// The label is a convenience, so a failure never stops the workflow.
 export async function setAttention(client, number, needed) {
   try {
     const pull = await client.getPullRequest(number);
-    const has = (pull.labels ?? []).some((label) => (label?.name ?? label) === ATTENTION_LABEL);
-    if (needed && !has && pull.state === 'open') await client.addLabels(number, [ATTENTION_LABEL]);
+    const names = (pull.labels ?? []).map((label) => label?.name ?? label);
+    const has = names.includes(ATTENTION_LABEL);
+    if (needed && !has && pull.state === 'open' && !names.includes(BLOCKED_LABEL)) await client.addLabels(number, [ATTENTION_LABEL]);
     if (!needed && has) await client.removeLabel(number, ATTENTION_LABEL);
   } catch {
     // The label only signals the state; comments and check runs carry it.
   }
 }
 
-export async function setBlocked(client, number, blocked) {
+// Adds or removes BLOCKED_LABEL on an implementation pull request. Blocking needs `explain` ({ key, lines }): unless a
+// workflow comment already carries the marker of `key` (the comment that caused the block usually does), a comment with
+// `lines` says what the implementation waits for and how it is unblocked. A blocked pull request loses ATTENTION_LABEL:
+// the person's part is described there. Removing it is silent; the comment that lifts the block explains it.
+export async function setBlocked(client, number, blocked, { explain = null } = {}) {
+  if (blocked && !explain?.key) throw new Error('setBlocked needs an explanation to block a pull request');
   try {
     const pull = await client.getPullRequest(number);
-    const has = (pull.labels ?? []).some((label) => (label?.name ?? label) === BLOCKED_LABEL);
-    if (blocked && !has && pull.state === 'open') {
-      await client.ensureLabel({ name: BLOCKED_LABEL, color: 'd93f0b', description: 'Implementation is on hold waiting for a prerequisite fix' });
-      await client.addLabels(number, [BLOCKED_LABEL]);
+    const names = (pull.labels ?? []).map((label) => label?.name ?? label);
+    const has = names.includes(BLOCKED_LABEL);
+    if (blocked && pull.state === 'open') {
+      if (!blockExplained(await client.listIssueComments(number), explain.key)) {
+        await client.createComment(number, [renderBlockedMarker(explain.key), ...explain.lines].join('\n'));
+      }
+      if (!has) {
+        await client.ensureLabel({ name: BLOCKED_LABEL, color: 'd93f0b', description: 'Implementation is on hold waiting for a prerequisite fix' });
+        await client.addLabels(number, [BLOCKED_LABEL]);
+      }
+      if (names.includes(ATTENTION_LABEL)) await client.removeLabel(number, ATTENTION_LABEL);
     }
     if ((!blocked || pull.state !== 'open') && has) await client.removeLabel(number, BLOCKED_LABEL);
   } catch {
@@ -690,8 +742,11 @@ export function renderResolvePrompt({ folder, files, base, forkPoint = null, arc
     `that uses something \`${base}\` renamed or removed. Fix such clashes on the implementation's side, keeping what`,
     `\`${base}\` has as it is: besides the conflicted files you may change the files this implementation branch changed`,
     `itself (${own}) and add new files, for example to renumber this implementation's migration to the next free number`,
-    `(rename it with \`git mv\`) and update every reference to it. Do not change any other file of \`${base}\`, nor`,
-    'anything under `.github/`, `.specify/`, or `specs/`. Build what the merge touches and run the tests that cover it;',
+    `(rename it with \`git mv\`) and update every reference to it. Only when the merged result cannot pass otherwise, you`,
+    `may also make the smallest change to other files of \`${base}\` (for example add a setting this implementation`,
+    'made required to a test that the base branch added); never delete them, and never weaken a test, assertion, or',
+    'requirement on either side to make it pass. A person reviews such changes before the implementation merges. Do not',
+    'change anything under `.github/`, `.specify/`, or `specs/`. Build what the merge touches and run the tests that cover it;',
     'the full verification runs after you. Do not run git commit, merge, checkout, reset, restore, stash, rebase, or push.',
   ].join(' ');
   return appendWriterGuidance(prompt, guidance);
@@ -727,15 +782,15 @@ const checkTime = (check) => Date.parse(check.started_at ?? check.created_at ?? 
 
 // Decides how the implementation chain continues an open implementation pull request. `checks` are the
 // `Spec Kit implementation` check runs of the current head; `attempts` the attempt ledger (parseAttempts);
-// `windowStart` starts the current attempt window (pull request, resume, or a person's push); `done` tells whether
-// the implementation was finalized for review; `resumedAt` is the latest resume.
+// `windowStart` starts the current attempt window (pull request, retry, or a person's push); `done` tells whether
+// the implementation was finalized for review; `resumedAt` is the latest restart time.
 // Order: a conflict resolution when merging the base branch before the next phase or the convergence conflicted on
 // this head (best effort, see MAX_SYNC_RESOLVE_ATTEMPTS) → the tasks of the phase of the next unticked task (planTasks)
 // → converge (until a successful convergence is newer than the last successful task) → merge, or resolve after a merge
 // (or merging the base branch before it) found conflicts on this head. Only failures
 // count against the attempt limit; all outcomes (including redos from a newer head) are capped separately so no-op
 // attempts cannot loop forever. A stop that needs a person (attempt limit, attention, or a diagnosis that runs or waits
-// for a decision) holds everything until a person pushes or resumes.
+// for a decision) holds everything until a person pushes or retries.
 export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowStart, done = false, resumedAt = null, now = Date.now(), maxEntries = MAX_MATRIX_JOBS_PER_RUN }) {
   const mergeChecks = checks.filter((check) => check.external_id === CHECK_MERGE);
   const stale = mergeChecks.filter((check) => check.status !== 'completed' && now - checkTime(check) >= MERGE_STALE_MS);
@@ -744,7 +799,7 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   if (done || (latest?.external_id === CHECK_DONE && latest.conclusion === 'success')) return { action: 'done' };
   const diagnosing = latest?.external_id === CHECK_DIAGNOSING && latest.status !== 'completed';
   const failed = (latest?.external_id === CHECK_LIMIT && latest.conclusion === 'failure') || diagnosing || latest?.external_id === CHECK_DIAGNOSED;
-  // A resume comment newer than the stop counts as a resume.
+  // A retry comment newer than the stop starts a fresh attempt window.
   const resumed = failed && Boolean(resumedAt) && Date.parse(resumedAt) >= checkTime(latest);
   if (failed && !resumed) {
     if (diagnosing && now - checkTime(latest) < DIAGNOSIS_STALE_MS) return { action: 'diagnosing' };
@@ -817,7 +872,8 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
     const merges = mergeChecks.filter((check) => checkTime(check) >= since);
     const merge = { failures: merges.filter((check) => stale.includes(check) || check.conclusion === 'failure').length, total: merges.length };
     if (exceeded(merge)) return { action: 'limit', kind: 'merge', attempts: merge.total, stale };
-    return { action: 'merge', kind: 'merge', attempt: merge.total + 1, stale };
+    // The flag survives into the merge decision, so a pending repair that wraps it does not merge the base branch again.
+    return { action: 'merge', kind: 'merge', attempt: merge.total + 1, stale, ...givenUp };
   }
   if (exceeded(count)) return { action: 'limit', kind, attempts: count.total, stale };
   return { action: 'tasks', kind, order: [[{ task: null, attempt: count.total + 1 }]], phaseEnd: false, lastIsParallel: false, stale, ...(kind === 'converge' ? givenUp : {}) };
@@ -998,9 +1054,8 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
 // it applies the amendment, closing it discards it, and a comment or review asks for a rework.
 export const PR_COMMANDS = [
   { name: 'diagnose', usage: '/speckit diagnose [guidance]', help: 'diagnose why the implementation stopped; nothing runs meanwhile. Guidance steers the analysis or answers its questions' },
-  { name: 'retry', usage: '/speckit retry [guidance]', help: 'restart what stopped with a fresh attempt count, without merging the base branch for it (a phase that has not started, the convergence, and the merge always merge it first); guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless the guidance starts with `--force`' },
-  { name: 'resume', usage: '/speckit resume [guidance]', help: 'merge the base branch into the implementation branch first (Copilot resolves conflicts), then restart what stopped with a fresh attempt count; guidance goes into the next attempt\'s prompt. Refused like retry, unless the base branch has new commits or the guidance starts with `--force`' },
-  { name: 'fix', usage: '/speckit fix [guidance]', help: 'for a cause outside this spec: an agent authors a fix spec and opens it against the base branch for your review; once it is merged and implemented, this implementation resumes by itself' },
+  { name: 'retry', usage: '/speckit retry [guidance]', help: 'restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless the guidance starts with `--force`' },
+  { name: 'fix', usage: '/speckit fix [guidance]', help: 'for a cause outside this spec: an agent authors a fix spec and opens it against the base branch for your review; once it is merged and implemented, this implementation retries by itself' },
   { name: 'help', usage: '/speckit help', help: 'list these commands' },
 ];
 
@@ -1029,25 +1084,20 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
   const next = (typeof continuation === 'string' ? continuation : continuation?.text) ?? 'continues with what stopped';
   const mergesAnyway = typeof continuation === 'object' && continuation?.mergesBase === true;
   const attempts = `with a fresh attempt count (at most ${MAX_TASK_ATTEMPTS} failed attempts)`;
-  const forced = ['retry', 'resume'].includes(parsed.verb) && /^--force(?:\s+|$)/i.test(parsed.argument);
+  const forced = parsed.verb === 'retry' && /^--force(?:\s+|$)/i.test(parsed.argument);
   const argument = forced ? parsed.argument.replace(/^--force(?:\s+|$)/i, '').trim() : parsed.argument;
-  const flag = forced ? ' `--force` is a flag that bypasses the unchanged-restart guard, not guidance; it does not reset the repair attempt limit.' : '';
+  const flag = forced ? ' `--force` is a flag that bypasses the unchanged-restart guard, not guidance.' : '';
   const guidance = (argument
     ? 'The text after the command goes into the next attempt\'s prompt as guidance.'
     : 'Text you add after the command goes into the next attempt\'s prompt as guidance.') + flag;
-  if (continuation?.repair && ['retry', 'resume'].includes(parsed.verb)) {
-    const start = parsed.verb === 'resume'
-      ? `First merges ${base} into the implementation branch (Copilot resolves conflicts); then`
-      : `Does not merge ${base};`;
-    return `${start} ${argument ? 'runs a repair agent with the guidance, then reverifies' : 'reverifies without running a repair agent'} the pending ${continuation.repair.scope} verification. The original failed scope must pass before normal planning continues; existing repair attempts still count toward the limit of ${MAX_TASK_ATTEMPTS}. With guidance, a successful no-change repair also reaches reverification without an empty commit.${flag}`;
+  if (continuation?.repair && parsed.verb === 'retry') {
+    return `Does not merge ${base}; ${argument ? 'runs a repair agent with the guidance, then reverifies' : 'reverifies without running a repair agent'} the pending ${continuation.repair.scope} verification. The original failed scope must pass before normal planning continues; if this repair attempt fails, the implementation stops for a person again. With guidance, a successful no-change repair also reaches reverification without an empty commit.${flag}`;
   }
   switch (parsed.verb) {
     case 'retry':
       return mergesAnyway
-        ? `The implementation ${next}, ${attempts}. That work merges ${base} first anyway (a new phase, the convergence, and the merge always do), so here a retry and a resume do the same. ${guidance}`
+        ? `The implementation ${next}, ${attempts}. That work merges ${base} first at its normal synchronization boundary. ${guidance}`
         : `Does not merge ${base}: the implementation ${next} on the branch as it is, ${attempts}. ${guidance}`;
-    case 'resume':
-      return `First merges ${base} into the implementation branch (Copilot resolves conflicts), so fixes that landed there are included; then the implementation ${next}, ${attempts}. ${guidance}`;
     case 'diagnose':
       return [
         `Starts a new diagnosis${diagnosed ? ' with the previous one as context' : ''}${parsed.argument ? ' and the text after the command as guidance' : ''}; an open amendment pull request is closed as superseded.`,
@@ -1057,14 +1107,14 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
     case 'fix':
       return [
         `An agent authors a small fix spec for the cause${parsed.argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and then waits for your review.`,
-        `Once you merge it, the fix spec is implemented like any spec, this implementation waits for it, and then resumes by itself: it merges ${base} with the fix and continues, ${attempts}.`,
+        `Once you merge it, the fix spec is implemented like any spec, this implementation waits for it, and then retries by itself on its current phase base, ${attempts}.`,
       ].join(' ');
     default:
       return null;
   }
 }
 
-// What comes next when a stopped implementation restarts (a retry or resume now): `text` as "continues with …", and
+// What comes next when a stopped implementation retries: `text` as "continues with …", and
 // `mergesBase` when that work merges the base branch first whatever restarted it (a phase that has not started, the
 // convergence, and the merge); null when it cannot be told. A failed verification is not repeated by itself: the chain
 // continues with the next work, whose verification (at the latest the full verification before the merge) covers it.
@@ -1129,7 +1179,7 @@ const optionEffect = (option, context) => {
   if (option.command) return describeCommandEffect(option.command, context);
   if (context.continuation?.repair) {
     if (option.kind === 'push') return 'After pushing a fix, request `/speckit retry` to reverify the pending repair; a push alone does not clear it. Closing the pull request abandons the implementation, and the twin returns to its computed stage.';
-    if (option.kind === 'amendment') return 'Merging applies the amendment and resumes the implementation with the pending repair verification before normal planning can continue. Comment or request changes there to have it reworked first.';
+    if (option.kind === 'amendment') return 'Merging applies the amendment and retries the implementation with the pending repair verification before normal planning can continue. Comment or request changes there to have it reworked first.';
   }
   return FIXED_EFFECTS[option.kind] ?? null;
 };
@@ -1153,7 +1203,7 @@ export function renderFixHowTo(implementationPull, baseBranch = null) {
   return [
     '**How to proceed** (people with write access):',
     '',
-    `- **Merge** this pull request to add the fix spec to ${base}. It becomes a spec twin, is requested for implementation on behalf of the person who asked for it, and is implemented like any spec. #${implementationPull} waits for it and resumes by itself once the fix has landed (it merges ${base} first).`,
+    `- **Merge** this pull request to add the fix spec to ${base}. It becomes a spec twin, is requested for implementation on behalf of the person who asked for it, and is implemented like any spec. #${implementationPull} waits for it and retries by itself once the fix has landed.`,
     '- **Comment**, or **submit a review** with *Comment* or *Request changes* (line comments included), to have the fix spec reworked with your feedback. It returns here, checked again, for your review.',
     `- **Close** this pull request without merging to discard the fix spec; #${implementationPull} stays stopped and lists what you can do next.`,
   ];
@@ -1173,7 +1223,7 @@ export function parseFixFor(body) {
 }
 
 // The lifecycle of a fix spec, recorded on the implementation pull request it unblocks by the workflow's comments:
-// requested, created, merged or discarded, linked (twin, dependency, and implementation request), landed (resumed), or
+// requested, created, merged or discarded, linked (twin, dependency, and implementation request), landed (retried), or
 // stopped (the fix spec was not implemented).
 const FIX_EVENT_PATTERN = /<!-- speckit-fix:(requested|created|merged|discarded|linked|landed|stopped) (\{[^\n]*?\}) -->/g;
 export const renderFixEvent = (event, data = {}) => `<!-- speckit-fix:${event} ${JSON.stringify(data)} -->`;
@@ -1271,15 +1321,6 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
       title: 'Retry what stopped',
       why: 'If the failure looks transient (runner, network, timeout, a flaky test) and nothing needs to change.',
       command: '/speckit retry',
-    });
-  }
-  if (!used.has('resume')) {
-    generic.push({
-      title: behindBase ? `Merge \`${behindBase}\` first, then continue` : 'Merge the base branch first, then continue',
-      why: behindBase
-        ? `\`${behindBase}\` has commits the implementation branch lacks, possibly a fix for the cause.`
-        : 'Once a fix for the cause has landed on the base branch.',
-      command: '/speckit resume',
     });
   }
   generic.push({

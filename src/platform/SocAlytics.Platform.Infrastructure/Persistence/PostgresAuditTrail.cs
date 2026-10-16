@@ -58,6 +58,9 @@ internal sealed class PostgresAuditTrail(
         "previousWorkflowVersion",
         "readyJobsRepublished",
         "notificationsRepublished",
+        "maskedAddress",
+        "notificationType",
+        "enabled",
         "logicalJobId",
         "runId",
     };

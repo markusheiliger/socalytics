@@ -110,7 +110,7 @@ can be posted as it is, with the guidance written out; the agent checks it with
 a person starts with `/speckit fix <what to fix>` when the cause lies outside
 the stopped spec. It authors a small fix spec against the default branch, which
 goes through the same consistency check and review as an amendment; once merged
-and implemented, the stopped implementation resumes by itself.
+and implemented, the stopped implementation retries by itself.
 
 `speckit.gha.route` and `speckit.gha.request` both run
 `node .github/scripts/speckit-orchestrate.mjs request`, which

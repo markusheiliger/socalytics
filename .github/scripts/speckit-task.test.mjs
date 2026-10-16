@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
-import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, RESUME_COMMENT_MARKER, pointSpecLinks, renderGuidanceMarker, renderRepairMarker, unresolvedRepair } from './speckit-implement-core.mjs';
+import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, baseOwnedChanges, pointSpecLinks, renderBaseOwnedMarker, renderGuidanceMarker, renderRepairMarker, unresolvedRepair } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
   defaultGit,
@@ -737,7 +737,8 @@ test('converge: code changes are rejected, and the round limit asks the requeste
     assert.deepEqual([landed.exitCode, landed.check.conclusion, landed.check.external_id], [1, 'failure', CHECK_LIMIT]);
     assert.equal(remoteHead(repos), before);
     assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
-    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Wait for the diagnosis[\s\S]*<summary>Other options<\/summary>[\s\S]*```text\n {2}\/speckit retry\n {2}```[\s\S]*```text\n {2}\/speckit resume\n {2}```/);
+    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Wait for the diagnosis[\s\S]*<summary>Other options<\/summary>[\s\S]*```text\n {2}\/speckit retry\n {2}```/);
+    assert.doesNotMatch(github.comments.at(-1).body, /\/speckit resume/);
   });
 });
 
@@ -773,7 +774,7 @@ test('resolve: the agent resolution is verified, replayed, and pushed as a merge
     verify: { outcome: 'success', checks: 'platform build and tests' },
   });
   assert.match(output, /conflicts=true\nagent=true\nverify=false\nenvironment=false\nprompt=The working tree is in the middle of merging[^\n]*`docs\/shared\.md`/);
-  assert.match(output, /Guidance from the person who resumed this implementation: Preserve both migration sequences\.\n/);
+  assert.match(output, /Guidance from the person who retried this implementation: Preserve both migration sequences\.\n/);
   assert.deepEqual(integrated.result.conflicts, ['docs/shared.md']);
   assert.deepEqual([result.verified, result.resolutions], [true, [{ path: 'docs/shared.md', deleted: false, blob: '0' }]]);
 
@@ -799,7 +800,11 @@ test('resolve: markers, changes outside the conflicts, and forged resolutions ar
   await withRepos(conflicting, (repos) => {
     const { result } = work(repos, { inputs: RESOLVE_INPUTS, agent: (r) => { resolveShared(r); write(r.work, 'README.md', '# Changed\n'); write(r.work, 'new.txt', 'x'); write(r.work, '.github/x.yml', 'x'); } });
     assert.match(result.reasons.join(), /changed protected files: \.github\/x\.yml/);
-    assert.match(result.reasons.join(), /changed files that neither conflict nor belong to this implementation: README\.md(;|$)/);
+    assert.deepEqual(result.baseOwned, ['README.md']);
+  });
+  await withRepos(conflicting, (repos) => {
+    const { result } = work(repos, { inputs: RESOLVE_INPUTS, agent: (r) => { resolveShared(r); rmSync(path.join(r.work, 'README.md')); } });
+    assert.match(result.reasons.join(), /deleted files that only the base branch owns: README\.md/);
   });
   await withRepos(conflicting, async (repos) => {
     work(repos, { inputs: RESOLVE_INPUTS, agent: resolveShared });
@@ -853,7 +858,7 @@ const renumberMigration = (r) => {
 test('resolve: clashes without a textual conflict are fixed in the implementation\'s own files and replayed', () => withRepos(clashingMigrations, async (repos) => {
   const { integrated, result, output } = work(repos, { inputs: RESOLVE_INPUTS, agent: renumberMigration, verify: { outcome: 'success', checks: 'platform build and tests' } });
   const forkPoint = git(repos.work, 'merge-base', integrated.result.head, integrated.result.baseSha).trim();
-  assert.match(output, new RegExp(`two migrations with the same sequence number[^\\n]*\`git diff --name-only ${forkPoint} HEAD\`[^\\n]*Do not change any other file of \`main\``));
+  assert.match(output, new RegExp(`two migrations with the same sequence number[^\\n]*\`git diff --name-only ${forkPoint} HEAD\`[^\\n]*smallest change to other files of \`main\``));
   assert.deepEqual(result.reasons, []);
   assert.deepEqual(result.changes, [
     { path: 'db/0017_feature.sql', deleted: true },
@@ -869,6 +874,27 @@ test('resolve: clashes without a textual conflict are fixed in the implementatio
   assert.match(github.comments.at(-1).body, /Also adapted this implementation's own files: `db\/0017_feature\.sql`, `db\/0019_feature\.sql`, `docs\/feature\.md`/);
 }));
 
+test('resolve: the land job records changes to files only the base branch owns, whatever the work result claims', () => withRepos(clashingMigrations, async (repos) => {
+  const fixBaseFile = (r) => {
+    renumberMigration(r);
+    write(r.work, 'db/0018_more.sql', 'create table more(feature_id int);\n');
+  };
+  const { result } = work(repos, { inputs: RESOLVE_INPUTS, agent: fixBaseFile, verify: { outcome: 'success', checks: 'platform build and tests' } });
+  assert.deepEqual([result.reasons, result.baseOwned], [[], ['db/0018_more.sql']]);
+  const resultFile = path.join(repos.resultDir, 'result.json');
+  writeFileSync(resultFile, JSON.stringify({ ...JSON.parse(readFileSync(resultFile, 'utf8')), baseOwned: [] }));
+  const github = fakeGitHub();
+  const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+  assert.equal(landed.exitCode, 0, landed.reasons?.join());
+  assert.equal(remoteShow(repos, 'speckit/f:db/0018_more.sql'), 'create table more(feature_id int);\n');
+  const body = github.comments.at(-1).body;
+  assert.deepEqual(baseOwnedChanges(github.comments), ['db/0018_more.sql']);
+  assert.match(body, /Also adapted this implementation's own files: `db\/0017_feature\.sql`, `db\/0019_feature\.sql`, `docs\/feature\.md`\n/);
+  assert.match(body, /Also adapted files of `main` that the merged result needed: `db\/0018_more\.sql`\. The final merge waits for a person's review/);
+  assert.match(body, /<details><summary>Changes to files of `main`<\/summary>[\s\S]*```diff[\s\S]*-create table more\(\);\n\+create table more\(feature_id int\);/);
+  assert.match(remoteHead(repos), /\|Merge main into speckit\/f$/);
+}));
+
 test('resolve: the land job rejects forged changes outside the implementation\'s own files', async () => {
   const forge = async (repos, changes, content = 'x\n') => {
     work(repos, { inputs: RESOLVE_INPUTS, agent: renumberMigration });
@@ -882,10 +908,7 @@ test('resolve: the land job rejects forged changes outside the implementation\'s
     return landed.reasons.join();
   };
   await withRepos(clashingMigrations, async (repos) => {
-    assert.match(await forge(repos, [{ path: 'README.md', deleted: false, blob: 'forged' }]), /neither conflict nor belong to this implementation: README\.md/);
-  });
-  await withRepos(clashingMigrations, async (repos) => {
-    assert.match(await forge(repos, [{ path: 'db/0018_more.sql', deleted: true }]), /neither conflict nor belong to this implementation: db\/0018_more\.sql/);
+    assert.match(await forge(repos, [{ path: 'db/0018_more.sql', deleted: true }]), /deleted files that only the base branch owns: db\/0018_more\.sql/);
   });
   await withRepos(clashingMigrations, async (repos) => {
     assert.match(await forge(repos, [{ path: '.github/workflows/x.yml', deleted: false, blob: 'forged' }]), /changed protected files/);
@@ -1125,6 +1148,19 @@ test('merge-land holds environment changes and uncovered files for review, whate
   await mergeLand(huge, verifiedMerge);
   assert.equal(huge.repo.merges.length, 0);
   assert.match(huge.comments.at(-1).body, /changes 3000 or more files/);
+
+  const baseOwned = mergeableGitHub();
+  await baseOwned.createComment(9, `${renderBaseOwnedMarker(['tests/Main.Tests/SettingsTests.cs'])}\n**Conflicts resolved** (attempt 1)`);
+  await mergeLand(baseOwned, verifiedMerge);
+  assert.equal(baseOwned.repo.merges.length, 0, 'changes to files only the base branch owns are held for review');
+  assert.match(baseOwned.comments.at(-1).body, /- a conflict resolution changed files of `main` that this implementation does not own \(`tests\/Main\.Tests\/SettingsTests\.cs`\)/);
+
+  const forged = mergeableGitHub();
+  forged.commentAuthor = 'someone';
+  await forged.createComment(9, renderBaseOwnedMarker(['x.cs']));
+  forged.commentAuthor = undefined;
+  await mergeLand(forged, verifiedMerge);
+  assert.equal(forged.repo.merges.length, 1, 'only workflow comments can hold the merge with the marker');
 });
 
 test('task checks fail closed when the default branch is not in the checkout', () => withRepos({}, (repos) => {

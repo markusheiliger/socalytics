@@ -423,8 +423,8 @@ worker that submits them with MailKit by authenticated, TLS-protected SMTP to
 the stamp's configured relay; the Aspire AppHost and tests use a Mailpit
 mail-catcher container. Self-service password
 recovery and invitations may use this channel through their own
-specifications. The channel is decided, not yet implemented; see
-[Email Notifications](email-notifications.md).
+specifications. The channel is implemented as development evidence against
+Mailpit; see [Email Notifications](email-notifications.md).
 
 Analyst Manager registration uses browser device-code pairing initiated by a
 club `Registrar` and explicitly approved by a `Club Admin`. Club Admin inherits
@@ -631,6 +631,10 @@ current and non-current migration states; and
   and analysis run creation, readiness, claims, fenced completion,
   state-plus-outbox atomicity, outbox publication and retention, and recovery
   from NATS outage, restart, and duplicate notifications; and
+- integration, host, and browser tests cover member email addresses and their
+  verification, notification preferences, transactional email delivery through
+  the dedicated outbox including a relay outage, and the pending-request
+  notification, using the Mailpit mail catcher; and
 - integration and end-to-end tests cover per-object result write grants and
   validated result acceptance (eleven ordered manifest checks, storage-attested
   checksums, rejected manifests ending the attempt as failed, and immutable
@@ -686,13 +690,13 @@ choice or reveals a material operational tradeoff:
   API surface, layer composition methods, structural tests, the persistence
   foundation (migrations, Migrator, units of work, version triggers), domain
   persistence, outbox publication to NATS JetStream, local-account BFF
-  sessions, S3-compatible upload, Analyst Manager registration, and result
+  sessions, S3-compatible upload, Analyst Manager registration, member email addresses with verified, outbox-backed transactional delivery to the Mailpit mail catcher, and result
   write grants with validated result acceptance against a simulated Analyst, and the Manager-mediated
   read and staging of accepted upstream results are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views
   and the match workflow with recording upload and finalization. External
-  OpenID Connect sign-in, the Web UI's offline mode (the PWA installs and
+  OpenID Connect sign-in, MFA enforcement, the production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
   updates through its service worker as development evidence on Chromium), the other
   Web UI client workflows (analysis review and agent conversations),
   cross-runtime schema agreement, reproducible Analyst
