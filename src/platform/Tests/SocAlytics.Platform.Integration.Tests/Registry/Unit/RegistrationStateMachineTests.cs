@@ -16,7 +16,7 @@ public sealed class RegistrationStateMachineTests
 	{
 		var jwk = JsonDocument.Parse("""{"kty":"EC","crv":"P-256","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"}""").RootElement;
 		DeviceKeyThumbprint.TryCreate(jwk, out var thumbprint).ShouldBeTrue();
-		DeviceMetadata.TryCreate("linux", "6", "x64", "1.0", "software", null, out var metadata, out _).ShouldBeTrue();
+		DeviceMetadata.TryCreate("linux", "6", "x64", "1.0", "software", null, null, out var metadata, out _).ShouldBeTrue();
 		return AnalystManagerRegistration.Start(
 			Guid.NewGuid(), "stamp", thumbprint!, jwk.GetRawText(), new string('n', 16), metadata!, "127.0.0.1", "corr", T0, Windows);
 	}

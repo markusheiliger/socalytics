@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -28,7 +28,7 @@ import {
 import { main as convergeMain } from './speckit-converge.mjs';
 import { main as groupMain } from './speckit-group.mjs';
 import { main as mergeMain } from './speckit-merge.mjs';
-import { main as repairMain } from './speckit-repair.mjs';
+import { main as repairMain, repairVerificationScope } from './speckit-repair.mjs';
 import { main as resolveMain } from './speckit-resolve.mjs';
 import { FakeGitHub, silent } from './speckit-test-helpers.mjs';
 
@@ -216,6 +216,143 @@ test('repair: package rejects task-list and protected changes', async () => {
     });
   }
 });
+
+test('repair: successful no-op lands unchanged without a commit and still requires reverification', () => withRepos({ tasks: DONE_TASKS }, async (repos) => {
+  const before = remoteHead(repos);
+  const { result } = work(repos, { inputs: REPAIR_INPUTS, verify: null });
+  assert.deepEqual([result.verified, result.changedFiles, result.reasons], [true, [], []]);
+  const github = fakeGitHub();
+  const repair = { id: 'phase:no-op', state: 'pending', scope: 'phase', head: remoteSha(repos, 'speckit/f'), at: github.tick() };
+  await github.createComment(9, renderRepairMarker(repair));
+  const landed = await land(repos, github, { inputs: REPAIR_INPUTS });
+  assert.equal(landed.exitCode, 0);
+  assert.equal(remoteHead(repos), before);
+  assert.equal(landed.check.status, 'in_progress');
+  assert.equal(unresolvedRepair(github.comments).id, repair.id);
+  const env = {
+    ...landEnv(repos), SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_ATTEMPT: '1',
+    SPECKIT_CHECK_RUN: String(landed.check.id), SPECKIT_REPAIR: JSON.stringify(repair),
+    SPECKIT_HEAD: landed.head, SPECKIT_VERIFY_RESULT: 'failure', SPECKIT_AUTO_DIAGNOSE: 'false',
+  };
+  assert.equal((await runRepairReport({ client: github, env, log: silent })).exitCode, 1);
+  assert.equal(unresolvedRepair(github.comments).id, repair.id);
+  assert.match(github.comments.at(-1).body, /reverifies without running a repair agent.*pending phase verification/);
+  assert.doesNotMatch(github.comments.at(-1).body, /attempt 1 landed|fresh attempt count/);
+  env.SPECKIT_VERIFY_RESULT = 'success';
+  env.SPECKIT_VERIFICATION_OUTCOME = 'success';
+  github.repo.branches['speckit/f'] = landed.head;
+  assert.equal((await runRepairReport({ client: github, env, log: silent })).exitCode, 0);
+  assert.equal(unresolvedRepair(github.comments), null);
+}));
+
+test('repair: no-op does not excuse agent failure, missing patch, invalid patch, or failed work job', async () => {
+  for (const failure of ['agent', 'missing', 'invalid', 'work']) {
+    await withRepos({ tasks: DONE_TASKS }, async (repos) => {
+      work(repos, { inputs: REPAIR_INPUTS, verify: null, agentExit: failure === 'agent' ? '1' : '0' });
+      if (failure === 'missing') rmSync(path.join(repos.resultDir, 'changes.patch'));
+      if (failure === 'invalid') writeFileSync(path.join(repos.resultDir, 'changes.patch'), 'not a patch');
+      const landed = await land(repos, fakeGitHub(), { inputs: REPAIR_INPUTS, workResult: failure === 'work' ? 'failure' : 'success' });
+      assert.equal(landed.exitCode, 1, failure);
+    });
+  }
+});
+
+test('repair: reverification preserves original product paths and unions repair paths, even for no-ops', () => {
+  const originalChangedFiles = 'src/platform/Host.cs\nsrc/clients/web/app.ts\n';
+  assert.deepEqual(repairVerificationScope({ scope: 'phase', originalChangedFiles, repairChangedFiles: '' }), {
+    mode: 'phase', changedFiles: ['src/clients/web/app.ts', 'src/platform/Host.cs'], environment: false,
+  });
+  const combined = repairVerificationScope({ scope: 'group', originalChangedFiles, repairChangedFiles: 'src/platform/Host.cs\nsrc/analysts/manager/Worker.cs\n' });
+  assert.equal(combined.mode, 'phase');
+  assert.deepEqual(combined.changedFiles, ['src/analysts/manager/Worker.cs', 'src/clients/web/app.ts', 'src/platform/Host.cs']);
+  for (const original of [null, '']) {
+    assert.equal(repairVerificationScope({ scope: 'phase', originalChangedFiles: original, repairChangedFiles: '' }).mode, 'finalize');
+  }
+  assert.equal(repairVerificationScope({ scope: 'phase', originalChangedFiles }).mode, 'finalize', 'missing repair diff cannot silently narrow verification');
+  assert.equal(repairVerificationScope({ scope: 'merge', originalChangedFiles, repairChangedFiles: '' }).mode, 'finalize');
+});
+
+test('repair workflow: unchanged HEAD reverifies the original product scope, or all checks without evidence', () => withRepos({ tasks: DONE_TASKS }, (repos) => {
+  const workflow = readFileSync(new URL('../workflows/speckit-implement-repair.yml', import.meta.url), 'utf8');
+  const script = workflow.match(/- name: Prepare the verification tree[\s\S]*?        run: \|\n([\s\S]*?)\n      - name:/)[1].replace(/^ {10}/gm, '');
+  symlinkSync(process.cwd(), path.join(repos.base, 'tooling'), 'dir');
+  const evidence = path.join(repos.base, 'failed-verification');
+  const output = path.join(repos.base, 'output');
+  for (const available of [true, false]) {
+    if (available) write(evidence, 'changed-files.txt', 'src/platform/Host.cs\n');
+    else rmSync(evidence, { recursive: true });
+    writeFileSync(output, '');
+    const run = spawnSync('bash', ['-e', '-c', script], {
+      cwd: repos.work, encoding: 'utf8',
+      env: { ...process.env, SCOPE: 'phase', FAILED_HEAD: git(repos.work, 'rev-parse', 'HEAD').trim(), SPECKIT_RESULT_DIR: repos.resultDir, GITHUB_OUTPUT: output },
+    });
+    assert.equal(run.status, 0, run.stderr);
+    assert.match(readFileSync(output, 'utf8'), available ? /mode=phase/ : /mode=finalize/);
+    assert.equal(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8'), available ? 'src/platform/Host.cs\n' : '');
+  }
+  assert.match(workflow, /mode: \$\{\{ steps\.tree\.outputs\.mode \}\}/);
+  assert.match(workflow, /path: \$\{\{ github\.workspace \}\}\/workspace\/\.speckit-repair-evidence/);
+  assert.match(workflow, /echo '\/\.speckit-repair-evidence\/' >> \.git\/info\/exclude/);
+  assert.match(workflow, /ref: \$\{\{ inputs\.verify_only && inputs\.head \|\| needs\.land\.outputs\.head \}\}/);
+  assert.match(workflow, /Require the verification action\n        run: test -f tooling\/\.github\/actions\/environment-verify\/action\.yml/);
+  assert.match(workflow, /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}/);
+  const guard = workflow.match(/Require the verification action\n        run: ([^\n]+)/)[1];
+  assert.equal(spawnSync('bash', ['-e', '-c', guard], { cwd: repos.land }).status, 1, 'missing verifier fails the job instead of skipping verification');
+}));
+
+test('repair: no-op on a moved branch pins the actual current checkout, never an unchecked API head', () => withRepos({ tasks: DONE_TASKS }, async (repos) => {
+  const original = git(repos.work, 'rev-parse', 'HEAD').trim();
+  work(repos, { inputs: REPAIR_INPUTS, verify: null, env: { SPECKIT_HEAD: original } });
+  write(repos.land, 'docs/concurrent.md', '# Concurrent change\n');
+  git(repos.land, 'add', '-A');
+  git(repos.land, 'commit', '-q', '-m', 'concurrent change');
+  const tip = git(repos.land, 'rev-parse', 'HEAD').trim();
+  const github = fakeGitHub();
+  const result = await runLandTasks({
+    client: github, git: defaultGit(repos.land), folder: 'f', workspace: repos.land,
+    resultRoot: repos.resultDir, log: silent,
+    env: { ...landEnv(repos), SPECKIT_KIND: 'repair', SPECKIT_TWIN: '5', SPECKIT_PULL: '9',
+      SPECKIT_ORDER: '[{"include":[{"task":null,"attempt":1}]}]', SPECKIT_ORDER_INDEX: '0', SPECKIT_WORK_RESULT: 'success' },
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.head, tip);
+  assert.notEqual(result.head, 'sha-head', 'the API head was not checked out or verified');
+  assert.equal(git(repos.land, 'rev-parse', 'HEAD').trim(), tip);
+  assert.equal(git(repos.land, 'diff', '--name-only', original, result.head).trim(), 'docs/concurrent.md');
+}));
+
+test('repair fallback: finalize dispatches real product verification commands with an empty changed-file list', () => withRepos({}, (repos) => {
+  const action = readFileSync(new URL('../actions/environment-verify/action.yml', import.meta.url), 'utf8');
+  const script = action.match(/      run: \|\n([\s\S]*)/)[1].replace(/^ {8}/gm, '');
+  const bin = path.join(repos.base, 'bin');
+  for (const command of ['dotnet', 'npm']) {
+    write(bin, command, `#!/bin/sh\nprintf '${command} %s\\n' "$*" >> "$CALLS"\n`);
+    chmodSync(path.join(bin, command), 0o755);
+  }
+  write(repos.work, 'src/platform/SocAlytics.Platform.slnx', '');
+  write(repos.work, 'src/platform/Tests/Host.Tests.csproj', '');
+  write(repos.work, 'src/platform/Tests/Integration.Tests.csproj', '');
+  write(repos.work, 'src/platform/global.json', '{"sdk":{"version":"10.0.100"}}');
+  write(repos.work, 'src/analysts/manager/SocAlytics.Analysts.Manager.slnx', '');
+  write(repos.work, 'src/analysts/manager/Worker.Tests.csproj', '');
+  write(repos.work, 'src/analysts/manager/global.json', '{"sdk":{"version":"10.0.100"}}');
+  write(repos.work, 'src/clients/web/package.json', '{}');
+  write(repos.work, 'src/clients/web/node_modules/@playwright/test/package.json', '{"version":"1.63.0"}');
+  write(repos.base, 'markdown.mjs', '');
+  const mode = repairVerificationScope({ scope: 'phase', repairChangedFiles: '' }).mode;
+  const run = spawnSync('bash', ['-e', '-c', script], { cwd: repos.work, encoding: 'utf8', env: {
+    ...process.env, PATH: `${bin}:${process.env.PATH}`, MODE: mode, WORKSPACE: repos.work,
+    CHANGED_FILES: '', LOG_FILE: path.join(repos.base, 'verification.log'),
+    GITHUB_OUTPUT: path.join(repos.base, 'output'), GITHUB_STEP_SUMMARY: path.join(repos.base, 'summary'),
+    MARKDOWN_CHECK: path.join(repos.base, 'markdown.mjs'), CALLS: path.join(repos.base, 'calls'),
+  } });
+  assert.equal(run.status, 0, run.stderr);
+  const calls = readFileSync(path.join(repos.base, 'calls'), 'utf8');
+  assert.match(calls, /dotnet test src\/platform\/Tests\/Host.Tests.csproj --no-build/);
+  assert.match(calls, /dotnet test src\/platform\/Tests\/Integration.Tests.csproj --no-build/);
+  assert.match(calls, /dotnet test Worker.Tests.csproj --no-build/);
+  assert.match(calls, /npm test\nnpm run test:e2e/);
+}));
 
 test('task: package rejects missing ticks, protected paths, and agent failures; verdict records failed verification', async () => {
   const cases = [
@@ -465,7 +602,9 @@ test('repair reporting clears durable repair state only after successful reverif
     SPECKIT_HEAD: 'sha-new',
     SPECKIT_REPAIR: JSON.stringify(repair),
     SPECKIT_VERIFY_RESULT: 'success',
+    SPECKIT_VERIFICATION_OUTCOME: 'success',
   };
+  github.repo.branches['speckit/f'] = 'sha-new';
   assert.equal((await runRepairReport({ client: github, env, log: silent })).exitCode, 0);
   assert.equal(unresolvedRepair(github.comments), null);
   assert.equal(github.repo.checkRuns.find((item) => item.id === check.id).conclusion, 'success');
@@ -477,6 +616,17 @@ test('repair reporting clears durable repair state only after successful reverif
   assert.equal(result.exitCode, 1);
   assert.equal(unresolvedRepair(failed.comments).id, repair.id);
   assert.equal(failed.repo.checkRuns.find((item) => item.id === failedCheck.id).external_id, CHECK_LIMIT);
+  for (const outcome of ['', 'skipped', 'failure', 'success']) {
+    const pending = fakeGitHub();
+    await pending.createComment(9, renderRepairMarker(repair));
+    const check = await pending.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-new', status: 'in_progress', output: {} });
+    if (outcome !== 'success') pending.repo.branches['speckit/f'] = 'sha-new';
+    const result = await runRepairReport({ client: pending, env: {
+      ...env, SPECKIT_CHECK_RUN: String(check.id), SPECKIT_VERIFICATION_OUTCOME: outcome,
+    }, log: silent });
+    assert.equal(result.exitCode, 1, outcome === 'success' ? 'the branch moved after verification' : `verifier ${outcome || 'missing'}`);
+    assert.equal(unresolvedRepair(pending.comments).id, repair.id);
+  }
 });
 
 test('land: a single task finds its result where download-artifact puts a single artifact', () => withRepos({}, async (repos) => {

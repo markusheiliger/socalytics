@@ -56,6 +56,14 @@ describe('my registration requests', () => {
     expect(await screen.findByText('Reason: Unknown machine')).toBeInTheDocument();
     expect(screen.getByText('State: Rejected')).toBeInTheDocument();
     expect(screen.getByText('Host label: lab-pc')).toBeInTheDocument();
+    expect(screen.getByText('Profile (claimed): Not reported')).toBeInTheDocument();
+  });
+
+  it.each([['headless-server', 'Headless server'], ['tray', 'Tray']])('shows the claimed %s profile', async (claim, label) => {
+    const claimed = { ...rejected, deviceMetadata: { ...rejected.deviceMetadata, claimedApplicationProfile: claim } };
+    vi.stubGlobal('fetch', vi.fn(async () => json(200, claimed)));
+    renderApp(as('Registrar'), `/analyst-managers/requests/${rejected.registrationId}`);
+    expect(await screen.findByText(`Profile (claimed): ${label}`)).toBeInTheDocument();
   });
 
   it("shows not found for another member's request", async () => {

@@ -67,7 +67,7 @@ public sealed class RegisterViewModel : ObservableBase, IDisposable
             if (!result.Succeeded)
             {
                 Progress = "Registration did not start.";
-                Outcome = $"Refused: {result.Code}";
+                Outcome = $"Refused: {result.Code}{(string.IsNullOrEmpty(result.Notice) ? "" : " - " + result.Notice)}";
                 Busy = false;
                 return;
             }

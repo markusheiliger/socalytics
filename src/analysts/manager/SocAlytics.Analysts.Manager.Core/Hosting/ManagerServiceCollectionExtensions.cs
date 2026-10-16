@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -10,6 +11,17 @@ namespace SocAlytics.Analysts.Manager.Hosting;
 
 public static class ManagerServiceCollectionExtensions
 {
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private static void AddLinuxAutostart(IServiceCollection services)
+    {
+        services.AddSingleton<Autostart.IProcessRunner, Autostart.SystemProcessRunner>();
+        services.AddSingleton<Autostart.IAutostartRegistrar>(sp =>
+            sp.GetRequiredService<ApplicationProfile>() == ApplicationProfile.HeadlessServer
+                ? new Autostart.SystemdUserUnitRegistrar(
+                    sp.GetRequiredService<Autostart.IProcessRunner>(), sp.GetRequiredService<IOptions<OperatingOptions>>())
+                : new Autostart.XdgAutostartRegistrar());
+    }
+
     public static IServiceCollection AddManagerCore(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<ManagerOptions>(configuration.GetSection(ManagerOptions.SectionName));
@@ -34,7 +46,7 @@ public static class ManagerServiceCollectionExtensions
 
         if (OperatingSystem.IsLinux())
         {
-            services.AddSingleton<Autostart.IAutostartRegistrar, Autostart.XdgAutostartRegistrar>();
+            AddLinuxAutostart(services);
         }
         else if (OperatingSystem.IsWindows())
         {
@@ -101,11 +113,17 @@ public static class ManagerServiceCollectionExtensions
             configuration.GetSection(Runtime.Simulated.SimulatedAnalystOptions.SectionName));
         services.AddSingleton(CreateRuntimeAdapterCatalog);
         services.AddSingleton(_ => Runtime.RuntimeCompatibilityList.LoadEmbedded());
+        services.AddSingleton(_ => new Runtime.AccountShell());
         services.AddSingleton<Runtime.PreflightRunner>();
         services.AddSingleton<Runtime.PreflightScheduler>();
         services.AddHostedService(sp => sp.GetRequiredService<Runtime.PreflightScheduler>());
         services.AddSingleton<Operating.TimedPauseScheduler>();
         services.AddHostedService(sp => sp.GetRequiredService<Operating.TimedPauseScheduler>());
+        services.TryAdd(ServiceDescriptor.Singleton(typeof(ApplicationProfile), ApplicationProfile.Tray));
+        services.AddSingleton(_ => new LingeringCheck());
+        services.AddHostedService(sp => new LingeringWarningService(
+            sp.GetRequiredService<ApplicationProfile>(), sp.GetRequiredService<LingeringCheck>(),
+            sp.GetRequiredService<ILogger<LingeringWarningService>>(), Console.Error));
         services.AddSingleton<ManagerControl>();
         services.AddSingleton<IManagerControl>(sp => sp.GetRequiredService<ManagerControl>());
         return services;

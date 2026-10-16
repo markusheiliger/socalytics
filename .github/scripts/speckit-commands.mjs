@@ -17,6 +17,7 @@ import {
   RESTART_FORCE_FLAG,
   baseBranchOf,
   dispatchImplementation,
+  describeCommandEffect,
   folderOfBranch,
   implementationBranch,
   latestCheckRun,
@@ -25,6 +26,7 @@ import {
   renderRetryComment,
   setAttention,
   specTitleOfPull,
+  unresolvedRepair,
   unchangedRestarts,
 } from './speckit-implement-core.mjs';
 
@@ -77,6 +79,11 @@ async function resolveTarget(client, env, number) {
 // Starts a new attempt window: the resume or retry comment persists the request (and the guidance), so a replaced
 // pending run cannot lose it; starting the implementation chain only makes it happen right away.
 async function resumeImplementation(client, env, { implementation, twin, folder }, lead, guidance = '', render = renderResumeComment, state = null) {
+  const repair = unresolvedRepair(await client.listIssueComments(implementation.number));
+  if (repair) {
+    const command = render === renderResumeComment ? 'resume' : 'retry';
+    lead = `${lead.split(';')[0]}; ${describeCommandEffect(`/speckit ${command}${guidance ? ` ${guidance}` : ''}`, { baseBranch: baseBranchOf(implementation), continuation: { repair } })}`;
+  }
   await client.createComment(implementation.number, render(lead, guidance, state));
   await setAttention(client, implementation.number, false);
   try {

@@ -2,7 +2,7 @@
 
 **Branch**: `20261015-194113-web-ui-pwa-updates` | **Date**: 2026-10-15 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261015-194113-web-ui-pwa-updates/spec.md`
+**Input**: Feature specification from `specs/archive/20261015-194113-web-ui-pwa-updates/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -71,19 +71,19 @@ Re-check after Phase 1 design: still passes; no Complexity Tracking entries.
 
 ### Narratives
 
-- [Client Applications](../../docs/architecture/client-applications.md):
+- [Client Applications](../../../docs/architecture/client-applications.md):
   Source Ownership And Delivery (service worker, installable PWA), Offline
   Mode In A PWA (the Version skew rule; offline data stays future), and
   Delivery And Workspace (installable PWA, service-worker updates,
   forward-fix) — implemented by this feature except offline mode.
-- [Platform Implementation](../../docs/architecture/platform-implementation.md):
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md):
   the opening status paragraph, Client Technology, and Architecture
   Reassessment ("the Web UI PWA installs, updates through its service worker
   …").
-- [Security and Data Governance](../../docs/architecture/security-and-data-governance.md):
+- [Security and Data Governance](../../../docs/architecture/security-and-data-governance.md):
   the Web UI security baseline (the policy listing gains `manifest-src 'self'`
   and the `service-worker` Trusted Types policy).
-- [Client Decision Evidence](../../docs/architecture/client-decision-evidence.md):
+- [Client Decision Evidence](../../../docs/architecture/client-decision-evidence.md):
   `EV-D09` (installable PWA, service-worker updates) — evidence for the
   install, launch, and update rows; the offline rows stay open. Its dated
   review records stay unchanged.
@@ -137,7 +137,7 @@ rewrites listed here are examples, not the whole job.
 ### Documentation (this feature)
 
 ```text
-specs/20261015-194113-web-ui-pwa-updates/
+specs/archive/20261015-194113-web-ui-pwa-updates/
 ├── plan.md
 ├── research.md
 ├── data-model.md

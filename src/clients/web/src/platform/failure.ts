@@ -19,7 +19,8 @@ export type PlatformFailureKind =
   | 'sessionProblem'
   | 'unreachable'
   | 'unexpected'
-  | 'incompatible';
+  | 'incompatible'
+  | 'updateRequired';
 
 export interface FieldError {
   field: string;

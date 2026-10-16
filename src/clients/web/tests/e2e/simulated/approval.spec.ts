@@ -40,6 +40,18 @@ test('a pending request shows its details and the physical-identification warnin
   await expectNoAxeViolations(page);
 });
 
+test('the claimed profile is shown with the claimed key protection (FR-010)', async ({ page, api }) => {
+  api.signInAs('ClubAdmin');
+  add(api, A, { deviceMetadata: { os: 'linux', claimedKeyProtection: 'pkcs11-token', claimedApplicationProfile: 'headless-server', hostLabel: 'rack' } });
+  add(api, B);
+  await page.goto(`/analyst-managers/${A}`);
+  await expect(page.getByText('Profile (claimed): Headless server')).toBeVisible();
+  await expect(page.getByText(/not verified by the platform/)).toBeVisible();
+  await page.goto(`/analyst-managers/${B}`);
+  await expect(page.getByText('Profile (claimed): Not reported')).toBeVisible();
+  await expectNoAxeViolations(page);
+});
+
 test('a software-backed key adds a warning (scenario 2)', async ({ page, api }) => {
   api.signInAs('ClubAdmin');
   add(api, A, { deviceMetadata: { os: 'linux', claimedKeyProtection: 'software', hostLabel: 'soft' } });

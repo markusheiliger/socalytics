@@ -1,20 +1,31 @@
 import CircularProgress from '@mui/material/CircularProgress';
+import Alert from '@mui/material/Alert';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import { useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, Outlet, useLocation, useSearchParams, type RouteObject } from 'react-router';
+import { useConnectivity } from '../connectivity/useConnectivity';
 import type { SessionMember } from '../platform/models/session';
 import { NotPermittedPage } from '../shell/NotPermittedPage';
 import { RETURN_TO_PARAM, safeReturnTo, signInPathFor } from './returnTo';
 import { useSession } from './sessionContext';
 
+/** Start-up placeholder; without a connection it shows the connection-required state instead of waiting for the session. */
 export function LoadingView() {
   const { t } = useTranslation('common');
+  const { t: tShell } = useTranslation('shell');
+  const { isUnreachable } = useConnectivity();
   return (
     <Container component="main" maxWidth="md" sx={{ py: 4 }}>
       <Typography variant="h1">{t('app.name')}</Typography>
-      <CircularProgress aria-label={t('loading')} />
+      {isUnreachable ? (
+        <Alert severity="warning" role="status" sx={{ mt: 2 }}>
+          {tShell('connectivity.connectionRequired')}
+        </Alert>
+      ) : (
+        <CircularProgress aria-label={t('loading')} />
+      )}
     </Container>
   );
 }

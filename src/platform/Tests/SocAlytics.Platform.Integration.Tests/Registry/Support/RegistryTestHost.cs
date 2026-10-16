@@ -9,7 +9,7 @@ namespace SocAlytics.Platform.Integration.Tests.Registry.Support;
 
 internal static class RegistryTestHost
 {
-    public static PlatformApiFactory Create(IsolatedDatabase db, bool allowSoftwareKeys = true, Action<RegistryOptions.RateLimitOptions>? rateLimits = null) =>
+    public static PlatformApiFactory Create(IsolatedDatabase db, SoftwareKeyPolicy softwareKeys = SoftwareKeyPolicy.All, Action<RegistryOptions.RateLimitOptions>? rateLimits = null) =>
         new(db, new Dictionary<string, string?>
         {
             ["ClubDisplayName"] = "Registry Club",
@@ -17,7 +17,7 @@ internal static class RegistryTestHost
             ["FirstClubAdmin:InitialPassword"] = "Initial-Admin-Pass-1234",
         }, configureServices: services => services.Configure<RegistryOptions>(o =>
         {
-            o.AllowSoftwareKeys = allowSoftwareKeys;
+            o.SoftwareKeys = softwareKeys;
             o.RateLimits.PairingCreationPerMinute = 10_000;
             o.RateLimits.StatusPerMinute = 10_000;
             o.RateLimits.ActivationPerMinute = 10_000;
@@ -25,12 +25,12 @@ internal static class RegistryTestHost
             rateLimits?.Invoke(o.RateLimits);
         }));
 
-    public static object PairingBody(TestAnalystManager manager, string protection = "tpm", string stampId = "local-dev-stamp") => new
+    public static object PairingBody(TestAnalystManager manager, string protection = "tpm", string stampId = "local-dev-stamp", string? profile = null) => new
     {
         stampId,
         publicKey = manager.PublicJwkObject(),
         nonce = "nonce-0123456789abcdef",
-        deviceMetadata = new { os = "linux", osVersion = "6.1", architecture = "x64", managerVersion = "1.0.0", claimedKeyProtection = protection },
+        deviceMetadata = new { os = "linux", osVersion = "6.1", architecture = "x64", managerVersion = "1.0.0", claimedKeyProtection = protection, claimedApplicationProfile = profile },
     };
 
     public static Task<HttpResponseMessage> PairAsync(HttpClient client, object body, CancellationToken ct) =>

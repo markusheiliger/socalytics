@@ -20,7 +20,7 @@ function xmlError(code, message) {
 }
 
 /**
- * Starts the fake store. `allowedOrigin` is the only origin whose preflights and responses carry CORS headers.
+ * Starts the fake store. `allowedOrigin` (one origin, or several separated by commas) is the only origin whose preflights and responses carry CORS headers.
  * Resolves to `{ server, port, origin, close }`; `port: 0` picks a free port.
  */
 export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '127.0.0.1' } = {}) {
@@ -29,8 +29,9 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
   let requests = [];
   let faults = emptyFaults();
 
+  const allowedOrigins = new Set(allowedOrigin.split(',').map((o) => o.trim()));
   const cors = (origin) =>
-    origin && origin === allowedOrigin
+    origin && allowedOrigins.has(origin)
       ? { 'access-control-allow-origin': origin, 'access-control-expose-headers': 'ETag', vary: 'Origin' }
       : {};
 
@@ -81,7 +82,7 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
     const origin = req.headers.origin;
 
     if (req.method === 'OPTIONS') {
-      if (!origin || origin !== allowedOrigin) return send(res, 403, {}, xmlError('AccessForbidden', 'CORS origin refused'));
+      if (!origin || !allowedOrigins.has(origin)) return send(res, 403, {}, xmlError('AccessForbidden', 'CORS origin refused'));
       const method = req.headers['access-control-request-method'];
       const requested = String(req.headers['access-control-request-headers'] ?? '')
         .split(',')
@@ -151,7 +152,7 @@ export async function startFakeObjectStorage({ port = 0, allowedOrigin, host = '
 // Started by Playwright as a `webServer`: FAKE_STORAGE_PORT and FAKE_STORAGE_ALLOWED_ORIGIN come from playwright.config.ts.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { origin } = await startFakeObjectStorage({
-    port: Number(process.env.FAKE_STORAGE_PORT ?? 4175),
+    port: Number(process.env.FAKE_STORAGE_PORT ?? 4176),
     allowedOrigin: process.env.FAKE_STORAGE_ALLOWED_ORIGIN ?? 'http://127.0.0.1:4173',
   });
   console.log(`Fake object storage listening on ${origin}`);

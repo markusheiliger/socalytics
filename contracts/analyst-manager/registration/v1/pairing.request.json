@@ -12,6 +12,7 @@
     "claimedKeyProtection": "software",
     "osVersion": "fixture-os",
     "architecture": "x64",
-    "managerVersion": "1.0.0"
+    "managerVersion": "1.0.0",
+    "claimedApplicationProfile": "headless-server"
   }
 }

@@ -11,6 +11,7 @@ export type RegistrationState =
   | 'unknown';
 
 export type KeyProtection = 'tpm' | 'secure-enclave' | 'pkcs11-token' | 'software' | 'unknown';
+export type ApplicationProfile = 'tray' | 'headless-server';
 export type OperatingState = 'running' | 'paused' | 'runtimeUnavailable' | 'draining' | 'unknown';
 export type Connectivity = 'online' | 'offline' | 'notApplicable' | 'unknown';
 
@@ -20,6 +21,7 @@ export interface RegistrationDeviceMetadata {
   architecture?: string;
   managerVersion?: string;
   claimedKeyProtection: KeyProtection;
+  claimedApplicationProfile?: ApplicationProfile;
   hostLabel?: string;
 }
 

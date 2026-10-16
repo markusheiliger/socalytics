@@ -318,6 +318,17 @@ test('renders the next steps a person can take', () => {
 });
 
 test('describes what each command does and what a restart continues with', () => {
+  for (const verb of ['retry', 'resume']) {
+    const context = { continuation: { repair: { scope: 'phase' } } };
+    for (const force of ['--force', '--FORCE']) {
+      const bare = describeCommandEffect(`/speckit ${verb} ${force}`, context);
+      assert.match(bare, /reverifies without running a repair agent.*pending phase verification/);
+      assert.match(bare, /`--force` is a flag.*not guidance.*does not reset the repair attempt limit/);
+      const guided = describeCommandEffect(`/speckit ${verb} ${force} Inspect the logs`, context);
+      assert.match(guided, /runs a repair agent with the guidance, then reverifies/);
+      assert.match(guided, /`--force` is a flag/);
+    }
+  }
   assert.deepEqual(parseNextCommand('/speckit retry Rerun as is'), { verb: 'retry', argument: 'Rerun as is' });
   assert.equal(parseNextCommand('please /speckit retry'), null);
   assert.match(describeCommandEffect('/speckit retry', { baseBranch: 'main', continuation: 'continues with the convergence' }), /^Does not merge `main`: the implementation continues with the convergence on the branch as it is[\s\S]*Text you add after the command/);
