@@ -2,7 +2,7 @@
 
 **Branch**: `20261016-080200-fix-pwa-tamper-proxy-port` | **Date**: 2026-10-16 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261016-080200-fix-pwa-tamper-proxy-port/spec.md`
+**Input**: Feature specification from `specs/archive/20261016-080200-fix-pwa-tamper-proxy-port/spec.md`
 
 ## Summary
 
@@ -33,7 +33,7 @@ Change `tamperedPort` in `pwa-install.spec.ts` from 4176 (the fake object-store 
 ## Project Structure
 
 ```text
-specs/20261016-080200-fix-pwa-tamper-proxy-port/
+specs/archive/20261016-080200-fix-pwa-tamper-proxy-port/
 ├── spec.md
 ├── plan.md
 ├── tasks.md

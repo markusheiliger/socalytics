@@ -5,7 +5,7 @@ description: "Task list for Free Port for the PWA Tampering Proxy Test"
 
 # Tasks: Free Port for the PWA Tampering Proxy Test
 
-**Input**: Design documents from `specs/20261016-080200-fix-pwa-tamper-proxy-port/`
+**Input**: Design documents from `specs/archive/20261016-080200-fix-pwa-tamper-proxy-port/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 
