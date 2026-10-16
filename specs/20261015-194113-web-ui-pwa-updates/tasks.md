@@ -93,3 +93,10 @@ description: "Task list for Installable Web UI with Service Worker Updates"
 1. Phase 1, then User Story 1 as the MVP: the installable PWA with an integrity-verified shell.
 2. User Story 2 (updates and version skew), then User Story 3 (offline shell).
 3. Documentation and validation; installation on Edge and Chrome on Windows is a manual check (quickstart.md § Manual validation).
+
+---
+
+## Phase 6: Convergence
+
+- [ ] T009 Add the missing forced-update upload scenario to `src/clients/web/tests/e2e/simulated/pwa-version-skew.spec.ts`: start an upload in release A (simulated API and fake object store as in `tests/e2e/simulated/recovery.spec.ts`), have the simulated API send a minimum of release B mid-transfer, and assert that no further part request leaves A, the blocking `required` text says uploads continue after the update, B runs after the reload, and the upload resumes from its resume journal with only the missing parts, per FR-012 (partial)
+- [ ] T010 Extend the cache test in `src/clients/web/tests/e2e/simulated/pwa-install.spec.ts` ("the caches hold only URLs listed in the shell manifest …") so it also uploads a recording through the simulated API and fake object store before reading `caches`, and asserts that no API, session, upload-part, or object-storage URL is cached, per SC-005 (partial)
