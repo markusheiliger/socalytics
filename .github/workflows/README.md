@@ -177,10 +177,14 @@ started from a branch other than the default branch.
 ## Pull requests that need attention
 
 Implementation, amendment, and fix spec pull requests carry GitHub's default label `help wanted` ("Extra attention is
-needed") while they wait for a person. The scheduler also reconciles the label on stopped implementation pull
-requests, including older stops and implementations blocked on an amendment or a fix spec. It removes the label
-when implementation work resumes or a diagnosis is running; merging or closing the pull request also removes it.
-The label is a convenience; the comments and check runs stay authoritative.
+needed") while they wait for a person, and lose it as soon as a person's action puts automation back to work or the
+pull request is merged or closed. The label is a convenience; the comments and check runs stay authoritative.
+
+An implementation waiting for a prerequisite fix spec carries the separate custom `blocked` label, including
+while the fix spec is reviewed or implemented. GitHub has no default label for an on-hold state. The scheduler
+reconciles this label for existing blocked implementations too, and removes it when the fix lands, is discarded,
+or fails to be implemented, or the implementation pull request closes. `help wanted` keeps its existing meaning:
+a person needs to make a decision, rather than merely wait for a prerequisite.
 
 | Pull request | Labeled when | Unlabeled when |
 | --- | --- | --- |
