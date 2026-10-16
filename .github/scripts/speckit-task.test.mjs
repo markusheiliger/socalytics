@@ -1058,7 +1058,7 @@ test('merge-land squash-merges a verified implementation and completes the twin'
   assert.deepEqual([landed.check.status, landed.check.conclusion, landed.check.external_id], ['completed', 'success', CHECK_DONE]);
   assert.deepEqual([github.issues[0].state, github.issues[0].state_reason, github.issues[0].labels.map((label) => label.name)], ['closed', 'completed', [TWIN_LABEL, 'speckit:stage:implemented']]);
   assert.equal(github.repo.branches['speckit/f'], undefined);
-  assert.deepEqual(github.repo.runs.map((run) => [run.workflow, run.inputs]), [['speckit-prepare.yml', { dry_run: 'false' }]]);
+  assert.deepEqual(github.repo.runs.map((run) => [run.workflow, run.inputs]), [['speckit-prepare.yml', { dry_run: 'false' }], ['speckit-orchestrate.yml', {}]], 'the scheduler is started, since token events start no workflows');
   assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:done -->\n\*\*Merged into `main`\*\* as sha-\d+ @dev: all 2 tasks are implemented, the implementation converged, and the full verification passed \(platform build and tests, Markdown check\)\.$/);
 });
 
@@ -1070,7 +1070,7 @@ test('merge-land merges into the pull request base, not the default branch, and 
   const landed = await mergeLand(github, verifiedMerge, { env: { SPECKIT_BASE_BRANCH: 'ignored' } });
   assert.equal(landed.exitCode, 0, 'the default branch moving does not matter; the base branch did not move');
   assert.equal(github.repo.merges.length, 1);
-  assert.deepEqual(github.repo.runs.map((run) => [run.workflow, run.ref]), [['speckit-prepare.yml', 'main']]);
+  assert.deepEqual(github.repo.runs.map((run) => [run.workflow, run.ref]), [['speckit-prepare.yml', 'main'], ['speckit-orchestrate.yml', 'main']]);
   assert.match(github.comments.at(-1).body, /\*\*Merged into `release`\*\*/);
 
   const moved = mergeableGitHub();
@@ -1079,6 +1079,20 @@ test('merge-land merges into the pull request base, not the default branch, and 
   const waited = await mergeLand(moved, verifiedMerge);
   assert.deepEqual([waited.moved, moved.repo.merges.length], [true, 0], 'a moved base branch is verified again');
   assert.match(waited.check.output.summary, /but release is now sha-newer/);
+});
+
+test('merge-land notes a scheduler that could not be started and still succeeds', async () => {
+  const github = mergeableGitHub();
+  const dispatch = github.dispatchWorkflow.bind(github);
+  github.dispatchWorkflow = async (workflowFile, ref, inputs) => {
+    if (workflowFile === 'speckit-orchestrate.yml') throw new Error('workflow not found');
+    return dispatch(workflowFile, ref, inputs);
+  };
+  const landed = await mergeLand(github, verifiedMerge);
+  assert.equal(landed.exitCode, 0);
+  assert.equal(github.repo.merges.length, 1);
+  assert.deepEqual(github.repo.runs.map((run) => run.workflow), ['speckit-prepare.yml']);
+  assert.match(github.comments.at(-1).body, /\n- Spec Kit orchestrate could not be started: workflow not found$/);
 });
 
 test('merge-land waits when the base branch moved, reports conflicts, and fails unverified or moved heads', async () => {

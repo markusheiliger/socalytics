@@ -27,6 +27,7 @@ import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import {
+  BLOCKED_LABEL,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
   IMPLEMENT_WORKFLOW_FILE,
@@ -145,6 +146,8 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
     if (openBlocking.length > 0) blocked.push({ number: issue.number, folder, blockers: openBlocking });
     else ready.push({ number: issue.number, folder, requester: requester.login, reset: lifecycle.reset, fix: Boolean(entry.fixFor) });
   }
+  const unblocked = await sweepBlocked(client, env, { handled: new Set(inProgress.map((twin) => twin.pull)), now: now(), notes: amendmentNotes });
+  amendmentActions += unblocked;
   // Fix specs first: each unblocks an implementation that waits for it.
   ready.sort((a, b) => Number(b.fix) - Number(a.fix));
 
@@ -171,6 +174,35 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   setOutput(env, 'count', String(ready.length));
   setOutput(env, 'matrix', JSON.stringify({ include: ready }));
   return { exitCode: 0, ready, blocked, inconsistent, inProgress, fallback, merged, amendmentActions };
+}
+
+// Every open implementation pull request labelled BLOCKED_LABEL that the twin loop did not handle (for example because
+// its twin is inconsistent) gets its fix spec maintained as well, so a landed fix always lifts the block and retries it.
+// Returns the number of actions taken.
+async function sweepBlocked(client, env, { handled, now, notes }) {
+  let actions = 0;
+  let pulls;
+  try {
+    pulls = await client.listOpenPullRequests();
+  } catch (error) {
+    notes.push(`- Warning: could not list the blocked implementations: ${error.message}`);
+    return 0;
+  }
+  for (const pull of pulls) {
+    if (handled.has(pull.number) || !String(pull.head?.ref ?? '').startsWith('speckit/')) continue;
+    if (pull.head?.repo?.full_name && pull.base?.repo?.full_name && pull.head.repo.full_name !== pull.base.repo.full_name) continue;
+    if (!(pull.labels ?? []).some((label) => (typeof label === 'string' ? label : label.name) === BLOCKED_LABEL)) continue;
+    const twin = Number(String(pull.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
+    if (!twin) continue;
+    try {
+      const fix = await maintainFixSpec(client, env, { implementation: pull, twin }, { now, report: (line) => notes.push(line) });
+      if (fix.blocked !== true) notes.push(`- Lifted the block of #${pull.number} (${fix.outcome}).`);
+      if (['rework', 'checking', 'linked', 'retried'].includes(fix.outcome)) actions += 1;
+    } catch (error) {
+      notes.push(`- Warning: could not check the fix spec of #${pull.number}: ${error.message}`);
+    }
+  }
+  return actions;
 }
 
 async function findOpenPull(client, branch) {
