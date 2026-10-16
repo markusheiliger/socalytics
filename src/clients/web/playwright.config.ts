@@ -4,11 +4,16 @@ const previewUrl = 'http://127.0.0.1:4173';
 
 const fakeStoragePort = 4175;
 const fakeStorageUrl = `http://127.0.0.1:${fakeStoragePort}`;
+// The release server of the update specs uploads to the fake store too.
+const releaseServerUrl = 'http://127.0.0.1:4177';
+// The release server reuses the preview security headers, so the test workers need the same object storage origin.
+process.env.SOCALYTICS_OBJECT_STORAGE_ORIGIN = fakeStorageUrl;
 const platformUrl = 'http://127.0.0.1:4174';
 const simulatedOnly = process.argv.some((arg, i, all) => (arg === '--project' && all[i + 1] === 'simulated') || arg === '--project=simulated');
 const adminPassword = process.env.SOCALYTICS_E2E_ADMIN_PASSWORD ?? 'E2e-Admin-Password-0001';
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: './tests/e2e/support/buildReleases.ts',
   fullyParallel: true,
   // The simulated specs share one fake object store and its fault state, so spec files must not run concurrently.
   workers: 1,
@@ -103,7 +108,7 @@ export default defineConfig({
       command: 'node tests/e2e/support/fakeObjectStorage.mjs',
       url: `${fakeStorageUrl}/__control/health`,
       reuseExistingServer: !process.env.CI,
-      env: { FAKE_STORAGE_PORT: String(fakeStoragePort), FAKE_STORAGE_ALLOWED_ORIGIN: previewUrl },
+      env: { FAKE_STORAGE_PORT: String(fakeStoragePort), FAKE_STORAGE_ALLOWED_ORIGIN: `${previewUrl},${releaseServerUrl}` },
     },
     // The AppHost needs Docker, so it is skipped when only the simulated project runs.
     ...(simulatedOnly ? [] : [{

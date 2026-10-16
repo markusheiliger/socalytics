@@ -941,16 +941,18 @@ it can already read everything that user sees online.
 The implemented online-only Web UI foundation applies this baseline as
 development evidence. Preview mode and production-shaped builds send
 `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';
-img-src 'self' data:; font-src 'self'; media-src blob:; connect-src 'self'
-<object-storage-origin>; worker-src 'self'; object-src 'none';
-base-uri 'none'; frame-ancestors 'none'; form-action 'self';
+img-src 'self' data:; font-src 'self'; manifest-src 'self'; media-src blob:;
+connect-src 'self' <object-storage-origin>; worker-src 'self'; object-src
+'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self';
 require-trusted-types-for 'script'; trusted-types default react-dom
-upload-worker`, together
+upload-worker service-worker`, together
 with `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and a
 `Permissions-Policy` that disables camera, microphone, and geolocation. Trusted
-Types is enforced for script sinks with only the `default`, `react-dom`, and
-`upload-worker` policies; `upload-worker` creates only the bundled upload
-worker's script URL. `<object-storage-origin>` is the object-storage origin
+Types is enforced for script sinks with only the `default`, `react-dom`,
+`upload-worker`, and `service-worker` policies; `upload-worker` creates only
+the bundled upload worker's script URL, and `service-worker` creates only the
+script URL `/sw.js` of the service worker. `manifest-src 'self'` lets the
+browser read the web app manifest. `<object-storage-origin>` is the object-storage origin
 from `SOCALYTICS_OBJECT_STORAGE_ORIGIN` (the local store in development);
 without it `connect-src` stays `'self'`. Part transfers go directly to object
 storage, `media-src blob:` only lets a detached video element read a local

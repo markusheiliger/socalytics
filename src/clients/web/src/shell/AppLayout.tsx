@@ -2,6 +2,7 @@ import Box from '@mui/material/Box';
 import { Outlet } from 'react-router';
 import { ConnectivityIndicator } from './ConnectivityIndicator';
 import { Navigation } from './Navigation';
+import { UpdateNotice } from './UpdateNotice';
 import { UploadIndicator } from './UploadIndicator';
 
 export function ShellHeader() {
@@ -10,6 +11,7 @@ export function ShellHeader() {
       <Navigation />
       <ConnectivityIndicator />
       <UploadIndicator />
+      <UpdateNotice />
     </Box>
   );
 }
