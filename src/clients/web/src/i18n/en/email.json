@@ -1,0 +1,64 @@
+{
+  "section": {
+    "title": "Email address",
+    "none": "You have no email address yet.",
+    "current": "Your address is {{address}}.",
+    "state": {
+      "unverified": "Not confirmed yet. Open the link in the message we sent to confirm it.",
+      "verified": "Confirmed."
+    },
+    "address": "Email address",
+    "set": "Set address",
+    "change": "Change address",
+    "saving": "Saving…",
+    "remove": "Remove address",
+    "resend": "Send a new link",
+    "saved": "Address saved. We sent a confirmation link to it.",
+    "removed": "Address removed.",
+    "resent": "A new confirmation link was sent.",
+    "loadFailed": "The email address could not be loaded.",
+    "invalid": "This is not a valid email address.",
+    "alreadyVerified": "This address is already confirmed.",
+    "rateLimited": "Too many links were requested. Try again in {{seconds}} seconds.",
+    "rateLimitedUnknown": "Too many links were requested. Try again later."
+  },
+  "member": {
+    "title": "Email address of this member",
+    "none": "This member has no email address.",
+    "current": "The address is {{address}}.",
+    "state": {
+      "unverified": "Not confirmed yet. The member must open the link in the message we sent.",
+      "verified": "Confirmed."
+    },
+    "formLabel": "Set or change the member's email address",
+    "address": "Member's email address",
+    "saved": "Address saved. We sent a confirmation link to it.",
+    "removed": "Address removed."
+  },
+  "preferences": {
+    "title": "Email notifications",
+    "none": "No notifications apply to your roles.",
+    "loadFailed": "The notification preferences could not be loaded.",
+    "alwaysSent": "{{type}}: always sent.",
+    "types": {
+      "email-confirmation": "Email address confirmation",
+      "registration-pending": "A registration is waiting for approval"
+    }
+  },
+  "confirm": {
+    "title": "Confirm your email address",
+    "intro": "Confirm that this address is yours.",
+    "button": "Confirm this address",
+    "busy": "Confirming…",
+    "success": "Your address is confirmed.",
+    "invalid": "This link is invalid, expired, or already used.",
+    "invalidSignedIn": "Send a new link from your account.",
+    "invalidSignedOut": "Sign in and send a new link from your account.",
+    "rateLimited": "Too many attempts. Try again in {{seconds}} seconds.",
+    "rateLimitedUnknown": "Too many attempts. Try again later.",
+    "unreachable": "The platform is not reachable. Try again in a moment.",
+    "error": "Something went wrong while confirming the address. Try again later.",
+    "toAccount": "Go to your account",
+    "toSignIn": "Go to sign-in"
+  }
+}

@@ -41,7 +41,7 @@ implementation.
   implementation, where that cause lives: code or tests of another feature on the default branch, or the
   environment actions (`.github/actions/environment-setup` and `environment-verify`).
 - It is implemented, verified, converged, and merged like any spec, so the fix is documented and governed by the
-  constitution. The stopped implementation waits for it and resumes by itself once it has landed.
+  constitution. The stopped implementation waits for it and retries by itself once it has landed.
 - It is minimal: the smallest change that removes the cause. It never weakens requirements, success criteria, tests,
   thresholds, or verification of the feature that owns the code; a flaky test is made deterministic, not skipped or
   loosened.
@@ -49,7 +49,7 @@ implementation.
   the two action folders, and its implementation is always held for a person's review.
 - Refuse (author nothing, explain in `refused`) when a fix spec cannot remove the cause: tooling under `.github/`
   other than the environment actions, permissions, quotas, secrets, external services, or a cause that lies in the
-  stopped spec itself (that needs an amendment, which `/speckit diagnose` proposes).
+  stopped spec itself (that needs an amendment, which the automatic diagnosis proposes).
 
 ## Outline
 
@@ -58,7 +58,11 @@ implementation.
    default branch, find the feature that owns them (`git log` of the files, `specs/archive/`), and read its spec. Run
    the relevant tests when that helps to confirm the cause; revert scratch edits.
 2. **Decide** whether a fix spec can remove the cause (see above). If not, change nothing and go to step 6 with
-   `refused`.
+   `refused`. **One cause gets one fix spec**: the evidence lists the existing fix specs (open for review, or merged and
+   still to be implemented). When one of them already removes the cause of this stop, even though another
+   implementation asked for it, write nothing and go to step 6 with `reuse` set to its pull request number and a
+   `summary` that says why it is the same cause; this implementation then waits for that fix spec and resumes once it
+   has landed. Write a new fix spec only for a cause none of them removes.
 3. **Write the spec folder** `specs/<folderPrefix><short-name>/` (`folderPrefix` from `context.json`; `short-name`
    two to four lowercase words joined by `-` that name the fix). Use the templates in `.specify/templates/` and the
    Spec Kit conventions of the existing specs:
@@ -98,9 +102,10 @@ implementation.
 
 ```json
 {
-  "folder": "the new spec folder name, empty when refused",
-  "summary": "what the fix spec changes and why it removes the cause, in one or two sentences",
-  "refused": "why no fix spec was written; empty when one was proposed"
+  "folder": "the new spec folder name, empty when refused or reused",
+  "summary": "what the fix spec changes and why it removes the cause, or why the reused fix spec removes it, in one or two sentences",
+  "refused": "why no fix spec was written; empty when one was proposed or reused",
+  "reuse": "the pull request number of the existing fix spec that already removes this cause; empty otherwise"
 }
 ```
 
@@ -116,8 +121,9 @@ implementation.
 
 ## Done When
 
-- [ ] The fix spec removes the cause where it lives, minimally, without weakening anything (mode `author`), or the
-      refusal says why a fix spec cannot remove it.
+- [ ] The fix spec removes the cause where it lives, minimally, without weakening anything (mode `author`), an existing
+      fix spec that already removes it is reused instead of writing a second one, or the refusal says why a fix spec
+      cannot remove it.
 - [ ] `speckit-author.mjs status` reports no publish blockers, and the folder is consistent.
 - [ ] Every finding (mode `fix`) or piece of feedback (mode `revise`) has a response.
 - [ ] The report is delivered.

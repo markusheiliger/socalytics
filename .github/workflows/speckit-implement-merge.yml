@@ -247,5 +247,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_AUTO_MERGE: ${{ vars.SPECKIT_AUTO_MERGE || 'true' }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node .github/scripts/speckit-merge.mjs merge-land

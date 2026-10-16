@@ -2,14 +2,14 @@ name: Spec Kit implement spec
 
 # The implementation chain of one spec: every run decides what comes next for the spec from the state on GitHub, runs
 # it, and starts the next run, until the implementation is merged, waits for review, or needs a person. Started by the
-# scheduler (Spec Kit orchestrate), by itself, by `/speckit retry` and `/speckit resume` comments, when an amendment is
-# merged, and when a fix spec has landed. A retry restarts on the branch as it is; a resume merges the base branch first.
+# scheduler (Spec Kit orchestrate), by itself, by `/speckit retry` comments, when an amendment is merged, and when a
+# fix spec has landed. A retry restarts on the branch as it is and preserves the current phase base.
 # Runs are named "Spec Kit implement spec #<twin> · <spec title>". Every run first brings the base branch in when the
 # next work needs it ("Merge the base branch"), decides what comes next ("Decide what comes next"), runs exactly one
 # alternative (a phase, a repair, the convergence, a conflict resolution, or the merge; the others show as skipped), and then
 # starts the next run ("Start the next run"). Job names say what the job does; GitHub shows the order of the jobs.
 #   sync:                "Merge the base branch": pull model. When the next work is a phase that has not started (none
-#                        of its tasks ticked), the convergence, or the merge, or the implementation was just resumed, it
+#                        of its tasks ticked), the convergence, or the merge, it
 #                        merges the base branch into the implementation branch through the GitHub API (repository
 #                        variable SPECKIT_SYNC_BASE, default true). A conflict is recorded on the head, and the decide
 #                        job starts the conflict resolution with Copilot CLI in the same run: best effort before a phase
@@ -40,13 +40,8 @@ on:
         description: Implementation pull request number
         required: true
         type: string
-      resume:
-        description: Resume a stopped implementation with a new attempt count (true or false)
-        required: false
-        type: string
-        default: "false"
       guidance:
-        description: Guidance for the agent of what stopped (optional, with resume)
+        description: Guidance for the agent of what stopped (optional)
         required: false
         type: string
       title:
@@ -75,8 +70,8 @@ jobs:
           exit 1
 
   # Pull model: first in every run, it merges the base branch into the implementation branch when the next work is a
-  # phase that has not started (none of its tasks ticked), the convergence, or the merge, or when the implementation was
-  # just resumed (write token, never runs agent-written code). The merge goes through the GitHub API; a conflict is
+  # phase that has not started (none of its tasks ticked), the convergence, or the merge (write token, never runs
+  # agent-written code). The merge goes through the GitHub API; a conflict is
   # recorded on the head, so the decide job starts the conflict resolution with Copilot CLI in this same run.
   sync:
     name: Merge the base branch
@@ -110,7 +105,6 @@ jobs:
           SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_TWIN: ${{ inputs.twin }}
           SPECKIT_PULL: ${{ inputs.pull }}
-          SPECKIT_RESUME: ${{ inputs.resume }}
           SPECKIT_SYNC_BASE: ${{ vars.SPECKIT_SYNC_BASE || 'true' }}
         run: node .github/scripts/speckit-spec.mjs sync
 
@@ -161,9 +155,7 @@ jobs:
           SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           SPECKIT_TWIN: ${{ inputs.twin }}
           SPECKIT_PULL: ${{ inputs.pull }}
-          SPECKIT_RESUME: ${{ inputs.resume }}
           SPECKIT_GUIDANCE: ${{ inputs.guidance }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node .github/scripts/speckit-spec.mjs decide
 
   # Named after the phase heading; nested jobs show below it as "<phase heading> / T013 / Implement T013".
@@ -306,5 +298,4 @@ jobs:
           SPECKIT_PHASE_CHECK: ${{ needs.phase.outputs.verified }}
           SPECKIT_PHASE: ${{ needs.phase.outputs.phase }}
           SPECKIT_ORDER: ${{ needs.phase.outputs.order }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node .github/scripts/speckit-spec.mjs continue

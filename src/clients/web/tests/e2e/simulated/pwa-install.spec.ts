@@ -5,7 +5,7 @@ import { FAKE_STORAGE_ORIGIN, match, team } from '../support/simulatedApi';
 import { MiB, writeTestVideo } from '../support/testFiles';
 
 const previewUrl = 'http://127.0.0.1:4173';
-const tamperedPort = 4176;
+const tamperedPort = 4178;
 
 interface ShellManifest {
   version: string;

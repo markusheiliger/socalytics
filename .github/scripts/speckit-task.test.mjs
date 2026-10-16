@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
-import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, RESUME_COMMENT_MARKER, pointSpecLinks, renderGuidanceMarker, renderRepairMarker, renderSyncComment, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
+import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, baseOwnedChanges, pointSpecLinks, renderBaseOwnedMarker, renderGuidanceMarker, renderRepairMarker, renderSyncComment, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
   defaultGit,
@@ -232,7 +232,7 @@ test('repair: successful no-op lands unchanged without a commit and still requir
   const env = {
     ...landEnv(repos), SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_ATTEMPT: '1',
     SPECKIT_CHECK_RUN: String(landed.check.id), SPECKIT_REPAIR: JSON.stringify(repair),
-    SPECKIT_HEAD: landed.head, SPECKIT_VERIFY_RESULT: 'failure', SPECKIT_AUTO_DIAGNOSE: 'false',
+    SPECKIT_HEAD: landed.head, SPECKIT_VERIFY_RESULT: 'failure',
   };
   assert.equal((await runRepairReport({ client: github, env, log: silent })).exitCode, 1);
   assert.equal(unresolvedRepair(github.comments).id, repair.id);
@@ -737,7 +737,8 @@ test('converge: code changes are rejected, and the round limit asks the requeste
     assert.deepEqual([landed.exitCode, landed.check.conclusion, landed.check.external_id], [1, 'failure', CHECK_LIMIT]);
     assert.equal(remoteHead(repos), before);
     assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
-    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Wait for the diagnosis[\s\S]*<summary>Other options<\/summary>[\s\S]*```text\n {2}\/speckit retry\n {2}```[\s\S]*```text\n {2}\/speckit resume\n {2}```/);
+    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: \[Wait for the diagnosis\]\([^)]+speckit-diagnose\.lock\.yml\)[\s\S]*<summary>Other options<\/summary>[\s\S]*```text\n {2}\/speckit retry\n {2}```/);
+    assert.doesNotMatch(github.comments.at(-1).body, /\/speckit resume/);
   });
 });
 
@@ -773,7 +774,7 @@ test('resolve: the agent resolution is verified, replayed, and pushed as a merge
     verify: { outcome: 'success', checks: 'platform build and tests' },
   });
   assert.match(output, /conflicts=true\nagent=true\nverify=false\nenvironment=false\nprompt=The working tree is in the middle of merging[^\n]*`docs\/shared\.md`/);
-  assert.match(output, /Guidance from the person who resumed this implementation: Preserve both migration sequences\.\n/);
+  assert.match(output, /Guidance from the person who retried this implementation: Preserve both migration sequences\.\n/);
   assert.deepEqual(integrated.result.conflicts, ['docs/shared.md']);
   assert.deepEqual([result.verified, result.resolutions], [true, [{ path: 'docs/shared.md', deleted: false, blob: '0' }]]);
 
@@ -1066,7 +1067,11 @@ test('resolve: markers, changes outside the conflicts, and forged resolutions ar
   await withRepos(conflicting, (repos) => {
     const { result } = work(repos, { inputs: RESOLVE_INPUTS, agent: (r) => { resolveShared(r); write(r.work, 'README.md', '# Changed\n'); write(r.work, 'new.txt', 'x'); write(r.work, '.github/x.yml', 'x'); } });
     assert.match(result.reasons.join(), /changed protected files: \.github\/x\.yml/);
-    assert.match(result.reasons.join(), /changed files that neither conflict nor belong to this implementation: README\.md(;|$)/);
+    assert.deepEqual(result.baseOwned, ['README.md']);
+  });
+  await withRepos(conflicting, (repos) => {
+    const { result } = work(repos, { inputs: RESOLVE_INPUTS, agent: (r) => { resolveShared(r); rmSync(path.join(r.work, 'README.md')); } });
+    assert.match(result.reasons.join(), /deleted files that only the base branch owns: README\.md/);
   });
   await withRepos(conflicting, async (repos) => {
     work(repos, { inputs: RESOLVE_INPUTS, agent: resolveShared });
@@ -1120,7 +1125,7 @@ const renumberMigration = (r) => {
 test('resolve: clashes without a textual conflict are fixed in the implementation\'s own files and replayed', () => withRepos(clashingMigrations, async (repos) => {
   const { integrated, result, output } = work(repos, { inputs: RESOLVE_INPUTS, agent: renumberMigration, verify: { outcome: 'success', checks: 'platform build and tests' } });
   const forkPoint = git(repos.work, 'merge-base', integrated.result.head, integrated.result.baseSha).trim();
-  assert.match(output, new RegExp(`two migrations with the same sequence number[^\\n]*\`git diff --name-only ${forkPoint} HEAD\`[^\\n]*Do not change any other file of \`main\``));
+  assert.match(output, new RegExp(`two migrations with the same sequence number[^\\n]*\`git diff --name-only ${forkPoint} HEAD\`[^\\n]*smallest change to other files of \`main\``));
   assert.deepEqual(result.reasons, []);
   assert.deepEqual(result.changes, [
     { path: 'db/0017_feature.sql', deleted: true },
@@ -1136,6 +1141,48 @@ test('resolve: clashes without a textual conflict are fixed in the implementatio
   assert.match(github.comments.at(-1).body, /Also adapted this implementation's own files: `db\/0017_feature\.sql`, `db\/0019_feature\.sql`, `docs\/feature\.md`/);
 }));
 
+test('resolve: the land job records changes to files only the base branch owns, whatever the work result claims', () => withRepos(clashingMigrations, async (repos) => {
+  const fixBaseFile = (r) => {
+    renumberMigration(r);
+    write(r.work, 'db/0018_more.sql', 'create table more(feature_id int);\n');
+  };
+  const { result } = work(repos, { inputs: RESOLVE_INPUTS, agent: fixBaseFile, verify: { outcome: 'success', checks: 'platform build and tests' } });
+  assert.deepEqual([result.reasons, result.baseOwned], [[], ['db/0018_more.sql']]);
+  const resultFile = path.join(repos.resultDir, 'result.json');
+  writeFileSync(resultFile, JSON.stringify({ ...JSON.parse(readFileSync(resultFile, 'utf8')), baseOwned: [] }));
+  const github = fakeGitHub();
+  const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+  assert.equal(landed.exitCode, 0, landed.reasons?.join());
+  assert.equal(remoteShow(repos, 'speckit/f:db/0018_more.sql'), 'create table more(feature_id int);\n');
+  const body = github.comments.at(-1).body;
+  assert.deepEqual(baseOwnedChanges(github.comments), ['db/0018_more.sql']);
+  assert.match(body, /Also adapted this implementation's own files: `db\/0017_feature\.sql`, `db\/0019_feature\.sql`, `docs\/feature\.md`\n/);
+  assert.match(body, /Also adapted files of `main` that the merged result needed: `db\/0018_more\.sql`\. The final merge waits for a person's review/);
+  assert.match(body, /<details><summary>Changes to files of `main`<\/summary>[\s\S]*```diff[\s\S]*-create table more\(\);\n\+create table more\(feature_id int\);/);
+  assert.match(remoteHead(repos), /\|Merge main into speckit\/f$/);
+}));
+
+test('required sync retains base-owned review evidence while verifying the replayed tree', () => withRepos(clashingMigrations, async (repos) => {
+  const github = fakeGitHub();
+  await github.createComment(9, renderSyncComment('Integrate the upstream fix'));
+  const barrier = syncBarrier(github.comments);
+  const { result } = work(repos, {
+    inputs: RESOLVE_INPUTS,
+    env: { SPECKIT_REQUIRED_SYNC: barrier.request },
+    agent: (r) => {
+      renumberMigration(r);
+      write(r.work, 'db/0018_more.sql', 'create table more(feature_id int);\n');
+    },
+    verify: { outcome: 'success', checks: 'platform build and tests' },
+  });
+  assert.deepEqual(result.baseOwned, ['db/0018_more.sql']);
+  const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+  assert.equal(landed.exitCode, 0, landed.reasons?.join());
+  assert.deepEqual(baseOwnedChanges(github.comments), ['db/0018_more.sql']);
+  assert.ok(github.comments.some((comment) => /Base synchronized and verified[\s\S]*final merge waits for a person's review/.test(comment.body)));
+  assert.equal(syncBarrier(github.comments).completion.state, 'verified', 'only the planner can release the barrier after rechecking the current base');
+}));
+
 test('resolve: the land job rejects forged changes outside the implementation\'s own files', async () => {
   const forge = async (repos, changes, content = 'x\n') => {
     work(repos, { inputs: RESOLVE_INPUTS, agent: renumberMigration });
@@ -1149,10 +1196,7 @@ test('resolve: the land job rejects forged changes outside the implementation\'s
     return landed.reasons.join();
   };
   await withRepos(clashingMigrations, async (repos) => {
-    assert.match(await forge(repos, [{ path: 'README.md', deleted: false, blob: 'forged' }]), /neither conflict nor belong to this implementation: README\.md/);
-  });
-  await withRepos(clashingMigrations, async (repos) => {
-    assert.match(await forge(repos, [{ path: 'db/0018_more.sql', deleted: true }]), /neither conflict nor belong to this implementation: db\/0018_more\.sql/);
+    assert.match(await forge(repos, [{ path: 'db/0018_more.sql', deleted: true }]), /deleted files that only the base branch owns: db\/0018_more\.sql/);
   });
   await withRepos(clashingMigrations, async (repos) => {
     assert.match(await forge(repos, [{ path: '.github/workflows/x.yml', deleted: false, blob: 'forged' }]), /changed protected files/);
@@ -1239,7 +1283,7 @@ test('resolve: conflicts in protected paths ask the requester', () => withRepos(
   assert.deepEqual([landed.exitCode, landed.check.external_id], [1, CHECK_LIMIT]);
   assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: conflicts in protected paths need a person: specs\/f\/spec\.md/);
   assert.doesNotMatch(github.comments.at(-1).body, /Spec Kit orchestrate` workflow manually/);
-  assert.match(github.comments.at(-1).body, /\/speckit diagnose|Wait for the diagnosis/);
+  assert.match(github.comments.at(-1).body, /Wait for the diagnosis/);
 }));
 
 // The job "sync" recorded a best-effort conflict (before a phase or the convergence) on the head the resolution starts from.
@@ -1319,7 +1363,7 @@ test('merge-land squash-merges a verified implementation and completes the twin'
   assert.deepEqual([landed.check.status, landed.check.conclusion, landed.check.external_id], ['completed', 'success', CHECK_DONE]);
   assert.deepEqual([github.issues[0].state, github.issues[0].state_reason, github.issues[0].labels.map((label) => label.name)], ['closed', 'completed', [TWIN_LABEL, 'speckit:stage:implemented']]);
   assert.equal(github.repo.branches['speckit/f'], undefined);
-  assert.deepEqual(github.repo.runs.map((run) => [run.workflow, run.inputs]), [['speckit-prepare.yml', { dry_run: 'false' }]]);
+  assert.deepEqual(github.repo.runs.map((run) => [run.workflow, run.inputs]), [['speckit-prepare.yml', { dry_run: 'false' }], ['speckit-orchestrate.yml', {}]], 'the scheduler is started, since token events start no workflows');
   assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:done -->\n\*\*Merged into `main`\*\* as sha-\d+ @dev: all 2 tasks are implemented, the implementation converged, and the full verification passed \(platform build and tests, Markdown check\)\.$/);
 });
 
@@ -1331,7 +1375,7 @@ test('merge-land merges into the pull request base, not the default branch, and 
   const landed = await mergeLand(github, verifiedMerge, { env: { SPECKIT_BASE_BRANCH: 'ignored' } });
   assert.equal(landed.exitCode, 0, 'the default branch moving does not matter; the base branch did not move');
   assert.equal(github.repo.merges.length, 1);
-  assert.deepEqual(github.repo.runs.map((run) => [run.workflow, run.ref]), [['speckit-prepare.yml', 'main']]);
+  assert.deepEqual(github.repo.runs.map((run) => [run.workflow, run.ref]), [['speckit-prepare.yml', 'main'], ['speckit-orchestrate.yml', 'main']]);
   assert.match(github.comments.at(-1).body, /\*\*Merged into `release`\*\*/);
 
   const moved = mergeableGitHub();
@@ -1340,6 +1384,20 @@ test('merge-land merges into the pull request base, not the default branch, and 
   const waited = await mergeLand(moved, verifiedMerge);
   assert.deepEqual([waited.moved, moved.repo.merges.length], [true, 0], 'a moved base branch is verified again');
   assert.match(waited.check.output.summary, /but release is now sha-newer/);
+});
+
+test('merge-land notes a scheduler that could not be started and still succeeds', async () => {
+  const github = mergeableGitHub();
+  const dispatch = github.dispatchWorkflow.bind(github);
+  github.dispatchWorkflow = async (workflowFile, ref, inputs) => {
+    if (workflowFile === 'speckit-orchestrate.yml') throw new Error('workflow not found');
+    return dispatch(workflowFile, ref, inputs);
+  };
+  const landed = await mergeLand(github, verifiedMerge);
+  assert.equal(landed.exitCode, 0);
+  assert.equal(github.repo.merges.length, 1);
+  assert.deepEqual(github.repo.runs.map((run) => run.workflow), ['speckit-prepare.yml']);
+  assert.match(github.comments.at(-1).body, /\n- Spec Kit orchestrate could not be started: workflow not found$/);
 });
 
 test('merge-land waits when the base branch moved, reports conflicts, and fails unverified or moved heads', async () => {
@@ -1409,6 +1467,19 @@ test('merge-land holds environment changes and uncovered files for review, whate
   await mergeLand(huge, verifiedMerge);
   assert.equal(huge.repo.merges.length, 0);
   assert.match(huge.comments.at(-1).body, /changes 3000 or more files/);
+
+  const baseOwned = mergeableGitHub();
+  await baseOwned.createComment(9, `${renderBaseOwnedMarker(['tests/Main.Tests/SettingsTests.cs'])}\n**Conflicts resolved** (attempt 1)`);
+  await mergeLand(baseOwned, verifiedMerge);
+  assert.equal(baseOwned.repo.merges.length, 0, 'changes to files only the base branch owns are held for review');
+  assert.match(baseOwned.comments.at(-1).body, /- a conflict resolution changed files of `main` that this implementation does not own \(`tests\/Main\.Tests\/SettingsTests\.cs`\)/);
+
+  const forged = mergeableGitHub();
+  forged.commentAuthor = 'someone';
+  await forged.createComment(9, renderBaseOwnedMarker(['x.cs']));
+  forged.commentAuthor = undefined;
+  await mergeLand(forged, verifiedMerge);
+  assert.equal(forged.repo.merges.length, 1, 'only workflow comments can hold the merge with the marker');
 });
 
 test('task checks fail closed when the default branch is not in the checkout', () => withRepos({}, (repos) => {

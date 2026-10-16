@@ -55,11 +55,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
+      name: 'platform-email',
+      testDir: './tests/e2e/platform',
+      testMatch: /email\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-club-structure'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
       name: 'platform-members',
       testDir: './tests/e2e/platform',
       testMatch: /members\.spec\.ts$/,
       fullyParallel: false,
-      dependencies: ['platform-club-structure'],
+      dependencies: ['platform-email'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {

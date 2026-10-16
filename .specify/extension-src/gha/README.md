@@ -98,8 +98,7 @@ mentions such as code comments. Running it again only rewrites references that
 appeared since.
 
 `/speckit-gha-diagnose` is also the method of the `Spec Kit diagnose` agentic
-workflow, which runs it non-interactively when an implementation stops or a
-person comments `/speckit diagnose` on the pull request, and to rework an
+workflow, which runs it non-interactively whenever an implementation stops, and to rework an
 amendment pull request after consistency findings (`fix`) or a person's
 feedback (`revise`). Locally it runs interactively and asks before it changes
 anything. Its report recommends exactly one command that fits its category and
@@ -114,7 +113,7 @@ latest base before implementation can continue.
 a person starts with `/speckit fix <what to fix>` when the cause lies outside
 the stopped spec. It authors a small fix spec against the default branch, which
 goes through the same consistency check and review as an amendment; once merged
-and implemented, the stopped implementation resumes by itself.
+and implemented, the stopped implementation retries by itself.
 
 `speckit.gha.route` and `speckit.gha.request` both run
 `node .github/scripts/speckit-orchestrate.mjs request`, which

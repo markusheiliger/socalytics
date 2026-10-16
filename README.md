@@ -108,6 +108,15 @@ Analyst Manager registration is implemented as development evidence: pairing,
 approval, activation, DPoP machine tokens, and revocation, with golden
 fixtures shared with the Analyst Manager tests.
 
+Member email addresses and notifications are implemented as development
+evidence: optional addresses verified through a single-use confirmation link,
+notification preferences, transactional delivery through a dedicated email
+outbox and MailKit, and the notification of Club Admins about pending Analyst
+Manager registration requests. The AppHost starts a Mailpit mail catcher
+(`axllent/mailpit`, pinned) as the SMTP relay; its web interface shows the
+messages and no message leaves the machine. The production relay, sender
+authentication, and bounce handling remain deferred.
+
 The AppHost bootstraps the first club with these parameters:
 
 - `first-club-admin-password`: generated and persisted in the AppHost user
@@ -366,7 +375,7 @@ implementation and when stays in the label history of `implement`.
   others show as skipped; job names say what a job does, and GitHub shows
   their order. Every run starts with the job `sync` (`Merge the base branch`),
   which merges the base branch when it is ahead and the next work is a phase
-  that has not started, the convergence, the merge, or a resume; a conflict
+  that has not started, the convergence, or the merge; a conflict
   is resolved by the conflict resolution in the same run. Task groups,
   single-task implementation, guided repair, convergence, conflict resolution,
   and merge run in dedicated
@@ -531,7 +540,7 @@ implementation and when stays in the label history of `implement`.
   | Case | What the person does |
   | --- | --- |
   | A task, the convergence, a conflict resolution, or the merge reached its attempt limit | read the automatic diagnosis and choose one of its options, or push a fix to the implementation branch |
-  | Convergence still finds gaps after 3 rounds | implement the gaps on the branch, or adjust the spec and tasks (`/speckit diagnose` proposes how) |
+  | Convergence still finds gaps after 3 rounds | implement the gaps on the branch, or adjust the spec and tasks (the automatic diagnosis proposes how) |
   | Conflicts the agent could not resolve, or conflicts in protected paths | resolve them (GitHub's "Resolve conflicts" or locally) and push |
 
   A push by a person to the implementation branch triggers the scheduler,
@@ -611,10 +620,9 @@ resolution, or the merge reaches its attempt limit,
 convergence keeps finding gaps, conflicts need a person, or a merge fails. Not
 every stop is a spec problem, so the next step starts with a diagnosis:
 
-1. The stop comment on the implementation pull request ends with **Next
-    steps**: the commands that apply now, each in a copyable code block. Unless
-    the repository variable `SPECKIT_AUTO_DIAGNOSE` is `false`, a diagnosis
-    starts automatically (at most twice for the same branch head), and the
+1. The stop comment on the implementation pull request recommends waiting for
+    the diagnosis and links to the diagnosis workflow so its run can be
+    inspected. A diagnosis always starts automatically, and the
     `Spec Kit implementation` check run shows `Diagnosis in progress`.
 2. The `Spec Kit diagnose` agentic workflow
     ([`speckit-diagnose.md`](.github/workflows/speckit-diagnose.md), GitHub
@@ -634,8 +642,8 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | review and merge the linked **amendment pull request** (below) |
     | `retry` | a transient failure, or the agent took a poor approach while the artifacts are fine | `/speckit retry <guidance>` |
     | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit fix <what to fix>` for code, tests, or the environment actions (a **fix spec**, below); `/speckit sync` once a fix is on the base branch, or after an action the comment names |
-    | `decision` | a trade-off only a person can make | `/speckit diagnose 1. … 2. …`, prefilled with the recommended answers |
-    | `unknown` | not enough evidence | `/speckit diagnose <what to examine next>` |
+    | `decision` | a trade-off only a person can make | `/speckit retry 1. … 2. …`, prefilled with the recommended answers as guidance |
+    | `unknown` | not enough evidence | another diagnosis starts automatically with the previous findings as context |
 
     The diagnosis never weakens requirements, success criteria, or tests. The
     agent runs read-only behind gh-aw's network firewall.
@@ -646,22 +654,20 @@ every stop is a spec problem, so the next step starts with a diagnosis:
 
     | Command | Effect |
     | --- | --- |
-    | `/speckit diagnose [guidance]` | start a diagnosis; guidance steers it or answers its questions (also while the implementation runs; it then waits). Nothing is retried meanwhile |
     | `/speckit retry [guidance]` | restart what stopped with a fresh attempt count, without merging the base branch for it (a phase that has not started, the convergence, and the merge always merge it first); the guidance goes into its prompt |
-    | `/speckit resume [guidance]` | merge the base branch (the pull request's base; Copilot resolves conflicts), then restart what stopped with a fresh attempt count; the guidance goes into its prompt |
     | `/speckit sync [guidance]` | require the latest PR base branch to be merged and verified before continuing; Copilot resolves conflicts, and failures stop for attention instead of proceeding on the old base |
-    | `/speckit fix [guidance]` | have a fix spec authored for a cause outside this spec (below); the implementation waits and resumes by itself once the fix has landed |
+    | `/speckit fix [guidance]` | have a fix spec authored for a cause outside this spec (below); the implementation waits and retries by itself once the fix has landed |
     | `/speckit help` | list the commands |
 
     Explicit sync ignores disabled automatic synchronization and earlier best-effort skips. Its durable barrier
     checks for new base commits before release and preserves pending verification scope and repair attempt limits.
     Category/command inconsistencies in diagnosis reports are rejected rather than rewritten into a retry.
 
-    Writer guidance is capped at 4,000 characters. Retry, resume, and sync guidance
+    Writer guidance is capped at 4,000 characters. Retry and sync guidance
     is persisted in a bot-authored pull request marker and reaches every task
     in the first retried parallel group, or the first convergence, repair, or
     conflict-resolution prompt. It expires after successful work or a newer
-    person-authored push. Clean merges and verification-only repair resumes do
+    person-authored push. Clean merges and verification-only repair retries do
     not invoke an agent and therefore use no prompt guidance.
 
     What restarts is decided from the pull request's state: the stopped task,
@@ -700,11 +706,11 @@ Then you handle it like any pull request:
 
 | You do | Effect |
 | --- | --- |
-| Merge | the amendment lands on the implementation branch; a resume comment on the implementation pull request restarts the implementation with a fresh attempt count, starting with the next unchecked task (for example a new corrective task) |
+| Merge | the amendment lands on the implementation branch; a retry comment on the implementation pull request restarts the implementation with a fresh attempt count, starting with the next unchecked task (for example a new corrective task) |
 | Comment, or submit a review with *Comment* or *Request changes* (line comments included) | a rework: the pull request goes back to draft, the diagnose workflow addresses all feedback since the last round, replies, pushes to the same pull request, and the consistency check runs again before it comes back to you |
 | Close without merging | the amendment is discarded; the implementation pull request lists what you can do next |
 | Push to the amendment branch yourself | the consistency check runs again, without correction rounds |
-| Change its base branch, or add it (or the implementation pull request) to a pull request stack | undone right away: the base goes back to `speckit/<folder>` and the stack is dissolved, with a comment. A stack would merge the unfinished implementation into its base branch together with the amendment. Events reach the guard for a base changed to the default branch and for the implementation pull request; the scheduler (`Spec Kit orchestrate`) checks the rest on every run. An amendment merged into another branch anyway does not resume the implementation; you are asked to revert it there. |
+| Change its base branch, or add it (or the implementation pull request) to a pull request stack | undone right away: the base goes back to `speckit/<folder>` and the stack is dissolved, with a comment. A stack would merge the unfinished implementation into its base branch together with the amendment. Events reach the guard for a base changed to the default branch and for the implementation pull request; the scheduler (`Spec Kit orchestrate`) checks the rest on every run. An amendment merged into another branch anyway does not continue the implementation; you are asked to revert it there. |
 
 Approving does not start anything; merge when you are satisfied. Feedback that
 arrives while a rework or check runs is handled when it ends (the comment's job
@@ -745,7 +751,7 @@ the fix inside Spec Kit instead of patching around it:
     requests its implementation on behalf of the person who asked for the fix,
     and starts it even when `SPECKIT_MAX_ACTIVE_SPECS` implementations are
     active. It is implemented, converged, and merged like any spec.
-4. Once its twin is implemented, the stopped implementation resumes by itself:
+4. Once its twin is implemented, the stopped implementation retries by itself:
     it merges the base branch, with the fix, and continues with a fresh attempt
     count. If the fix spec is closed or not implemented, the implementation
     pull request lists the next steps again.
@@ -773,7 +779,6 @@ place. The workflows and scripts need no changes for any of it.
 | `SPECKIT_TASK_AI_CREDITS` | repository variable | `1000` | Copilot CLI credit cap per agent run (tasks, convergence, conflict resolution) |
 | `SPECKIT_MAX_PARALLEL_TASKS` | repository variable | `3` | how many consecutive `[P]` tasks run at the same time; `1` runs them one after another |
 | `SPECKIT_MAX_ACTIVE_SPECS` | repository variable | `3` | how many specs the scheduler implements at the same time; a spec waiting for review or for a person does not count |
-| `SPECKIT_AUTO_DIAGNOSE` | repository variable | `true` | `false` stops starting a diagnosis automatically when an implementation stops; `/speckit diagnose` still works |
 | `.github/actions/environment-setup` | composite action, optional | not run | installs the SDKs and tools for building, testing, and verifying |
 | `.github/actions/environment-verify` | composite action, optional | no verification | runs the checks for changed paths (modes `task`: only the touched tests; `phase` and `finalize`: all tests) and reports files no check covers |
 | `SPECKIT_IMPLEMENT_MODE` | local environment variable | ask | `local` or `remote` answers the `/speckit-implement` routing question |

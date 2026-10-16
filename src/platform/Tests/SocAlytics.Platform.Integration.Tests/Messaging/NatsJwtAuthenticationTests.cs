@@ -28,6 +28,7 @@ public sealed class NatsJwtAuthenticationTests(NatsJwtContainerFixture nats) : I
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
         services.AddLogging();
+        services.AddTestHostEnvironment();
         services.AddInfrastructure();
         return services.BuildServiceProvider();
     }

@@ -67,8 +67,8 @@ workflow started you): never ask, and turn every open question into a report que
    changing the outcome (the same failure again, and nobody pushed a change in between), say so in the summary and do
    not recommend that step again. Find out why it did not help (for example a precondition it assumed was never met,
    or it asked the automation for something outside its scope) and recommend a step that removes that reason. After
-   2 restarts in a row that left the implementation branch at the same commit, `/speckit retry` and `/speckit resume`
-   are refused while the implementation is stopped (a resume still runs when the base branch has new commits), so
+   2 retries in a row that left the implementation branch at the same commit, `/speckit retry`
+   is refused while the implementation is stopped, so
    recommend a step that changes something: a push, a fix spec, or an amendment. Only when new guidance that differs
    materially from what was tried can help, recommend `/speckit retry --force <guidance>` and say in `why` what is
    different this time.
@@ -79,16 +79,21 @@ workflow started you): never ask, and turn every open question into a report que
    | `artifacts` | The task cannot be done as written, or doing it as written cannot meet the spec: a missing, ambiguous, or contradictory design decision; a wrong assumption in research; a task too vague to diagnose its failure; a missing prerequisite task; a wrong task order; or a code fix inside this feature needed first (a **corrective task**) | an amendment pull request (step 5) that the person reviews and merges |
    | `retry` | Transient infrastructure (timeouts, rate limits, runner or network failures, Copilot errors, a flaky test with evidence), or the agent took a poor approach although the artifacts are adequate | `/speckit retry <concrete guidance>`: restarts without merging the base branch for it |
    | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | code, tests, or environment actions: `/speckit fix <what to fix, where, and how>`, which has a fix spec authored for it; the fix is already on the base branch: `/speckit sync`, which requires merging and verification before continuing; tooling under `.github/` or a non-code cause: name the action in the title, then `/speckit sync` |
-   | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered questions with the recommended choice first; `/speckit diagnose 1. <choice> 2. <choice>` prefilled with the recommended answers |
-   | `unknown` | Not enough evidence | what was checked and ruled out; `/speckit diagnose <what to examine next>` |
+   | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered questions with the recommended choice first; `/speckit retry 1. <choice> 2. <choice>` prefilled with the recommended answers as guidance |
+   | `unknown` | Not enough evidence | what was checked and ruled out; the workflow starts another diagnosis automatically with these findings as context |
 
    A merged result that fails although both sides pass alone (a conflict resolution or merge whose verification
    fails because of a clash without a textual conflict: two migrations with the same sequence number, an identifier
-   both sides added, implementation code that uses something the base branch renamed) is this implementation's to
-   fix, not `outside`. The conflict resolution may change this branch's own files and add new files besides the
-   conflicted ones, so classify it as `retry` and recommend `/speckit retry <how to integrate>` that names the files
-   and the change (for example "renumber this feature's migration `0017_x.sql` to `0019_x.sql` with `git mv` and update
-   its references"). It is `outside` only when the fix must change files that only the base branch owns.
+   both sides added, implementation code that uses something the base branch renamed, a test the base branch added
+   that does not know a setting this implementation made required) is this implementation's to fix, not `outside`.
+   The conflict resolution may change this branch's own files, add new files, and, when the merged result needs it,
+   make the smallest change to files that only the base branch owns (never deleting them; such changes hold the final
+   merge for a person's review). So classify it as `retry` and recommend `/speckit retry <how to integrate>` that names
+   the files and the change (for example "renumber this feature's migration `0017_x.sql` to `0019_x.sql` with `git mv`
+   and update its references", or "add the `Email:*` settings to `RequiredSettings` in the base branch's
+   `MinimumWebVersionTests.cs`"). Never guide toward weakening a test, an assertion, or a requirement on either side;
+   a test that races or fails after the merge is fixed by waiting for the right condition, not by changing what it
+   expects. It is `outside` only when the base branch fails on its own.
 
 5. **Amend (only for `artifacts`).**
    - Edit the highest wrong artifact first, then carry the change down: `spec.md` (only with a person's answer) →
@@ -155,23 +160,23 @@ workflow started you): never ask, and turn every open question into a report que
   fail. The person decides from the comment alone: `why` explains in one or two sentences why the option solves this
   problem (the comment adds what the command does).
 - The recommended command must fit the category: `retry` → `/speckit retry`; `outside` → `/speckit fix`,
-  `/speckit sync`, or `/speckit resume`; `artifacts` (without an amendment pull request), `decision`, and `unknown` →
-  `/speckit diagnose`. Inconsistent reports are rejected at publication, not replaced with a retry. A required fix
+  or `/speckit sync`; `decision` → `/speckit retry` with the recommended answers as guidance.
+  `artifacts` must create an amendment pull request, and `unknown` starts another diagnosis automatically.
+  Inconsistent reports are rejected at publication, not replaced with a retry. A required fix
   already on the base branch is `outside`, not `retry`; recommend `/speckit sync` so the merge and verification
   are mandatory. Never embed another command in retry guidance as a substitute for selecting that command.
 - A `command` is one line a person can post as it is: `/speckit sync` (requires the latest PR base branch to be
   merged, with Copilot resolving conflicts, and verified before continuing; unlike automatic sync, failures stop
   the implementation), `/speckit retry <guidance>` (restarts what stopped without
   merging the base branch for it; a phase that has not started, the convergence, and the merge always merge it first),
-  `/speckit resume <guidance>` (merges the base branch first, then
-  restarts), `/speckit fix <what to fix>` (has a fix spec authored for a cause on the base branch; the implementation
-  resumes by itself once it has landed), or `/speckit diagnose <notes or answers>`. Write the guidance, notes, or
-  answers out from your findings; never leave placeholders such as `<guidance>` or `[notes]`, and leave the text out
+  `/speckit fix <what to fix>` (has a fix spec authored for a cause on the base branch; the implementation
+  retries by itself once it has landed). Write the guidance or answers out from your findings; never leave
+  placeholders such as `<guidance>` or `[notes]`, and leave the text out
   only when there is nothing useful to add. For `decision`, prefill the answers with the recommended choices:
-  `/speckit diagnose 1. <first choice> 2. <first choice>`.
+  `/speckit retry 1. <first choice> 2. <first choice>`.
 - When the solution needs an action outside these commands (for example "grant the workflow access to the
   registry"), describe that action in the option's title and set `command` to the command that continues afterwards
-  (usually `/speckit resume <guidance>`), so the recommendation is one option. Its guidance must not claim that the
+  (usually `/speckit retry <guidance>`), so the recommendation is one option. Its guidance must not claim that the
   action is done ("after pushing the rename …", "the file is now renamed"): a person may post the command before
   acting, and the work then fails again the same way. Prefer a command that lets the automation make a code change
   itself (task, repair, or conflict-resolution guidance) over asking a person to push it. Reviewing and merging the

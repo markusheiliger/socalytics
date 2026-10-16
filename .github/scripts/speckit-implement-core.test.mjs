@@ -49,6 +49,7 @@ test('command acceptance and publication share a queued per-implementation lock 
   assert.doesNotMatch(parent, /^  group: speckit-publication-/m, 'the chain must not hold the publication lock at workflow level while waiting for reusable jobs');
 });
 
+import { integrationTarget } from './speckit-spec.mjs';
 import {
   readSpecTasks,
   tasksPathOf,
@@ -116,13 +117,13 @@ import {
   renderPullRequestBody,
   renderPullRequestTitle,
   renderResolvePrompt,
-  renderResumeComment,
+  renderRetryComment,
   renderStartComment,
   renderAttemptMarker,
   renderImplementRunName,
   renderTaskPrompt,
   TASK_TEST_SCOPE,
-  RESUME_COMMENT_MARKER,
+  LEGACY_RESUME_COMMENT_MARKER,
   START_COMMENT_MARKER,
   setAmendmentStatus,
   kindLabel,
@@ -283,8 +284,8 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.match(TASK_TEST_SCOPE, /Do not run the whole test suite/);
   assert.match(renderTaskPrompt('T004', 'f'), /^\/speckit-implement Implement only task T004 of the spec in `specs\/f\/` \(its `tasks\.md`\); ignore the other specs\. Do not implement any other task\./);
   assert.match(renderConvergePrompt(), /^\/speckit-converge /);
-  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs', 'b.md'] }), /`specs\/f`[\s\S]*`a\.cs`, `b\.md`[\s\S]*Do not change any other file/);
-  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs'], base: 'main', guidance: '  Keep\nboth sides.  ' }), /Guidance from the person who resumed this implementation: Keep both sides\.$/);
+  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs', 'b.md'] }), /`specs\/f`[\s\S]*`a\.cs`, `b\.md`[\s\S]*smallest change to other files[\s\S]*never delete them, and never weaken a test, assertion, or requirement[\s\S]*A person reviews such changes/);
+  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs'], base: 'main', guidance: '  Keep\nboth sides.  ' }), /Guidance from the person who retried this implementation: Keep both sides\.$/);
   assert.match(renderRepairPrompt({ repair: { scope: 'group', tasks: ['T001'] }, folder: 'f', guidance: '  Reuse\nexisting coverage. ' }), /Writer-approved guidance: Reuse existing coverage\.$/);
   assert.equal(kindLabel({ kind: 'task', task: 'T001' }), 'T001');
   assert.equal(kindLabel({ kind: 'converge' }), 'convergence');
@@ -306,15 +307,15 @@ test('decides the next tasks of an implementation from the attempt ledger', () =
   assert.deepEqual(decide({}), order([{ task: 'T002', attempt: 1 }], [{ task: 'T003', attempt: 1 }]));
   assert.deepEqual(decide({ attempts: [attempt('T001'), attempt('T002')] }), order([{ task: 'T002', attempt: 2 }], [{ task: 'T003', attempt: 1 }]));
   assert.deepEqual(decide({ attempts: [attempt('T002', 'failure', '2026-10-06T09:00:00Z')] }), order([{ task: 'T002', attempt: 1 }], [{ task: 'T003', attempt: 1 }]), 'attempts before the window do not count');
-  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002')] }), order([{ task: 'T002', attempt: 4 }], [{ task: 'T003', attempt: 1 }]), 'a redo is no failure');
-  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002'), attempt('T002')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 3, stale: [] });
-  const noOps = Array.from({ length: 6 }, () => attempt('T002', 'requeue'));
-  assert.deepEqual(decide({ attempts: noOps }), { action: 'limit', kind: 'task', task: 'T002', attempts: 6, stale: [] }, 'endless redos stop too');
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002', 'requeue')] }), order([{ task: 'T002', attempt: 4 }], [{ task: 'T003', attempt: 1 }]), 'a redo is no failure');
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 2, stale: [] });
+  const noOps = Array.from({ length: 4 }, () => attempt('T002', 'requeue'));
+  assert.deepEqual(decide({ attempts: noOps }), { action: 'limit', kind: 'task', task: 'T002', attempts: 4, stale: [] }, 'endless redos stop too');
   assert.deepEqual(decide({ checks: [{ id: 1, external_id: CHECK_DONE, conclusion: 'success' }] }), { action: 'done' });
   const limited = { id: 1, external_id: CHECK_LIMIT, conclusion: 'failure', started_at: '2026-10-06T11:30:00Z' };
   assert.deepEqual(decide({ checks: [limited] }), { action: 'failed', diagnosis: { state: 'none', check: limited, count: 0 } });
-  assert.equal(decide({ checks: [limited], resumedAt: '2026-10-06T11:45:00Z' }).action, 'tasks', 'a resume after the stop continues');
-  assert.equal(decide({ checks: [limited], resumedAt: '2026-10-06T11:15:00Z' }).action, 'failed', 'an older resume does not');
+  assert.equal(decide({ checks: [limited], resumedAt: '2026-10-06T11:45:00Z' }).action, 'tasks', 'a retry after the stop continues');
+  assert.equal(decide({ checks: [limited], resumedAt: '2026-10-06T11:15:00Z' }).action, 'failed', 'an older retry does not');
   assert.deepEqual(decide({ maxEntries: 1 }), { ...order([{ task: 'T002', attempt: 1 }]), phaseEnd: false }, 'a long phase continues in the next run');
 });
 
@@ -328,59 +329,52 @@ test('waits while a diagnosis runs, then for a decision, and gives up on a stale
   assert.deepEqual(decide({ checks: [limited, stale] }), { action: 'failed', diagnosis: { state: 'stale', check: stale, count: 1 } });
   const reported = { ...running, status: 'completed', conclusion: 'neutral', external_id: CHECK_DIAGNOSED };
   assert.deepEqual(decide({ checks: [limited, reported] }), { action: 'failed', diagnosis: { state: 'reported', check: reported, count: 1 } });
-  assert.equal(decide({ checks: [limited, reported], resumedAt: '2026-10-06T11:45:00Z' }).action, 'tasks', 'a resume comment after the stop resumes');
-  assert.equal(decide({ checks: [limited, reported], resumedAt: '2026-10-06T11:15:00Z' }).action, 'failed', 'an older resume comment does not');
+  assert.equal(decide({ checks: [limited, reported], resumedAt: '2026-10-06T11:45:00Z' }).action, 'tasks', 'a retry comment after the stop retries');
+  assert.equal(decide({ checks: [limited, reported], resumedAt: '2026-10-06T11:15:00Z' }).action, 'failed', 'an older retry comment does not');
 });
 test('renders the next steps a person can take', () => {
   const plain = renderNextSteps().join('\n');
-  assert.match(plain, /^\*\*Recommended next step\*\*: Diagnose why the implementation stopped\.\n\n- \*\*Why\*\*: [^\n]+\n- \*\*What it does\*\*: Starts a new diagnosis;[^\n]*Nothing is retried meanwhile[\s\S]*```text\n\/speckit diagnose\n```/);
-  assert.match(plain, /<details><summary>Other options<\/summary>[\s\S]*- \*\*Retry what stopped\*\*\n {2}- Why: [^\n]+\n {2}- What it does: Does not merge the base branch[\s\S]*\/speckit retry[\s\S]*\/speckit resume[\s\S]*Push a fix yourself, or close the pull request[\s\S]*<\/details>$/);
-  assert.doesNotMatch(plain, /\/speckit (sync|apply)/);
-  const auto = renderNextSteps({ autoDiagnosis: true, behindBase: 'release', baseBranch: 'release', continuation: 'continues with T004' }).join('\n');
-  assert.match(auto, /^\*\*Recommended next step\*\*: Wait for the diagnosis\.\n\n- \*\*Why\*\*: It starts automatically/);
+  assert.match(plain, /^\*\*Recommended next step\*\*: Wait for the diagnosis\.\n\n- \*\*Why\*\*: It starts automatically/);
+  assert.match(plain, /<details><summary>Other options<\/summary>[\s\S]*- \*\*Retry what stopped\*\*\n {2}- Why: [^\n]+\n {2}- What it does: Does not merge the base branch[\s\S]*\/speckit retry[\s\S]*Push a fix yourself, or close the pull request[\s\S]*<\/details>$/);
+  assert.doesNotMatch(plain, /\/speckit (diagnose|resume|sync|apply)/);
+  const auto = renderNextSteps({ diagnosisUrl: 'https://github.com/octo/repo/actions/workflows/speckit-diagnose.lock.yml', behindBase: 'release', baseBranch: 'release', continuation: 'continues with T004' }).join('\n');
+  assert.match(auto, /^\*\*Recommended next step\*\*: \[Wait for the diagnosis\]\(https:\/\/github\.com\/octo\/repo\/actions\/workflows\/speckit-diagnose\.lock\.yml\)\.\n\n- \*\*Why\*\*: It starts automatically/);
   assert.doesNotMatch(auto, /\/speckit diagnose/);
-  assert.match(auto, /- What it does: Does not merge `release`: the implementation continues with T004 on the branch as it is, with a fresh attempt count \(at most 3 failed attempts\)/);
-  assert.match(auto, /- \*\*Merge `release` first, then continue\*\*\n {2}- Why: `release` has commits the implementation branch lacks, possibly a fix for the cause\.\n {2}- What it does: First merges `release` into the implementation branch \(Copilot resolves conflicts\)[^\n]*then the implementation continues with T004[^\n]*\n\n {2}```text\n {2}\/speckit resume\n {2}```/);
-  assert.doesNotMatch(auto, /\/speckit sync/, 'resume merges the base branch first, so there is no sync command');
-  const diagnosed = renderNextSteps({ options: [{ title: 'Retry with guidance', why: 'The agent mixed up the paths.', command: '/speckit resume Use the helper' }], amendment: { number: 7, title: 'Amend: Clarify R6', html_url: 'https://github.com/octo/repo/pull/7', status: 'consistent' }, diagnosed: true }).join('\n');
-  assert.match(diagnosed, /^\*\*Recommended next step\*\*: \[Review and merge the amendment #7: Amend: Clarify R6 \(consistent\)\]\(https:\/\/github\.com\/octo\/repo\/pull\/7\)\.\n\n- \*\*Why\*\*: [^\n]+\n- \*\*What it does\*\*: Merging applies the amendment[\s\S]*Other options[\s\S]*- Why: The agent mixed up the paths\.[\s\S]*\/speckit resume Use the helper[\s\S]*Diagnose again/);
+  assert.match(auto, /- What it does: Does not merge `release`: the implementation continues with T004 on the branch as it is, with a fresh attempt count \(at most 2 failed attempts\)/);
+  assert.doesNotMatch(auto, /Merge `release` first|\/speckit (resume|sync)/);
+  const diagnosed = renderNextSteps({ options: [{ title: 'Retry with guidance', why: 'The agent mixed up the paths.', command: '/speckit retry Use the helper' }], amendment: { number: 7, title: 'Amend: Clarify R6', html_url: 'https://github.com/octo/repo/pull/7', status: 'consistent' }, diagnosed: true }).join('\n');
+  assert.match(diagnosed, /^\*\*Recommended next step\*\*: \[Review and merge the amendment #7: Amend: Clarify R6 \(consistent\)\]\(https:\/\/github\.com\/octo\/repo\/pull\/7\)\.\n\n- \*\*Why\*\*: [^\n]+\n- \*\*What it does\*\*: Merging applies the amendment[\s\S]*Other options[\s\S]*- Why: The agent mixed up the paths\.[\s\S]*\/speckit retry Use the helper/);
   assert.doesNotMatch(diagnosed, /Comment this on the pull request/, 'merging the amendment needs no command');
   assert.doesNotMatch(diagnosed, /\/speckit (apply|revise|discard)/);
-  assert.equal(diagnosed.match(/\/speckit resume/g).length, 1, 'an option already covers resume');
+  assert.equal(diagnosed.match(/\/speckit retry/g).length, 1, 'an option already covers retry');
   assert.match(renderNextSteps({ amendmentPull: 7 }).join('\n'), /^\*\*Recommended next step\*\*: Review and merge the amendment #7\./);
-  const recommended = renderNextSteps({ options: [{ title: 'Diagnose with this guidance:', command: '/speckit diagnose keep it', recommended: true }], diagnosed: true }).join('\n');
-  assert.equal(recommended.match(/\/speckit diagnose/g).length, 1, 'a command an option suggests is not repeated');
-  assert.match(recommended, /^\*\*Recommended next step\*\*: Diagnose with this guidance\.\n/, 'trailing punctuation is not doubled');
-  assert.match(recommended, /What it does\*\*: Starts a new diagnosis with the previous one as context and the text after the command as guidance/);
-  assert.equal(recommended.match(/Recommended next step/g).length, 1);
-  for (const block of [plain, auto, diagnosed, recommended]) {
+  for (const block of [plain, auto, diagnosed]) {
     for (const fence of block.matchAll(/```text\n([\s\S]*?)```/g)) assert.doesNotMatch(fence[1], /<[A-Za-z][^>]*>|\[[A-Za-z][^\]]*\]/, `no placeholder in a command: ${fence[1]}`);
   }
   const howTo = renderAmendmentHowTo(49).join('\n');
   assert.match(howTo, /\*\*Merge\*\* this pull request[\s\S]*continues on #49[\s\S]*\*Request changes\*[\s\S]*\*\*Close\*\*/);
-  assert.match(renderFixHowTo(75, 'main').join('\n'), /\*\*Merge\*\* this pull request to add the fix spec to `main`[\s\S]*#75 waits for it and resumes by itself[\s\S]*\*\*Close\*\*/);
+  assert.match(renderFixHowTo(75, 'main').join('\n'), /\*\*Merge\*\* this pull request to add the fix spec to `main`[\s\S]*#75 waits for it and retries by itself[\s\S]*\*\*Close\*\*/);
   const status = setAmendmentStatus('Body from the agent.', ['⏳ checking']);
   assert.equal(status, '<!-- speckit-amend:status -->\n⏳ checking\n<!-- /speckit-amend:status -->\n\nBody from the agent.');
   assert.equal(setAmendmentStatus(status, ['✅ done']), '<!-- speckit-amend:status -->\n✅ done\n<!-- /speckit-amend:status -->\n\nBody from the agent.');
 });
 
 test('describes what each command does and what a restart continues with', () => {
-  for (const verb of ['retry', 'resume']) {
-    const context = { continuation: { repair: { scope: 'phase' } } };
-    for (const force of ['--force', '--FORCE']) {
-      const bare = describeCommandEffect(`/speckit ${verb} ${force}`, context);
-      assert.match(bare, /reverifies without running a repair agent.*pending phase verification/);
-      assert.match(bare, /`--force` is a flag.*not guidance.*does not reset the repair attempt limit/);
-      const guided = describeCommandEffect(`/speckit ${verb} ${force} Inspect the logs`, context);
-      assert.match(guided, /runs a repair agent with the guidance, then reverifies/);
-      assert.match(guided, /`--force` is a flag/);
-    }
+  const context = { continuation: { repair: { scope: 'phase' } } };
+  for (const force of ['--force', '--FORCE']) {
+    const bare = describeCommandEffect(`/speckit retry ${force}`, context);
+    assert.match(bare, /reverifies without running a repair agent.*pending phase verification/);
+    assert.match(bare, /`--force` is a flag.*not guidance\.$/);
+    assert.match(bare, /if this repair attempt fails, the implementation stops for a person again/);
+    const guided = describeCommandEffect(`/speckit retry ${force} Inspect the logs`, context);
+    assert.match(guided, /runs a repair agent with the guidance, then reverifies/);
+    assert.match(guided, /`--force` is a flag/);
   }
   assert.deepEqual(parseNextCommand('/speckit retry Rerun as is'), { verb: 'retry', argument: 'Rerun as is' });
   assert.equal(parseNextCommand('please /speckit retry'), null);
   assert.match(describeCommandEffect('/speckit retry', { baseBranch: 'main', continuation: 'continues with the convergence' }), /^Does not merge `main`: the implementation continues with the convergence on the branch as it is[\s\S]*Text you add after the command/);
-  assert.match(describeCommandEffect('/speckit resume Use x', { baseBranch: 'main' }), /^First merges `main` into the implementation branch[\s\S]*continues with what stopped[\s\S]*The text after the command goes into the next attempt's prompt/);
-  assert.match(describeCommandEffect('/speckit fix Make it robust', { baseBranch: 'main' }), /authors a small fix spec for the cause, guided by the text after the command, and opens it as a pull request against `main`[\s\S]*resumes by itself: it merges `main` with the fix/);
+  assert.equal(describeCommandEffect('/speckit resume Use x', { baseBranch: 'main' }), null);
+  assert.match(describeCommandEffect('/speckit fix Make it robust', { baseBranch: 'main' }), /authors a small fix spec for the cause, guided by the text after the command, and opens it as a pull request against `main`[\s\S]*retries by itself on its current phase base/);
   assert.equal(describeCommandEffect('/speckit help'), null);
   for (const verb of ['artifacts', 'retry', 'outside', 'decision', 'unknown']) assert.ok(CATEGORY_MEANING[verb]);
 
@@ -394,7 +388,7 @@ test('describes what each command does and what a restart continues with', () =>
   assert.deepEqual(describeContinuation({ action: 'tasks', kind: 'resolve' }), { text: 'continues with the conflict resolution', mergesBase: false });
   assert.match(describeContinuation({ action: 'merge' }).text, /^continues with the merge, which first merges the base branch and runs the full verification$/);
   assert.equal(describeContinuation({ action: 'wait' }), null);
-  assert.match(describeCommandEffect('/speckit retry', { baseBranch: 'main', continuation: { text: 'continues with the convergence', mergesBase: true } }), /^The implementation continues with the convergence, with a fresh attempt count[\s\S]*That work merges `main` first anyway[\s\S]*so here a retry and a resume do the same/);
+  assert.match(describeCommandEffect('/speckit retry', { baseBranch: 'main', continuation: { text: 'continues with the convergence', mergesBase: true } }), /^The implementation continues with the convergence, with a fresh attempt count[\s\S]*That work merges `main` first at its normal synchronization boundary/);
 });
 
 test('carries guidance through a marker, and validates amendments', () => {
@@ -405,8 +399,8 @@ test('carries guidance through a marker, and validates amendments', () => {
   assert.equal(normalizeWriterGuidance('  first\n\n second  '), 'first second');
   assert.equal(normalizeWriterGuidance(` ${'x'.repeat(MAX_WRITER_GUIDANCE + 100)} `).length, MAX_WRITER_GUIDANCE);
   assert.equal(appendWriterGuidance('Do the work.', ''), 'Do the work.');
-  const resumed = renderResumeComment('Resumed.', 'x'.repeat(MAX_WRITER_GUIDANCE + 100));
-  assert.equal(parseGuidance(resumed)?.length, MAX_WRITER_GUIDANCE, 'manual dispatch guidance is capped like comment commands');
+  const retried = renderRetryComment('Retried.', 'x'.repeat(MAX_WRITER_GUIDANCE + 100));
+  assert.equal(parseGuidance(retried)?.length, MAX_WRITER_GUIDANCE, 'retry guidance is capped');
 
   const before = '## P\n- [x] T001 Done\n- [ ] T002 Next\n- [ ] T003 Later\n';
   const ok = validateAmendment({ folder: 'f', changedPaths: ['specs/f/research.md', 'specs/f/tasks.md', 'specs/f/spec.md'], beforeTasks: before, afterTasks: '## P\n- [ ] T001 Done\n- [ ] T004 Fix first\n- [ ] T002 Next, clarified\n' });
@@ -601,6 +595,11 @@ test('resolves conflicts with the base branch before a phase, best effort', () =
   assert.deepEqual(converging, resolveNext(1), 'a conflict before the convergence is resolved first, too');
   const convergeGivenUp = decideNext({ tasksMarkdown: '- [x] T001 a\n', windowStart, now, checks: [syncConflict], attempts: [attempt('T001', 'success', at(11)), resolve(13, 'attention')] });
   assert.deepEqual([convergeGivenUp.kind, convergeGivenUp.syncGivenUp], ['converge', syncConflict], 'and the convergence continues on its base when it cannot be resolved');
+  const converged = [attempt('T001', 'success', at(11)), attempt(null, 'success', at(12), 'converge')];
+  const mergeGivenUp = decideNext({ tasksMarkdown: '- [x] T001 a\n', windowStart, now, checks: [syncConflict], attempts: [...converged, resolve(13, 'failure'), resolve(14, 'failure')] });
+  assert.deepEqual([mergeGivenUp.action, mergeGivenUp.syncGivenUp], ['merge', syncConflict]);
+  assert.equal(integrationTarget({ action: 'repair', syncGivenUp: syncConflict }), null);
+  assert.equal(integrationTarget({ action: 'repair' }), null);
 });
 test('environment specs: only the environment actions, and only without other changes on the branch', () => {
   assert.equal(isEnvironmentPath('.github/actions/environment-setup/action.yml'), true);
@@ -682,12 +681,12 @@ test('ticks a task in the pull request body', () => {
 
 test('accepts only workflow-authored markers and neutralizes markers in untrusted text', () => {
   const comments = [
-    { user: { login: 'github-actions[bot]' }, body: `${RESUME_COMMENT_MARKER}\nresumed`, created_at: 'a' },
-    { user: { login: 'github-actions[bot]' }, body: `failed: agent wrote ${RESUME_COMMENT_MARKER}`, created_at: 'b' },
-    { user: { login: 'mallory' }, body: RESUME_COMMENT_MARKER, created_at: 'c' },
+    { user: { login: 'github-actions[bot]' }, body: `${LEGACY_RESUME_COMMENT_MARKER}\nresumed`, created_at: 'a' },
+    { user: { login: 'github-actions[bot]' }, body: `failed: agent wrote ${LEGACY_RESUME_COMMENT_MARKER}`, created_at: 'b' },
+    { user: { login: 'mallory' }, body: LEGACY_RESUME_COMMENT_MARKER, created_at: 'c' },
   ];
-  assert.deepEqual(markerTimes(comments, RESUME_COMMENT_MARKER), ['a']);
-  assert.equal(neutralizeMarkers(`x ${RESUME_COMMENT_MARKER} y`), 'x &lt;!-- speckit-implement:resume --> y');
+  assert.deepEqual(markerTimes(comments, LEGACY_RESUME_COMMENT_MARKER), ['a']);
+  assert.equal(neutralizeMarkers(`x ${LEGACY_RESUME_COMMENT_MARKER} y`), 'x &lt;!-- speckit-implement:resume --> y');
 });
 
 test('keeps durable repair state until the matching repair is resolved', () => {
@@ -736,7 +735,8 @@ test('the implementation workflows give task, group, repair, convergence, confli
   assert.equal([...job(repair, 'work').matchAll(/^ {6}SPECKIT_REPAIR_SCOPE:/gm)].length, 1, 'repair work declares its scope once');
   // Pull model: every run first merges the base branch in its own job; decide follows, so a conflict is resolved in
   // the same run, and the work after decide also runs when that merge failed.
-  assert.match(job(spec, 'sync'), /name: Merge the base branch\n\s+if: github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)[\s\S]*SPECKIT_RESUME: \$\{\{ inputs\.resume \}\}[\s\S]*run: node \.github\/scripts\/speckit-spec\.mjs sync/);
+  assert.match(job(spec, 'sync'), /name: Merge the base branch\n\s+if: github\.ref == format\('refs\/heads\/\{0\}', github\.event\.repository\.default_branch\)[\s\S]*run: node \.github\/scripts\/speckit-spec\.mjs sync/);
+  assert.doesNotMatch(spec, /inputs\.resume|SPECKIT_RESUME/);
   assert.match(job(spec, 'decide'), /needs: sync\n[\s\S]*if: \$\{\{ !cancelled\(\) && github\.ref == /);
   for (const name of ['phase', 'repair', 'converge', 'resolve', 'merge']) assert.match(job(spec, name), /if: \$\{\{ !cancelled\(\) && needs\.decide\.result == 'success' && /, name);
   // GitHub shows the name of a skipped job that is not a reusable workflow call unevaluated, so such jobs have fixed names.

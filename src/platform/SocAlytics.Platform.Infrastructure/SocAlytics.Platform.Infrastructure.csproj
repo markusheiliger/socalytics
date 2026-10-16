@@ -3,6 +3,7 @@
 		<PackageReference Include="AWSSDK.S3" />
 		<PackageReference Include="Dapper" />
 		<PackageReference Include="JsonSchema.Net" />
+		<PackageReference Include="MailKit" />
 		<PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" />
 		<PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks" />
@@ -19,6 +20,7 @@
 
 	<ItemGroup>
 		<EmbeddedResource Include="Persistence/Migrations/*.sql" />
+		<EmbeddedResource Include="Email/Messages.en.json" WithCulture="false" LogicalName="Email/Messages.en.json" />
 		<EmbeddedResource Include="..\..\..\contracts\**\*.schema.json" Exclude="..\..\..\contracts\**\releases\**;..\..\..\contracts\**\examples\**" LogicalName="contracts/%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>
 
