@@ -1,7 +1,8 @@
 import { createServer, type Server } from 'node:http';
 import type { Page } from '@playwright/test';
 import { expect, test } from '../support/fixtures';
-import { match, team } from '../support/simulatedApi';
+import { FAKE_STORAGE_ORIGIN, match, team } from '../support/simulatedApi';
+import { MiB, writeTestVideo } from '../support/testFiles';
 
 const previewUrl = 'http://127.0.0.1:4173';
 const tamperedPort = 4176;
@@ -28,6 +29,17 @@ async function cachedUrls(page: Page): Promise<string[]> {
     for (const name of await caches.keys()) {
       const cache = await caches.open(name);
       urls.push(...(await cache.keys()).map((request) => new URL(request.url).pathname));
+    }
+    return urls;
+  });
+}
+
+async function cachedHrefs(page: Page): Promise<string[]> {
+  return page.evaluate(async () => {
+    const urls: string[] = [];
+    for (const name of await caches.keys()) {
+      const cache = await caches.open(name);
+      urls.push(...(await cache.keys()).map((request) => request.url));
     }
     return urls;
   });
@@ -96,7 +108,9 @@ test('after the caches are cleared the next start downloads the shell again and 
   expect(downloaded.length).toBeGreaterThan(0);
 });
 
-test('the caches hold only URLs listed in the shell manifest after signing in and browsing', async ({ page, api }) => {
+test('the caches hold only URLs listed in the shell manifest after signing in, browsing, and uploading a recording', async ({ page, api }, testInfo) => {
+  test.setTimeout(90_000);
+  await fetch(`${FAKE_STORAGE_ORIGIN}/__control/reset`, { method: 'POST', body: '{}' });
   api.on('GET', `/teams/${team.id}`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(team) }),
   );
@@ -106,10 +120,23 @@ test('the caches hold only URLs listed in the shell manifest after signing in an
   await page.goto(`/matches/${match.id}`);
   await expect(page.getByText('No recordings have been uploaded yet.')).toBeVisible();
 
+  const file = await writeTestVideo(testInfo.outputPath('files'), 3 * MiB);
+  await page.getByLabel('Video files').setInputFiles(file.path);
+  await page.getByLabel(`Display name for ${file.name}`).fill('Main camera');
+  await page.getByRole('button', { name: 'Add to upload queue' }).click();
+  const upload = page.getByRole('list', { name: 'Upload queue' }).getByRole('listitem').filter({ hasText: 'Main camera' });
+  await upload.getByLabel(/^Media end/).fill('01:00');
+  await upload.getByLabel(/^Match time at media start/).fill('10:00');
+  await upload.getByRole('button', { name: 'Save mapping for Main camera' }).click();
+  await expect(upload.getByRole('status')).toHaveText(/Completed/, { timeout: 30_000 });
+  expect(api.uploadSessions.length).toBeGreaterThan(0);
+
   const listed = new Set((await readManifest(page)).files.map((file) => file.url));
   const urls = await cachedUrls(page);
   expect(urls.length).toBeGreaterThan(0);
   expect(urls.filter((url) => !listed.has(url))).toEqual([]);
+  const hrefs = await cachedHrefs(page);
+  expect(hrefs.filter((href) => href.startsWith(FAKE_STORAGE_ORIGIN) || /\/api\/|\/bucket\/|partNumber|X-Amz-/.test(href))).toEqual([]);
 });
 
 test.describe('a tampered shell file', () => {
