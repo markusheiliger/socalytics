@@ -5,7 +5,7 @@ description: "Task list for Installable Web UI with Service Worker Updates"
 
 # Tasks: Installable Web UI with Service Worker Updates
 
-**Input**: Design documents from `specs/20261015-194113-web-ui-pwa-updates/`
+**Input**: Design documents from `specs/archive/20261015-194113-web-ui-pwa-updates/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/web-ui-pwa.md](contracts/web-ui-pwa.md), [quickstart.md](quickstart.md)
 
