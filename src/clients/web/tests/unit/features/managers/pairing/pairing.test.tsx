@@ -37,6 +37,7 @@ describe('pairing page', () => {
     expect(await screen.findByText('State: Pending approval')).toBeInTheDocument();
     expect(screen.getByText('Host label: lab-pc')).toBeInTheDocument();
     expect(screen.getByText(/Claimed key protection: Software/)).toBeInTheDocument();
+    expect(screen.getByText('Profile (claimed): Not reported')).toBeInTheDocument();
     expect(screen.getByText('Operating system: linux')).toBeInTheDocument();
     expect(screen.getByText('Device fingerprint: ABCD-EF12-3456')).toBeInTheDocument();
     expect(screen.getByText(/Open for approval until/)).toBeInTheDocument();

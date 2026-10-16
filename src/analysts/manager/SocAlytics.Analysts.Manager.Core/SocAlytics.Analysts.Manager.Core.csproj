@@ -6,6 +6,7 @@
     <PackageReference Include="NATS.Net" />
     <PackageReference Include="NATS.NKeys" />
     <PackageReference Include="Pkcs11Interop" />
+    <PackageReference Include="System.CommandLine" />
   </ItemGroup>
 
   <ItemGroup>

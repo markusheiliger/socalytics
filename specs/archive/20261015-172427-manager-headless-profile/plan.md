@@ -2,7 +2,7 @@
 
 **Branch**: `20261015-172427-manager-headless-profile` | **Date**: 2026-10-15 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261015-172427-manager-headless-profile/spec.md`
+**Input**: Feature specification from `specs/archive/20261015-172427-manager-headless-profile/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -78,22 +78,22 @@ Re-check after Phase 1 design: still passes; no Complexity Tracking entries.
 
 ### Narratives
 
-- [Analyst Manager](../../docs/architecture/analyst-manager.md): Application
+- [Analyst Manager](../../../docs/architecture/analyst-manager.md): Application
   Profiles, Headless Server Profile, Browser Pairing And Approval (claimed
   profile, software-backed key exception), Fleet Visibility In The Web UI
   (claimed profile) — implemented by this feature.
-- [Analyst Runtime and Recovery](../../docs/architecture/analyst-runtime-and-recovery.md):
+- [Analyst Runtime and Recovery](../../../docs/architecture/analyst-runtime-and-recovery.md):
   the account rule for rootful runtimes in the Linux profiles (the rule is
   implemented and exercised with the simulated runtime; Linux runtime adapters
   stay future).
-- [Analysts, Models, and Hardware](../../docs/architecture/analysts-models-and-hardware.md):
+- [Analysts, Models, and Hardware](../../../docs/architecture/analysts-models-and-hardware.md):
   Implementation Validation (the headless profile on Ubuntu Server 22.04 and
   24.04 LTS with the lingering check and the account rule; rootless and rootful
   runtimes stay open until a Linux runtime adapter exists).
-- [Platform Implementation](../../docs/architecture/platform-implementation.md):
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md):
   Analyst Technology (the headless server profile) and Architecture
   Reassessment (the Avalonia/OCI platform matrix gains headless evidence).
-- [Security and Data Governance](../../docs/architecture/security-and-data-governance.md):
+- [Security and Data Governance](../../../docs/architecture/security-and-data-governance.md):
   `GOV-CRED-002` (the stamp exception for software-backed keys on headless
   Linux servers without a TPM is enforced; production approval of key stores
   stays unresolved).
@@ -162,7 +162,7 @@ rewrites listed here are examples, not the whole job.
 ### Documentation (this feature)
 
 ```text
-specs/20261015-172427-manager-headless-profile/
+specs/archive/20261015-172427-manager-headless-profile/
 ├── plan.md
 ├── research.md
 ├── data-model.md

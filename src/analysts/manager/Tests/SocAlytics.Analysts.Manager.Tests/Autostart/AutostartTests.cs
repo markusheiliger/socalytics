@@ -5,6 +5,7 @@ using Xunit;
 
 namespace SocAlytics.Analysts.Manager.Tests.Autostart;
 
+[Collection("XdgConfigHome")]
 public sealed class AutostartTests
 {
     public static bool IsLinux => OperatingSystem.IsLinux();

@@ -36,6 +36,7 @@ internal sealed class PostgresAuditTrail(
         "architecture",
         "managerVersion",
         "claimedKeyProtection",
+        "claimedApplicationProfile",
         "deviceFingerprint",
         "pairingSourceAddress",
         "registrationCorrelationId",

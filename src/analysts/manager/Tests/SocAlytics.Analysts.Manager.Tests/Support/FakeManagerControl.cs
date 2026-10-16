@@ -74,7 +74,11 @@ internal sealed class FakeManagerControl : IManagerControl
     public ManagerStatusSnapshot GetStatus() => new(
         State, null, null, "stamp-1", "https://platform.example", null, new ConnectivityStatus("unknown"), OperatingState, Intent,
         false, null, 0, PreflightValue, [], null, PauseRemaining, "tpm", Autostart, "none", Fingerprint,
-        Concurrency, ActiveAttempts);
+        Concurrency, ActiveAttempts, ApplicationProfile, Lingering);
+
+    public string ApplicationProfile { get; set; } = "tray";
+
+    public string? Lingering { get; set; }
 
     public List<ActiveAttemptStatus> ActiveAttempts { get; } = [];
 
@@ -83,7 +87,7 @@ internal sealed class FakeManagerControl : IManagerControl
     public Task<RegisterResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default) =>
         Task.FromResult(new RegisterResult(true, null, "ABCD-1234", RegisterFingerprint, "https://platform.example/pair", DateTimeOffset.UtcNow.AddMinutes(10)));
 
-    public Task CancelRegistrationAsync() => Task.CompletedTask;
+    public Task CancelRegistrationAsync() => Record("cancel-registration");
 
     public Task<ControlResult> UnregisterAsync() => Record("unregister");
 

@@ -524,9 +524,10 @@ under `src/analysts/manager` with its own tests. A .NET 10 Generic Host worker
 in a library without UI dependencies owns lifecycle, registration, key
 providers, signed local state, queue, hardware, autostart, and OCI-runtime
 responsibilities. In the tray profile, Avalonia supplies the cross-platform
-tray and status UI in the same process; in the planned headless server profile,
-the worker runs without Avalonia as a Linux systemd user service controlled by
-the local-control CLI. Device keys use Windows CNG, a small Swift
+tray and status UI in the same process; in the headless server profile, a
+separate console executable (`socalytics-manager-server`) runs the worker
+without Avalonia as a Linux systemd user service controlled by the
+local-control CLI. Device keys use Windows CNG, a small Swift
 bridge over CryptoKit and the Keychain on macOS, and PKCS#11 through
 Pkcs11Interop on Linux. The worker and UI are tested without a display using
 Avalonia headless tests; Linux CI uses a SoftHSM2 token, while the Windows and
@@ -696,7 +697,13 @@ choice or reveals a material operational tradeoff:
   Web UI client workflows (analysis review and agent conversations),
   cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix remain unsupported by
-  implementation evidence.
+  implementation evidence. The headless server profile adds automated
+  evidence (an executable without Avalonia, the lingering check, the generated
+  systemd user unit, the account rule against the simulated runtime, and the
+  claimed profile and software key policy), but the manual validation on
+  Ubuntu Server 22.04 and 24.04 LTS is open until a person performs it after
+  the merge, and the matrix stays incomplete without real Linux runtime
+  adapters.
 - **Mature enough to govern subsequent implementation — not met for
   promotion.** The foundation can guide further reversible implementation, but
   the incomplete identity, client, Scheduler, Analyst runtime, production

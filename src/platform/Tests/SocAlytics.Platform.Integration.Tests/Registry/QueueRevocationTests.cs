@@ -6,6 +6,7 @@ using NATS.Client.Core;
 using NATS.NKeys;
 using Npgsql;
 using Shouldly;
+using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Application.Registry.QueueCredentials;
 using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
@@ -47,7 +48,7 @@ public sealed class QueueRevocationTests(PostgresContainerFixture postgres, Nats
             },
             configureServices: services => services.Configure<SocAlytics.Platform.Application.Registry.RegistryOptions>(o =>
             {
-                o.AllowSoftwareKeys = true;
+                o.SoftwareKeys = SoftwareKeyPolicy.All;
                 o.RateLimits.PairingCreationPerMinute = 10_000;
                 o.RateLimits.StatusPerMinute = 10_000;
                 o.RateLimits.ActivationPerMinute = 10_000;
