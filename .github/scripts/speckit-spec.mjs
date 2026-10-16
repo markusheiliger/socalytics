@@ -115,10 +115,10 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
       .filter((comment) => comment.user?.login === BOT_LOGIN &&
         [RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)) &&
         Date.parse(comment.created_at) >= Math.max(Date.parse(repair.at), latestRepairAttempt))
-      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? (assumeResumed ? { body: RESUME_COMMENT_MARKER } : null);
     if (restart && repairAttempts.filter((attempt) => attempt.outcome === 'failure').length < MAX_TASK_ATTEMPTS) {
       const guidance = parseGuidance(restart.body) ?? '';
-      decision = {
+      decision = decision.action === 'tasks' && decision.kind === 'resolve' && decision.sync ? { ...decision, repair } : {
         action: 'repair',
         kind: 'repair',
         repair,
@@ -126,6 +126,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
         verifyOnly: !guidance,
         attempt: repairAttempts.length + 1,
         stale: decision.stale ?? [],
+        ...(decision.syncGivenUp ? { syncGivenUp: decision.syncGivenUp } : {}),
       };
     } else if (repairAttempts.filter((attempt) => attempt.outcome === 'failure').length >= MAX_TASK_ATTEMPTS) {
       decision = { action: 'limit', kind: 'repair', attempts: repairAttempts.length, stale: decision.stale ?? [] };
@@ -288,9 +289,17 @@ export function syncBaseEnabled(env) {
 
 export { phaseNotStarted };
 
-// Whether a resume (`/speckit resume`, or a merged amendment) has not been worked on yet: no attempt and no merge
-// started since the latest resume comment.
+// Whether a resume has not been worked on yet. A pending repair's preparatory sync resolution does not consume it.
 export function resumePending(decision) {
+  if (decision.repair) {
+    const restart = (decision.comments ?? [])
+      .filter((comment) => comment.user?.login === BOT_LOGIN &&
+        [RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)))
+      .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0];
+    if (!restart || !String(restart.body).startsWith(RESUME_COMMENT_MARKER)) return false;
+    // Sync resolutions prepare the repair; only a repair attempt consumes this resume.
+    return !(decision.ledger ?? []).some((attempt) => attempt.kind === 'repair' && Date.parse(attempt.at) >= Date.parse(restart.created_at));
+  }
   const resume = markerTimes(decision.comments ?? [], RESUME_COMMENT_MARKER).map(Date.parse).sort((a, b) => b - a)[0];
   if (!resume) return false;
   const worked = (decision.ledger ?? []).some((attempt) => Date.parse(attempt.at) >= resume)
@@ -299,9 +308,10 @@ export function resumePending(decision) {
 }
 
 // Which work the base branch is merged before, or null: a phase that has not started, the convergence, and the merge,
-// and any of them after a resume. Before the merge the integration is required; before other work it is best effort.
+// and a pending repair after a resume. Before the merge integration is required; before other work it is best effort.
 export function integrationTarget(decision, { resumed = false } = {}) {
   if (decision.action === 'merge') return 'merge';
+  if (decision.action === 'repair') return resumed && !decision.syncGivenUp ? 'repair' : null;
   if (decision.action !== 'tasks' || decision.syncGivenUp) return null;
   if (decision.kind === 'converge') return 'convergence';
   if (decision.kind === 'task' && (resumed || phaseNotStarted(decision.tasksMarkdown))) return 'phase';

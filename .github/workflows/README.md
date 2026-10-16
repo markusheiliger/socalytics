@@ -155,7 +155,9 @@ convergence, the merge, or a resume (`/speckit resume`, a merged amendment, or a
 decide job of the same run starts the conflict resolution the merge uses (Copilot CLI edits the conflicted files and,
 to fix clashes without a textual conflict such as two migrations with the same number, the implementation branch's
 own files and new files, never other files of the base branch or protected paths; the full verification runs), and
-the next run does the work on the merged branch. Before a phase or the convergence
+the next run does the work on the merged branch. A resumed pending repair follows the same sync and conflict-resolution
+path before reverification; resolution attempts do not consume its restart authorization or repair guidance.
+Before a phase, the convergence, or a resumed repair,
 this is best effort: when GitHub refuses the merge, the conflicts touch protected paths, or the resolution fails
 `MAX_SYNC_RESOLVE_ATTEMPTS` times, the implementation continues on its current base without stopping, that base commit
 is not tried again, and the merge at the end integrates it. Before the merge it is required, as the merge's own
