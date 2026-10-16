@@ -2,6 +2,8 @@ import type { Page } from '@playwright/test';
 import { expect, test } from '../support/fixtures';
 import { ReleaseServer } from '../support/releaseServer';
 import { releaseVersions } from '../support/releases';
+import { FAKE_STORAGE_ORIGIN, match, team } from '../support/simulatedApi';
+import { MiB, writeTestVideo } from '../support/testFiles';
 
 const server = new ReleaseServer();
 const nav = (page: Page) => page.getByRole('navigation', { name: 'Main navigation' });
@@ -54,4 +56,59 @@ test('without release B the reload-required notice appears and requests stay blo
   const sent = api.requests.length;
   await page.waitForTimeout(1000);
   expect(api.requests.length).toBe(sent);
+});
+
+async function control(path: string, body?: unknown) {
+  await fetch(`${FAKE_STORAGE_ORIGIN}/__control/${path}`, { method: 'POST', body: JSON.stringify(body ?? {}) });
+}
+
+async function storageState(): Promise<{ parts: { partNumber: number }[]; requests: { partNumber: number }[] }> {
+  return (await fetch(`${FAKE_STORAGE_ORIGIN}/__control/state`)).json();
+}
+
+test('a minimum of B during an upload stops part requests, B runs, and the upload resumes with the missing parts', async ({ page, api }, testInfo) => {
+  test.setTimeout(120_000);
+  await control('reset');
+  api.on('GET', `/teams/${team.id}`, (route) =>
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(team) }),
+  );
+  await startRelease(page, api);
+
+  // Parts 1 and 2 are stored in release A; part 3 never succeeds, so the upload is mid-transfer.
+  await control('faults', { failPart: { partNumber: 3, times: 'always' } });
+  const file = await writeTestVideo(testInfo.outputPath('files'), 40 * MiB);
+  await page.goto(`${server.origin}/matches/${match.id}`);
+  await page.getByLabel('Video files').setInputFiles(file.path);
+  await page.getByLabel(`Display name for ${file.name}`).fill('Main camera');
+  await page.getByRole('button', { name: 'Add to upload queue' }).click();
+  await expect.poll(async () => (await storageState()).parts.length, { timeout: 30_000 }).toBe(2);
+
+  server.use('b');
+  api.minimumWebVersion = releaseVersions.b;
+  server.setUnavailable(true);
+  await nav(page).getByRole('link', { name: 'Teams' }).click();
+  const required = page.getByRole('alertdialog');
+  await expect(required).toContainText('uploads continue after the update');
+  await page.waitForTimeout(500);
+  const sent = (await storageState()).requests.length;
+  await page.waitForTimeout(1500);
+  expect((await storageState()).requests).toHaveLength(sent);
+
+  // Release B becomes reachable, takes over, and the journal survives the reload.
+  server.setUnavailable(false);
+  await expect.poll(() => runningCache(page), { timeout: 30_000 }).toEqual([`socalytics-shell-${releaseVersions.b}`]);
+  api.minimumWebVersion = null;
+  await expect(nav(page)).toBeVisible({ timeout: 30_000 });
+  await control('reset');
+  await page.goto(`${server.origin}/matches/${match.id}`);
+
+  const item = page.getByRole('list', { name: 'Pending uploads of this match' }).getByRole('listitem').filter({ hasText: 'Main camera' });
+  await expect(item).toHaveCount(1);
+  await item.locator('input[type=file]').setInputFiles(file.path);
+  const upload = page.getByRole('list', { name: 'Upload queue' }).getByRole('listitem').filter({ hasText: 'Main camera' });
+  await upload.getByLabel(/^Media end/).fill('01:00');
+  await upload.getByLabel(/^Match time at media start/).fill('10:00');
+  await upload.getByRole('button', { name: 'Save mapping for Main camera' }).click();
+  await expect(upload.getByRole('status')).toHaveText(/Completed/, { timeout: 30_000 });
+  expect((await storageState()).requests.map((r) => r.partNumber)).toEqual([3]);
 });
