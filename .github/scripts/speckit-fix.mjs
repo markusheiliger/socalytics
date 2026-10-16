@@ -36,6 +36,7 @@ import {
   renderResumeComment,
   setAttention,
   setBlocked,
+  renderBlockedMarker,
   specTitleOfPull,
 } from './speckit-implement-core.mjs';
 
@@ -71,6 +72,29 @@ export function fixStamp(now = Date.now()) {
   const date = new Date(now);
   const pad = (value) => String(value).padStart(2, '0');
   return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`;
+}
+
+// Why an implementation is blocked by its fix spec and how it is unblocked, for setBlocked: `review` while the fix spec
+// pull request is open, `implement` once it is merged and waits to be implemented (`fixTwin` once it is linked).
+export function fixBlock({ stage, fixPull, fixTwin = null, baseBranch }) {
+  const base = baseBranch ? `\`${baseBranch}\`` : 'the default branch';
+  const twin = fixTwin ? `#${fixTwin}` : 'its spec twin';
+  const lines = stage === 'review'
+    ? [
+      `**Blocked** by fix spec #${fixPull}: the cause of the stop lies outside this spec, so this implementation waits for the fix instead of trying again. Nothing is needed on this pull request.`,
+      '',
+      `- **To unblock**: review fix spec #${fixPull} when it is handed to you (it is checked for consistency first). Merging it adds it to ${base}, where it is implemented; this implementation then resumes by itself.`,
+      `- **To rework the fix**: comment or request changes on #${fixPull}.`,
+      `- **To drop the fix**: close #${fixPull} without merging; the block is lifted and this pull request lists what you can do next.`,
+    ]
+    : [
+      `**Blocked** by fix spec #${fixPull}${fixTwin ? ` (spec twin #${fixTwin})` : ''}: it is merged and is implemented like any spec. Nothing is needed on this pull request.`,
+      '',
+      `- **Unblocks by itself** once ${twin} is implemented: this implementation then merges ${base} with the fix and continues with a fresh attempt count.`,
+      `- **To follow the fix**: watch ${twin} and its implementation pull request; if that implementation stops, it asks for help there.`,
+      `- If ${twin} is closed without being implemented, the block is lifted and this pull request lists what you can do next.`,
+    ];
+  return { key: { pull: fixPull, stage }, lines };
 }
 
 // The latest fix spec of an implementation pull request and what happened to it, from the workflow's comments.
@@ -369,13 +393,17 @@ export async function runRecord({ client, env, log }) {
     return { exitCode: 0, outcome: 'rejected' };
   }
   await client.updatePullRequest(created, { body: [renderFixFor({ pull: pullNumber, twin, folder: blockedFolder }), '', withoutComments(pull.body)].join('\n') });
+  const block = fixBlock({ stage: 'review', fixPull: created, baseBranch: defaultBranch });
   await client.createComment(pullNumber, [
     renderFixEvent('created', { pull: created, folder: fixFolder }),
-    `**Fix spec [${neutralizeMarkers(pull.title ?? `#${created}`)} (#${created})](${pull.html_url ?? ''}) was authored** for \`specs/${fixFolder}\`. An independent \`/speckit-analyze\` checks it for consistency first, and correction rounds fix what it finds; then it is handed over for review. Merging it adds the fix spec to \`${defaultBranch}\`, where it is implemented; this implementation resumes by itself once the fix has landed.`,
+    renderBlockedMarker(block.key),
+    `**Fix spec [${neutralizeMarkers(pull.title ?? `#${created}`)} (#${created})](${pull.html_url ?? ''}) was authored** for \`specs/${fixFolder}\`. An independent \`/speckit-analyze\` checks it for consistency first, and correction rounds fix what it finds; then it is handed over for review.`,
     ...(report?.summary ? ['', neutralizeMarkers(report.summary)] : []),
+    '',
+    ...block.lines,
   ].join('\n'));
   await complete('success', `Fix spec #${created} authored`, report?.summary || `specs/${fixFolder}`);
-  await setBlocked(client, pullNumber, true);
+  await setBlocked(client, pullNumber, true, { explain: block });
   await beginAmendment(client, env, { amendment: await client.getPullRequest(created), folder: fixFolder, implementation, twin, kind: 'fix' });
   log(`#${pullNumber}: fix spec #${created} authored; its consistency check started.`);
   return { exitCode: 0, outcome: 'created', pull: created };
@@ -396,16 +424,20 @@ export async function settleClosedFix(client, env, { amendment: pull, folder, im
     // Already gone, or GitHub deleted it.
   }
   if (pull.merged_at && pull.base?.ref === defaultBranch) {
+    const block = fixBlock({ stage: 'implement', fixPull: pull.number, baseBranch: defaultBranch });
     await client.createComment(implementation.number, [
       renderFixEvent('merged', { pull: pull.number, folder }),
-      `**Fix spec #${pull.number} was merged** into \`${defaultBranch}\` by ${by}. It becomes a spec twin and is requested for implementation; this implementation waits for it and resumes by itself once the fix has landed.`,
+      renderBlockedMarker(block.key),
+      `**Fix spec #${pull.number} was merged** into \`${defaultBranch}\` by ${by}. It becomes a spec twin and is requested for implementation.`,
+      '',
+      ...block.lines,
     ].join('\n'));
     return { outcome: 'merged' };
   }
   const context = await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref));
   const what = pull.merged_at
-    ? `**Fix spec #${pull.number} was merged into \`${pull.base?.ref}\`** by ${by}, not into \`${defaultBranch}\`, so it is not implemented and this implementation stays stopped.`
-    : `Fix spec #${pull.number} was closed without merging by ${by}.`;
+    ? `**Fix spec #${pull.number} was merged into \`${pull.base?.ref}\`** by ${by}, not into \`${defaultBranch}\`, so it is not implemented. The block is lifted, and this implementation stays stopped.`
+    : `**Fix spec #${pull.number} was closed without merging** by ${by}. The block is lifted, and this implementation stays stopped.`;
   await client.createComment(implementation.number, [renderFixEvent('discarded', { pull: pull.number, folder }), what, '', ...renderNextSteps({ diagnosed: true, ...context })].join('\n'));
   await setBlocked(client, implementation.number, false);
   await setAttention(client, implementation.number, true);
@@ -437,22 +469,23 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
   }
   const fixFolder = state.created.folder;
   const pull = await client.getPullRequest(state.created.pull);
+  const defaultBranch = defaultBranchOf(env);
   if (pull.state === 'open') {
-    await setBlocked(client, implementation.number, true);
+    await setBlocked(client, implementation.number, true, { explain: fixBlock({ stage: 'review', fixPull: pull.number, baseBranch: defaultBranch }) });
     await guardPullRequest(client, env, pull, { report });
-    return maintainOpenSpecPull(client, env, { amendment: await client.getPullRequest(pull.number), folder: fixFolder, implementation, twin, kind: 'fix' }, { now, report });
+    return { ...(await maintainOpenSpecPull(client, env, { amendment: await client.getPullRequest(pull.number), folder: fixFolder, implementation, twin, kind: 'fix' }, { now, report })), blocked: true };
   }
   if (!state.merged) {
     const settled = await settleClosedFix(client, env, { amendment: pull, folder: fixFolder, implementation, actor: pull.merged_by?.login ?? null });
     if (settled.outcome !== 'handled') report(`- Fix spec #${pull.number} was ${settled.outcome}.`);
     if (settled.outcome !== 'merged') return settled;
   }
-  await setBlocked(client, implementation.number, true);
+  await setBlocked(client, implementation.number, true, { explain: fixBlock({ stage: 'implement', fixPull: pull.number, fixTwin: state.linked?.twin ?? null, baseBranch: defaultBranch }) });
   if (!state.linked) {
     const fixTwin = resolveTwins(await client.listTwinIssues(TWIN_LABEL)).byFolder.get(fixFolder);
     if (!fixTwin) {
       report(`- Fix spec #${pull.number} is merged; its twin does not exist yet.`);
-      return { outcome: 'waiting' };
+      return { outcome: 'waiting', blocked: true };
     }
     const requester = state.requested?.by ?? null;
     try {
@@ -477,15 +510,15 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
       // The hourly scheduler run starts it.
     }
     report(`- Linked fix spec #${pull.number} (twin #${fixTwin.number}) to #${implementation.number}.`);
-    return { outcome: 'linked' };
+    return { outcome: 'linked', blocked: true };
   }
   const fixTwin = await client.getIssue(state.linked.twin);
-  if (fixTwin.state !== 'closed') return { outcome: 'waiting' };
+  if (fixTwin.state !== 'closed') return { outcome: 'waiting', blocked: true };
   if (fixTwin.state_reason === 'completed') {
     await setBlocked(client, implementation.number, false);
     const lead = [
       renderFixEvent('landed', { pull: pull.number, twin: fixTwin.number }),
-      `**The fix has landed**: spec twin #${fixTwin.number} (\`specs/${fixFolder}\`) is implemented. The implementation resumes with a fresh attempt count; the base branch is merged first, so it includes the fix.`,
+      `**The fix has landed, so the block is lifted**: spec twin #${fixTwin.number} (\`specs/${fixFolder}\`) is implemented. The implementation resumes with a fresh attempt count; the base branch is merged first, so it includes the fix.`,
     ].join('\n');
     const guidance = `The cause that stopped this implementation was fixed outside this spec by the fix spec specs/${fixFolder} (twin #${fixTwin.number}), which is now on the base branch. Continue as planned; do not work around that cause in this spec.`;
     await client.createComment(implementation.number, renderResumeComment(lead, guidance));
@@ -499,7 +532,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
   }
   await client.createComment(implementation.number, [
     renderFixEvent('stopped', { pull: pull.number, twin: fixTwin.number }),
-    `**The fix spec was not implemented**: spec twin #${fixTwin.number} was closed without being implemented, so this implementation stays stopped.`,
+    `**The fix spec was not implemented**: spec twin #${fixTwin.number} was closed without being implemented. The block is lifted, and this implementation stays stopped.`,
     '',
     ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) }),
   ].join('\n'));

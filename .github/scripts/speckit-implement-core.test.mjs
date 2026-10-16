@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import { integrationTarget } from './speckit-spec.mjs';
 import {
   readSpecTasks,
   tasksPathOf,
@@ -236,7 +237,7 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.match(TASK_TEST_SCOPE, /Do not run the whole test suite/);
   assert.match(renderTaskPrompt('T004', 'f'), /^\/speckit-implement Implement only task T004 of the spec in `specs\/f\/` \(its `tasks\.md`\); ignore the other specs\. Do not implement any other task\./);
   assert.match(renderConvergePrompt(), /^\/speckit-converge /);
-  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs', 'b.md'] }), /`specs\/f`[\s\S]*`a\.cs`, `b\.md`[\s\S]*Do not change any other file/);
+  assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs', 'b.md'] }), /`specs\/f`[\s\S]*`a\.cs`, `b\.md`[\s\S]*smallest change to other files[\s\S]*never delete them, and never weaken a test, assertion, or requirement[\s\S]*A person reviews such changes/);
   assert.match(renderResolvePrompt({ folder: 'f', files: ['a.cs'], base: 'main', guidance: '  Keep\nboth sides.  ' }), /Guidance from the person who resumed this implementation: Keep both sides\.$/);
   assert.match(renderRepairPrompt({ repair: { scope: 'group', tasks: ['T001'] }, folder: 'f', guidance: '  Reuse\nexisting coverage. ' }), /Writer-approved guidance: Reuse existing coverage\.$/);
   assert.equal(kindLabel({ kind: 'task', task: 'T001' }), 'T001');
@@ -259,10 +260,10 @@ test('decides the next tasks of an implementation from the attempt ledger', () =
   assert.deepEqual(decide({}), order([{ task: 'T002', attempt: 1 }], [{ task: 'T003', attempt: 1 }]));
   assert.deepEqual(decide({ attempts: [attempt('T001'), attempt('T002')] }), order([{ task: 'T002', attempt: 2 }], [{ task: 'T003', attempt: 1 }]));
   assert.deepEqual(decide({ attempts: [attempt('T002', 'failure', '2026-10-06T09:00:00Z')] }), order([{ task: 'T002', attempt: 1 }], [{ task: 'T003', attempt: 1 }]), 'attempts before the window do not count');
-  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002')] }), order([{ task: 'T002', attempt: 4 }], [{ task: 'T003', attempt: 1 }]), 'a redo is no failure');
-  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002'), attempt('T002')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 3, stale: [] });
-  const noOps = Array.from({ length: 6 }, () => attempt('T002', 'requeue'));
-  assert.deepEqual(decide({ attempts: noOps }), { action: 'limit', kind: 'task', task: 'T002', attempts: 6, stale: [] }, 'endless redos stop too');
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002', 'requeue'), attempt('T002', 'requeue')] }), order([{ task: 'T002', attempt: 4 }], [{ task: 'T003', attempt: 1 }]), 'a redo is no failure');
+  assert.deepEqual(decide({ attempts: [attempt('T002'), attempt('T002')] }), { action: 'limit', kind: 'task', task: 'T002', attempts: 2, stale: [] });
+  const noOps = Array.from({ length: 4 }, () => attempt('T002', 'requeue'));
+  assert.deepEqual(decide({ attempts: noOps }), { action: 'limit', kind: 'task', task: 'T002', attempts: 4, stale: [] }, 'endless redos stop too');
   assert.deepEqual(decide({ checks: [{ id: 1, external_id: CHECK_DONE, conclusion: 'success' }] }), { action: 'done' });
   const limited = { id: 1, external_id: CHECK_LIMIT, conclusion: 'failure', started_at: '2026-10-06T11:30:00Z' };
   assert.deepEqual(decide({ checks: [limited] }), { action: 'failed', diagnosis: { state: 'none', check: limited, count: 0 } });
@@ -292,7 +293,7 @@ test('renders the next steps a person can take', () => {
   const auto = renderNextSteps({ autoDiagnosis: true, behindBase: 'release', baseBranch: 'release', continuation: 'continues with T004' }).join('\n');
   assert.match(auto, /^\*\*Recommended next step\*\*: Wait for the diagnosis\.\n\n- \*\*Why\*\*: It starts automatically/);
   assert.doesNotMatch(auto, /\/speckit diagnose/);
-  assert.match(auto, /- What it does: Does not merge `release`: the implementation continues with T004 on the branch as it is, with a fresh attempt count \(at most 3 failed attempts\)/);
+  assert.match(auto, /- What it does: Does not merge `release`: the implementation continues with T004 on the branch as it is, with a fresh attempt count \(at most 2 failed attempts\)/);
   assert.match(auto, /- \*\*Merge `release` first, then continue\*\*\n {2}- Why: `release` has commits the implementation branch lacks, possibly a fix for the cause\.\n {2}- What it does: First merges `release` into the implementation branch \(Copilot resolves conflicts\)[^\n]*then the implementation continues with T004[^\n]*\n\n {2}```text\n {2}\/speckit resume\n {2}```/);
   assert.doesNotMatch(auto, /\/speckit sync/, 'resume merges the base branch first, so there is no sync command');
   const diagnosed = renderNextSteps({ options: [{ title: 'Retry with guidance', why: 'The agent mixed up the paths.', command: '/speckit resume Use the helper' }], amendment: { number: 7, title: 'Amend: Clarify R6', html_url: 'https://github.com/octo/repo/pull/7', status: 'consistent' }, diagnosed: true }).join('\n');
@@ -323,7 +324,8 @@ test('describes what each command does and what a restart continues with', () =>
     for (const force of ['--force', '--FORCE']) {
       const bare = describeCommandEffect(`/speckit ${verb} ${force}`, context);
       assert.match(bare, /reverifies without running a repair agent.*pending phase verification/);
-      assert.match(bare, /`--force` is a flag.*not guidance.*does not reset the repair attempt limit/);
+      assert.match(bare, /`--force` is a flag.*not guidance\.$/);
+      assert.match(bare, /if this repair attempt fails, the implementation stops for a person again/);
       const guided = describeCommandEffect(`/speckit ${verb} ${force} Inspect the logs`, context);
       assert.match(guided, /runs a repair agent with the guidance, then reverifies/);
       assert.match(guided, /`--force` is a flag/);
@@ -552,6 +554,11 @@ test('resolves conflicts with the base branch before a phase, best effort', () =
   assert.deepEqual(converging, resolveNext(1), 'a conflict before the convergence is resolved first, too');
   const convergeGivenUp = decideNext({ tasksMarkdown: '- [x] T001 a\n', windowStart, now, checks: [syncConflict], attempts: [attempt('T001', 'success', at(11)), resolve(13, 'attention')] });
   assert.deepEqual([convergeGivenUp.kind, convergeGivenUp.syncGivenUp], ['converge', syncConflict], 'and the convergence continues on its base when it cannot be resolved');
+  const converged = [attempt('T001', 'success', at(11)), attempt(null, 'success', at(12), 'converge')];
+  const mergeGivenUp = decideNext({ tasksMarkdown: '- [x] T001 a\n', windowStart, now, checks: [syncConflict], attempts: [...converged, resolve(13, 'failure'), resolve(14, 'failure')] });
+  assert.deepEqual([mergeGivenUp.action, mergeGivenUp.syncGivenUp], ['merge', syncConflict], 'the flag survives into the merge decision, so a resumed repair that wraps it does not merge the base branch again');
+  assert.equal(integrationTarget({ action: 'repair', syncGivenUp: syncConflict }, { resumed: true }), null);
+  assert.equal(integrationTarget({ action: 'repair' }, { resumed: true }), 'repair');
 });
 test('environment specs: only the environment actions, and only without other changes on the branch', () => {
   assert.equal(isEnvironmentPath('.github/actions/environment-setup/action.yml'), true);

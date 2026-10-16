@@ -109,6 +109,9 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   let decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestResume, now });
   const repair = unresolvedRepair(comments);
   if (repair) {
+    // Every failed repair attempt stops for a person, so each attempt follows a restart (retry, resume, a merged
+    // amendment, or a landed fix spec) newer than the repair and its latest attempt. A restart gets a fresh attempt;
+    // without one, the stop stands (and is reported once; a recorded stop or diagnosis is kept as it is).
     const repairAttempts = attempts.filter((attempt) => attempt.kind === 'repair' && Date.parse(attempt.at) >= Date.parse(repair.at));
     const latestRepairAttempt = repairAttempts.map((attempt) => Date.parse(attempt.at)).sort((a, b) => b - a)[0] ?? 0;
     const restart = comments
@@ -116,7 +119,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
         [RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)) &&
         Date.parse(comment.created_at) >= Math.max(Date.parse(repair.at), latestRepairAttempt))
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? (assumeResumed ? { body: RESUME_COMMENT_MARKER } : null);
-    if (restart && repairAttempts.filter((attempt) => attempt.outcome === 'failure').length < MAX_TASK_ATTEMPTS) {
+    if (restart) {
       const guidance = parseGuidance(restart.body) ?? '';
       const resumed = String(restart.body ?? '').startsWith(RESUME_COMMENT_MARKER);
       decision = resumed && decision.action === 'tasks' && decision.kind === 'resolve' && decision.sync ? { ...decision, repair } : {
@@ -129,8 +132,6 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
         stale: decision.stale ?? [],
         ...(decision.syncGivenUp ? { syncGivenUp: decision.syncGivenUp } : {}),
       };
-    } else if (repairAttempts.filter((attempt) => attempt.outcome === 'failure').length >= MAX_TASK_ATTEMPTS) {
-      decision = { action: 'limit', kind: 'repair', attempts: repairAttempts.length, stale: decision.stale ?? [] };
     } else if (!['diagnosing'].includes(decision.action)) {
       decision = {
         action: 'failed',
@@ -461,6 +462,9 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     return finish('merge', { ...common, attempt: String(decision.attempt), check_run: String(checkRun) });
   }
   if (decision.action === 'repair') {
+    // A resumed repair whose merge of the base branch was given up continues on its current base; the skip is recorded
+    // so later runs do not merge that base commit again before the repair.
+    if (decision.syncGivenUp) await reportSyncGivenUp(client, { decision, report });
     const entry = { task: null, attempt: decision.attempt, summary: `Repair the failed ${decision.repair.scope} verification.` };
     const checkRun = (await startAttemptChecks(client, { head: common.head, kind: 'repair', entries: [entry] })).repair;
     const prompt = renderRepairPrompt({ repair: decision.repair, guidance: decision.guidance, folder });

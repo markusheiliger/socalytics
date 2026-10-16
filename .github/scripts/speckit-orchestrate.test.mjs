@@ -8,7 +8,7 @@ import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
 import { phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
-import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderRepairMarker, renderResumeComment, renderRetryComment } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderRepairMarker, renderResumeComment, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -496,6 +496,27 @@ test('orchestrate starts the implementation chain and continues it only when no 
   }
 });
 
+test('orchestrate does not continue an implementation that is blocked by its fix spec', async () => {
+  const { root, github } = await flaggedRepo();
+  try {
+    await orchestrate(github, root);
+    const pull = github.repo.pulls[0];
+    github.completeRun(github.repo.runs.at(-1).id, 'success');
+    await limitCheck(github, github.repo.branches['speckit/a']);
+    const fixFolder = '20261016-000000-fix-x';
+    github.repo.pulls.push({ number: 99, state: 'closed', merged_at: github.tick(), base: { ref: 'main' }, head: { ref: `speckit-fix/${fixFolder}`, sha: 'x' }, labels: [] });
+    await github.createComment(pull.number, renderFixEvent('created', { pull: 99, folder: fixFolder }));
+    await github.createComment(pull.number, renderFixEvent('merged', { pull: 99, folder: fixFolder }));
+    const blocked = await orchestrate(github, root);
+    assert.equal(chainRuns(github).length, 1, 'neither a diagnosis nor a retry starts while the fix is pending');
+    assert.match(blocked.text, /blocked; it waits for its fix spec/);
+    assert.ok(github.repo.pulls[0].labels.some((label) => label.name === BLOCKED_LABEL));
+    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"pull":99,"stage":"implement"\} -->\n\*\*Blocked\*\* by fix spec #99/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('orchestrate starts no more than SPECKIT_MAX_ACTIVE_SPECS implementations', async () => {
   const tasks = '## Phase 1\n\n- [ ] T001 one\n';
   const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks }, { folder: 'b', plan: true, tasks }]);
@@ -803,8 +824,16 @@ test('chain: pending repair resume merges the base before verification-only work
         await attemptComment(github, pull.number, null, 'failure', 'repair');
       }
       await github.createComment(pull.number, renderResumeComment('Try again.'));
-      assert.equal((await sync()).outputs.result, 'none', 'exhausted repair attempts cannot start new sync work');
-      assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop', 'restart does not reset the repair limit');
+      assert.equal((await sync()).outputs.result, 'merged', 'every restart gets a fresh repair attempt, and a resume merges the base first');
+      const fresh = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+      assert.deepEqual([fresh.outputs.action, fresh.outputs.attempt], ['repair', '4'], 'restart resets the repair limit');
+      for (const check of github.repo.checkRuns) check.status = 'completed';
+      await attemptComment(github, pull.number, null, 'failure', 'repair');
+      const comments = github.comments.length;
+      for (let run = 0; run < 2; run += 1) {
+        assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop');
+      }
+      assert.equal(github.comments.length, comments, 'a stop that was reported is not reported again');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -857,6 +886,33 @@ test('chain: resumed repair resolves sync conflicts first and keeps its authoriz
         rmSync(root, { recursive: true, force: true });
       }
     }
+  }
+});
+
+test('chain: a resumed repair after the convergence gives up a conflicting base merge once instead of looping', async () => {
+  const { root, github, twin, pull } = await restartedRepair(renderResumeComment);
+  try {
+    await attemptComment(github, pull.number, null, 'success', 'converge');
+    const conflicted = advanceRepairBase(github);
+    const sync = () => decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' }, runSyncBase);
+    const next = () => decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    const settle = () => { for (const check of github.repo.checkRuns) check.status = 'completed'; };
+    github.mergeBranchOutcome = 'conflict';
+    assert.equal((await sync()).outputs.result, 'conflict');
+    assert.equal((await next()).outputs.action, 'resolve');
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      settle();
+      await attemptComment(github, pull.number, null, 'failure', 'resolve');
+    }
+    const checks = github.repo.checkRuns.filter((check) => check.external_id === CHECK_SYNC_CONFLICT).length;
+    assert.equal((await sync()).outputs.result, 'none', 'the given-up base commit is not merged again before the repair');
+    assert.equal(github.repo.checkRuns.filter((check) => check.external_id === CHECK_SYNC_CONFLICT).length, checks, 'no new conflict restarts the count');
+    const repair = await next();
+    assert.equal(repair.outputs.action, 'repair', 'the repair runs on the current base');
+    assert.ok(github.comments.some((comment) => comment.body.includes(`<!-- speckit-implement:sync-skipped ${conflicted} -->`)), 'the skip is recorded');
+    assert.equal((await sync()).outputs.result, 'none', 'the recorded skip holds');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

@@ -76,11 +76,16 @@ workflow started you): never ask, and turn every open question into a report que
 
    A merged result that fails although both sides pass alone (a conflict resolution or merge whose verification
    fails because of a clash without a textual conflict: two migrations with the same sequence number, an identifier
-   both sides added, implementation code that uses something the base branch renamed) is this implementation's to
-   fix, not `outside`. The conflict resolution may change this branch's own files and add new files besides the
-   conflicted ones, so classify it as `retry` and recommend `/speckit retry <how to integrate>` that names the files
-   and the change (for example "renumber this feature's migration `0017_x.sql` to `0019_x.sql` with `git mv` and update
-   its references"). It is `outside` only when the fix must change files that only the base branch owns.
+   both sides added, implementation code that uses something the base branch renamed, a test the base branch added
+   that does not know a setting this implementation made required) is this implementation's to fix, not `outside`.
+   The conflict resolution may change this branch's own files, add new files, and, when the merged result needs it,
+   make the smallest change to files that only the base branch owns (never deleting them; such changes hold the final
+   merge for a person's review). So classify it as `retry` and recommend `/speckit retry <how to integrate>` that names
+   the files and the change (for example "renumber this feature's migration `0017_x.sql` to `0019_x.sql` with `git mv`
+   and update its references", or "add the `Email:*` settings to `RequiredSettings` in the base branch's
+   `MinimumWebVersionTests.cs`"). Never guide toward weakening a test, an assertion, or a requirement on either side;
+   a test that races or fails after the merge is fixed by waiting for the right condition, not by changing what it
+   expects. It is `outside` only when the base branch fails on its own.
 
 5. **Amend (only for `artifacts`).**
    - Edit the highest wrong artifact first, then carry the change down: `spec.md` (only with a person's answer) →
