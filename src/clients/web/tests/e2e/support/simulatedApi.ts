@@ -43,7 +43,7 @@ const ids = {
 };
 
 /** Origin of the fake object store (tests/e2e/support/fakeObjectStorage.mjs); playwright.config.ts starts it on this port. */
-export const FAKE_STORAGE_ORIGIN = 'http://127.0.0.1:4175';
+export const FAKE_STORAGE_ORIGIN = 'http://127.0.0.1:4176';
 
 const now = new Date('2026-10-12T12:00:00Z');
 const later = (hours: number) => new Date(now.getTime() + hours * 3_600_000);

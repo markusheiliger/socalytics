@@ -11,7 +11,7 @@ type Fixtures = {
 };
 
 const SECRET_KEY = /password|credential|passcode|csrf|antiforgery|secret/i;
-const GRANT_MATERIAL = /X-Amz-Signature|x-amz-checksum-sha256|X-Amz-Credential|\/bucket\/[^"\s]*\?partNumber=|127\.0\.0\.1:4175/i;
+const GRANT_MATERIAL = /X-Amz-Signature|x-amz-checksum-sha256|X-Amz-Credential|\/bucket\/[^"\s]*\?partNumber=|127\.0\.0\.1:4176/i;
 
 export const test = base.extend<Fixtures>({
   secrets: async ({}, use) => {

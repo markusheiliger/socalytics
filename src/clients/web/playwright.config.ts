@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 const previewUrl = 'http://127.0.0.1:4173';
 
-const fakeStoragePort = 4175;
+const fakeStoragePort = 4176;
 const fakeStorageUrl = `http://127.0.0.1:${fakeStoragePort}`;
 // The release server of the update specs uploads to the fake store too.
 const releaseServerUrl = 'http://127.0.0.1:4177';
