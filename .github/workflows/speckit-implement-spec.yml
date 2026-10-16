@@ -150,7 +150,6 @@ jobs:
           SPECKIT_TWIN: ${{ inputs.twin }}
           SPECKIT_PULL: ${{ inputs.pull }}
           SPECKIT_GUIDANCE: ${{ inputs.guidance }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node .github/scripts/speckit-spec.mjs decide
 
   # Named after the phase heading; nested jobs show below it as "<phase heading> / T013 / Implement T013".
@@ -292,5 +291,4 @@ jobs:
           SPECKIT_PHASE_CHECK: ${{ needs.phase.outputs.verified }}
           SPECKIT_PHASE: ${{ needs.phase.outputs.phase }}
           SPECKIT_ORDER: ${{ needs.phase.outputs.order }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node .github/scripts/speckit-spec.mjs continue

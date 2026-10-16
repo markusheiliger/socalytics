@@ -287,26 +287,21 @@ test('waits while a diagnosis runs, then for a decision, and gives up on a stale
 });
 test('renders the next steps a person can take', () => {
   const plain = renderNextSteps().join('\n');
-  assert.match(plain, /^\*\*Recommended next step\*\*: Diagnose why the implementation stopped\.\n\n- \*\*Why\*\*: [^\n]+\n- \*\*What it does\*\*: Starts a new diagnosis;[^\n]*Nothing is retried meanwhile[\s\S]*```text\n\/speckit diagnose\n```/);
+  assert.match(plain, /^\*\*Recommended next step\*\*: Wait for the diagnosis\.\n\n- \*\*Why\*\*: It starts automatically/);
   assert.match(plain, /<details><summary>Other options<\/summary>[\s\S]*- \*\*Retry what stopped\*\*\n {2}- Why: [^\n]+\n {2}- What it does: Does not merge the base branch[\s\S]*\/speckit retry[\s\S]*Push a fix yourself, or close the pull request[\s\S]*<\/details>$/);
-  assert.doesNotMatch(plain, /\/speckit (resume|sync|apply)/);
-  const auto = renderNextSteps({ autoDiagnosis: true, behindBase: 'release', baseBranch: 'release', continuation: 'continues with T004' }).join('\n');
-  assert.match(auto, /^\*\*Recommended next step\*\*: Wait for the diagnosis\.\n\n- \*\*Why\*\*: It starts automatically/);
+  assert.doesNotMatch(plain, /\/speckit (diagnose|resume|sync|apply)/);
+  const auto = renderNextSteps({ diagnosisUrl: 'https://github.com/octo/repo/actions/workflows/speckit-diagnose.lock.yml', behindBase: 'release', baseBranch: 'release', continuation: 'continues with T004' }).join('\n');
+  assert.match(auto, /^\*\*Recommended next step\*\*: \[Wait for the diagnosis\]\(https:\/\/github\.com\/octo\/repo\/actions\/workflows\/speckit-diagnose\.lock\.yml\)\.\n\n- \*\*Why\*\*: It starts automatically/);
   assert.doesNotMatch(auto, /\/speckit diagnose/);
   assert.match(auto, /- What it does: Does not merge `release`: the implementation continues with T004 on the branch as it is, with a fresh attempt count \(at most 2 failed attempts\)/);
   assert.doesNotMatch(auto, /Merge `release` first|\/speckit (resume|sync)/);
   const diagnosed = renderNextSteps({ options: [{ title: 'Retry with guidance', why: 'The agent mixed up the paths.', command: '/speckit retry Use the helper' }], amendment: { number: 7, title: 'Amend: Clarify R6', html_url: 'https://github.com/octo/repo/pull/7', status: 'consistent' }, diagnosed: true }).join('\n');
-  assert.match(diagnosed, /^\*\*Recommended next step\*\*: \[Review and merge the amendment #7: Amend: Clarify R6 \(consistent\)\]\(https:\/\/github\.com\/octo\/repo\/pull\/7\)\.\n\n- \*\*Why\*\*: [^\n]+\n- \*\*What it does\*\*: Merging applies the amendment[\s\S]*Other options[\s\S]*- Why: The agent mixed up the paths\.[\s\S]*\/speckit retry Use the helper[\s\S]*Diagnose again/);
+  assert.match(diagnosed, /^\*\*Recommended next step\*\*: \[Review and merge the amendment #7: Amend: Clarify R6 \(consistent\)\]\(https:\/\/github\.com\/octo\/repo\/pull\/7\)\.\n\n- \*\*Why\*\*: [^\n]+\n- \*\*What it does\*\*: Merging applies the amendment[\s\S]*Other options[\s\S]*- Why: The agent mixed up the paths\.[\s\S]*\/speckit retry Use the helper/);
   assert.doesNotMatch(diagnosed, /Comment this on the pull request/, 'merging the amendment needs no command');
   assert.doesNotMatch(diagnosed, /\/speckit (apply|revise|discard)/);
   assert.equal(diagnosed.match(/\/speckit retry/g).length, 1, 'an option already covers retry');
   assert.match(renderNextSteps({ amendmentPull: 7 }).join('\n'), /^\*\*Recommended next step\*\*: Review and merge the amendment #7\./);
-  const recommended = renderNextSteps({ options: [{ title: 'Diagnose with this guidance:', command: '/speckit diagnose keep it', recommended: true }], diagnosed: true }).join('\n');
-  assert.equal(recommended.match(/\/speckit diagnose/g).length, 1, 'a command an option suggests is not repeated');
-  assert.match(recommended, /^\*\*Recommended next step\*\*: Diagnose with this guidance\.\n/, 'trailing punctuation is not doubled');
-  assert.match(recommended, /What it does\*\*: Starts a new diagnosis with the previous one as context and the text after the command as guidance/);
-  assert.equal(recommended.match(/Recommended next step/g).length, 1);
-  for (const block of [plain, auto, diagnosed, recommended]) {
+  for (const block of [plain, auto, diagnosed]) {
     for (const fence of block.matchAll(/```text\n([\s\S]*?)```/g)) assert.doesNotMatch(fence[1], /<[A-Za-z][^>]*>|\[[A-Za-z][^\]]*\]/, `no placeholder in a command: ${fence[1]}`);
   }
   const howTo = renderAmendmentHowTo(49).join('\n');

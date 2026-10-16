@@ -381,5 +381,4 @@ jobs:
           SPECKIT_HEAD: ${{ needs.verify.outputs.head || needs.land.outputs.head }}
           SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
           SPECKIT_VERIFICATION_OUTCOME: ${{ needs.verify.outputs.verification }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node .github/scripts/speckit-repair.mjs repair-report

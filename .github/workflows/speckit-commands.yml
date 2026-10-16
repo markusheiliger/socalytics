@@ -1,7 +1,7 @@
 name: Spec Kit commands
 
 # Handles people's input on Spec Kit pull requests:
-#   - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): diagnose, retry, fix,
+# - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): retry, fix,
 #     help.
 #   - Feedback on amendment pull requests (speckit-amend/<folder>) and fix spec pull requests (speckit-fix/<folder>): a
 #     comment, or a review with Comment or Request changes, has it reworked (Spec Kit diagnose or Spec Kit fix, mode

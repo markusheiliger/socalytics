@@ -79,8 +79,8 @@ workflow started you): never ask, and turn every open question into a report que
    | `artifacts` | The task cannot be done as written, or doing it as written cannot meet the spec: a missing, ambiguous, or contradictory design decision; a wrong assumption in research; a task too vague to diagnose its failure; a missing prerequisite task; a wrong task order; or a code fix inside this feature needed first (a **corrective task**) | an amendment pull request (step 5) that the person reviews and merges |
    | `retry` | Transient infrastructure (timeouts, rate limits, runner or network failures, Copilot errors, a flaky test with evidence), or the agent took a poor approach although the artifacts are adequate | `/speckit retry <concrete guidance>`: restarts without merging the base branch for it |
    | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | `/speckit fix <what to fix, where, and how>`, which has a fix spec authored for the cause |
-   | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered questions with the recommended choice first; `/speckit diagnose 1. <choice> 2. <choice>` prefilled with the recommended answers |
-   | `unknown` | Not enough evidence | what was checked and ruled out; `/speckit diagnose <what to examine next>` |
+   | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered questions with the recommended choice first; `/speckit retry 1. <choice> 2. <choice>` prefilled with the recommended answers as guidance |
+   | `unknown` | Not enough evidence | what was checked and ruled out; the workflow starts another diagnosis automatically with these findings as context |
 
    A merged result that fails although both sides pass alone (a conflict resolution or merge whose verification
    fails because of a clash without a textual conflict: two migrations with the same sequence number, an identifier
@@ -160,15 +160,16 @@ workflow started you): never ask, and turn every open question into a report que
   fail. The person decides from the comment alone: `why` explains in one or two sentences why the option solves this
   problem (the comment adds what the command does).
 - The recommended command must fit the category, or the comment replaces it with the category's default: `retry` →
-  `/speckit retry`; `outside` → `/speckit fix`; `artifacts` (without an amendment pull request),
-  `decision`, and `unknown` → `/speckit diagnose`.
+  `/speckit retry`; `outside` → `/speckit fix`; `decision` → `/speckit retry` with the recommended answers as
+  guidance. `artifacts` must create an amendment pull request. `unknown` starts another diagnosis automatically and
+  must not ask a person to trigger it.
 - A `command` is one line a person can post as it is: `/speckit retry <guidance>` (restarts what stopped without
   merging the base branch for it; a phase that has not started, the convergence, and the merge always merge it first),
   `/speckit fix <what to fix>` (has a fix spec authored for a cause on the base branch; the implementation
-  retries by itself once it has landed), or `/speckit diagnose <notes or answers>`. Write the guidance, notes, or
-  answers out from your findings; never leave placeholders such as `<guidance>` or `[notes]`, and leave the text out
+  retries by itself once it has landed). Write the guidance or answers out from your findings; never leave
+  placeholders such as `<guidance>` or `[notes]`, and leave the text out
   only when there is nothing useful to add. For `decision`, prefill the answers with the recommended choices:
-  `/speckit diagnose 1. <first choice> 2. <first choice>`.
+  `/speckit retry 1. <first choice> 2. <first choice>`.
 - When the solution needs an action outside these commands (for example "grant the workflow access to the
   registry"), describe that action in the option's title and set `command` to the command that continues afterwards
   (usually `/speckit retry <guidance>`), so the recommendation is one option. Its guidance must not claim that the

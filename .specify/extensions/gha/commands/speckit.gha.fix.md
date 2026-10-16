@@ -40,7 +40,7 @@ implementation.
   the two action folders, and its implementation is always held for a person's review.
 - Refuse (author nothing, explain in `refused`) when a fix spec cannot remove the cause: tooling under `.github/`
   other than the environment actions, permissions, quotas, secrets, external services, or a cause that lies in the
-  stopped spec itself (that needs an amendment, which `/speckit diagnose` proposes).
+  stopped spec itself (that needs an amendment, which the automatic diagnosis proposes).
 
 ## Outline
 

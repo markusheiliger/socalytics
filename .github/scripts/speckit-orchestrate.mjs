@@ -225,7 +225,7 @@ function describeDecision(twin) {
     case 'diagnosing': return 'stopped; a diagnosis is running';
     case 'failed': return decision.diagnosis?.state === 'reported'
       ? 'stopped; the diagnosis waits for a person\'s decision'
-      : 'stopped and waiting for a person (comment `/speckit diagnose`, `/speckit retry`, or push a fix)';
+      : 'stopped while its automatic diagnosis determines the next step';
     case 'limit': return `${kindLabel(decision)} reached the attempt limit`;
     case 'tasks': return `next is ${decision.order[0].map(({ task, attempt }) => `${kindLabel({ kind: decision.kind, task })} attempt ${attempt}`).join(', ')}`;
     case 'merge': return `next is the merge, attempt ${decision.attempt}`;

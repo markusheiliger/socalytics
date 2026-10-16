@@ -93,7 +93,7 @@ test('a missing, refused, or broken fix spec goes back to the implementation wit
   const none = fixRepo();
   const result = await authored(none, { SPECKIT_CREATED_PULL: '' });
   assert.equal(result.outcome, 'none');
-  assert.match(none.comments.at(-1).body, /^\*\*No fix spec was created\*\*: Lengthens the session lifetime[\s\S]*\*\*Recommended next step\*\*: Diagnose again[\s\S]*```text\n\/speckit diagnose\n```/);
+  assert.match(none.comments.at(-1).body, /^\*\*No fix spec was created\*\*: Lengthens the session lifetime[\s\S]*\*\*Recommended next step\*\*: Retry what stopped[\s\S]*```text\n\/speckit retry\n```/);
 
   const broken = fixRepo({ files: [`${PREFIX}/spec.md`, 'src/platform/Tests/UploadSessionExpiryTests.cs'] });
   assert.equal((await authored(broken)).outcome, 'rejected');

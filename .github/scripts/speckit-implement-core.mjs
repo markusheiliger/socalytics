@@ -56,8 +56,6 @@ export const CHECK_DIAGNOSING = 'speckit:diagnosing';
 export const CHECK_DIAGNOSED = 'speckit:diagnosed';
 // A diagnosis that has not reported after this long belongs to a cancelled or crashed run.
 export const DIAGNOSIS_STALE_MS = 60 * 60 * 1000;
-// Automatic diagnoses per head; further diagnoses need a person's `/speckit diagnose`.
-export const MAX_AUTO_DIAGNOSES = 2;
 export const DIAGNOSE_WORKFLOW_FILE = 'speckit-diagnose.lock.yml';
 export const AMEND_BRANCH_PREFIX = 'speckit-amend/';
 // Fix specs (`/speckit fix`): a small spec, authored by an agent for a cause outside the stopped spec, proposed as a pull
@@ -70,6 +68,11 @@ export const CHECK_FIX_AUTHORING = 'speckit:fix-authoring';
 export const CHECK_FIX_AUTHORED = 'speckit:fix-authored';
 export const FIX_TITLE_PREFIX = 'Fix spec: ';
 export const DIAGNOSIS_COMMENT_MARKER = '<!-- speckit-implement:diagnosis -->';
+
+export function diagnosisRunsUrl(env) {
+  const server = String(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '');
+  return `${server}/${env.GITHUB_REPOSITORY}/actions/workflows/${DIAGNOSE_WORKFLOW_FILE}`;
+}
 // Amendment pull requests: the check that tracks consistency, the markers of a rework and of a presentation (both
 // end the window of feedback that is already handled), and the status block in the description.
 export const AMEND_CHECK_NAME = 'Spec Kit amendment';
@@ -1053,7 +1056,6 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
 // The commands a person can comment on an implementation pull request. An amendment pull request needs none: merging
 // it applies the amendment, closing it discards it, and a comment or review asks for a rework.
 export const PR_COMMANDS = [
-  { name: 'diagnose', usage: '/speckit diagnose [guidance]', help: 'diagnose why the implementation stopped; nothing runs meanwhile. Guidance steers the analysis or answers its questions' },
   { name: 'retry', usage: '/speckit retry [guidance]', help: 'restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless the guidance starts with `--force`' },
   { name: 'fix', usage: '/speckit fix [guidance]', help: 'for a cause outside this spec: an agent authors a fix spec and opens it against the base branch for your review; once it is merged and implemented, this implementation retries by itself' },
   { name: 'help', usage: '/speckit help', help: 'list these commands' },
@@ -1098,12 +1100,6 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
       return mergesAnyway
         ? `The implementation ${next}, ${attempts}. That work merges ${base} first at its normal synchronization boundary. ${guidance}`
         : `Does not merge ${base}: the implementation ${next} on the branch as it is, ${attempts}. ${guidance}`;
-    case 'diagnose':
-      return [
-        `Starts a new diagnosis${diagnosed ? ' with the previous one as context' : ''}${parsed.argument ? ' and the text after the command as guidance' : ''}; an open amendment pull request is closed as superseded.`,
-        'Nothing is retried meanwhile, and the findings are posted here.',
-        ...(parsed.argument ? [] : ['Guidance you add after the command steers the analysis or answers its questions.']),
-      ].join(' ');
     case 'fix':
       return [
         `An agent authors a small fix spec for the cause${parsed.argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and then waits for your review.`,
@@ -1253,7 +1249,7 @@ export function setAmendmentStatus(body, lines) {
 }
 
 // The next-step block of a comment where the implementation waits for a person: exactly one recommended next step
-// (an open amendment, else the recommended option, else waiting for the automatic diagnosis, else a diagnosis), then
+// (an open amendment, else the recommended option, else waiting for the automatic diagnosis), then
 // every other valid option, collapsed. Every option says why it helps and what it does, and every command can be
 // posted as it is: no placeholders.
 // - `options`: { title, why, command, recommended, link, kind } from a diagnosis (`kind` names a fixed effect for an
@@ -1262,8 +1258,8 @@ export function setAmendmentStatus(body, lines) {
 // - `baseBranch`: the implementation pull request's base; `behindBase`: its name when it has commits the
 //   implementation branch lacks, else null.
 // - `continuation`: what a restart continues with (continuationOf).
-// - `autoDiagnosis`: whether a diagnosis starts by itself; `diagnosed`: whether a diagnosis already reported.
-export function renderNextSteps({ options = null, amendment = null, amendmentPull = null, baseBranch = null, behindBase = null, continuation = null, autoDiagnosis = false, diagnosed = false } = {}) {
+// - `diagnosed`: whether a diagnosis already reported.
+export function renderNextSteps({ options = null, amendment = null, amendmentPull = null, baseBranch = null, behindBase = null, continuation = null, diagnosed = false, diagnosisUrl = null } = {}) {
   const all = options ?? [];
   const context = { baseBranch: baseBranch ?? behindBase, continuation, diagnosed };
   const pending = amendment ?? (amendmentPull ? { number: amendmentPull } : null);
@@ -1284,23 +1280,23 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
     if (pick) {
       recommended = pick;
       others = all.filter((option) => option !== pick);
-    } else if (autoDiagnosis) {
+    } else if (!diagnosed) {
       recommended = {
         title: 'Wait for the diagnosis',
+        link: diagnosisUrl,
         why: 'It starts automatically, finds the cause, and posts a recommendation with a ready-to-post command here.',
         kind: 'wait',
       };
     } else {
       recommended = {
-        title: diagnosed ? 'Diagnose again' : 'Diagnose why the implementation stopped',
-        why: diagnosed
-          ? 'No other step is known to solve the problem; a new diagnosis looks at the current state with the previous findings as context.'
-          : 'The cause is not known yet; a diagnosis finds it and recommends how to continue before anything runs again.',
-        command: '/speckit diagnose',
+        title: 'Retry what stopped',
+        why: 'The diagnosis did not identify another action that can be requested from this pull request.',
+        command: '/speckit retry',
       };
     }
   }
 
+  if (recommended.kind === 'wait' && diagnosisUrl && !recommended.link) recommended = { ...recommended, link: diagnosisUrl };
   const lines = [`**Recommended next step**: ${sentence(optionTitle(recommended))}`];
   const details = optionDetails(recommended, context);
   if (details.length > 0) lines.push('', ...details.map(([label, text]) => `- **${label}**: ${text}`));
@@ -1309,13 +1305,6 @@ export function renderNextSteps({ options = null, amendment = null, amendmentPul
   // Commands the recommendation or an option already suggests are not repeated.
   const used = new Set([recommended, ...others].map((option) => parseNextCommand(option.command)?.verb).filter(Boolean));
   const generic = [];
-  if (!autoDiagnosis && !used.has('diagnose')) {
-    generic.push({
-      title: diagnosed ? 'Diagnose again' : 'Diagnose why the implementation stopped',
-      why: diagnosed ? 'If you doubt the diagnosis, or know something it did not consider.' : 'If the cause is not clear from the comments above.',
-      command: '/speckit diagnose',
-    });
-  }
   if (!used.has('retry')) {
     generic.push({
       title: 'Retry what stopped',

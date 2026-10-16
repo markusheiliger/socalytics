@@ -2,16 +2,11 @@ import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import { canWrite } from './speckit-prepare.mjs';
-import { closeUnfinishedDiagnosis, diagnosisRunEnded, startDiagnosis } from './speckit-diagnose.mjs';
 import { startFixAuthoring } from './speckit-fix.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   ATTENTION_LABEL,
   BOT_LOGIN,
-  CHECK_DIAGNOSING,
-  CHECK_RUN_NAME,
-  DIAGNOSIS_COMMENT_MARKER,
-  DIAGNOSIS_STALE_MS,
   MAX_UNCHANGED_RESTARTS,
   PR_COMMANDS,
   RESTART_FORCE_FLAG,
@@ -20,7 +15,6 @@ import {
   describeCommandEffect,
   folderOfBranch,
   implementationBranch,
-  latestCheckRun,
   neutralizeMarkers,
   renderRetryComment,
   setAttention,
@@ -131,39 +125,6 @@ export async function runCommand({ client, env, log, now = Date.now }) {
   return { exitCode: 0, handled: true, command: command.name, ...result };
 }
 
-async function handleDiagnose({ client, env, actor, number, argument, now, folder, implementation, twin }) {
-  const checks = await client.listCheckRuns(implementation.head.sha, CHECK_RUN_NAME);
-  const latest = latestCheckRun(checks);
-  if (latest?.external_id === CHECK_DIAGNOSING && latest.status !== 'completed') {
-    const fresh = now() - Date.parse(latest.started_at ?? latest.created_at ?? 0) < DIAGNOSIS_STALE_MS;
-    if (fresh && !(await diagnosisRunEnded(client, twin, latest))) {
-      await reply(client, number, 'A diagnosis is already running; its findings will be posted on the implementation pull request.');
-      return { outcome: 'already running' };
-    }
-    await closeUnfinishedDiagnosis(client, latest);
-  }
-  const comments = await client.listIssueComments(implementation.number);
-  const previous = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).at(-1);
-  const started = await startDiagnosis(client, env, {
-    twin,
-    pull: implementation.number,
-    folder,
-    head: implementation.head.sha,
-    guidance: argument,
-    // The previous diagnosis is context, for example when the guidance answers its questions.
-    previous: previous ? previous.id : '',
-    actor,
-  });
-  if (!started.started) {
-    await reply(client, number, `The diagnosis could not start: ${neutralizeMarkers(started.error)}`);
-    return { outcome: 'not started' };
-  }
-  await reply(client, number, [
-    `${previous ? 'A new diagnosis' : 'A diagnosis'} was started by @${actor}${argument ? ' with your guidance' : ''}. The implementation waits; the findings will be posted on #${implementation.number}.`,
-  ]);
-  return { outcome: 'started' };
-}
-
 async function handleRetry({ client, env, actor, number, argument, folder, implementation, twin }) {
   const { force, guidance } = restartArgument(argument);
   const state = await restartState(client, implementation);
@@ -199,7 +160,7 @@ async function refuseUnchangedRestart(client, { name, number, implementation, fo
     `**\`/speckit ${name}\` was not run**: the implementation stopped again after each of the last ${restarts.length} restarts, and \`${implementationBranch(folder)}\` is still at \`${state.head.slice(0, 7)}\`. Restarting it unchanged would most likely stop the same way. Change something first:`,
     '',
     `- **Push** the change the diagnosis asks for to \`${implementationBranch(folder)}\`; a push continues the implementation by itself.`,
-    '- **Diagnose again** with what you know, to find out why the previous restarts did not help: `/speckit diagnose <what you know>`.',
+    '- **Retry with concrete guidance** from the diagnosis, or push the change it asks for.',
     `- **Fix the cause on \`${base}\`** with \`/speckit fix <what to fix>\`.`,
     '',
     `If you are sure a restart helps now (for example an outage has ended), insist with \`/speckit ${name} ${RESTART_FORCE_FLAG} <guidance>\`.`,
@@ -218,7 +179,6 @@ async function handleFix({ client, env, actor, number, argument, now, implementa
 }
 
 const HANDLERS = {
-  diagnose: handleDiagnose,
   retry: handleRetry,
   fix: handleFix,
 };

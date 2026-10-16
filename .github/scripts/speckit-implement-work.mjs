@@ -23,6 +23,7 @@ import {
   nextStepContext,
   convergenceRounds,
   defaultBranchOf,
+  diagnosisRunsUrl,
   environmentExclusivityReasons,
   ensureImplementationDraft,
   hasConflictMarkers,
@@ -493,7 +494,7 @@ async function requestAttention({ client, env = {}, inputs, reason, next, result
     next.trim(),
     ...(resultDir ? agentDetails(resultDir) : []),
     '',
-    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', ...nextContext }),
+    ...renderNextSteps({ diagnosisUrl: diagnosisRunsUrl(env), ...nextContext }),
   ].join('\n'));
 }
 
@@ -1006,7 +1007,7 @@ export async function runCombinedVerified({ client, env, log }) {
     renderRepairMarker(repair),
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: the verification of ${tasks} together ${outcome}${run}. Each task passed its own verification and their changes to the same files merged cleanly, so the combination breaks something.`,
     '',
-    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', ...nextContext, continuation: { repair } }),
+    ...renderNextSteps({ diagnosisUrl: diagnosisRunsUrl(env), ...nextContext, continuation: { repair } }),
   ].join('\n'));
   report.line(`The verification of ${tasks} together ${outcome}; the implementation stops for a person.`);
   report.flush();
@@ -1059,7 +1060,7 @@ export async function runRepairReport({ client, env, log }) {
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: repair attempt ${attempt} reached reverification, but the ${repair.scope} verification ${outcome}.`,
     '',
     ...renderNextSteps({
-      autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false',
+      diagnosisUrl: diagnosisRunsUrl(env),
       baseBranch: baseBranchOf(await client.getPullRequest(pull)),
       continuation: { repair },
     }),

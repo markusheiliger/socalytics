@@ -232,7 +232,7 @@ test('repair: successful no-op lands unchanged without a commit and still requir
   const env = {
     ...landEnv(repos), SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_ATTEMPT: '1',
     SPECKIT_CHECK_RUN: String(landed.check.id), SPECKIT_REPAIR: JSON.stringify(repair),
-    SPECKIT_HEAD: landed.head, SPECKIT_VERIFY_RESULT: 'failure', SPECKIT_AUTO_DIAGNOSE: 'false',
+    SPECKIT_HEAD: landed.head, SPECKIT_VERIFY_RESULT: 'failure',
   };
   assert.equal((await runRepairReport({ client: github, env, log: silent })).exitCode, 1);
   assert.equal(unresolvedRepair(github.comments).id, repair.id);
@@ -737,7 +737,7 @@ test('converge: code changes are rejected, and the round limit asks the requeste
     assert.deepEqual([landed.exitCode, landed.check.conclusion, landed.check.external_id], [1, 'failure', CHECK_LIMIT]);
     assert.equal(remoteHead(repos), before);
     assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: convergence still found gaps after 3 rounds/);
-    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Wait for the diagnosis[\s\S]*<summary>Other options<\/summary>[\s\S]*```text\n {2}\/speckit retry\n {2}```/);
+    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: \[Wait for the diagnosis\]\([^)]+speckit-diagnose\.lock\.yml\)[\s\S]*<summary>Other options<\/summary>[\s\S]*```text\n {2}\/speckit retry\n {2}```/);
     assert.doesNotMatch(github.comments.at(-1).body, /\/speckit resume/);
   });
 });
@@ -995,7 +995,7 @@ test('resolve: conflicts in protected paths ask the requester', () => withRepos(
   assert.deepEqual([landed.exitCode, landed.check.external_id], [1, CHECK_LIMIT]);
   assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: conflicts in protected paths need a person: specs\/f\/spec\.md/);
   assert.doesNotMatch(github.comments.at(-1).body, /Spec Kit orchestrate` workflow manually/);
-  assert.match(github.comments.at(-1).body, /\/speckit diagnose|Wait for the diagnosis/);
+  assert.match(github.comments.at(-1).body, /Wait for the diagnosis/);
 }));
 
 // The job "sync" recorded a best-effort conflict (before a phase or the convergence) on the head the resolution starts from.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
 import { main, parseCommand, renderHelp, runCommand } from './speckit-commands.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -18,10 +18,12 @@ test('parses commands: the first word, the name, and the rest as argument', () =
   assert.equal(parseCommand('/speckit deploy now').name, 'unknown');
   assert.equal(parseCommand('/speckit resume').name, 'unknown');
   assert.equal(parseCommand('/speckit sync').name, 'unknown');
+  assert.equal(parseCommand('/speckit diagnose').name, 'unknown');
   assert.equal(parseCommand('please /speckit retry'), null);
   assert.equal(parseCommand('/speckit-gha-diagnose'), null, 'a skill name is not a command');
   assert.match(renderHelp(), /\| `\/speckit retry \[guidance\]` \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*fix spec pull request[\s\S]*skill `\/speckit-gha-diagnose`/);
   assert.doesNotMatch(renderHelp(), /\/speckit resume/);
+  assert.doesNotMatch(renderHelp(), /\/speckit diagnose/);
   assert.equal(parseCommand('/speckit retry Rerun as is').name, 'retry');
   assert.equal(parseCommand('/speckit fix Make the test robust').name, 'fix');
   assert.doesNotMatch(renderHelp(), /\/speckit sync/);
@@ -41,35 +43,6 @@ test('ignores people without write access and bots, reacts, and answers help and
   github.repo.pulls[0].head.repo.full_name = 'octo/repo';
   const elsewhere = await run(github, '/speckit retry');
   assert.match(elsewhere.rejected, /not a Spec Kit implementation or amendment pull request/);
-});
-
-test('diagnose starts a diagnosis with the previous one as context, unless one is running', async () => {
-  const github = diagnosisRepo();
-  const started = await run(github, '/speckit diagnose look at research R6');
-  assert.equal(started.outcome, 'started');
-  assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_DIAGNOSING);
-  assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', guidance: 'look at research R6', previous: '', check_run: String(github.repo.checkRuns.at(-1).id), mode: 'diagnose', amendment: '', round: '0' });
-  assert.match(github.comments.at(-1).body, /A diagnosis was started by @dev with your guidance/);
-  assert.equal(github.repo.pulls.find((pull) => pull.number === 11).state, 'closed', 'a new diagnosis supersedes the open amendment');
-  assert.equal(github.repo.branches['speckit-amend/f'], undefined, 'so the new run can create the amendment branch afresh');
-  assert.match(github.comments.find((comment) => comment.number === 11).body, /Superseded by a new diagnosis/);
-
-  assert.equal((await run(github, '/speckit diagnose')).outcome, 'already running');
-
-  // The diagnose run ended without reporting (for example the agent failed): a new diagnosis may start.
-  const unfinished = github.repo.checkRuns.at(-1);
-  Object.assign(github.repo.runs.at(-1), { status: 'completed', conclusion: 'failure' });
-  github.repo.runs.push({ id: 900, workflow: 'speckit-diagnose.lock.yml', display_title: 'Spec Kit diagnose spec #5 · Diagnose why the implementation stopped', status: 'completed', conclusion: 'failure', created_at: github.tick() });
-  assert.equal((await run(github, '/speckit diagnose')).outcome, 'started');
-  assert.deepEqual([unfinished.status, unfinished.conclusion, unfinished.output.title], ['completed', 'failure', 'Diagnosis did not finish']);
-
-  Object.assign(github.repo.checkRuns.at(-1), { status: 'completed', external_id: CHECK_DIAGNOSED });
-  await github.createComment(9, `${DIAGNOSIS_COMMENT_MARKER}\n**Diagnosis**: …`);
-  const previous = github.comments.at(-1).id;
-  const answered = await run(github, '/speckit diagnose Keep the counter write');
-  assert.equal(answered.outcome, 'started');
-  assert.equal(github.repo.runs.at(-1).inputs.previous, String(previous), 'the previous diagnosis is context for the answers');
-  assert.match(github.comments.at(-1).body, /A new diagnosis was started/);
 });
 
 test('apply, revise, and discard are no commands: the amendment pull request is merged, commented, or closed', async () => {

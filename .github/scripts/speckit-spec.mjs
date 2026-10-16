@@ -16,7 +16,6 @@ import {
   CHECK_RUN_NAME,
   CHECK_SYNC_CONFLICT,
   DONE_COMMENT_MARKER,
-  MAX_AUTO_DIAGNOSES,
   MAX_SYNC_RESOLVE_ATTEMPTS,
   MAX_TASK_ATTEMPTS,
   RESTART_COMMENT_MARKERS,
@@ -26,6 +25,7 @@ import {
   phaseNotStarted,
   decideNext,
   describeParallelGroups,
+  diagnosisRunsUrl,
   dispatchImplementation,
   ensureImplementationDraft,
   implementationBranch,
@@ -75,10 +75,6 @@ export function contextFromEnv(env) {
     serverUrl: (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, ''),
     repository: env.GITHUB_REPOSITORY,
   };
-}
-
-export function autoDiagnosisEnabled(env) {
-  return String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false';
 }
 
 // Reads the state of an open implementation pull request and decides how to continue it (decideNext). It also renders
@@ -151,7 +147,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
 export function needsRun(decision, env) {
   if (['tasks', 'repair', 'merge', 'limit'].includes(decision.action)) return true;
   if (decision.action !== 'failed' || decision.diagnosis?.state === 'reported') return false;
-  return decision.diagnosis?.state === 'stale' || (autoDiagnosisEnabled(env) && (decision.diagnosis?.count ?? 0) < MAX_AUTO_DIAGNOSES);
+  return true;
 }
 
 // Guidance from the latest retry (`/speckit retry <guidance>`). It applies to
@@ -219,27 +215,24 @@ async function stopAtLimit(client, env, { pull, folder, requester }, decision) {
     '',
     'See the comments above for the reasons.',
     '',
-    ...renderNextSteps({ autoDiagnosis: autoDiagnosisEnabled(env), ...(await nextStepContext(client, pull, folder)) }),
+    ...renderNextSteps({ diagnosisUrl: diagnosisRunsUrl(env), ...(await nextStepContext(client, pull, folder)) }),
   ].join('\n'));
 }
 
-// Starts a diagnosis of a stopped implementation by itself, unless automatic diagnosis is off, a diagnosis already
-// reported for this stop, or the head already had the maximum number of diagnoses. A diagnosis that ended without a
-// report is closed with a comment first, so it never blocks the implementation. Returns whether a diagnosis started.
+// Starts a diagnosis of a stopped implementation by itself unless one already reported for this stop. A diagnosis
+// that ended without a report is closed with a comment first, so it never blocks the implementation.
 async function maybeDiagnose(client, env, { twin, pull, folder }, diagnosis, report) {
-  const allowed = autoDiagnosisEnabled(env) && diagnosis.count < MAX_AUTO_DIAGNOSES;
   if (diagnosis.state === 'stale') {
     await closeUnfinishedDiagnosis(client, diagnosis.check);
-    const runs = `${contextFromEnv(env).serverUrl}/${env.GITHUB_REPOSITORY}/actions/workflows/speckit-diagnose.lock.yml`;
+    const runs = diagnosisRunsUrl(env);
     await client.createComment(pull.number, [
       `**The diagnosis did not finish** (see the [diagnose runs](${runs})).`,
       '',
-      ...(allowed ? ['A new diagnosis starts automatically.'] : renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, pull, folder)) })),
+      'A new diagnosis starts automatically.',
     ].join('\n'));
     report.line('Closed the unfinished diagnosis.');
-    if (!allowed) return false;
   }
-  if (!allowed || diagnosis.state === 'reported') return false;
+  if (diagnosis.state === 'reported') return false;
   const started = await startDiagnosis(client, env, { twin, pull: pull.number, folder, head: pull.head.sha, auto: true });
   report.line(started.started ? 'Started a diagnosis.' : `Warning: could not start a diagnosis: ${started.error}`);
   return started.started;
@@ -584,7 +577,7 @@ export async function runContinue({ client, env, log }) {
       `**Implementation needs attention**${requester ? ` @${requester}` : ''}: the full verification at the end of the phase failed${run ? ` (see the [run](${run}))` : ''}. Each task passed its own verification, which covers only the tests it touched, so a change of the phase breaks tests elsewhere, or the tasks break something together.`,
       '',
       ...renderNextSteps({
-        autoDiagnosis: autoDiagnosisEnabled(env),
+        diagnosisUrl: diagnosisRunsUrl(env),
         ...(await nextStepContext(client, pull, folder || null)),
         continuation: { repair: { scope: repairTasks.length === 1 ? 'task' : 'phase' } },
       }),

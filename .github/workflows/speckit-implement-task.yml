@@ -235,5 +235,4 @@ jobs:
         id: land
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node tooling/.github/scripts/speckit-task.mjs land-tasks

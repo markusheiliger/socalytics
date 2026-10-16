@@ -8,7 +8,7 @@ import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
 import { phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
-import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_DIAGNOSING, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -473,11 +473,11 @@ test('orchestrate starts the implementation chain and continues it only when no 
 
     github.completeRun(github.repo.runs.at(-1).id, 'success');
     await limitCheck(github, github.repo.branches['speckit/a']);
-    const stopped = await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
-    assert.equal(chainRuns(github).length, 2, 'a stop waits for a person');
-    assert.match(stopped.text, /stopped and waiting for a person/);
+    const stopped = await orchestrate(github, root);
+    assert.equal(chainRuns(github).length, 3, 'a stop always continues so the chain can start its diagnosis');
+    assert.match(stopped.text, /Continued/);
     await orchestrate(github, root);
-    assert.equal(chainRuns(github).length, 3, 'a stop that needs a diagnosis continues, so the chain starts it');
+    assert.equal(chainRuns(github).length, 3, 'a running diagnosis is not started twice');
 
     github.completeRun(github.repo.runs.at(-1).id, 'success');
     await github.createComment(pull.number, `${DONE_COMMENT_MARKER}\n**All 2 tasks are implemented**`);
@@ -562,7 +562,7 @@ test('a fix spec gets no dependency inference and starts first, even at SPECKIT_
 test('orchestrate settles a merged amendment and continues the implementation with a fresh attempt count', async () => {
   const { root, github } = await flaggedRepo();
   try {
-    await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    await orchestrate(github, root);
     github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
     github.completeRun(github.repo.runs.at(-1).id, 'success');
     await limitCheck(github, github.repo.branches['speckit/a']);
@@ -571,14 +571,14 @@ test('orchestrate settles a merged amendment and continues the implementation wi
 
     // A person merged the amendment; the amendment branch's workflows did not report it.
     github.repo.pulls.push({ number: 77, node_id: 'PR_77', title: 'Amend: a', body: '', draft: false, state: 'closed', merged_at: github.tick(), closed_at: github.tick(), merged_by: { login: 'dev' }, base: { ref: 'speckit/a' }, head: { ref: 'speckit-amend/a', sha: 'sha-x' }, created_at: github.tick() });
-    const settled = await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    const settled = await orchestrate(github, root);
     const retry = github.comments.find((comment) => comment.number === implementation.number && comment.body.includes('<!-- speckit-amend:closed 77 -->'));
     assert.match(retry.body, /^<!-- speckit-implement:retry -->\n<!-- speckit-amend:closed 77 -->\n\*\*Amendment #77 was merged\*\* by @dev\./);
     assert.match(settled.text, /Amendment #77 was merged/);
     assert.equal(chainRuns(github).length, runs + 1, 'the retry continues the stopped implementation');
 
     github.completeRun(github.repo.runs.at(-1).id, 'success');
-    await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    await orchestrate(github, root);
     assert.equal(github.comments.filter((comment) => comment.body.includes('<!-- speckit-amend:closed 77 -->')).length, 1, 'settled once');
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -663,9 +663,9 @@ test('chain: a retry after the limit starts a new attempt window with its guidan
     const pull = github.repo.pulls[0];
     github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
     for (let attempt = 0; attempt < 3; attempt += 1) await attemptComment(github, pull.number, 'T001', 'failure');
-    assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop');
+    assert.equal((await decide(github, root, twin)).outputs.action, 'stop');
     await github.createComment(pull.number, renderRetryComment('Implementation retried by @dev.', 'Keep the helper.'));
-    const retried = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    const retried = await decide(github, root, twin);
     assert.equal(retried.outputs.action, 'implement');
     const [first] = JSON.parse((await planPhase(github, root, twin, retried.outputs.phase)).outputs.order);
     assert.deepEqual([first.include[0].task, first.include[0].attempt], ['T001', 1], 'a retry starts a new attempt window');
@@ -692,9 +692,9 @@ test('chain: a durable repair blocks normal planning until a writer authorizes g
     assert.match(effect, /reverifies without running a repair agent.*pending group verification/);
     assert.doesNotMatch(effect, /convergence|not repeated by itself|fresh attempt count/);
     assert.match(describeCommandEffect('/speckit retry Investigate the logs', { continuation }), /repair agent with the guidance, then reverifies/);
-    assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop', 'checked tasks cannot bypass pending repair');
+    assert.equal((await decide(github, root, twin)).outputs.action, 'stop', 'checked tasks cannot bypass pending repair');
     await github.createComment(pull.number, renderRetryComment('Implementation retried by @dev.', 'Fix the combined registration and rerun its tests.'));
-    const authorized = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    const authorized = await decide(github, root, twin);
     assert.equal(authorized.outputs.action, 'repair');
     assert.equal(JSON.parse(authorized.outputs.repair).id, repair.id);
     assert.match(authorized.outputs.prompt, /Writer-approved guidance: Fix the combined registration/);
@@ -716,7 +716,7 @@ test('chain: a retry reverifies a pending repair without guidance or a repair ag
     const repair = { id: `phase:1:${head}`, state: 'pending', scope: 'phase', tasks: ['T001', 'T002'], head, at: github.tick() };
     await github.createComment(pull.number, `${renderRepairMarker(repair)}\npending`);
     await github.createComment(pull.number, renderRetryComment('Implementation retried by @dev.'));
-    const retried = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    const retried = await decide(github, root, twin);
     assert.deepEqual([retried.outputs.action, retried.outputs.verify_only], ['repair', 'true']);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -731,20 +731,13 @@ test('chain: decide stops at the attempt limit, retries with guidance, and does 
     github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
     for (let attempt = 0; attempt < 3; attempt += 1) await attemptComment(github, pull.number, 'T001', 'failure');
     pull.draft = false;
-    const limited = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    const limited = await decide(github, root, twin);
     assert.deepEqual([limited.outputs.action, limited.outputs.continue], ['stop', 'false']);
     assert.equal(pull.draft, true, 'a stop waiting for a person restores draft status');
-    assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_LIMIT);
-    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts[\s\S]*```text\n\/speckit diagnose\n```[\s\S]*The implementation continues with T001, with a fresh attempt count[^\n]*That work merges `main` first at its normal synchronization boundary[\s\S]*\/speckit retry/, 'T001 opens a phase that has not started, so the normal boundary merges main');
-    assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop', 'a stop waits for a person');
+    assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_DIAGNOSING);
+    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts[\s\S]*Wait for the diagnosis[\s\S]*The implementation continues with T001, with a fresh attempt count[^\n]*That work merges `main` first at its normal synchronization boundary[\s\S]*\/speckit retry/, 'T001 opens a phase that has not started, so the normal boundary merges main');
+    assert.equal((await decide(github, root, twin)).outputs.action, 'none', 'a stop waits for its running diagnosis');
     const attention = () => (github.repo.pulls[0].labels ?? []).some((label) => label.name === ATTENTION_LABEL);
-    assert.equal(attention(), true, 'a stop without a diagnosis needs attention');
-
-    pull.draft = false;
-    const diagnosed = await decide(github, root, twin);
-    assert.match(diagnosed.text, /Started a diagnosis/);
-    assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.checkRuns.at(-1).external_id], ['speckit-diagnose.lock.yml', 'speckit:diagnosing']);
-    assert.equal(pull.draft, true, 'starting a diagnosis restores draft status');
     assert.equal(attention(), false, 'a running diagnosis is processing');
 
     pull.draft = false;
@@ -755,7 +748,7 @@ test('chain: decide stops at the attempt limit, retries with guidance, and does 
     await github.addLabels(pull.number, [ATTENTION_LABEL]);
     pull.draft = false;
     await github.createComment(pull.number, renderRetryComment('Implementation retried by @dev.', 'Use the existing helper.'));
-    const retried = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    const retried = await decide(github, root, twin);
     assert.equal(retried.outputs.action, 'implement');
     assert.equal(pull.draft, true, 'retried implementation work restores draft status');
     assert.equal(attention(), false, 'a retried implementation is processing');

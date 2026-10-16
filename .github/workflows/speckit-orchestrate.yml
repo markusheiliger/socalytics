@@ -80,6 +80,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
           SPECKIT_MAX_ACTIVE_SPECS: ${{ vars.SPECKIT_MAX_ACTIVE_SPECS || '3' }}
         run: node .github/scripts/speckit-orchestrate.mjs orchestrate
