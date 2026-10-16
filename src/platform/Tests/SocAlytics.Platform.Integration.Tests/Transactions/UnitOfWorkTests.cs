@@ -44,6 +44,7 @@ public sealed class UnitOfWorkTests(PostgresContainerFixture postgres)
             .Build();
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
+        services.AddTestHostEnvironment();
         services.AddInfrastructure();
         var provider = services.BuildServiceProvider();
         return new Fixture(db, provider, provider.CreateAsyncScope());

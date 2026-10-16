@@ -20,6 +20,7 @@ public sealed class AnalysisResultOptionsTests
 		var services = new ServiceCollection();
 		services.AddSingleton<IConfiguration>(configuration);
 		services.AddLogging();
+		services.AddTestHostEnvironment();
 		services.AddApplication();
 		services.AddInfrastructure();
 		return services.BuildServiceProvider();

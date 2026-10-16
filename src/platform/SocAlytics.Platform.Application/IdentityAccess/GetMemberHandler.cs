@@ -3,7 +3,8 @@ using SocAlytics.Platform.Application.Abstractions.Persistence;
 
 namespace SocAlytics.Platform.Application.IdentityAccess;
 
-public sealed class GetMemberHandler(IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IMemberAccountStore members)
+public sealed class GetMemberHandler(IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IMemberAccountStore members,
+    SocAlytics.Platform.Application.IdentityAccess.Email.IMemberEmailAddressStore addresses)
 {
     public async Task<OperationResult<MemberDetails>> HandleAsync(GetMemberQuery query, CancellationToken cancellationToken)
     {
@@ -23,6 +24,7 @@ public sealed class GetMemberHandler(IUnitOfWork unitOfWork, IAccessAuthorizer a
             return OperationFailure.NotFound();
         }
 
-        return member;
+        var email = (await addresses.ListSummariesAsync([member.Id], cancellationToken)).GetValueOrDefault(member.Id);
+        return member with { Email = email };
     }
 }

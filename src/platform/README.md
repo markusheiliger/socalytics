@@ -129,6 +129,28 @@ workflow, and resolves analysis runs from the default workflow.
   Tests that need an empty Registry start the API with `omitWorkflow: true`.
   Without a default workflow, runs resolve as not configured.
 
+Member email addresses and notifications are implemented as development
+evidence (migration `0019_identityaccess_email_notifications.sql`):
+
+- Optional member addresses with single-use confirmation links, notification
+  preferences, and Club Admin-visible addresses under `/api/v1`.
+- A dedicated transactional email outbox table and a delivery worker in the API
+  host that submits messages with MailKit over SMTP, with bounded retries.
+  Delivery is not on the NATS-published outbox.
+- The pending-request notification to Club Admins with a verified address,
+  coalesced per recipient.
+- The AppHost starts a Mailpit container (`axllent/mailpit` `v1.31.5`) as the
+  relay and injects the `Email` options (`Smtp:Host`, `Smtp:Port`,
+  `Smtp:Security`, `SenderAddress`, `SenderName`, `Confirmation:Lifetime`,
+  `Confirmation:MaxPerHour`, `Confirmation:AttemptsPerMinute`,
+  `Delivery:MaxAttempts`, `Delivery:PollInterval`, `Delivery:LeaseDuration`)
+  and `Notifications` options (`CoalescingWindow`, `WebUiBaseUri`). These are
+  development values, not production values. `StartTlsWhenAvailable` is
+  allowed only in Development; the Email options are validated at startup.
+- Production relay, sender authentication, and bounce handling remain deferred.
+  Integration and Host tests use a disposable Mailpit container and need
+  Docker.
+
 The durable analysis workflow is implemented as development evidence (outbox,
 NATS JetStream publication, run creation from finalized recording sets,
 readiness, fenced attempts, Analyst job and completion contracts). Result

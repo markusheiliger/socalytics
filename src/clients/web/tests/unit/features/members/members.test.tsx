@@ -56,6 +56,7 @@ describe('members views', () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith('/email')) return json(404, { status: 404 });
         if (init?.method === 'DELETE') return json(409, { status: 409, code: 'last-club-admin' });
         if (url.includes('/teams')) return json(200, { items: [team], continuationToken: null });
         return json(200, member());
@@ -69,6 +70,7 @@ describe('members views', () => {
   it('assigns a team role and deactivates the member', async () => {
     let current = member();
     const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/email')) return json(404, { status: 404 });
       if (init?.method === 'PUT') current = member({ teamRoles: [{ teamId: TEAM, role: 'coach' }] });
       else if (url.endsWith('/deactivate')) current = member({ membershipStatus: 'deactivated' });
       else if (url.includes('/teams')) return json(200, { items: [team], continuationToken: null });

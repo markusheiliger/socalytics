@@ -483,9 +483,11 @@ with "not reported" for registrations of Managers that did not claim a
 profile. Approving a request requires re-entering the last six
 characters of the device fingerprint, and revoking a registration requires
 typing the Manager's host label. The navigation shows Club Admins the number of
-pending requests. Notification of Club Admins with a verified email address
-about pending requests awaits an implemented
-[email channel](email-notifications.md); it is not implemented.
+pending requests. Club Admins with a verified email address are also notified of pending
+requests by email through the
+[email channel](email-notifications.md), which is implemented: the first
+request sends a message at once and further ones are coalesced within a
+window.
 
 ---
 

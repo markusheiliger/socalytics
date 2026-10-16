@@ -8,6 +8,8 @@
     <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting.Nats" Version="13.4.6" />
     <PackageVersion Include="Aspire.Hosting.Testing" Version="13.4.6" />
+    <PackageVersion Include="MailKit" Version="4.18.1" />
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <PackageVersion Include="NATS.Client.Core" Version="3.3.0" />
     <PackageVersion Include="NATS.Client.JetStream" Version="3.3.0" />
     <PackageVersion Include="NATS.Jwt" Version="1.0.1" />
