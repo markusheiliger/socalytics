@@ -2,7 +2,7 @@
 
 **Branch**: `20261016-093032-fix-messagepack-audit` | **Date**: 2026-10-16 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261016-093032-fix-messagepack-audit/spec.md`
+**Input**: Feature specification from `specs/archive/20261016-093032-fix-messagepack-audit/spec.md`
 
 ## Summary
 
@@ -33,7 +33,7 @@ Add one central `PackageVersion` entry for `MessagePack` 2.5.307 to `src/platfor
 ## Project Structure
 
 ```text
-specs/20261016-093032-fix-messagepack-audit/
+specs/archive/20261016-093032-fix-messagepack-audit/
 ├── spec.md
 ├── plan.md
 ├── tasks.md
