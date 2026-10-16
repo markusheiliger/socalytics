@@ -31,6 +31,7 @@ import {
   parseGuidance,
   renderFixEvent,
   renderFixFor,
+  parseFixFor,
   renderGuidanceMarker,
   renderNextSteps,
   renderResumeComment,
@@ -104,6 +105,30 @@ export function fixState(comments) {
   const of = (name) => (created ? events.filter((event) => event.event === name && event.pull === created.pull).at(-1) ?? null : null);
   const requested = events.filter((event) => event.event === 'requested' && (!created || Date.parse(event.at) <= Date.parse(created.at))).at(-1) ?? null;
   return { events, requested, created, merged: of('merged'), discarded: of('discarded'), linked: of('linked'), landed: of('landed'), stopped: of('stopped') };
+}
+
+// One cause gets one fix spec. The fix specs that may already cover a cause: open fix spec pull requests against the
+// default branch, and merged ones whose spec twin is still open (not implemented yet). `/speckit fix` joins one of them
+// instead of authoring a second fix spec for the same cause.
+export async function existingFixSpecs(client, env) {
+  const defaultBranch = defaultBranchOf(env);
+  const found = [];
+  for (const pull of await client.listOpenPullRequests()) {
+    const folder = folderOfBranch(pull.head?.ref);
+    if (!String(pull.head?.ref ?? '').startsWith(FIX_BRANCH_PREFIX) || !folder || pull.base?.ref !== defaultBranch) continue;
+    const spec = await client.getFileContent(`specs/${folder}/spec.md`, pull.head?.sha ?? pull.head?.ref);
+    found.push({ pull: pull.number, title: pull.title ?? '', folder, state: 'open', twin: null, url: pull.html_url ?? '', fixFor: parseFixFor(pull.body)?.pull ?? parseFixForLine(spec), spec });
+  }
+  const { byFolder } = resolveTwins(await client.listTwinIssues(TWIN_LABEL));
+  for (const [folder, twin] of byFolder) {
+    if (twin.state !== 'open' || found.some((item) => item.folder === folder)) continue;
+    const spec = await client.getFileContent(`specs/${folder}/spec.md`, defaultBranch);
+    if (parseFixForLine(spec) === null) continue;
+    const merged = (await client.listPullRequestsForHead(fixBranch(folder))).find((pull) => pull.merged_at && pull.base?.ref === defaultBranch);
+    if (!merged) continue;
+    found.push({ pull: merged.number, title: merged.title ?? '', folder, state: 'merged', twin: twin.number, url: merged.html_url ?? '', fixFor: parseFixForLine(spec), spec });
+  }
+  return found.sort((a, b) => a.pull - b.pull);
 }
 
 // `/speckit fix [guidance]`: records the request on the implementation pull request and starts the authoring run. The
@@ -219,6 +244,24 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
       '',
     );
     for (const comment of comments.slice(-12)) sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 6000), '');
+    const existing = await existingFixSpecs(client, env);
+    sections.push(
+      '## Existing fix specs',
+      '',
+      'One cause gets one fix spec. When one of these already removes the cause of this stop (the same root cause, even',
+      'when another implementation asked for it), write nothing and report its pull request number in `reuse`; this',
+      'implementation then waits for that fix spec and resumes once it has landed.',
+      '',
+    );
+    if (existing.length === 0) sections.push('_None._', '');
+    for (const item of existing) {
+      sections.push(
+        `### #${item.pull} ${clip(item.title, 200)} (\`specs/${item.folder}\`, ${item.state === 'open' ? 'open for review' : `merged, waiting for the implementation of twin #${item.twin}`}${item.fixFor ? `, asked for by #${item.fixFor}` : ''})`,
+        '',
+        clip(item.spec ?? '_spec.md could not be read._', 8000),
+        '',
+      );
+    }
     context = {
       mode,
       twin,
@@ -230,6 +273,7 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
       titlePrefix: FIX_TITLE_PREFIX,
       fixForLine: `**Fix for**: #${pullNumber} (implementation of \`specs/${blockedFolder}\`)`,
       specsReadme: README_PATH,
+      existingFixes: existing.map((item) => ({ pull: item.pull, folder: item.folder, state: item.state, title: item.title })),
     };
   } else {
     const fix = await client.getPullRequest(amendment);
@@ -322,18 +366,57 @@ function readAgentItems(env, type) {
   }
 }
 
-// The author's report: { folder, summary, refused }. Untrusted, so only clipped strings are kept.
+// The author's report: { folder, summary, refused, reuse }. Untrusted, so only clipped strings and a pull request number
+// are kept; `reuse` is checked against the existing fix specs before it is used.
 export function parseAuthorReport(raw) {
   let report = raw;
   if (typeof raw === 'string') {
     try {
       report = JSON.parse(raw);
     } catch {
-      return { summary: '', refused: '', folder: '' };
+      return { summary: '', refused: '', folder: '', reuse: null };
     }
   }
   const text = (value, max) => (typeof value === 'string' ? clip(value.trim(), max) : '');
-  return { summary: text(report?.summary, 1500), refused: text(report?.refused, 1500), folder: text(report?.folder, 200) };
+  const reuse = Number(String(report?.reuse ?? '').replace(/^#/, ''));
+  return { summary: text(report?.summary, 1500), refused: text(report?.refused, 1500), folder: text(report?.folder, 200), reuse: Number.isInteger(reuse) && reuse > 0 ? reuse : null };
+}
+
+// Closes a fix spec pull request this run created and deletes its branch.
+async function discardCreatedFix(client, number) {
+  const pull = await client.getPullRequest(number);
+  if (pull.state === 'open') await client.updatePullRequest(number, { state: 'closed' });
+  if (String(pull.head?.ref ?? '').startsWith(FIX_BRANCH_PREFIX)) {
+    try {
+      await client.deleteBranch(pull.head.ref);
+    } catch {
+      // Already gone.
+    }
+  }
+}
+
+// `/speckit fix` found an existing fix spec for the same cause: the implementation waits for that one instead of a
+// second fix spec. Records the same events as an authored fix spec (`created`, and `merged` when it is already merged),
+// so the scheduler blocks, links, and resumes it the same way (maintainFixSpec); the fix spec pull request is told.
+async function joinFixSpec(client, env, { implementation, pullNumber, existing, summary, complete, log }) {
+  const defaultBranch = defaultBranchOf(env);
+  const merged = existing.state === 'merged';
+  const block = fixBlock({ stage: merged ? 'implement' : 'review', fixPull: existing.pull, baseBranch: defaultBranch });
+  const link = existing.url ? `[#${existing.pull}](${existing.url})` : `#${existing.pull}`;
+  await client.createComment(pullNumber, [
+    renderFixEvent('created', { pull: existing.pull, folder: existing.folder, joined: true }),
+    ...(merged ? [renderFixEvent('merged', { pull: existing.pull, folder: existing.folder, joined: true })] : []),
+    renderBlockedMarker(block.key),
+    `**This stop has the same cause as fix spec ${link}** (\`specs/${existing.folder}\`), so no second fix spec was written: this implementation waits for that one and resumes by itself once it has landed.`,
+    ...(summary ? ['', neutralizeMarkers(summary)] : []),
+    '',
+    ...block.lines,
+  ].join('\n'));
+  await client.createComment(existing.pull, `**Also unblocks #${pullNumber}** (\`specs/${folderOfBranch(implementation.head?.ref)}\`): \`/speckit fix\` there found that this fix spec removes the same cause, so no second fix spec was written. #${pullNumber} resumes by itself once this fix has landed.`);
+  await complete('success', `Joined fix spec #${existing.pull}`, summary || `The cause is the one fix spec #${existing.pull} removes.`);
+  await setBlocked(client, pullNumber, true, { explain: block });
+  log(`#${pullNumber}: joined fix spec #${existing.pull}.`);
+  return { exitCode: 0, outcome: 'joined', pull: existing.pull };
 }
 
 // Custom safe-output job of Spec Kit fix. `author`: validates the pull request the agent created, links it to the
@@ -356,6 +439,22 @@ export async function runRecord({ client, env, log }) {
   const report = withheld ? null : parseAuthorReport(readAgentItems(env, 'speckit_fix').map((item) => item.report ?? item).at(-1) ?? null);
   const created = Number(env.SPECKIT_CREATED_PULL);
   const nextSteps = async () => renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, blockedFolder)) });
+  if (report?.reuse) {
+    const existing = (await existingFixSpecs(client, env)).find((item) => item.pull === report.reuse && item.pull !== created);
+    if (existing) {
+      // One cause, one fix spec: a spec the agent created anyway for the same cause is discarded.
+      if (Number.isInteger(created) && created > 0) await discardCreatedFix(client, created);
+      return joinFixSpec(client, env, { implementation, pullNumber, existing, summary: report.summary, complete, log });
+    }
+    if (!Number.isInteger(created) || created <= 0) {
+      const why = `the agent named fix spec #${report.reuse} for this cause, but it is neither an open fix spec pull request nor a merged fix spec that is still to be implemented`;
+      await complete('failure', 'No fix spec was created', why);
+      await client.createComment(pullNumber, [`**No fix spec was created**: ${why}.`, '', ...(await nextSteps())].join('\n'));
+      await setAttention(client, pullNumber, true);
+      log(`#${pullNumber}: invalid reuse of #${report.reuse}.`);
+      return { exitCode: 0, outcome: 'none' };
+    }
+  }
   if (!Number.isInteger(created) || created <= 0) {
     const why = withheld ? `the result was withheld because threat detection did not pass (result: ${detection})` : report?.refused || report?.summary || 'the agent did not create one';
     await complete('failure', 'No fix spec was created', why);
@@ -378,14 +477,7 @@ export async function runRecord({ client, env, log }) {
     if (await client.getFileContent(`specs/${fixFolder}/spec.md`, defaultBranch)) broken.push(`\`specs/${fixFolder}/\` already exists on \`${defaultBranch}\``);
   }
   if (broken.length > 0) {
-    if (pull.state === 'open') await client.updatePullRequest(created, { state: 'closed' });
-    if (String(pull.head?.ref ?? '').startsWith(FIX_BRANCH_PREFIX)) {
-      try {
-        await client.deleteBranch(pull.head.ref);
-      } catch {
-        // Already gone.
-      }
-    }
+    await discardCreatedFix(client, created);
     await complete('failure', 'The fix spec was rejected', broken.join('; '));
     await client.createComment(pullNumber, [`**The authored fix spec #${created} was rejected and closed**: ${broken.map(neutralizeMarkers).join('; ')}.`, '', ...(await nextSteps())].join('\n'));
     await setAttention(client, pullNumber, true);
@@ -472,6 +564,10 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
   const defaultBranch = defaultBranchOf(env);
   if (pull.state === 'open') {
     await setBlocked(client, implementation.number, true, { explain: fixBlock({ stage: 'review', fixPull: pull.number, baseBranch: defaultBranch }) });
+    // A fix spec that other implementations joined is maintained once, by the implementation it was authored for while
+    // that one is open.
+    const owner = parseFixFor(pull.body)?.pull ?? null;
+    if (owner && owner !== implementation.number && (await client.getPullRequest(owner)).state === 'open') return { outcome: 'joined', blocked: true };
     await guardPullRequest(client, env, pull, { report });
     return { ...(await maintainOpenSpecPull(client, env, { amendment: await client.getPullRequest(pull.number), folder: fixFolder, implementation, twin, kind: 'fix' }, { now, report })), blocked: true };
   }

@@ -199,6 +199,82 @@ test('after the merge, the fix spec is linked, requested for implementation, and
   assert.deepEqual(parseFixEvents(github.comments.filter((item) => item.number === 9)).map((event) => event.event), ['requested', 'created', 'merged', 'linked', 'landed']);
 });
 
+test('one cause, one fix spec: /speckit fix on another implementation joins the existing fix spec', async () => {
+  const github = fixRepo();
+  github.permissions.dev = 'write';
+  await authored(github);
+  github.issues.push({ number: 6, id: 6000, node_id: 'I_6', state: 'open', title: 'G', body: renderSpecLine({ serverUrl: 'https://github.com', repository: 'octo/repo', branch: 'main' }, 'g'), labels: [{ name: 'speckit:spec' }] });
+  github.repo.pulls.push({ number: 20, node_id: 'PR_20', title: 'Implement: G', body: 'Closes #6', draft: true, state: 'open', labels: [], base: { ref: 'main' }, head: { ref: 'speckit/g', sha: 'sha-impl-g', repo: { full_name: 'octo/repo' } }, created_at: github.tick() });
+  const second = env({ SPECKIT_TWIN: '6', SPECKIT_PULL: '20', SPECKIT_FOLDER: 'g' });
+
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-fix-join-'));
+  try {
+    const { context } = await runEvidence({ client: github, env: { ...second, SPECKIT_EVIDENCE_DIR: dir, SPECKIT_STAMP: '20261014-110000' }, log: silent, now: () => github.clock });
+    assert.deepEqual(context.existingFixes, [{ pull: 12, folder: FOLDER, state: 'open', title: 'Fix spec: Upload session expiry' }]);
+    const evidence = readFileSync(path.join(dir, 'evidence.md'), 'utf8');
+    assert.match(evidence, /## Existing fix specs\n\nOne cause gets one fix spec\.[\s\S]*report its pull request number in `reuse`/);
+    assert.match(evidence, /### #12 Fix spec: Upload session expiry \(`specs\/20261014-100000-fix-upload-expiry`, open for review, asked for by #9\)\n\n# Fix: Upload session expiry/);
+
+    await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 6, implementation: await github.getPullRequest(20), actor: 'dev', now: github.clock });
+    const output = path.join(dir, 'agent_output.json');
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_fix', report: JSON.stringify({ reuse: '#12', summary: 'The same flaky expiry test stops this implementation.' }) }] }));
+    const runs = github.repo.runs.length;
+    const joined = await runRecord({ client: github, env: { ...second, GH_AW_AGENT_OUTPUT: output, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), SPECKIT_DETECTION: 'success', SPECKIT_CREATED_PULL: '' }, log: silent });
+    assert.deepEqual([joined.outcome, joined.pull], ['joined', 12]);
+    assert.equal(github.repo.runs.length, runs, 'no second consistency check');
+    assert.equal(github.repo.pulls.filter((pull) => String(pull.head.ref).startsWith('speckit-fix/')).length, 1, 'no second fix spec');
+    assert.match(github.comments.filter((item) => item.number === 20).at(-1).body, /^<!-- speckit-fix:created \{"pull":12,"folder":"20261014-100000-fix-upload-expiry","joined":true\} -->\n<!-- speckit-implement:blocked \{"pull":12,"stage":"review"\} -->\n\*\*This stop has the same cause as fix spec \[#12\]\(https:\/\/github\.com\/octo\/repo\/pull\/12\)\*\*[\s\S]*The same flaky expiry test/);
+    assert.match(github.comments.filter((item) => item.number === 12).at(-1).body, /^\*\*Also unblocks #20\*\* \(`specs\/g`\)/);
+    const authoring = github.repo.checkRuns.at(-1);
+    assert.deepEqual([authoring.conclusion, authoring.output.title], ['success', 'Joined fix spec #12']);
+    const implementation = github.repo.pulls.find((pull) => pull.number === 20);
+    assert.ok(implementation.labels.some((label) => label.name === BLOCKED_LABEL));
+
+    const maintain = (number, twin) => maintainFixSpec(github, env(), { implementation: github.repo.pulls.find((pull) => pull.number === number), twin }, { now: github.clock, report: silent });
+    const before = github.repo.runs.length;
+    assert.equal((await maintain(20, 6)).outcome, 'joined', 'the fix spec is maintained by the implementation it was authored for');
+    assert.equal(github.repo.runs.length, before);
+    assert.match((await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 6, implementation, actor: 'dev', now: github.clock })).reason, /fix spec #12 is still open/);
+
+    github.closePull(12, { merged: true });
+    github.issues.push({ number: 30, id: 30000, node_id: 'I_30', state: 'open', state_reason: null, title: 'Fix', body: renderSpecLine({ serverUrl: 'https://github.com', repository: 'octo/repo', branch: 'main' }, FOLDER), labels: [{ name: 'speckit:spec' }] });
+    assert.equal((await maintain(9, 5)).outcome, 'linked');
+    assert.equal((await maintain(20, 6)).outcome, 'linked');
+    assert.deepEqual(github.edges, [[5, 30], [6, 30]], 'both stopped specs wait for the one fix');
+    Object.assign(github.find(30), { state: 'closed', state_reason: 'completed' });
+    assert.equal((await maintain(20, 6)).outcome, 'resumed');
+    assert.equal((await maintain(9, 5)).outcome, 'resumed');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a reuse must name an existing fix spec; a fix spec created anyway for the same cause is discarded', async () => {
+  const report = async (github, fields, created = '') => {
+    await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, implementation: await github.getPullRequest(9), actor: 'dev', now: github.clock });
+    const dir = mkdtempSync(path.join(tmpdir(), 'speckit-fix-reuse-'));
+    try {
+      const output = path.join(dir, 'agent_output.json');
+      writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_fix', report: JSON.stringify(fields) }] }));
+      return await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), SPECKIT_DETECTION: 'success', SPECKIT_CREATED_PULL: created }), log: silent });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const invalid = fixRepo();
+  const refused = await report(invalid, { reuse: 77 });
+  assert.equal(refused.outcome, 'none');
+  assert.match(invalid.comments.filter((item) => item.number === 9).at(-1).body, /\*\*No fix spec was created\*\*: the agent named fix spec #77 for this cause, but it is neither an open fix spec pull request nor a merged fix spec/);
+
+  const duplicate = fixRepo();
+  duplicate.repo.branches['speckit-fix/20261014-120000-fix-other'] = 'sha-fix';
+  duplicate.repo.pulls.push({ number: 13, node_id: 'PR_13', title: 'Fix spec: Duplicate', body: '', draft: true, state: 'open', assignees: [], base: { ref: 'main' }, head: { ref: 'speckit-fix/20261014-120000-fix-other', sha: 'sha-fix', repo: { full_name: 'octo/repo' } }, created_at: duplicate.tick() });
+  const joined = await report(duplicate, { reuse: 12, summary: 'Same cause.' }, '13');
+  assert.deepEqual([joined.outcome, joined.pull], ['joined', 12]);
+  assert.equal(duplicate.repo.pulls.find((pull) => pull.number === 13).state, 'closed', 'the duplicate is closed');
+  assert.equal(duplicate.repo.branches['speckit-fix/20261014-120000-fix-other'], undefined);
+});
+
 test('a discarded fix spec, or one that is not implemented, stops for a person; a pending one refuses another', async () => {
   const github = fixRepo();
   await authored(github);
