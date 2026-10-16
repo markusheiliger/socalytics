@@ -129,7 +129,16 @@ Each run of Spec Kit implement spec does one of these: a phase, a guided repair,
 (`/speckit-converge`), a conflict resolution, or the merge. A failed verification of already-landed code records
 durable repair state without unticking tasks. Diagnosis recommends `/speckit retry <guidance>`; after a writer approves
 it, repair work lands through a write-isolated job and the failed scope must pass reverification before normal planning
-continues. Writer-supplied text after `/speckit diagnose`, `retry`, `resume`, or `fix` is consistently called
+continues. For pending repairs, both `/speckit retry` and `/speckit resume` without guidance reverify without a repair
+agent; retry keeps the branch as it is, while resume merges the base branch first. With guidance, both run the repair
+agent, and a successful no-change result reaches reverification without creating an empty commit. Agent failures and
+invalid or out-of-scope patches remain failures. Repair attempts retain their existing limit.
+Reverification uses the original failure artifact's changed files together with repair changes, not just the diff since
+the failed head. Missing or empty original scope falls back to full (`finalize`) verification. Downloaded evidence is
+readable by the repair agent inside its workspace at the locally ignored `.speckit-repair-evidence/`; unavailable
+artifacts do not weaken verification. The verification action must actually succeed, and the verified commit must still
+be the pull request head, before the marker can resolve; verification-only work uses the decision's pinned head.
+Writer-supplied text after `/speckit diagnose`, `retry`, `resume`, or `fix` is consistently called
 **guidance**. Retry and resume guidance is stored in a bot-authored pull request marker so a replaced dispatch or
 hourly continuation cannot lose it. Copilot-bound guidance is whitespace-normalized, capped at 4,000 characters, and
 added to every task in the first retried group, or to the first convergence, repair, or conflict-resolution prompt.
@@ -137,7 +146,7 @@ Later units do not inherit it. Each restart comment also records the implementat
 head. While the implementation is stopped (`help wanted`), `Spec Kit commands` refuses a `retry` or `resume` after
 `MAX_UNCHANGED_RESTARTS` (2) restarts in a row on the same implementation branch head, because it would most likely
 stop the same way again; a resume still runs when the base branch has new commits, and `--force` as the first word of
-the guidance insists. The refusal points to a push, `/speckit diagnose`, or `/speckit fix`. A clean merge and a verification-only repair resume invoke no agent, so they consume
+the guidance insists. The refusal points to a push, `/speckit diagnose`, or `/speckit fix`. A clean merge and a verification-only repair restart invoke no agent, so they consume
 no prompt guidance. The chain keeps its branch current with the base branch by pulling: every run starts with
 the job `sync` ("Merge the base branch"), which merges the base branch into the implementation branch through the
 GitHub API when it is ahead and the next work is a phase that has not started (none of its tasks is ticked yet), the
@@ -146,7 +155,9 @@ convergence, the merge, or a resume (`/speckit resume`, a merged amendment, or a
 decide job of the same run starts the conflict resolution the merge uses (Copilot CLI edits the conflicted files and,
 to fix clashes without a textual conflict such as two migrations with the same number, the implementation branch's
 own files and new files, never other files of the base branch or protected paths; the full verification runs), and
-the next run does the work on the merged branch. Before a phase or the convergence
+the next run does the work on the merged branch. A resumed pending repair follows the same sync and conflict-resolution
+path before reverification; resolution attempts do not consume its restart authorization or repair guidance.
+Before a phase, the convergence, or a resumed repair,
 this is best effort: when GitHub refuses the merge, the conflicts touch protected paths, or the resolution fails
 `MAX_SYNC_RESOLVE_ATTEMPTS` times, the implementation continues on its current base without stopping, that base commit
 is not tried again, and the merge at the end integrates it. Before the merge it is required, as the merge's own
