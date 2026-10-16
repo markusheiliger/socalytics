@@ -7,7 +7,7 @@ import test from 'node:test';
 import { renderSpecLine } from './speckit-prepare-core.mjs';
 import { resolveImplementRequester } from './speckit-prepare.mjs';
 import { presentAmendment, resolveAmendment, startRework } from './speckit-amend.mjs';
-import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, RESUME_COMMENT_MARKER, parseFixEvents, parseGuidance, renderFixEvent, setAttention, setBlocked } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, DIAGNOSIS_COMMENT_MARKER, RETRY_COMMENT_MARKER, parseFixEvents, parseGuidance, renderFixEvent, setAttention, setBlocked } from './speckit-implement-core.mjs';
 import { checkFixSpec, fixBlock, fixStamp, maintainFixSpec, runEvidence, runRecord, settleClosedFix, startFixAuthoring } from './speckit-fix.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -149,7 +149,7 @@ test('a fix spec is reworked by Spec Kit fix, and its evidence names the folder 
   }
 });
 
-test('after the merge, the fix spec is linked, requested for implementation, and the implementation resumes once it lands', async () => {
+test('after the merge, the fix spec is linked, requested for implementation, and the implementation retries once it lands', async () => {
   const github = fixRepo();
   github.permissions.dev = 'write';
   await authored(github);
@@ -188,12 +188,12 @@ test('after the merge, the fix spec is linked, requested for implementation, and
   assert.equal(implementation.labels.filter((label) => label.name === BLOCKED_LABEL).length, 1, 'reconciliation is idempotent');
   assert.equal(explanations(), 2, 'reconciliation does not repeat an explanation');
   Object.assign(github.find(30), { state: 'closed', state_reason: 'completed' });
-  assert.equal((await maintain()).outcome, 'resumed');
+  assert.equal((await maintain()).outcome, 'retried');
   assert.equal(blocked(), false, 'landing the prerequisite removes the hold');
-  const resumed = github.comments.filter((item) => item.number === 9).at(-1);
-  assert.ok(resumed.body.startsWith(RESUME_COMMENT_MARKER), 'a resume merges the base branch, with the fix, first');
-  assert.match(resumed.body, /<!-- speckit-fix:landed \{"pull":12,"twin":30\} -->\n\*\*The fix has landed, so the block is lifted\*\*: spec twin #30/);
-  assert.match(parseGuidance(resumed.body), /^The cause that stopped this implementation was fixed outside this spec by the fix spec specs\/20261014-100000-fix-upload-expiry \(twin #30\)/);
+  const retried = github.comments.filter((item) => item.number === 9).at(-1);
+  assert.ok(retried.body.startsWith(RETRY_COMMENT_MARKER), 'the retry preserves the current phase base');
+  assert.match(retried.body, /<!-- speckit-fix:landed \{"pull":12,"twin":30\} -->\n\*\*The fix has landed, so the block is lifted\*\*: spec twin #30/);
+  assert.match(parseGuidance(retried.body), /^The cause that stopped this implementation was fixed outside this spec by the fix spec specs\/20261014-100000-fix-upload-expiry \(twin #30\)/);
   assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }]);
   assert.equal((await maintain()).outcome, 'done');
   assert.deepEqual(parseFixEvents(github.comments.filter((item) => item.number === 9)).map((event) => event.event), ['requested', 'created', 'merged', 'linked', 'landed']);
@@ -242,8 +242,8 @@ test('one cause, one fix spec: /speckit fix on another implementation joins the 
     assert.equal((await maintain(20, 6)).outcome, 'linked');
     assert.deepEqual(github.edges, [[5, 30], [6, 30]], 'both stopped specs wait for the one fix');
     Object.assign(github.find(30), { state: 'closed', state_reason: 'completed' });
-    assert.equal((await maintain(20, 6)).outcome, 'resumed');
-    assert.equal((await maintain(9, 5)).outcome, 'resumed');
+    assert.equal((await maintain(20, 6)).outcome, 'retried');
+    assert.equal((await maintain(9, 5)).outcome, 'retried');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

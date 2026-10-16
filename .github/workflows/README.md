@@ -74,15 +74,15 @@ flowchart TD
     person -. "/speckit comment" .-> implPr
     person -. "review, push, merge, close" .-> amendPr
     person -. "review, push, merge, close" .-> fixPr
-    implPr -. "/speckit diagnose, retry, resume, fix" .-> commands
+    implPr -. "/speckit diagnose, retry, fix" .-> commands
     amendPr -. "feedback, push, close" .-> commands
     fixPr -. "feedback, push, close" .-> commands
     fixPr -. "merged: push to specs/**" .-> prepare
-    commands -- "retry, resume, amendment merged" --> spec
+    commands -- "retry, amendment merged" --> spec
     commands -- "diagnose, revise" --> diagnose
     commands -- "fix, revise" --> fixspec
     commands -- "person pushed: check" --> analyze
-    orchestrate -- "fix spec landed: resume" --> spec
+    orchestrate -- "fix spec landed: retry" --> spec
 ```
 
 Edges: dotted arrows are GitHub events that trigger a workflow, solid arrows are workflow dispatches or effects on a
@@ -129,11 +129,11 @@ Each run of Spec Kit implement spec does one of these: a phase, a guided repair,
 (`/speckit-converge`), a conflict resolution, or the merge. A failed verification of already-landed code records
 durable repair state without unticking tasks. Diagnosis recommends `/speckit retry <guidance>`; after a writer approves
 it, repair work lands through a write-isolated job and the failed scope must pass reverification before normal planning
-continues. For pending repairs, both `/speckit retry` and `/speckit resume` without guidance reverify without a repair
-agent; retry keeps the branch as it is, while resume merges the base branch first. With guidance, both run the repair
+continues. For pending repairs, `/speckit retry` without guidance reverifies without a repair
+agent; with guidance it runs the repair
 agent, and a successful no-change result reaches reverification without creating an empty commit. Agent failures and
 invalid or out-of-scope patches remain failures. Every failed repair attempt stops for a person, and every restart
-(`/speckit retry`, `/speckit resume`, a merged amendment, or a landed fix spec) gets a fresh repair attempt; the
+(`/speckit retry`, a merged amendment, or a landed fix spec) gets a fresh repair attempt; the
 unchanged-restart guard below keeps restarts from looping. A stop is reported once: later chain or scheduler runs keep
 it as it is instead of reporting it again or starting another diagnosis.
 Reverification uses the original failure artifact's changed files together with repair changes, not just the diff since
@@ -141,20 +141,20 @@ the failed head. Missing or empty original scope falls back to full (`finalize`)
 readable by the repair agent inside its workspace at the locally ignored `.speckit-repair-evidence/`; unavailable
 artifacts do not weaken verification. The verification action must actually succeed, and the verified commit must still
 be the pull request head, before the marker can resolve; verification-only work uses the decision's pinned head.
-Writer-supplied text after `/speckit diagnose`, `retry`, `resume`, or `fix` is consistently called
-**guidance**. Retry and resume guidance is stored in a bot-authored pull request marker so a replaced dispatch or
+Writer-supplied text after `/speckit diagnose`, `retry`, or `fix` is consistently called
+**guidance**. Retry guidance is stored in a bot-authored pull request marker so a replaced dispatch or
 hourly continuation cannot lose it. Copilot-bound guidance is whitespace-normalized, capped at 4,000 characters, and
 added to every task in the first retried group, or to the first convergence, repair, or conflict-resolution prompt.
 Later units do not inherit it. Each restart comment also records the implementation branch head and the base branch
-head. While the implementation is stopped (`help wanted`), `Spec Kit commands` refuses a `retry` or `resume` after
+head. While the implementation is stopped (`help wanted`), `Spec Kit commands` refuses a `retry` after
 `MAX_UNCHANGED_RESTARTS` (2) restarts in a row on the same implementation branch head, because it would most likely
-stop the same way again; a resume still runs when the base branch has new commits, and `--force` as the first word of
-the guidance insists. The refusal points to a push, `/speckit diagnose`, or `/speckit fix`. A clean merge and a verification-only repair restart invoke no agent, so they consume
+stop the same way again; `--force` as the first word of the guidance insists. The refusal points to a push,
+`/speckit diagnose`, or `/speckit fix`. A clean merge and a verification-only repair restart invoke no agent, so they consume
 no prompt guidance. The chain keeps its branch current with the base branch by pulling: every run starts with
 the job `sync` ("Merge the base branch"), which merges the base branch into the implementation branch through the
 GitHub API when it is ahead and the next work is a phase that has not started (none of its tasks is ticked yet), the
-convergence, the merge, or a resume (`/speckit resume`, a merged amendment, or a landed fix spec; repository variable
-`SPECKIT_SYNC_BASE`, default `true`). Retries (`/speckit retry`) and continuations of a started phase keep its base. On a conflict the
+convergence, or the merge (repository variable `SPECKIT_SYNC_BASE`, default `true`). Retries (`/speckit retry`),
+merged amendments, landed fix specs, and continuations of a started phase keep its base. On a conflict the
 decide job of the same run starts the conflict resolution the merge uses (Copilot CLI edits the conflicted files and,
 to fix clashes without a textual conflict such as two migrations with the same number, the implementation branch's
 own files and new files; never protected paths or the environment actions; the full verification runs), and
@@ -163,15 +163,13 @@ only the base branch owns (for example a test the base branch added that does no
 made required), the resolution may make the smallest such change, but never delete such a file or weaken a test. The
 land job finds these files itself while it replays the resolution, lists them with their diff against the base branch
 in the resolution comment (marker `speckit-implement:base-owned`), and the final merge then waits for a person's
-review instead of merging automatically. A resumed pending repair follows the same sync and conflict-resolution
-path before reverification; resolution attempts do not consume its restart authorization or repair guidance.
-Before a phase, the convergence, or a resumed repair,
+review instead of merging automatically.
+Before a phase or the convergence,
 this is best effort: when GitHub refuses the merge, the conflicts touch protected paths, or the resolution fails
 `MAX_SYNC_RESOLVE_ATTEMPTS` times, the implementation continues on its current base without stopping, that base commit
-is recorded as skipped and not tried again (also before a resumed repair after the convergence), and the merge at the
+is recorded as skipped and not tried again, and the merge at the
 end integrates it. Before the merge it is required, as the merge's own
-conflict resolution. Nothing reacts to pushes to the base branch: a stopped implementation picks up a fix that landed
-there when a person resumes it. The workflow token may push these merges
+conflict resolution. Nothing reacts to pushes to the base branch during a started phase. The workflow token may push these merges
 even when the base branch changed workflow files, because they only bring in commits the repository already has. Job
 names say what a job does, without step numbers; GitHub shows their order. The convergence starts with the `gha` extension's `before_converge` hook
 `/speckit-gha-drift`, which checks `docs/architecture/` against the implementation; each stale, missing, or
@@ -201,7 +199,7 @@ pull request, or nothing while the fix is implemented), and how to drop the fix.
 explanation themselves (marker `speckit-implement:blocked`); when the scheduler reconciles the label on an
 implementation whose block is not explained yet, it posts the explanation once. A blocked implementation never gets
 `help wanted`, and the scheduler does not continue its chain (no retry, no diagnosis) while it waits. The label is
-removed when the fix lands (the resume comment says the block is lifted), is discarded, or fails to be implemented
+removed when the fix lands (the retry comment says the block is lifted), is discarded, or fails to be implemented
 (those comments say so and list the next steps with `help wanted`), or the implementation pull request closes.
 
 | Pull request | Labeled when | Unlabeled when |

@@ -264,7 +264,7 @@ test('merging continues the implementation; closing discards; a person\'s push i
   merged.closePull(11, { merged: true });
   assert.equal((await runClosed({ client: merged, env: env({ SPECKIT_PULL: '11', SPECKIT_ACTOR: 'dev' }), log: silent })).outcome, 'merged');
   assert.equal(merged.repo.branches['speckit-amend/f'], undefined);
-  assert.match(merged.comments.at(-1).body, /^<!-- speckit-implement:resume -->\n<!-- speckit-amend:closed 11 -->\n\*\*Amendment #11 was merged\*\* by @dev\. The implementation continues/);
+  assert.match(merged.comments.at(-1).body, /^<!-- speckit-implement:retry -->\n<!-- speckit-amend:closed 11 -->\n\*\*Amendment #11 was merged\*\* by @dev\. The implementation retries/);
   assert.equal(merged.comments.at(-1).number, 9);
   assert.deepEqual([merged.repo.runs.at(-1).workflow, merged.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }], 'the implementation chain continues, named after the spec');
   assert.equal((await runClosed({ client: merged, env: env({ SPECKIT_PULL: '11' }), log: silent })).outcome, 'handled', 'a merge is settled once');
@@ -314,7 +314,7 @@ test('an amendment merged into another branch does not resume the implementation
   const note = github.comments.at(-1);
   assert.equal(note.number, 9);
   assert.match(note.body, /^<!-- speckit-amend:closed 11 -->\n\*\*Amendment #11 was merged into `main`\*\* by @dev, not into `speckit\/f`\.[\s\S]*Revert that merge/);
-  assert.doesNotMatch(note.body, /speckit-implement:resume/);
+  assert.doesNotMatch(note.body, /speckit-implement:retry/);
   assert.deepEqual(github.repo.runs, []);
   assert.equal((await runClosed({ client: github, env: env({ SPECKIT_PULL: '11' }), log: silent })).outcome, 'handled');
 });
@@ -349,7 +349,7 @@ test('the orchestrator settles a merge the amendment branch\'s workflows did not
   github.closePull(11, { merged: true });
   const lines = [];
   assert.equal((await maintainAmendment(github, env(), context, { report: (line) => lines.push(line) })).outcome, 'merged');
-  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:resume -->\n<!-- speckit-amend:closed 11 -->\n\*\*Amendment #11 was merged\*\* by a person\./);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:retry -->\n<!-- speckit-amend:closed 11 -->\n\*\*Amendment #11 was merged\*\* by a person\./);
   assert.deepEqual(github.repo.runs, [], 'the orchestrator continues itself');
   assert.match(lines.join(), /Amendment #11 was merged/);
   assert.equal((await maintainAmendment(github, env(), context)).outcome, 'handled');

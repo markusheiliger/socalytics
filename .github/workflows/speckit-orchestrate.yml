@@ -12,7 +12,7 @@ name: Spec Kit orchestrate
 #     their computed stage;
 #   - settles amendment and fix spec pull requests and keeps Spec Kit pull requests out of pull request stacks;
 #   - links a merged fix spec to the implementation it unblocks (dependency, implementation request on behalf of the
-#     person who asked for it, started regardless of the limit), and resumes that implementation once the fix landed.
+#     person who asked for it, started regardless of the limit), and retries that implementation once the fix landed.
 on:
   workflow_run:
     workflows: [Spec Kit prepare]

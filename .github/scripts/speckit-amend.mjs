@@ -32,7 +32,7 @@ import {
   renderAmendmentHowTo,
   renderFixHowTo,
   renderNextSteps,
-  renderResumeComment,
+  renderRetryComment,
   readSpecTasks,
   setAmendmentStatus,
   setAttention,
@@ -679,8 +679,8 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
     // Already gone, or GitHub deleted it.
   }
   if (amendment.merged_at) {
-    await client.createComment(implementation.number, renderResumeComment(
-      `${marker}\n**Amendment #${amendment.number} was merged** by ${by}. The implementation continues with a fresh attempt count, starting with the next unchecked task.`,
+    await client.createComment(implementation.number, renderRetryComment(
+      `${marker}\n**Amendment #${amendment.number} was merged** by ${by}. The implementation retries with a fresh attempt count, starting with the next unchecked task on the current phase base.`,
     ));
     const twin = Number(String(implementation.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
     await setAttention(client, implementation.number, false);
@@ -688,7 +688,7 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
       try {
         await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
       } catch {
-        // The resume comment persists the request; the next scheduler run continues the implementation.
+        // The retry comment persists the request; the next scheduler run continues the implementation.
       }
     }
     return { outcome: 'merged' };

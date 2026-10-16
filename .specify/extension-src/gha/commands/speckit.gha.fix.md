@@ -32,7 +32,7 @@ implementation.
   implementation, where that cause lives: code or tests of another feature on the default branch, or the
   environment actions (`.github/actions/environment-setup` and `environment-verify`).
 - It is implemented, verified, converged, and merged like any spec, so the fix is documented and governed by the
-  constitution. The stopped implementation waits for it and resumes by itself once it has landed.
+  constitution. The stopped implementation waits for it and retries by itself once it has landed.
 - It is minimal: the smallest change that removes the cause. It never weakens requirements, success criteria, tests,
   thresholds, or verification of the feature that owns the code; a flaky test is made deterministic, not skipped or
   loosened.

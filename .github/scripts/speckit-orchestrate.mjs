@@ -107,18 +107,18 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       // The implementation pull request is open, so the twin is at `implementing` (also when a person opened it or
       // set the flag again).
       await markImplementing(client, issue);
-      // Amendments first: a merged one resumes the implementation, which the decision must see.
+      // Amendments first: a merged one retries the implementation, which the decision must see.
       try {
         const amendment = await maintainAmendment(client, env, { folder, implementation: lifecycle.pull, twin: issue.number }, { now: now(), report: (line) => amendmentNotes.push(line) });
         if (amendment.outcome === 'rework' || amendment.outcome === 'checking') amendmentActions += 1;
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the amendment of #${issue.number}: ${error.message}`);
       }
-      // Fix specs: link a merged one to this implementation, and resume it once the fix has landed.
+      // Fix specs: link a merged one to this implementation, and retry it once the fix has landed.
       let blockedByFix = false;
       try {
         const fix = await maintainFixSpec(client, env, { folder, implementation: lifecycle.pull, twin: issue.number }, { now: now(), report: (line) => amendmentNotes.push(line) });
-        if (['rework', 'checking', 'linked', 'resumed'].includes(fix.outcome)) amendmentActions += 1;
+        if (['rework', 'checking', 'linked', 'retried'].includes(fix.outcome)) amendmentActions += 1;
         blockedByFix = fix.blocked === true;
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the fix spec of #${issue.number}: ${error.message}`);
@@ -225,7 +225,7 @@ function describeDecision(twin) {
     case 'diagnosing': return 'stopped; a diagnosis is running';
     case 'failed': return decision.diagnosis?.state === 'reported'
       ? 'stopped; the diagnosis waits for a person\'s decision'
-      : 'stopped and waiting for a person (comment `/speckit diagnose`, `/speckit resume`, or push a fix)';
+      : 'stopped and waiting for a person (comment `/speckit diagnose`, `/speckit retry`, or push a fix)';
     case 'limit': return `${kindLabel(decision)} reached the attempt limit`;
     case 'tasks': return `next is ${decision.order[0].map(({ task, attempt }) => `${kindLabel({ kind: decision.kind, task })} attempt ${attempt}`).join(', ')}`;
     case 'merge': return `next is the merge, attempt ${decision.attempt}`;
@@ -251,7 +251,7 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
   report.line();
   let actions = selection.amendmentActions ?? 0;
   const maxActive = parseMaxActiveSpecs(env.SPECKIT_MAX_ACTIVE_SPECS);
-  // A blocked implementation is not continued: it waits for its fix spec, which resumes it.
+  // A blocked implementation is not continued: it waits for its fix spec, which retries it.
   const continues = (twin) => !twin.active && !twin.blockedByFix && needsRun(twin.decision, env);
   let active = selection.inProgress.filter((twin) => twin.active || continues(twin)).length;
   for (const twin of selection.inProgress) {

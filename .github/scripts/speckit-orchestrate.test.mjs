@@ -8,7 +8,7 @@ import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
 import { phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
-import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderRepairMarker, renderResumeComment, renderRetryComment } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -572,10 +572,10 @@ test('orchestrate settles a merged amendment and continues the implementation wi
     // A person merged the amendment; the amendment branch's workflows did not report it.
     github.repo.pulls.push({ number: 77, node_id: 'PR_77', title: 'Amend: a', body: '', draft: false, state: 'closed', merged_at: github.tick(), closed_at: github.tick(), merged_by: { login: 'dev' }, base: { ref: 'speckit/a' }, head: { ref: 'speckit-amend/a', sha: 'sha-x' }, created_at: github.tick() });
     const settled = await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
-    const resume = github.comments.find((comment) => comment.number === implementation.number && comment.body.includes('<!-- speckit-amend:closed 77 -->'));
-    assert.match(resume.body, /^<!-- speckit-implement:resume -->\n<!-- speckit-amend:closed 77 -->\n\*\*Amendment #77 was merged\*\* by @dev\./);
+    const retry = github.comments.find((comment) => comment.number === implementation.number && comment.body.includes('<!-- speckit-amend:closed 77 -->'));
+    assert.match(retry.body, /^<!-- speckit-implement:retry -->\n<!-- speckit-amend:closed 77 -->\n\*\*Amendment #77 was merged\*\* by @dev\./);
     assert.match(settled.text, /Amendment #77 was merged/);
-    assert.equal(chainRuns(github).length, runs + 1, 'the resume continues the stopped implementation');
+    assert.equal(chainRuns(github).length, runs + 1, 'the retry continues the stopped implementation');
 
     github.completeRun(github.repo.runs.at(-1).id, 'success');
     await orchestrate(github, root, { SPECKIT_AUTO_DIAGNOSE: 'false' });
@@ -688,12 +688,10 @@ test('chain: a durable repair blocks normal planning until a writer authorizes g
 
     const continuation = await continuationOf(github, { folder: 'a', pull });
     assert.equal(continuation.repair.id, repair.id, 'checked tasks cannot make comments claim convergence is next');
-    for (const command of ['retry', 'resume']) {
-      const effect = describeCommandEffect(`/speckit ${command}`, { baseBranch: 'main', continuation });
-      assert.match(effect, /reverifies without running a repair agent.*pending group verification/);
-      assert.doesNotMatch(effect, /convergence|not repeated by itself|fresh attempt count/);
-      assert.match(describeCommandEffect(`/speckit ${command} Investigate the logs`, { continuation }), /repair agent with the guidance, then reverifies/);
-    }
+    const effect = describeCommandEffect('/speckit retry', { baseBranch: 'main', continuation });
+    assert.match(effect, /reverifies without running a repair agent.*pending group verification/);
+    assert.doesNotMatch(effect, /convergence|not repeated by itself|fresh attempt count/);
+    assert.match(describeCommandEffect('/speckit retry Investigate the logs', { continuation }), /repair agent with the guidance, then reverifies/);
     assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop', 'checked tasks cannot bypass pending repair');
     await github.createComment(pull.number, renderRetryComment('Implementation retried by @dev.', 'Fix the combined registration and rerun its tests.'));
     const authorized = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
@@ -707,8 +705,7 @@ test('chain: a durable repair blocks normal planning until a writer authorizes g
   }
 });
 
-for (const restart of [renderResumeComment, renderRetryComment]) {
-test(`chain: ${restart.name} reverifies a pending repair without guidance or a repair agent`, async () => {
+test('chain: a retry reverifies a pending repair without guidance or a repair agent', async () => {
   const { root, github, twin } = await flaggedRepo();
   try {
     await start(github, root, twin);
@@ -718,16 +715,15 @@ test(`chain: ${restart.name} reverifies a pending repair without guidance or a r
     await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'completed', conclusion: 'failure', external_id: CHECK_LIMIT, output: { title: 'Phase failed', summary: 'transient failure' } });
     const repair = { id: `phase:1:${head}`, state: 'pending', scope: 'phase', tasks: ['T001', 'T002'], head, at: github.tick() };
     await github.createComment(pull.number, `${renderRepairMarker(repair)}\npending`);
-    await github.createComment(pull.number, restart('Implementation restarted by @dev.'));
-    const resumed = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
-    assert.deepEqual([resumed.outputs.action, resumed.outputs.verify_only], ['repair', 'true']);
+    await github.createComment(pull.number, renderRetryComment('Implementation retried by @dev.'));
+    const retried = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    assert.deepEqual([retried.outputs.action, retried.outputs.verify_only], ['repair', 'true']);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
-}
 
-test('chain: decide stops at the attempt limit, resumes on request with guidance, and does nothing for unflagged twins', async () => {
+test('chain: decide stops at the attempt limit, retries with guidance, and does nothing for unflagged twins', async () => {
   const { root, github, twin } = await flaggedRepo();
   try {
     await start(github, root, twin);
@@ -739,7 +735,7 @@ test('chain: decide stops at the attempt limit, resumes on request with guidance
     assert.deepEqual([limited.outputs.action, limited.outputs.continue], ['stop', 'false']);
     assert.equal(pull.draft, true, 'a stop waiting for a person restores draft status');
     assert.equal(github.repo.checkRuns.at(-1).external_id, CHECK_LIMIT);
-    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts[\s\S]*```text\n\/speckit diagnose\n```[\s\S]*The implementation continues with T001, with a fresh attempt count[^\n]*That work merges `main` first anyway[\s\S]*\/speckit retry/, 'T001 opens a phase that has not started, so a retry merges main as well');
+    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: T001 did not succeed in 3 attempts[\s\S]*```text\n\/speckit diagnose\n```[\s\S]*The implementation continues with T001, with a fresh attempt count[^\n]*That work merges `main` first at its normal synchronization boundary[\s\S]*\/speckit retry/, 'T001 opens a phase that has not started, so the normal boundary merges main');
     assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop', 'a stop waits for a person');
     const attention = () => (github.repo.pulls[0].labels ?? []).some((label) => label.name === ATTENTION_LABEL);
     assert.equal(attention(), true, 'a stop without a diagnosis needs attention');
@@ -758,15 +754,16 @@ test('chain: decide stops at the attempt limit, resumes on request with guidance
 
     await github.addLabels(pull.number, [ATTENTION_LABEL]);
     pull.draft = false;
-    const resumed = await decide(github, root, twin, { SPECKIT_RESUME: 'true', SPECKIT_GUIDANCE: 'Use the existing helper.' });
-    assert.equal(resumed.outputs.action, 'implement');
-    assert.equal(pull.draft, true, 'resumed implementation work restores draft status');
-    assert.equal(attention(), false, 'a resumed implementation is processing');
-    const comment = github.comments.find((item) => item.body.startsWith(RESUME_COMMENT_MARKER));
+    await github.createComment(pull.number, renderRetryComment('Implementation retried by @dev.', 'Use the existing helper.'));
+    const retried = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+    assert.equal(retried.outputs.action, 'implement');
+    assert.equal(pull.draft, true, 'retried implementation work restores draft status');
+    assert.equal(attention(), false, 'a retried implementation is processing');
+    const comment = github.comments.find((item) => item.body.startsWith(RETRY_COMMENT_MARKER));
     assert.equal(parseGuidance(comment.body), 'Use the existing helper.');
-    const [first, second] = JSON.parse((await planPhase(github, root, twin, resumed.outputs.phase)).outputs.order);
-    assert.deepEqual([first.include[0].task, first.include[0].attempt], ['T001', 1], 'a resume starts a new attempt window');
-    assert.match(first.include[0].prompt, /Guidance from the person who resumed this implementation: Use the existing helper\.$/);
+    const [first, second] = JSON.parse((await planPhase(github, root, twin, retried.outputs.phase)).outputs.order);
+    assert.deepEqual([first.include[0].task, first.include[0].attempt], ['T001', 1], 'a retry starts a new attempt window');
+    assert.match(first.include[0].prompt, /Guidance from the person who retried this implementation: Use the existing helper\.$/);
     assert.doesNotMatch(second.include[0].prompt, /Guidance/, 'guidance applies to the stopped task only');
 
     github.mergeBranchOutcome = null;
@@ -779,158 +776,7 @@ test('chain: decide stops at the attempt limit, resumes on request with guidance
   }
 });
 
-const advanceRepairBase = (github) => {
-  const sha = createHash('sha1').update(`repair base ${github.repo.nextSha++}`).digest('hex');
-  github.repo.commits[sha] = { tree: github.repo.commits[github.repo.branches.main]?.tree, parents: [github.repo.branches.main], message: 'base moved' };
-  github.repo.branches.main = sha;
-  return sha;
-};
-
-async function restartedRepair(restart, guidance = '') {
-  const fixture = await flaggedRepo();
-  const { root, github, twin } = fixture;
-  await start(github, root, twin);
-  const pull = github.repo.pulls[0];
-  github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', 'x'));
-  await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: github.repo.branches['speckit/a'], status: 'completed', conclusion: 'failure', external_id: CHECK_LIMIT, output: { title: 'Phase failed' } });
-  await github.createComment(pull.number, renderRepairMarker({ id: 'phase:sync', state: 'pending', scope: 'phase', head: github.repo.branches['speckit/a'], at: github.tick() }));
-  await github.createComment(pull.number, restart('Implementation restarted by @dev.', guidance));
-  return { ...fixture, pull };
-}
-
-test('chain: pending repair resume merges the base before verification-only work, while retry does not', async () => {
-  for (const restart of [renderResumeComment, renderRetryComment]) {
-    const { root, github, twin, pull } = await restartedRepair(restart);
-    try {
-      advanceRepairBase(github);
-      const before = github.repo.branches['speckit/a'];
-      const sync = () => decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' }, runSyncBase);
-      assert.equal((await sync()).outputs.result, restart === renderResumeComment ? 'merged' : 'none');
-      const next = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
-      assert.deepEqual([next.outputs.action, next.outputs.verify_only], ['repair', 'true']);
-      assert.equal(next.outputs.head, github.repo.branches['speckit/a']);
-      assert.equal(next.outputs.head === before, restart === renderRetryComment);
-      for (const check of github.repo.checkRuns) check.status = 'completed';
-      await attemptComment(github, pull.number, null, 'failure', 'repair');
-      advanceRepairBase(github);
-      assert.equal((await sync()).outputs.result, 'none', 'a repair attempt consumes the restart authorization');
-      assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop');
-      for (const attempt of [2, 3]) {
-        await github.createComment(pull.number, renderRetryComment('Retry without merging.'));
-        assert.equal((await sync()).outputs.result, 'none', 'a later retry must not revive an earlier resume');
-        const repair = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
-        assert.deepEqual([repair.outputs.action, repair.outputs.attempt], ['repair', String(attempt)]);
-        for (const check of github.repo.checkRuns) check.status = 'completed';
-        await attemptComment(github, pull.number, null, 'failure', 'repair');
-      }
-      await github.createComment(pull.number, renderResumeComment('Try again.'));
-      assert.equal((await sync()).outputs.result, 'merged', 'every restart gets a fresh repair attempt, and a resume merges the base first');
-      const fresh = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
-      assert.deepEqual([fresh.outputs.action, fresh.outputs.attempt], ['repair', '4'], 'restart resets the repair limit');
-      for (const check of github.repo.checkRuns) check.status = 'completed';
-      await attemptComment(github, pull.number, null, 'failure', 'repair');
-      const comments = github.comments.length;
-      for (let run = 0; run < 2; run += 1) {
-        assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop');
-      }
-      assert.equal(github.comments.length, comments, 'a stop that was reported is not reported again');
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-test('chain: resumed repair resolves sync conflicts first and keeps its authorization and guidance until the repair', async () => {
-  for (const guidance of ['', 'Fix the failed scope.']) {
-    for (const outcome of ['success', 'attention', 'failure']) {
-      const { root, github, twin, pull } = await restartedRepair(renderResumeComment, guidance);
-      try {
-        advanceRepairBase(github);
-        const sync = () => decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' }, runSyncBase);
-        const next = () => decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
-        const settle = () => { for (const check of github.repo.checkRuns) check.status = 'completed'; };
-        github.mergeBranchOutcome = 'conflict';
-        assert.equal((await sync()).outputs.result, 'conflict');
-        assert.equal((await next()).outputs.action, 'resolve', 'repair must not override pending sync resolution');
-        settle();
-        await attemptComment(github, pull.number, null, 'failure', 'resolve');
-        assert.equal((await sync()).outputs.result, 'none', 'do not attempt the same merge during resolution');
-        assert.equal((await next()).outputs.action, 'resolve');
-        settle();
-        if (outcome === 'success') {
-          github.mergeBranchOutcome = null;
-          await github.mergeBranch('speckit/a', 'main', 'resolved base merge');
-        }
-        await attemptComment(github, pull.number, null, outcome, 'resolve');
-        if (outcome === 'success') advanceRepairBase(github);
-        assert.equal((await sync()).outputs.result, outcome === 'success' ? 'merged' : 'none', 'resolve does not consume the resume; given-up sync stays best effort');
-        assert.equal((await sync()).outputs.result, 'none', 'a resolved or given-up sync cannot loop');
-        const repair = await next();
-        assert.deepEqual([repair.outputs.action, repair.outputs.attempt, repair.outputs.verify_only], ['repair', '1', String(!guidance)]);
-        if (guidance) assert.match(repair.outputs.prompt, /Writer-approved guidance: Fix the failed scope\./);
-        settle();
-        await attemptComment(github, pull.number, null, 'failure', 'repair');
-        assert.equal((await sync()).outputs.result, 'none');
-        assert.equal((await next()).outputs.action, 'stop', 'an attempted repair still needs a new authorized restart');
-        for (const attempt of [2, 3]) {
-          const head = github.repo.branches['speckit/a'];
-          await github.createComment(pull.number, renderRetryComment('Reverify unchanged without merging.'));
-          assert.equal((await sync()).outputs.result, 'none', 'retry cannot revive the previous resume sync conflict');
-          const retry = await next();
-          assert.deepEqual([retry.outputs.action, retry.outputs.attempt, retry.outputs.verify_only], ['repair', String(attempt), 'true'], `${outcome}: old sync resolution history must not override retry`);
-          assert.equal(github.repo.branches['speckit/a'], head, 'verification-only retry stays on the same head');
-          settle();
-          await attemptComment(github, pull.number, null, 'failure', 'repair');
-        }
-      } finally {
-        rmSync(root, { recursive: true, force: true });
-      }
-    }
-  }
-});
-
-test('chain: a resumed repair after the convergence gives up a conflicting base merge once instead of looping', async () => {
-  const { root, github, twin, pull } = await restartedRepair(renderResumeComment);
-  try {
-    await attemptComment(github, pull.number, null, 'success', 'converge');
-    const conflicted = advanceRepairBase(github);
-    const sync = () => decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' }, runSyncBase);
-    const next = () => decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
-    const settle = () => { for (const check of github.repo.checkRuns) check.status = 'completed'; };
-    github.mergeBranchOutcome = 'conflict';
-    assert.equal((await sync()).outputs.result, 'conflict');
-    assert.equal((await next()).outputs.action, 'resolve');
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      settle();
-      await attemptComment(github, pull.number, null, 'failure', 'resolve');
-    }
-    const checks = github.repo.checkRuns.filter((check) => check.external_id === CHECK_SYNC_CONFLICT).length;
-    assert.equal((await sync()).outputs.result, 'none', 'the given-up base commit is not merged again before the repair');
-    assert.equal(github.repo.checkRuns.filter((check) => check.external_id === CHECK_SYNC_CONFLICT).length, checks, 'no new conflict restarts the count');
-    const repair = await next();
-    assert.equal(repair.outputs.action, 'repair', 'the repair runs on the current base');
-    assert.ok(github.comments.some((comment) => comment.body.includes(`<!-- speckit-implement:sync-skipped ${conflicted} -->`)), 'the skip is recorded');
-    assert.equal((await sync()).outputs.result, 'none', 'the recorded skip holds');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('chain: an explicit workflow resume syncs pending repair before persisting its restart comment', async () => {
-  const { root, github, twin } = await restartedRepair(renderResumeComment);
-  try {
-    github.comments.pop();
-    advanceRepairBase(github);
-    assert.equal((await decide(github, root, twin, { SPECKIT_RESUME: 'true' }, runSyncBase)).outputs.result, 'merged');
-    const next = await decide(github, root, twin, { SPECKIT_RESUME: 'true', SPECKIT_AUTO_DIAGNOSE: 'false' });
-    assert.deepEqual([next.outputs.action, next.outputs.verify_only], ['repair', 'true']);
-    assert.equal(next.outputs.head, github.repo.branches['speckit/a']);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('chain: every run pulls the base branch before a phase start, the convergence, the merge, and a resume, and resolves its conflicts in the same run', async () => {
+test('chain: every run pulls the base branch before a phase start, the convergence, and the merge, and resolves its conflicts in the same run', async () => {
   assert.equal(phaseNotStarted('## Phase 1\n\n- [ ] T001 a\n- [ ] T002 b\n'), true);
   assert.equal(phaseNotStarted('## Phase 1\n\n- [x] T001 a\n- [ ] T002 b\n'), false, 'a ticked task means the phase started');
   assert.equal(phaseNotStarted('## Phase 1\n\n- [x] T001 a\n\n## Phase 2\n\n- [ ] T002 b\n'), true, 'the next phase starts when the previous one is done');
@@ -1005,17 +851,9 @@ test('chain: every run pulls the base branch before a phase start, the convergen
     github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', ' '));
     assert.equal((await sync()).outputs.result, 'none', 'a phase that has started is not merged into');
     assert.equal(head(), refusedHead);
-    const resumedBefore = head();
-    assert.equal((await sync({ SPECKIT_RESUME: 'true' })).outputs.result, 'merged', 'a resume merges the base branch first');
-    assert.notEqual(head(), resumedBefore);
     advance('main');
-    await github.createComment(pull.number, `${RESUME_COMMENT_MARKER}\nImplementation resumed by @dev.`);
-    assert.equal((await sync()).outputs.result, 'merged', 'so does a pending resume comment (/speckit resume, a merged amendment)');
-    await attemptComment(github, pull.number, 'T002', 'failure');
-    advance('main');
-    assert.equal((await sync()).outputs.result, 'none', 'once the resumed work started, its base stays');
     await github.createComment(pull.number, `${RETRY_COMMENT_MARKER}\nImplementation retried by @dev.`);
-    assert.equal((await sync()).outputs.result, 'none', 'a retry (/speckit retry) restarts on the branch as it is');
+    assert.equal((await sync()).outputs.result, 'none', 'a retry preserves the started phase base');
 
     github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', 'x'));
     await attemptComment(github, pull.number, 'T002', 'success');

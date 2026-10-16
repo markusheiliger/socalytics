@@ -22,7 +22,6 @@ import {
   implementationBranch,
   latestCheckRun,
   neutralizeMarkers,
-  renderResumeComment,
   renderRetryComment,
   setAttention,
   specTitleOfPull,
@@ -34,7 +33,7 @@ export class CommandUsageError extends Error {}
 
 const COMMAND_NAMES = PR_COMMANDS.map((command) => command.name);
 
-// Parses a pull request comment like "/speckit resume use the existing helper". The command must be the first word;
+// Parses a pull request comment like "/speckit retry use the existing helper". The command must be the first word;
 // the rest of the comment (first line and following lines) is its argument.
 export function parseCommand(body) {
   const text = String(body ?? '').replace(/^\s+/, '');
@@ -76,20 +75,19 @@ async function resolveTarget(client, env, number) {
   return { folder, implementation: full, twin };
 }
 
-// Starts a new attempt window: the resume or retry comment persists the request (and the guidance), so a replaced
+// Starts a new attempt window: the retry comment persists the request (and the guidance), so a replaced
 // pending run cannot lose it; starting the implementation chain only makes it happen right away.
-async function resumeImplementation(client, env, { implementation, twin, folder }, lead, guidance = '', render = renderResumeComment, state = null) {
+async function retryImplementation(client, env, { implementation, twin, folder }, lead, guidance = '', state = null) {
   const repair = unresolvedRepair(await client.listIssueComments(implementation.number));
   if (repair) {
-    const command = render === renderResumeComment ? 'resume' : 'retry';
-    lead = `${lead.split(';')[0]}; ${describeCommandEffect(`/speckit ${command}${guidance ? ` ${guidance}` : ''}`, { baseBranch: baseBranchOf(implementation), continuation: { repair } })}`;
+    lead = `${lead.split(';')[0]}; ${describeCommandEffect(`/speckit retry${guidance ? ` ${guidance}` : ''}`, { baseBranch: baseBranchOf(implementation), continuation: { repair } })}`;
   }
-  await client.createComment(implementation.number, render(lead, guidance, state));
+  await client.createComment(implementation.number, renderRetryComment(lead, guidance, state));
   await setAttention(client, implementation.number, false);
   try {
     await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
   } catch {
-    // The resume comment persists the request; the hourly scheduler run continues the implementation.
+    // The retry comment persists the request; the hourly scheduler run continues the implementation.
   }
 }
 
@@ -116,10 +114,8 @@ export async function runCommand({ client, env, log, now = Date.now }) {
     }
   }
   if (command.name === 'help' || command.name === 'unknown') {
-    const replaced = command.name === 'unknown' && command.given.toLowerCase() === 'sync';
     await reply(client, number, [
-      ...(replaced ? ['`/speckit sync` was replaced by `/speckit resume`, which merges the base branch first (Copilot resolves conflicts) and then continues.', ''] : []),
-      ...(command.name === 'unknown' && !replaced ? [`Unknown command \`/speckit ${neutralizeMarkers(command.given)}\`.`, ''] : []),
+      ...(command.name === 'unknown' ? [`Unknown command \`/speckit ${neutralizeMarkers(command.given)}\`.`, ''] : []),
       renderHelp(),
     ]);
     return { exitCode: 0, handled: true, command: command.name };
@@ -168,25 +164,16 @@ async function handleDiagnose({ client, env, actor, number, argument, now, folde
   return { outcome: 'started' };
 }
 
-async function handleResume({ client, env, actor, number, argument, folder, implementation, twin }) {
-  const { force, guidance } = restartArgument(argument);
-  const state = await restartState(client, implementation);
-  if (!force && (await refuseUnchangedRestart(client, { name: 'resume', number, implementation, folder, state }))) return { outcome: 'refused' };
-  await resumeImplementation(client, env, { implementation, twin, folder }, `Implementation resumed by @${actor}; the base branch is merged first, then what stopped restarts with a fresh attempt count.`, guidance, renderResumeComment, state);
-  if (number !== implementation.number) await reply(client, number, `Resumed; the implementation continues on #${implementation.number}.`);
-  return { outcome: 'resumed' };
-}
-
 async function handleRetry({ client, env, actor, number, argument, folder, implementation, twin }) {
   const { force, guidance } = restartArgument(argument);
   const state = await restartState(client, implementation);
   if (!force && (await refuseUnchangedRestart(client, { name: 'retry', number, implementation, folder, state }))) return { outcome: 'refused' };
-  await resumeImplementation(client, env, { implementation, twin, folder }, `Implementation retried by @${actor}; what stopped restarts with a fresh attempt count, without merging the base branch for it.`, guidance, renderRetryComment, state);
+  await retryImplementation(client, env, { implementation, twin, folder }, `Implementation retried by @${actor}; what stopped restarts with a fresh attempt count while preserving the current phase base.`, guidance, state);
   if (number !== implementation.number) await reply(client, number, `Retried; the implementation continues on #${implementation.number}.`);
   return { outcome: 'retried' };
 }
 
-// `--force` as the first word of a retry or resume skips the unchanged-restart guard; the rest is the guidance.
+// `--force` as the first word of a retry skips the unchanged-restart guard; the rest is the guidance.
 function restartArgument(argument) {
   const match = argument.match(/^--force(?:\s+|$)([\s\S]*)$/i);
   return { force: Boolean(match), guidance: (match ? match[1] : argument).trim().slice(0, 4000) };
@@ -196,28 +183,24 @@ async function restartState(client, implementation) {
   let base = null;
   try {
     base = await client.getBranchSha(baseBranchOf(implementation));
-  } catch {
-    // Without the base branch head, a resume is not refused for an unchanged base branch.
-  }
+  } catch {}
   return { head: implementation.head.sha, base };
 }
 
 // Refuses a restart while the implementation is stopped and the last MAX_UNCHANGED_RESTARTS restarts left its branch
-// where it is: another one would most likely stop the same way. A resume is still accepted when the base branch moved
-// since the last restart, because it merges those commits first.
+// where it is: another one would most likely stop the same way.
 async function refuseUnchangedRestart(client, { name, number, implementation, folder, state }) {
   const stopped = (implementation.labels ?? []).some((label) => (label?.name ?? label) === ATTENTION_LABEL);
   if (!stopped) return false;
   const restarts = unchangedRestarts(await client.listIssueComments(implementation.number), state.head);
   if (restarts.length < MAX_UNCHANGED_RESTARTS) return false;
-  if (name === 'resume' && state.base && restarts[0].base && state.base !== restarts[0].base) return false;
   const base = baseBranchOf(implementation);
   await reply(client, number, [
-    `**\`/speckit ${name}\` was not run**: the implementation stopped again after each of the last ${restarts.length} restarts, and \`${implementationBranch(folder)}\` is still at \`${state.head.slice(0, 7)}\`${name === 'resume' ? ` while \`${base}\` has no new commits` : ''}. Restarting it unchanged would most likely stop the same way. Change something first:`,
+    `**\`/speckit ${name}\` was not run**: the implementation stopped again after each of the last ${restarts.length} restarts, and \`${implementationBranch(folder)}\` is still at \`${state.head.slice(0, 7)}\`. Restarting it unchanged would most likely stop the same way. Change something first:`,
     '',
     `- **Push** the change the diagnosis asks for to \`${implementationBranch(folder)}\`; a push continues the implementation by itself.`,
     '- **Diagnose again** with what you know, to find out why the previous restarts did not help: `/speckit diagnose <what you know>`.',
-    `- **Fix the cause on \`${base}\`** with \`/speckit fix <what to fix>\`, or post \`/speckit resume\` once the fix has landed there.`,
+    `- **Fix the cause on \`${base}\`** with \`/speckit fix <what to fix>\`.`,
     '',
     `If you are sure a restart helps now (for example an outage has ended), insist with \`/speckit ${name} ${RESTART_FORCE_FLAG} <guidance>\`.`,
   ]);
@@ -237,7 +220,6 @@ async function handleFix({ client, env, actor, number, argument, now, implementa
 const HANDLERS = {
   diagnose: handleDiagnose,
   retry: handleRetry,
-  resume: handleResume,
   fix: handleFix,
 };
 
