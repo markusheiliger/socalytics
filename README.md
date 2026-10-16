@@ -633,7 +633,7 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     | --- | --- | --- |
     | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | review and merge the linked **amendment pull request** (below) |
     | `retry` | a transient failure, or the agent took a poor approach while the artifacts are fine | `/speckit retry <guidance>` |
-    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit fix <what to fix>` for code, tests, or the environment actions (a **fix spec**, below); `/speckit resume <guidance>` once a fix is on the base branch, or after an action the comment names |
+    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit fix <what to fix>` for code, tests, or the environment actions (a **fix spec**, below); `/speckit sync` once a fix is on the base branch, or after an action the comment names |
     | `decision` | a trade-off only a person can make | `/speckit diagnose 1. … 2. …`, prefilled with the recommended answers |
     | `unknown` | not enough evidence | `/speckit diagnose <what to examine next>` |
 
@@ -649,10 +649,15 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     | `/speckit diagnose [guidance]` | start a diagnosis; guidance steers it or answers its questions (also while the implementation runs; it then waits). Nothing is retried meanwhile |
     | `/speckit retry [guidance]` | restart what stopped with a fresh attempt count, without merging the base branch for it (a phase that has not started, the convergence, and the merge always merge it first); the guidance goes into its prompt |
     | `/speckit resume [guidance]` | merge the base branch (the pull request's base; Copilot resolves conflicts), then restart what stopped with a fresh attempt count; the guidance goes into its prompt |
+    | `/speckit sync [guidance]` | require the latest PR base branch to be merged and verified before continuing; Copilot resolves conflicts, and failures stop for attention instead of proceeding on the old base |
     | `/speckit fix [guidance]` | have a fix spec authored for a cause outside this spec (below); the implementation waits and resumes by itself once the fix has landed |
     | `/speckit help` | list the commands |
 
-    Writer guidance is capped at 4,000 characters. Retry and resume guidance
+    Explicit sync ignores disabled automatic synchronization and earlier best-effort skips. Its durable barrier
+    checks for new base commits before release and preserves pending verification scope and repair attempt limits.
+    Category/command inconsistencies in diagnosis reports are rejected rather than rewritten into a retry.
+
+    Writer guidance is capped at 4,000 characters. Retry, resume, and sync guidance
     is persisted in a bot-authored pull request marker and reaches every task
     in the first retried parallel group, or the first convergence, repair, or
     conflict-resolution prompt. It expires after successful work or a newer

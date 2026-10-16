@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
-import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, RESUME_COMMENT_MARKER, pointSpecLinks, renderGuidanceMarker, renderRepairMarker, unresolvedRepair } from './speckit-implement-core.mjs';
+import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, RESUME_COMMENT_MARKER, pointSpecLinks, renderGuidanceMarker, renderRepairMarker, renderSyncComment, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
   defaultGit,
@@ -116,7 +116,7 @@ function work(repos, { inputs = TASK_INPUTS, agentExit = '0', agent, verify = { 
     const verifyEnv = verify === null
       ? { SPECKIT_VERIFY_CONFIGURED: 'false' }
       : { SPECKIT_VERIFY_CONFIGURED: 'true', SPECKIT_VERIFY_OUTCOME: ready ? verify.outcome : 'skipped', SPECKIT_VERIFY_CHECKS: ready ? verify.checks : '', SPECKIT_VERIFY_UNCOVERED: ready ? verify.uncovered ?? '' : '', SPECKIT_SELFTEST_OUTCOME: verify.selfTest ?? '' };
-    result = runVerdict({ env: verifyEnv, inputs, resultDir: repos.resultDir, log: silent }).result;
+    result = runVerdict({ env: { ...extraEnv, ...verifyEnv, ...(inputs.kind === 'resolve' ? { SPECKIT_VERIFY_MODE: 'finalize' } : {}) }, inputs, resultDir: repos.resultDir, log: silent }).result;
   }
   return { integrated, packaged, result, output: readFileSync(outputFile, 'utf8') };
 }
@@ -789,6 +789,205 @@ test('resolve: the agent resolution is verified, replayed, and pushed as a merge
   assert.equal(remoteShow(repos, 'speckit/f:docs/shared.md'), '# Shared\n\nbranch line\nmain line\n');
   assert.deepEqual([landed.check.conclusion, landed.check.output.title], ['success', 'Merge conflicts resolved']);
   assert.match(github.comments.at(-1).body, /\*\*Conflicts resolved\*\* \(attempt 1\): `docs\/shared\.md`[\s\S]*platform build and tests passed[\s\S]*Next: merge/);
+}));
+
+test('required sync verifies and lands clean, conflicted and already-current merges without empty commits', async () => {
+  for (const options of [{}, { branch: (dir) => write(dir, 'docs/own.md', '# Implementation delta\n') }, { main: (dir) => write(dir, 'docs/base.md', '# Base fix\n') }, conflicting]) {
+    await withRepos(options, async (repos) => {
+      const github = fakeGitHub();
+      await github.createComment(9, renderSyncComment('Required sync'));
+      const barrier = syncBarrier(github.comments);
+      const before = remoteSha(repos, 'speckit/f');
+      const { packaged, result } = work(repos, {
+        inputs: RESOLVE_INPUTS,
+        env: { SPECKIT_REQUIRED_SYNC: barrier.request },
+        agent: options === conflicting ? resolveShared : undefined,
+      });
+      assert.equal(packaged.verify, true, 'clean and no-op merges still run full verification');
+      assert.equal(result.verified, true);
+      assert.equal(readFileSync(path.join(repos.resultDir, 'changed-files.txt'), 'utf8'), result.changedFiles.map((file) => `${file}\n`).join(''));
+      if (options.branch && options !== conflicting) assert.ok(result.changedFiles.includes('docs/own.md'), 'no-op sync includes the implementation delta, not just conflicts');
+      const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+      assert.equal(landed.exitCode, 0, landed.reasons?.join('; '));
+      const completion = syncBarrier(github.comments).completion;
+      assert.equal(completion.state, 'verified', 'landing does not itself release the latest-base barrier');
+      assert.equal(completion.baseSha, remoteSha(repos, 'main'));
+      if (!options.main && options !== conflicting) {
+        assert.equal(remoteSha(repos, 'speckit/f'), before, 'already-current sync creates no empty commit');
+      } else {
+        const parents = remoteHead(repos).split('|')[0].split(' ');
+        assert.equal(parents.length, 3, 'the landed commit is a true two-parent merge');
+      }
+    });
+  }
+});
+
+test('required sync records original-scope verification without resetting exhausted repair attempts', async () => {
+  for (const scope of ['task', 'group', 'phase', 'merge']) {
+    await withRepos({}, async (repos) => {
+      const github = fakeGitHub();
+      const repair = { id: `${scope}:original`, state: 'pending', scope, tasks: ['T001'], at: github.tick() };
+      await github.createComment(9, renderRepairMarker(repair));
+      await github.createComment(9, renderSyncComment('Required sync'));
+      const original = path.join(repos.base, 'failed-changed-files.txt');
+      writeFileSync(original, 'docs/shared.md\n');
+      const { result } = work(repos, {
+        inputs: RESOLVE_INPUTS,
+        env: {
+          SPECKIT_REQUIRED_SYNC: syncBarrier(github.comments).request,
+          SPECKIT_SYNC_REPAIR: JSON.stringify(unresolvedRepair(github.comments)),
+          SPECKIT_SYNC_ORIGINAL_SCOPE: original,
+        },
+      });
+      assert.equal(result.syncRepair.covered, true);
+      assert.ok(result.changedFiles.includes('docs/shared.md'), 'the original failed paths are verified even after a clean/no-op merge');
+      const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+      assert.equal(landed.exitCode, 0, landed.reasons?.join('; '));
+      assert.equal(syncBarrier(github.comments).completion.repair.id, repair.id);
+      assert.equal(syncBarrier(github.comments).completion.repair.covered, true);
+      assert.deepEqual(syncBarrier(github.comments).completion.repair.snapshot, unresolvedRepair(github.comments));
+      assert.equal(unresolvedRepair(github.comments).id, repair.id, 'the final latest-base check still gates clearance');
+    });
+  }
+});
+
+test('required sync finalize is a full-scope superset but cannot clear a replaced pending repair', async () => {
+  for (const scope of ['task', 'group', 'phase']) {
+    for (const replaced of [false, true]) {
+      await withRepos({}, async (repos) => {
+        const github = fakeGitHub();
+        const repair = { id: `${scope}:original`, state: 'pending', scope, tasks: ['T001'], at: github.tick() };
+        await github.createComment(9, renderRepairMarker(repair));
+        await github.createComment(9, renderSyncComment('Required sync'));
+        const { result } = work(repos, {
+          inputs: RESOLVE_INPUTS,
+          env: {
+            SPECKIT_REQUIRED_SYNC: syncBarrier(github.comments).request,
+            SPECKIT_SYNC_REPAIR: JSON.stringify(unresolvedRepair(github.comments)),
+          },
+        });
+        assert.equal(result.verificationMode, 'finalize');
+        assert.equal(result.syncRepair.covered, true, 'every configured check with all tests covers the original task/group/phase even if its artifact expired');
+        if (replaced) await github.createComment(9, renderRepairMarker({ ...repair, tasks: ['T002'] }));
+        const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+        assert.equal(landed.exitCode, 0);
+        assert.equal(Boolean(syncBarrier(github.comments).completion.repair), !replaced, 'a same-id replacement is not the scope captured at work start');
+      });
+    }
+  }
+});
+
+test('required sync cannot claim merged environment coverage with missing evidence or failed self-tests', async () => {
+  for (const scenario of ['missing evidence', 'environment self-test failure', 'environment self-test success']) {
+    await withRepos({}, async (repos) => {
+      const github = fakeGitHub();
+      const repair = { id: 'merge:original', state: 'pending', scope: 'merge', at: github.tick() };
+      await github.createComment(9, renderRepairMarker(repair));
+      await github.createComment(9, renderSyncComment('Required sync'));
+      const original = path.join(repos.base, 'failed-changed-files.txt');
+      if (scenario !== 'missing evidence') writeFileSync(original, '.github/actions/environment-verify/action.yml\n');
+      const { result } = work(repos, {
+        inputs: RESOLVE_INPUTS,
+        env: {
+          SPECKIT_REQUIRED_SYNC: syncBarrier(github.comments).request,
+          SPECKIT_SYNC_REPAIR: JSON.stringify(unresolvedRepair(github.comments)),
+          SPECKIT_SYNC_ORIGINAL_SCOPE: original,
+          ...(scenario === 'environment self-test success' ? { SPECKIT_SYNC_SETUP_OUTCOME: 'success', SPECKIT_SYNC_VERIFY_OUTCOME: 'success' } : {}),
+        },
+      });
+      assert.equal(result.syncRepair.covered, scenario === 'environment self-test success');
+      const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+      assert.equal(landed.exitCode, scenario === 'environment self-test failure' ? 1 : 0);
+      assert.equal(Boolean(syncBarrier(github.comments).completion?.repair), scenario === 'environment self-test success');
+    });
+  }
+});
+
+test('required sync rejects failed, skipped, missing and uncovered verification without releasing the barrier', async () => {
+  for (const verify of [null, { outcome: 'failure', checks: 'tests' }, { outcome: 'skipped', checks: '' }, { outcome: 'success', checks: 'tests', uncovered: 'docs/shared.md' }]) {
+    await withRepos({}, async (repos) => {
+      const github = fakeGitHub();
+      await github.createComment(9, renderSyncComment('Required sync'));
+      const barrier = syncBarrier(github.comments);
+      const before = remoteHead(repos);
+      const { result } = work(repos, { inputs: RESOLVE_INPUTS, verify, env: { SPECKIT_REQUIRED_SYNC: barrier.request } });
+      assert.equal(result.verified, false);
+      const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+      assert.equal(landed.exitCode, 1);
+      assert.equal(remoteHead(repos), before);
+      assert.equal(syncBarrier(github.comments).completion, null);
+    });
+  }
+});
+
+test('required sync rejects an unfinished work job or a replay that does not match the verified tree', async () => {
+  for (const failure of ['cancelled', 'tree mismatch']) {
+    await withRepos({}, async (repos) => {
+      const github = fakeGitHub();
+      await github.createComment(9, renderSyncComment('Required sync'));
+      work(repos, { inputs: RESOLVE_INPUTS, env: { SPECKIT_REQUIRED_SYNC: syncBarrier(github.comments).request } });
+      if (failure === 'tree mismatch') {
+        const file = path.join(repos.resultDir, 'result.json');
+        const result = JSON.parse(readFileSync(file, 'utf8'));
+        result.tree = '0'.repeat(40);
+        writeFileSync(file, JSON.stringify(result));
+      }
+      const landed = await land(repos, github, { inputs: RESOLVE_INPUTS, workResult: failure === 'cancelled' ? 'cancelled' : 'success' });
+      assert.equal(landed.exitCode, 1);
+      assert.equal(syncBarrier(github.comments).completion, null);
+    });
+  }
+});
+
+test('required sync does not downgrade protected conflicts to best effort or land work from an older request', async () => {
+  await withRepos({
+    branch: (dir) => write(dir, 'specs/f/spec.md', '# Branch spec\n'),
+    main: (dir) => write(dir, 'specs/f/spec.md', '# Base spec\n'),
+  }, async (repos) => {
+    const github = fakeGitHub();
+    await github.createComment(9, renderSyncComment('Required sync'));
+    const barrier = syncBarrier(github.comments);
+    work(repos, { inputs: RESOLVE_INPUTS, env: { SPECKIT_REQUIRED_SYNC: barrier.request } });
+    await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: remoteSha(repos, 'speckit/f'), external_id: CHECK_SYNC_CONFLICT, status: 'completed', conclusion: 'neutral' });
+    const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+    assert.equal(landed.exitCode, 1);
+    assert.equal(syncBarrier(github.comments).completion, null);
+    assert.ok(github.repo.pulls[0].labels.some((label) => label.name === 'help wanted'));
+  });
+  await withRepos({}, async (repos) => {
+    const github = fakeGitHub();
+    await github.createComment(9, renderSyncComment('First request'));
+    work(repos, { inputs: RESOLVE_INPUTS, env: { SPECKIT_REQUIRED_SYNC: syncBarrier(github.comments).request } });
+    await github.createComment(9, renderSyncComment('Newer request'));
+    const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+    assert.equal(landed.exitCode, 1);
+    assert.match(landed.reasons.join('; '), /request changed/);
+    assert.equal(syncBarrier(github.comments).completion, null);
+  });
+});
+
+test('a required sync arriving during ordinary work prevents that work landing', () => withRepos({}, async (repos) => {
+  const github = fakeGitHub();
+  work(repos, { agent: (r) => agentDoesT001(r.work) });
+  await github.createComment(9, renderSyncComment('Sync before any more work'));
+  const before = remoteHead(repos);
+  const landed = await land(repos, github);
+  assert.ok(landed.requeue);
+  assert.equal(remoteHead(repos), before);
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+  const merge = await runMergeLand({
+    client: github, env: landEnv(repos), inputs: { ...MERGE_INPUTS, checkRun: landed.check.id },
+    resultDir: repos.resultDir, workResult: 'success', log: silent,
+  });
+  assert.ok(merge.requeue, 'a merge already in flight must also respect a newer sync request');
+  assert.equal(github.repo.merges.length, 0);
+  const archive = await runArchive({
+    client: github, git: defaultGit(repos.land),
+    env: { ...landEnv(repos), SPECKIT_PULL: '9', SPECKIT_CHECK_RUN: String(landed.check.id) },
+    folder: 'f', log: silent,
+  });
+  assert.equal(archive.exitCode, 1);
+  assert.equal(remoteHead(repos), before, 'archiving cannot change the branch while sync is pending');
 }));
 
 test('resolve: markers, changes outside the conflicts, and forged resolutions are rejected', async () => {

@@ -38,11 +38,11 @@ export { checkAmendment, findAmendment };
 export const CATEGORIES = ['artifacts', 'retry', 'outside', 'decision', 'unknown'];
 export const CONFIDENCE = ['high', 'medium', 'low'];
 export const MODES = ['diagnose', 'fix', 'revise'];
-const COMMAND_PATTERN = /^\/speckit (diagnose|retry|resume|fix)( [^\n]*)?$/;
+const COMMAND_PATTERN = /^\/speckit (diagnose|retry|resume|sync|fix)( [^\n]*)?$/;
 // A placeholder an agent may copy from a usage line instead of writing the text: `<guidance>` or `<answers>`.
 // Only these words count, so code such as `IReadOnlyList<Recording>` or task tags such as `[P]` stay intact.
 const PLACEHOLDER_PATTERN = /<(?:concrete |your )?(?:guidance|answers?|guidance or answers|choice|first choice|what to examine next|what to fix[^<>\n]{0,60})>|\[(?:concrete |your )?(?:guidance|answers?|guidance or answers)\]/gi;
-const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|resume|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|resume|fix))\b/;
+const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|resume|sync|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|resume|sync|fix))\b/;
 const MAX_EVIDENCE_BYTES = 200_000;
 const LOG_TAIL_LINES = 150;
 
@@ -398,7 +398,7 @@ const CATEGORY_TEXT = {
 // command never disagree. The first is the category's default.
 export const CATEGORY_COMMANDS = Object.freeze({
   retry: ['retry'],
-  outside: ['fix', 'resume'],
+  outside: ['fix', 'resume', 'sync'],
   artifacts: ['diagnose'],
   decision: ['diagnose'],
   unknown: ['diagnose'],
@@ -549,10 +549,15 @@ export async function runRecord({ client, env, log }) {
   const { reasons, report } = withheld
     ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
     : reports.length > 0 ? validateReport(reports.at(-1)) : { reasons: ['the agent did not report'], report: null };
-  const usable = report && report.category ? report : null;
+  const amendment = report?.category && reasons.length === 0 ? await createdAmendment(client, env, folder, reasons) : null;
+  const recommendationProblems = report?.category ? recommendNextSteps(report, { amendment }).notes : [];
+  reasons.push(...recommendationProblems);
+  if (report?.category && !amendment && !report.options.some((option) => option.recommended && option.command)) {
+    reasons.push('the report must recommend one actionable command that fits its category');
+  }
+  const usable = report && report.category && reasons.length === 0 ? report : null;
   const comments = await client.listIssueComments(pullNumber);
   const round = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).length + 1;
-  const amendment = usable ? await createdAmendment(client, env, folder, reasons) : null;
   const context = await nextStepContext(client, await client.getPullRequest(pullNumber), folder);
   const runUrl = env.GITHUB_RUN_ID ? `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
   await client.createComment(pullNumber, renderDiagnosisComment({ report: usable, reasons, round, runUrl, amendment, ...context }));

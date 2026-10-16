@@ -7,9 +7,10 @@ import test from 'node:test';
 import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
-import { phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
+import { decideForPull, phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
 import { ATTENTION_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderRepairMarker, renderResumeComment, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
+import { renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
 const IMPLEMENTING = 'speckit:stage:implementing';
@@ -760,6 +761,132 @@ const advanceRepairBase = (github) => {
   github.repo.branches.main = sha;
   return sha;
 };
+
+test('required sync survives replacement, disabled/skipped automatic sync, and base movement before release', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    const pull = github.repo.pulls[0];
+    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+    github.repo.branches.release = advanceRepairBase(github);
+    pull.base.ref = 'release';
+    await github.createComment(pull.number, renderSyncSkippedMarker(github.repo.branches.release));
+    await github.createComment(pull.number, renderSyncComment('Sync required', 'Keep the release fix'));
+    const request = syncBarrier(github.comments);
+    const inspect = () => decideForPull(github, { twin: twin.number, folder: 'a', pullNumber: pull.number, now: github.clock });
+    assert.equal((await decide(github, root, twin, { SPECKIT_SYNC_BASE: 'false' }, runSyncBase)).outputs.result, 'required');
+    assert.equal((await decide(github, root, twin, { SPECKIT_SYNC_BASE: 'true' }, runSyncBase)).outputs.result, 'required', 'a previously skipped base cannot bypass required synchronization');
+    for (let replacement = 0; replacement < 2; replacement++) {
+      const decision = await inspect();
+      assert.deepEqual([decision.action, decision.kind, decision.requiredSync.request], ['tasks', 'resolve', request.request]);
+      assert.equal(decision.requiredSync.guidance, 'Keep the release fix');
+    }
+    assert.equal((await planPhase(github, root, twin, 'Phase 1: Setup')).outputs.count, '0', 'normal planning is blocked');
+    await github.createComment(pull.number, renderRetryComment('Retry must not remove the barrier'));
+    assert.equal((await inspect()).requiredSync.request, request.request);
+    const baseSha = github.repo.branches.release;
+    // The isolated work run merged and verified this exact head/base pair.
+    await github.mergeBranch('speckit/a', 'release', 'verified sync');
+    const head = github.repo.branches['speckit/a'];
+    await github.createComment(pull.number, renderSyncBarrierMarker({ request: request.request, state: 'verified', head, base: 'release', baseSha }));
+    const newer = advanceRepairBase(github);
+    github.repo.branches.release = newer;
+    assert.equal((await inspect()).kind, 'resolve', 'a moving base cannot release a stale verification');
+    assert.ok(syncBarrier(github.comments));
+    await github.mergeBranch('speckit/a', 'release', 'verified latest sync');
+    await github.createComment(pull.number, renderSyncBarrierMarker({ request: request.request, state: 'verified', head: github.repo.branches['speckit/a'], base: 'release', baseSha: newer }));
+    const compare = github.aheadBy.bind(github);
+    github.aheadBy = async (...args) => {
+      const result = await compare(...args);
+      github.repo.branches.release = advanceRepairBase(github);
+      return result;
+    };
+    assert.equal((await inspect()).kind, 'resolve', 'base movement during the release comparison also holds the barrier');
+    github.aheadBy = compare;
+    await github.mergeBranch('speckit/a', 'release', 'verified base after comparison race');
+    await github.createComment(pull.number, renderSyncBarrierMarker({ request: request.request, state: 'verified', head: github.repo.branches['speckit/a'], base: 'release', baseSha: github.repo.branches.release }));
+    const getBase = github.getBranchSha.bind(github);
+    github.getBranchSha = async () => { throw new Error('comparison unavailable'); };
+    assert.equal((await inspect()).kind, 'resolve', 'unknown base freshness cannot release the barrier');
+    github.getBranchSha = getBase;
+    assert.equal((await inspect()).kind, 'task');
+    assert.equal(syncBarrier(github.comments), null);
+    assert.equal((await inspect()).kind, 'task', 'release is durable across later runs');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('required sync keeps pending repair scope, tasks and failures, then reverifies the original scope', async () => {
+  for (const failures of [1, 3]) {
+    const { root, github, twin, pull } = await restartedRepair(renderRetryComment);
+    try {
+      const original = unresolvedRepair(github.comments);
+      for (let index = 0; index < failures; index++) await attemptComment(github, pull.number, null, 'failure', 'repair');
+      await github.createComment(pull.number, renderSyncComment('Required sync', 'Preserve the registry entries'));
+      const request = syncBarrier(github.comments);
+      const inspect = () => decideForPull(github, { twin: twin.number, folder: 'a', pullNumber: pull.number, now: github.clock });
+      assert.equal((await inspect()).kind, 'resolve');
+      assert.deepEqual(unresolvedRepair(github.comments), original);
+      await github.createComment(pull.number, renderSyncBarrierMarker({
+        request: request.request, state: 'verified', head: github.repo.branches['speckit/a'], base: 'main', baseSha: github.repo.branches.main,
+      }));
+      const after = await inspect();
+      assert.equal(after.action, failures === 3 ? 'limit' : 'repair');
+      if (failures === 1) {
+        assert.equal(after.attempt, 2, 'sync does not reset repair failures');
+        assert.deepEqual(after.repair, original);
+        assert.equal(after.guidance, 'Preserve the registry entries');
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('required sync can clear an exhausted repair only after authoritative verification of its original scope', async () => {
+  for (const failures of [3, 5]) {
+    const { root, github, twin, pull } = await restartedRepair(renderRetryComment);
+    try {
+      const original = unresolvedRepair(github.comments);
+      for (let index = 0; index < failures; index++) await attemptComment(github, pull.number, null, 'failure', 'repair');
+      await github.createComment(pull.number, renderSyncComment('Merge and verify the upstream fix'));
+      const barrier = syncBarrier(github.comments);
+      await github.createComment(pull.number, renderSyncBarrierMarker({
+        request: barrier.request, state: 'verified', head: github.repo.branches['speckit/a'],
+        base: 'main', baseSha: github.repo.branches.main, repair: { id: original.id, covered: true, snapshot: original },
+      }));
+      const next = await decideForPull(github, { twin: twin.number, folder: 'a', pullNumber: pull.number, now: github.clock });
+      assert.equal(next.kind, 'converge');
+      assert.equal(unresolvedRepair(github.comments), null);
+      assert.equal(syncBarrier(github.comments), null);
+      assert.equal(next.ledger.filter((attempt) => attempt.kind === 'repair' && attempt.outcome === 'failure').length, failures, 'the old failures are not reset or replaced with an extra repair attempt');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('required sync failure limits and protected-conflict attention never fall back to normal work', async () => {
+  for (const outcome of ['failure', 'attention']) {
+    const { root, github, twin } = await flaggedRepo();
+    try {
+      await start(github, root, twin);
+      const pull = github.repo.pulls[0];
+      github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+      await github.createComment(pull.number, renderSyncComment('Required sync'));
+      for (let index = 0; index < (outcome === 'failure' ? 3 : 1); index++) await attemptComment(github, pull.number, null, outcome, 'resolve');
+      const stopped = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+      assert.deepEqual([stopped.outputs.action, stopped.outputs.continue], ['stop', 'false']);
+      assert.ok(pull.labels.some((label) => label.name === ATTENTION_LABEL));
+      assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop');
+      await github.createComment(pull.number, renderResumeComment('Try sync again'));
+      assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'resolve', 'resume preserves and rearms required sync');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
 
 async function restartedRepair(restart, guidance = '') {
   const fixture = await flaggedRepo();

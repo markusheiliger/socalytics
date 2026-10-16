@@ -24,6 +24,7 @@ import {
   neutralizeMarkers,
   renderResumeComment,
   renderRetryComment,
+  renderSyncComment,
   setAttention,
   specTitleOfPull,
   unresolvedRepair,
@@ -116,10 +117,8 @@ export async function runCommand({ client, env, log, now = Date.now }) {
     }
   }
   if (command.name === 'help' || command.name === 'unknown') {
-    const replaced = command.name === 'unknown' && command.given.toLowerCase() === 'sync';
     await reply(client, number, [
-      ...(replaced ? ['`/speckit sync` was replaced by `/speckit resume`, which merges the base branch first (Copilot resolves conflicts) and then continues.', ''] : []),
-      ...(command.name === 'unknown' && !replaced ? [`Unknown command \`/speckit ${neutralizeMarkers(command.given)}\`.`, ''] : []),
+      ...(command.name === 'unknown' ? [`Unknown command \`/speckit ${neutralizeMarkers(command.given)}\`.`, ''] : []),
       renderHelp(),
     ]);
     return { exitCode: 0, handled: true, command: command.name };
@@ -186,6 +185,22 @@ async function handleRetry({ client, env, actor, number, argument, folder, imple
   return { outcome: 'retried' };
 }
 
+async function handleSync({ client, env, actor, number, argument, implementation, twin }) {
+  await client.createComment(implementation.number, renderSyncComment(
+    `Required synchronization requested by @${actor}; merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.`,
+    argument,
+    await restartState(client, implementation),
+  ));
+  await setAttention(client, implementation.number, false);
+  try {
+    await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
+  } catch {
+    // The durable request survives a failed dispatch or replacement by another pending run.
+  }
+  if (number !== implementation.number) await reply(client, number, `Synchronization requested; progress is reported on #${implementation.number}.`);
+  return { outcome: 'sync requested' };
+}
+
 // `--force` as the first word of a retry or resume skips the unchanged-restart guard; the rest is the guidance.
 function restartArgument(argument) {
   const match = argument.match(/^--force(?:\s+|$)([\s\S]*)$/i);
@@ -238,6 +253,7 @@ const HANDLERS = {
   diagnose: handleDiagnose,
   retry: handleRetry,
   resume: handleResume,
+  sync: handleSync,
   fix: handleFix,
 };
 

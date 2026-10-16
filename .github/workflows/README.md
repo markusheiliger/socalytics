@@ -74,11 +74,11 @@ flowchart TD
     person -. "/speckit comment" .-> implPr
     person -. "review, push, merge, close" .-> amendPr
     person -. "review, push, merge, close" .-> fixPr
-    implPr -. "/speckit diagnose, retry, resume, fix" .-> commands
+    implPr -. "/speckit diagnose, retry, resume, sync, fix" .-> commands
     amendPr -. "feedback, push, close" .-> commands
     fixPr -. "feedback, push, close" .-> commands
     fixPr -. "merged: push to specs/**" .-> prepare
-    commands -- "retry, resume, amendment merged" --> spec
+    commands -- "retry, resume, sync, amendment merged" --> spec
     commands -- "diagnose, revise" --> diagnose
     commands -- "fix, revise" --> fixspec
     commands -- "person pushed: check" --> analyze
@@ -104,7 +104,7 @@ They become ready only after final verification, immediately before an automatic
 | Spec Kit implement convergence | [speckit-implement-converge.yml](speckit-implement-converge.yml) | Implement spec (`workflow_call`) | Runs `/speckit-converge` against the completed implementation with the strong model, validates the tasks-only result, then commits and pushes it. |
 | Spec Kit implement conflict resolution | [speckit-implement-resolve.yml](speckit-implement-resolve.yml) | Implement spec (`workflow_call`) | Integrates the base branch, lets Copilot resolve unprotected conflicts when needed, runs final verification, then validates, commits, and pushes the resolution. |
 | Spec Kit implement merge | [speckit-implement-merge.yml](speckit-implement-merge.yml) | Implement spec (`workflow_call`) | Archives the spec, builds and verifies the prospective merged tree with a read-only token, then squash-merges the pull request or deliberately hands it to a person for review. |
-| Spec Kit commands | [speckit-commands.yml](speckit-commands.yml) | Pull request comments, reviews, and events | Handles `/speckit` commands (`diagnose`, `retry`, `resume`, `fix`, `help`) and amendment and fix spec feedback; keeps Spec Kit pull requests out of stacks. |
+| Spec Kit commands | [speckit-commands.yml](speckit-commands.yml) | Pull request comments, reviews, and events | Handles `/speckit` commands (`diagnose`, `retry`, `resume`, `sync`, `fix`, `help`) and amendment and fix spec feedback; keeps Spec Kit pull requests out of stacks. |
 | Spec Kit diagnose | [speckit-diagnose.md](speckit-diagnose.md) ([lock](speckit-diagnose.lock.yml)) | Implement spec, commands, analyze | Explains why an implementation stopped and recommends one ready-to-post command that fits the category; for spec artifact defects opens and reworks an amendment pull request. |
 | Spec Kit fix | [speckit-fix.md](speckit-fix.md) ([lock](speckit-fix.lock.yml)) | Commands (`/speckit fix`), analyze | Authors a fix spec for a cause outside the stopped spec and proposes it against the default branch; reworks it after findings or feedback. |
 | Spec Kit analyze | [speckit-analyze.md](speckit-analyze.md) ([lock](speckit-analyze.lock.yml)) | Diagnose, fix, commands | Runs a read-only `/speckit-analyze` of the amended spec folder or the new fix spec and decides between a correction round, a rework, or human review. |
@@ -138,7 +138,7 @@ the failed head. Missing or empty original scope falls back to full (`finalize`)
 readable by the repair agent inside its workspace at the locally ignored `.speckit-repair-evidence/`; unavailable
 artifacts do not weaken verification. The verification action must actually succeed, and the verified commit must still
 be the pull request head, before the marker can resolve; verification-only work uses the decision's pinned head.
-Writer-supplied text after `/speckit diagnose`, `retry`, `resume`, or `fix` is consistently called
+Writer-supplied text after `/speckit diagnose`, `retry`, `resume`, `sync`, or `fix` is consistently called
 **guidance**. Retry and resume guidance is stored in a bot-authored pull request marker so a replaced dispatch or
 hourly continuation cannot lose it. Copilot-bound guidance is whitespace-normalized, capped at 4,000 characters, and
 added to every task in the first retried group, or to the first convergence, repair, or conflict-resolution prompt.
@@ -168,6 +168,31 @@ names say what a job does, without step numbers; GitHub shows their order. The c
 `/speckit-gha-drift`, which checks `docs/architecture/` against the implementation; each stale, missing, or
 contradicting statement becomes a convergence task, so the architecture is corrected before the merge. The hook comes
 from the implementation branch, so a branch created before it existed gets it with the next merge of the base branch.
+
+### Required synchronization
+
+`/speckit sync [guidance]` explicitly requires synchronization before the implementation continues. It uses the
+implementation pull request's actual base branch, not an assumed `main`, and is independent of `SPECKIT_SYNC_BASE`
+and earlier best-effort skip markers. The request is durable across replacement dispatches and subsequent chain runs.
+It is not an alias for `resume`: API refusals, protected conflicts, exhausted resolution attempts, and verification
+failures stop for attention instead of continuing on an old base.
+
+The existing conflict-resolution workflow verifies the synchronized tree, invokes Copilot only when needed, and
+retains its file restrictions and read-only agent/separate write-capable landing jobs. Clean merges and an
+already-current branch also require verification. Before releasing the barrier, the controller checks the current
+base again; if it moved, synchronization remains pending. Checked tasks and pending repair evidence are retained;
+the original failed scope must still pass, and synchronization does not erase repair attempt limits.
+Successful full verification can resolve a pending repair, including one whose repair attempts are exhausted,
+when the original failed scope is covered; historical failures remain recorded. Full `finalize` verification
+also covers task/group/phase repairs whose original artifact expired. Merged environment-action repairs still
+require explicit scope evidence and their self-tests, which ordinary `finalize` verification does not run.
+
+Use `retry` for unchanged work, `resume` for the existing best-effort merge-and-restart behavior, and `sync` when
+receiving base-branch changes is a prerequisite. Diagnosis categorizes a fix already on the base as `outside` and
+recommends `sync`; inconsistent category/command reports are rejected at publication, not rewritten into retries.
+
+Architecture impact: none. This changes repository automation, not the product design in `docs/architecture/`.
+
 The merge workflow first archives the spec to `specs/archive/<folder>` on the implementation branch (job `archive`),
 so the archive lands with the implementation. The controller runs only one of its `phase`, `repair`, `converge`,
 `resolve`, or `merge` reusable jobs, so the others

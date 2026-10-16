@@ -15,6 +15,8 @@ name: Spec Kit implement spec
 #                        job starts the conflict resolution with Copilot CLI in the same run: best effort before a phase
 #                        or the convergence (the work continues on the current base when it fails), required before the
 #                        merge (write token, never runs agent-written code)
+#                        A durable /speckit sync request instead selects the resolve workflow below, irrespective of
+#                        SPECKIT_SYNC_BASE: even clean and already-current merges must pass isolated verification.
 #   decide:              "Decide what comes next": validates the twin, decides what comes next, and reports stops
 #                        (attempt limit, diagnosis)
 #   phase:               "<phase heading as written>": one phase of tasks.md in Spec Kit implement phase, whose tasks
@@ -229,6 +231,7 @@ jobs:
     if: ${{ !cancelled() && needs.decide.result == 'success' && needs.decide.outputs.action == 'resolve' }}
     uses: ./.github/workflows/speckit-implement-resolve.yml
     permissions:
+      actions: read
       checks: write
       contents: write
       copilot-requests: write

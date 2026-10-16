@@ -32,6 +32,8 @@
 
 ## Spec Twins
 
+- `/speckit sync [guidance]` is an explicit required synchronization barrier for an implementation pull request. It merges the latest PR base branch regardless of `SPECKIT_SYNC_BASE` or earlier best-effort skips, uses the existing Copilot conflict resolution and verification, and stops for attention on failure rather than continuing on the old base. It preserves checked tasks, pending repair scope, and repair attempt limits. `retry` remains unchanged; `resume` retains its compatible best-effort synchronization behavior. A diagnosis for a fix already on the base branch should classify it as `outside` and recommend `sync`; inconsistent diagnosis recommendations are rejected at publication.
+
 - Each feature folder under `specs/` or `specs/archive/` on the default branch has one twin issue labelled `speckit:spec`; twins of archived specs are closed as completed, labelled `implemented`, and link to the archive. Its generated `**Spec**` link line is its identity; the workflow regenerates the title and description, so change the spec, never the twin body.
 - Twins are pointers, not trackers. The repository is authoritative for spec content; native GitHub issue dependencies between twins are authoritative for the order in which GitHub automation may implement features, and do not constrain local work.
 - `speckit:deps-pending` marks twins whose dependencies Copilot CLI has not yet inferred. Inference runs once per new twin; after that, humans maintain the dependencies on GitHub.

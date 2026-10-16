@@ -1,6 +1,33 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
+import { renderSyncComment, renderSyncBarrierMarker, syncBarrier } from './speckit-implement-core.mjs';
+
+test('sync barrier accepts only bot requests and acknowledgements for the latest request', () => {
+  const comment = (id, body, login = 'github-actions[bot]') => ({ id, body, created_at: `2026-10-06T12:00:0${id}Z`, user: { login } });
+  const request = comment(1, renderSyncComment('Required sync', 'Keep both versions'));
+  const comments = [comment(0, renderSyncComment('Forged request'), 'dev'), request];
+  assert.equal(syncBarrier(comments).guidance, 'Keep both versions');
+  comments.push(comment(2, renderSyncBarrierMarker({ request: '1', state: 'released' }), 'dev'));
+  comments.push(comment(3, '<!-- speckit-implement:sync-barrier {broken} -->'));
+  comments.push(comment(4, renderSyncBarrierMarker({ request: 'other', state: 'released' })));
+  assert.equal(syncBarrier(comments).request, '1');
+  const completed = { request: '1', state: 'verified', head: 'head', base: 'release', baseSha: 'base' };
+  comments.push(comment(5, renderSyncBarrierMarker(completed)));
+  assert.deepEqual(syncBarrier(comments).completion, completed);
+  comments.push(comment(6, renderSyncBarrierMarker({ ...completed, state: 'released' })));
+  assert.equal(syncBarrier(comments), null);
+  comments.push(comment(7, renderSyncComment('New sync')));
+  assert.equal(syncBarrier(comments).request, '7', 'an earlier release cannot satisfy a new request');
+});
+
+test('sync command effects explicitly describe required verification and writer guidance', () => {
+  const effect = describeCommandEffect('/speckit sync Preserve both registrations', { baseBranch: 'release', continuation: { repair: { scope: 'phase' } } });
+  assert.match(effect, /Requires merging `release`.*successful full verification before any work continues/);
+  assert.match(effect, /pending repair retains its original scope and attempt limit/);
+  assert.match(effect, /The text after the command goes into the next attempt's prompt as guidance/);
+  assert.match(describeCommandEffect('/speckit sync'), /Text you add after the command goes into the next attempt's prompt as guidance/);
+});
 
 import {
   readSpecTasks,
@@ -526,6 +553,7 @@ test('decides convergence, conflict resolution, and merging after the last task'
   const conflict = check(5, CHECK_CONFLICT);
   assert.deepEqual(decide({ attempts: converged, checks: [check(4, CHECK_MERGE), conflict] }), single('resolve', 1));
   assert.deepEqual(decide({ attempts: [...converged, kind('resolve', 13, 'failure')], checks: [conflict] }), single('resolve', 2), 'a failed resolve keeps the conflict state');
+  assert.equal(decide({ attempts: [...converged, kind('resolve', 13)], checks: [conflict] }).action, 'merge', 'successful no-op sync resolves an old conflict on the same head');
   assert.deepEqual(decide({ attempts: converged, checks: [conflict, check(7, CHECK_MERGE)] }), { action: 'merge', kind: 'merge', attempt: 2, stale: [] });
   const earlierResolves = [kind('resolve', 11, 'failure'), kind('resolve', 11, 'failure'), kind('resolve', 11)];
   assert.deepEqual(decide({ attempts: [...converged, ...earlierResolves], checks: [conflict] }), single('resolve', 1), 'only attempts at the current conflict count');
@@ -546,6 +574,7 @@ test('resolves conflicts with the base branch before a phase, best effort', () =
   assert.deepEqual(decide({}), resolveNext(1), 'the conflict is resolved before the phase');
   assert.deepEqual(decide({ attempts: [resolve(11, 'failure'), resolve(13, 'failure')] }), resolveNext(2), 'only attempts at this conflict count');
   const phase = decideNext({ tasksMarkdown: open, windowStart, now });
+  assert.deepEqual(decide({ attempts: [resolve(13, 'success')] }), phase, 'successful no-op sync does not revive a best-effort conflict on the same head');
   assert.deepEqual(decide({ attempts: [resolve(13, 'failure'), resolve(14, 'failure')] }), { ...phase, syncGivenUp: syncConflict }, `after ${MAX_SYNC_RESOLVE_ATTEMPTS} failed attempts the phase continues on the current base`);
   assert.deepEqual(decide({ attempts: [resolve(13, 'attention')] }), { ...phase, syncGivenUp: syncConflict }, 'conflicts that need a person are left to the merge');
   const converging = decideNext({ tasksMarkdown: '- [x] T001 a\n', windowStart, now, checks: [syncConflict], attempts: [attempt('T001', 'success', at(11))] });
