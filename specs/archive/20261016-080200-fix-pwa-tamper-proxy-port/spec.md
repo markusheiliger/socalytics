@@ -54,4 +54,4 @@ A maintainer runs the simulated browser tests. The tampering proxy listens on a 
 ## Assumptions
 
 - Port 4178 is chosen after checking 4173 to 4177 in `playwright.config.ts`, `tests/e2e/support/`, the simulated specs, and the AppHost e2e port (4174); none uses 4178.
-- Dependencies: the feature owning the test is [Installable Web UI with Service Worker Updates](../archive/20261015-194113-web-ui-pwa-updates/spec.md); the implementation this fix unblocks is #123 (`specs/20261015-195724-fix-telemetry-sink-race`).
+- Dependencies: the feature owning the test is [Installable Web UI with Service Worker Updates](../20261015-194113-web-ui-pwa-updates/spec.md); the implementation this fix unblocks is #123 (`specs/20261015-195724-fix-telemetry-sink-race`).
