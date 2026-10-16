@@ -42,7 +42,9 @@ import {
 } from './speckit-implement-core.mjs';
 
 export const SEVERITIES = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'];
-// Findings of these severities make an amendment inconsistent; LOW findings are shown but do not block.
+// Findings of these severities make an amendment inconsistent; LOW findings do not, but correction rounds fix them too.
+// When only LOW findings remain, a round that resolves none of them ends the correction: it may rightly have declined
+// them, and further rounds would not change that.
 const BLOCKING = new Set(['CRITICAL', 'HIGH', 'MEDIUM']);
 
 const clip = (text, max) => {
@@ -441,7 +443,7 @@ function renderFindings(findings, rules = [], { ids = false } = {}) {
 
 // Hands the amendment or fix spec to its owner (ownerOf): ready for review when it is consistent (a draft otherwise),
 // assigned, review requested, status in the description, and a note on the implementation.
-export async function presentAmendment(client, env, context, { consistent, analysis = null, rules = [], problem = null, since = null }) {
+export async function presentAmendment(client, env, context, { consistent, analysis = null, rules = [], problem = null, since = null, corrected = false }) {
   const { amendment, folder, implementation, kind = 'amend' } = context;
   const current = await client.getPullRequest(amendment.number);
   const requester = await ownerOf(client, context);
@@ -457,7 +459,7 @@ export async function presentAmendment(client, env, context, { consistent, analy
   const findings = analysis?.findings ?? [];
   const blocking = findings.filter((item) => BLOCKING.has(item.severity));
   const status = consistent
-    ? `✅ **Consistent**: an independent \`/speckit-analyze\` of \`specs/${folder}/\` found no CRITICAL, HIGH, or MEDIUM inconsistencies${findings.length > 0 ? ` (${findings.length} LOW finding(s), listed in the comments)` : ''}.`
+    ? `✅ **Consistent**: an independent \`/speckit-analyze\` of \`specs/${folder}/\` found no CRITICAL, HIGH, or MEDIUM inconsistencies${findings.length > 0 ? ` (${findings.length} LOW finding(s)${corrected ? ' that the correction rounds left as they are, listed for information; nothing needs fixing by hand' : ', listed in the comments'})` : ''}.`
     : `⚠️ **Not consistent**: ${problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`}. Review the findings in the comments; merging is possible but not recommended.`;
   await client.updatePullRequest(amendment.number, { body: setAmendmentStatus(current.body, [status, '', ...howTo(context)]) });
   await client.createComment(amendment.number, [
@@ -542,18 +544,24 @@ export async function runRecordAnalysis({ client, env, log }) {
   const previous = decodeTracked(env.SPECKIT_PREVIOUS);
   let stalls = Math.max(0, Number(env.SPECKIT_STALLS) || 0);
   let progressNote = null;
+  let lastRoundProgressed = true;
   if (mode === 'loop' && round > 0) {
     const { progress, resolved } = correctionProgress(previous, analysis, rules);
     if (!progress) stalls += 1;
+    lastRoundProgressed = progress;
     progressNote = progress ? `Round ${round} resolved ${resolved.join(', ')}.` : `Round ${round} resolved none of the previous findings.`;
   }
   const remaining = blocking.length + rules.length;
-  const tracked = trackFindings(blocking, rules);
-  const trackedBlocking = blocking.map((item, index) => ({ ...item, id: `F${index + 1}` }));
-  if (!consistent && mode === 'loop' && stalls < MAX_STALLED_ROUNDS && round < MAX_CORRECTION_ROUNDS) {
-    await complete('neutral', `${remaining} inconsistency(ies) found; correction round ${round + 1} follows`, [progressNote, renderFindings(trackedBlocking.concat(analysis.findings.filter((item) => !BLOCKING.has(item.severity))), rules, { ids: true })].filter(Boolean).join('\n\n'));
-    await startRework(client, env, context, { mode: 'fix', round: round + 1, guidance: renderFindings(trackedBlocking, rules, { ids: true }), stalls, findings: tracked, progress: progressNote });
-    log(`Amendment #${number}: ${remaining} inconsistency(ies); started correction round ${round + 1} (${stalls} without progress).`);
+  // Correction rounds work on every finding, LOW ones included, so an amendment reaches its owner without known gaps.
+  const correctable = [...blocking, ...analysis.findings.filter((item) => !BLOCKING.has(item.severity))];
+  const tracked = trackFindings(correctable, rules);
+  const trackedFindings = correctable.map((item, index) => ({ ...item, id: `F${index + 1}` }));
+  const budgetLeft = consistent ? lastRoundProgressed : stalls < MAX_STALLED_ROUNDS;
+  if (correctable.length + rules.length > 0 && mode === 'loop' && budgetLeft && round < MAX_CORRECTION_ROUNDS) {
+    const found = consistent ? `${correctable.length} LOW finding(s) found` : `${remaining} inconsistency(ies) found`;
+    await complete('neutral', `${found}; correction round ${round + 1} follows`, [progressNote, renderFindings(trackedFindings, rules, { ids: true })].filter(Boolean).join('\n\n'));
+    await startRework(client, env, context, { mode: 'fix', round: round + 1, guidance: renderFindings(trackedFindings, rules, { ids: true }), stalls, findings: tracked, progress: progressNote });
+    log(`Amendment #${number}: ${correctable.length + rules.length} finding(s); started correction round ${round + 1} (${stalls} without progress).`);
     return { exitCode: 0, outcome: 'correcting', stalls };
   }
   await complete(consistent ? 'success' : 'failure', consistent ? 'Consistent' : `${remaining} inconsistency(ies) remain`, [progressNote, findingsText || analysis.summary || 'No findings.'].filter(Boolean).join('\n\n'));
@@ -568,7 +576,7 @@ export async function runRecordAnalysis({ client, env, log }) {
     : stalls >= MAX_STALLED_ROUNDS
       ? `${remaining} inconsistency(ies) remain; ${stalls} of ${round} correction round(s) made no progress`
       : `${remaining} inconsistency(ies) remain after the limit of ${MAX_CORRECTION_ROUNDS} correction rounds`;
-  await presentAmendment(client, env, context, { consistent, analysis, rules, problem, since: pending.since });
+  await presentAmendment(client, env, context, { consistent, analysis, rules, problem, since: pending.since, corrected: mode === 'loop' });
   log(`Amendment #${number}: presented (${consistent ? 'consistent' : 'not consistent'}).`);
   return { exitCode: 0, outcome: consistent ? 'consistent' : 'inconsistent', stalls };
 }
