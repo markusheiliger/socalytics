@@ -118,7 +118,8 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? (assumeResumed ? { body: RESUME_COMMENT_MARKER } : null);
     if (restart && repairAttempts.filter((attempt) => attempt.outcome === 'failure').length < MAX_TASK_ATTEMPTS) {
       const guidance = parseGuidance(restart.body) ?? '';
-      decision = decision.action === 'tasks' && decision.kind === 'resolve' && decision.sync ? { ...decision, repair } : {
+      const resumed = String(restart.body ?? '').startsWith(RESUME_COMMENT_MARKER);
+      decision = resumed && decision.action === 'tasks' && decision.kind === 'resolve' && decision.sync ? { ...decision, repair } : {
         action: 'repair',
         kind: 'repair',
         repair,

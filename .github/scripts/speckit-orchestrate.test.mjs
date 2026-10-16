@@ -839,6 +839,16 @@ test('chain: resumed repair resolves sync conflicts first and keeps its authoriz
         await attemptComment(github, pull.number, null, 'failure', 'repair');
         assert.equal((await sync()).outputs.result, 'none');
         assert.equal((await next()).outputs.action, 'stop', 'an attempted repair still needs a new authorized restart');
+        for (const attempt of [2, 3]) {
+          const head = github.repo.branches['speckit/a'];
+          await github.createComment(pull.number, renderRetryComment('Reverify unchanged without merging.'));
+          assert.equal((await sync()).outputs.result, 'none', 'retry cannot revive the previous resume sync conflict');
+          const retry = await next();
+          assert.deepEqual([retry.outputs.action, retry.outputs.attempt, retry.outputs.verify_only], ['repair', String(attempt), 'true'], `${outcome}: old sync resolution history must not override retry`);
+          assert.equal(github.repo.branches['speckit/a'], head, 'verification-only retry stays on the same head');
+          settle();
+          await attemptComment(github, pull.number, null, 'failure', 'repair');
+        }
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
