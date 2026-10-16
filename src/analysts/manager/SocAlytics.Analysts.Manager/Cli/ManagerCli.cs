@@ -252,10 +252,10 @@ internal static class ManagerCli
                     : $"Queue (approximate guidance, observed {age} ago):";
                 foreach (var c in q?["capabilities"] as JsonArray ?? [])
                 {
-                    yield return $"  {(string?)c?["id"]}: {(int?)c?["waiting"]}";
+                    yield return $"  {(string?)c?["id"]}: {(long?)c?["waiting"]}";
                 }
 
-                yield return $"  Total: {(int?)q?["total"]}";
+                yield return $"  Total: {(long?)q?["total"]}";
                 break;
             case "no-capability":
                 yield return "Queue: no capability assigned";

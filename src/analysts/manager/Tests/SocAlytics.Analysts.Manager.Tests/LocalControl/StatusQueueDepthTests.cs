@@ -34,8 +34,8 @@ public sealed class StatusQueueDepthTests
         q["observedAt"]!.GetValue<string>().ShouldBe("2026-10-15T19:40:00Z");
         q["ageSeconds"]!.GetValue<int>().ShouldBe(12);
         q["capabilities"]![0]!["id"]!.GetValue<string>().ShouldBe("person-detection");
-        q["capabilities"]![0]!["waiting"]!.GetValue<int>().ShouldBe(5);
-        q["total"]!.GetValue<int>().ShouldBe(5);
+        q["capabilities"]![0]!["waiting"]!.GetValue<long>().ShouldBe(5);
+        q["total"]!.GetValue<long>().ShouldBe(5);
         Valid(report).ShouldBeTrue();
     }
 
@@ -60,8 +60,28 @@ public sealed class StatusQueueDepthTests
     {
         var report = Report(View(QueueDepthStatus.Stale, 180, "platform-unavailable", true));
         report["queueDepth"]!["state"]!.GetValue<string>().ShouldBe("stale");
-        report["queueDepth"]!["total"]!.GetValue<int>().ShouldBe(5);
+        report["queueDepth"]!["total"]!.GetValue<long>().ShouldBe(5);
         Valid(report).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Counts_above_int_max_are_reported_as_is()
+    {
+        const long large = 3_000_000_000;
+        var view = new QueueDepthView(new QueueDepthSnapshot(
+            QueueDepthStatus.Available, Observed, Observed.AddSeconds(1),
+            [new QueueDepthCapability("person-detection", large)], large, null), 1);
+        var report = Report(view);
+        var q = report["queueDepth"]!;
+        q["capabilities"]![0]!["waiting"]!.GetValue<long>().ShouldBe(large);
+        q["total"]!.GetValue<long>().ShouldBe(large);
+        Valid(report).ShouldBeTrue();
+
+        var parsed = JsonSerializer.Deserialize<QueueDepthResponse>(
+            """{"observedAt":"2026-10-15T19:40:00Z","capabilities":[{"id":"person-detection","waiting":3000000000}],"total":3000000000}""",
+            PlatformJson.Options);
+        parsed!.Total.ShouldBe(large);
+        parsed.Capabilities.Single().Waiting.ShouldBe(large);
     }
 
     [Fact]

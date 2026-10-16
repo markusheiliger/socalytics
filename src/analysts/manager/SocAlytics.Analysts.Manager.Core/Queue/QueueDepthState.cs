@@ -15,7 +15,7 @@ public enum QueueDepthStatus
 
 public sealed record QueueDepthSnapshot(
     QueueDepthStatus State, DateTimeOffset? ObservedAt, DateTimeOffset? ReceivedAt,
-    IReadOnlyList<QueueDepthCapability> Capabilities, int Total, string? LastError);
+    IReadOnlyList<QueueDepthCapability> Capabilities, long Total, string? LastError);
 
 /// <summary>
 /// Latest queue depth observation, in memory only. Age is measured on the Manager's clock (<c>ReceivedAt</c>),
