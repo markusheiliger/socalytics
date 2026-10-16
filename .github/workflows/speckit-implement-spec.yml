@@ -198,6 +198,7 @@ jobs:
       folder: ${{ needs.decide.outputs.folder }}
       base: ${{ needs.decide.outputs.base_branch }}
       repair: ${{ needs.decide.outputs.repair }}
+      head: ${{ needs.decide.outputs.head }}
       prompt: ${{ needs.decide.outputs.prompt }}
       verify_only: ${{ needs.decide.outputs.verify_only == 'true' }}
       attempt: ${{ fromJSON(needs.decide.outputs.attempt) }}

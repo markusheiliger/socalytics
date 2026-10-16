@@ -35,6 +35,7 @@ import {
   renderNextSteps,
   renderResumeComment,
   setAttention,
+  setBlocked,
   specTitleOfPull,
 } from './speckit-implement-core.mjs';
 
@@ -374,6 +375,7 @@ export async function runRecord({ client, env, log }) {
     ...(report?.summary ? ['', neutralizeMarkers(report.summary)] : []),
   ].join('\n'));
   await complete('success', `Fix spec #${created} authored`, report?.summary || `specs/${fixFolder}`);
+  await setBlocked(client, pullNumber, true);
   await beginAmendment(client, env, { amendment: await client.getPullRequest(created), folder: fixFolder, implementation, twin, kind: 'fix' });
   log(`#${pullNumber}: fix spec #${created} authored; its consistency check started.`);
   return { exitCode: 0, outcome: 'created', pull: created };
@@ -405,6 +407,7 @@ export async function settleClosedFix(client, env, { amendment: pull, folder, im
     ? `**Fix spec #${pull.number} was merged into \`${pull.base?.ref}\`** by ${by}, not into \`${defaultBranch}\`, so it is not implemented and this implementation stays stopped.`
     : `Fix spec #${pull.number} was closed without merging by ${by}.`;
   await client.createComment(implementation.number, [renderFixEvent('discarded', { pull: pull.number, folder }), what, '', ...renderNextSteps({ diagnosed: true, ...context })].join('\n'));
+  await setBlocked(client, implementation.number, false);
   await setAttention(client, implementation.number, true);
   return { outcome: pull.merged_at ? 'misdirected' : 'discarded' };
 }
@@ -417,6 +420,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
   const comments = await client.listIssueComments(implementation.number);
   const state = fixState(comments);
   if (!state.created) {
+    await setBlocked(client, implementation.number, false);
     const latest = latestCheckRun(await client.listCheckRuns(implementation.head.sha, FIX_CHECK_NAME));
     if (latest && latest.status !== 'completed' && now - Date.parse(latest.started_at ?? latest.created_at ?? 0) >= AUTHORING_STALE_MS && !(await authoringRunning(client, twin, now))) {
       await closeAuthoringCheck(client, latest.id, 'failure', 'The fix spec authoring did not finish', 'The run ended without a result.');
@@ -427,10 +431,14 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     }
     return { outcome: 'none' };
   }
-  if (state.discarded || state.landed || state.stopped) return { outcome: 'done' };
+  if (state.discarded || state.landed || state.stopped) {
+    await setBlocked(client, implementation.number, false);
+    return { outcome: 'done' };
+  }
   const fixFolder = state.created.folder;
   const pull = await client.getPullRequest(state.created.pull);
   if (pull.state === 'open') {
+    await setBlocked(client, implementation.number, true);
     await guardPullRequest(client, env, pull, { report });
     return maintainOpenSpecPull(client, env, { amendment: await client.getPullRequest(pull.number), folder: fixFolder, implementation, twin, kind: 'fix' }, { now, report });
   }
@@ -439,6 +447,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     if (settled.outcome !== 'handled') report(`- Fix spec #${pull.number} was ${settled.outcome}.`);
     if (settled.outcome !== 'merged') return settled;
   }
+  await setBlocked(client, implementation.number, true);
   if (!state.linked) {
     const fixTwin = resolveTwins(await client.listTwinIssues(TWIN_LABEL)).byFolder.get(fixFolder);
     if (!fixTwin) {
@@ -473,6 +482,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
   const fixTwin = await client.getIssue(state.linked.twin);
   if (fixTwin.state !== 'closed') return { outcome: 'waiting' };
   if (fixTwin.state_reason === 'completed') {
+    await setBlocked(client, implementation.number, false);
     const lead = [
       renderFixEvent('landed', { pull: pull.number, twin: fixTwin.number }),
       `**The fix has landed**: spec twin #${fixTwin.number} (\`specs/${fixFolder}\`) is implemented. The implementation resumes with a fresh attempt count; the base branch is merged first, so it includes the fix.`,
@@ -494,6 +504,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) }),
   ].join('\n'));
   report(`- The fix spec of #${implementation.number} was not implemented (twin #${fixTwin.number} closed).`);
+  await setBlocked(client, implementation.number, false);
   await setAttention(client, implementation.number, true);
   return { outcome: 'stopped' };
 }

@@ -17,15 +17,16 @@ moving Web UI source under `src/platform`.
 
 The Web UI release is coordinated with the platform API and is intended to be
 built and deployed as a separate OCI container from `src/clients`. The service
-worker, offline mode, OCI container image, and Docker Compose deployment are
-not implemented yet.
+worker and installable PWA are implemented as development evidence; offline
+mode, the OCI container image, and Docker Compose deployment are not
+implemented yet.
 
 The PWA is served from a single origin. Its service worker caches the
 application shell and is versioned with each release, so an installed PWA
 always runs the current release after it reconnects. There is no separate
 client build, release lifecycle, installer, or origin for coaches.
 
-Decided, not yet implemented: the service worker is written in the Web UI
+The service worker is written in the Web UI
 project without a PWA framework. It precaches exactly the release's shell
 files, each verified against its SHA-384 integrity, keeps one cache per
 release, and passes every other request, including all API, session, upload,
@@ -37,7 +38,8 @@ Web UI version it requires, from deployment configuration, with its API
 responses; an older Web UI stops sending requests, updates through its worker,
 and reloads. The platform never refuses requests by client version. Without a
 network, the installed PWA opens the shell with the connection-required state
-and no data.
+and no data. Offline mode with local data does not exist yet; the offline shell
+shows the connection-required state only, and nothing is queued or stored.
 
 ## Web UI
 

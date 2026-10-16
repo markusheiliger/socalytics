@@ -4,7 +4,7 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 var e2eMode = string.Equals(Environment.GetEnvironmentVariable("SOCALYTICS_APPHOST_MODE"), "e2e", StringComparison.OrdinalIgnoreCase);
 const int WebE2ePort = 4174;
-const int MailpitE2ePort = 4176;
+const int MailpitE2ePort = 4175;
 
 var generatedPassword = new GenerateParameterDefault { MinLength = 24, Special = false };
 var migratorPassword = builder.AddParameter("socalytics-migrator-password", generatedPassword, secret: true, persist: true);

@@ -10,6 +10,7 @@ import { DefaultRequestAdapter } from '@microsoft/kiota-bundle';
 import { createPlatformApiClient } from '../generated/platform-api/platformApiClient';
 import { AntiforgeryHeaderHandler } from './middleware/antiforgery';
 import { ConnectivityHandler } from './middleware/connectivity';
+import { MinimumVersionHandler, sharedMinimumVersion, type MinimumVersionOptions } from './middleware/minimumVersion';
 import { SessionOutcomeHandler, type SessionOutcome } from './middleware/sessionOutcome';
 
 export interface PlatformClientOptions {
@@ -19,6 +20,8 @@ export interface PlatformClientOptions {
   /** Defaults to the current origin; the generated paths already start with `/api/v1`. */
   baseUrl?: string;
   fetch?: (url: string, init: RequestInit) => Promise<Response>;
+  /** Defaults to the shared update state of the service worker registration. */
+  minimumVersion?: MinimumVersionOptions;
 }
 
 // A 429 is shown with its wait time instead of being retried silently.
@@ -35,6 +38,7 @@ export function createPlatformApi(options: PlatformClientOptions) {
     baseFetch(url, { ...init, credentials: 'same-origin' });
 
   const middlewares: Middleware[] = [
+    new MinimumVersionHandler(options.minimumVersion ?? sharedMinimumVersion),
     new ConnectivityHandler(options.onNetworkFailure),
     new SessionOutcomeHandler(options.onSessionOutcome),
     new AntiforgeryHeaderHandler(options.getAntiforgeryToken),

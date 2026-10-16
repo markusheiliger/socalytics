@@ -236,7 +236,6 @@ function stagePatch(git, resultDir) {
 function checkStagedRepair({ git, workspace, folder, patchBytes, allowEnvironment = false }) {
   const paths = splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z']));
   const reasons = [];
-  if (patchBytes === 0) reasons.push('the repair agent made no changes');
   if (patchBytes > MAX_PATCH_BYTES) reasons.push(`the repair patch is larger than ${MAX_PATCH_BYTES} bytes`);
   if (paths.length > MAX_CHANGED_FILES) reasons.push(`the repair changes more than ${MAX_CHANGED_FILES} files`);
   const tasksPaths = [tasksPathOf(folder), tasksPathOf(folder, { archived: true })];
@@ -618,6 +617,10 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   const reasons = [];
   if (!result) reasons.push(`the work job did not finish (result: ${workResult || 'unknown'})`);
   else reasons.push(...result.reasons);
+  if (inputs.kind === 'repair' && result) {
+    if (workResult !== 'success') reasons.push(`the repair work job did not succeed (result: ${workResult || 'unknown'})`);
+    if (result.agentExit !== 0) reasons.push('the repair agent did not exit successfully');
+  }
   if (result && !result.verified && result.reasons.length === 0) reasons.push('the change was not verified');
   const bestEffort = await bestEffortResolution(client, inputs, result);
 
@@ -654,6 +657,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     reasons.push(...applyPatch({
       git,
       resultDir,
+      allowEmpty: true,
       check: (patchBytes) => checkStagedRepair({ git, workspace, folder, patchBytes, allowEnvironment: env.SPECKIT_REPAIR_SCOPE === 'merge' }).reasons,
     }));
   }
@@ -685,6 +689,12 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   }
 
   const pull = await client.getPullRequest(inputs.pull);
+  if (inputs.kind === 'repair' && gitOrThrow(git, ['diff', '--cached', '--name-only']).trim() === '') {
+    const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
+    report.line(`Repair made no changes; reverifying ${head}.`);
+    report.flush();
+    return { exitCode: 0, head };
+  }
   if (inputs.kind === 'converge' && result.converged) {
     await client.updateCheckRun(inputs.checkRun, {
       status: 'completed',
@@ -895,18 +905,18 @@ export async function runLandTasks({ client, git, env, folder, workspace, result
     const own = path.join(resultRoot, `speckit-result-${key}`);
     const resultDir = entries.length === 1 && !existsSync(own) ? resultRoot : own;
     const recorded = String(readJson(path.join(resultDir, 'result.json'))?.base ?? '');
-    const base = /^[0-9a-f]{40}$/.test(recorded) && git(['merge-base', '--is-ancestor', recorded, tip]).status === 0 ? recorded : tip;
+    const base = kind !== 'repair' && /^[0-9a-f]{40}$/.test(recorded) && git(['merge-base', '--is-ancestor', recorded, tip]).status === 0 ? recorded : tip;
     git(['merge', '--abort']);
     gitOrThrow(git, ['checkout', '-q', '--force', '--detach', base]);
     gitOrThrow(git, ['clean', '-fdq']);
     const checkRun = await attemptCheck(client, { head: base, kind, entry });
     const inputs = { kind, twin, pull, task: entry.task || null, attempt: Number(entry.attempt), checkRun, folder };
     const landed = await runLand({ client, git, env, inputs, folder, workspace, resultDir, workResult: env.SPECKIT_WORK_RESULT, log });
-    outcomes.push({ key, landed: landed.exitCode === 0 && !landed.requeue, combined: landed.combined ?? [] });
+    outcomes.push({ key, landed: landed.exitCode === 0 && !landed.requeue, combined: landed.combined ?? [], head: landed.head });
   }
   const ok = outcomes.every((outcome) => outcome.landed);
   const combined = [...new Set(outcomes.flatMap((outcome) => outcome.combined))].sort();
-  const head = (await client.getBranchSha(implementationBranch(folder))) ?? tip;
+  const head = kind === 'repair' ? outcomes.at(-1)?.head ?? tip : (await client.getBranchSha(implementationBranch(folder))) ?? tip;
   const next = order[index + 1];
   // A combination is verified first; the job that reports that verification shows the next tasks (runCombinedVerified).
   const deferProgress = String(env.SPECKIT_DEFER_PROGRESS ?? 'false').toLowerCase() === 'true';
@@ -978,7 +988,7 @@ export async function runCombinedVerified({ client, env, log }) {
     renderRepairMarker(repair),
     `**Implementation needs attention**${mention ? ` ${mention}` : ''}: the verification of ${tasks} together ${outcome}${run}. Each task passed its own verification and their changes to the same files merged cleanly, so the combination breaks something.`,
     '',
-    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', ...nextContext }),
+    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false', ...nextContext, continuation: { repair } }),
   ].join('\n'));
   report.line(`The verification of ${tasks} together ${outcome}; the implementation stops for a person.`);
   report.flush();
@@ -998,7 +1008,9 @@ export async function runRepairReport({ client, env, log }) {
   }
   const inputs = { kind: 'repair', twin, pull, task: null, attempt, checkRun };
   const verification = String(env.SPECKIT_VERIFY_RESULT ?? '');
-  if (verification === 'success') {
+  const verifiedAction = String(env.SPECKIT_VERIFICATION_OUTCOME ?? '') === 'success';
+  const currentHead = (await client.getPullRequest(pull)).head?.sha;
+  if (verification === 'success' && verifiedAction && currentHead === head) {
     await client.updateCheckRun(checkRun, {
       status: 'completed',
       conclusion: 'success',
@@ -1014,7 +1026,9 @@ export async function runRepairReport({ client, env, log }) {
     report.flush();
     return { exitCode: 0, verified: true };
   }
-  const outcome = verification === 'failure' ? 'failed' : `did not finish (${verification || 'unknown'})`;
+  const outcome = verification !== 'success'
+    ? verification === 'failure' ? 'failed' : `did not finish (${verification || 'unknown'})`
+    : !verifiedAction ? 'did not run successfully' : `verified an outdated head (${head}; current head ${currentHead || 'unknown'})`;
   await client.updateCheckRun(checkRun, {
     status: 'completed',
     conclusion: 'failure',
@@ -1024,18 +1038,23 @@ export async function runRepairReport({ client, env, log }) {
   const { mention } = await requesterMention(client, twin);
   await client.createComment(pull, [
     ...markerLines(inputs, 'failure'),
-    `**Implementation needs attention**${mention ? ` ${mention}` : ''}: repair attempt ${attempt} landed, but the ${repair.scope} verification ${outcome}.`,
+    `**Implementation needs attention**${mention ? ` ${mention}` : ''}: repair attempt ${attempt} reached reverification, but the ${repair.scope} verification ${outcome}.`,
     '',
-    ...renderNextSteps({ autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false' }),
+    ...renderNextSteps({
+      autoDiagnosis: String(env.SPECKIT_AUTO_DIAGNOSE ?? 'true').toLowerCase() !== 'false',
+      baseBranch: baseBranchOf(await client.getPullRequest(pull)),
+      continuation: { repair },
+    }),
   ].join('\n'));
   report.line(`Repair ${repair.id} verification ${outcome}.`);
   report.flush();
   return { exitCode: 1, verified: false };
 }
-function applyPatch({ git, resultDir, check }) {
+function applyPatch({ git, resultDir, check, allowEmpty = false }) {
   const patchFile = path.join(resultDir, 'changes.patch');
-  const patchBytes = existsSync(patchFile) ? statSync(patchFile).size : 0;
-  if (patchBytes === 0) return ['the agent made no changes'];
+  if (!existsSync(patchFile)) return ['the agent patch is missing'];
+  const patchBytes = statSync(patchFile).size;
+  if (patchBytes === 0) return allowEmpty ? check(0) : ['the agent made no changes'];
   const applied = git(['apply', '--index', '--whitespace=nowarn', patchFile]);
   if (applied.status !== 0) return [`the change could not be applied: ${applied.stderr.trim()}`];
   return check(patchBytes);

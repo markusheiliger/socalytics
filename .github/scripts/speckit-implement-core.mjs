@@ -88,6 +88,7 @@ export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
 // carries it while it waits for a person (stopped, a diagnosis or a fix spec outcome to decide on, or ready for review)
 // and loses it once a person's action puts automation back to work or closes the pull request.
 export const ATTENTION_LABEL = 'help wanted';
+export const BLOCKED_LABEL = 'blocked';
 export const MAX_WRITER_GUIDANCE = 4000;
 const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
 // Marks that the base branch at a commit was not merged before a phase (refused, or its conflicts need a person), so
@@ -270,7 +271,8 @@ export function renderRepairPrompt({ repair, guidance, folder }) {
     `Repair the already-landed implementation for ${tasks} in spec ${folder}.`,
     `The ${repair.scope} verification failed after the related tasks were committed and checked in tasks.md.`,
     'Do not untick, rewrite, or add tasks. Do not commit. Change only implementation or directly related tests needed to make the failed verification pass.',
-    repair.run ? `Failure evidence from workflow run ${repair.run} is available in ../failed-verification/.` : '',
+    repair.run ? `Failure evidence from workflow run ${repair.run}, if downloadable, is in .speckit-repair-evidence/ inside your working directory; inspect it directly and report if unavailable.` : '',
+    'If no code change is needed, leave the tree unchanged and explain why; a successful agent exit still requires separate reverification of the failed scope.',
   ].filter(Boolean).join(' ');
   return appendWriterGuidance(prompt, guidance, 'Writer-approved guidance');
 }
@@ -553,6 +555,20 @@ export async function setAttention(client, number, needed) {
     const has = (pull.labels ?? []).some((label) => (label?.name ?? label) === ATTENTION_LABEL);
     if (needed && !has && pull.state === 'open') await client.addLabels(number, [ATTENTION_LABEL]);
     if (!needed && has) await client.removeLabel(number, ATTENTION_LABEL);
+  } catch {
+    // The label only signals the state; comments and check runs carry it.
+  }
+}
+
+export async function setBlocked(client, number, blocked) {
+  try {
+    const pull = await client.getPullRequest(number);
+    const has = (pull.labels ?? []).some((label) => (label?.name ?? label) === BLOCKED_LABEL);
+    if (blocked && !has && pull.state === 'open') {
+      await client.ensureLabel({ name: BLOCKED_LABEL, color: 'd93f0b', description: 'Implementation is on hold waiting for a prerequisite fix' });
+      await client.addLabels(number, [BLOCKED_LABEL]);
+    }
+    if ((!blocked || pull.state !== 'open') && has) await client.removeLabel(number, BLOCKED_LABEL);
   } catch {
     // The label only signals the state; comments and check runs carry it.
   }
@@ -1013,9 +1029,18 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
   const next = (typeof continuation === 'string' ? continuation : continuation?.text) ?? 'continues with what stopped';
   const mergesAnyway = typeof continuation === 'object' && continuation?.mergesBase === true;
   const attempts = `with a fresh attempt count (at most ${MAX_TASK_ATTEMPTS} failed attempts)`;
-  const guidance = parsed.argument
+  const forced = ['retry', 'resume'].includes(parsed.verb) && /^--force(?:\s+|$)/i.test(parsed.argument);
+  const argument = forced ? parsed.argument.replace(/^--force(?:\s+|$)/i, '').trim() : parsed.argument;
+  const flag = forced ? ' `--force` is a flag that bypasses the unchanged-restart guard, not guidance; it does not reset the repair attempt limit.' : '';
+  const guidance = (argument
     ? 'The text after the command goes into the next attempt\'s prompt as guidance.'
-    : 'Text you add after the command goes into the next attempt\'s prompt as guidance.';
+    : 'Text you add after the command goes into the next attempt\'s prompt as guidance.') + flag;
+  if (continuation?.repair && ['retry', 'resume'].includes(parsed.verb)) {
+    const start = parsed.verb === 'resume'
+      ? `First merges ${base} into the implementation branch (Copilot resolves conflicts); then`
+      : `Does not merge ${base};`;
+    return `${start} ${argument ? 'runs a repair agent with the guidance, then reverifies' : 'reverifies without running a repair agent'} the pending ${continuation.repair.scope} verification. The original failed scope must pass before normal planning continues; existing repair attempts still count toward the limit of ${MAX_TASK_ATTEMPTS}. With guidance, a successful no-change repair also reaches reverification without an empty commit.${flag}`;
+  }
   switch (parsed.verb) {
     case 'retry':
       return mergesAnyway
@@ -1062,10 +1087,12 @@ export function describeContinuation(decision, checks = [], tasksMarkdown = null
 // that cannot be told (errors included, because it only explains a next step).
 export async function continuationOf(client, { folder, pull }) {
   try {
+    const comments = await client.listIssueComments(pull.number);
+    const repair = unresolvedRepair(comments);
+    if (repair) return { text: `continues with the pending ${repair.scope} verification repair`, mergesBase: false, repair };
     const { tasksMarkdown } = await readSpecTasks(client, folder, pull.head.sha);
     if (tasksMarkdown === null) return null;
     const checks = await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME);
-    const comments = await client.listIssueComments(pull.number);
     const now = Date.now();
     const at = new Date(now).toISOString();
     const decision = decideNext({ tasksMarkdown, checks, attempts: parseAttempts(comments), windowStart: at, resumedAt: at, now });
@@ -1097,7 +1124,15 @@ const FIXED_EFFECTS = {
   amendment: 'Merging applies the amendment to the spec artifacts on the implementation branch; the implementation then continues by itself from the next unchecked task, with a fresh attempt count. Comment or request changes there to have it reworked first.',
   push: 'A push to the implementation branch continues the implementation by itself with a fresh attempt count. Closing the pull request abandons the implementation, and the twin returns to its computed stage.',
 };
-const optionEffect = (option, context) => option.effect ?? (option.command ? describeCommandEffect(option.command, context) : FIXED_EFFECTS[option.kind] ?? null);
+const optionEffect = (option, context) => {
+  if (option.effect) return option.effect;
+  if (option.command) return describeCommandEffect(option.command, context);
+  if (context.continuation?.repair) {
+    if (option.kind === 'push') return 'After pushing a fix, request `/speckit retry` to reverify the pending repair; a push alone does not clear it. Closing the pull request abandons the implementation, and the twin returns to its computed stage.';
+    if (option.kind === 'amendment') return 'Merging applies the amendment and resumes the implementation with the pending repair verification before normal planning can continue. Comment or request changes there to have it reworked first.';
+  }
+  return FIXED_EFFECTS[option.kind] ?? null;
+};
 const optionTitle = (option) => (option.link ? `[${bareTitle(option.title)}](${option.link})` : bareTitle(option.title));
 
 // How a person handles an amendment pull request; shown in its description and referenced from the implementation.

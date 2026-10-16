@@ -133,6 +133,7 @@ public sealed class MemberEmailTests(PostgresContainerFixture postgres, MailpitC
 		var address = EmailApiHarness.NewAddress();
 		using var set = await SendAsync(h.Admin, HttpMethod.Put, path, new { address }, null, ct);
 		var version = (await set.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("version").GetInt64();
+		await h.TokenFromMailAsync(address, 1, ct);
 
 		using var removed = await SendAsync(h.Admin, HttpMethod.Delete, path, null, version, ct);
 		removed.StatusCode.ShouldBe(HttpStatusCode.NoContent);
@@ -143,7 +144,7 @@ public sealed class MemberEmailTests(PostgresContainerFixture postgres, MailpitC
 		var body = await detail.Content.ReadFromJsonAsync<JsonElement>(ct);
 		(!body.TryGetProperty("email", out var email) || email.ValueKind == JsonValueKind.Null).ShouldBeTrue();
 		(await AuditDetailsAsync(h.Db, "identity.email-address-removed", ct)).ShouldNotContain(address);
-		(await h.MailCountAsync(address, ct)).ShouldBe(0);
+		(await h.MailCountAsync(address, ct)).ShouldBe(1);
 	}
 
 	[Fact]

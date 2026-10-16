@@ -1,5 +1,5 @@
 // The AppHost in e2e mode publishes Mailpit's web UI and REST API on a fixed port.
-const MAILPIT_URL = process.env.SOCALYTICS_E2E_MAILPIT_URL ?? 'http://127.0.0.1:4176';
+const MAILPIT_URL = process.env.SOCALYTICS_E2E_MAILPIT_URL ?? 'http://127.0.0.1:4175';
 
 type MailpitMessageSummary = { ID: string; Subject: string };
 type MailpitSearch = { messages: MailpitMessageSummary[] };

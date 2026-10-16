@@ -43,7 +43,7 @@ const ids = {
 };
 
 /** Origin of the fake object store (tests/e2e/support/fakeObjectStorage.mjs); playwright.config.ts starts it on this port. */
-export const FAKE_STORAGE_ORIGIN = 'http://127.0.0.1:4175';
+export const FAKE_STORAGE_ORIGIN = 'http://127.0.0.1:4176';
 
 const now = new Date('2026-10-12T12:00:00Z');
 const later = (hours: number) => new Date(now.getTime() + hours * 3_600_000);
@@ -333,7 +333,15 @@ export class SimulatedApi {
     return entity(target);
   }
 
+  /** When set, every simulated API response carries `SocAlytics-Minimum-Web-Version` with this value. */
+  minimumWebVersion: string | null = null;
+
   private async handle(route: Route): Promise<void> {
+    if (this.minimumWebVersion) {
+      const version = this.minimumWebVersion;
+      const fulfill = route.fulfill.bind(route);
+      route.fulfill = (options) => fulfill({ ...options, headers: { ...options?.headers, 'SocAlytics-Minimum-Web-Version': version } });
+    }
     const request = route.request();
     const path = new URL(request.url()).pathname.replace(/^\/api\/v1/, '');
     const method = request.method();
