@@ -123,7 +123,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
         kind: 'repair',
         repair,
         guidance,
-        verifyOnly: String(restart.body ?? '').startsWith(RESUME_COMMENT_MARKER) && !guidance,
+        verifyOnly: !guidance,
         attempt: repairAttempts.length + 1,
         stale: decision.stale ?? [],
       };
@@ -149,7 +149,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
 
 // Whether a decision needs a run of the chain: work to do, a stop to report, or a diagnosis to start.
 export function needsRun(decision, env) {
-  if (['tasks', 'merge', 'limit'].includes(decision.action)) return true;
+  if (['tasks', 'repair', 'merge', 'limit'].includes(decision.action)) return true;
   if (decision.action !== 'failed' || decision.diagnosis?.state === 'reported') return false;
   return decision.diagnosis?.state === 'stale' || (autoDiagnosisEnabled(env) && (decision.diagnosis?.count ?? 0) < MAX_AUTO_DIAGNOSES);
 }
@@ -595,7 +595,11 @@ export async function runContinue({ client, env, log }) {
       }),
       `**Implementation needs attention**${requester ? ` @${requester}` : ''}: the full verification at the end of the phase failed${run ? ` (see the [run](${run}))` : ''}. Each task passed its own verification, which covers only the tests it touched, so a change of the phase breaks tests elsewhere, or the tasks break something together.`,
       '',
-      ...renderNextSteps({ autoDiagnosis: autoDiagnosisEnabled(env), ...(await nextStepContext(client, pull, folder || null)) }),
+      ...renderNextSteps({
+        autoDiagnosis: autoDiagnosisEnabled(env),
+        ...(await nextStepContext(client, pull, folder || null)),
+        continuation: { repair: { scope: repairTasks.length === 1 ? 'task' : 'phase' } },
+      }),
     ].join('\n'));
     report.line('The phase verification failed; the implementation stops for a person.');
   }

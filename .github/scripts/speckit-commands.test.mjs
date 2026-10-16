@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER, parseGuidance } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
 import { main, parseCommand, renderHelp, runCommand } from './speckit-commands.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -108,6 +108,23 @@ test('retry restarts what stopped with guidance, on the branch as it is', async 
   assert.match(retried.body, /^<!-- speckit-implement:retry -->[\s\S]*Implementation retried by @dev; what stopped restarts with a fresh attempt count, without merging the base branch for it\.[\s\S]*> Rerun the verification unchanged/);
   assert.doesNotMatch(retried.body, /speckit-implement:resume/, 'a retry is no resume, so the chain does not merge the base branch for it');
   assert.equal(parseGuidance(retried.body), 'Rerun the verification unchanged');
+});
+
+test('pending repair restart comments distinguish verification-only and guided work without claiming fresh attempts', async () => {
+  for (const command of ['retry', 'resume']) {
+    for (const guidance of ['', 'Inspect the evidence', '--force', '--force Inspect the evidence']) {
+      const github = diagnosisRepo();
+      await github.createComment(9, renderRepairMarker({ id: 'phase:failure', state: 'pending', scope: 'phase', at: github.tick() }));
+      await run(github, `/speckit ${command}${guidance ? ` ${guidance}` : ''}`);
+      const comment = github.comments.at(-1).body;
+      assert.match(comment, /pending phase verification/);
+      const actualGuidance = guidance.replace(/^--force(?:\s+|$)/, '');
+      assert.match(comment, actualGuidance ? /runs a repair agent with the guidance/ : /reverifies without running a repair agent/);
+      assert.match(comment, command === 'resume' ? /First merges `main`/ : /Does not merge `main`/);
+      assert.doesNotMatch(comment, /fresh attempt count|convergence|not repeated by itself/);
+      assert.equal(parseGuidance(comment) ?? '', actualGuidance);
+    }
+  }
 });
 
 test('restarts that leave a stopped implementation unchanged are refused, unless something changed or the person insists', async () => {

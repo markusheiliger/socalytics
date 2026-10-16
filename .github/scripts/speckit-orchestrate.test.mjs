@@ -8,7 +8,7 @@ import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { runSync } from './speckit-prepare.mjs';
 import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
 import { phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
-import { ATTENTION_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, parseGuidance, renderAttemptMarker, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderRepairMarker, renderResumeComment, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -661,6 +661,14 @@ test('chain: a durable repair blocks normal planning until a writer authorizes g
     const repair = { id: `group:1:${head}`, state: 'pending', scope: 'group', tasks: ['T001', 'T002'], head, run: '1', artifact: 'speckit-group-verification', at: github.tick() };
     await github.createComment(pull.number, `${renderRepairMarker(repair)}\nrepair pending`);
 
+    const continuation = await continuationOf(github, { folder: 'a', pull });
+    assert.equal(continuation.repair.id, repair.id, 'checked tasks cannot make comments claim convergence is next');
+    for (const command of ['retry', 'resume']) {
+      const effect = describeCommandEffect(`/speckit ${command}`, { baseBranch: 'main', continuation });
+      assert.match(effect, /reverifies without running a repair agent.*pending group verification/);
+      assert.doesNotMatch(effect, /convergence|not repeated by itself|fresh attempt count/);
+      assert.match(describeCommandEffect(`/speckit ${command} Investigate the logs`, { continuation }), /repair agent with the guidance, then reverifies/);
+    }
     assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'stop', 'checked tasks cannot bypass pending repair');
     await github.createComment(pull.number, renderRetryComment('Implementation retried by @dev.', 'Fix the combined registration and rerun its tests.'));
     const authorized = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
@@ -674,7 +682,8 @@ test('chain: a durable repair blocks normal planning until a writer authorizes g
   }
 });
 
-test('chain: resume reverifies a pending repair without running a repair agent', async () => {
+for (const restart of [renderResumeComment, renderRetryComment]) {
+test(`chain: ${restart.name} reverifies a pending repair without guidance or a repair agent`, async () => {
   const { root, github, twin } = await flaggedRepo();
   try {
     await start(github, root, twin);
@@ -684,13 +693,14 @@ test('chain: resume reverifies a pending repair without running a repair agent',
     await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'completed', conclusion: 'failure', external_id: CHECK_LIMIT, output: { title: 'Phase failed', summary: 'transient failure' } });
     const repair = { id: `phase:1:${head}`, state: 'pending', scope: 'phase', tasks: ['T001', 'T002'], head, at: github.tick() };
     await github.createComment(pull.number, `${renderRepairMarker(repair)}\npending`);
-    await github.createComment(pull.number, `${RESUME_COMMENT_MARKER}\nImplementation resumed by @dev.`);
+    await github.createComment(pull.number, restart('Implementation restarted by @dev.'));
     const resumed = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
     assert.deepEqual([resumed.outputs.action, resumed.outputs.verify_only], ['repair', 'true']);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
+}
 
 test('chain: decide stops at the attempt limit, resumes on request with guidance, and does nothing for unflagged twins', async () => {
   const { root, github, twin } = await flaggedRepo();
