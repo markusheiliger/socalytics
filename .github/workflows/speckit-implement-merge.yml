@@ -42,6 +42,10 @@ jobs:
   # branch never receives references to an active spec folder that no longer exists.
   archive:
     name: Archive the spec before the merge
+    concurrency:
+      group: speckit-publication-${{ inputs.pull }}
+      queue: max
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -197,6 +201,10 @@ jobs:
   # API only: never checks out or runs workspace code.
   land:
     name: Merge into the base branch
+    concurrency:
+      group: speckit-publication-${{ inputs.pull }}
+      queue: max
+      cancel-in-progress: false
     needs: [archive, verify]
     if: always()
     runs-on: ubuntu-latest

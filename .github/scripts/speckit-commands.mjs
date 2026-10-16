@@ -77,6 +77,16 @@ async function resolveTarget(client, env, number) {
   return { folder, implementation: full, twin };
 }
 
+// Resolve an amendment comment to its implementation before acquiring the publication lock.
+export async function runCommandTarget({ client, env }) {
+  const number = Number(env.SPECKIT_PULL);
+  if (!Number.isInteger(number) || number <= 0) throw new CommandUsageError('Expected SPECKIT_PULL.');
+  const command = parseCommand(env.SPECKIT_COMMENT_BODY);
+  if (!command || ['help', 'unknown'].includes(command.name)) return number;
+  const target = await resolveTarget(client, env, number);
+  return target.implementation?.number ?? number;
+}
+
 // Starts a new attempt window: the resume or retry comment persists the request (and the guidance), so a replaced
 // pending run cannot lose it; starting the implementation chain only makes it happen right away.
 async function resumeImplementation(client, env, { implementation, twin, folder }, lead, guidance = '', render = renderResumeComment, state = null) {
@@ -127,6 +137,10 @@ export async function runCommand({ client, env, log, now = Date.now }) {
   if (target.reason) {
     await reply(client, number, `\`/speckit ${command.name}\` cannot run here: ${target.reason}.`);
     return { exitCode: 0, handled: true, command: command.name, rejected: target.reason };
+  }
+  if (env.SPECKIT_PUBLICATION_PULL && Number(env.SPECKIT_PUBLICATION_PULL) !== target.implementation.number) {
+    await reply(client, number, 'The implementation pull request changed while the command waited for publication. Post the command again on the current implementation pull request.');
+    return { exitCode: 0, handled: true, command: command.name, rejected: 'publication target changed' };
   }
   const handler = HANDLERS[command.name];
   const result = await handler({ client, env, actor, number, argument: command.argument, now, ...target });
@@ -259,8 +273,14 @@ const HANDLERS = {
 
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command] = argv;
-  if (command !== 'command') throw new CommandUsageError('Usage: speckit-commands.mjs command (inputs come from SPECKIT_* environment variables)');
-  const result = await runCommand({ client: client ?? createGitHubClient(env), env, log });
+  if (!['command', 'target'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target> (inputs come from SPECKIT_* environment variables)');
+  const github = client ?? createGitHubClient(env);
+  if (command === 'target') {
+    const pull = await runCommandTarget({ client: github, env });
+    if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `pull=${pull}\n`);
+    return 0;
+  }
+  const result = await runCommand({ client: github, env, log });
   if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `handled=${result.handled}\n`);
   return result.exitCode;
 }

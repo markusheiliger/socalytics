@@ -811,6 +811,7 @@ test('required sync verifies and lands clean, conflicted and already-current mer
       assert.equal(landed.exitCode, 0, landed.reasons?.join('; '));
       const completion = syncBarrier(github.comments).completion;
       assert.equal(completion.state, 'verified', 'landing does not itself release the latest-base barrier');
+      assert.equal(completion.guidanceConsumed, options === conflicting, 'only a successful Copilot conflict resolution consumes sync guidance');
       assert.equal(completion.baseSha, remoteSha(repos, 'main'));
       if (!options.main && options !== conflicting) {
         assert.equal(remoteSha(repos, 'speckit/f'), before, 'already-current sync creates no empty commit');
@@ -988,6 +989,73 @@ test('a required sync arriving during ordinary work prevents that work landing',
   });
   assert.equal(archive.exitCode, 1);
   assert.equal(remoteHead(repos), before, 'archiving cannot change the branch while sync is pending');
+}));
+
+test('a sync accepted during landing preparation is rechecked before task publication', () => withRepos({}, async (repos) => {
+  const github = fakeGitHub();
+  work(repos, { agent: (r) => agentDoesT001(r.work) });
+  const before = remoteHead(repos);
+  const getPull = github.getPullRequest.bind(github);
+  github.getPullRequest = async (number) => {
+    const pull = await getPull(number);
+    await github.createComment(9, renderSyncComment('Sync accepted during getPullRequest'));
+    github.getPullRequest = getPull;
+    return pull;
+  };
+  const landed = await land(repos, github);
+  assert.ok(landed.requeue);
+  assert.equal(remoteHead(repos), before);
+}));
+
+test('a sync accepted after a rejected task push prevents every subsequent push retry', () => withRepos({}, async (repos) => {
+  const github = fakeGitHub();
+  work(repos, { agent: (r) => agentDoesT001(r.work) });
+  const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-head', status: 'in_progress', external_id: CHECK_ATTEMPT });
+  const realGit = defaultGit(repos.land);
+  let pushes = 0;
+  let siblingHead;
+  const racingGit = (args) => {
+    if (args.includes('push')) {
+      pushes++;
+      if (pushes === 1) {
+        const seed = path.join(repos.base, 'seed');
+        write(seed, 'docs/sibling.md', '# Parallel task\n');
+        git(seed, 'add', '-A');
+        git(seed, 'commit', '-q', '-m', 'parallel task');
+        git(seed, 'push', '-q', repos.bare, 'HEAD:refs/heads/speckit/f');
+        siblingHead = remoteHead(repos);
+        github.createComment(9, renderSyncComment('Sync accepted after the rejected push'));
+        return { status: 1, stdout: '', stderr: 'push rejected: branch moved' };
+      }
+    }
+    return realGit(args);
+  };
+  const landed = await runLand({
+    client: github, git: racingGit, env: landEnv(repos), inputs: { ...TASK_INPUTS, checkRun: check.id },
+    folder: 'f', workspace: repos.land, resultDir: repos.resultDir, workResult: 'success', log: silent,
+  });
+  assert.ok(landed.requeue);
+  assert.equal(pushes, 1);
+  assert.equal(remoteHead(repos), siblingHead, 'only the previously landed sibling remains on the branch');
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[ \] T001/);
+}));
+
+test('a sync accepted during archive preparation prevents its publication', () => withRepos({ tasks: DONE_TASKS }, async (repos) => {
+  const github = fakeGitHub();
+  const before = remoteHead(repos);
+  const realGit = defaultGit(repos.land);
+  const racingGit = (args) => {
+    const result = realGit(args);
+    if (args.includes('commit') && result.status === 0) github.createComment(9, renderSyncComment('Sync accepted during archive preparation'));
+    return result;
+  };
+  const archived = await runArchive({
+    client: github, git: racingGit,
+    env: { ...landEnv(repos), SPECKIT_PULL: '9' }, folder: 'f', log: silent,
+  });
+  assert.equal(archived.exitCode, 1);
+  assert.ok(syncBarrier(github.comments), 'the request was interleaved after the archive entry check');
+  assert.equal(remoteHead(repos), before);
 }));
 
 test('resolve: markers, changes outside the conflicts, and forged resolutions are rejected', async () => {
@@ -1220,6 +1288,23 @@ function mergeableGitHub() {
   github.setFile('sha-head', 'specs/f/tasks.md', DONE_TASKS);
   return github;
 }
+
+test('merge-land rechecks sync accepted during getPullRequest or immediately before the merge', async () => {
+  for (const timing of ['getPullRequest', 'markReadyForReview']) {
+    const github = mergeableGitHub();
+    const original = github[timing].bind(github);
+    github[timing] = async (...args) => {
+      const value = await original(...args);
+      await github.createComment(9, renderSyncComment(`Sync accepted during ${timing}`));
+      github[timing] = original;
+      return value;
+    };
+    const result = await mergeLand(github, verifiedMerge);
+    assert.ok(result.requeue);
+    assert.equal(github.repo.merges.length, 0);
+    assert.ok(syncBarrier(github.comments));
+  }
+});
 
 test('merge-land squash-merges a verified implementation and completes the twin', async () => {
   const github = mergeableGitHub();

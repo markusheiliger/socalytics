@@ -683,6 +683,10 @@ export function checkReportFile(file, log = console.log) {
   if (!file || !existsSync(file)) throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs check-report <report.json>');
   const { reasons, report } = validateReport(readFileSync(file, 'utf8'));
   const notes = report?.category ? recommendNextSteps(report).notes : [];
+  if (report?.category && report.category !== 'artifacts' &&
+      !report.options.some((option) => option.recommended && option.command)) {
+    notes.push('the report must recommend one actionable command that fits its category');
+  }
   const problems = [...reasons, ...notes];
   log(problems.length > 0 ? `Fix these problems before you report:\n${problems.map((item) => `- ${item}`).join('\n')}` : 'The report is valid.');
   if (report?.category) log(`\nThe comment would read:\n\n${renderDiagnosisComment({ report, reasons, round: 1 })}`);

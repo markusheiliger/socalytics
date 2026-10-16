@@ -559,7 +559,13 @@ const MAX_LAND_TRIES = 5;
 // runCombinedVerified). Only
 // a change that no longer applies, or conflicts with those edits, has to be redone from the new head: that is a
 // requeue, not a failed attempt.
-function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
+// The shared job lock makes acceptance atomic with publication; rereads also fence stale work and push retries.
+async function publicationBlocked(client, inputs, syncRequest = null) {
+  const barrier = syncBarrier(await client.listIssueComments(inputs.pull));
+  return Boolean(barrier && (inputs.kind !== 'resolve' || barrier.request !== syncRequest));
+}
+
+async function pushTask({ client, inputs, git, env, folder, task, message, resultDir, workspace }) {
   const branch = implementationBranch(folder);
   const tasksPath = tasksPathOf(folder, { archived: isArchivedIn(workspace, folder) });
   const patchFile = path.join(resultDir, 'changes.patch');
@@ -568,6 +574,7 @@ function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
   let onto = base;
   let combined = [];
   for (let tries = 0; tries < MAX_LAND_TRIES; tries += 1) {
+    if (await publicationBlocked(client, inputs)) return { requeue: ['required synchronization was requested before task publication'] };
     const pushed = git(pushArgs(env, branch));
     if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim(), combined };
     const rejection = pushed.stderr.trim().split('\n').at(-1);
@@ -630,14 +637,19 @@ async function completeSupersededProgress(client, parent, head) {
   }
 }
 
-async function push({ client, git, env, inputs, folder, resultDir, report }) {
+async function push({ client, git, env, inputs, folder, resultDir, report, syncRequest }) {
   const branch = implementationBranch(folder);
+  if (await publicationBlocked(client, inputs, syncRequest)) {
+    const requeue = ['required synchronization was requested or replaced before publication'];
+    await reportRequeue({ client, inputs, reasons: requeue });
+    return { requeue };
+  }
   const pushed = git(pushArgs(env, branch));
-  if (pushed.status === 0) return gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
+  if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim() };
   const reasons = [`the push to \`${branch}\` was rejected; the branch probably moved (${pushed.stderr.trim().split('\n').at(-1)})`];
   await reportFailure({ client, inputs, reasons, resultDir });
   report.flush();
-  return null;
+  return { reasons };
 }
 
 // The next-steps block of an attention comment lists the commands that continue from here.
@@ -752,6 +764,12 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   }
 
   const pull = await client.getPullRequest(inputs.pull);
+  if (await publicationBlocked(client, inputs, barrier?.request)) {
+    const requeue = ['required synchronization was requested or replaced while the landing was prepared'];
+    await reportRequeue({ client, inputs, reasons: requeue });
+    report.flush();
+    return { exitCode: 0, requeue };
+  }
   if (inputs.kind === 'repair' && gitOrThrow(git, ['diff', '--cached', '--name-only']).trim() === '') {
     const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
     report.line(`Repair made no changes; reverifying ${head}.`);
@@ -844,7 +862,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   let head;
   let combined = [];
   if (inputs.kind === 'task') {
-    const landed = pushTask({ git, env, folder, task: inputs.task, message, resultDir, workspace });
+    const landed = await pushTask({ client, inputs, git, env, folder, task: inputs.task, message, resultDir, workspace });
     if (landed.requeue) {
       await reportRequeue({ client, inputs, reasons: landed.requeue });
       report.line(`${title(inputs)} is redone from the new head: ${landed.requeue.join('; ')}`);
@@ -873,8 +891,13 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   } else if (noOpSync) {
     head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
   } else {
-    head = await push({ client, git, env, inputs, folder, resultDir, report });
-    if (!head) return { exitCode: 1, reasons: ['push rejected'] };
+    const pushed = await push({ client, git, env, inputs, folder, resultDir, report, syncRequest: barrier?.request });
+    if (pushed.requeue) {
+      report.flush();
+      return { exitCode: 0, requeue: pushed.requeue };
+    }
+    if (!pushed.head) return { exitCode: 1, reasons: pushed.reasons };
+    head = pushed.head;
   }
   if (inputs.kind === 'repair') {
     report.line(`Repair landed as ${head}.`);
@@ -1322,6 +1345,12 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     ...(pullFiles.length >= MAX_PULL_FILES ? [`it changes ${MAX_PULL_FILES} or more files, more than GitHub lists for a pull request`] : []),
     ...((result.uncovered ?? []).length > 0 ? [`no check covers ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}; extend the environment actions with a standalone environment spec`] : []),
   ];
+  if (await publicationBlocked(client, inputs)) {
+    const requeue = ['required synchronization was requested while the merge was prepared'];
+    await reportRequeue({ client, inputs, reasons: requeue });
+    report.flush();
+    return { exitCode: 0, requeue };
+  }
   if (reviewReasons.length > 0) {
     if (pull.draft) await client.markReadyForReview(pull.node_id);
     await client.updateCheckRun(inputs.checkRun, {
@@ -1375,6 +1404,12 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     }
   }
   if (pull.draft) await client.markReadyForReview(pull.node_id);
+  if (await publicationBlocked(client, inputs)) {
+    const requeue = ['required synchronization was requested before the pull request merge'];
+    await reportRequeue({ client, inputs, reasons: requeue });
+    report.flush();
+    return { exitCode: 0, requeue };
+  }
   const merged = await client.mergePullRequest(inputs.pull, {
     sha: result.head,
     merge_method: 'squash',
@@ -1511,6 +1546,9 @@ export async function runArchive({ client, git, env, folder, log }) {
     '-m', archived.moved ? `Archive ${specDir(folder)} to ${specDir(folder, { archived: true })}` : `Point new references to ${specDir(folder, { archived: true })}`,
     '-m', `${merging ? `Merges ${baseBranch} first, so references that arrived there are rewritten too. ` : ''}Rewrites the references in ${edited.length} file(s).`]);
   const branch = implementationBranch(folder);
+  if (syncBarrier(await client.listIssueComments(pullNumber))) {
+    return finish(1, head, checkRun, 'Required synchronization was requested before archive publication.');
+  }
   const pushed = git(pushArgs(env, branch));
   if (pushed.status !== 0) return finish(1, head, checkRun, `The archived spec could not be pushed to \`${branch}\`: ${pushed.stderr.trim().split('\n').at(-1)}`);
   const newHead = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();

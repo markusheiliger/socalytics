@@ -29,6 +29,26 @@ test('sync command effects explicitly describe required verification and writer 
   assert.match(describeCommandEffect('/speckit sync'), /Text you add after the command goes into the next attempt's prompt as guidance/);
 });
 
+test('command acceptance and publication share a queued per-implementation lock without locking the parent chain', () => {
+  const command = readFileSync(new URL('../workflows/speckit-commands.yml', import.meta.url), 'utf8');
+  assert.match(command, /group: speckit-publication-\$\{\{ needs\.target\.outputs\.pull \}\}\n\s+queue: max\n\s+cancel-in-progress: false/);
+  assert.match(command, /SPECKIT_PUBLICATION_PULL: \$\{\{ needs\.target\.outputs\.pull \}\}/);
+  for (const [workflow, jobs] of [
+    ['task', ['land']], ['converge', ['land']], ['resolve', ['land']],
+    ['repair', ['land', 'report']], ['merge', ['archive', 'land']], ['spec', ['sync']],
+  ]) {
+    const text = readFileSync(new URL(`../workflows/speckit-implement-${workflow}.yml`, import.meta.url), 'utf8');
+    for (const job of jobs) {
+      const block = text.match(new RegExp(`^  ${job}:\\n[\\s\\S]*?(?=^  [a-z_-]+:|$(?![\\s\\S]))`, 'm'))?.[0];
+      assert.ok(block, `${workflow}/${job} exists`);
+      assert.match(block, /group: speckit-publication-\$\{\{ inputs\.pull \}\}\n\s+queue: max\n\s+cancel-in-progress: false/);
+    }
+  }
+  const parent = readFileSync(new URL('../workflows/speckit-implement-spec.yml', import.meta.url), 'utf8');
+  assert.match(parent, /^concurrency:\n  group: speckit-implement-/m);
+  assert.doesNotMatch(parent, /^  group: speckit-publication-/m, 'the chain must not hold the publication lock at workflow level while waiting for reusable jobs');
+});
+
 import {
   readSpecTasks,
   tasksPathOf,

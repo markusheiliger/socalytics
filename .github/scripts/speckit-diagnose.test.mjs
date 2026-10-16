@@ -296,6 +296,9 @@ test('PR #123: publication rejects retry classification with a sync recommendati
     const missing = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output }), log: silent });
     assert.equal(missing.report, null);
     assert.match(missing.reasons.join(), /must recommend one actionable command/);
+    const reportFile = path.join(dir, 'report.json');
+    writeFileSync(reportFile, JSON.stringify(report));
+    assert.equal(checkReportFile(reportFile, silent), 1, 'self-check also rejects a missing actionable recommendation');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

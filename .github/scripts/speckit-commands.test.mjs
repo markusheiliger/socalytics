@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
-import { main, parseCommand, renderHelp, runCommand } from './speckit-commands.mjs';
+import { main, parseCommand, renderHelp, runCommand, runCommandTarget } from './speckit-commands.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
-const run = (github, body, { pull = 9, actor = 'dev' } = {}) => runCommand({
+const run = (github, body, { pull = 9, actor = 'dev', env = {} } = {}) => runCommand({
   client: github,
-  env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_PULL: String(pull), SPECKIT_COMMENT_ID: '501', SPECKIT_ACTOR: actor, SPECKIT_COMMENT_BODY: body },
+  env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_PULL: String(pull), SPECKIT_COMMENT_ID: '501', SPECKIT_ACTOR: actor, SPECKIT_COMMENT_BODY: body, ...env },
   log: silent,
   now: () => github.clock,
 });
@@ -40,6 +40,18 @@ test('ignores people without write access and bots, reacts, and answers help and
   github.repo.pulls[0].head.repo.full_name = 'octo/repo';
   const elsewhere = await run(github, '/speckit resume');
   assert.match(elsewhere.rejected, /not a Spec Kit implementation or amendment pull request/);
+});
+
+test('commands on amendments acquire their implementation publication lock and reject a changed lock target', async () => {
+  const github = diagnosisRepo();
+  const target = await runCommandTarget({
+    client: github,
+    env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_PULL: '11', SPECKIT_COMMENT_BODY: '/speckit sync' },
+  });
+  assert.equal(target, 9);
+  assert.equal((await run(github, '/speckit sync', { pull: 11, env: { SPECKIT_PUBLICATION_PULL: '11' } })).rejected, 'publication target changed');
+  assert.equal(github.comments.some((comment) => comment.body.startsWith('<!-- speckit-implement:sync -->')), false);
+  assert.equal((await run(github, '/speckit sync', { pull: 11, env: { SPECKIT_PUBLICATION_PULL: String(target) } })).outcome, 'sync requested');
 });
 
 test('diagnose starts a diagnosis with the previous one as context, unless one is running', async () => {

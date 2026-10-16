@@ -246,8 +246,7 @@ export function latestHumanCommit(commits) {
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
 }
 
-// Guidance a person gave with `/speckit resume` or `/speckit retry` (the text after the command), carried in the
-// workflow's resume or retry comment.
+// Guidance a person gave with `/speckit resume`, `/speckit retry`, or `/speckit sync`, carried in the workflow comment.
 export function renderGuidanceMarker(text) {
   return `<!-- speckit-implement:guidance ${Buffer.from(JSON.stringify({ text: String(text) }), 'utf8').toString('base64')} -->`;
 }

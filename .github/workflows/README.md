@@ -176,6 +176,9 @@ implementation pull request's actual base branch, not an assumed `main`, and is 
 and earlier best-effort skip markers. The request is durable across replacement dispatches and subsequent chain runs.
 It is not an alias for `resume`: API refusals, protected conflicts, exhausted resolution attempts, and verification
 failures stop for attention instead of continuing on an old base.
+Command acceptance and branch publication share a per-implementation-PR concurrency queue, including commands
+posted on an amendment PR after a read-only target lookup. Landing and merge paths also recheck the barrier at
+publication, so a request cannot race an already-running publisher into bypassing synchronization.
 
 The existing conflict-resolution workflow verifies the synchronized tree, invokes Copilot only when needed, and
 retains its file restrictions and read-only agent/separate write-capable landing jobs. Clean merges and an

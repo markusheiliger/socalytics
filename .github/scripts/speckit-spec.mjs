@@ -222,9 +222,8 @@ export function needsRun(decision, env) {
   return decision.diagnosis?.state === 'stale' || (autoDiagnosisEnabled(env) && (decision.diagnosis?.count ?? 0) < MAX_AUTO_DIAGNOSES);
 }
 
-// Guidance from the latest resume or retry (`/speckit resume <guidance>`, `/speckit retry <guidance>`). It applies to
-// the stopped task, repair, convergence, or conflict resolution: it ends when an attempt reported success after the
-// restart, or when a person pushed since.
+// Guidance from the latest resume, retry, or sync ends after the first prompted work succeeds, or a person pushes.
+// A clean/no-op sync has no prompt and carries its unconsumed guidance into the first continued work.
 function currentGuidance({ comments, ledger, pushedAt }) {
   const resume = comments
     .filter((comment) => comment.user?.login === BOT_LOGIN && [RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)))
@@ -417,6 +416,7 @@ export async function integrateBase(client, env, { decision, folder, report, res
   }
   let result;
   try {
+    if (syncBarrier(await client.listIssueComments(pull.number))) return 'required';
     result = await client.mergeBranch(branch, base, `Merge ${base} into ${branch} before the ${target}`);
   } catch (error) {
     const reason = `GitHub refused the merge (${neutralizeMarkers(String(error.message).slice(0, 300))})`;

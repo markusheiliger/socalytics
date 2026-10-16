@@ -10,7 +10,7 @@ import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect,
 import { decideForPull, phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
 import { ATTENTION_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RESUME_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderRepairMarker, renderResumeComment, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
-import { renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
+import { CHECK_DIAGNOSING, DIAGNOSIS_STALE_MS, renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
 const IMPLEMENTING = 'speckit:stage:implementing';
@@ -817,7 +817,80 @@ test('required sync survives replacement, disabled/skipped automatic sync, and b
   }
 });
 
-test('required sync keeps pending repair scope, tasks and failures, then reverifies the original scope', async () => {
+test('automatic base integration rechecks a sync accepted while its merge was being prepared', async () => {
+  const { root, github, twin } = await flaggedRepo();
+  try {
+    await start(github, root, twin);
+    const pull = github.repo.pulls[0];
+    github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+    advanceRepairBase(github);
+    const before = github.repo.branches['speckit/a'];
+    const getBase = github.getBranchSha.bind(github);
+    github.getBranchSha = async (...args) => {
+      const sha = await getBase(...args);
+      await github.createComment(pull.number, renderSyncComment('Sync accepted during base comparison'));
+      github.getBranchSha = getBase;
+      return sha;
+    };
+    assert.equal((await decide(github, root, twin, {}, runSyncBase)).outputs.result, 'required');
+    assert.equal(github.repo.branches['speckit/a'], before);
+    assert.equal((await decide(github, root, twin)).outputs.action, 'resolve');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('clean sync preserves unconsumed guidance for the first continued task, while an agent resolution consumes it', async () => {
+  for (const consumed of [false, true]) {
+    const { root, github, twin } = await flaggedRepo();
+    try {
+      await start(github, root, twin);
+      const pull = github.repo.pulls[0];
+      github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+      await github.createComment(pull.number, renderSyncComment('Required sync', 'Preserve both registrations'));
+      const barrier = syncBarrier(github.comments);
+      await attemptComment(github, pull.number, null, 'success', 'resolve');
+      await github.createComment(pull.number, renderSyncBarrierMarker({
+        request: barrier.request, state: 'verified', head: github.repo.branches['speckit/a'],
+        base: 'main', baseSha: github.repo.branches.main, guidanceConsumed: consumed,
+      }));
+      const chosen = await decide(github, root, twin);
+      assert.equal(chosen.outputs.action, 'implement');
+      const planned = await planPhase(github, root, twin, chosen.outputs.phase);
+      const prompt = JSON.parse(planned.outputs.order)[0].include[0].prompt;
+      assert.equal(prompt.includes('Guidance from the person who resumed this implementation: Preserve both registrations'), !consumed);
+      for (const check of github.repo.checkRuns) check.status = 'completed';
+      await attemptComment(github, pull.number, 'T001', 'success');
+      github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS('x', ' '));
+      const next = await planPhase(github, root, twin, chosen.outputs.phase);
+      assert.doesNotMatch(JSON.parse(next.outputs.order)[0].include[0].prompt, /Preserve both registrations/, 'guidance ends after the first continued task succeeds');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('sync carries unconsumed guidance to a pending repair but does not repeat guidance consumed by resolution', async () => {
+  for (const consumed of [false, true]) {
+    const { root, github, twin, pull } = await restartedRepair(renderSyncComment, 'Keep the combined registrations');
+    try {
+      const barrier = syncBarrier(github.comments);
+      await attemptComment(github, pull.number, null, 'success', 'resolve');
+      await github.createComment(pull.number, renderSyncBarrierMarker({
+        request: barrier.request, state: 'verified', head: github.repo.branches['speckit/a'],
+        base: 'main', baseSha: github.repo.branches.main, guidanceConsumed: consumed,
+      }));
+      const next = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+      assert.equal(next.outputs.action, 'repair');
+      assert.equal(next.outputs.verify_only, String(consumed));
+      assert.equal(next.outputs.prompt.includes('Writer-approved guidance: Keep the combined registrations'), !consumed);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('required sync without original-scope coverage proof preserves the pending repair and its attempt limit', async () => {
   for (const failures of [1, 3]) {
     const { root, github, twin, pull } = await restartedRepair(renderRetryComment);
     try {
@@ -857,10 +930,44 @@ test('required sync can clear an exhausted repair only after authoritative verif
         base: 'main', baseSha: github.repo.branches.main, repair: { id: original.id, covered: true, snapshot: original },
       }));
       const next = await decideForPull(github, { twin: twin.number, folder: 'a', pullNumber: pull.number, now: github.clock });
+      assert.notEqual(next.action, 'limit', 'successful authoritative finalize recovers even after the repair failure limit');
+      assert.equal(next.action, 'tasks');
       assert.equal(next.kind, 'converge');
       assert.equal(unresolvedRepair(github.comments), null);
       assert.equal(syncBarrier(github.comments), null);
       assert.equal(next.ledger.filter((attempt) => attempt.kind === 'repair' && attempt.outcome === 'failure').length, failures, 'the old failures are not reset or replaced with an extra repair attempt');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('required sync detects cancelled, crashed and timed-out diagnoses instead of remaining permanently diagnosing', async () => {
+  for (const outcome of ['cancelled', 'failure', 'timeout', 'running']) {
+    const { root, github, twin } = await flaggedRepo();
+    try {
+      await start(github, root, twin);
+      const pull = github.repo.pulls[0];
+      github.setFile('speckit/a', 'specs/a/tasks.md', BRANCH_TASKS(' ', ' '));
+      await github.createComment(pull.number, renderSyncComment('Required sync'));
+      const check = await github.createCheckRun({
+        name: CHECK_RUN_NAME, head_sha: github.repo.branches['speckit/a'],
+        external_id: CHECK_DIAGNOSING, status: 'in_progress',
+      });
+      await github.dispatchWorkflow('speckit-diagnose.lock.yml', 'main', { twin: String(twin.number), mode: 'diagnose' });
+      if (['cancelled', 'failure'].includes(outcome)) github.completeRun(github.repo.runs.at(-1).id, outcome);
+      if (outcome === 'timeout') github.clock += DIAGNOSIS_STALE_MS + 1;
+      const inspected = await decideForPull(github, { twin: twin.number, folder: 'a', pullNumber: pull.number, now: github.clock });
+      assert.equal(inspected.action, outcome === 'running' ? 'diagnosing' : 'failed');
+      if (outcome !== 'running') {
+        assert.equal(inspected.diagnosis.state, 'stale');
+        const stopped = await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' });
+        assert.equal(stopped.outputs.action, 'stop');
+        assert.equal(github.repo.checkRuns.find((item) => item.id === check.id).status, 'completed');
+        assert.ok(syncBarrier(github.comments), 'a stopped diagnosis does not release required synchronization');
+        await github.createComment(pull.number, renderResumeComment('Continue required synchronization'));
+        assert.equal((await decide(github, root, twin, { SPECKIT_AUTO_DIAGNOSE: 'false' })).outputs.action, 'resolve');
+      }
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
