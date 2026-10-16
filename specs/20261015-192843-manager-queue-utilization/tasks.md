@@ -86,3 +86,10 @@ description: "Task list for Analyst Manager Queue Depth and Host Utilization"
 1. Phase 1, then User Story 1 as the MVP: host operators see waiting work.
 2. User Story 2: host utilization.
 3. Documentation and validation; Windows and macOS sampling is verified on those systems (quickstart.md § Manual validation).
+
+---
+
+## Phase 5: Convergence
+
+- [ ] T009 Clear the queue depth state when a local unregistration completes, so the status no longer shows queue depth once the Manager is unregistered even when no status check ran during `Unregistering` (today only revocation and a check outside `Active` call `QueueDepthState.Clear()`, and `ManagerControl.GetStatus` keeps returning the last observation as stale), in `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Registration/RegistrationStatusMonitor.cs` or `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Hosting/ManagerControl.cs` (report `not-yet-available` or no observation while not `Active`); add an unregistration case to `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Registration/QueueDepthPollingTests.cs` per spec Edge Cases (revoked or unregistered) and FR-005 (partial)
+- [ ] T010 Carry queue depth counts as 64-bit integers on the Manager (`QueueDepthCapability.Waiting` and `QueueDepthResponse.Total` in `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Platform/PlatformWorkContracts.cs`, `QueueDepthSnapshot.Total` in `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Queue/QueueDepthState.cs`, and the `(int?)` casts in `src/analysts/manager/SocAlytics.Analysts.Manager/Cli/ManagerCli.cs`), matching the platform's `long` counts, so counts above `int.MaxValue` are shown as reported instead of failing the request; add a large-count case to `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/LocalControl/StatusQueueDepthTests.cs` per spec Edge Cases (very large counts) and FR-010 (partial)
