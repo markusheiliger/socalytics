@@ -18,7 +18,7 @@ Add one central `PackageVersion` entry for `MessagePack` 2.5.307 to `src/platfor
 
 **Testing**: `dotnet restore`, `dotnet build --no-restore`, and `dotnet test --no-build` of `src/platform/SocAlytics.Platform.slnx`.
 
-**Constraints**: one line in one file; audit not disabled or weakened.
+**Constraints**: one added line in one product file; audit not disabled or weakened.
 
 ## Constitution Check
 

@@ -15,7 +15,7 @@ description: "Task list for Patched MessagePack Pin for the Platform Restore"
 
 ## Phase 1: User Story 1 - Platform restore passes with NuGet audit enabled (Priority: P1) 🎯 MVP
 
-- [ ] T001 [US1] In `src/platform/Directory.Packages.props`, add `<PackageVersion Include="MessagePack" Version="2.5.307" />` to the existing `PackageVersion` item group, in alphabetical position. Change nothing else; do not touch audit or warning settings. Verify: `dotnet restore src/platform/SocAlytics.Platform.slnx` reports no NU1902, then `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore` has 0 warnings and `dotnet test src/platform/SocAlytics.Platform.slnx --no-build` passes.
+- [ ] T001 [US1] In `src/platform/Directory.Packages.props`, add `<PackageVersion Include="MessagePack" Version="2.5.307" />` as the last entry of the existing `PackageVersion` item group (the group has no ordering to preserve). Change nothing else outside this spec folder; do not touch audit or warning settings. Verify: `dotnet restore src/platform/SocAlytics.Platform.slnx` exits 0 with no NU19xx warning, then `dotnet build src/platform/SocAlytics.Platform.slnx --no-restore` has 0 warnings and `dotnet test src/platform/SocAlytics.Platform.slnx --no-build` passes (Docker required, as for every platform test run).
 
 ## Dependencies & Execution Order
 

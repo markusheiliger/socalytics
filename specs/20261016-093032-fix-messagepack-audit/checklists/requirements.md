@@ -32,3 +32,4 @@
 ## Notes
 
 - Validation iteration 1: all items pass. This is a dependency-configuration fix spec; the package and file names are the unavoidable reference to the failing artifact.
+- Validation iteration 2 (consistency findings): the pin placement, the version fallback, the scope of FR-003/SC-003, and the owning features are made explicit; all items still pass.
