@@ -45,6 +45,7 @@ features it depends on are merged.
 | [Race-Free Analysis Telemetry Test](20261015-195724-fix-telemetry-sink-race/spec.md) | Fix spec: the analysis telemetry integration test evaluates a snapshot of its measurement sink taken under the listener lock, so concurrent background measurements no longer break its enumeration, without weakening any assertion | None |
 | [Deterministic Web UI Session Restore Retry Test](archive/20261015-202520-fix-session-restore-test/spec.md) | Fix spec: the session restore retry unit test waits for the unreachable failure to be reflected before asserting it, without weakening any assertion | Web UI Foundation |
 | [Free Port for the PWA Tampering Proxy Test](archive/20261016-080200-fix-pwa-tamper-proxy-port/spec.md) | Fix spec: the tampered shell file browser test runs its tampering proxy on an unused port instead of the fake object-store port, without changing any assertion | Installable Web UI with Service Worker Updates |
+| [Patched MessagePack Pin for the Platform Restore](20261016-122938-fix-messagepack-audit-pin/spec.md) | Fix spec: the platform restore pins the transitive MessagePack package to the patched version 2.5.303 so NuGet audit no longer fails it, with audit and warnings-as-errors unchanged | Platform Persistence Foundation |
 
 Environment Verification Coverage and Platform Persistence Foundation can be
 developed in parallel. Analyst Manager Registration follows Recording Lineage
