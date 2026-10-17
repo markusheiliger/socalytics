@@ -125,6 +125,57 @@ public sealed class AnalysisValueObjectTests
 		}
 	}
 
+	[Theory]
+	[InlineData(null, null)]
+	[InlineData("", null)]
+	[InlineData("   \t ", null)]
+	[InlineData("  wrong recording  ", "wrong recording")]
+	[InlineData("line one\nline two", "line one\nline two")]
+	[InlineData("line one\r\nline two", "line one\r\nline two")]
+	public void Cancellation_reason_is_trimmed_and_empty_becomes_null(string? reason, string? expected)
+	{
+		RunCancellation.TryNormalizeReason(reason, out var normalized, out var violation).ShouldBeTrue();
+		normalized.ShouldBe(expected);
+		violation.ShouldBeNull();
+	}
+
+	[Fact]
+	public void Cancellation_reason_length_limit_is_500_characters()
+	{
+		RunCancellation.TryNormalizeReason(new string('x', 500), out var normalized, out _).ShouldBeTrue();
+		normalized!.Length.ShouldBe(500);
+		RunCancellation.TryNormalizeReason("  " + new string('x', 500) + "  ", out normalized, out _).ShouldBeTrue();
+		normalized!.Length.ShouldBe(500);
+
+		RunCancellation.TryNormalizeReason(new string('x', 501), out normalized, out var violation).ShouldBeFalse();
+		normalized.ShouldBeNull();
+		violation.ShouldNotBeNull();
+		violation.Field.ShouldBe("reason");
+	}
+
+	[Theory]
+	[InlineData("a\tb")]
+	[InlineData("a\rb")]
+	[InlineData("a\0b")]
+	[InlineData("a\u001Bb")]
+	[InlineData("a\u0085b")]
+	public void Cancellation_reason_refuses_control_characters_other_than_line_breaks(string reason)
+	{
+		RunCancellation.TryNormalizeReason(reason, out var normalized, out var violation).ShouldBeFalse();
+		normalized.ShouldBeNull();
+		violation.ShouldNotBeNull();
+		violation.Field.ShouldBe("reason");
+	}
+
+	[Theory]
+	[InlineData(5L, 5L, true)]
+	[InlineData(5L, 4L, true)]
+	[InlineData(5L, 3L, false)]
+	[InlineData(5L, 6L, false)]
+	[InlineData(1L, 0L, true)]
+	public void Cancellation_repeat_is_idempotent_for_the_current_or_previous_version(long current, long ifMatch, bool expected) =>
+		RunCancellation.IsIdempotentRepeatVersion(current, ifMatch).ShouldBe(expected);
+
 	[Fact]
 	public void Scope_and_tier_names_round_trip()
 	{

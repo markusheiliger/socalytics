@@ -35,7 +35,7 @@ description: "Task list for Analysis Run Cancellation"
 
 ### Domain tests
 
-- [ ] T004 Cover the new transitions (allowed and refused, including every transition out of `Cancelled`), the reason rules, and the idempotency version rule in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Domain/AnalysisValueObjectTests.cs` (FR-003, FR-004, FR-006, FR-007, FR-011)
+- [x] T004 Cover the new transitions (allowed and refused, including every transition out of `Cancelled`), the reason rules, and the idempotency version rule in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Domain/AnalysisValueObjectTests.cs` (FR-003, FR-004, FR-006, FR-007, FR-011)
 
 ### Stores and read models
 
