@@ -5,6 +5,7 @@ var builder = DistributedApplication.CreateBuilder(args);
 var e2eMode = string.Equals(Environment.GetEnvironmentVariable("SOCALYTICS_APPHOST_MODE"), "e2e", StringComparison.OrdinalIgnoreCase);
 const int WebE2ePort = 4174;
 const int MailpitE2ePort = 4175;
+const int OidcProviderE2ePort = 4190;
 
 var generatedPassword = new GenerateParameterDefault { MinLength = 24, Special = false };
 var migratorPassword = builder.AddParameter("socalytics-migrator-password", generatedPassword, secret: true, persist: true);
@@ -131,6 +132,21 @@ if (e2eMode)
 
     // The e2e API has no HTTPS endpoint; the scripted Analyst Manager declares the scheme through X-Forwarded-Proto.
     api.WithEnvironment("ASPNETCORE_FORWARDEDHEADERS_ENABLED", "true");
+
+    // The test OpenID Connect provider issues an ID token for a fixed subject without an interactive login. It listens on a
+    // fixed port so the issuer is the same for the browser and the API.
+    var testProvider = builder.AddContainer("oidc-provider", "ghcr.io/navikt/mock-oauth2-server")
+        .WithImageSHA256("65d4ed47ce094cc3849e41e03499bfb32372d69c726ec22b3d5a19eba9bc787e")
+        .WithHttpEndpoint(port: OidcProviderE2ePort, targetPort: 8080, name: "http")
+        .WithEnvironment("JSON_CONFIG", """{"interactiveLogin":false,"httpServer":"NettyWrapper","tokenCallbacks":[{"issuerId":"test","requestMappings":[{"requestParam":"grant_type","match":"authorization_code","claims":{"sub":"mock-subject-1"}}]}]}""")
+        .WithHttpHealthCheck("/test/.well-known/openid-configuration");
+
+    api.WithEnvironment("IdentityAccess__ExternalProviders__test__DisplayName", "Test provider")
+        .WithEnvironment("IdentityAccess__ExternalProviders__test__Authority", string.Concat("http://127.0.0.1:", OidcProviderE2ePort.ToString(), "/test"))
+        .WithEnvironment("IdentityAccess__ExternalProviders__test__ClientId", "socalytics")
+        .WithEnvironment("IdentityAccess__ExternalProviders__test__ClientSecret", "e2e-provider-client-secret")
+        .WithEnvironment("IdentityAccess__ExternalSignIn__WebUiBaseUrl", string.Concat("http://127.0.0.1:", WebE2ePort.ToString()))
+        .WaitFor(testProvider);
 }
 
 // The e2e mode keeps the HTTPS endpoint: the Manager endpoints require HTTPS, and the Web UI's proxy forwards to it.
