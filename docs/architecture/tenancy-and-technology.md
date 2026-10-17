@@ -161,7 +161,8 @@ validation criteria are defined in the
 
 - .NET 10 Generic Host and Avalonia Analyst Manager
 - OCI Runtime Adapter
-- Externally managed runtime profiles (Docker Desktop first to validate)
+- Externally managed runtime profiles (Docker Desktop implemented and verified
+  against a Linux engine, awaiting manual Windows evidence)
 - OCI Images
 
 ### Analytics

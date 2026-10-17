@@ -211,8 +211,8 @@ check ends the attempt as failed with a named reason, and the normal retry
 rules apply. The API then marks the result accepted and indexes queryable facts
 in stamp metadata. ACs never write metadata tables directly. The result write
 grants, the result-manifest contract, and this validation are implemented as
-development evidence against the simulated Analyst; fact indexing remains
-future work.
+development evidence against the simulated Analyst and against a real Analyst
+container on the Docker Desktop profile; fact indexing remains future work.
 
 ### Capability-Scoped Result Access
 
@@ -237,8 +237,9 @@ the staged inputs equal what acceptance checks as lineage. Staged inputs are
 bounded by a configured size and deleted when the attempt ends. This
 Manager-mediated read, the staging, and the coverage are implemented as
 development evidence against the simulated Analyst, whose match-level lineage
-is built from the staged inputs; real Analyst execution and production evidence
-remain future work, as does source-video access for ACs.
+is built from the staged inputs; real Analyst execution is implemented on the
+Docker Desktop profile, while production evidence remains future work, as does
+source-video access for ACs.
 
 Only accepted results are visible. Every response and reference is constrained
 to the job's authorized team and match, and Analysts never query PostgreSQL
@@ -295,7 +296,8 @@ lingering check, the generated systemd user unit, and the account rule
 against the simulated runtime; the boot behavior on both Ubuntu Server
 releases is open until a person performs the manual validation after the
 merge, and rootless and rootful runtimes stay open until a Linux runtime
-adapter exists. The Velopack spike proves, unsigned first, per-user install, delta
+adapter ships (the Docker Desktop adapter reaches a Linux engine only in
+Development and Test). The Velopack spike proves, unsigned first, per-user install, delta
 updates, forward-fix, uninstall that leaves the OCI runtime untouched, the FUSE
 and extract-and-run start modes on minimal server images, self-update in both,
 and the stamp-served update feed with attestation checks, minimum version, and
@@ -314,7 +316,15 @@ also requires a Windows runtime spike covering Docker Desktop and Podman profile
 APIs, local endpoint authorization, runtime and VM restart, orphan
 reconciliation, incompatible upgrades, disk exhaustion, and image pull and
 launch latency. Security tests must reject forbidden mounts, devices,
-privileges, host namespaces, and runtime endpoint exposure.
+privileges, host namespaces, and runtime endpoint exposure. The Docker Desktop
+adapter's tests evidence the Engine API path against a Linux engine, the local
+endpoint policy (remote and unauthenticated endpoints refused), orphan
+reconciliation of the Manager's own labelled containers, and the launch
+restrictions (non-root user, read-only root filesystem, no network, dropped
+capabilities, no privileged mode, host namespaces, or runtime socket mount,
+and no devices). Podman, Windows automation, runtime and VM restart,
+incompatible upgrades, disk exhaustion, and pull and launch latency remain
+open.
 
 CPU is the mandatory baseline. CUDA must be validated end to end through the
 Windows Docker Desktop and WSL2 path. Hailo and Coral require separate proof of
@@ -333,7 +343,8 @@ additional host profiles are supported.
 Development evidence for high-level read authorization exists: the
 Manager-mediated upstream read refuses other runs, non-upstream capabilities,
 and fenced attempts without disclosure, and the staged inputs equal the lineage
-that acceptance checks, proven end to end against the simulated Analyst.
+that acceptance checks, proven end to end against the simulated Analyst and
+against a real Analyst container on the Docker Desktop profile.
 Workflow evidence must additionally validate capability and result-manifest
 schema compatibility, complete upstream lineage, and high-level API
 authorization against real Analysts and production credentials, and validate

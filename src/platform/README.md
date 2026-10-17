@@ -67,7 +67,8 @@ approval, activation, DPoP machine tokens, revocation, unregistration):
   `/api/v1/analyst-manager-registrations`, `GET .../{registrationId}`, and
   `POST .../{registrationId}/approval`, `/rejection`, and `/revocation`.
 - Manager `self` endpoints: `GET /api/v1/analyst-managers/self/registration`,
-  `GET .../self/queue-depth`, `POST .../self/status`,
+  `GET .../self/queue-depth`, `GET .../self/workflow-capabilities`,
+  `POST .../self/registry-credentials`, `POST .../self/status`,
   `POST .../self/unregistration`, and `POST .../self/unregistration/completion`;
   they require the `AnalystManagerDPoP` authentication scheme and the
   `AnalystManager` authorization policy. The principal carries the claims in
@@ -95,6 +96,17 @@ approval, activation, DPoP machine tokens, revocation, unregistration):
   and an unreachable broker gets `503` `urn:socalytics:problem:queue-unavailable`.
   The value is operational guidance, is not audited, and is not part of the
   status report or the fleet read.
+- Docker runtime support: an active Manager reads the capability ids, versions,
+  and pinned resource requirements of the default workflow from
+  `GET /api/v1/analyst-managers/self/workflow-capabilities`
+  (`contracts/analyst-manager/workflow-capabilities/v1`) and obtains
+  short-lived, read-only registry pull credentials for the default workflow's
+  repositories from `POST /api/v1/analyst-managers/self/registry-credentials`
+  (`contracts/analyst-manager/registry-credentials/v1`). A registration that is
+  not active gets `403` `manager-not-active`; tokens are never logged or
+  audited. `Registry:Images:PullCredentialLifetime` (5 minutes) caps the
+  credential lifetime and is a development value, not an adopted production
+  value.
 - `Stamp:Id` and `Stamp:PublicBaseUri` identify the stamp and build the
   verification address (development values are in `appsettings.Development.json`).
 - `Registry` option defaults: `SoftwareKeys` `refused` (`headless-server-only`
@@ -198,8 +210,10 @@ without disclosure (`analysis.upstream-read-refused` audit events). Options
 (100) are development values. Contract:
 `contracts/analysis/upstream-results/v1/`.
 
-Real Analyst execution, production transport values, and production readiness
-remain deferred.
+Real Analyst execution is implemented on the Manager's `docker-desktop`
+profile and verified against a Linux engine; Docker Desktop on Windows awaits
+manual evidence. Production transport values and production readiness remain
+deferred.
 
 - The AppHost starts a `nats` resource (JetStream enabled) and injects
   `ConnectionStrings:nats` into the API. Docker is required for it.
