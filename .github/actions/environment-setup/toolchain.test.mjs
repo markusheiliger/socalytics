@@ -280,6 +280,10 @@ case "\${FAKE_PROBE:-good}" in
   zero) echo '{"streams":[{"codec_type":"video"}],"format":{"duration":"0.000000"}}' ;;
   nan) echo '{"streams":[{"codec_type":"video"}],"format":{"duration":"N/A"}}' ;;
   garbage) echo 'not json' ;;
+  empty) ;;
+  noduration) echo '{"streams":[{"codec_type":"video"}],"format":{}}' ;;
+  infinite) echo '{"streams":[{"codec_type":"video"}],"format":{"duration":"inf"}}' ;;
+  negative) echo '{"streams":[{"codec_type":"video"}],"format":{"duration":"-1.0"}}' ;;
   fail) echo 'probe broke' >&2; exit 1 ;;
 esac
 `;
@@ -349,13 +353,37 @@ describe('synthetic media smoke check', () => {
     });
   }
 
-  for (const probe of ['audio', 'novideo', 'zero', 'nan', 'garbage', 'fail']) {
+  for (const probe of ['audio', 'novideo', 'zero', 'nan', 'garbage', 'fail', 'empty', 'noduration', 'infinite', 'negative']) {
     it(`fails the smoke stage for ${probe} probe evidence`, () => {
       const result = mediaInstall({ FAKE_PROBE: probe });
       assertFailure(result, 'ffprobe', 'smoke');
       assert.doesNotMatch(result.stdout, /Verified synthetic media/);
+      assert.equal(result.githubPath, '');
+      assert.deepEqual(readdirSync(path.join(result.directory, 'install')).filter((name) => name.startsWith('smoke.')), []);
     });
   }
+
+  it('publishes no tool path when the smoke check fails', () => {
+    const result = mediaInstall({ FAKE_MODE: 'decode' });
+    assertFailure(result, 'ffmpeg', 'smoke');
+    assert.equal(result.githubPath, '');
+    assert.equal(result.githubEnv, '');
+  });
+});
+
+describe('FFmpeg trust boundary', () => {
+  const ffmpeg = realDeclaration.tools.find((tool) => tool.id === 'ffmpeg');
+
+  it('keeps the mutable release tag distinct from the committed archive hash boundary', () => {
+    assert.equal(ffmpeg.releaseImmutable, false);
+    assert.equal(ffmpeg.integrityBoundary, 'archive.sha256');
+    assert.match(ffmpeg.archive.sha256, /^[0-9a-f]{64}$/);
+    assert.equal(ffmpeg.variant, 'lgpl');
+  });
+
+  it('claims no codec, model, or production support in the installer', () => {
+    assert.doesNotMatch(readFileSync(installer, 'utf8'), /production[- ]ready|production support|codec support/i);
+  });
 });
 
 // The composite action is checked textually so that no YAML dependency is needed.
@@ -456,6 +484,16 @@ describe('real installation', { skip: process.env.ANALYST_MEDIA_REAL_INSTALL !==
     for (const tool of realDeclaration.tools) {
       assert.ok(existsSync(path.join(root, 'notices', tool.id, 'PROVENANCE.txt')), tool.id);
     }
+    assert.match(result.stdout, /Verified synthetic media smoke check/);
+    for (const tool of realDeclaration.tools) {
+      const checks = [tool.versionCheck, ...(tool.versionCheck.additionalChecks ?? [])];
+      for (const check of checks) {
+        const executable = path.join(root, tool.executables[check.executable]);
+        const output = execFileSync(executable, check.arguments, { encoding: 'utf8' });
+        assert.ok(output.startsWith(check.expectedOutput), `${tool.id} ${check.executable}: ${output.split('\n')[0]}`);
+      }
+    }
+    assert.deepEqual(readdirSync(root).filter((name) => name.startsWith('smoke.')), []);
     assert.match(execFileSync(python.split('=')[1], ['--version'], { encoding: 'utf8' }), /^Python 3\.12\.15/);
   });
 });
