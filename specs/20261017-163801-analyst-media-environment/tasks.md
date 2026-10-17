@@ -74,7 +74,7 @@
 
 ### Final Acceptance
 
-- [ ] T014 Execute the complete `quickstart.md` matrix against the implementation in `.github/actions/environment-setup/` and `.github/actions/environment-verify/`: run both environment-local test files, real setup and synthetic smoke, real passing/stale-lock/failing-test package fixtures, existing environment-feature self-verification, and Markdown validation. Correct missing evidence only inside those two folders; preserve committed declarations, output contracts, and all existing assertions. Confirm that environment changes still require a person's review before merge and that no product or production claim was introduced.
+- [x] T014 Execute the complete `quickstart.md` matrix against the implementation in `.github/actions/environment-setup/` and `.github/actions/environment-verify/`: run both environment-local test files, real setup and synthetic smoke, real passing/stale-lock/failing-test package fixtures, existing environment-feature self-verification, and Markdown validation. Correct missing evidence only inside those two folders; preserve committed declarations, output contracts, and all existing assertions. Confirm that environment changes still require a person's review before merge and that no product or production claim was introduced.
 
 ## Dependencies And Execution Order
 
