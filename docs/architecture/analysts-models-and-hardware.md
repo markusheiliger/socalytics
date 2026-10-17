@@ -62,7 +62,9 @@ reproducible execution without runtime artifact downloads or credentials.
 External digest-pinned model artifacts remain a future optimization.
 
 The packaging convention for Analyst authors, enforced when an image is
-registered by digest (`POST /api/v1/registry/analyst-images`):
+registered by digest (`POST /api/v1/registry/analyst-images`; Club Admins will
+also register images from the Web UI's Registry administration, decided but
+not yet implemented, see [Web UI](client-applications.md#web-ui)):
 
 - `analyst-manifest.json` sits beside the Dockerfile and is validated against
   the released manifest schema `contracts/analysis/analyst-manifest/v1/`.
@@ -214,6 +216,21 @@ grants, the result-manifest contract, and this validation are implemented as
 development evidence against the simulated Analyst and against a real Analyst
 container on the Docker Desktop profile; fact indexing remains future work.
 
+Fact indexing is decided as follows and not yet implemented. Facts travel in
+result artifacts whose manifest media type is
+`application/vnd.socalytics.facts+json` and that follow the versioned
+`fact-artifact` contract in `contracts/analysis/`: a platform-owned envelope
+with the capability, output schema version, and output type, and per fact a
+capability-owned kind, a half-open match-time range, a confidence, and a
+capability-owned payload object. Before acceptance, the API reads every fact
+artifact and checks its envelope (not capability-specific payload fields), its
+agreement with the manifest and the run-pinned node snapshot, that every range
+lies within the validity window, that the facts add up to the declared fact
+count, and configured size limits; a failure ends the attempt as failed with a
+named reason. The API stores each fact as an immutable record of the accepted
+result in the same transaction as the acceptance, so no partially indexed
+result is ever visible.
+
 ### Capability-Scoped Result Access
 
 A high-level job receives its team, match, analysis-run, and accepted-
@@ -224,7 +241,9 @@ time range, and pagination. The response uses a stable envelope with a
 capability-owned payload and explicitly reports coverage per expected upstream
 segment as accepted, missing, failed, blocked, or skipped. Within one run,
 accepted results are never superseded; supersession applies only across runs,
-which a job's read never crosses.
+which a job's read never crosses. A superseded run keeps its accepted results
+as readable history through reads of that run only (decided, not yet
+implemented).
 
 The AM performs that query on the AC's behalf, because ACs receive no platform
 credentials. Before launching a high-level attempt, the AM reads every upstream
@@ -246,6 +265,18 @@ to the job's authorized team and match, and Analysts never query PostgreSQL
 directly. If the capability declaration permits video, the AC may request
 short-lived presigned object-storage access for specific source segments;
 video bytes do not pass through the API.
+
+The same capability-scoped pattern is decided, but not yet implemented, for
+people: members with read access to a run's team (Club Admins, and Coaches and
+Viewers of the team) read a run's indexed facts per capability, capability
+version, and output schema version through member-facing `/api/v1`
+operations, optionally narrowed to a match-time range and paginated in stable
+time order. Each response states the run's state, the run-pinned provenance
+(workflow, Analyst profile, image and model digests), and coverage for every
+expected execution unit as a half-open match-time window that is accepted,
+missing, failed, blocked, or skipped, without segment, recording, or storage
+identifiers. A listing names every capability node of the run with its fact
+count and coverage. Reads never cross runs.
 
 ---
 

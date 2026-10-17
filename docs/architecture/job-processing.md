@@ -233,7 +233,8 @@ declared detector capability and receives only its merged source-frame result.
 
 An analysis run can be `Requested`, `Running`, `PartiallyCompleted`,
 `Completed`, `Failed`, or `Cancelled`. A workflow node may additionally be
-`Blocked` when a required dependency fails. Node and logical-job state
+`Blocked` when a required dependency fails, and `Cancelled` when its run is
+cancelled (decided, not yet implemented). Node and logical-job state
 is sufficient to reconstruct dependency readiness after a Scheduler or control-
 plane restart.
 
@@ -243,6 +244,41 @@ existing fencing rules, and cancellation immediately stops publication,
 revokes queued work, advances or invalidates attempt fencing tokens, and
 rejects later completions. Stopping an active container is best effort;
 correctness relies on completion rejection.
+
+Member-initiated cancellation is decided as follows and not yet implemented.
+Club Admins and Coaches of the owning team cancel a `Requested` or `Running`
+run through the member API, naming the run's version; the run records who
+cancelled it, when (its end time), and an optional plain-text reason, and the
+transition is audited and announced through the run-state-changed
+notification without the reason. In the same transaction the run's unfinished
+workflow nodes and logical jobs become `Cancelled`, its active attempts are
+closed as `Cancelled` without consuming attempt budget or being republished,
+and its pending ready-work publications are discarded. Work messages already
+queued become obsolete: their claims are refused because the job is no longer
+ready, and later heartbeats, result-grant requests, upstream reads, and
+completions of the closed attempts are refused as obsolete. Results the run
+accepted before the cancellation remain immutable, readable history. A
+cancelled run never transitions again, cancelling another terminal run is
+refused, and repeating a cancellation is idempotent.
+
+Automatic supersession of older runs is decided as follows and not yet
+implemented. When the run of a newer finalized recording-set version of a
+match is created, every older run of that match that has not been superseded
+is superseded by the match's current run in the same transaction. Recording-set
+versions are ordered by finalization time with the version identity as
+tie-break, and the current run is the newest run of the latest finalized
+recording-set version that has a run. Older runs still `Requested` or
+`Running` are cancelled with the cause `superseded` and without a member,
+through the cancellation mechanics above, audited as a system event and
+announced through the run-state-changed notification. Older runs that already
+ended keep their state and version and only gain an immutable supersession
+record naming the superseding run. A run that arrives for an older version than
+an existing run is created already superseded and never publishes work. Runs of
+the same recording-set version never supersede each other, and supersession
+never crosses matches. Supersession is serialized per match, idempotent under
+duplicate or reordered notifications and concurrent member cancellation, and
+re-applied by the analysis reconciliation. Run reads state whether a run is
+the match's current run and which run superseded it.
 
 The immutable logical-job snapshot owns `max_attempts` and the effective lease,
 stale-timeout, and execution-timeout values copied from its capability's

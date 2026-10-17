@@ -36,7 +36,9 @@ sequenceDiagram
   match, upload recordings, or finalize its recording set. Finalization freezes
   the set used by an analysis run. A later recording addition or correction
   creates a new recording-set version and a new run rather than overwriting
-  accepted evidence.
+  accepted evidence; once the new run exists, it supersedes the match's older
+  runs (decided, not yet implemented; see
+  [Run State And Recovery](job-processing.md#run-state-and-recovery)).
 
   Every recording upload is one multipart upload of one platform-chosen
   object. The client declares the total size, a fixed part size, and the
@@ -63,7 +65,9 @@ outbox publisher delivers it to `matches.recordings-finalized`, tracks
 publication state separately, and never rewrites the record. Match and Team existence and
 authorization are resolved through the Club and Identity and Access application
 handlers; downstream validation uses a typed Recordings lineage query rather
-than reading Recordings tables directly.
+than reading Recordings tables directly. The recording-set versions of a match
+are ordered by finalization time with the version identity as tie-break;
+analysis run supersession uses this order (decided, not yet implemented).
 
 Its integration tests cover immutable metadata and mapping revisions,
 mapping/recording mismatch, missing Match and unauthorized Team access, empty
@@ -221,6 +225,13 @@ The stream preserves source time ranges, capability and schema versions, result
 identities, and confidence while hiding storage layout and segment boundaries
 that are irrelevant to football reasoning. High-level ACs execute at match
 scope and query this stream through team-authorized, match-scoped APIs.
+The stream is decided, but not yet implemented, to be readable by authorized
+members as well, per run and capability, as described in
+[Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access),
+with the Web UI's connected analysis review (decided, not yet implemented; see
+[Client Applications](client-applications.md#web-ui)) as its first consumer;
+high-level ACs keep receiving their inputs through the Analyst Manager's
+staging of accepted upstream results.
 
 Track and identity reconciliation, and any other declared foundational
 continuity work, must produce accepted match-consistent facts before dependent

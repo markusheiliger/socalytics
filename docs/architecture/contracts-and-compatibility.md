@@ -74,7 +74,8 @@ and run-state-changed schemas, and Analyst Manager Registration added the
 registration golden fixtures. Analysis Result Manifests added the
 result-manifest and result-grants contracts under `contracts/analysis/`, and
 Analysis Result Read for Jobs added the upstream-results envelope for accepted
-upstream facts. The remaining documented Analyst workflow contracts (logical
+upstream facts. Accepted Fact Indexing will add the `fact-artifact` envelope for
+the facts inside result artifacts (decided, not yet implemented). The remaining documented Analyst workflow contracts (logical
 segments and capability declarations) will follow and extend the same
 directory, index, and contract command. It excludes service implementation, unrelated administration and
 identity APIs, deployment contracts, production SDK adapters, and AsyncAPI.

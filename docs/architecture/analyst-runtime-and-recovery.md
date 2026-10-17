@@ -220,6 +220,15 @@ permanently and is not republished. A recovered old AM cannot renew or complete
 the stale attempt. Late heartbeats and callbacks are rejected or acknowledged
 as obsolete without changing the accepted result.
 
+Cancelling an analysis run (decided, not yet implemented; see
+[Run State And Recovery](job-processing.md#run-state-and-recovery)) closes
+its active attempts in the cancellation's transaction, like expiry invalidates
+a token, but neither republishes their logical jobs nor consumes attempt
+budget. The AM learns of it when its next heartbeat, result-grant request,
+upstream read, or completion is refused as obsolete, and then stops the
+Analyst container and removes the attempt's staged inputs and result data as
+best effort.
+
 ```mermaid
 sequenceDiagram
     participant Jobs as NATS Analysis Jobs

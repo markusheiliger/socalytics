@@ -47,18 +47,53 @@ The React Web UI supports connected platform and club workflows, including:
 
 - club, season, and team management
 - club-user and team-role management
-- platform configuration and administration
-- Analyst Manager pairing for Registrars and the fleet view for Club Admins
+- platform configuration and administration (the Analyst Registry
+  administration for Club Admins is decided, not yet implemented; see below)- Analyst Manager pairing for Registrars and the fleet view for Club Admins
   (implemented): registration approval, rejection, and revocation, and each
   Manager's connectivity, operating state, and activity (see
   [Analyst Manager](analyst-manager.md#fleet-visibility-in-the-web-ui))
 - match creation, recording uploads, and upload finalization (implemented as
-  connected workflows)
+  connected workflows); the match page's analysis run list will offer Club
+  Admins and Coaches of the owning team a confirmed cancel action with an
+  optional reason for requested and running runs, and shows cancelled runs
+  with who cancelled them, when, and why (decided, not yet implemented); the
+  run list will also mark the match's current run and each superseded run
+  with the run that superseded it, and shows a run cancelled because it was
+  superseded without a member (decided, not yet implemented)
 - team and match review, analytics, and agent conversations for coaches
   (analysis review and agent conversations are not implemented yet)
 
 What a user sees is decided by their roles and team authorization, online and
 offline alike.
+
+The connected analysis review is decided as follows and not yet implemented.
+From a match, members who may read it (Club Admins, and Coaches and Viewers of
+the owning team) open the review of one analysis run: its state, timestamps,
+failure reason, workflow, and each capability node's tier, scope, state,
+blocking node, and job counts, refreshed while the run is in progress. For
+each capability node, members browse the run's indexed facts in match-time
+order through the member fact reads of
+[Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access),
+filter them by a match-time range, page forward and back, and see coverage
+windows and run-pinned provenance, with explicit messages for missing,
+incomplete, empty, and unavailable analysis instead of empty lists. The review
+is online only and keeps analysis data in memory only; it offers no run
+controls, playback, visualizations, cross-run comparison, or export.
+
+The Analyst Registry administration is decided as follows and not yet
+implemented. Club Admins, the only role that operates the Registry, see the
+stamp's default workflow and browse the registered Analyst images with their
+imported declarations, the Analyst profile versions with their states, and the
+workflow versions with their nodes and dependency edges as readable lists.
+They register images by digest (see
+[Image Metadata And Packaging](analysts-models-and-hardware.md#image-metadata-and-packaging)),
+create profile versions from a registered declaration, approve and retire
+profile versions, define workflow versions as structured node and edge lists,
+and change the default workflow. Approvals, retirements, and default changes
+are confirmed and conditional on the version last seen; a default change
+applies only to analysis runs created afterwards. The platform decides every
+rule and the Web UI explains its refusals; the area is online only and offers
+no deletion, image building, signing, or graphical workflow editing.
 
 Recording uploads run in a dedicated upload worker that hashes the parts
 and transfers them directly to object storage with the platform's per-part
