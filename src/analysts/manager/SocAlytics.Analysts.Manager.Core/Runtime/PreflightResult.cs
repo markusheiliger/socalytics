@@ -18,7 +18,14 @@ public sealed record PreflightResult(
 
     /// <summary>Workflow capabilities that are not offered, each with its reason.</summary>
     public IReadOnlyList<PreflightCapability> NotOffered { get; init; } = [];
+
+    /// <summary>The last reconciliation of this Manager's leftover runtime resources; null when none ran.</summary>
+    public ReconciliationState? Reconciliation { get; init; }
 }
+
+/// <summary>What the last reconciliation removed and which leftovers it could not remove (retried by the next run).</summary>
+public sealed record ReconciliationState(
+    DateTimeOffset RanAt, int RemovedContainers, int RemovedDirectories, IReadOnlyList<string> Leftovers);
 
 /// <summary>A workflow capability in the local status model; <see cref="Reason"/> is set only for capabilities that are not offered.</summary>
 public sealed record PreflightCapability(string Id, string Version, string? Reason = null);

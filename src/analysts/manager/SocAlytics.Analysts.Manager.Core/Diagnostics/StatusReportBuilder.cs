@@ -30,6 +30,12 @@ public static class RuntimeStatusText
             ? "Offered capabilities: none"
             : $"Offered capabilities: {string.Join(", ", p.Offered.Select(o => $"{o.Id}@{o.Version}"))}");
         lines.AddRange(p.NotOffered.Select(n => $"Not offered: {n.Id}@{n.Version} ({n.Reason ?? "unknown reason"})"));
+        if (p.Reconciliation is { } r)
+        {
+            lines.Add($"Reconciliation: last ran {r.RanAt:u}, removed {r.RemovedContainers} containers and {r.RemovedDirectories} attempt directories");
+            lines.AddRange(r.Leftovers.Select(l => $"Could not remove: {l} (retried at the next reconciliation)"));
+        }
+
         return lines;
     }
 

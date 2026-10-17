@@ -26,6 +26,7 @@ public sealed class RegistrationStatusMonitor : BackgroundService
     private readonly TimeProvider _time;
     private readonly ILogger<RegistrationStatusMonitor> _logger;
     private readonly AttemptRegistry _attempts;
+    private readonly Runtime.Docker.DockerReconciliationService? _reconciliation;
     private readonly QueueCredentialProvider _queueCredentials;
     private readonly IQueueConnection _queue;
     private readonly PlatformClient _platform;
@@ -37,8 +38,9 @@ public sealed class RegistrationStatusMonitor : BackgroundService
         IEnumerable<IDeviceKeyProvider> providers, ProtectedStoreFailureHandler failures, InactiveSignalSink sink,
         IOptions<PlatformOptions> options, StatusReportBuilder reports, TimeProvider time, ILogger<RegistrationStatusMonitor> logger,
         AttemptRegistry attempts, QueueCredentialProvider queueCredentials, IQueueConnection queue,
-        PlatformClient platform, QueueDepthState depth)
+        PlatformClient platform, QueueDepthState depth, Runtime.Docker.DockerReconciliationService? reconciliation = null)
     {
+        _reconciliation = reconciliation;
         _platform = platform;
         _depth = depth;
         _attempts = attempts;
@@ -211,6 +213,10 @@ public sealed class RegistrationStatusMonitor : BackgroundService
         try
         {
             await _attempts.StopAsync(AttemptStopReason.Revoked, bound.Token);
+            if (_reconciliation is not null)
+            {
+                await _reconciliation.ReconcileAsync(bound.Token, removeAll: true);
+            }
         }
         catch (OperationCanceledException)
         {

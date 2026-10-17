@@ -128,6 +128,15 @@ public static class ManagerServiceCollectionExtensions
             return Runtime.RuntimeCompatibilityList.Load(
                 sp.GetRequiredService<IOptions<RuntimeOptions>>().Value.CompatibilityListPath, validation);
         });
+        services.AddSingleton(sp =>
+        {
+            var catalog = sp.GetRequiredService<Runtime.RuntimeAdapterCatalog>();
+            var coordinator = sp.GetRequiredService<Registration.RegistrationCoordinator>();
+            return new Runtime.Docker.DockerReconciliationService(
+                () => (catalog.Find(Runtime.Docker.DockerRuntimeAdapter.ProfileId) as Runtime.Docker.DockerRuntimeAdapter)?.Engine,
+                () => coordinator.Active?.ManagerId, sp.GetRequiredService<Work.AttemptRegistry>(), sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<Runtime.Docker.DockerReconciliationService>());
+        });
         services.AddSingleton(_ => new Runtime.AccountShell());
         services.AddSingleton<Runtime.PreflightRunner>();
         services.AddSingleton<Runtime.PreflightScheduler>();

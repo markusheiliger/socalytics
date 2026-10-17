@@ -49,6 +49,8 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
 
     public string Profile => ProfileId;
 
+    internal DockerEngineClient? Engine => _engine;
+
     /// <summary>The capabilities of the last probe; empty while no valid pull credential is available, so no work that needs a pull is claimed.</summary>
     public IReadOnlyList<Platform.QueueCapability> Capabilities => _credentials.Current is null ? [] : _offered;
 

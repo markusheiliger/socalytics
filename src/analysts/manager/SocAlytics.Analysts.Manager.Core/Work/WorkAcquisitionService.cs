@@ -27,7 +27,8 @@ public sealed class WorkAcquisitionService(
     TimeProvider time,
     ILoggerFactory loggers,
     ResultPublisher? publisher = null,
-    UpstreamStager? stager = null) : BackgroundService
+    UpstreamStager? stager = null,
+    Runtime.Docker.DockerReconciliationService? reconciliation = null) : BackgroundService
 {
     public static readonly TimeSpan FetchWait = TimeSpan.FromSeconds(1);
 
@@ -95,6 +96,18 @@ public sealed class WorkAcquisitionService(
         if (stager is not null)
         {
             AttemptRunner.DeleteLeftoverAttemptDirectories(_logger);
+        }
+
+        if (reconciliation is not null)
+        {
+            try
+            {
+                await reconciliation.ReconcileAsync(stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
         }
 
         var renewal = credentials.RunAsync(

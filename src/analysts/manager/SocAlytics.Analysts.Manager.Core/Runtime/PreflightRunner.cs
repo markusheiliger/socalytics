@@ -11,6 +11,7 @@ public sealed class PreflightRunner
     private readonly TimeProvider time;
     private readonly ApplicationProfile profile;
     private readonly AccountShell accountShell;
+    private readonly Docker.DockerReconciliationService? reconciliation;
 
     public PreflightRunner(
         RuntimeAdapterCatalog catalog,
@@ -18,8 +19,10 @@ public sealed class PreflightRunner
         IOptions<RuntimeOptions> options,
         TimeProvider time,
         ApplicationProfile profile = ApplicationProfile.Tray,
-        AccountShell? accountShell = null)
+        AccountShell? accountShell = null,
+        Docker.DockerReconciliationService? reconciliation = null)
     {
+        this.reconciliation = reconciliation;
         this.profile = profile;
         this.accountShell = accountShell ?? new AccountShell();
         this.catalog = catalog;
@@ -29,6 +32,17 @@ public sealed class PreflightRunner
     }
 
     public async Task<PreflightResult> RunAsync(CancellationToken cancellationToken)
+    {
+        var result = await RunChecksAsync(cancellationToken);
+        if (reconciliation is null || result.Profile != Docker.DockerRuntimeAdapter.ProfileId)
+        {
+            return result;
+        }
+
+        return result with { Reconciliation = await reconciliation.ReconcileAsync(cancellationToken) };
+    }
+
+    private async Task<PreflightResult> RunChecksAsync(CancellationToken cancellationToken)
     {
         var profile = options.Value.Profile;
         var adapter = catalog.Find(profile);
