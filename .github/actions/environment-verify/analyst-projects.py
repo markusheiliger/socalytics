@@ -7,8 +7,12 @@ Recognized manifests (see the environment interface contract of the analyst-medi
     src/analysts/capabilities/<name>/pyproject.toml
 
 Usage: analyst-projects.py discover [--root DIR] [--python-version X.Y[.Z]]
+       analyst-projects.py select --mode task|phase|finalize [--changed-files FILE] [--root DIR] [--python-version X.Y[.Z]]
 
-Prints the validated projects as JSON in dependency order (dependencies first). Every violation is reported on
+Prints the validated projects as JSON in dependency order (dependencies first). `select` prints only the projects
+the mode and the changed paths call for, each once with its reason, plus the roots of every existing recognized
+project as the covered source scopes. Contracts stay covered by the platform scope and unowned or deleted project
+sources stay uncovered. Every violation is reported on
 stderr as one line `project <path>: <stage>: <problem>. Recommended action: <action>` and ends with exit code 1.
 """
 
@@ -302,10 +306,51 @@ def discover(root, python_version):
     return [recognized[relative] for relative in ordered], errors
 
 
+ENVIRONMENT_FOLDERS = (".github/actions/environment-setup", ".github/actions/environment-verify")
+SHARED_CONTRACT_FOLDERS = ("contracts/analysis", "contracts/common")
+
+
+def components(path):
+    return [part for part in path.strip().replace("\\", "/").split("/") if part and part != "."]
+
+
+def under(folder, path):
+    """True when path equals folder or lies below it, compared by complete path components."""
+    folder_parts = components(folder)
+    return components(path)[: len(folder_parts)] == folder_parts
+
+
+def select(projects, mode, changed):
+    """Returns the selected projects in dependency order, each once, with the reason it was selected."""
+    by_root = {project["root"]: project for project in projects}
+    reasons = {}
+    if mode == "finalize":
+        reasons = {root: "finalize" for root in by_root}
+    else:
+        paths = [path for path in changed if components(path)]
+        if any(under(folder, path) for path in paths for folder in ENVIRONMENT_FOLDERS):
+            reasons = {root: "environment change" for root in by_root}
+        elif any(under(folder, path) for path in paths for folder in SHARED_CONTRACT_FOLDERS):
+            reasons = {root: "shared contract change" for root in by_root}
+        else:
+            direct = {root for root in by_root if any(under(root, path) for path in paths)}
+            reasons = {root: "direct change" for root in direct}
+            pending = list(direct)
+            while pending:
+                changed_root = pending.pop()
+                for project in projects:
+                    if changed_root in project["dependencies"] and project["root"] not in reasons:
+                        reasons[project["root"]] = "local-dependency change"
+                        pending.append(project["root"])
+    return [dict(project, reason=reasons[project["root"]]) for project in projects if project["root"] in reasons]
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["discover"])
+    parser.add_argument("command", choices=["discover", "select"])
     parser.add_argument("--root", default=".")
+    parser.add_argument("--mode", choices=["task", "phase", "finalize"], default="task")
+    parser.add_argument("--changed-files", default=None)
     parser.add_argument("--python-version", default=None)
     arguments = parser.parse_args(argv)
     try:
@@ -318,7 +363,15 @@ def main(argv):
         for error in errors:
             print(error, file=sys.stderr)
         return 1
-    json.dump({"projects": projects}, sys.stdout, indent=2)
+    if arguments.command == "select":
+        changed = []
+        if arguments.changed_files and os.path.isfile(arguments.changed_files):
+            with open(arguments.changed_files, encoding="utf-8") as handle:
+                changed = handle.read().splitlines()
+        result = {"projects": select(projects, arguments.mode, changed), "covered": [project["root"] for project in projects]}
+    else:
+        result = {"projects": projects}
+    json.dump(result, sys.stdout, indent=2)
     print()
     return 0
 

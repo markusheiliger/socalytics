@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -232,5 +232,113 @@ describe('project validation', () => {
     project(root, 'src/analysts/capabilities/b', { name: 'b', dependencies: ['a'], sources: { a: '../a' } });
     const result = rejected(root, /local dependencies form a cycle: .*capabilities\/a -> .*capabilities\/b -> .*capabilities\/a/);
     assert.equal(result.stderr.match(/cycle/g).length, 1);
+  });
+});
+
+describe('verification selection', () => {
+  const sdk = 'src/analysts/sdk';
+  const a = 'src/analysts/capabilities/a';
+  const b = 'src/analysts/capabilities/b';
+  const c = 'src/analysts/capabilities/c';
+
+  function graph() {
+    const root = repository();
+    project(root, sdk, { name: 'sdk' });
+    project(root, a, { name: 'a', dependencies: ['sdk'], sources: { sdk: '../../sdk' } });
+    project(root, b, { name: 'b', dependencies: ['a'], sources: { a: '../a' } });
+    project(root, c, { name: 'c' });
+    return root;
+  }
+
+  function select(root, mode, changed = []) {
+    const list = path.join(root, 'changed.txt');
+    writeFileSync(list, changed.join('\n'));
+    const result = spawnSync('python', [helper, 'select', '--root', root, '--python-version', '3.13.5', '--mode', mode, '--changed-files', list], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    return { selected: parsed.projects.map((entry) => [entry.root, entry.reason]), covered: parsed.covered };
+  }
+
+  it('selects an own-source change and its transitive consumers in dependency order', () => {
+    const root = graph();
+    assert.deepEqual(select(root, 'task', [`${sdk}/src/x.py`]).selected, [
+      [sdk, 'direct change'], [a, 'local-dependency change'], [b, 'local-dependency change'],
+    ]);
+    assert.deepEqual(select(root, 'phase', [`${a}/tests/test_a.py`]).selected, [
+      [a, 'direct change'], [b, 'local-dependency change'],
+    ]);
+    assert.deepEqual(select(root, 'task', [`${c}/pyproject.toml`]).selected, [[c, 'direct change']]);
+  });
+
+  it('selects each project once when several changes overlap', () => {
+    const root = graph();
+    const { selected } = select(root, 'task', [`${sdk}/a.py`, `${a}/b.py`, `${b}/c.py`, `${a}/d.py`]);
+    assert.deepEqual(selected, [[sdk, 'direct change'], [a, 'direct change'], [b, 'direct change']]);
+  });
+
+  it('selects every project for shared contracts, either environment folder, and finalize', () => {
+    const root = graph();
+    const every = [sdk, a, b, c].sort((left, right) => left.localeCompare(right));
+    for (const [mode, changed, reason] of [
+      ['task', ['contracts/analysis/run/schema.json'], 'shared contract change'],
+      ['phase', ['contracts/common/error.json'], 'shared contract change'],
+      ['task', ['.github/actions/environment-setup/action.yml'], 'environment change'],
+      ['task', ['.github/actions/environment-verify/analyst-projects.py'], 'environment change'],
+      ['finalize', [], 'finalize'],
+      ['finalize', ['README.md'], 'finalize'],
+    ]) {
+      const { selected } = select(root, mode, changed);
+      assert.deepEqual(selected.map((entry) => entry[0]).sort(), [...every].sort(), `${mode} ${changed}`);
+      assert.ok(selected.every((entry) => entry[1] === reason), `${mode} ${changed}`);
+    }
+    const ordered = select(root, 'finalize').selected.map((entry) => entry[0]);
+    assert.ok(ordered.indexOf(sdk) < ordered.indexOf(a) && ordered.indexOf(a) < ordered.indexOf(b));
+  });
+
+  it('selects nothing for unrelated changes, other contracts, and the Manager', () => {
+    const root = graph();
+    for (const changed of [
+      ['README.md'], ['contracts/analyst-manager/x.json'], ['contracts/recordings/x.json'], ['src/analysts/manager/a.cs'],
+      ['src/platform/x.cs'], ['.github/actions/environment-other/x'], [],
+    ]) {
+      assert.deepEqual(select(root, 'task', changed).selected, [], changed.join());
+    }
+  });
+
+  it('matches by complete path components, never by prefix', () => {
+    const root = graph();
+    for (const changed of [
+      ['src/analysts/sdk-extra/x.py'], ['src/analysts/sdkx'], ['src/analysts/capabilities/a2/x.py'], ['src/analysts/capabilities/ab'],
+      ['contracts/analysis-extra/x.json'], ['contracts/commons/x.json'], ['.github/actions/environment-setup-more/x'],
+    ]) {
+      assert.deepEqual(select(root, 'task', changed).selected, [], changed.join());
+    }
+    assert.deepEqual(select(root, 'task', [`./${a}//x.py`]).selected.map((entry) => entry[0]), [a, b]);
+  });
+
+  it('reports existing project roots as covered and nothing when none exists', () => {
+    const root = graph();
+    assert.deepEqual(select(root, 'task', ['README.md']).covered.sort(), [a, b, c, sdk].sort());
+    const empty = repository();
+    assert.deepEqual(select(empty, 'finalize'), { selected: [], covered: [] });
+    assert.deepEqual(select(empty, 'task', ['src/analysts/sdk/x.py', 'contracts/common/x.json']), { selected: [], covered: [] });
+  });
+
+  it('leaves a deleted manifest and unowned source uncovered and unselected', () => {
+    const root = graph();
+    unlinkSync(path.join(root, c, 'pyproject.toml'));
+    const result = select(root, 'task', [`${c}/pyproject.toml`, 'src/analysts/other/x.py', 'src/analysts/capabilities/stray.py']);
+    assert.deepEqual(result.selected, []);
+    assert.ok(!result.covered.includes(c));
+    assert.ok(!result.selected.some((entry) => entry[0] === c));
+    assert.ok(!select(root, 'finalize').covered.includes(c));
+  });
+
+  it('still fails on an invalid existing project regardless of the changes', () => {
+    const root = graph();
+    project(root, 'src/analysts/capabilities/bad', { raw: '[project' });
+    const result = spawnSync('python', [helper, 'select', '--root', root, '--python-version', '3.13.5', '--mode', 'task'], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /Recommended action: /);
   });
 });
