@@ -290,7 +290,12 @@ behavior, duplicate completion handling, result-manifest validation, and OCI
 digest capture. It must also validate the tray profile on Windows, macOS, and
 Linux and the headless server profile on Ubuntu Server 22.04 and 24.04 LTS,
 including the lingering check, rootless and rootful runtimes, and the account
-rule. The Velopack spike proves, unsigned first, per-user install, delta
+rule. For the headless profile, automated tests give evidence of the
+lingering check, the generated systemd user unit, and the account rule
+against the simulated runtime; the boot behavior on both Ubuntu Server
+releases is open until a person performs the manual validation after the
+merge, and rootless and rootful runtimes stay open until a Linux runtime
+adapter exists. The Velopack spike proves, unsigned first, per-user install, delta
 updates, forward-fix, uninstall that leaves the OCI runtime untouched, the FUSE
 and extract-and-run start modes on minimal server images, self-update in both,
 and the stamp-served update feed with attestation checks, minimum version, and
@@ -299,6 +304,8 @@ signing, macOS notarization, SmartScreen, and Gatekeeper. Implementation must
 also validate
 registration bootstrap, protected credential storage, rotation, and revocation; and measure concurrency control, queue-depth
 reporting, heartbeat ingestion cost, and suitable interval and timeout values.
+Queue depth is observable per Manager through the stamp's queue-depth operation
+and the Manager's status view; the measurement itself remains open evidence.
 
 Failure tests must cover pause with active jobs, local unregister after drain,
 administrator revocation, process and host failure, network partition, forced

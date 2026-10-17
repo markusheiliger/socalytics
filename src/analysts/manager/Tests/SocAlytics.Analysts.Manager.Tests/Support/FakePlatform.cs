@@ -12,6 +12,7 @@ internal sealed record RecordedRequest(HttpMethod Method, Uri Uri, string Body);
 internal enum WorkOperation
 {
     QueueCredentials,
+    QueueDepth,
     Claim,
     Heartbeat,
     Completion,
@@ -52,6 +53,8 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
     public string StampId { get; set; } = "stamp-1";
 
     public bool SoftwareKeysAllowed { get; set; }
+
+    public IReadOnlyList<string>? SoftwareKeysAllowedFor { get; set; }
 
     public bool CorruptFingerprint { get; set; }
 
@@ -96,6 +99,8 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
     public bool Activated { get; private set; }
 
     public string? ClaimedKeyProtection { get; private set; }
+
+    public string? ClaimedApplicationProfile { get; private set; }
 
     public string? ManagerId { get; private set; }
 
@@ -168,11 +173,13 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
         if (workPath.EndsWith("/self/queue-credentials", StringComparison.Ordinal)
             || workPath.EndsWith("/self/registry-credentials", StringComparison.Ordinal)
             || workPath.EndsWith("/self/workflow-capabilities", StringComparison.Ordinal)
+            || workPath.EndsWith("/self/queue-depth", StringComparison.Ordinal)
             || workPath.StartsWith("/api/v1/analysis/", StringComparison.Ordinal))
         {
             var operation = workPath.EndsWith("/self/queue-credentials", StringComparison.Ordinal) ? WorkOperation.QueueCredentials
                 : workPath.EndsWith("/self/registry-credentials", StringComparison.Ordinal) ? WorkOperation.RegistryCredentials
                 : workPath.EndsWith("/self/workflow-capabilities", StringComparison.Ordinal) ? WorkOperation.WorkflowCapabilities
+                : workPath.EndsWith("/self/queue-depth", StringComparison.Ordinal) ? WorkOperation.QueueDepth
                 : workPath.EndsWith("/claims", StringComparison.Ordinal) ? WorkOperation.Claim
                 : workPath.EndsWith("/heartbeats", StringComparison.Ordinal) ? WorkOperation.Heartbeat
                 : workPath.EndsWith("/result-grants", StringComparison.Ordinal) ? WorkOperation.ResultGrants
@@ -236,7 +243,7 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
         return path switch
         {
             "stamp" => Json(HttpStatusCode.OK, new StampDiscovery(
-                StampId, SoftwareKeysAllowed, Url("pairings"), Url("pairings/activation"), Url("token"))),
+                StampId, SoftwareKeysAllowed, Url("pairings"), Url("pairings/activation"), Url("token"), SoftwareKeysAllowedFor)),
             "pairings" => Pairing(body),
             "pairings/status" => Status(),
             "pairings/activation" => Activation(body),
@@ -256,6 +263,7 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
         var node = JsonNode.Parse(body)!;
         _publicKey = PublicJwk.FromJson(node["publicKey"]!.ToJsonString());
         ClaimedKeyProtection = (string?)node["deviceMetadata"]!["claimedKeyProtection"];
+        ClaimedApplicationProfile = (string?)node["deviceMetadata"]!["claimedApplicationProfile"];
         Fingerprint = DeviceFingerprint.Compute(_publicKey);
         return Json(HttpStatusCode.Created, new PairingIssued(
             PairingCode,

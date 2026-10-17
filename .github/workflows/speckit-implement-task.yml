@@ -178,6 +178,10 @@ jobs:
 
   land:
     name: Commit and push ${{ inputs.task }}
+    concurrency:
+      group: speckit-publication-${{ inputs.pull }}
+      queue: max
+      cancel-in-progress: false
     needs: work
     if: always()
     runs-on: ubuntu-latest
@@ -235,5 +239,4 @@ jobs:
         id: land
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node tooling/.github/scripts/speckit-task.mjs land-tasks

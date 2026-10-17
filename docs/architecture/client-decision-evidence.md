@@ -295,6 +295,20 @@ depend on browser evidence instead of installers.
 Adding a browser or operating system to the offline matrix requires an evidence
 row covering these obligations and validated coach demand.
 
+#### Implementation Evidence
+
+The Web UI implements the installable PWA and service-worker updates as
+development evidence, verified in Chromium through the `pwa-install`,
+`pwa-update`, `pwa-version-skew`, and `pwa-offline` browser specs and unit and
+Host tests. Installation on Edge and Chrome on Windows is a manual check, not a
+production-readiness claim.
+
+| Obligation | Status |
+| --- | --- |
+| Install and launch | Evidenced on Chromium: the manifest and icons are installable, and the shell starts offline from the cached release with the connection-required state and no data |
+| Update | Evidenced on Chromium: an open Web UI offers a new release, activates it in every window, and enforces the platform's minimum version (`SocAlytics-Minimum-Web-Version`) before further requests |
+| Persistent storage, key custody, device-bound entitlement, recovery, removal, quota | Open: offline mode with local data does not exist yet |
+
 **Evidence result:** `EV-D09` supports D-09.
 
 ## Offline Data And Synchronization Evidence

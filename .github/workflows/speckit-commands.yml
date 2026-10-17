@@ -1,13 +1,13 @@
 name: Spec Kit commands
 
 # Handles people's input on Spec Kit pull requests:
-#   - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): diagnose, retry, resume, fix,
+# - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): retry, sync, fix,
 #     help.
 #   - Feedback on amendment pull requests (speckit-amend/<folder>) and fix spec pull requests (speckit-fix/<folder>): a
 #     comment, or a review with Comment or Request changes, has it reworked (Spec Kit diagnose or Spec Kit fix, mode
 #     revise) and checked again (Spec Kit analyze).
 #   - Closing an amendment pull request: merged (the implementation continues) or discarded; closing a fix spec pull
-#     request: merged (its twin is implemented next, and the stopped implementation resumes once it has landed) or
+#     request: merged (its twin is implemented next, and the stopped implementation retries once it has landed) or
 #     discarded. A person's push to such a branch is checked again.
 #   - Guard: Spec Kit pull requests are removed from pull request stacks, an amendment's base branch is set back to
 #     its implementation branch, and a fix spec's to the default branch (the scheduler, Spec Kit orchestrate, does the
@@ -32,8 +32,43 @@ on:
 permissions: {}
 
 jobs:
+  target:
+    name: Resolve the command publication target
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      startsWith(github.event.comment.body, '/speckit')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pull: ${{ steps.target.outputs.pull }}
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Resolve the implementation pull request
+        id: target
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_PULL: ${{ github.event.issue.number }}
+          SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
+        run: node .github/scripts/speckit-commands.mjs target
+
   command:
-    name: Run the command
+    name: Handle the /speckit command
+    needs: target
     # issue_comment always uses this workflow from the default branch; no job checks out pull request code.
     if: >-
       github.event_name == 'issue_comment' &&
@@ -42,9 +77,10 @@ jobs:
       startsWith(github.event.comment.body, '/speckit')
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Job-level, so comments that are not commands (their job is skipped) never displace a pending command.
+    # Atomic with all branch publication jobs; queue rather than replacing pending commands or parallel task landings.
     concurrency:
-      group: speckit-commands-${{ github.event.issue.number }}
+      group: speckit-publication-${{ needs.target.outputs.pull }}
+      queue: max
       cancel-in-progress: false
     permissions:
       actions: write
@@ -73,10 +109,11 @@ jobs:
           SPECKIT_COMMENT_ID: ${{ github.event.comment.id }}
           SPECKIT_ACTOR: ${{ github.event.comment.user.login }}
           SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
+          SPECKIT_PUBLICATION_PULL: ${{ needs.target.outputs.pull }}
         run: node .github/scripts/speckit-commands.mjs command
 
   feedback:
-    name: Handle amendment feedback
+    name: Handle amendment or fix spec feedback
     if: >-
       (github.event_name == 'issue_comment' &&
       github.event.issue.pull_request &&
@@ -119,7 +156,7 @@ jobs:
         run: node .github/scripts/speckit-amend.mjs feedback
 
   forward-review:
-    name: Forward the review
+    name: Forward amendment or fix spec review
     # Runs from the pull request's merge ref; it only hands the review to this workflow on the default branch.
     if: >-
       github.event_name == 'pull_request_review' &&
@@ -141,7 +178,7 @@ jobs:
         run: gh workflow run speckit-commands.yml --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH" -f pull="$PULL"
 
   amendment:
-    name: Handle the amendment or fix spec change
+    name: Handle amendment or fix spec push or close
     # A person merged or closed an amendment or fix spec pull request, or pushed to its branch. Pushes and closes by
     # the workflow token raise no events.
     if: >-
@@ -184,7 +221,7 @@ jobs:
         run: node .github/scripts/speckit-amend.mjs "$([ "$EVENT_ACTION" = closed ] && echo closed || echo pushed)"
 
   guard:
-    name: Guard the pull request
+    name: Enforce Spec Kit pull request topology
     # Runs from the pull request's base branch: a base changed to the default branch, and every event of an
     # implementation pull request, use this job from the default branch.
     if: >-

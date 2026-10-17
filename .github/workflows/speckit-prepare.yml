@@ -206,3 +206,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node .github/scripts/speckit-prepare.mjs apply --output-file "$RUNNER_TEMP/speckit-prepare/inference.txt"
+
+  # Runs that the workflow token dispatched (after an automatic merge) do not reliably start Spec Kit orchestrate through
+  # its workflow_run trigger, so a dispatched, applying run starts the scheduler itself.
+  schedule:
+    name: Start the scheduler
+    needs: [sync, apply]
+    if: >-
+      always() && github.event_name == 'workflow_dispatch' && !inputs.dry_run &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      needs.sync.result == 'success' && needs.apply.result != 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Start Spec Kit orchestrate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: gh workflow run speckit-orchestrate.yml --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH"

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -10,6 +11,17 @@ namespace SocAlytics.Analysts.Manager.Hosting;
 
 public static class ManagerServiceCollectionExtensions
 {
+    [System.Runtime.Versioning.SupportedOSPlatform("linux")]
+    private static void AddLinuxAutostart(IServiceCollection services)
+    {
+        services.AddSingleton<Autostart.IProcessRunner, Autostart.SystemProcessRunner>();
+        services.AddSingleton<Autostart.IAutostartRegistrar>(sp =>
+            sp.GetRequiredService<ApplicationProfile>() == ApplicationProfile.HeadlessServer
+                ? new Autostart.SystemdUserUnitRegistrar(
+                    sp.GetRequiredService<Autostart.IProcessRunner>(), sp.GetRequiredService<IOptions<OperatingOptions>>())
+                : new Autostart.XdgAutostartRegistrar());
+    }
+
     public static IServiceCollection AddManagerCore(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<ManagerOptions>(configuration.GetSection(ManagerOptions.SectionName));
@@ -34,7 +46,7 @@ public static class ManagerServiceCollectionExtensions
 
         if (OperatingSystem.IsLinux())
         {
-            services.AddSingleton<Autostart.IAutostartRegistrar, Autostart.XdgAutostartRegistrar>();
+            AddLinuxAutostart(services);
         }
         else if (OperatingSystem.IsWindows())
         {
@@ -78,6 +90,7 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Operating.IManagerWorkTracker>(sp => sp.GetRequiredService<Work.AttemptRegistry>());
         services.AddSingleton<Work.WorkSessionProvider>();
         services.AddSingleton<Queue.QueueCredentialProvider>();
+        services.AddSingleton<Queue.QueueDepthState>();
         services.AddSingleton<Queue.IQueueConnection>(sp => new Queue.RenewingQueueConnection(
             sp.GetRequiredService<Queue.QueueCredentialProvider>(), sp.GetService<IHostEnvironment>()));
         services.AddSingleton(Work.HostCapacity.Detect());
@@ -92,6 +105,9 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Registration.ProtectedStoreFailureHandler>();
         services.AddSingleton<Platform.ManagerTokenCache>();
         services.AddSingleton<Diagnostics.StatusReportBuilder>();
+        services.AddSingleton(_ => Diagnostics.HostUtilizationReaders.ForCurrentOs());
+        services.AddSingleton<Diagnostics.HostUtilizationSampler>();
+        services.AddHostedService(sp => sp.GetRequiredService<Diagnostics.HostUtilizationSampler>());
         services.AddSingleton<Registration.RegistrationStatusMonitor>();
         services.AddHostedService(sp => sp.GetRequiredService<Registration.RegistrationStatusMonitor>());
         services.AddSingleton<Registration.RegistrationCoordinator>();
@@ -112,11 +128,17 @@ public static class ManagerServiceCollectionExtensions
             return Runtime.RuntimeCompatibilityList.Load(
                 sp.GetRequiredService<IOptions<RuntimeOptions>>().Value.CompatibilityListPath, validation);
         });
+        services.AddSingleton(_ => new Runtime.AccountShell());
         services.AddSingleton<Runtime.PreflightRunner>();
         services.AddSingleton<Runtime.PreflightScheduler>();
         services.AddHostedService(sp => sp.GetRequiredService<Runtime.PreflightScheduler>());
         services.AddSingleton<Operating.TimedPauseScheduler>();
         services.AddHostedService(sp => sp.GetRequiredService<Operating.TimedPauseScheduler>());
+        services.TryAdd(ServiceDescriptor.Singleton(typeof(ApplicationProfile), ApplicationProfile.Tray));
+        services.AddSingleton(_ => new LingeringCheck());
+        services.AddHostedService(sp => new LingeringWarningService(
+            sp.GetRequiredService<ApplicationProfile>(), sp.GetRequiredService<LingeringCheck>(),
+            sp.GetRequiredService<ILogger<LingeringWarningService>>(), Console.Error));
         services.AddSingleton<ManagerControl>();
         services.AddSingleton<IManagerControl>(sp => sp.GetRequiredService<ManagerControl>());
         return services;

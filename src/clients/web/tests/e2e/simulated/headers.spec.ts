@@ -7,14 +7,15 @@ const policy = [
   "img-src 'self' data:",
   "font-src 'self'",
   'media-src blob:',
-  "connect-src 'self' http://127.0.0.1:4175",
+  "connect-src 'self' http://127.0.0.1:4176",
   "worker-src 'self'",
+  "manifest-src 'self'",
   "object-src 'none'",
   "base-uri 'none'",
   "frame-ancestors 'none'",
   "form-action 'self'",
   "require-trusted-types-for 'script'",
-  'trusted-types default react-dom upload-worker',
+  'trusted-types default react-dom upload-worker service-worker',
 ].join('; ');
 
 test('sends the security headers', async ({ request }) => {

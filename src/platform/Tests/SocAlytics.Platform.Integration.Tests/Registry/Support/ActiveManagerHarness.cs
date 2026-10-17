@@ -53,7 +53,7 @@ internal sealed class ActiveManagerHarness : IAsyncDisposable
             },
             configureServices: services => services.Configure<SocAlytics.Platform.Application.Registry.RegistryOptions>(o =>
             {
-                o.AllowSoftwareKeys = true;
+                o.SoftwareKeys = SocAlytics.Platform.Application.Registry.SoftwareKeyPolicy.All;
                 o.RateLimits.PairingCreationPerMinute = 10_000;
                 o.RateLimits.ActivationPerMinute = 10_000;
                 o.RateLimits.CodeSubmissionPerMinute = 10_000;

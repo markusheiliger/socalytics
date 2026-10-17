@@ -28,14 +28,19 @@ public sealed class RegistrationStatusMonitor : BackgroundService
     private readonly AttemptRegistry _attempts;
     private readonly QueueCredentialProvider _queueCredentials;
     private readonly IQueueConnection _queue;
+    private readonly PlatformClient _platform;
+    private readonly QueueDepthState _depth;
     private TimeSpan _backoff;
 
     public RegistrationStatusMonitor(
         RegistrationCoordinator coordinator, ManagerTokenCache tokens, SignedStateStore store,
         IEnumerable<IDeviceKeyProvider> providers, ProtectedStoreFailureHandler failures, InactiveSignalSink sink,
         IOptions<PlatformOptions> options, StatusReportBuilder reports, TimeProvider time, ILogger<RegistrationStatusMonitor> logger,
-        AttemptRegistry attempts, QueueCredentialProvider queueCredentials, IQueueConnection queue)
+        AttemptRegistry attempts, QueueCredentialProvider queueCredentials, IQueueConnection queue,
+        PlatformClient platform, QueueDepthState depth)
     {
+        _platform = platform;
+        _depth = depth;
         _attempts = attempts;
         _queueCredentials = queueCredentials;
         _queue = queue;
@@ -58,6 +63,11 @@ public sealed class RegistrationStatusMonitor : BackgroundService
     /// <summary>Performs one status check and returns the delay until the next one.</summary>
     public async Task<TimeSpan> CheckOnceAsync(CancellationToken ct)
     {
+        if (_coordinator.State != ManagerRegistrationState.Active)
+        {
+            _depth.Clear();
+        }
+
         if (!Monitored || _coordinator.Active is not { } active)
         {
             return Idle;
@@ -89,9 +99,12 @@ public sealed class RegistrationStatusMonitor : BackgroundService
 
                     _coordinator.SetConnectivity(
                         new ConnectivityStatus("connected", _time.GetUtcNow()), result.Registration!.ClubName);
-                    return result.Registration.StatusCheckIntervalSeconds is > 0 and var s
+                    var interval = result.Registration.StatusCheckIntervalSeconds is > 0 and var s
                         ? TimeSpan.FromSeconds(s)
                         : _options.StatusCheckInterval;
+                    _depth.StatusCheckInterval = interval;
+                    await PollQueueDepthAsync(active, key, ct);
+                    return interval;
                 case PlatformOutcome.Inactive:
                     await RevokeAsync();
                     return Idle;
@@ -117,6 +130,52 @@ public sealed class RegistrationStatusMonitor : BackgroundService
         return delay;
     }
 
+    /// <summary>Requests the approximate queue depth; it is guidance only and never affects admission or the check cadence.</summary>
+    private async Task PollQueueDepthAsync(ActiveRegistration active, IDeviceKey key, CancellationToken ct)
+    {
+        if (_coordinator.State != ManagerRegistrationState.Active)
+        {
+            _depth.Clear();
+            return;
+        }
+
+        var ids = (_queueCredentials.Current?.Consumers ?? [])
+            .Select(c => c.Capability).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Take(64).ToList();
+        if (ids.Count == 0)
+        {
+            _depth.MarkNoCapability();
+            return;
+        }
+
+        try
+        {
+            var (signal, token) = await _tokens.AcquireAccessTokenAsync(active.PlatformEndpoint, key, active.ManagerId, ct);
+            if (signal.Outcome != PlatformOutcome.Success || token is null)
+            {
+                _depth.RecordFailure("platform-unavailable");
+                return;
+            }
+
+            var result = await _platform.GetQueueDepthAsync(new PlatformSession(active.PlatformEndpoint, key, token), ids, ct);
+            switch (result)
+            {
+                case { Kind: WorkResultKind.Success, Value: { } observation }:
+                    _depth.RecordSuccess(observation);
+                    break;
+                case { Kind: WorkResultKind.Inactive }:
+                    _depth.Clear();
+                    break;
+                default:
+                    _depth.RecordFailure(result.Code ?? (result.Kind == WorkResultKind.Transient ? "platform-unavailable" : "refused"));
+                    break;
+            }
+        }
+        catch (Exception e) when ((e is HttpRequestException or PlatformException or TaskCanceledException) && !ct.IsCancellationRequested)
+        {
+            _depth.RecordFailure("platform-unavailable");
+        }
+    }
+
     public async Task RevokeAsync()
     {
         if (!Monitored || _coordinator.Active is not { } active)
@@ -125,6 +184,7 @@ public sealed class RegistrationStatusMonitor : BackgroundService
         }
 
         _coordinator.EnterRevoked();
+        _depth.Clear();
         await StopWorkAsync();
         _tokens.Clear();
         _store.Delete();

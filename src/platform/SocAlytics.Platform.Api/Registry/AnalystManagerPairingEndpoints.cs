@@ -8,7 +8,7 @@ using SocAlytics.Platform.Application.Registry.Pairing;
 namespace SocAlytics.Platform.Api.Registry;
 
 internal sealed record DeviceMetadataBody(
-	string? Os, string? OsVersion, string? Architecture, string? ManagerVersion, string? ClaimedKeyProtection, string? HostLabel);
+	string? Os, string? OsVersion, string? Architecture, string? ManagerVersion, string? ClaimedKeyProtection, string? ClaimedApplicationProfile, string? HostLabel);
 
 internal sealed record PairingRequestBody(string? StampId, JsonElement PublicKey, string? Nonce, DeviceMetadataBody? DeviceMetadata);
 
@@ -31,7 +31,8 @@ internal static class AnalystManagerPairingEndpoints
 				return Results.Json(new
 				{
 					stampId = s.Id,
-					softwareKeysAllowed = registry.Value.AllowSoftwareKeys,
+					softwareKeysAllowed = registry.Value.SoftwareKeys == SoftwareKeyPolicy.All,
+					softwareKeysAllowedFor = registry.Value.SoftwareKeys.AllowedProfiles(),
 					pairingEndpoint = s.PairingUri,
 					activationEndpoint = s.ActivationUri,
 					tokenEndpoint = s.TokenUri,
@@ -78,7 +79,7 @@ internal static class AnalystManagerPairingEndpoints
 		var result = await handler.HandleAsync(
 			new StartPairingCommand(
 				body.StampId, body.PublicKey, body.Nonce, m?.Os, m?.OsVersion, m?.Architecture, m?.ManagerVersion,
-				m?.ClaimedKeyProtection, m?.HostLabel, http.Connection.RemoteIpAddress?.ToString()),
+				m?.ClaimedKeyProtection, m?.ClaimedApplicationProfile, m?.HostLabel, http.Connection.RemoteIpAddress?.ToString()),
 			cancellationToken);
 		if (!result.IsSuccess)
 		{

@@ -50,6 +50,7 @@ public sealed class ProofValidationTests(PostgresContainerFixture postgres)
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
         services.AddSingleton<TimeProvider>(time);
+        services.AddTestHostEnvironment();
         services.AddInfrastructure();
         services.AddApplication();
         return new Harness(db, services.BuildServiceProvider(), time);

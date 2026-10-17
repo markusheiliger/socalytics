@@ -171,7 +171,8 @@ safe-outputs:
         report:
           description: >-
             The report as one JSON object, as described in the speckit-gha-fix skill: when authoring, the fields
-            folder, summary, and refused (why no fix spec was written, empty otherwise); for a rework the fields
+            folder, summary, refused (why no fix spec was written, empty otherwise), and reuse (the pull request
+            number of an existing fix spec that already removes the cause, empty otherwise); for a rework the fields
             summary, artifacts, and responses.
           required: true
           type: string
@@ -217,7 +218,9 @@ what a fix spec is, its rules, and the report formats.
 
 - The evidence is in `.speckit-fix/evidence.md`, the identifiers in `.speckit-fix/context.json`. Use the GitHub tools
   for anything else you need to read.
-- **`author`**: the workspace is the default branch. Write one new fix spec folder named
+- **`author`**: the workspace is the default branch. One cause gets one fix spec: when one of the existing fix specs
+  listed in the evidence already removes the cause, write nothing and report its pull request number in `reuse`.
+  Otherwise write one new fix spec folder named
   `<folderPrefix><short-name>` (from `context.json`) under `specs/`, add its row to `specs/README.md`, and propose it
   with `create_pull_request` on a branch `speckit-fix/<folder>`. When the cause cannot be fixed by a fix spec, change
   nothing and report why in `refused`.

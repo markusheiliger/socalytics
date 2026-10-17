@@ -205,6 +205,10 @@ export class GitHubClient {
     return pulls.sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   }
 
+  async listOpenPullRequests() {
+    return this.paginate(this.repoPath('/pulls?state=open'));
+  }
+
   // Throws GitHubError with GitHub's message when the pull request cannot be created (for example, when one is
   // already open for the branch, or the body is too long).
   async createPullRequest(fields) {

@@ -30,6 +30,7 @@ public sealed class QueueCredentialStoreTests(PostgresContainerFixture postgres)
         }).Build();
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
+        services.AddTestHostEnvironment();
         services.AddInfrastructure();
         services.AddApplication();
         return (db, services.BuildServiceProvider());
@@ -40,7 +41,7 @@ public sealed class QueueCredentialStoreTests(PostgresContainerFixture postgres)
         var x = new string((char)('A' + seed), 43);
         var jwk = $"{{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"{x}\",\"y\":\"{x}\"}}";
         DeviceKeyThumbprint.TryCreate(JsonDocument.Parse(jwk).RootElement, out var thumbprint).ShouldBeTrue();
-        DeviceMetadata.TryCreate("linux", "6.1", "x64", "1.0.0", "software", "host", out var metadata, out _).ShouldBeTrue();
+        DeviceMetadata.TryCreate("linux", "6.1", "x64", "1.0.0", "software", null, "host", out var metadata, out _).ShouldBeTrue();
         return AnalystManagerRegistration.Start(
             Guid.CreateVersion7(), "stamp", thumbprint!, jwk, "nonce-0123456789abcdef", metadata!, "10.0.0.1",
             "corr-" + seed, Now, RegistrationWindows.Default);

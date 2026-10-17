@@ -1,0 +1,12 @@
+{
+  "email-confirmation": {
+    "subject": "Confirm your email address for {clubName}",
+    "text": "An email address was added to a SocAlytics account for {clubName}.\n\nTo confirm it, open this link:\n{link}\n\nThe link is valid for {lifetime} and can be used once.\n\nIf you do nothing, nothing happens. You can ignore this message.\n",
+    "html": "<p>An email address was added to a SocAlytics account for {clubName}.</p>\n<p>To confirm it, open this link:<br><a href=\"{link}\">{link}</a></p>\n<p>The link is valid for {lifetime} and can be used once.</p>\n<p>If you do nothing, nothing happens. You can ignore this message.</p>\n"
+  },
+  "registration-pending": {
+    "subject": "An Analyst Manager registration request waits for approval",
+    "text": "One or more Analyst Manager registration requests wait for a Club Admin's decision.\n\nOpen the Analyst Managers page:\n{link}\n",
+    "html": "<p>One or more Analyst Manager registration requests wait for a Club Admin's decision.</p>\n<p><a href=\"{link}\">Open the Analyst Managers page</a></p>\n"
+  }
+}

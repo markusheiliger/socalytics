@@ -41,6 +41,7 @@ public sealed class OptimisticConcurrencyTests(PostgresContainerFixture postgres
             .Build();
         var services = new ServiceCollection();
         services.AddSingleton<IConfiguration>(configuration);
+        services.AddTestHostEnvironment();
         services.AddInfrastructure();
         return new Fixture(db, services.BuildServiceProvider());
     }

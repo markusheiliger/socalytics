@@ -26,7 +26,7 @@ public sealed class SimulatedRuntimeAdapter : IContainerRuntimeAdapter
     {
         this.options = options;
         this.time = time;
-        Probe = Healthy(options.MaxParallelAttempts);
+        Probe = Healthy(options.MaxParallelAttempts) with { DaemonAccess = options.DaemonAccess };
     }
 
     public string Profile => TestProfile;

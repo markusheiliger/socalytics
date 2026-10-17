@@ -47,7 +47,11 @@ unauthenticated remote TCP runtime APIs are unsupported.
   or Docker and also accept a rootful Docker daemon reached through the
   `docker` group; preflight reports which one is in use, and the rootful case
   requires a dedicated non-login service account for the headless server
-  profile (see [Analyst Manager](analyst-manager.md#headless-server-profile)).
+  profile (see [Analyst Manager](analyst-manager.md#headless-server-profile));
+  under a login-capable account the headless Manager reports the runtime as
+  unavailable and admits no work. The rule is implemented as a failing
+  preflight check and exercised with the simulated runtime; the Linux runtime
+  adapters that report the daemon access remain future.
 
 Support is defined by a tested compatibility matrix containing the AM version,
 runtime product and version, backend or VM mode, Windows version, architecture,
@@ -301,6 +305,8 @@ pair. Retry and fencing semantics remain identical across implementations.
   through per-object write grants, and report the result manifest, checksum,
   runtime, image digest, and fencing token
 - expose local utilization, active attempts, and timestamped queue status
+  (implemented for CPU, memory, and queue depth; accelerator utilization
+  follows an accelerated runtime)
 - support pause, resume, drain, local unregister, and platform revocation
 - terminate and clean up active containers after security revocation
 - reconcile AM-owned runtime resources and destroy containers on completion

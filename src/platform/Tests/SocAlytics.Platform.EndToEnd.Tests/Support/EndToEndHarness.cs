@@ -115,7 +115,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
                 services.Replace(ServiceDescriptor.Singleton<TimeProvider>(TimeProvider.System));
                 services.Configure<RegistryOptions>(o =>
                 {
-                    o.AllowSoftwareKeys = true;
+                    o.SoftwareKeys = SoftwareKeyPolicy.All;
                     o.RateLimits.PairingCreationPerMinute = 10_000;
                     o.RateLimits.StatusPerMinute = 10_000;
                     o.RateLimits.ActivationPerMinute = 10_000;

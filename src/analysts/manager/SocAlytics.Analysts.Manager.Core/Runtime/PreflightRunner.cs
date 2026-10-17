@@ -9,13 +9,19 @@ public sealed class PreflightRunner
     private readonly RuntimeCompatibilityList compatibility;
     private readonly IOptions<RuntimeOptions> options;
     private readonly TimeProvider time;
+    private readonly ApplicationProfile profile;
+    private readonly AccountShell accountShell;
 
     public PreflightRunner(
         RuntimeAdapterCatalog catalog,
         RuntimeCompatibilityList compatibility,
         IOptions<RuntimeOptions> options,
-        TimeProvider time)
+        TimeProvider time,
+        ApplicationProfile profile = ApplicationProfile.Tray,
+        AccountShell? accountShell = null)
     {
+        this.profile = profile;
+        this.accountShell = accountShell ?? new AccountShell();
         this.catalog = catalog;
         this.compatibility = compatibility;
         this.options = options;
@@ -72,6 +78,11 @@ public sealed class PreflightRunner
             From("image-platform-compatible", probe.ImagePlatformCompatible, "Use a runtime that can run the probe image platform."),
             From("resource-limits-feasible", probe.ResourceLimitsFeasible, "Make sure the runtime can enforce CPU and memory limits."),
         };
+        if (this.profile == ApplicationProfile.HeadlessServer)
+        {
+            checks.Add(AccountIsolation(probe));
+        }
+
         foreach (var accelerator in probe.Accelerators)
         {
             checks.Add(new PreflightCheck($"accelerator-probe:{accelerator.Id}", accelerator.Passed, accelerator.Detail,
@@ -85,6 +96,13 @@ public sealed class PreflightRunner
         return new PreflightResult(time.GetUtcNow(), adapter.Profile, probe.RuntimeProduct, probe.RuntimeVersion,
             probe.Backend, passed, checks, capabilities, passed ? probe.MaxParallelAttempts : 0);
     }
+
+    private PreflightCheck AccountIsolation(RuntimeProbe probe) =>
+        probe.DaemonAccess == DaemonAccessKinds.RootfulGroup && accountShell.IsLoginCapable()
+            ? new PreflightCheck("account-isolation", false,
+                "A rootful container runtime reached through group membership requires a dedicated non-login service account.",
+                "Run the Manager under a dedicated account without a login shell, or use a rootless runtime (see the Manager README, Headless Server Profile).")
+            : new PreflightCheck("account-isolation", true, null, null);
 
     private static PreflightCheck From(string id, ProbeCheck check, string remediation) =>
         new(id, check.Passed, check.Detail, check.Passed ? null : check.Remediation ?? remediation);

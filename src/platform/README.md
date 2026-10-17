@@ -67,8 +67,8 @@ approval, activation, DPoP machine tokens, revocation, unregistration):
   `/api/v1/analyst-manager-registrations`, `GET .../{registrationId}`, and
   `POST .../{registrationId}/approval`, `/rejection`, and `/revocation`.
 - Manager `self` endpoints: `GET /api/v1/analyst-managers/self/registration`,
-  `POST .../self/status`, `POST .../self/unregistration`, and
-  `POST .../self/unregistration/completion`;
+  `GET .../self/queue-depth`, `POST .../self/status`,
+  `POST .../self/unregistration`, and `POST .../self/unregistration/completion`;
   they require the `AnalystManagerDPoP` authentication scheme and the
   `AnalystManager` authorization policy. The principal carries the claims in
   `AnalystManagerClaimTypes`: `client_id`, `socalytics:registration_id`, and
@@ -85,10 +85,21 @@ approval, activation, DPoP machine tokens, revocation, unregistration):
   without status. `Registry:StatusReporting:Interval` (60 seconds) and
   `Registry:StatusReporting:MissedIntervalsBeforeOffline` (3) are development
   values, not adopted production values.
+- Queue depth: an active Manager reads `GET /api/v1/analyst-managers/self/queue-depth`
+  with one `capability` query value per assigned capability (1–64) and receives,
+  per capability of the default workflow, the number of ready jobs its JetStream
+  consumer `analyst-<id>` has not yet delivered (`waiting`), the `total`, and
+  the platform's `observedAt`
+  (`contracts/analyst-manager/queue-depth/v1`). Unknown or unprovisioned ids are
+  omitted, a registration that is not active gets `403` `manager-not-active`,
+  and an unreachable broker gets `503` `urn:socalytics:problem:queue-unavailable`.
+  The value is operational guidance, is not audited, and is not part of the
+  status report or the fleet read.
 - `Stamp:Id` and `Stamp:PublicBaseUri` identify the stamp and build the
   verification address (development values are in `appsettings.Development.json`).
-- `Registry` option defaults: `AllowSoftwareKeys` false (true only for
-  development and test), `Pairing:MaxFingerprintMismatches` 3,
+- `Registry` option defaults: `SoftwareKeys` `refused` (`headless-server-only`
+  accepts software keys from headless server claims, `all` only in development
+  and test; other environments fail start-up with `all`), `Pairing:MaxFingerprintMismatches` 3,
   `Pairing:Window` 10 minutes, `Pairing:ApprovalWindow` 24 hours,
   `Pairing:ActivationWindow` 10 minutes, `Pairing:ChallengeLifetime` 60 seconds,
   `Pairing:PollingInterval` 5 seconds, `Tokens:Lifetime` 5 minutes, and an
@@ -127,6 +138,28 @@ workflow, and resolves analysis runs from the default workflow.
   (no image registry access) and records one `registry.seeded` audit event.
   Tests that need an empty Registry start the API with `omitWorkflow: true`.
   Without a default workflow, runs resolve as not configured.
+
+Member email addresses and notifications are implemented as development
+evidence (migration `0019_identityaccess_email_notifications.sql`):
+
+- Optional member addresses with single-use confirmation links, notification
+  preferences, and Club Admin-visible addresses under `/api/v1`.
+- A dedicated transactional email outbox table and a delivery worker in the API
+  host that submits messages with MailKit over SMTP, with bounded retries.
+  Delivery is not on the NATS-published outbox.
+- The pending-request notification to Club Admins with a verified address,
+  coalesced per recipient.
+- The AppHost starts a Mailpit container (`axllent/mailpit` `v1.31.5`) as the
+  relay and injects the `Email` options (`Smtp:Host`, `Smtp:Port`,
+  `Smtp:Security`, `SenderAddress`, `SenderName`, `Confirmation:Lifetime`,
+  `Confirmation:MaxPerHour`, `Confirmation:AttemptsPerMinute`,
+  `Delivery:MaxAttempts`, `Delivery:PollInterval`, `Delivery:LeaseDuration`)
+  and `Notifications` options (`CoalescingWindow`, `WebUiBaseUri`). These are
+  development values, not production values. `StartTlsWhenAvailable` is
+  allowed only in Development; the Email options are validated at startup.
+- Production relay, sender authentication, and bounce handling remain deferred.
+  Integration and Host tests use a disposable Mailpit container and need
+  Docker.
 
 The durable analysis workflow is implemented as development evidence (outbox,
 NATS JetStream publication, run creation from finalized recording sets,
@@ -178,6 +211,11 @@ remain deferred.
   `0016_registry_queue_credentials.sql`) and pushes account revocations through
   the system account, with a retrying revocation worker. Production key custody
   and lifetimes are unresolved under `GOV-CRED-004`.
+- `WebUi:MinimumVersion` (default empty): the minimum Web UI release version,
+  shaped `YYYY.MMDD.HHMMSS`, validated on start. When set, every `/api/**`
+  response carries it in the `SocAlytics-Minimum-Web-Version` header so an older
+  Web UI updates itself; the platform never refuses a request by client
+  version.
 - `AnalystWork` options (development defaults, not production values):
   `MaxConcurrentAnalystsPerManager` 2, `QueueCredentialLifetime` 30 minutes,
   `QueueUrl` `nats://localhost:4222`, `ConsumerAckWait` 30 seconds, and

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>socalytics-manager-server</AssemblyName>
+    <RootNamespace>SocAlytics.Analysts.Manager.Server</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="SocAlytics.Analysts.Manager.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SocAlytics.Analysts.Manager.Core\SocAlytics.Analysts.Manager.Core.csproj" />
+  </ItemGroup>
+</Project>

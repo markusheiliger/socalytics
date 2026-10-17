@@ -6,7 +6,7 @@ The Analyst Manager is a per-user desktop application (Avalonia tray app plus a 
 
 This is development evidence, not production readiness. Installers, signing, updates, accessibility, attestation, and production values remain open.
 
-Planned, not implemented: a headless server profile for Linux, in which the Core worker runs without Avalonia as a systemd user service with lingering and is controlled only by the CLI; installers and updates with Velopack (per-user, delta updates, one AppImage for both Linux profiles, signing after an unsigned spike), served by each stamp as an update feed; and a status report for the Web UI fleet view. See [Application Profiles](../../../docs/architecture/analyst-manager.md#application-profiles).
+Planned, not implemented: installers and updates with Velopack (per-user, delta updates, one AppImage for both Linux profiles, signing after an unsigned spike), served by each stamp as an update feed; and a status report for the Web UI fleet view. See [Application Profiles](../../../docs/architecture/analyst-manager.md#application-profiles).
 
 ## Build, Run, And Test
 
@@ -17,13 +17,16 @@ dotnet restore src/analysts/manager/SocAlytics.Analysts.Manager.slnx
 dotnet build src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-restore
 dotnet test src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-build
 dotnet run --project src/analysts/manager/SocAlytics.Analysts.Manager
+dotnet run --project src/analysts/manager/SocAlytics.Analysts.Manager.Server
 ```
+
+The second run command starts the headless server profile (Linux only; see [Headless Server Profile](#headless-server-profile)).
 
 The Manager has its own `global.json`, pinned to the platform SDK. Linux tests need SoftHSM2. Windows and macOS key-store tests are skipped elsewhere and verified manually.
 
 ## Controls
 
-The operator uses the tray menu, or the status window where the desktop has no tray area. The same local-control protocol (one owner-only Unix domain socket per user) backs the scripting CLI of the tray executable `socalytics-manager`:
+The operator uses the tray menu, or the status window where the desktop has no tray area. The same local-control protocol (one owner-only Unix domain socket per user) backs the scripting CLI of the tray executable `socalytics-manager` and of the headless executable `socalytics-manager-server` (identical commands):
 
 | Command | Effect |
 | --- | --- |
@@ -48,6 +51,15 @@ After a successful run, the Manager checks the Analyst's result manifest in the 
 
 Before launching an attempt whose job has upstream dependencies, the Manager reads the upstream results (`contracts/analysis/upstream-results/v1`), downloads each manifest and artifact through the per-object read grants, verifies their digests, and stages them with a `coverage.json` per capability under the attempt's `inputs/` directory, which is mounted read-only for the Analyst. Staging is bounded by `Work:Staging:MaxBytesPerAttempt` (development value 2 GiB). A digest mismatch, storage or read failure, size limit, or full disk fails the attempt without launching the Analyst. The attempt directory, including `inputs/`, is deleted when the attempt ends, and all attempt directories are deleted at Manager start. The simulated Analyst builds a match-scope manifest's `upstreamLineage` from the staged inputs; the `ignore-inputs` result mode (Development and Test only) leaves the lineage empty so acceptance rejects it.
 
+## Status: Queue Depth and Host Utilization
+
+The status window and `status [--json]` show approximate guidance about waiting work and the load of the host:
+
+- **Queue depth**: after each successful registration check while the registration is active (in every operating state), the Manager reads `GET /api/v1/analyst-managers/self/queue-depth` for the capabilities of its current queue credentials and shows the waiting count per capability, the total, and the age of the observation. Only the latest observation is kept in memory. It is shown as stale after a failed request or when no request succeeded within two status check intervals. Without an observation the status says `no information yet`, `no capability assigned`, or `unavailable`. Admission of work never depends on the value.
+- **Host utilization**: a sampler reads CPU and memory of the host locally every 5 seconds (`/proc` on Linux, `GetSystemTimes` and `GlobalMemoryStatusEx` on Windows, `host_statistics` and `sysctl` on macOS) and keeps only the latest sample in memory; the first sample has no CPU value and unreadable values show `not available`. Accelerator utilization is not shown yet.
+
+Neither value is persisted or sent to the platform: the status report and the fleet view carry neither. The `queueDepth` and `hostUtilization` members of the `status` response are defined by [contracts/local-control.schema.json](contracts/local-control.schema.json). Windows and macOS sampling is verified on those systems.
+
 ## Device Key Providers
 
 | OS | Provider |
@@ -56,7 +68,7 @@ Before launching an attempt whose job has upstream dependencies, the Manager rea
 | macOS | Secure Enclave, with a Keychain fallback, through the Swift bridge (`macos-bridge`) |
 | Linux | PKCS#11 (`pkcs11`) with a tpm2-pkcs11 token |
 
-A software-backed key is used only if the platform stamp allows software keys (`Registry:AllowSoftwareKeys`, development and test only).
+A software-backed key is used only if the platform stamp allows software keys for the Manager's application profile (`Registry:SoftwareKeys`: `refused` by default, `headless-server-only`, or `all` in development and test only; stamp discovery lists the accepted profiles and the Manager refuses to start a pairing that would be refused).
 
 ### Provisioning a tpm2-pkcs11 token (Linux)
 
@@ -70,10 +82,45 @@ Write the same value to the owner-only file `pkcs11.pin` (mode `0600`) in the Ma
 ## Autostart
 
 - Windows: per-user `Run` registry key.
-- Linux: XDG autostart file `socalytics-analyst-manager.desktop` in `$XDG_CONFIG_HOME/autostart` (fallback `~/.config/autostart`).
+- Linux (tray profile): XDG autostart file `socalytics-analyst-manager.desktop` in `$XDG_CONFIG_HOME/autostart` (fallback `~/.config/autostart`).
+- Linux (headless server profile): systemd user unit `socalytics-analyst-manager.service`, managed with `systemctl --user` by `autostart on|off`.
 - macOS: per-user LaunchAgent plist in `~/Library/LaunchAgents`.
 
 The tray menu item "Start at sign-in" shows the read-back state.
+
+## Headless Server Profile
+
+The headless profile is the Linux-only console executable `socalytics-manager-server` (project `SocAlytics.Analysts.Manager.Server`). It runs the Core worker without Avalonia as a systemd user service and has the same CLI commands as the tray executable (`status`, `register`, `pause`, `resume`, `exit`, `unregister`, `concurrency`, `autostart`). Windows and macOS refuse to start it. It claims the `headless-server` application profile at pairing; the platform shows it as claimed.
+
+Supported distributions: Ubuntu Server 22.04 and 24.04 LTS. Installers are not provided: publish the executable with `dotnet publish src/analysts/manager/SocAlytics.Analysts.Manager.Server -r linux-x64` and copy it to the host as the account that runs it.
+
+**Lingering.** A one-time administrator step lets the user service run without a login session: `sudo loginctl enable-linger <user>`. The Manager reads systemd's lingering marker at start and `status` shows it; when it is off, the Manager only warns and names this command.
+
+**Service account.** With a rootless Podman or Docker runtime, any account may run the Manager. With a rootful Docker daemon reached through the `docker` group, the account is root-equivalent, so run the Manager under a dedicated non-login service account (for example `sudo useradd --system --create-home --shell /usr/sbin/nologin socalytics-manager`). Under an account with a login shell and a rootful runtime, a preflight check fails: the Manager is runtime-unavailable with the account reason, admits no work, and stays registered. Linux runtime adapters do not exist yet; the rule is exercised with the simulated runtime (`Runtime:Simulated:DaemonAccess`).
+
+**Autostart.** `socalytics-manager-server autostart on` writes and enables the systemd user unit `socalytics-analyst-manager.service` (restarts after a crash, stops through the safe exit); `autostart off` disables and removes it.
+
+**Registration.** `socalytics-manager-server register --platform <stamp URL> [--host-label TEXT]`, then complete pairing and approval in the Web UI. Without a TPM, the stamp must allow software keys for headless servers (`Registry:SoftwareKeys` `headless-server-only`).
+
+**Logs.** The service logs to the journal: `journalctl --user -u socalytics-analyst-manager.service`.
+
+### Manual validation (open)
+
+The manual validation on Ubuntu Server 22.04 and 24.04 LTS has **not** been performed; it is open evidence until a person runs it after the merge and records the outcome here (hosts without a graphical environment, with a TPM, a virtual TPM, or a stamp that allows software keys for headless servers):
+
+| Release | Outcome |
+| --- | --- |
+| Ubuntu Server 22.04 LTS | Open |
+| Ubuntu Server 24.04 LTS | Open |
+
+1. Publish for `linux-x64` and copy the executable to the host as the account that runs it.
+2. Start it without lingering: the warning names `loginctl enable-linger`.
+3. Run `sudo loginctl enable-linger <user>` as an administrator.
+4. Run `socalytics-manager-server register --platform <stamp URL>`, enter a host label, complete pairing on another device, and approve it as a Club Admin; the decision view and the fleet show `Headless server (claimed)`.
+5. Run `socalytics-manager-server autostart on`, reboot, and do not sign in; within 60 seconds after boot, `status` from an SSH session shows the Manager running and connected.
+6. Run `pause --for 10m`, `resume`, `concurrency 2`, and `status`; the results match the tray profile.
+7. Run `systemctl --user stop socalytics-analyst-manager.service` while a simulated attempt runs: the Manager drains and exits; `systemctl --user start` brings it back.
+8. Kill the process with `kill -9`: systemd restarts it after about 10 seconds.
 
 ## macOS Bridge
 

@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import { specDir } from './speckit-prepare-core.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
-import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
+import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, reportSpecPullFailure, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
 import {
   BOT_LOGIN,
   CATEGORY_MEANING,
@@ -21,6 +21,7 @@ import {
   amendmentBranch,
   baseBranchOf,
   defaultBranchOf,
+  diagnosisRunsUrl,
   implementationBranch,
   isImplementRunOf,
   isTwinRunOf,
@@ -38,11 +39,11 @@ export { checkAmendment, findAmendment };
 export const CATEGORIES = ['artifacts', 'retry', 'outside', 'decision', 'unknown'];
 export const CONFIDENCE = ['high', 'medium', 'low'];
 export const MODES = ['diagnose', 'fix', 'revise'];
-const COMMAND_PATTERN = /^\/speckit (diagnose|retry|resume|fix)( [^\n]*)?$/;
+const COMMAND_PATTERN = /^\/speckit (retry|sync|fix)( [^\n]*)?$/;
 // A placeholder an agent may copy from a usage line instead of writing the text: `<guidance>` or `<answers>`.
 // Only these words count, so code such as `IReadOnlyList<Recording>` or task tags such as `[P]` stay intact.
 const PLACEHOLDER_PATTERN = /<(?:concrete |your )?(?:guidance|answers?|guidance or answers|choice|first choice|what to examine next|what to fix[^<>\n]{0,60})>|\[(?:concrete |your )?(?:guidance|answers?|guidance or answers)\]/gi;
-const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|resume|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|resume|fix))\b/;
+const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|resume|sync|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|resume|sync|fix))\b/;
 const MAX_EVIDENCE_BYTES = 200_000;
 const LOG_TAIL_LINES = 150;
 
@@ -54,8 +55,8 @@ const clip = (text, max) => {
 export class DiagnoseUsageError extends Error {}
 
 // Starts a diagnosis of the implementation pull request `pull`: a check run on the head marks the implementation as
-// waiting for the diagnosis, and the agentic diagnose workflow is dispatched. A dispatch failure leaves the check run
-// as a reported diagnosis, so the implementation waits for a person instead of for a diagnosis that never runs.
+// waiting for the diagnosis, and the agentic diagnose workflow is dispatched. A dispatch failure leaves an unfinished
+// diagnosis check so the implementation controller starts it again.
 export async function startDiagnosis(client, env, { twin, pull, folder, head, guidance = '', previous = '', actor = null, auto = false }) {
   // A new diagnosis supersedes an earlier amendment; its branch must not exist when the new run proposes one.
   const superseded = await findAmendment(client, folder);
@@ -78,6 +79,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, gu
     head_sha: head,
     status: 'in_progress',
     external_id: CHECK_DIAGNOSING,
+    details_url: diagnosisRunsUrl(env),
     output: { title: 'Diagnosis in progress', summary },
   });
   try {
@@ -98,10 +100,10 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, gu
     await client.updateCheckRun(check.id, {
       status: 'completed',
       conclusion: 'failure',
-      external_id: CHECK_DIAGNOSED,
+      external_id: CHECK_DIAGNOSING,
       output: { title: 'Diagnosis could not start', summary: clip(error.message, 2000) },
     });
-    await setAttention(client, pull, true);
+    await setAttention(client, pull, false);
     return { started: false, check, error: error.message };
   }
 }
@@ -322,7 +324,7 @@ function normalizeOption(item, index, reasons) {
   return { title, why, command: typeof item?.command === 'string' ? item.command.trim() : null, recommended: item?.recommended === true };
 }
 
-// A command whose text after the verb is only a placeholder (`/speckit resume <guidance>`) is reduced to the bare
+// A command whose text after the verb is only a placeholder (`/speckit retry <guidance>`) is reduced to the bare
 // command; a placeholder inside other text makes the command unusable (null), because a person could not post it as
 // it is.
 export function removePlaceholderArgument(command) {
@@ -398,10 +400,10 @@ const CATEGORY_TEXT = {
 // command never disagree. The first is the category's default.
 export const CATEGORY_COMMANDS = Object.freeze({
   retry: ['retry'],
-  outside: ['fix', 'resume'],
-  artifacts: ['diagnose'],
-  decision: ['diagnose'],
-  unknown: ['diagnose'],
+  outside: ['fix', 'sync'],
+  artifacts: [],
+  decision: ['retry'],
+  unknown: [],
 });
 
 // One line of guidance for the agent of the next attempt, from the diagnosis' findings.
@@ -431,9 +433,9 @@ function defaultRecommendation(report) {
       };
     case 'artifacts':
       return {
-        title: 'Diagnose again to create the amendment',
+        title: 'Wait for another diagnosis to create the amendment',
         why: 'The diagnosis found a defect in the spec artifacts, but no amendment pull request was created for it.',
-        command: '/speckit diagnose Create the amendment pull request for the spec artifact defect that the previous diagnosis found.',
+        kind: 'wait',
       };
     case 'decision': {
       const answers = report.questions
@@ -444,14 +446,14 @@ function defaultRecommendation(report) {
         why: answers.length > 0
           ? 'Only a person can make this trade-off. The command answers with the first, recommended choice of each question; change the answers before posting if you decide otherwise.'
           : 'Only a person can make this trade-off; add your answers after the command, numbered like the questions.',
-        command: answers.length > 0 ? `/speckit diagnose ${answers.join(' ')}` : '/speckit diagnose',
+        command: answers.length > 0 ? `/speckit retry ${answers.join(' ')}` : '/speckit retry',
       };
     }
     default:
       return {
-        title: 'Diagnose again',
-        why: 'The evidence was not enough to name a cause; a new diagnosis looks at the current state with these findings as context.',
-        command: '/speckit diagnose',
+        title: 'Wait for another diagnosis',
+        why: 'The evidence was not enough to name a cause; another automatic diagnosis looks at the current state with these findings as context.',
+        kind: 'wait',
       };
   }
 }
@@ -481,15 +483,15 @@ export function recommendNextSteps(report, { amendment = null } = {}) {
   return { options: [{ ...defaultRecommendation(report), recommended: true }, ...options], notes };
 }
 
-export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null, baseBranch = null, continuation = null }) {
+export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null, baseBranch = null, continuation = null, diagnosisUrl = null }) {
   const lines = [DIAGNOSIS_COMMENT_MARKER];
-  const context = { behindBase, baseBranch, continuation, diagnosed: true };
+  const context = { behindBase, baseBranch, continuation, diagnosed: true, diagnosisUrl };
   if (!report) {
     lines.push(
       `**Diagnosis${round > 1 ? ` (round ${round})` : ''} did not produce a usable report**: ${reasons.map(neutralizeMarkers).join('; ') || 'no report'}.`,
       '',
       ...(runUrl ? [`See the [diagnosis run](${runUrl}).`, ''] : []),
-      ...renderNextSteps(context),
+      ...renderNextSteps({ ...context, diagnosed: false }),
     );
     return lines.join('\n');
   }
@@ -521,7 +523,7 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
     const prefilled = !amendment && report.category === 'decision' && parseNextCommand(options.find((option) => option.recommended)?.command)?.argument;
     lines.push('', prefilled
       ? '**Questions** (the recommended next step answers them with the first, recommended choice of each; change the answers before posting if you decide otherwise)'
-      : '**Questions** (answer them after `/speckit diagnose`, numbered like the questions; the recommended choice is listed first)', '');
+      : '**Questions** (the recommended choice is listed first)', '');
     report.questions.forEach((item, index) => {
       lines.push(`${index + 1}. ${safe(item.question)}`);
       for (const choice of item.choices) lines.push(`   - ${safe(choice)}`);
@@ -549,13 +551,27 @@ export async function runRecord({ client, env, log }) {
   const { reasons, report } = withheld
     ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
     : reports.length > 0 ? validateReport(reports.at(-1)) : { reasons: ['the agent did not report'], report: null };
-  const usable = report && report.category ? report : null;
+  const amendment = report?.category && reasons.length === 0 ? await createdAmendment(client, env, folder, reasons) : null;
+  const recommendationProblems = report?.category ? recommendNextSteps(report, { amendment }).notes : [];
+  reasons.push(...recommendationProblems);
+  if (report?.category && !amendment && !report.options.some((option) => option.recommended && option.command)) {
+    reasons.push('the report must recommend one actionable command that fits its category');
+  }
+  const usable = report && report.category && reasons.length === 0 ? report : null;
   const comments = await client.listIssueComments(pullNumber);
   const round = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).length + 1;
-  const amendment = usable ? await createdAmendment(client, env, folder, reasons) : null;
   const context = await nextStepContext(client, await client.getPullRequest(pullNumber), folder);
   const runUrl = env.GITHUB_RUN_ID ? `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
-  await client.createComment(pullNumber, renderDiagnosisComment({ report: usable, reasons, round, runUrl, amendment, ...context }));
+  const repeat = !usable || usable.category === 'unknown' || (usable.category === 'artifacts' && !amendment);
+  const comment = await client.createComment(pullNumber, renderDiagnosisComment({
+    report: usable,
+    reasons,
+    round,
+    runUrl,
+    amendment,
+    diagnosisUrl: diagnosisRunsUrl(env),
+    ...context,
+  }));
   const checkRun = Number(env.SPECKIT_CHECK_RUN);
   if (Number.isInteger(checkRun) && checkRun > 0) {
     await client.updateCheckRun(checkRun, {
@@ -563,11 +579,21 @@ export async function runRecord({ client, env, log }) {
       conclusion: usable ? 'neutral' : 'failure',
       external_id: CHECK_DIAGNOSED,
       output: usable
-        ? { title: `Waiting for a decision: ${usable.category}`, summary: clip(usable.summary, 2000) }
+        ? { title: repeat ? `Diagnosis continues: ${usable.category}` : `Waiting for a decision: ${usable.category}`, summary: clip(usable.summary, 2000) }
         : { title: 'Diagnosis without a usable report', summary: clip(reasons.join('; '), 2000) },
     });
   }
-  if (amendment) {
+  if (repeat) {
+    const restarted = await startDiagnosis(client, env, {
+      twin,
+      pull: pullNumber,
+      folder,
+      head: (await client.getPullRequest(pullNumber)).head.sha,
+      previous: String(comment?.id ?? ''),
+      auto: true,
+    });
+    if (!restarted.started) log(`Warning: could not continue the diagnosis: ${restarted.error}`);
+  } else if (amendment) {
     const implementation = await client.getPullRequest(pullNumber);
     await beginAmendment(client, env, { amendment, folder, implementation, twin });
   } else {
@@ -612,7 +638,9 @@ async function recordRework({ client, env, log, inputs }) {
     : reports.length > 0 ? validateReport(reports.at(-1), { requireCategory: false }) : { reasons: ['the agent did not report'], report: null };
   if (!report || !report.summary) {
     await complete('failure', mode === 'fix' ? `Correction round ${round} did not finish` : 'The rework did not finish', reasons.join('; '));
-    await client.createComment(number, `The ${mode === 'fix' ? `correction round ${round}` : 'rework'} did not produce a result: ${neutralizeMarkers(reasons.join('; ') || 'no report')}. Comment on this pull request to try again.`);
+    const problem = `The ${mode === 'fix' ? `correction round ${round}` : 'rework'} did not produce a result: ${neutralizeMarkers(reasons.join('; ') || 'no report')}.`;
+    if (mode === 'fix') await client.createComment(number, problem);
+    else await reportSpecPullFailure(client, context, problem);
     await handBack(`correction round ${round} did not finish`);
     await setAttention(client, number, true);
     return { exitCode: 0, outcome: 'failed' };
@@ -625,11 +653,13 @@ async function recordRework({ client, env, log, inputs }) {
     const what = mode === 'fix' ? `Correction round ${round}` : 'The rework';
     const why = pushFailures > 0 ? `${pushFailures} push(es) to \`${context.amendment.head.ref}\` failed.` : `The push was refused: ${incomplete.join('; ')}`;
     await complete('failure', `${what} could not push its changes`, why);
-    await client.createComment(number, [
-      `${what} could not push its changes to this pull request, so nothing changed. Comment on this pull request to try again.`,
+    const problem = [
+      `${what} could not push its changes to this pull request, so nothing changed.`,
       '',
       `> ${neutralizeMarkers(clip(why, 1500)).replace(/\n/g, '\n> ')}`,
-    ].join('\n'));
+    ].join('\n');
+    if (mode === 'fix') await client.createComment(number, problem);
+    else await reportSpecPullFailure(client, context, problem);
     // A refused push is a correction round without progress; the next round retries the same findings.
     if (mode === 'fix' && stalls + 1 < MAX_STALLED_ROUNDS && round < MAX_CORRECTION_ROUNDS) {
       await startRework(client, env, context, { mode: 'fix', round: round + 1, guidance: env.SPECKIT_GUIDANCE ?? '', stalls: stalls + 1, findings, progress: `Round ${round} could not push its changes.` });
@@ -678,6 +708,10 @@ export function checkReportFile(file, log = console.log) {
   if (!file || !existsSync(file)) throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs check-report <report.json>');
   const { reasons, report } = validateReport(readFileSync(file, 'utf8'));
   const notes = report?.category ? recommendNextSteps(report).notes : [];
+  if (report?.category && report.category !== 'artifacts' &&
+      !report.options.some((option) => option.recommended && option.command)) {
+    notes.push('the report must recommend one actionable command that fits its category');
+  }
   const problems = [...reasons, ...notes];
   log(problems.length > 0 ? `Fix these problems before you report:\n${problems.map((item) => `- ${item}`).join('\n')}` : 'The report is valid.');
   if (report?.category) log(`\nThe comment would read:\n\n${renderDiagnosisComment({ report, reasons, round: 1 })}`);

@@ -89,8 +89,8 @@ The status window shows:
 - registered stamp, club, connectivity, operating state, and
   uptime
 - active Analyst count and the configured maximum concurrency
-- host CPU and memory utilization and available accelerator utilization where
-  the runtime can report it
+- host CPU and memory utilization; accelerator utilization is not shown yet
+  and follows an accelerated runtime
 - each active job attempt and the time of its last successful heartbeat
 - the approximate stamp-local queue depth for this Manager's
   capabilities, together with the observation time
@@ -98,6 +98,16 @@ The status window shows:
 Queue depth is operational guidance, not a transactional guarantee. The AM
 obtains it through the registered stamp API and does not infer permission to
 pull work from the displayed value.
+
+The stamp operation `GET /api/v1/analyst-managers/self/queue-depth` returns, for the capability ids
+the Manager is assigned through its queue credentials, the number of ready
+jobs each capability's JetStream consumer has not yet delivered, with the
+platform's observation time. The Manager asks for it after each registration
+check, keeps only the latest observation in memory, and marks it stale after a
+failed request or two check intervals. It samples host CPU and memory locally
+every few seconds. Neither value leaves the host: the status report and the
+fleet view carry neither. Accelerator utilization is not shown yet and follows
+an accelerated runtime.
 
 Avalonia supplies the tray and status UI in the same process as the Core
 worker, without embedding a browser runtime alongside Analyst workloads. The
@@ -141,6 +151,25 @@ device key, signed state, and local socket that belong to one account.
   one, a stamp may explicitly allow software-backed keys for Managers that
   claim this profile (see
   [Browser Pairing And Approval](#browser-pairing-and-approval)).
+
+The headless profile is a separate console
+executable, `socalytics-manager-server`, that references only the Core worker,
+so neither Avalonia nor its native dependencies reach the server; both
+executables share one local-control CLI with identical commands. In this
+profile, `autostart on|off` installs and enables, or disables and removes, the
+systemd user unit instead of the XDG autostart entry; the unit restarts the
+Manager after a crash and stops it through the safe exit. The lingering check
+reads systemd's lingering marker for the account and only warns. The account
+rule is a preflight check: when the runtime reports a rootful daemon reached
+through group membership and the account has a login shell, preflight fails,
+so the Manager is runtime-unavailable with that reason, admits no work, and
+stays registered and visible. Windows and macOS refuse to start the headless
+executable. Automated tests cover the executable's closure without Avalonia,
+the shared CLI, the lingering check, the generated user unit, and the account
+rule against the simulated runtime. The boot behavior on Ubuntu Server 22.04
+and 24.04 LTS is a manual validation that a person performs after the merge;
+it is open evidence until then (see
+[Analysts, Models, and Hardware](analysts-models-and-hardware.md#implementation-validation)).
 
 ### Local Control
 
@@ -235,11 +264,24 @@ development and test, a stamp may allow software-backed keys only for Managers
 that claim the headless server profile, for Linux servers without a TPM or
 virtual TPM; tray Managers keep requiring hardware-backed keys. The platform can
 verify neither the profile nor the protection, so the approval view shows both
-as claimed, with a warning (the Web UI decision view shows the profile
-only once Managers report it; see
+as claimed, with a warning (the Web UI decision view shows the claimed profile,
+or "not reported" for older registrations; see
 [Fleet Visibility In The Web UI](#fleet-visibility-in-the-web-ui)). Hardware key attestation is a later decision.
 Production approval of any store remains governed by `GOV-CRED-002` in
 [Security and Data Governance](security-and-data-governance.md#credential-class-entries).
+
+The Manager claims its application profile
+(`tray` or `headless-server`) in an optional, additive field of the pairing
+request's device metadata, so the v1 registration contract stays compatible.
+Current Managers always send it; the platform refuses unknown values and
+`headless-server` claims from systems other than Linux, keeps the claim with
+the other claimed device metadata for the life of the registration, and shows
+a missing claim from an older Manager as not reported, treating it like `tray`
+for the key rule. The stamp's software key policy has three values: refused
+(the default), allowed only for `headless-server` claims, and allowed for all
+profiles, which the platform accepts only in development and test. Stamp
+discovery lists the profiles for which software-backed keys are accepted, so a
+Manager refuses to start a pairing that would be refused.
 
 The untrusted AM requests a short-lived, single-use pairing code bound to its
 public key, target stamp, nonce, expiry, and reported device metadata. The
@@ -435,14 +477,16 @@ registration list and detail operations; see
 [Manager status contracts](../../specs/archive/20261012-153308-manager-fleet-status/contracts/self-status-api.md).
 
 The Web UI fleet, pairing, and decision views are implemented. They do not
-show the claimed application profile: it follows once the headless server
-profile exists and Managers report it, while the claimed device-key protection
-is shown from the start. Approving a request requires re-entering the last six
+show the claimed application profile and the claimed device-key protection,
+with "not reported" for registrations of Managers that did not claim a
+profile. Approving a request requires re-entering the last six
 characters of the device fingerprint, and revoking a registration requires
 typing the Manager's host label. The navigation shows Club Admins the number of
-pending requests. Notification of Club Admins with a verified email address
-about pending requests awaits an implemented
-[email channel](email-notifications.md); it is not implemented.
+pending requests. Club Admins with a verified email address are also notified of pending
+requests by email through the
+[email channel](email-notifications.md), which is implemented: the first
+request sends a message at once and further ones are coalesced within a
+window.
 
 ---
 
