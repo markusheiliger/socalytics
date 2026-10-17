@@ -82,6 +82,7 @@ app.MapMemberEndpoints();
 app.MapCredentialEndpoints();
 app.MapRecordingEndpoints();
 app.MapAnalysisRunEndpoints();
+app.MapAnalysisFactEndpoints();
 app.MapWorkflowOperationsEndpoints();
 app.MapAnalystManagerEndpoints();
 app.MapRegistryEndpoints();
