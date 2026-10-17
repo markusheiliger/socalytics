@@ -5,7 +5,7 @@ description: "Task list for Analyst Manager Queue Depth and Host Utilization"
 
 # Tasks: Analyst Manager Queue Depth and Host Utilization
 
-**Input**: Design documents from `specs/20261015-192843-manager-queue-utilization/`
+**Input**: Design documents from `specs/archive/20261015-192843-manager-queue-utilization/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/queue-depth.md](contracts/queue-depth.md), [quickstart.md](quickstart.md)
 
