@@ -246,19 +246,22 @@ runs:
         python_project() {
           local root="$1" stage
           local -a commands=(
-            "bootstrap sync|uv sync --locked --all-groups --no-install-local --no-build"
-            "project sync|uv sync --locked --all-groups --no-build-isolation"
-            "wheel build|uv build --wheel --no-build-isolation --python .venv/bin/python"
-            "tests|uv run --no-sync pytest"
+            "bootstrap sync|uv sync --locked --all-groups --no-install-local --no-build|correct the consuming project's dependency declarations (manifest, uv.lock, locked wheels, and locked build backends) and commit them, then retry verification; verification never repairs or unlocks them"
+            "project sync|uv sync --locked --all-groups --no-build-isolation|reproduce this command in the named project, correct its package or local-dependency declarations so the locked backends build it, and retry verification"
+            "wheel build|uv build --wheel --no-build-isolation --python .venv/bin/python|reproduce this command in the named project, correct the package build failure in its source or build configuration, and retry verification"
+            "tests|uv run --no-sync pytest|reproduce this command in the named project, correct the failing or missing tests or the source they cover without weakening them (pytest needs at least one collectable test), and retry verification"
           )
-          local entry
+          local entry command recommendation rest
           echo "Analyst Python project: $root" | tee -a "$LOG_FILE"
           for entry in "${commands[@]}"; do
             stage="${entry%%|*}"
-            read -r -a words <<< "${entry#*|}"
+            rest="${entry#*|}"
+            command="${rest%%|*}"
+            recommendation="${rest#*|}"
+            read -r -a words <<< "$command"
             echo "Analyst Python stage: $stage ($root)" | tee -a "$LOG_FILE"
             step env UV_PYTHON_DOWNLOADS=never UV_PYTHON="$SOCALYTICS_PYTHON" "${words[@]}" || {
-              echo "Analyst Python stage failed: $stage in $root" | tee -a "$LOG_FILE"
+              echo "Analyst Python stage failed: $stage in $root (command: $command). Recommended action: $recommendation" | tee -a "$LOG_FILE"
               return 1
             }
           done
@@ -268,9 +271,12 @@ runs:
           if [ "$analyst_status" -ne 0 ]; then
             echo "Analyst Python projects: discovery failed (exit $analyst_status) using $analyst_python" | tee -a "$LOG_FILE"
             [ -n "$analyst_error" ] && echo "$analyst_error" | tee -a "$LOG_FILE"
+            if ! grep -q 'Recommended action:' <<< "$analyst_error"; then
+              echo "Analyst Python projects: discovery could not run. Recommended action: run environment-setup with install-tools true so SOCALYTICS_PYTHON names a working interpreter, then retry verification" | tee -a "$LOG_FILE"
+            fi
             status=1
           elif [ -z "${SOCALYTICS_PYTHON:-}" ] || [ ! -x "$SOCALYTICS_PYTHON" ] || ! command -v uv > /dev/null; then
-            echo "Analyst Python projects: SOCALYTICS_PYTHON and uv from environment-setup are required. Recommended action: run environment-setup with install-tools true before verification" | tee -a "$LOG_FILE"
+            echo "Analyst Python projects: environment setup: SOCALYTICS_PYTHON and uv from environment-setup are required. Recommended action: run environment-setup with install-tools true before verification" | tee -a "$LOG_FILE"
             status=1
           else
             while IFS= read -r analyst_root; do

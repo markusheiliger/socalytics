@@ -426,6 +426,17 @@ exit 0
       assert.match(result.log, /Analyst Python stage failed: /);
       assert.equal(result.outputs.checks, 'Analyst Python projects');
     });
+
+    it(`names the project, stage, command, and one recommendation for ${stage}`, () => {
+      const root = sdkRepository();
+      const result = run(root, { env: { FAIL_STAGE: stages[index] } });
+      const failure = result.log.split('\n').filter((line) => line.startsWith('Analyst Python stage failed: '));
+      assert.equal(failure.length, 1);
+      assert.match(failure[0], new RegExp(`in ${sdkRoot} \\(command: uv ${stages[index].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)\\. Recommended action: `));
+      assert.equal(failure[0].match(/Recommended action:/g).length, 1);
+      assert.match(failure[0], index === 0 ? /commit them/ : /reproduce this command in the named project/);
+      assert.doesNotMatch(failure[0], /--no-locked|--frozen|--upgrade|skip|ignore|disable|merge/i);
+    });
   }
 
   it('orders dependencies first and stops at the first failing project', () => {
@@ -465,6 +476,15 @@ exit 0
     const result = run(root, { withPython: false });
     assert.equal(result.status, 1);
     assert.match(result.log, /Recommended action: run environment-setup/);
+    assert.equal(result.calls.length, 0);
+  });
+
+  it('gives one recommendation when discovery itself cannot run', () => {
+    const root = sdkRepository();
+    const result = run(root, { env: { ANALYST_PROJECTS: path.join(temporary, 'missing-helper.py') } });
+    assert.equal(result.status, 1);
+    assert.match(result.log, /discovery failed/);
+    assert.equal((result.log.match(/Recommended action:/g) ?? []).length, 1);
     assert.equal(result.calls.length, 0);
   });
 

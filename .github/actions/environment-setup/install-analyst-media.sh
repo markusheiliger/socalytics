@@ -147,7 +147,7 @@ run_version_check() {
       "correct the declaration through a standalone environment change."
   if ! output="$("$executable" "${args[@]}" 2>&1)"; then
     fail "$id" version "$executable_key failed to run: ${output:0:200}" \
-      "inspect the named artifact and pin evidence, and correct the environment through a standalone change."
+      "inspect the named artifact and pin evidence, and correct the environment through a standalone change; never bypass the check."
   fi
   first="${output%%$'\n'*}"
   if [[ "$first" != "$expected"* ]]; then

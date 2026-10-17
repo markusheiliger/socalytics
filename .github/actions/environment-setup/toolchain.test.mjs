@@ -107,6 +107,11 @@ describe('committed toolchain declaration', () => {
 });
 
 describe('install-analyst-media.sh', () => {
+  it('never advises bypassing a check in any failure recommendation', () => {
+    const text = readFileSync(installer, 'utf8');
+    assert.doesNotMatch(text, /Recommended action: [^\n]*(skip|disable|ignore|--no-verify)/i);
+  });
+
   it('installs a verified archive, retains notices, and publishes paths', () => {
     const directory = scratch();
     const result = install(directory, declaration(fixtureArchive(directory)));
