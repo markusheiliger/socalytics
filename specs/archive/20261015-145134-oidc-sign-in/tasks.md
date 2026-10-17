@@ -5,7 +5,7 @@ description: "Task list for External OpenID Connect Sign-In"
 
 # Tasks: External OpenID Connect Sign-In
 
-**Input**: Design documents from `specs/20261015-145134-oidc-sign-in/`
+**Input**: Design documents from `specs/archive/20261015-145134-oidc-sign-in/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/external-sign-in-api.md](contracts/external-sign-in-api.md), [quickstart.md](quickstart.md)
 

@@ -88,7 +88,7 @@ public sealed class OpenApiContractTests
 		|| path == "/api/v1/members/{memberId}/email";
 
 	// External sign-in operations are verified by ExternalSignInEndpointTests against
-	// specs/20261015-145134-oidc-sign-in/contracts/external-sign-in-api.md, not against the Club contract.
+	// specs/archive/20261015-145134-oidc-sign-in/contracts/external-sign-in-api.md, not against the Club contract.
 	private static bool IsExternalSignInPath(string path) =>
 		path == "/api/v1/identity-providers"
 		|| path == "/api/v1/session/external"
