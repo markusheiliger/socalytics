@@ -89,8 +89,8 @@ The status window shows:
 - registered stamp, club, connectivity, operating state, and
   uptime
 - active Analyst count and the configured maximum concurrency
-- host CPU and memory utilization and available accelerator utilization where
-  the runtime can report it
+- host CPU and memory utilization; accelerator utilization is not shown yet
+  and follows an accelerated runtime
 - each active job attempt and the time of its last successful heartbeat
 - the approximate stamp-local queue depth for this Manager's
   capabilities, together with the observation time
@@ -99,16 +99,15 @@ Queue depth is operational guidance, not a transactional guarantee. The AM
 obtains it through the registered stamp API and does not infer permission to
 pull work from the displayed value.
 
-Decided, not yet implemented: the stamp operation
-`GET /api/v1/analyst-managers/self/queue-depth` returns, for the capability ids
+The stamp operation `GET /api/v1/analyst-managers/self/queue-depth` returns, for the capability ids
 the Manager is assigned through its queue credentials, the number of ready
 jobs each capability's JetStream consumer has not yet delivered, with the
 platform's observation time. The Manager asks for it after each registration
 check, keeps only the latest observation in memory, and marks it stale after a
 failed request or two check intervals. It samples host CPU and memory locally
 every few seconds. Neither value leaves the host: the status report and the
-fleet view carry neither. Accelerator utilization follows an accelerated
-runtime.
+fleet view carry neither. Accelerator utilization is not shown yet and follows
+an accelerated runtime.
 
 Avalonia supplies the tray and status UI in the same process as the Core
 worker, without embedding a browser runtime alongside Analyst workloads. The

@@ -51,6 +51,15 @@ After a successful run, the Manager checks the Analyst's result manifest in the 
 
 Before launching an attempt whose job has upstream dependencies, the Manager reads the upstream results (`contracts/analysis/upstream-results/v1`), downloads each manifest and artifact through the per-object read grants, verifies their digests, and stages them with a `coverage.json` per capability under the attempt's `inputs/` directory, which is mounted read-only for the Analyst. Staging is bounded by `Work:Staging:MaxBytesPerAttempt` (development value 2 GiB). A digest mismatch, storage or read failure, size limit, or full disk fails the attempt without launching the Analyst. The attempt directory, including `inputs/`, is deleted when the attempt ends, and all attempt directories are deleted at Manager start. The simulated Analyst builds a match-scope manifest's `upstreamLineage` from the staged inputs; the `ignore-inputs` result mode (Development and Test only) leaves the lineage empty so acceptance rejects it.
 
+## Status: Queue Depth and Host Utilization
+
+The status window and `status [--json]` show approximate guidance about waiting work and the load of the host:
+
+- **Queue depth**: after each successful registration check while the registration is active (in every operating state), the Manager reads `GET /api/v1/analyst-managers/self/queue-depth` for the capabilities of its current queue credentials and shows the waiting count per capability, the total, and the age of the observation. Only the latest observation is kept in memory. It is shown as stale after a failed request or when no request succeeded within two status check intervals. Without an observation the status says `no information yet`, `no capability assigned`, or `unavailable`. Admission of work never depends on the value.
+- **Host utilization**: a sampler reads CPU and memory of the host locally every 5 seconds (`/proc` on Linux, `GetSystemTimes` and `GlobalMemoryStatusEx` on Windows, `host_statistics` and `sysctl` on macOS) and keeps only the latest sample in memory; the first sample has no CPU value and unreadable values show `not available`. Accelerator utilization is not shown yet.
+
+Neither value is persisted or sent to the platform: the status report and the fleet view carry neither. The `queueDepth` and `hostUtilization` members of the `status` response are defined by [contracts/local-control.schema.json](contracts/local-control.schema.json). Windows and macOS sampling is verified on those systems.
+
 ## Device Key Providers
 
 | OS | Provider |

@@ -336,7 +336,42 @@ public sealed class LocalControlServer : IDisposable
             ["startedAt"] = a.StartedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
             ["lastConfirmedHeartbeatAt"] = a.LastConfirmedHeartbeatAt?.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
         })]);
+        node["queueDepth"] = QueueDepthReport(status.QueueDepth);
+        node["hostUtilization"] = new JsonObject
+        {
+            ["sampledAt"] = status.HostUtilization is { } sample ? Utc(sample.SampledAt) : null,
+            ["cpuPercent"] = status.HostUtilization?.CpuPercent is { } cpu ? JsonValue.Create((double)cpu) : null,
+            ["memoryUsedBytes"] = status.HostUtilization?.MemoryUsedBytes,
+            ["memoryTotalBytes"] = status.HostUtilization?.MemoryTotalBytes,
+        };
         return node;
+    }
+
+    private static string Utc(DateTimeOffset value) =>
+        value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture);
+
+    private static JsonObject QueueDepthReport(Diagnostics.QueueDepthView view)
+    {
+        var report = new JsonObject { ["state"] = view.Wire };
+        var snapshot = view.Snapshot;
+        if (snapshot.ObservedAt is { } observedAt)
+        {
+            report["observedAt"] = Utc(observedAt);
+            report["ageSeconds"] = (int)Math.Floor(view.AgeSeconds ?? 0);
+            report["capabilities"] = new JsonArray([.. snapshot.Capabilities.Select(c => (JsonNode?)new JsonObject
+            {
+                ["id"] = c.Id,
+                ["waiting"] = c.Waiting,
+            })]);
+            report["total"] = snapshot.Total;
+        }
+
+        if (snapshot.State == Queue.QueueDepthStatus.Unavailable && snapshot.LastError is { } reason)
+        {
+            report["reason"] = reason;
+        }
+
+        return report;
     }
 
     public void Dispose()

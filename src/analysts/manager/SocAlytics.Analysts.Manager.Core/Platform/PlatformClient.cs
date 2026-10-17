@@ -115,6 +115,17 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
         return await ExecuteAsync<QueueCredentialsResponse>(request, cancellationToken);
     }
 
+    public async Task<WorkResult<QueueDepthResponse>> GetQueueDepthAsync(
+        PlatformSession session, IReadOnlyList<string> capabilityIds, CancellationToken cancellationToken = default)
+    {
+        var uri = Endpoint(session.BaseUri, "self/queue-depth");
+        // The proof binds the path without the query string.
+        var request = Authenticated(HttpMethod.Get, uri, session);
+        request.RequestUri = new Uri(
+            uri.AbsoluteUri + "?" + string.Join('&', capabilityIds.Select(id => "capability=" + Uri.EscapeDataString(id))));
+        return await ExecuteAsync<QueueDepthResponse>(request, cancellationToken);
+    }
+
     public async Task<WorkResult<ClaimGranted>> ClaimAsync(
         PlatformSession session, Guid logicalJobId, Guid readinessOccurrenceId, Guid messageId, string retryKey,
         CancellationToken cancellationToken = default)

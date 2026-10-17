@@ -1,0 +1,7 @@
+{
+  "observedAt": "2026-10-15T19:40:00Z",
+  "capabilities": [
+    { "id": "person-detection", "waiting": 5 }
+  ],
+  "total": 5
+}

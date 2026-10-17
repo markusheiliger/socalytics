@@ -17,6 +17,7 @@ internal static class ProblemResults
 			OperationFailureKind.VersionMismatch => StatusCodes.Status412PreconditionFailed,
 			OperationFailureKind.Unauthenticated => StatusCodes.Status401Unauthorized,
 			OperationFailureKind.PasswordChangeRequired => StatusCodes.Status403Forbidden,
+			OperationFailureKind.Unavailable => StatusCodes.Status503ServiceUnavailable,
 			_ => throw new ArgumentOutOfRangeException(nameof(failure)),
 		};
 		return Problem(status, failure.Code, failure.FieldViolations);
@@ -69,6 +70,7 @@ internal static class ProblemResults
 		"not-found" => "The resource was not found.",
 		"completion-rejected" => "The completion does not match the pinned job snapshot.",
 		"version-required" => "A version precondition is required.",
+		"queue-unavailable" => "The queue depth is temporarily unavailable.",
 		"version-mismatch" => "The version precondition failed.",
 		_ => "The request could not be completed.",
 	};

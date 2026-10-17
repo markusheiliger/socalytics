@@ -90,6 +90,7 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Operating.IManagerWorkTracker>(sp => sp.GetRequiredService<Work.AttemptRegistry>());
         services.AddSingleton<Work.WorkSessionProvider>();
         services.AddSingleton<Queue.QueueCredentialProvider>();
+        services.AddSingleton<Queue.QueueDepthState>();
         services.AddSingleton<Queue.IQueueConnection>(sp => new Queue.RenewingQueueConnection(
             sp.GetRequiredService<Queue.QueueCredentialProvider>(), sp.GetService<IHostEnvironment>()));
         services.AddSingleton(Work.HostCapacity.Detect());
@@ -104,6 +105,9 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Registration.ProtectedStoreFailureHandler>();
         services.AddSingleton<Platform.ManagerTokenCache>();
         services.AddSingleton<Diagnostics.StatusReportBuilder>();
+        services.AddSingleton(_ => Diagnostics.HostUtilizationReaders.ForCurrentOs());
+        services.AddSingleton<Diagnostics.HostUtilizationSampler>();
+        services.AddHostedService(sp => sp.GetRequiredService<Diagnostics.HostUtilizationSampler>());
         services.AddSingleton<Registration.RegistrationStatusMonitor>();
         services.AddHostedService(sp => sp.GetRequiredService<Registration.RegistrationStatusMonitor>());
         services.AddSingleton<Registration.RegistrationCoordinator>();
