@@ -1,0 +1,13 @@
+{
+  "workflow": { "id": "default", "version": "3" },
+  "capabilities": [
+    {
+      "id": "test-analyst",
+      "version": "1.0.0",
+      "accelerators": [],
+      "cpus": "1",
+      "memoryBytes": 536870912,
+      "imageDigest": "sha-256:0000000000000000000000000000000000000000000000000000000000000000"
+    }
+  ]
+}

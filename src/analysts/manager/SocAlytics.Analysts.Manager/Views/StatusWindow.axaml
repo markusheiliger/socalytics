@@ -21,6 +21,8 @@
     <TextBlock Name="UptimeText" Text="{Binding Uptime}" />
     <TextBlock Text="Latest preflight" FontWeight="Bold" />
     <TextBlock Name="PreflightText" Text="{Binding Preflight}" TextWrapping="Wrap" />
+    <TextBlock Text="Runtime" FontWeight="Bold" />
+    <TextBlock Name="RuntimeText" Text="{Binding Runtime}" TextWrapping="Wrap" />
     <TextBlock Text="Concurrency limit" FontWeight="Bold" />
     <TextBlock Name="ConcurrencyText" Text="{Binding EffectiveConcurrency}" TextWrapping="Wrap" />
     <TextBlock Text="Active attempts" FontWeight="Bold" />

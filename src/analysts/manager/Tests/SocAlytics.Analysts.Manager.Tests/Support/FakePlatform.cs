@@ -18,6 +18,8 @@ internal enum WorkOperation
     Completion,
     ResultGrants,
     UpstreamRead,
+    RegistryCredentials,
+    WorkflowCapabilities,
 }
 
 /// <summary>In-process platform: every openapi.yaml operation with configurable outcomes.</summary>
@@ -169,10 +171,14 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
 
         var workPath = request.RequestUri!.AbsolutePath;
         if (workPath.EndsWith("/self/queue-credentials", StringComparison.Ordinal)
+            || workPath.EndsWith("/self/registry-credentials", StringComparison.Ordinal)
+            || workPath.EndsWith("/self/workflow-capabilities", StringComparison.Ordinal)
             || workPath.EndsWith("/self/queue-depth", StringComparison.Ordinal)
             || workPath.StartsWith("/api/v1/analysis/", StringComparison.Ordinal))
         {
             var operation = workPath.EndsWith("/self/queue-credentials", StringComparison.Ordinal) ? WorkOperation.QueueCredentials
+                : workPath.EndsWith("/self/registry-credentials", StringComparison.Ordinal) ? WorkOperation.RegistryCredentials
+                : workPath.EndsWith("/self/workflow-capabilities", StringComparison.Ordinal) ? WorkOperation.WorkflowCapabilities
                 : workPath.EndsWith("/self/queue-depth", StringComparison.Ordinal) ? WorkOperation.QueueDepth
                 : workPath.EndsWith("/claims", StringComparison.Ordinal) ? WorkOperation.Claim
                 : workPath.EndsWith("/heartbeats", StringComparison.Ordinal) ? WorkOperation.Heartbeat
@@ -188,6 +194,30 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
             if (WorkScripts.TryGetValue(operation, out var script))
             {
                 return script();
+            }
+
+            if (operation == WorkOperation.RegistryCredentials)
+            {
+                return Json(HttpStatusCode.Created, new
+                {
+                    registry = "registry.test",
+                    repositories = new[] { "socalytics/test-analyst" },
+                    kind = "bearer",
+                    token = "registry-token-secret",
+                    expiresAt = time.GetUtcNow().AddMinutes(5),
+                });
+            }
+
+            if (operation == WorkOperation.WorkflowCapabilities)
+            {
+                return Json(HttpStatusCode.OK, new
+                {
+                    workflow = new { id = "default", version = "1" },
+                    capabilities = new[]
+                    {
+                        new { id = "test-analyst", version = "1.0.0", accelerators = Array.Empty<string>(), cpus = "1", memoryBytes = 536870912L },
+                    },
+                });
             }
 
             if (operation == WorkOperation.ResultGrants)

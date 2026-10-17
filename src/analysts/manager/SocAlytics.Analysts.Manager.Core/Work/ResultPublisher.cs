@@ -38,8 +38,9 @@ public sealed partial class ResultPublisher(
 
     private readonly ILogger _logger = logger ?? NullLogger<ResultPublisher>.Instance;
 
-    public static string DirectoryFor(Guid attemptId) =>
-        Path.Combine(Path.GetTempPath(), "socalytics-analyst-results", attemptId.ToString("N"));
+    public const string ResultFolder = "result";
+
+    public static string DirectoryFor(Guid attemptId) => Path.Combine(UpstreamStager.DirectoryFor(attemptId), ResultFolder);
 
     public async Task<ResultPublishResult> PublishAsync(
         ActiveAttempt attempt, string directory, Func<PlatformSession?> sessions, CancellationToken cancellationToken)

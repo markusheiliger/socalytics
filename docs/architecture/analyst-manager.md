@@ -16,7 +16,8 @@ queue. The platform never addresses an Analyst Manager directly to assign work.
 
 Analyst Managers pull work and ask a built-in OCI Runtime Adapter assembly to
 launch the appropriate Analyst container through the configured external
-runtime. Runtime-specific assemblies implement one transport-neutral interface
+runtime. The Docker Desktop adapter is implemented; the simulated adapter
+remains for Development and Test. Runtime-specific assemblies implement one transport-neutral interface
 and are selected through configuration and dependency injection. Arbitrary
 third-party plugin loading is unsupported.
 
@@ -94,6 +95,9 @@ The status window shows:
 - each active job attempt and the time of its last successful heartbeat
 - the approximate stamp-local queue depth for this Manager's
   capabilities, together with the observation time
+- on the Docker Desktop profile, the offered capabilities with the reasons for
+  those not offered, the image cache use against its budget, and the state of
+  the last reconciliation
 
 Queue depth is operational guidance, not a transactional guarantee. The AM
 obtains it through the registered stamp API and does not infer permission to

@@ -1,0 +1,12 @@
+{
+  "workflow": { "id": "default", "version": "4" },
+  "capabilities": [
+    {
+      "id": "player-detection",
+      "version": "1.2.0",
+      "accelerators": ["cuda"],
+      "cpus": "0.5",
+      "memoryBytes": 2147483648
+    }
+  ]
+}

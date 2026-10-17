@@ -11,6 +11,8 @@ public sealed class PreflightRunner
     private readonly TimeProvider time;
     private readonly ApplicationProfile profile;
     private readonly AccountShell accountShell;
+    private readonly Docker.DockerReconciliationService? reconciliation;
+    private readonly Docker.ImageCache? imageCache;
 
     public PreflightRunner(
         RuntimeAdapterCatalog catalog,
@@ -18,8 +20,12 @@ public sealed class PreflightRunner
         IOptions<RuntimeOptions> options,
         TimeProvider time,
         ApplicationProfile profile = ApplicationProfile.Tray,
-        AccountShell? accountShell = null)
+        AccountShell? accountShell = null,
+        Docker.DockerReconciliationService? reconciliation = null,
+        Docker.ImageCache? imageCache = null)
     {
+        this.reconciliation = reconciliation;
+        this.imageCache = imageCache;
         this.profile = profile;
         this.accountShell = accountShell ?? new AccountShell();
         this.catalog = catalog;
@@ -29,6 +35,19 @@ public sealed class PreflightRunner
     }
 
     public async Task<PreflightResult> RunAsync(CancellationToken cancellationToken)
+    {
+        var result = await RunChecksAsync(cancellationToken);
+        if (reconciliation is null || result.Profile != Docker.DockerRuntimeAdapter.ProfileId)
+        {
+            return result;
+        }
+
+        var reconciled = await reconciliation.ReconcileAsync(cancellationToken);
+        var cache = imageCache is null ? null : await imageCache.PruneAsync(cancellationToken);
+        return result with { Reconciliation = reconciled, ImageCache = cache };
+    }
+
+    private async Task<PreflightResult> RunChecksAsync(CancellationToken cancellationToken)
     {
         var profile = options.Value.Profile;
         var adapter = catalog.Find(profile);
@@ -71,7 +90,7 @@ public sealed class PreflightRunner
                 ? new PreflightCheck("runtime-version-supported", true, $"{probe.RuntimeProduct} {probe.RuntimeVersion}", null)
                 : new PreflightCheck("runtime-version-supported", false,
                     $"{probe.RuntimeProduct} {probe.RuntimeVersion} on {probe.Backend}/{probe.Os}/{probe.Architecture} is not in the compatibility list.",
-                    "Install a runtime version that this Manager version lists as compatible."),
+                    SupportedRuntimes(adapter.Profile)),
             From("profile-version-supported", probe.ProfileVersionSupported, "Use a runtime version supported by the selected profile."),
             From("backend-available", probe.BackendAvailable, "Enable the container backend the runtime requires."),
             From("registry-authentication", probe.RegistryAuthentication, "Sign in to the container registry."),
@@ -94,7 +113,22 @@ public sealed class PreflightRunner
             ? probe.Accelerators.Where(a => a.Passed).Select(a => a.Id).ToArray()
             : [];
         return new PreflightResult(time.GetUtcNow(), adapter.Profile, probe.RuntimeProduct, probe.RuntimeVersion,
-            probe.Backend, passed, checks, capabilities, passed ? probe.MaxParallelAttempts : 0);
+            probe.Backend, passed, checks, capabilities, passed ? probe.MaxParallelAttempts : 0)
+        {
+            Offered = passed ? [.. adapter.Capabilities.Select(c => new PreflightCapability(c.Id, c.Version))] : [],
+            NotOffered = passed ? [.. adapter.NotOffered.Select(n => new PreflightCapability(n.Id, n.Version, n.Reason))] : [],
+        };
+    }
+
+    private string SupportedRuntimes(string profile)
+    {
+        var ranges = compatibility.Entries
+            .Where(e => e.Profile == profile)
+            .Select(e => $"{e.RuntimeProduct} {e.RuntimeVersionRange} ({e.Backend} containers on {e.Os}/{e.Architecture})")
+            .ToArray();
+        return ranges.Length == 0
+            ? "Install a runtime version that this Manager version lists as compatible; it lists none for this profile."
+            : $"Update the runtime to a supported version: {string.Join("; ", ranges)}.";
     }
 
     private PreflightCheck AccountIsolation(RuntimeProbe probe) =>

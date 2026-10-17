@@ -50,22 +50,25 @@ unauthenticated remote TCP runtime APIs are unsupported.
   profile (see [Analyst Manager](analyst-manager.md#headless-server-profile));
   under a login-capable account the headless Manager reports the runtime as
   unavailable and admits no work. The rule is implemented as a failing
-  preflight check and exercised with the simulated runtime; the Linux runtime
-  adapters that report the daemon access remain future.
+  preflight check and exercised with the simulated runtime and, for the root
+  check, the Docker Desktop adapter; the Linux runtime adapters that report the
+  daemon access remain future.
 
 Support is defined by a tested compatibility matrix containing the AM version,
 runtime product and version, backend or VM mode, Windows version, architecture,
 and accelerator configuration. Detecting a runtime does not by itself make the
 profile supported.
 
-Verification of the Docker Desktop profile (decided, not yet implemented):
-automated verification runs the same Engine API adapter end to end against a
-Linux Docker engine through its local Unix socket, an endpoint the AM accepts
-only in Development and Test configurations; Docker Desktop on Windows itself
-is verified manually, and only those manually verified versions enter the
-shipped compatibility matrix. Automated verification on Windows runners with
-Docker Desktop is an open gap: it changes the repository's build and
-verification tooling and is outside the Spec Kit implementation flow.
+The Docker Desktop profile (`Runtime:Profile` `docker-desktop`, configured
+through `Runtime:Docker`) is implemented and verified end to end: automated
+verification runs the same Engine API adapter against a Linux Docker engine
+through its local Unix socket, an endpoint the AM accepts only in Development
+and Test configurations. Docker Desktop on Windows itself is verified manually
+and awaits that manual evidence; only manually verified versions enter the
+shipped compatibility matrix, so no compatibility entry ships yet. Automated
+verification on Windows runners with Docker Desktop is an open gap: it changes
+the repository's build and verification tooling and is outside the Spec Kit
+implementation flow.
 
 Adapter assemblies are versioned and shipped with the Analyst Manager. They
 share one runtime-neutral interface; installable plugins and arbitrary external
@@ -112,8 +115,7 @@ credentials, or host-wide control APIs. Analyst launches default to:
 - allowlisted devices, dropped capabilities, CPU and memory limits, and bounded
   logs
 
-The Analyst container interface fixes what an Analyst sees (decided, not yet
-implemented): the Logical Job message read-only at `/socalytics/job.json`, the
+The Analyst container interface fixes what an Analyst sees: the Logical Job message read-only at `/socalytics/job.json`, the
 staged upstream results read-only at `/socalytics/inputs/`, the result mount
 at `/socalytics/result/` (where the Analyst writes its result manifest and
 artifacts), scratch space at `/socalytics/scratch/`, and a small memory-backed
@@ -134,7 +136,7 @@ API and NATS connections use authenticated TLS. It never stores a
 registration-lifetime broker credential.
 
 Through the same session an Active AM obtains short-lived, read-only OCI
-registry pull credentials (decided, not yet implemented). The platform derives
+registry pull credentials. The platform derives
 them from its protected registry read access through the registry's token
 service, limited to the repositories of the default workflow's images inside
 the stamp's configured registry host and repository prefix (this repository's
@@ -148,7 +150,7 @@ capability id and a semantic version. On the Docker Desktop profile it obtains
 the capability ids, versions, and pinned resource requirements of the default
 workflow through its authenticated API and offers those that need no
 unvalidated accelerator and fit its validated CPU and memory limits, narrowed
-by an optional operator allowlist (decided, not yet implemented). The platform
+by an optional operator allowlist. The platform
 provisions one work consumer
 per capability of the default workflow definition resolved from the Analyst
 Registry, and assigns a Manager the consumer of an offered capability only when
@@ -286,7 +288,8 @@ pair. Retry and fencing semantics remain identical across implementations.
 - connect and register with one deployment stamp
 - bind the registration to exactly one deployment stamp
 - protect the registered asymmetric device key in an operating-system keystore
-- obtain and rotate short-lived API and NATS credentials
+- obtain and rotate short-lived API and NATS credentials, and obtain
+  short-lived read-only registry pull credentials that stay in memory
 - restore the stamp-scoped identity and last pause state on autostart
 - advertise hardware and runtime capabilities
 - validate the external runtime profile before advertising capabilities
@@ -295,9 +298,8 @@ pair. Retry and fencing semantics remain identical across implementations.
 - read and stage accepted upstream results (manifests, artifacts, and coverage,
   digest-verified and size-bounded) into the attempt's read-only input mount
   before launching high-level attempts, and delete them when the attempt ends
-- combine Analyst type, requested model, and host capabilities to select a
-  runtime-tagged image
-- pull the image and resolve its immutable OCI digest
+- pull the image digest that the job pins (the platform assigns it; the AM
+  never selects an image) and refuse images outside the stamp's registry prefix
 - launch and constrain the selected Analyst container through the runtime
   adapter
 - monitor execution and renew each active attempt lease through heartbeats
@@ -311,8 +313,7 @@ pair. Retry and fencing semantics remain identical across implementations.
 - terminate and clean up active containers after security revocation
 - reconcile AM-owned runtime resources and destroy containers on completion
 - keep the images it pulled as a cache within a disk budget and an unused
-  period, and never remove images it did not pull (decided, not yet
-  implemented)
+  period, and never remove images it did not pull
 
 The Analyst Manager understands the participating host's hardware.
 

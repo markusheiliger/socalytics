@@ -6,7 +6,7 @@
 
 **Input**: User description: "dotnet restore of src/platform/SocAlytics.Platform.slnx fails with NU1902 for the transitive package MessagePack 2.5.302 (GHSA-qhrr-8q5h-9q3h) in AppHost and Host.Tests, because TreatWarningsAsErrors is on. Pin a patched MessagePack through central package management in src/platform/Directory.Packages.props, without disabling NuGet audit, and verify restore, build and tests."
 
-**Fix for**: #114 (implementation of `specs/20261015-092159-docker-runtime-adapter`)
+**Fix for**: #114 (implementation of `specs/archive/20261015-092159-docker-runtime-adapter`)
 
 ## Problem
 
@@ -55,4 +55,4 @@ A maintainer or the verification environment restores, builds, and tests the pla
 ## Assumptions
 
 - 2.5.307 is the newest published 2.x release (checked 2026-10-16). It is patched against GHSA-qhrr-8q5h-9q3h (first patched 2.5.303) and against every other known MessagePack 2.x advisory (first patched 2.5.301), and it stays on the 2.x line that `StreamJsonRpc` 2.25.29 depends on. A local check with the pin restored the platform solution with no NU19xx and built it with 0 warnings.
-- Dependencies: the dependency set belongs to the Aspire local composition of the platform. The AppHost and its `Aspire.Hosting` SDK come from the initial platform host scaffold (no spec), and its hosting packages were extended by [Platform Persistence Foundation](../20261005-130700-platform-persistence-foundation/spec.md) (`Aspire.Hosting.PostgreSQL`), [Durable Analysis Workflow](../20261005-130703-durable-analysis-workflow/spec.md) (`Aspire.Hosting.Nats`), and [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md) (`Aspire.Hosting.JavaScript`). The implementation this fix unblocks is #114 ([Docker Desktop Runtime Adapter](../../20261015-092159-docker-runtime-adapter/spec.md)).
+- Dependencies: the dependency set belongs to the Aspire local composition of the platform. The AppHost and its `Aspire.Hosting` SDK come from the initial platform host scaffold (no spec), and its hosting packages were extended by [Platform Persistence Foundation](../20261005-130700-platform-persistence-foundation/spec.md) (`Aspire.Hosting.PostgreSQL`), [Durable Analysis Workflow](../20261005-130703-durable-analysis-workflow/spec.md) (`Aspire.Hosting.Nats`), and [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md) (`Aspire.Hosting.JavaScript`). The implementation this fix unblocks is #114 ([Docker Desktop Runtime Adapter](../20261015-092159-docker-runtime-adapter/spec.md)).
