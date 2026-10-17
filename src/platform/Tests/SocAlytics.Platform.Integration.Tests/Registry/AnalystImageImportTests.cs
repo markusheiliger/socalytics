@@ -109,6 +109,44 @@ public sealed class AnalystImageImportTests(PostgresContainerFixture postgres, O
         return JsonDocument.Parse(body).RootElement.GetProperty("code").GetString()!;
     }
 
+    private static async Task<JsonElement> RefusalBodyAsync(ApiSession session, string reference, HttpStatusCode expected, CancellationToken ct)
+    {
+        using var response = await session.SendAsync(HttpMethod.Post, Path, new { reference }, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        response.StatusCode.ShouldBe(expected, body);
+        return JsonDocument.Parse(body).RootElement.Clone();
+    }
+
+    private static string[] PropertyNames(JsonElement element) =>
+        element.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).ToArray();
+
+    private static void ShouldHaveImageShape(JsonElement image, string digest)
+    {
+        PropertyNames(image).ShouldBe(
+            ["capability", "imageDigest", "manifest", "manifestDigest", "modelDigest", "registeredAt", "registeredBy", "repository", "source"]);
+        image.GetProperty("imageDigest").GetString().ShouldBe(digest);
+        image.GetProperty("repository").ValueKind.ShouldBe(JsonValueKind.String);
+        image.GetProperty("manifestDigest").ValueKind.ShouldBe(JsonValueKind.String);
+        image.GetProperty("modelDigest").GetString().ShouldBe(ModelDigest);
+        image.GetProperty("source").ValueKind.ShouldBe(JsonValueKind.String);
+        image.GetProperty("registeredAt").ValueKind.ShouldBe(JsonValueKind.String);
+        image.GetProperty("registeredBy").ValueKind.ShouldBeOneOf(JsonValueKind.String, JsonValueKind.Null);
+
+        var capability = image.GetProperty("capability");
+        PropertyNames(capability).ShouldBe(["executionScope", "id", "tier", "version"]);
+        capability.GetProperty("id").GetString().ShouldBe("player-detection");
+        capability.GetProperty("version").GetString().ShouldBe("1.2.0");
+        capability.GetProperty("tier").GetString().ShouldBe("low-level");
+        capability.GetProperty("executionScope").GetString().ShouldBe("segment");
+
+        // The manifest is the stored object, not a string or a wrapper.
+        var manifest = image.GetProperty("manifest");
+        manifest.ValueKind.ShouldBe(JsonValueKind.Object);
+        manifest.GetProperty("manifestVersion").GetString().ShouldBe("1.0.0");
+        manifest.GetProperty("capability").GetProperty("id").GetString().ShouldBe("player-detection");
+        manifest.GetProperty("upstream").ValueKind.ShouldBe(JsonValueKind.Array);
+    }
+
     [Fact]
     public async Task Registers_returns_idempotently_lists_and_reads_without_the_image_registry()
     {
@@ -129,6 +167,8 @@ public sealed class AnalystImageImportTests(PostgresContainerFixture postgres, O
         root.GetProperty("manifest").GetProperty("upstream").GetArrayLength().ShouldBe(0);
         root.TryGetProperty("registeredAt", out var registeredAt).ShouldBeTrue();
         registeredAt.ValueKind.ShouldBe(JsonValueKind.String);
+        ShouldHaveImageShape(root, digest);
+        created.Headers.Location!.OriginalString.ShouldBe($"{Path}/{Uri.EscapeDataString(digest)}");
 
         using var again = await admin.SendAsync(HttpMethod.Post, Path, new { reference }, ct);
         again.StatusCode.ShouldBe(HttpStatusCode.OK);
@@ -141,12 +181,17 @@ public sealed class AnalystImageImportTests(PostgresContainerFixture postgres, O
         list.StatusCode.ShouldBe(HttpStatusCode.OK);
         var items = JsonDocument.Parse(await list.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("items");
         items.GetArrayLength().ShouldBe(1);
+        PropertyNames(items[0]).ShouldBe(["capabilityId", "capabilityVersion", "imageDigest", "registeredAt"]);
         items[0].GetProperty("imageDigest").GetString().ShouldBe(digest);
+        items[0].GetProperty("capabilityId").GetString().ShouldBe("player-detection");
+        items[0].GetProperty("capabilityVersion").GetString().ShouldBe("1.2.0");
         items[0].GetProperty("registeredAt").GetString().ShouldNotBeNull();
+        PropertyNames(JsonDocument.Parse(await list.Content.ReadAsStringAsync(ct)).RootElement).ShouldBe(["items"]);
         using var filtered = await admin.SendAsync(HttpMethod.Get, Path + "?capabilityId=other", null, ct);
         JsonDocument.Parse(await filtered.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("items").GetArrayLength().ShouldBe(0);
         using var get = await admin.SendAsync(HttpMethod.Get, $"{Path}/{Uri.EscapeDataString(digest)}", null, ct);
         get.StatusCode.ShouldBe(HttpStatusCode.OK);
+        ShouldHaveImageShape(JsonDocument.Parse(await get.Content.ReadAsStringAsync(ct)).RootElement, digest);
         using var missing = await admin.SendAsync(HttpMethod.Get, $"{Path}/sha256:{new string('0', 64)}", null, ct);
         missing.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
@@ -188,6 +233,23 @@ public sealed class AnalystImageImportTests(PostgresContainerFixture postgres, O
         (await RefusalAsync(admin, wrongModel, HttpStatusCode.UnprocessableEntity, ct)).ShouldBe("labels-mismatch");
         var (noLabels, _) = await PublishAsync(Manifest(), _ => new Dictionary<string, string>());
         (await RefusalAsync(admin, noLabels, HttpStatusCode.UnprocessableEntity, ct)).ShouldBe("labels-mismatch");
+
+        // Refusals keep their status, code, and errors[] of field and code.
+        var mismatch = await RefusalBodyAsync(admin, wrongId, HttpStatusCode.UnprocessableEntity, ct);
+        mismatch.GetProperty("code").GetString().ShouldBe("labels-mismatch");
+        var mismatchErrors = mismatch.GetProperty("errors").EnumerateArray().ToArray();
+        mismatchErrors.Length.ShouldBe(1);
+        PropertyNames(mismatchErrors[0]).ShouldBe(["code", "field"]);
+        mismatchErrors[0].GetProperty("field").GetString().ShouldBe("io.socalytics.capability.id");
+        mismatchErrors[0].GetProperty("code").GetString().ShouldBe("mismatch");
+        var missingLabels = await RefusalBodyAsync(admin, noLabels, HttpStatusCode.UnprocessableEntity, ct);
+        missingLabels.GetProperty("errors").EnumerateArray().ShouldAllBe(e => e.GetProperty("code").GetString() == "missing");
+        var invalidManifest = await RefusalBodyAsync(admin, unknownTier, HttpStatusCode.UnprocessableEntity, ct);
+        invalidManifest.GetProperty("code").GetString().ShouldBe("manifest-invalid");
+        var manifestErrors = invalidManifest.GetProperty("errors").EnumerateArray().ToArray();
+        manifestErrors.ShouldNotBeEmpty();
+        manifestErrors.ShouldAllBe(e => e.GetProperty("field").ValueKind == JsonValueKind.String && e.GetProperty("code").ValueKind == JsonValueKind.String);
+        (await RefusalBodyAsync(admin, noManifest, HttpStatusCode.UnprocessableEntity, ct)).GetProperty("code").GetString().ShouldBe("manifest-missing");
         var (wrongHash, _) = await PublishAsync(Manifest(), file =>
         {
             var labels = LabelsFor(file);
@@ -200,7 +262,7 @@ public sealed class AnalystImageImportTests(PostgresContainerFixture postgres, O
         emptyBody.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
 
         (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration", ct)).ShouldBe(0);
-        (await CountAsync(db, "SELECT count(*) FROM socalytics.security_audit_event WHERE event_type = 'registry.analyst-image.refused' AND outcome = 'refused' AND reason_code IS NOT NULL", ct)).ShouldBe(11);
+        (await CountAsync(db, "SELECT count(*) FROM socalytics.security_audit_event WHERE event_type = 'registry.analyst-image.refused' AND outcome = 'refused' AND reason_code IS NOT NULL", ct)).ShouldBe(15);
     }
 
     [Fact]
