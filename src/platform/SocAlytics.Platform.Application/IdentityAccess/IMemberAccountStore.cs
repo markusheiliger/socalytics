@@ -18,6 +18,8 @@ public sealed record MemberProfile(
     IReadOnlySet<ClubRole> ClubRoles,
     IReadOnlyList<MemberTeamRole> TeamRoles);
 
+public sealed record AccountSessionBinding(MembershipStatus Status, string SecurityStamp);
+
 public sealed record LockedAccount(MembershipStatus Status, IReadOnlySet<ClubRole> ClubRoles);
 
 public sealed record MemberPageKey(string NormalizedAccountName, Guid Id);
@@ -64,6 +66,9 @@ public interface IMemberAccountStore
     Task ReactivateAccountAsync(Guid accountId, CancellationToken cancellationToken);
 
     Task RotateSecurityStampAsync(Guid accountId, CancellationToken cancellationToken);
+
+    /// <summary>The membership status and security stamp a new session binds to; null when the account does not exist.</summary>
+    Task<AccountSessionBinding?> GetSessionBindingAsync(Guid accountId, CancellationToken cancellationToken);
 
     /// <summary>Clears <c>lockout_end</c> and <c>access_failed_count</c>; returns whether a lockout was in effect.</summary>
     Task<bool> UnlockAccountAsync(Guid accountId, CancellationToken cancellationToken);

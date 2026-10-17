@@ -62,6 +62,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<GetSessionHandler>();
         services.TryAddScoped<SignOutHandler>();
         services.TryAddScoped<SignInHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn.StartExternalSignInHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn.CompleteExternalSignInHandler>();
         services.TryAddScoped<GetCurrentMemberHandler>();
         services.TryAddScoped<ChangeOwnPasswordHandler>();
         services.TryAddScoped<CreateMemberHandler>();

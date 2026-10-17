@@ -19,6 +19,8 @@ using SocAlytics.Platform.Infrastructure;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+// The hosting request log would write the external sign-in callback's authorization code (query string) to the logs.
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 builder.AddRegistryApi();
 builder.Services.AddEmailRateLimiting();
 builder.Services.AddApplication();
@@ -69,6 +71,7 @@ app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapOpenApi();
 app.MapSessionEndpoints();
+app.MapExternalSignInEndpoints();
 app.MapSelfEndpoints();
 app.MapEmailEndpoints();
 app.MapClubEndpoints();
