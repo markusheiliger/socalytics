@@ -94,7 +94,11 @@ public sealed class PreflightRunner
             ? probe.Accelerators.Where(a => a.Passed).Select(a => a.Id).ToArray()
             : [];
         return new PreflightResult(time.GetUtcNow(), adapter.Profile, probe.RuntimeProduct, probe.RuntimeVersion,
-            probe.Backend, passed, checks, capabilities, passed ? probe.MaxParallelAttempts : 0);
+            probe.Backend, passed, checks, capabilities, passed ? probe.MaxParallelAttempts : 0)
+        {
+            Offered = passed ? [.. adapter.Capabilities.Select(c => new PreflightCapability(c.Id, c.Version))] : [],
+            NotOffered = passed ? [.. adapter.NotOffered.Select(n => new PreflightCapability(n.Id, n.Version, n.Reason))] : [],
+        };
     }
 
     private PreflightCheck AccountIsolation(RuntimeProbe probe) =>

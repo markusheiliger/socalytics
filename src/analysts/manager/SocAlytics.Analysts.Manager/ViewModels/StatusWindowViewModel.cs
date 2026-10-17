@@ -8,7 +8,7 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
     private static readonly string[] Names =
     [
         nameof(RegistrationState), nameof(Stamp), nameof(Club), nameof(PlatformEndpoint), nameof(Connectivity), nameof(OperatingState),
-        nameof(Uptime), nameof(Preflight), nameof(PauseRemaining), nameof(DrainDeadline), nameof(DeviceFingerprint),
+        nameof(Uptime), nameof(Preflight), nameof(Runtime), nameof(PauseRemaining), nameof(DrainDeadline), nameof(DeviceFingerprint),
         nameof(KeyProtection), nameof(Diagnostics), nameof(EffectiveConcurrency), nameof(ActiveAttempts),
         nameof(WaitingWork), nameof(HostUtilization),
     ];
@@ -62,6 +62,10 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
             return string.Join(Environment.NewLine, lines);
         }
     }
+
+    /// <summary>The "Runtime" section, with the same wording as the CLI.</summary>
+    public string Runtime => string.Join(Environment.NewLine,
+        SocAlytics.Analysts.Manager.Diagnostics.RuntimeStatusText.Lines(_control.GetStatus().Preflight as PreflightResult));
 
     public string PauseRemaining => TrayMenuViewModel.FormatRemaining(_control.GetStatus().PauseRemainingSeconds) is { Length: > 0 } r ? r : "—";
 
