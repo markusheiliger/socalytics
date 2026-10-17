@@ -5,7 +5,7 @@ description: "Task list for Docker Desktop Runtime Adapter for Analyst Execution
 
 # Tasks: Docker Desktop Runtime Adapter for Analyst Execution
 
-**Input**: Design documents from `specs/20261015-092159-docker-runtime-adapter/`
+**Input**: Design documents from `specs/archive/20261015-092159-docker-runtime-adapter/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/analyst-container.md](contracts/analyst-container.md), [contracts/registry-credentials.md](contracts/registry-credentials.md), [contracts/workflow-capabilities.md](contracts/workflow-capabilities.md), [quickstart.md](quickstart.md)
 

@@ -6,7 +6,7 @@
 
 **Input**: User description: "Make the Web UI unit test 'retries restoring when connectivity returns' in `src/clients/web/tests/unit/session/session.test.tsx` deterministic: wrap the assertion on `api.restoreFailure?.kind` in `waitFor` (or await the rejected restore) instead of asserting right after the restore call count; do not change production code or weaken the assertion."
 
-**Fix for**: #114 (implementation of `specs/20261015-092159-docker-runtime-adapter`)
+**Fix for**: #114 (implementation of `specs/archive/20261015-092159-docker-runtime-adapter`)
 
 ## Problem
 
@@ -50,4 +50,4 @@ A maintainer runs the Web UI unit tests on a slow or loaded machine. The retry t
 ## Assumptions
 
 - The smallest fix is in the one test: the failure kind assertion is evaluated inside `waitFor`. The test's remaining behavior stays as it is.
-- Dependencies: the feature owning the test is [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md); the implementation this fix unblocks is #114 (`specs/20261015-092159-docker-runtime-adapter`).
+- Dependencies: the feature owning the test is [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md); the implementation this fix unblocks is #114 (`specs/archive/20261015-092159-docker-runtime-adapter`).
