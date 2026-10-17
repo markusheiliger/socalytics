@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 import { specDir } from './speckit-prepare-core.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
-import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
+import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, reportSpecPullFailure, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
 import {
   BOT_LOGIN,
   CATEGORY_MEANING,
@@ -638,7 +638,9 @@ async function recordRework({ client, env, log, inputs }) {
     : reports.length > 0 ? validateReport(reports.at(-1), { requireCategory: false }) : { reasons: ['the agent did not report'], report: null };
   if (!report || !report.summary) {
     await complete('failure', mode === 'fix' ? `Correction round ${round} did not finish` : 'The rework did not finish', reasons.join('; '));
-    await client.createComment(number, `The ${mode === 'fix' ? `correction round ${round}` : 'rework'} did not produce a result: ${neutralizeMarkers(reasons.join('; ') || 'no report')}. Comment on this pull request to try again.`);
+    const problem = `The ${mode === 'fix' ? `correction round ${round}` : 'rework'} did not produce a result: ${neutralizeMarkers(reasons.join('; ') || 'no report')}.`;
+    if (mode === 'fix') await client.createComment(number, problem);
+    else await reportSpecPullFailure(client, context, problem);
     await handBack(`correction round ${round} did not finish`);
     await setAttention(client, number, true);
     return { exitCode: 0, outcome: 'failed' };
@@ -651,11 +653,13 @@ async function recordRework({ client, env, log, inputs }) {
     const what = mode === 'fix' ? `Correction round ${round}` : 'The rework';
     const why = pushFailures > 0 ? `${pushFailures} push(es) to \`${context.amendment.head.ref}\` failed.` : `The push was refused: ${incomplete.join('; ')}`;
     await complete('failure', `${what} could not push its changes`, why);
-    await client.createComment(number, [
-      `${what} could not push its changes to this pull request, so nothing changed. Comment on this pull request to try again.`,
+    const problem = [
+      `${what} could not push its changes to this pull request, so nothing changed.`,
       '',
       `> ${neutralizeMarkers(clip(why, 1500)).replace(/\n/g, '\n> ')}`,
-    ].join('\n'));
+    ].join('\n');
+    if (mode === 'fix') await client.createComment(number, problem);
+    else await reportSpecPullFailure(client, context, problem);
     // A refused push is a correction round without progress; the next round retries the same findings.
     if (mode === 'fix' && stalls + 1 < MAX_STALLED_ROUNDS && round < MAX_CORRECTION_ROUNDS) {
       await startRework(client, env, context, { mode: 'fix', round: round + 1, guidance: env.SPECKIT_GUIDANCE ?? '', stalls: stalls + 1, findings, progress: `Round ${round} could not push its changes.` });

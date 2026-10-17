@@ -188,13 +188,19 @@ async function refuseUnchangedRestart(client, { name, number, implementation, fo
   if (restarts.length < MAX_UNCHANGED_RESTARTS) return false;
   const base = baseBranchOf(implementation);
   await reply(client, number, [
-    `**\`/speckit ${name}\` was not run**: the implementation stopped again after each of the last ${restarts.length} restarts, and \`${implementationBranch(folder)}\` is still at \`${state.head.slice(0, 7)}\`. Restarting it unchanged would most likely stop the same way. Change something first:`,
+    `**\`/speckit ${name}\` was not run**: the implementation stopped again after each of the last ${restarts.length} restarts, and \`${implementationBranch(folder)}\` is still at \`${state.head.slice(0, 7)}\`. Restarting it unchanged would most likely stop the same way.`,
     '',
-    `- **Push** the change the diagnosis asks for to \`${implementationBranch(folder)}\`; a push continues the implementation by itself.`,
-    '- **Retry with concrete guidance** from the diagnosis, or push the change it asks for.',
-    `- **Fix the cause on \`${base}\`** with \`/speckit fix <what to fix>\`.`,
+    `**Recommended next step**: Review the latest diagnosis on #${implementation.number}, apply its requested correction, and push it to \`${implementationBranch(folder)}\`.`,
     '',
-    `If you are sure a restart helps now (for example an outage has ended), insist with \`/speckit ${name} ${RESTART_FORCE_FLAG} <guidance>\`.`,
+    '- **Why**: Two restarts left the branch unchanged; another blind retry is unlikely to fix the cause.',
+    '- **What it does**: A push continues the implementation automatically with a fresh attempt count and the corrected branch.',
+    '',
+    '<details><summary>Other options</summary>',
+    '',
+    `- If the diagnosis locates the cause on \`${base}\`, post \`/speckit fix\` with its concrete findings to author a prerequisite fix spec.`,
+    `- Only if the cause has already cleared (for example an outage has ended), insist with \`/speckit ${name} ${RESTART_FORCE_FLAG}\`; add the evidence after the command as guidance.`,
+    '',
+    '</details>',
   ]);
   return true;
 }

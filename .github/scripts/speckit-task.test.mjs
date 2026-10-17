@@ -1442,6 +1442,8 @@ test('merge-land asks for review when automatic merging is off', async () => {
   assert.equal(github.repo.pulls[0].draft, false);
   assert.deepEqual(github.repo.reviewRequests, [{ number: 9, reviewers: ['dev'] }]);
   assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:done -->\n\*\*All 2 tasks are implemented\*\*, the implementation converged, and no verification is configured[\s\S]*- automatic merging is off \(`SPECKIT_AUTO_MERGE=false`\)[\s\S]*Review requested from @dev/);
+  assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Review the listed risks and merge #9 into `main`\.[\s\S]*\*\*Why\*\*:[\s\S]*\*\*What it does\*\*: Lands the implementation on `main` and completes spec twin #5/);
+  assert.equal(github.comments.at(-1).body.match(/\*\*Recommended next step\*\*/g)?.length, 1);
 });
 
 test('merge-land holds environment changes and uncovered files for review, whatever the work result claims', async () => {

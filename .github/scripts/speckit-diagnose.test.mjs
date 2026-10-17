@@ -116,7 +116,7 @@ test('records the diagnosis with the amendment, questions, options, and next ste
 
     // The amendment goes into the consistency check before anyone is asked to review it.
     const amendment = github.repo.pulls.find((pull) => pull.number === 11);
-    assert.match(amendment.body, /<!-- speckit-amend:status -->\n⏳ \*\*Being checked for consistency\.\*\*[\s\S]*\*\*How to proceed\*\*[\s\S]*<!-- \/speckit-amend:status -->\n\namend$/);
+    assert.match(amendment.body, /<!-- speckit-amend:status -->\n⏳ \*\*Being checked for consistency\.\*\*[\s\S]*\*\*Recommended next step\*\*: Wait for the consistency check[\s\S]*<!-- \/speckit-amend:status -->\n\namend$/);
     assert.match(github.comments.find((item) => item.number === 11).body, /^<!-- speckit-amend:rework -->\n<!-- speckit-amend:cutoff \S+ -->\nThis amendment comes from the diagnosis on #9[\s\S]*handed to @dev for review/);
     const analysis = github.repo.checkRuns.at(-1);
     assert.deepEqual([analysis.name, analysis.head_sha, analysis.status, analysis.external_id], ['Spec Kit amendment', 'sha-amend', 'in_progress', 'speckit:amend-checking']);
@@ -398,6 +398,8 @@ test('records a rework: replies to the feedback and checks the amendment again',
     assert.equal((await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_DETECTION: 'success', SPECKIT_MODE: 'revise', SPECKIT_AMENDMENT: '11', SPECKIT_CHECK_RUN: String(refused.id), SPECKIT_PUSH_FAILURES: '1' }), log: silent })).outcome, 'push failed');
     assert.deepEqual([github.repo.checkRuns.find((run) => run.id === refused.id).conclusion, github.repo.checkRuns.find((run) => run.id === refused.id).output.title], ['failure', 'The rework could not push its changes']);
     assert.match(github.comments.at(-1).body, /^The rework could not push its changes to this pull request, so nothing changed\./);
+    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Post the following comment on amendment #11[\s\S]*```text\nPlease rework this amendment/);
+    assert.match(github.repo.pulls.find((pull) => pull.number === 11).body, /\*\*Recommended next step\*\*: Post the following comment/);
     assert.equal(github.repo.runs.length, runs, 'no check of unchanged files');
 
     // The safe-output tool refused the push (the agent reports it as incomplete), or a correction round pushed nothing.
@@ -420,9 +422,15 @@ test('records a rework: replies to the feedback and checks the amendment again',
     const fixed = await runRecord({ client: github, env: env({ SPECKIT_DETECTION: 'success', SPECKIT_MODE: 'fix', SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: '2', SPECKIT_CHECK_RUN: String(failing.id) }), log: silent });
     assert.equal(fixed.outcome, 'failed');
     assert.deepEqual([github.repo.checkRuns.find((run) => run.id === failing.id).conclusion, github.repo.checkRuns.find((run) => run.id === failing.id).output.title], ['failure', 'Correction round 2 did not finish']);
-    assert.ok(github.comments.some((comment) => comment.number === 11 && /correction round 2 did not produce a result: the agent did not report\. Comment on this pull request to try again\./.test(comment.body)));
+    assert.ok(github.comments.some((comment) => comment.number === 11 && /correction round 2 did not produce a result: the agent did not report\./.test(comment.body)));
     assert.match(github.comments.at(-1).body, /^\*\*Amendment #11 is not consistent\*\* \(correction round 2 did not finish\)/, 'a failed correction round hands the amendment to the requester');
+    assert.match(github.comments.at(-1).body, /\*\*Recommended next step\*\*: Post the following comment on amendment #11[\s\S]*```text\nPlease rework this amendment/);
     assert.deepEqual(github.repo.reviewRequests, [{ number: 11, reviewers: ['dev'] }]);
+
+    const failedRework = await runRecord({ client: github, env: env({ SPECKIT_DETECTION: 'success', SPECKIT_MODE: 'revise', SPECKIT_AMENDMENT: '11' }), log: silent });
+    assert.equal(failedRework.outcome, 'failed');
+    assert.match(github.comments.at(-1).body, /The rework did not produce a result[\s\S]*\*\*Recommended next step\*\*: Post the following comment on amendment #11/);
+    assert.match(github.repo.pulls.find((pull) => pull.number === 11).body, /The rework did not produce a result[\s\S]*\*\*Recommended next step\*\*: Post the following comment/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
