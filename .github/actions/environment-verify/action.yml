@@ -17,7 +17,9 @@ description: >-
   while src/clients/web/package.json exists, and runs the steps install (npm ci without a browser download),
   playwright pin (the installed @playwright/test must be 1.63.0, the version environment-setup installs), build,
   unit tests, and browser tests through the npm scripts build, test, and test:e2e, stopping at the first failure;
-  other paths under src/clients/ stay uncovered; "Markdown check" follows.
+  other paths under src/clients/ stay uncovered; "Environment action tests" runs the Node test files of
+  environment-setup and environment-verify when either action folder changed or in finalize mode; "Markdown check"
+  follows.
 # Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
 # is reviewed and merged before the specs that need it start. For a new framework or source area, add one block below
 # that (1) adds its scope to COVERED only when its project exists, (2) runs only when the scope changed or in finalize
@@ -64,6 +66,7 @@ runs:
         LOG_FILE: ${{ inputs.log-file }}
         MARKDOWN_CHECK: ${{ github.action_path }}/../../scripts/check-markdown.mjs
         ANALYST_PROJECTS: ${{ github.action_path }}/analyst-projects.py
+        ENVIRONMENT_TESTS: ${{ github.action_path }}/analyst-projects.test.mjs ${{ github.action_path }}/../environment-setup/toolchain.test.mjs
       run: |
         # GitHub runs `shell: bash` with `-e`; this script handles failures itself (status) and must always write its
         # outputs, so a non-matching grep (for example when every changed file is covered) must not end it early.
@@ -78,6 +81,7 @@ runs:
         WEB_DIR=src/clients/web
         WEB_SCOPE='^src/clients/web/'
         WEB_TRIGGER='^(src/clients/web|src/platform/SocAlytics\.Platform\.Api)/'
+        ENVIRONMENT_TRIGGER='^\.github/actions/environment-(setup|verify)/'
         # Must equal the Playwright pin in environment-setup.
         WEB_PLAYWRIGHT=1.63.0
         # Paths that need no check (repository metadata, Spec Kit artifacts, and the environment actions, which the
@@ -286,6 +290,17 @@ runs:
               [ "$status" -eq 0 ] || break
             done <<< "$analyst_selected"
           fi
+        fi
+        # The environment-local Node tests of both environment actions run when either action folder changed and in
+        # finalize mode, whether or not an Analyst Python project exists. They use the caller-provided node, and their
+        # fixtures never start this check again: the marker below makes a nested run skip it.
+        if [ "$status" -eq 0 ] && [ -n "${ENVIRONMENT_TESTS:-}" ] && [ -z "${SOCALYTICS_ENVIRONMENT_TESTS_RUNNING:-}" ] && applies "$ENVIRONMENT_TRIGGER"; then
+          checks+=("Environment action tests")
+          read -r -a environment_tests <<< "$ENVIRONMENT_TESTS"
+          step env SOCALYTICS_ENVIRONMENT_TESTS_RUNNING=1 node --test "${environment_tests[@]}" || {
+            echo "Environment action tests failed (command: node --test ${environment_tests[*]}). Recommended action: reproduce this command, correct the failing environment action or its test without weakening the test, and retry verification" | tee -a "$LOG_FILE"
+            status=1
+          }
         fi
         if [ "$status" -eq 0 ] && applies '\.md$'; then
           checks+=("Markdown check")

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -670,6 +670,92 @@ exit 0
       assert.equal(result.outputs.checks, '');
       assert.equal(result.outputs.uncovered, '');
       assert.equal(result.calls.length, 0);
+    });
+
+    describe('environment action tests', () => {
+      const name = 'Environment action tests';
+      // Fixture test files record the marker they run under and pass or fail on demand.
+      function fixtureTests(fail = false) {
+        const dir = path.join(temporary, `env-tests-${counter++}`);
+        mkdirSync(dir);
+        const record = path.join(dir, 'record.txt');
+        const files = ['first', 'second'].map((id) => {
+          const file = path.join(dir, `${id}.test.mjs`);
+          writeFileSync(file, `import { appendFileSync } from 'node:fs';
+import { it } from 'node:test';
+import assert from 'node:assert/strict';
+it('${id}', () => {
+  appendFileSync(${JSON.stringify(record)}, '${id}:' + process.env.SOCALYTICS_ENVIRONMENT_TESTS_RUNNING + '\\n');
+  assert.ok(!${fail && id === 'second'});
+});
+`);
+          return file;
+        });
+        return { env: { ENVIRONMENT_TESTS: files.join(' ') }, record: () => (existsSync(record) ? readFileSync(record, 'utf8').split('\n').filter(Boolean) : []) };
+      }
+
+      it('runs for a change to either environment action folder, without any Python project', () => {
+        const root = fullRepository({ python: false });
+        for (const changed of ['.github/actions/environment-setup/x.sh', '.github/actions/environment-verify/action.yml']) {
+          const fixture = fixtureTests();
+          const result = run(root, { mode: 'task', changed: [changed], bin: toolBin(), env: fixture.env });
+          assert.equal(result.status, 0, result.log);
+          assert.equal(result.outputs.checks, name);
+          assert.equal(result.outputs.uncovered, '');
+          assert.deepEqual(fixture.record().sort(), ['first:1', 'second:1']);
+          assert.equal(result.calls.length, 0);
+        }
+      });
+
+      it('runs in finalize mode after the Python projects and before the Markdown check', () => {
+        const fixture = fixtureTests();
+        const result = run(fullRepository(), { bin: toolBin(), env: fixture.env });
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.outputs.checks, [names.platform, names.manager, names.web, names.python, name, names.markdown].join(','));
+        assert.equal(fixture.record().length, 2);
+        const noProject = fixtureTests();
+        const bare = run(fullRepository({ platform: false, manager: false, web: false, python: false }), { env: noProject.env });
+        assert.equal(bare.outputs.checks, [name, names.markdown].join(','));
+      });
+
+      it('does not run for phase or task changes outside the environment action folders', () => {
+        const fixture = fixtureTests();
+        const root = fullRepository({ python: false });
+        const bin = toolBin();
+        for (const mode of ['task', 'phase']) {
+          const result = run(root, { mode, changed: ['src/clients/web/a.ts', 'src/platform/a.cs', '.github/actions/other/x.sh', 'docs/a.md'], bin, env: fixture.env });
+          assert.ok(!result.outputs.checks.includes(name));
+        }
+        assert.equal(fixture.record().length, 0);
+      });
+
+      it('fails with one recommendation, runs every file, and still writes every output', () => {
+        const fixture = fixtureTests(true);
+        const result = run(fullRepository({ python: false }), { mode: 'task', changed: ['.github/actions/environment-verify/x.mjs', 'src/analysts/other/y.py'], bin: toolBin(), env: fixture.env });
+        assert.equal(result.status, 1);
+        assert.equal(result.outputs.checks, name);
+        assert.equal(result.outputs.uncovered, 'src/analysts/other/y.py');
+        assert.equal(fixture.record().length, 2);
+        const failure = result.log.split('\n').filter((line) => line.startsWith('Environment action tests failed'));
+        assert.equal(failure.length, 1);
+        assert.equal(failure[0].match(/Recommended action:/g).length, 1);
+        assert.doesNotMatch(failure[0], /skip|ignore|disable|merge/i);
+      });
+
+      it('does not start the check again from a nested run and never touches a Python project', () => {
+        const fixture = fixtureTests();
+        const result = run(sdkRepository(), { changed: ['.github/actions/environment-setup/x.sh'], env: { ...fixture.env, SOCALYTICS_ENVIRONMENT_TESTS_RUNNING: '1' } });
+        assert.equal(result.status, 0, result.log);
+        assert.ok(!result.outputs.checks.includes(name));
+        assert.equal(fixture.record().length, 0);
+      });
+
+      it('points at the two Node test files next to the actions and adds no workflow input', () => {
+        const declared = actionText.match(/ENVIRONMENT_TESTS: (.*)/)[1];
+        assert.match(declared, /action_path \}\}\/analyst-projects\.test\.mjs/);
+        assert.match(declared, /action_path \}\}\/\.\.\/environment-setup\/toolchain\.test\.mjs/);
+        assert.ok(!/^  (node|tests?)[\w-]*:/m.test(actionText.split('inputs:')[1].split('outputs:')[0]));
+      });
     });
 
     it('keeps the log, checks, and uncovered outputs for an Analyst failure alongside platform checks', () => {
