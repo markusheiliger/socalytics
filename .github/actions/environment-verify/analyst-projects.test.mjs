@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -340,5 +340,184 @@ describe('verification selection', () => {
     const result = spawnSync('python', [helper, 'select', '--root', root, '--python-version', '3.13.5', '--mode', 'task'], { encoding: 'utf8' });
     assert.equal(result.status, 1);
     assert.match(result.stderr, /Recommended action: /);
+  });
+});
+
+describe('verification execution', () => {
+  const actionText = readFileSync(path.join(here, 'action.yml'), 'utf8');
+  const script = actionText.split('      run: |\n')[1].split('\n').map((line) => line.slice(8)).join('\n');
+  const python = spawnSync('python3', ['-c', 'import sys;print(sys.executable)'], { encoding: 'utf8' }).stdout.trim();
+  const sdkRoot = 'src/analysts/sdk';
+  const markdownStub = path.join(temporary, 'markdown-stub.mjs');
+  writeFileSync(markdownStub, '');
+
+  // A stub uv records each invocation and fails the stage named in FAIL_STAGE.
+  function stubBin(extra = '') {
+    const bin = path.join(temporary, `bin-${counter++}`);
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(path.join(bin, 'uv'), `#!/bin/bash
+echo "$PWD|$UV_PYTHON_DOWNLOADS|$UV_PYTHON|$*" >> "$UV_CALLS"
+if [ -n "$FAIL_STAGE" ] && [[ "$*" == *"$FAIL_STAGE"* ]]; then echo "stub failure"; exit 3; fi
+${extra}
+exit 0
+`, { mode: 0o755 });
+    return bin;
+  }
+
+  function run(root, { mode = 'finalize', changed = [], env = {}, withPython = true, bin = stubBin() } = {}) {
+    const dir = path.join(temporary, `run-${counter++}`);
+    mkdirSync(dir, { recursive: true });
+    const files = {
+      changed: path.join(dir, 'changed.txt'), log: path.join(dir, 'log.txt'), output: path.join(dir, 'output.txt'),
+      summary: path.join(dir, 'summary.md'), calls: path.join(dir, 'calls.txt'),
+    };
+    writeFileSync(files.changed, changed.join('\n'));
+    writeFileSync(files.calls, '');
+    writeFileSync(files.output, '');
+    const result = spawnSync('bash', ['-c', script], {
+      encoding: 'utf8',
+      env: {
+        PATH: `${bin}:${process.env.PATH}`, HOME: process.env.HOME,
+        WORKSPACE: root, MODE: mode, CHANGED_FILES: files.changed, LOG_FILE: files.log,
+        MARKDOWN_CHECK: markdownStub, ANALYST_PROJECTS: helper,
+        GITHUB_STEP_SUMMARY: files.summary, GITHUB_OUTPUT: files.output, UV_CALLS: files.calls,
+        ...(withPython ? { SOCALYTICS_PYTHON: python } : {}), ...env,
+      },
+    });
+    const outputs = Object.fromEntries(readFileSync(files.output, 'utf8').split('\n').filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
+    return {
+      status: result.status, outputs, log: readFileSync(files.log, 'utf8'),
+      calls: readFileSync(files.calls, 'utf8').split('\n').filter(Boolean).map((line) => line.split('|')),
+    };
+  }
+
+  const stages = [
+    'sync --locked --all-groups --no-install-local --no-build',
+    'sync --locked --all-groups --no-build-isolation',
+    'build --wheel --no-build-isolation --python .venv/bin/python',
+    'run --no-sync pytest',
+  ];
+
+  const sdkRepository = () => {
+    const root = repository();
+    project(root, sdkRoot, { name: 'sdk' });
+    return root;
+  };
+
+  it('runs the four exact stages in order with downloads disabled and the installed interpreter', () => {
+    const root = sdkRepository();
+    const result = run(root);
+    assert.equal(result.status, 0, result.log);
+    assert.deepEqual(result.calls.map((call) => call[3]), stages);
+    for (const call of result.calls) {
+      assert.ok(call[0].endsWith(sdkRoot));
+      assert.equal(call[1], 'never');
+      assert.equal(call[2], python);
+    }
+    assert.equal(result.outputs.checks, 'Analyst Python projects,Markdown check');
+  });
+
+  for (const [index, stage] of ['missing or stale lock', 'incompatible build/external wheel', 'failed build', 'failing, missing, or empty tests'].entries()) {
+    it(`fails and stops after the stage for ${stage}`, () => {
+      const root = sdkRepository();
+      const result = run(root, { env: { FAIL_STAGE: stages[index] } });
+      assert.equal(result.status, 1);
+      assert.deepEqual(result.calls.map((call) => call[3]), stages.slice(0, index + 1));
+      assert.match(result.log, /Analyst Python stage failed: /);
+      assert.equal(result.outputs.checks, 'Analyst Python projects');
+    });
+  }
+
+  it('orders dependencies first and stops at the first failing project', () => {
+    const root = repository();
+    project(root, sdkRoot, { name: 'sdk' });
+    project(root, 'src/analysts/capabilities/segment', {
+      name: 'segment', dependencies: ['sdk'], sources: { sdk: '../../sdk' },
+    });
+    const ok = run(root);
+    assert.equal(ok.status, 0, ok.log);
+    assert.deepEqual([...new Set(ok.calls.map((call) => path.relative(root, call[0])))], [sdkRoot, 'src/analysts/capabilities/segment']);
+    const failed = run(root, { env: { FAIL_STAGE: stages[0] } });
+    assert.equal(failed.status, 1);
+    assert.equal(failed.calls.length, 1);
+  });
+
+  it('runs nothing when no project exists or the change is unrelated', () => {
+    const empty = run(repository(), { mode: 'task', changed: ['src/platform/x.cs'] });
+    assert.equal(empty.status, 0, empty.log);
+    assert.equal(empty.calls.length, 0);
+    assert.equal(empty.outputs.checks, '');
+    const unrelated = run(sdkRepository(), { mode: 'task', changed: ['src/platform/x.cs'] });
+    assert.equal(unrelated.calls.length, 0);
+    assert.equal(unrelated.outputs.checks, '');
+  });
+
+  it('selects a project in task mode for its own source and covers its root', () => {
+    const root = sdkRepository();
+    const result = run(root, { mode: 'task', changed: [`${sdkRoot}/src/x.py`, 'src/analysts/sdk-extra/y.py'] });
+    assert.equal(result.status, 0, result.log);
+    assert.equal(result.calls.length, 4);
+    assert.equal(result.outputs.uncovered, 'src/analysts/sdk-extra/y.py');
+  });
+
+  it('fails explicitly without the installed interpreter or uv', () => {
+    const root = sdkRepository();
+    const result = run(root, { withPython: false });
+    assert.equal(result.status, 1);
+    assert.match(result.log, /Recommended action: run environment-setup/);
+    assert.equal(result.calls.length, 0);
+  });
+
+  it('fails for an invalid recognized project and reports the helper recommendation', () => {
+    const root = repository();
+    project(root, sdkRoot, { raw: '[project' });
+    const result = run(root, { mode: 'task', changed: ['README.md'] });
+    assert.equal(result.status, 1);
+    assert.match(result.log, /Recommended action: /);
+    assert.equal(result.calls.length, 0);
+    assert.equal(result.outputs.checks, 'Analyst Python projects');
+  });
+
+  const uvReal = spawnSync('uv', ['--version']).status === 0;
+  it('passes every stage for a real isolated package fixture without changing declarations', { skip: !uvReal }, () => {
+    const root = repository();
+    const directory = path.join(root, sdkRoot);
+    mkdirSync(path.join(directory, 'src/demo_sdk'), { recursive: true });
+    mkdirSync(path.join(directory, 'tests'), { recursive: true });
+    writeFileSync(path.join(directory, 'pyproject.toml'), `[project]
+name = "demo-sdk"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = ["pytest>=8", "setuptools>=68"]
+`);
+    writeFileSync(path.join(directory, 'src/demo_sdk/__init__.py'), 'VALUE = 1\n');
+    writeFileSync(path.join(directory, 'tests/test_demo.py'), 'import demo_sdk\n\n\ndef test_value():\n    assert demo_sdk.VALUE == 1\n');
+    const locked = spawnSync('uv', ['lock'], { cwd: directory, encoding: 'utf8', env: { ...process.env, UV_PYTHON: python } });
+    if (locked.status !== 0) return; // package index unreachable: the real fixture cannot be locked
+    const before = readFileSync(path.join(directory, 'pyproject.toml'), 'utf8') + readFileSync(path.join(directory, 'uv.lock'), 'utf8');
+    const bin = path.join(temporary, `bin-${counter++}`);
+    mkdirSync(bin);
+    symlinkSync(spawnSync('which', ['uv'], { encoding: 'utf8' }).stdout.trim(), path.join(bin, 'uv'));
+    const passed = run(root, { bin });
+    assert.equal(passed.status, 0, passed.log);
+    assert.equal(before, readFileSync(path.join(directory, 'pyproject.toml'), 'utf8') + readFileSync(path.join(directory, 'uv.lock'), 'utf8'));
+    writeFileSync(path.join(directory, 'tests/test_demo.py'), 'def test_value():\n    assert False\n');
+    assert.equal(run(root, { bin }).status, 1);
+    writeFileSync(path.join(directory, 'tests/test_demo.py'), '');
+    assert.equal(run(root, { bin }).status, 1);
+    writeFileSync(path.join(directory, 'pyproject.toml'), before.split('[dependency-groups]')[0].replace('version = "0.1.0"', 'version = "0.2.0"') + '[dependency-groups]\ndev = ["pytest>=8", "setuptools>=68", "iniconfig"]\n');
+    const stale = run(root, { bin });
+    assert.equal(stale.status, 1);
+    assert.match(stale.log, /Analyst Python stage failed: bootstrap sync/);
   });
 });

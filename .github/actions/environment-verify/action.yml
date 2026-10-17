@@ -63,6 +63,7 @@ runs:
         CHANGED_FILES: ${{ inputs.changed-files }}
         LOG_FILE: ${{ inputs.log-file }}
         MARKDOWN_CHECK: ${{ github.action_path }}/../../scripts/check-markdown.mjs
+        ANALYST_PROJECTS: ${{ github.action_path }}/analyst-projects.py
       run: |
         # GitHub runs `shell: bash` with `-e`; this script handles failures itself (status) and must always write its
         # outputs, so a non-matching grep (for example when every changed file is covered) must not end it early.
@@ -99,6 +100,24 @@ runs:
         : > "$LOG_FILE"
         changed=""
         [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ] && changed="$(cat "$CHANGED_FILES")"
+
+        # Recognized Analyst Python projects (the SDK and capabilities): the helper validates every existing project and
+        # selects those the mode and the changed paths call for, in dependency order. The roots of existing projects
+        # become covered source scopes; a deleted or unrecognized project stays uncovered.
+        analyst_python="${SOCALYTICS_PYTHON:-python3}"
+        analyst_error_file="$(mktemp)"
+        analyst_output="$("$analyst_python" "$ANALYST_PROJECTS" select --root "$WORKSPACE" --mode "$MODE" --changed-files "$CHANGED_FILES" 2> "$analyst_error_file")"
+        analyst_status=$?
+        analyst_error="$(cat "$analyst_error_file")"
+        rm -f "$analyst_error_file"
+        analyst_selected=""
+        if [ "$analyst_status" -eq 0 ]; then
+          analyst_lines="$(node -e 'const r=JSON.parse(require("fs").readFileSync(0,"utf8"));for(const p of r.projects)console.log("S "+p.root);for(const c of r.covered)console.log("C "+c)' <<< "$analyst_output")"
+          analyst_selected="$(sed -n 's/^S //p' <<< "$analyst_lines")"
+          while IFS= read -r analyst_root; do
+            [ -n "$analyst_root" ] && COVERED+=("^$(sed 's/[][\.*^$]/\\&/g' <<< "$analyst_root")/")
+          done < <(sed -n 's/^C //p' <<< "$analyst_lines")
+        fi
 
         # applies <regex>: true in finalize mode or when a changed path matches.
         applies() {
@@ -220,6 +239,47 @@ runs:
             web_step 'unit tests' step npm test &&
             web_step 'browser tests' step npm run test:e2e; } || status=1
           popd > /dev/null
+        fi
+        # Analyst Python projects: the environment owns the exact command sequence, run with the interpreter that
+        # environment-setup installed (SOCALYTICS_PYTHON) and Python downloads disabled. The first failing stage stops
+        # the check; the committed declarations and locks are never changed.
+        python_project() {
+          local root="$1" stage
+          local -a commands=(
+            "bootstrap sync|uv sync --locked --all-groups --no-install-local --no-build"
+            "project sync|uv sync --locked --all-groups --no-build-isolation"
+            "wheel build|uv build --wheel --no-build-isolation --python .venv/bin/python"
+            "tests|uv run --no-sync pytest"
+          )
+          local entry
+          echo "Analyst Python project: $root" | tee -a "$LOG_FILE"
+          for entry in "${commands[@]}"; do
+            stage="${entry%%|*}"
+            read -r -a words <<< "${entry#*|}"
+            echo "Analyst Python stage: $stage ($root)" | tee -a "$LOG_FILE"
+            step env UV_PYTHON_DOWNLOADS=never UV_PYTHON="$SOCALYTICS_PYTHON" "${words[@]}" || {
+              echo "Analyst Python stage failed: $stage in $root" | tee -a "$LOG_FILE"
+              return 1
+            }
+          done
+        }
+        if [ "$status" -eq 0 ] && { [ "$analyst_status" -ne 0 ] || [ -n "$analyst_selected" ]; }; then
+          checks+=("Analyst Python projects")
+          if [ "$analyst_status" -ne 0 ]; then
+            echo "Analyst Python projects: discovery failed (exit $analyst_status) using $analyst_python" | tee -a "$LOG_FILE"
+            [ -n "$analyst_error" ] && echo "$analyst_error" | tee -a "$LOG_FILE"
+            status=1
+          elif [ -z "${SOCALYTICS_PYTHON:-}" ] || [ ! -x "$SOCALYTICS_PYTHON" ] || ! command -v uv > /dev/null; then
+            echo "Analyst Python projects: SOCALYTICS_PYTHON and uv from environment-setup are required. Recommended action: run environment-setup with install-tools true before verification" | tee -a "$LOG_FILE"
+            status=1
+          else
+            while IFS= read -r analyst_root; do
+              pushd "$analyst_root" > /dev/null
+              python_project "$analyst_root" || status=1
+              popd > /dev/null
+              [ "$status" -eq 0 ] || break
+            done <<< "$analyst_selected"
+          fi
         fi
         if [ "$status" -eq 0 ] && applies '\.md$'; then
           checks+=("Markdown check")
