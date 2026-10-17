@@ -119,6 +119,235 @@ public sealed class DockerRuntimeEndToEndTests
         }
     }
 
+    [Theory]
+    [InlineData("fail", "analyst-error")]
+    [InlineData("no-manifest", "analyst-error")]
+    [InlineData("oom", "resource-exhausted")]
+    public async Task A_failing_Analyst_ends_with_one_failed_completion_of_the_expected_category_and_leaves_no_container(string mode, string category)
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
+        var ct = cts.Token;
+        await using var scenario = await Scenario.StartAsync(mode, ct);
+        if (scenario is null)
+        {
+            Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
+            return;
+        }
+
+        var runId = await SeedReadyJobAsync(scenario.Harness, ct);
+        await WaitOrDiagnoseAsync(
+            scenario.Harness, runId, async () => (await AttemptsAsync(scenario.Harness, runId, ct)).Any(a => a.State == "Failed"),
+            "The attempt did not fail.", ct);
+
+        var attempts = await AttemptsAsync(scenario.Harness, runId, ct);
+        attempts.Count.ShouldBe(1);
+        attempts[0].State.ShouldBe("Failed");
+        attempts[0].CloseReason.ShouldBe(category);
+        (await WorkExecutionEndToEndTests.CountAcceptedAsync(scenario.Harness, runId, ct)).ShouldBe(0);
+        await EndToEndHarness.WaitAsync(
+            async () => (await scenario.Docker.ListContainersAsync(scenario.ManagerLabel, ct)).Count == 0
+                && !Directory.Exists(UpstreamStager.DirectoryFor(attempts[0].Id)),
+            TimeSpan.FromSeconds(30), "A container or attempt directory of the attempt remains.", ct);
+    }
+
+    [Fact]
+    public async Task Revoking_a_Manager_during_a_hanging_Analyst_stops_and_removes_the_container()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
+        var ct = cts.Token;
+        await using var scenario = await Scenario.StartAsync("hang", ct);
+        if (scenario is null)
+        {
+            Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
+            return;
+        }
+
+        var runId = await SeedReadyJobAsync(scenario.Harness, ct);
+        var (containerId, attemptId) = await WaitForRunningContainerAsync(scenario, runId, ct);
+
+        await scenario.Harness.RevokeManagerAsync(scenario.Manager, ct);
+
+        await EndToEndHarness.WaitAsync(
+            async () => !await scenario.Docker.ExistsAsync(containerId, ct) && (await scenario.Docker.ListContainersAsync(scenario.ManagerLabel, ct)).Count == 0
+                && !Directory.Exists(UpstreamStager.DirectoryFor(attemptId)),
+            TimeSpan.FromSeconds(60), "The container or attempt directory of the revoked Manager remains.", ct);
+    }
+
+    [Fact]
+    public async Task A_restarted_Manager_removes_its_leftover_container_and_directory_but_not_an_unlabelled_container()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(8));
+        var ct = cts.Token;
+        await using var scenario = await Scenario.StartAsync("hang", ct, leaseSeconds: 3, staleTimeoutSeconds: 6);
+        if (scenario is null)
+        {
+            Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
+            return;
+        }
+
+        string? unlabelled = null;
+        string? leftover = null;
+        try
+        {
+            var runId = await SeedReadyJobAsync(scenario.Harness, ct);
+            var (containerId, attemptId) = await WaitForRunningContainerAsync(scenario, runId, ct);
+            var attemptDirectory = UpstreamStager.DirectoryFor(attemptId);
+
+            await scenario.Harness.KillManagerAsync(scenario.Manager);
+
+            // Stopping the host cleans up gracefully; put back what a crash would have left behind.
+            if (!await scenario.Docker.ExistsAsync(containerId, ct))
+            {
+                leftover = await scenario.Docker.StartSleepingContainerAsync(
+                    scenario.Image.LocalName,
+                    new Dictionary<string, string>
+                    {
+                        ["io.socalytics.manager"] = scenario.ManagerId,
+                        ["io.socalytics.attempt"] = attemptId.ToString(),
+                    }, ct);
+            }
+
+            Directory.CreateDirectory(Path.Combine(attemptDirectory, "result"));
+            unlabelled = await scenario.Docker.StartSleepingContainerAsync(scenario.Image.LocalName, new Dictionary<string, string>(), ct);
+
+            await EndToEndHarness.WaitAsync(
+                async () => (await AttemptsAsync(scenario.Harness, runId, ct)).Any(a => a.State == "Stale"),
+                TimeSpan.FromSeconds(60), "The abandoned attempt was not expired by the lease.", ct);
+
+            await scenario.Harness.StartManagerAsync(ct, dockerCompatibilityListPath: scenario.CompatibilityPath, restartOf: scenario.Manager);
+
+            await EndToEndHarness.WaitAsync(
+                async () => (await scenario.Docker.ListContainersAsync(scenario.ManagerLabel, ct)).Count == 0 && !Directory.Exists(attemptDirectory),
+                TimeSpan.FromSeconds(60), "The leftover container or attempt directory was not removed.", ct);
+            (await scenario.Docker.IsRunningAsync(unlabelled, ct)).ShouldBeTrue("The unlabelled container must stay untouched.");
+            (await WorkExecutionEndToEndTests.CountAcceptedAsync(scenario.Harness, runId, ct)).ShouldBe(0);
+            (await AttemptsAsync(scenario.Harness, runId, ct)).Single().State.ShouldBe("Stale");
+        }
+        finally
+        {
+            foreach (var id in new[] { unlabelled, leftover }.OfType<string>())
+            {
+                await scenario.Docker.RemoveContainerAsync(id);
+            }
+        }
+    }
+
+    private sealed record AttemptRow(Guid Id, string State, string? CloseReason);
+
+    private static async Task<List<AttemptRow>> AttemptsAsync(EndToEndHarness harness, Guid runId, CancellationToken ct)
+    {
+        await using var sql = new NpgsqlConnection(harness.Database.MigratorConnectionString);
+        await sql.OpenAsync(ct);
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT a.id, a.state, a.close_reason
+            FROM socalytics.analysis_execution_attempts a
+            JOIN socalytics.analysis_logical_jobs j ON j.id = a.logical_job_id
+            WHERE j.run_id = @runId
+            ORDER BY a.attempt_number
+            """, sql);
+        command.Parameters.AddWithValue("runId", runId);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var rows = new List<AttemptRow>();
+        while (await reader.ReadAsync(ct))
+        {
+            rows.Add(new AttemptRow(reader.GetGuid(0), reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2)));
+        }
+
+        return rows;
+    }
+
+    private static async Task<(string ContainerId, Guid AttemptId)> WaitForRunningContainerAsync(Scenario scenario, Guid runId, CancellationToken ct)
+    {
+        string? containerId = null;
+        Guid attemptId = default;
+        await WaitOrDiagnoseAsync(scenario.Harness, runId, async () =>
+        {
+            foreach (var id in await scenario.Docker.ListContainersAsync(scenario.ManagerLabel, ct))
+            {
+                var inspected = await scenario.Docker.GetJsonAsync($"/containers/{id}/json", ct);
+                if (inspected.GetProperty("State").GetProperty("Running").GetBoolean())
+                {
+                    containerId = id;
+                    attemptId = Guid.Parse(inspected.GetProperty("Config").GetProperty("Labels").GetProperty("io.socalytics.attempt").GetString()!);
+                    return true;
+                }
+            }
+
+            return false;
+        }, "No Analyst container was started.", ct);
+        return (containerId!, attemptId);
+    }
+
+    /// <summary>The platform, a registry with one failure-mode Test Analyst, and a Docker-backed Manager that offers it.</summary>
+    private sealed class Scenario : IAsyncDisposable
+    {
+        private readonly OciRegistryContainerFixture _registry;
+
+        private Scenario(
+            OciRegistryContainerFixture registry, EndToEndHarness harness, PushedAnalystImage image, DockerEngine docker, string compatibilityPath,
+            Microsoft.Extensions.Hosting.IHost manager)
+        {
+            _registry = registry;
+            Harness = harness;
+            Image = image;
+            Docker = docker;
+            CompatibilityPath = compatibilityPath;
+            Manager = manager;
+            ManagerId = harness.Control.GetStatus().ManagerId!;
+            ManagerLabel = $"io.socalytics.manager={ManagerId}";
+        }
+
+        public EndToEndHarness Harness { get; }
+
+        public PushedAnalystImage Image { get; }
+
+        public DockerEngine Docker { get; }
+
+        public string CompatibilityPath { get; }
+
+        public Microsoft.Extensions.Hosting.IHost Manager { get; }
+
+        public string ManagerId { get; }
+
+        public string ManagerLabel { get; }
+
+        /// <summary>Returns null when SoftHSM2 is unavailable.</summary>
+        public static async Task<Scenario?> StartAsync(string mode, CancellationToken ct, int leaseSeconds = 60, int staleTimeoutSeconds = 120)
+        {
+            var registry = new OciRegistryContainerFixture();
+            await registry.InitializeAsync();
+            var started = await EndToEndHarness.StartAsync(ct, new Dictionary<string, string?>
+            {
+                ["Registry:Images:RegistryHost"] = registry.RegistryHost,
+                ["Registry:Images:RepositoryPrefix"] = Prefix,
+                ["Registry:Images:UseHttp"] = "true",
+            });
+            if (started is null)
+            {
+                await registry.DisposeAsync();
+                return null;
+            }
+
+            var image = await TestAnalystImage.BuildAndPushAsync(registry.RegistryHost, Prefix, ct, mode);
+            var docker = new DockerEngine();
+            var compatibilityPath = await WriteCompatibilityListAsync(docker, ct);
+            await DefineDefaultWorkflowAsync(
+                started, image.Reference(registry.RegistryHost), ct, mode, maxAttempts: 1, leaseSeconds: leaseSeconds, staleTimeoutSeconds: staleTimeoutSeconds);
+            var manager = await started.StartManagerAsync(ct, dockerCompatibilityListPath: compatibilityPath);
+            return new Scenario(registry, started, image, docker, compatibilityPath, manager);
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            await Harness.DisposeAsync();
+            await TestAnalystImage.RemoveAsync(Image);
+            Docker.Dispose();
+            File.Delete(CompatibilityPath);
+            await _registry.DisposeAsync();
+        }
+    }
+
     private static void AssertRestrictions(JsonElement container, JsonElement imageConfig, string managerId, string imageDigest)
     {
         var config = container.GetProperty("Config");
@@ -173,8 +402,12 @@ public sealed class DockerRuntimeEndToEndTests
         imageConfig.GetProperty("RepoDigests").EnumerateArray().Select(d => d.GetString()).ShouldContain(d => d!.EndsWith("@sha256:" + imageDigest.Substring(8)));
     }
 
-    private static async Task DefineDefaultWorkflowAsync(EndToEndHarness harness, string reference, CancellationToken ct)
+    private static async Task DefineDefaultWorkflowAsync(
+        EndToEndHarness harness, string reference, CancellationToken ct, string mode = "succeed", int maxAttempts = 3, int leaseSeconds = 60,
+        int staleTimeoutSeconds = 120)
     {
+        var capabilityId = mode == "succeed" ? TestAnalystImage.CapabilityId : TestAnalystImage.CapabilityFor(mode);
+        var profileId = mode == "succeed" ? TestAnalystImage.ProfileId : TestAnalystImage.ProfileFor(mode);
         var admin = harness.Admin;
         using var registered = await admin.SendAsync(HttpMethod.Post, "/api/v1/registry/analyst-images", new { reference }, ct);
         registered.StatusCode.ShouldBeOneOf(HttpStatusCode.Created, HttpStatusCode.OK);
@@ -182,15 +415,15 @@ public sealed class DockerRuntimeEndToEndTests
 
         var content = JsonNode.Parse($$"""
             {
-              "capabilityId": "{{TestAnalystImage.CapabilityId}}",
+              "capabilityId": "{{capabilityId}}",
               "capabilityVersion": "1.0.0",
               "modelDigest": "{{TestAnalystImage.ModelDigest}}",
               "runtimeConstraints": ["linux-amd64"],
               "accelerators": [],
               "resources": { "memory": "256Mi", "cpu": "1" },
-              "maxAttempts": 3,
-              "leaseSeconds": 60,
-              "staleTimeoutSeconds": 120,
+              "maxAttempts": {{maxAttempts}},
+              "leaseSeconds": {{leaseSeconds}},
+              "staleTimeoutSeconds": {{staleTimeoutSeconds}},
               "executionTimeoutSeconds": 900,
               "videoPolicy": "forbidden",
               "inputSchemaVersions": {},
@@ -198,12 +431,12 @@ public sealed class DockerRuntimeEndToEndTests
             }
             """)!;
         using var created = await admin.SendAsync(
-            HttpMethod.Post, "/api/v1/registry/analyst-profiles", new { profileId = TestAnalystImage.ProfileId, imageDigest, content }, ct);
+            HttpMethod.Post, "/api/v1/registry/analyst-profiles", new { profileId, imageDigest, content }, ct);
         created.StatusCode.ShouldBe(HttpStatusCode.Created);
         var version = (await Read(created, ct)).GetProperty("version").GetInt32();
 
         var approval = new HttpRequestMessage(
-            HttpMethod.Post, $"/api/v1/registry/analyst-profiles/{TestAnalystImage.ProfileId}/versions/{version}/approval");
+            HttpMethod.Post, $"/api/v1/registry/analyst-profiles/{profileId}/versions/{version}/approval");
         approval.Headers.Add("X-CSRF-Token", admin.AntiforgeryToken);
         approval.Headers.TryAddWithoutValidation("If-Match", created.Headers.ETag!.Tag);
         using var approved = await admin.Client.SendAsync(approval, ct);
@@ -213,10 +446,10 @@ public sealed class DockerRuntimeEndToEndTests
         {
             workflowId = WorkflowId,
             workflowVersion = "1",
-            requestedCapabilities = new[] { TestAnalystImage.CapabilityId },
+            requestedCapabilities = new[] { capabilityId },
             completionPolicy = "all-requested-capabilities",
             segmentationPolicy = new { version = 1, durationSeconds = 60, digest = "sha-256:" + new string('1', 64) },
-            nodes = new[] { new { nodeKey = "analyst", profileId = TestAnalystImage.ProfileId, profileVersion = version } },
+            nodes = new[] { new { nodeKey = "analyst", profileId, profileVersion = version } },
             edges = Array.Empty<object>(),
         }, ct);
         workflow.StatusCode.ShouldBe(HttpStatusCode.Created, await workflow.Content.ReadAsStringAsync(ct));

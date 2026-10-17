@@ -144,9 +144,11 @@ internal sealed class EndToEndHarness : IAsyncDisposable
     /// </summary>
     public async Task<IHost> StartManagerAsync(
         CancellationToken ct, TimeSpan? runDuration = null, SimulatedOutcome outcome = SimulatedOutcome.Succeed,
-        string resultMode = SimulatedResultModes.Valid, string? dockerCompatibilityListPath = null)
+        string resultMode = SimulatedResultModes.Valid, string? dockerCompatibilityListPath = null, IHost? restartOf = null)
     {
-        var stateDirectory = _managers.Count == 0 ? _stateDirectory : _token.NewStateDirectory();
+        // A restart reuses the state directory and device key of a stopped Manager, so it restores that registration.
+        var previous = restartOf is null ? null : _managers.Single(m => ReferenceEquals(m.Host, restartOf));
+        var stateDirectory = previous?.StateDirectory ?? (_managers.Count == 0 ? _stateDirectory : _token.NewStateDirectory());
         var connection = new ConnectionSwitch();
         var builder = ManagerHost.CreateBuilder(["--environment", "Test"]);
         var configuration = new Dictionary<string, string?>
@@ -193,6 +195,16 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         await host.StartAsync(ct);
 
         var control = host.Services.GetRequiredService<IManagerControl>();
+        if (previous is not null)
+        {
+            instance.RegistrationId = previous.RegistrationId;
+            var restoredScheduler = host.Services.GetRequiredService<PreflightScheduler>();
+            await WaitAsync(
+                () => control.GetStatus().RegistrationState == "active" && restoredScheduler.Latest?.Passed == true,
+                TimeSpan.FromSeconds(60), "The restarted Manager did not become active with a passed preflight.", ct);
+            return host;
+        }
+
         var registered = await control.RegisterAsync(new RegisterRequest("https://localhost", HostLabel: $"e2e-manager-{_managers.Count}"), ct);
         registered.Succeeded.ShouldBeTrue(registered.Code);
 

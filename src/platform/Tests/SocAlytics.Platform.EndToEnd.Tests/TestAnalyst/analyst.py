@@ -32,7 +32,13 @@ def main():
     with open("/socalytics/job.json") as f:
         job = json.load(f)
 
-    time.sleep(3600 if mode == "hold" else HOLD_SECONDS)
+    if mode == "oom":
+        # Allocates and touches memory until the container's limit kills it.
+        chunks = []
+        while True:
+            chunks.append(b"x" * (32 * 1024 * 1024))
+
+    time.sleep(3600 if mode == "hang" else HOLD_SECONDS)
     if mode == "fail":
         sys.exit(3)
     if mode == "no-manifest":

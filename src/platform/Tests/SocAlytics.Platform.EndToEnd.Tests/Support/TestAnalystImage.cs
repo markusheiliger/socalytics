@@ -20,11 +20,42 @@ internal static class TestAnalystImage
     public const string ProfileId = "e2e-docker-profile";
     public const string ModelDigest = "sha-256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
+    public static string CapabilityFor(string mode) => $"{CapabilityId}-{mode}";
+
+    public static string ProfileFor(string mode) => $"{ProfileId}-{mode}";
+
+    /// <summary>
+    /// Builds the image for <paramref name="mode"/>. The default mode <c>succeed</c> is the capability <see cref="CapabilityId"/>;
+    /// every other mode is imported as its own capability with a manifest that allows the short limits of the failure tests.
+    /// </summary>
     public static async Task<PushedAnalystImage> BuildAndPushAsync(string registryHost, string repositoryPrefix, CancellationToken ct, string mode = "succeed")
     {
         var directory = Path.Combine(AppContext.BaseDirectory, "TestAnalyst");
+        var capabilityId = CapabilityId;
+        string? contextDirectory = null;
+        if (mode != "succeed")
+        {
+            capabilityId = CapabilityFor(mode);
+            contextDirectory = Path.Combine(Path.GetTempPath(), $"socalytics-e2e-analyst-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(contextDirectory);
+            foreach (var file in new[] { "Dockerfile", "analyst.py" })
+            {
+                File.Copy(Path.Combine(directory, file), Path.Combine(contextDirectory, file));
+            }
+
+            var manifest = System.Text.Json.Nodes.JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(directory, "analyst-manifest.json"), ct))!;
+            manifest["capability"]!["id"] = capabilityId;
+            manifest["compatibleProfiles"] = new System.Text.Json.Nodes.JsonArray(ProfileFor(mode));
+            var requirements = manifest["requirements"]!;
+            requirements["minMaxAttempts"] = 1;
+            requirements["minLeaseSeconds"] = 1;
+            requirements["minStaleTimeoutSeconds"] = 1;
+            await File.WriteAllTextAsync(Path.Combine(contextDirectory, "analyst-manifest.json"), manifest.ToJsonString(), ct);
+            directory = contextDirectory;
+        }
+
         var manifestHash = Convert.ToHexStringLower(SHA256.HashData(await File.ReadAllBytesAsync(Path.Combine(directory, "analyst-manifest.json"), ct)));
-        var repository = repositoryPrefix + CapabilityId;
+        var repository = repositoryPrefix + capabilityId;
         var localName = $"{registryHost}/{repository}:{Guid.NewGuid():N}";
 
         var image = new ImageFromDockerfileBuilder()
@@ -32,10 +63,21 @@ internal static class TestAnalystImage
             .WithDockerfile("Dockerfile")
             .WithBuildArgument("MODE", mode)
             .WithBuildArgument("MANIFEST_SHA256", manifestHash)
+            .WithBuildArgument("CAPABILITY_ID", capabilityId)
             .WithName(new DockerImage(localName))
             .WithDeleteIfExists(false)
             .Build();
-        await image.CreateAsync(ct);
+        try
+        {
+            await image.CreateAsync(ct);
+        }
+        finally
+        {
+            if (contextDirectory is not null)
+            {
+                Directory.Delete(contextDirectory, true);
+            }
+        }
 
         var tag = localName[(localName.LastIndexOf(':') + 1)..];
         var name = localName[..localName.LastIndexOf(':')];
@@ -113,6 +155,49 @@ internal sealed class DockerEngine : IDisposable
         var filters = Uri.EscapeDataString(JsonSerializer.Serialize(new Dictionary<string, string[]> { ["label"] = [label] }));
         var listed = await GetJsonAsync($"/containers/json?all=1&filters={filters}", ct);
         return listed.EnumerateArray().Select(c => c.GetProperty("Id").GetString()!).ToList();
+    }
+
+    /// <summary>Creates and starts a container that only sleeps, with the given labels (none for an unlabelled one).</summary>
+    public async Task<string> StartSleepingContainerAsync(string image, IReadOnlyDictionary<string, string> labels, CancellationToken ct)
+    {
+        var body = JsonSerializer.Serialize(new
+        {
+            Image = image,
+            Entrypoint = new[] { "sleep" },
+            Cmd = new[] { "3600" },
+            Labels = labels,
+            HostConfig = new { NetworkMode = "none" },
+        });
+        using var content = new StringContent(body, Encoding.UTF8, "application/json");
+        using var created = await _http.PostAsync("/containers/create", content, ct);
+        created.EnsureSuccessStatusCode();
+        var id = JsonDocument.Parse(await created.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("Id").GetString()!;
+        using var started = await _http.PostAsync($"/containers/{id}/start", null, ct);
+        started.EnsureSuccessStatusCode();
+        return id;
+    }
+
+    public async Task<bool> IsRunningAsync(string containerId, CancellationToken ct)
+    {
+        using var response = await _http.GetAsync($"/containers/{containerId}/json", ct);
+        if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+        {
+            return false;
+        }
+
+        response.EnsureSuccessStatusCode();
+        return JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("State").GetProperty("Running").GetBoolean();
+    }
+
+    public async Task<bool> ExistsAsync(string containerId, CancellationToken ct)
+    {
+        using var response = await _http.GetAsync($"/containers/{containerId}/json", ct);
+        return response.StatusCode != System.Net.HttpStatusCode.NotFound;
+    }
+
+    public async Task RemoveContainerAsync(string containerId)
+    {
+        using var response = await _http.DeleteAsync($"/containers/{containerId}?force=true");
     }
 
     public void Dispose() => _http.Dispose();

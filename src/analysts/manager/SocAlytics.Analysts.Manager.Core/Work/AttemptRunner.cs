@@ -53,6 +53,9 @@ public sealed class AttemptRunner(
     // Attempt directories of this process, which the start-up cleanup of a previous process's leftovers must not touch.
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> LiveDirectories = new();
 
+    // Categories a runtime adapter may report as its failure reason; any other reason is an Analyst error.
+    private static readonly HashSet<string> RuntimeFailureCategories = ["resource-exhausted", "image-unavailable", "runtime-unavailable"];
+
     private readonly ILogger _logger = logger ?? NullLogger<AttemptRunner>.Instance;
     private readonly ExecutedRuntime _executedRuntime = executedRuntime ?? Describe(runtime.Profile);
 
@@ -257,7 +260,9 @@ public sealed class AttemptRunner(
                 else
                 {
                     outcome = await ReadOutcomeAsync(execution);
-                    failure = outcome.Succeeded ? null : new CompletionFailure("analyst-error");
+                    failure = outcome.Succeeded ? null : new CompletionFailure(RuntimeFailureCategories.Contains(outcome.FailureReason ?? string.Empty)
+                        ? outcome.FailureReason!
+                        : "analyst-error");
                     if (outcome.Succeeded && publisher is not null)
                     {
                         var published = await publisher.PublishAsync(
