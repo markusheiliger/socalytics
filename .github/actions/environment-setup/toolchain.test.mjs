@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
@@ -251,6 +251,111 @@ describe('install-analyst-media.sh', () => {
     });
     assertFailure(install(directory, toolchain), 'fixture', 'version');
   });
+});
+
+const fakeFfmpeg = `#!/usr/bin/env bash
+if [[ "$1 $2" == "-hide_banner -version" ]]; then echo "ffmpeg version fake"; exit 0; fi
+echo "ffmpeg $*" >> "$FAKE_LOG"
+mode="\${FAKE_MODE:-}"
+out="\${@: -1}"
+if [[ "$*" == *testsrc2* ]]; then
+  [[ "$mode" == create ]] && { echo "create broke" >&2; exit 1; }
+  if [[ "$mode" == create-empty ]]; then : > "$out"; else echo data > "$out"; fi
+elif [[ "$*" == *"-f null"* ]]; then
+  [[ "$mode" == decode ]] && { echo "decode broke" >&2; exit 1; }
+else
+  [[ "$mode" == extract ]] && { echo "extract broke" >&2; exit 1; }
+  if [[ "$mode" == extract-empty ]]; then : > "$out"; else echo data > "$out"; fi
+fi
+exit 0
+`;
+
+const fakeFfprobe = `#!/usr/bin/env bash
+if [[ "$1 $2" == "-hide_banner -version" ]]; then echo "ffprobe version fake"; exit 0; fi
+echo "ffprobe $*" >> "$FAKE_LOG"
+case "\${FAKE_PROBE:-good}" in
+  good) echo '{"streams":[{"codec_type":"video"}],"format":{"duration":"1.000000"}}' ;;
+  audio) echo '{"streams":[{"codec_type":"audio"}],"format":{"duration":"1.0"}}' ;;
+  novideo) echo '{"streams":[],"format":{"duration":"1.0"}}' ;;
+  zero) echo '{"streams":[{"codec_type":"video"}],"format":{"duration":"0.000000"}}' ;;
+  nan) echo '{"streams":[{"codec_type":"video"}],"format":{"duration":"N/A"}}' ;;
+  garbage) echo 'not json' ;;
+  fail) echo 'probe broke' >&2; exit 1 ;;
+esac
+`;
+
+function mediaInstall(env = {}) {
+  const directory = scratch();
+  const archive = fixtureArchive(directory, {
+    version: 'unused',
+    extra: (source) => {
+      for (const [name, body] of [['ffmpeg', fakeFfmpeg], ['ffprobe', fakeFfprobe]]) {
+        writeFileSync(path.join(source, 'pkg/bin', name), body);
+        chmodSync(path.join(source, 'pkg/bin', name), 0o755);
+      }
+    },
+  });
+  const toolchain = declaration(archive, {
+    id: 'ffmpeg',
+    executables: { ffmpeg: 'pkg/bin/ffmpeg', ffprobe: 'pkg/bin/ffprobe' },
+    versionCheck: {
+      executable: 'ffmpeg',
+      arguments: ['-hide_banner', '-version'],
+      expectedOutput: 'ffmpeg version fake',
+      additionalChecks: [{ executable: 'ffprobe', arguments: ['-hide_banner', '-version'], expectedOutput: 'ffprobe version fake' }],
+    },
+    environmentVariable: undefined,
+  });
+  const log = path.join(directory, 'fake.log');
+  writeFileSync(log, '');
+  const result = install(directory, toolchain, { FAKE_LOG: log, ...env });
+  return { ...result, directory, log: readFileSync(log, 'utf8') };
+}
+
+describe('synthetic media smoke check', () => {
+  it('creates, extracts, probes, and decodes with only the installed tools', () => {
+    const result = mediaInstall();
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Verified synthetic media smoke check/);
+    const lines = result.log.trim().split('\n');
+    assert.equal(lines.length, 4);
+    assert.match(lines[0], /^ffmpeg .*testsrc2=size=64x64:rate=25:duration=2.* -c:v mpeg4 /);
+    assert.match(lines[1], /^ffmpeg .*-c copy /);
+    assert.match(lines[2], /^ffprobe .*-select_streams v:0/);
+    assert.match(lines[3], /^ffmpeg .*-f null -$/);
+    assert.deepEqual(readdirSync(path.join(result.directory, 'install')).filter((name) => name.startsWith('smoke.')), []);
+  });
+
+  it('does not run when no ffmpeg and ffprobe pair is installed', () => {
+    const directory = scratch();
+    const result = install(directory, declaration(fixtureArchive(directory)));
+    assert.equal(result.status, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /smoke check/);
+  });
+
+  for (const [mode, pattern] of [
+    ['create', /creating the synthetic MP4 failed/],
+    ['create-empty', /produced no output/],
+    ['extract', /extracting a keyframe-compatible interval failed/],
+    ['extract-empty', /extraction produced an empty or missing output/],
+    ['decode', /decoding the extracted media failed/],
+  ]) {
+    it(`fails the smoke stage when ${mode} fails`, () => {
+      const result = mediaInstall({ FAKE_MODE: mode });
+      assertFailure(result, 'ffmpeg', 'smoke');
+      assert.match(result.stderr, pattern);
+      assert.doesNotMatch(result.stdout, /Verified synthetic media/);
+      assert.deepEqual(readdirSync(path.join(result.directory, 'install')).filter((name) => name.startsWith('smoke.')), []);
+    });
+  }
+
+  for (const probe of ['audio', 'novideo', 'zero', 'nan', 'garbage', 'fail']) {
+    it(`fails the smoke stage for ${probe} probe evidence`, () => {
+      const result = mediaInstall({ FAKE_PROBE: probe });
+      assertFailure(result, 'ffprobe', 'smoke');
+      assert.doesNotMatch(result.stdout, /Verified synthetic media/);
+    });
+  }
 });
 
 // The composite action is checked textually so that no YAML dependency is needed.

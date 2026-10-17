@@ -157,8 +157,57 @@ run_version_check() {
   echo "Verified $id: $first"
 }
 
+# Runs one smoke-check command with bounded time and output; names the operation on failure.
+smoke_run() {
+  local operation="$1" output
+  shift
+  if ! output="$(timeout 60 "$@" 2>&1 < /dev/null)"; then
+    fail ffmpeg smoke "$operation failed: ${output:0:300}" \
+      "inspect the installed FFmpeg build and pin evidence, and correct the environment through a standalone change; never bypass the check."
+  fi
+}
+
+# Uses only the verified tools and synthetic media; removes only its own fixture directory.
+run_media_smoke_check() {
+  local ffmpeg="$1" ffprobe="$2" fixture probe source extract
+  fixture="$(mktemp -d "$install_root/smoke.XXXXXX")"
+  trap 'rm -rf "${fixture:?}"' EXIT
+  source="$fixture/source.mp4"
+  extract="$fixture/extract.mp4"
+
+  smoke_run "creating the synthetic MP4" "$ffmpeg" -hide_banner -loglevel error -nostdin \
+    -f lavfi -i "testsrc2=size=64x64:rate=25:duration=2" -c:v mpeg4 -g 5 -pix_fmt yuv420p -an -y "$source"
+  [[ -s "$source" ]] \
+    || fail ffmpeg smoke "creating the synthetic MP4 produced no output" \
+      "inspect the installed FFmpeg build and pin evidence, and correct the environment through a standalone change; never bypass the check."
+
+  smoke_run "extracting a keyframe-compatible interval" "$ffmpeg" -hide_banner -loglevel error -nostdin \
+    -ss 0.4 -i "$source" -t 1 -c copy -avoid_negative_ts make_zero -y "$extract"
+  [[ -s "$extract" ]] \
+    || fail ffmpeg smoke "extraction produced an empty or missing output" \
+      "inspect the installed FFmpeg build and pin evidence, and correct the environment through a standalone change; never bypass the check."
+
+  if ! probe="$(timeout 60 "$ffprobe" -v error -select_streams v:0 \
+    -show_entries stream=codec_type:format=duration -of json "$extract" 2>&1 < /dev/null)"; then
+    fail ffprobe smoke "probing the extracted media failed: ${probe:0:300}" \
+      "inspect the installed ffprobe build and pin evidence, and correct the environment through a standalone change; never bypass the check."
+  fi
+  jq -e '(.format.duration | tonumber) as $d | .streams[0].codec_type == "video" and $d > 0 and $d < 10' \
+    <<< "$probe" > /dev/null 2>&1 \
+    || fail ffprobe smoke "probe evidence has no video stream or no finite positive duration: ${probe:0:300}" \
+      "inspect the installed ffprobe build and pin evidence, and correct the environment through a standalone change; never bypass the check."
+
+  smoke_run "decoding the extracted media" "$ffmpeg" -hide_banner -loglevel error -nostdin -i "$extract" -f null -
+
+  rm -rf "${fixture:?}"
+  trap - EXIT
+  echo "Verified synthetic media smoke check: created, extracted, probed, and decoded a two-second 64x64 MPEG-4 MP4"
+}
+
 path_directories=()
 env_assignments=()
+smoke_ffmpeg=""
+smoke_ffprobe=""
 tool_count="$(jq '.tools | length' "$toolchain")"
 
 for ((index = 0; index < tool_count; index++)); do
@@ -256,8 +305,17 @@ for ((index = 0; index < tool_count; index++)); do
   if [[ -n "$variable" ]]; then
     env_assignments+=("$variable=${tool_paths[python]:-${tool_paths[$id]:-}}")
   fi
+  [[ -z "${tool_paths[ffmpeg]:-}" ]] || smoke_ffmpeg="${tool_paths[ffmpeg]}"
+  [[ -z "${tool_paths[ffprobe]:-}" ]] || smoke_ffprobe="${tool_paths[ffprobe]}"
   unset tool_paths
 done
+
+if [[ -n "$smoke_ffmpeg" && -n "$smoke_ffprobe" ]]; then
+  command -v timeout > /dev/null 2>&1 \
+    || fail timeout prerequisites "the runner does not provide timeout" \
+      "use the supported Linux x64 runner image, which provides timeout, and rerun setup."
+  run_media_smoke_check "$smoke_ffmpeg" "$smoke_ffprobe"
+fi
 
 rm -rf "$downloads" "$staging_root"
 
