@@ -2,10 +2,12 @@
 
 All operations are described in the OpenAPI snapshot
 `src/platform/SocAlytics.Platform.Api/openapi/v1.json` (research.md § R2).
+The three anonymous operations are classified as such in the architecture
+test `EndpointSecurityTests` (`AnonymousOperations`).
 Failures that a caller could use to probe accounts or links all map to one
 generic outcome.
 
-## `GET /api/v1/identity-providers` (anonymous)
+## `GET /api/v1/identity-providers` (anonymous, `listIdentityProviders`)
 
 `200 OK`, `Cache-Control: no-store`:
 
@@ -15,7 +17,7 @@ generic outcome.
 
 An empty list when none is configured. No authority, client, or scope data.
 
-## `POST /api/v1/session/external` (anonymous)
+## `POST /api/v1/session/external` (anonymous, `startExternalSignIn`)
 
 Request, one of:
 
@@ -38,7 +40,7 @@ Request, one of:
 - `503` (`provider-unavailable`) when the provider's discovery document cannot
   be read.
 
-## `GET /api/v1/session/external/callback` (anonymous, browser navigation)
+## `GET /api/v1/session/external/callback` (anonymous, browser navigation, `completeExternalSignIn`)
 
 Query from the provider: `code` and `state`, or `error`.
 
