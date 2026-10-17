@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analyst-manager/registry-credentials/v1/registry-credentials.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analyst Manager registry pull credentials",
+  "description": "Request and response of POST /api/v1/analyst-managers/self/registry-credentials. The request body is empty. The response carries a short-lived registry pull credential scoped to the image repositories of the resolved default workflow; the token is present only for kind bearer and is never logged. The socalytics.invalid domain is reserved and never dereferenced.",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" }
+  ],
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 0
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registry", "repositories", "kind", "expiresAt"],
+      "properties": {
+        "registry": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9.\\-]*(:[0-9]{1,5})?$" },
+        "repositories": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "pattern": "^[a-z0-9]+([._\\-/][a-z0-9]+)*$" }
+        },
+        "kind": { "enum": ["bearer", "anonymous"] },
+        "token": { "type": "string", "minLength": 1 },
+        "expiresAt": { "type": "string", "format": "date-time" }
+      },
+      "if": {
+        "properties": { "kind": { "const": "bearer" } },
+        "required": ["kind"]
+      },
+      "then": { "required": ["token"] },
+      "else": { "properties": { "token": false } }
+    }
+  },
+  "examples": [
+    {}
+  ]
+}

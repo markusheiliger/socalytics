@@ -12,7 +12,7 @@ and the API, the operational API surface, the layered project structure, and
 the persistence, club and identity, recording lineage and upload, durable
 analysis workflow, and Analyst Manager registration foundations described
 below, with host, architecture, contract, and integration tests. Analyst
-execution, the Web UI's
+execution exists on the Docker Desktop runtime profile; the Web UI's
 offline mode, deployment configuration, and production-readiness evidence do not exist yet.
 External OpenID Connect sign-in with Club Admin linking exists as development
 evidence against a test provider. The
@@ -567,8 +567,10 @@ pushes are retried after failures and restarts. `Nats:Authentication:Mode`
 environments; every other environment requires `Jwt`. Production key custody,
 credential lifetimes, rotation, and recovery remain unresolved under
 `GOV-CRED-004`; the values above are development evidence. Manager work
-execution is verified against a simulated runtime and Analyst that exist only
-in Development and Test; real Analyst execution remains deferred.
+execution on the Docker Desktop runtime profile runs real Analyst containers
+and is verified end to end against a Linux engine; Docker Desktop on Windows
+awaits manual evidence, and automated Windows verification is an open gap. The
+simulated runtime and Analyst remain for Development and Test.
 
 Analyst Containers use Python because PyTorch, ONNX Runtime, OpenCV, NumPy,
 SciPy, scikit-learn, SAHI, and accelerator-vendor tooling provide the paved
@@ -643,6 +645,12 @@ current and non-current migration states; and
   checksums, rejected manifests ending the attempt as failed, and immutable
   accepted-result manifest records) with a simulated Analyst and the Analyst
   Manager; and
+- Docker-backed end-to-end tests run a test Analyst image through the real
+  Analyst Manager core on the `docker-desktop` profile against a Linux engine's
+  local socket: success with one accepted result, failing, missing-manifest,
+  and out-of-memory Analysts, revocation during a hanging Analyst, and Manager
+  restart with reconciliation that spares unlabelled containers, leaving
+  nothing on the host; and
 - integration and end-to-end tests cover the Manager-mediated upstream read
   (current-attempt and input-snapshot scoping, refusals without disclosure,
   per-object read grants, coverage), digest-verified staging with cleanup in the
@@ -664,7 +672,8 @@ The following remain validation targets rather than claims of current evidence:
 
 - PostgreSQL integration tests cover Dapper mappings and registry versions of
   capability, model, and Analyst-profile records;
-- registry transport mapping, runtime conformance, and generated TypeScript,
+- registry transport mapping, runtime conformance beyond the Docker Desktop
+  profile on a Linux engine (Podman and Windows), and generated TypeScript,
   C#, and Python client smoke checks pass without introducing duplicate wire
   contracts; and
 - telemetry tests cover correlation and operational signals across all areas
@@ -686,15 +695,16 @@ choice or reveals a material operational tradeoff:
   the Migrator, local transaction boundaries, local database and broker
   unavailability, duplicate delivery, and analysis restart recovery are
   exercised. Production database access control, backup/restore, lifecycle
-  controls, service objectives, capacity, and workflow failure behavior with
-  real Analyst execution remain unevidenced.
+  controls, service objectives, and capacity remain unevidenced; workflow
+  failure behavior with real Analyst execution is evidenced on the Docker
+  Desktop profile against a Linux engine only.
 - **Prototype, measurement, or implementation evidence supports the choice —
   partially met.** The .NET 10 host, Aspire local composition, operational
   API surface, layer composition methods, structural tests, the persistence
   foundation (migrations, Migrator, units of work, version triggers), domain
   persistence, outbox publication to NATS JetStream, local-account BFF
   sessions, S3-compatible upload, Analyst Manager registration, member email addresses with verified, outbox-backed transactional delivery to the Mailpit mail catcher, and result
-  write grants with validated result acceptance against a simulated Analyst, and the Manager-mediated
+  write grants with validated result acceptance against a simulated Analyst and a real Analyst container on the Docker Desktop profile (Linux engine), and the Manager-mediated
   read and staging of accepted upstream results are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views
@@ -707,14 +717,15 @@ choice or reveals a material operational tradeoff:
   updates through its service worker as development evidence on Chromium), the other
   Web UI client workflows (analysis review and agent conversations),
   cross-runtime schema agreement, reproducible Analyst
-  images, and the Avalonia/OCI platform matrix remain unsupported by
-  implementation evidence. The headless server profile adds automated
+  images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
+  profile on a Linux engine (Windows automation, Podman, and the other
+  profiles) remain unsupported by implementation evidence. The headless server profile adds automated
   evidence (an executable without Avalonia, the lingering check, the generated
   systemd user unit, the account rule against the simulated runtime, and the
   claimed profile and software key policy), but the manual validation on
   Ubuntu Server 22.04 and 24.04 LTS is open until a person performs it after
-  the merge, and the matrix stays incomplete without real Linux runtime
-  adapters.
+  the merge, and the matrix stays incomplete without Linux runtime adapters
+  beyond the Docker Desktop adapter's development-only Linux socket.
 - **Mature enough to govern subsequent implementation — not met for
   promotion.** The foundation can guide further reversible implementation, but
   the incomplete identity, client, Scheduler, Analyst runtime, production

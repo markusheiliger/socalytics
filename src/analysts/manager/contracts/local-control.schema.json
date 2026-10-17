@@ -857,6 +857,42 @@
             "type": "string"
           },
           "description": "Empty unless passed is true; never inferred from the runtime product name."
+        },
+        "offered": {
+          "type": "array",
+          "description": "Workflow capabilities offered to the work queue; empty unless passed is true.",
+          "items": {
+            "$ref": "#/$defs/preflightCapability"
+          }
+        },
+        "notOffered": {
+          "type": "array",
+          "description": "Workflow capabilities that are not offered, each with its reason (accelerator-required, exceeds-host-limits, or excluded-by-allowlist).",
+          "items": {
+            "$ref": "#/$defs/preflightCapability"
+          }
+        }
+      }
+    },
+    "preflightCapability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       }
     },

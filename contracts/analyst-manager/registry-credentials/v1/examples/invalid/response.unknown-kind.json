@@ -1,0 +1,7 @@
+{
+  "registry": "ghcr.io",
+  "repositories": ["socalytics/socalytics/test-analyst"],
+  "kind": "basic",
+  "token": "opaque-registry-token",
+  "expiresAt": "2026-10-15T09:35:00Z"
+}

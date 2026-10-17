@@ -64,6 +64,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton(sp => new SocAlytics.Platform.Infrastructure.Registry.Oci.OciDistributionClient(
             new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = TimeSpan.FromSeconds(30) },
             sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions>>()));
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.RegistryCredentials.IRegistryPullTokenIssuer>(sp => new SocAlytics.Platform.Infrastructure.Registry.Oci.OciPullTokenIssuer(
+            new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = TimeSpan.FromSeconds(15) },
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<SocAlytics.Platform.Infrastructure.Registry.Oci.ImageRegistryOptions>>(),
+            sp.GetService<TimeProvider>() ?? TimeProvider.System));
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IOciImageReader, SocAlytics.Platform.Infrastructure.Registry.Oci.OciImageReader>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IAnalystManifestValidator, SocAlytics.Platform.Infrastructure.Registry.AnalystManifestValidator>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.StatusReporting.IManagerStatusStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.ManagerStatusStore>();

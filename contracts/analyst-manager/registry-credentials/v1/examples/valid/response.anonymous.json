@@ -1,0 +1,6 @@
+{
+  "registry": "localhost:5000",
+  "repositories": ["socalytics/test-analyst"],
+  "kind": "anonymous",
+  "expiresAt": "2026-10-15T09:35:00Z"
+}

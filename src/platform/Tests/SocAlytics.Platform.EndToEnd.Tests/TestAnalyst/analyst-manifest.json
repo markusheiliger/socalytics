@@ -1,0 +1,23 @@
+{
+  "manifestVersion": "1.0.0",
+  "capability": {
+    "id": "e2e-docker-analyst",
+    "version": "1.0.0",
+    "tier": "high-level",
+    "executionScope": "match"
+  },
+  "upstream": [],
+  "videoAccess": "forbidden",
+  "output": { "schemaVersion": "1.0.0" },
+  "compatibleProfiles": ["e2e-docker-profile"],
+  "model": { "digest": "sha-256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" },
+  "runtime": { "constraints": ["linux-amd64"], "accelerators": [] },
+  "resources": { "memory": "256Mi", "cpu": "1" },
+  "requirements": {
+    "minMaxAttempts": 3,
+    "minLeaseSeconds": 60,
+    "minStaleTimeoutSeconds": 120,
+    "minExecutionTimeoutSeconds": 900
+  },
+  "determinism": { "deterministic": true, "idempotent": true }
+}

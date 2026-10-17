@@ -24,6 +24,29 @@ public class StatusWindowViewModelTests
     }
 
     [Fact]
+    public void Runtime_section_follows_the_preflight_and_raises_on_change()
+    {
+        var control = new FakeManagerControl();
+        var vm = new StatusWindowViewModel(control);
+        var raised = new List<string?>();
+        vm.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+        vm.Runtime.ShouldBe("Runtime: no preflight yet");
+
+        control.PreflightValue = new SocAlytics.Analysts.Manager.Runtime.PreflightResult(
+            DateTimeOffset.UnixEpoch, "docker-desktop", "Docker Desktop", "4.40.0", "wsl2", true, [], [])
+        {
+            Offered = [new("person-detection", "1")],
+            NotOffered = [new("pose", "1", "accelerator-required")],
+        };
+        control.Raise();
+
+        vm.Runtime.ShouldContain("Docker Desktop 4.40.0");
+        vm.Runtime.ShouldContain("Offered capabilities: person-detection@1");
+        vm.Runtime.ShouldContain("Not offered: pose@1 (accelerator-required)");
+        raised.ShouldContain(nameof(StatusWindowViewModel.Runtime));
+    }
+
+    [Fact]
     public void Shows_preflight_failures_with_remediation_and_fields()
     {
         var pf = new SocAlytics.Analysts.Manager.Runtime.PreflightResult(

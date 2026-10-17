@@ -33,6 +33,25 @@ public sealed class RuntimeCompatibilityList
         return Parse(stream);
     }
 
+    /// <summary>The embedded list plus the entries of <paramref name="extraPath"/>, which is refused unless <paramref name="validationEnvironment"/> is true.</summary>
+    public static RuntimeCompatibilityList Load(string? extraPath, bool validationEnvironment)
+    {
+        var embedded = LoadEmbedded();
+        if (string.IsNullOrWhiteSpace(extraPath))
+        {
+            return embedded;
+        }
+
+        if (!validationEnvironment)
+        {
+            throw new InvalidOperationException(
+                "Runtime:CompatibilityListPath is only available in the Development and Test environments; remove it.");
+        }
+
+        using var stream = File.OpenRead(extraPath);
+        return new RuntimeCompatibilityList(embedded.Entries.Concat(Parse(stream).Entries));
+    }
+
     public static RuntimeCompatibilityList Parse(Stream json) =>
         new(JsonSerializer.Deserialize<RuntimeCompatibilityEntry[]>(json, Json) ?? []);
 

@@ -40,6 +40,9 @@ public interface IContainerRuntimeAdapter
     /// <summary>The analyst capabilities this runtime offers to the queue once its preflight passed.</summary>
     IReadOnlyList<Platform.QueueCapability> Capabilities => [];
 
+    /// <summary>The workflow capabilities of the last probe that are not offered, with the reason for each.</summary>
+    IReadOnlyList<Docker.NotOfferedCapability> NotOffered => [];
+
     Task<RuntimeProbe> ProbeAsync(RuntimeProbeRequest request, CancellationToken cancellationToken);
 
     Task<IAttemptExecution> StartAttemptAsync(AttemptLaunch launch, CancellationToken cancellationToken);

@@ -98,3 +98,19 @@ public sealed record UpstreamCoverageEntry(string? SegmentId, bool? Match, strin
 public sealed record UpstreamResultsPage(
     string ContractVersion, UpstreamDescriptor Upstream, IReadOnlyList<UpstreamResult> Results,
     IReadOnlyList<UpstreamCoverageEntry> Coverage, string? ContinuationToken);
+
+/// <summary>Response of contracts/analyst-manager/registry-credentials/v1; the token is a credential and is never logged.</summary>
+public sealed record RegistryCredentialsResponse(
+    string Registry, IReadOnlyList<string> Repositories, string Kind, string? Token, DateTimeOffset ExpiresAt)
+{
+    public override string ToString() => $"RegistryCredentialsResponse {{ Registry = {Registry}, Kind = {Kind} }}";
+}
+
+public sealed record WorkflowReference(string Id, string Version);
+
+/// <summary>One capability of the default workflow with the pinned requirements of its approved profile; <c>Cpus</c> is a decimal string.</summary>
+public sealed record WorkflowCapability(
+    string Id, string Version, IReadOnlyList<string> Accelerators, string Cpus, long MemoryBytes);
+
+/// <summary>Response of contracts/analyst-manager/workflow-capabilities/v1.</summary>
+public sealed record WorkflowCapabilitiesResponse(WorkflowReference Workflow, IReadOnlyList<WorkflowCapability> Capabilities);

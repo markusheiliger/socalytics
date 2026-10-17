@@ -2,7 +2,7 @@
 
 **Branch**: `20261015-092159-docker-runtime-adapter` | **Date**: 2026-10-15 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261015-092159-docker-runtime-adapter/spec.md`
+**Input**: Feature specification from `specs/archive/20261015-092159-docker-runtime-adapter/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -87,30 +87,30 @@ Re-check after Phase 1 design: still passes; no Complexity Tracking entries.
 
 ### Narratives
 
-- [Analyst Runtime and Recovery](../../docs/architecture/analyst-runtime-and-recovery.md):
+- [Analyst Runtime and Recovery](../../../docs/architecture/analyst-runtime-and-recovery.md):
   OCI Container Runtime Boundary, Built-In Runtime Adapter Profiles, Runtime
   Preflight And Status (launch defaults and the Analyst container interface),
   Registration And Runtime Credentials (registry pull credentials, capability
   offer, labelling and reconciliation), and Analyst Manager Responsibilities —
   implemented by this feature.
-- [Analyst Manager](../../docs/architecture/analyst-manager.md): the opening
+- [Analyst Manager](../../../docs/architecture/analyst-manager.md): the opening
   description of the built-in OCI Runtime Adapter, Application Profiles (the
   Core worker's OCI adapters), and the Tray Profile status window (offered
   capabilities, image cache use, reconciliation state).
-- [Platform Implementation](../../docs/architecture/platform-implementation.md):
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md):
   Analyst Technology, Acceptance Evidence, and Architecture Reassessment, which
   record what is implemented and evidenced.
-- [Analysts, Models, and Hardware](../../docs/architecture/analysts-models-and-hardware.md):
+- [Analysts, Models, and Hardware](../../../docs/architecture/analysts-models-and-hardware.md):
   Implementation Validation (the Windows runtime spike and security tests) and
   the result-acceptance paragraph that names the simulated Analyst.
-- [Security and Data Governance](../../docs/architecture/security-and-data-governance.md):
+- [Security and Data Governance](../../../docs/architecture/security-and-data-governance.md):
   `CTL-004` (non-root, constrained Analyst execution), whose evidence this
   feature provides.
 - `contracts/README.md` (outside `docs/architecture/`, kept current with the
   contract task): the contract family table gains the two new families
   `analyst-manager/registry-credentials/v1` and
   `analyst-manager/workflow-capabilities/v1`.
-- [Tenancy and Technology](../../docs/architecture/tenancy-and-technology.md):
+- [Tenancy and Technology](../../../docs/architecture/tenancy-and-technology.md):
   Execution Plane ("Docker Desktop first to validate").
 
 ### Design updates
@@ -199,7 +199,7 @@ rewrites listed here are examples, not the whole job.
 ### Documentation (this feature)
 
 ```text
-specs/20261015-092159-docker-runtime-adapter/
+specs/archive/20261015-092159-docker-runtime-adapter/
 ├── plan.md
 ├── research.md
 ├── data-model.md

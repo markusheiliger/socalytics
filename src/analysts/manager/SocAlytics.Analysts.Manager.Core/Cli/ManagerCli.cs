@@ -334,6 +334,8 @@ public static class ManagerCli
             $"  {(string?)a?["logicalJobId"]} #{(int?)a?["attemptNumber"]} {(string?)a?["capability"]} {(string?)a?["executionState"]} " +
             $"started {(string?)a?["startedAt"]}, last heartbeat {(string?)a?["lastConfirmedHeartbeatAt"] ?? "-"}"));
 
+        lines.AddRange(Diagnostics.RuntimeStatusText.Lines(
+            n["preflight"] is { } pf ? pf.Deserialize<Runtime.PreflightResult>(LocalControlProtocol.Json) : null));
         lines.AddRange(QueueText(n["queueDepth"]));
         var host = n["hostUtilization"];
         lines.Add(Diagnostics.HostUtilizationText.Cpu(host?["cpuPercent"] is { } cpu ? (decimal)cpu : null));

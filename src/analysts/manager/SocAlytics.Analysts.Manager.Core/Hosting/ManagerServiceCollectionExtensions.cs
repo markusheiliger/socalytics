@@ -116,7 +116,33 @@ public static class ManagerServiceCollectionExtensions
         services.Configure<Runtime.Simulated.SimulatedAnalystOptions>(
             configuration.GetSection(Runtime.Simulated.SimulatedAnalystOptions.SectionName));
         services.AddSingleton(CreateRuntimeAdapterCatalog);
-        services.AddSingleton(_ => Runtime.RuntimeCompatibilityList.LoadEmbedded());
+        services.Configure<Runtime.Docker.DockerRuntimeOptions>(
+            configuration.GetSection(Runtime.Docker.DockerRuntimeOptions.SectionName));
+        services.AddSingleton(sp => new Runtime.Docker.RegistryCredentialProvider(
+            sp.GetRequiredService<PlatformClient>(), sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<Runtime.Docker.RegistryCredentialProvider>()));
+        services.AddSingleton(sp =>
+        {
+            var environment = sp.GetService<IHostEnvironment>();
+            var validation = environment is not null && (environment.IsDevelopment() || environment.IsEnvironment("Test"));
+            return Runtime.RuntimeCompatibilityList.Load(
+                sp.GetRequiredService<IOptions<RuntimeOptions>>().Value.CompatibilityListPath, validation);
+        });
+        services.AddSingleton(sp =>
+        {
+            var catalog = sp.GetRequiredService<Runtime.RuntimeAdapterCatalog>();
+            var coordinator = sp.GetRequiredService<Registration.RegistrationCoordinator>();
+            return new Runtime.Docker.DockerReconciliationService(
+                () => (catalog.Find(Runtime.Docker.DockerRuntimeAdapter.ProfileId) as Runtime.Docker.DockerRuntimeAdapter)?.Engine,
+                () => coordinator.Active?.ManagerId, sp.GetRequiredService<Work.AttemptRegistry>(), sp.GetRequiredService<TimeProvider>(),
+                sp.GetRequiredService<ILoggerFactory>().CreateLogger<Runtime.Docker.DockerReconciliationService>());
+        });
+        services.AddSingleton(sp => new Runtime.Docker.ImageCache(
+            () => (sp.GetRequiredService<Runtime.RuntimeAdapterCatalog>().Find(Runtime.Docker.DockerRuntimeAdapter.ProfileId)
+                as Runtime.Docker.DockerRuntimeAdapter)?.Engine,
+            ManagerStatePaths.Resolve(sp.GetRequiredService<IOptions<ManagerOptions>>().Value.StateDirectory),
+            sp.GetRequiredService<IOptions<Runtime.Docker.DockerRuntimeOptions>>().Value, sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<Runtime.Docker.ImageCache>()));
         services.AddSingleton(_ => new Runtime.AccountShell());
         services.AddSingleton<Runtime.PreflightRunner>();
         services.AddSingleton<Runtime.PreflightScheduler>();
@@ -136,26 +162,50 @@ public static class ManagerServiceCollectionExtensions
     private static Runtime.RuntimeAdapterCatalog CreateRuntimeAdapterCatalog(IServiceProvider sp)
     {
         var environment = sp.GetService<IHostEnvironment>();
-        var simulatedAllowed = environment is not null
+        var validation = environment is not null
             && (environment.IsDevelopment() || environment.IsEnvironment("Test"));
-        if (!simulatedAllowed)
+        var profile = sp.GetRequiredService<IOptions<RuntimeOptions>>().Value.Profile;
+        if (!validation
+            && string.Equals(profile, Runtime.Simulated.SimulatedRuntimeAdapter.TestProfile, StringComparison.Ordinal))
         {
-            var profile = sp.GetRequiredService<IOptions<RuntimeOptions>>().Value.Profile;
-            if (string.Equals(profile, Runtime.Simulated.SimulatedRuntimeAdapter.TestProfile, StringComparison.Ordinal))
-            {
-                throw new InvalidOperationException(
-                    "Runtime:Profile 'simulated' is only available in the Development and Test environments; select a validated runtime profile.");
-            }
-
-            return new Runtime.RuntimeAdapterCatalog([]);
+            throw new InvalidOperationException(
+                "Runtime:Profile 'simulated' is only available in the Development and Test environments; select a validated runtime profile.");
         }
 
-        return new Runtime.RuntimeAdapterCatalog(
-        [
-            new Runtime.Simulated.SimulatedRuntimeAdapter(
+        var adapters = new List<Runtime.IContainerRuntimeAdapter>();
+        if (validation)
+        {
+            adapters.Add(new Runtime.Simulated.SimulatedRuntimeAdapter(
                 sp.GetRequiredService<IOptions<Runtime.Simulated.SimulatedAnalystOptions>>(),
-                sp.GetRequiredService<TimeProvider>()),
-        ]);
+                sp.GetRequiredService<TimeProvider>()));
+        }
+
+        if (string.Equals(profile, Runtime.Docker.DockerRuntimeAdapter.ProfileId, StringComparison.Ordinal))
+        {
+            adapters.Add(CreateDockerAdapter(sp, environment));
+        }
+
+        return new Runtime.RuntimeAdapterCatalog(adapters);
+    }
+
+    private static Runtime.Docker.DockerRuntimeAdapter CreateDockerAdapter(IServiceProvider sp, IHostEnvironment? environment)
+    {
+        var options = sp.GetRequiredService<IOptions<Runtime.Docker.DockerRuntimeOptions>>().Value;
+        options.Validate();
+        var logger = sp.GetRequiredService<ILoggerFactory>().CreateLogger<Runtime.Docker.DockerRuntimeAdapter>();
+        var endpoint = Runtime.Docker.DockerEndpointPolicy.Evaluate(options.Endpoint, environment);
+        var engine = endpoint.Allowed ? Runtime.Docker.DockerEngineClient.Create(endpoint, logger) : null;
+        var sessions = sp.GetRequiredService<Work.WorkSessionProvider>();
+        var coordinator = sp.GetRequiredService<Registration.RegistrationCoordinator>();
+        return new Runtime.Docker.DockerRuntimeAdapter(
+            engine, endpoint, options, sp.GetRequiredService<Runtime.Docker.RegistryCredentialProvider>(),
+            sp.GetRequiredService<PlatformClient>(),
+            async ct =>
+            {
+                await sessions.RefreshAsync(ct);
+                return sessions.Current;
+            },
+            () => coordinator.Active?.ManagerId, logger, imageCache: sp.GetRequiredService<Runtime.Docker.ImageCache>());
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
