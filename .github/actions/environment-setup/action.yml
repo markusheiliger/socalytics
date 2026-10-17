@@ -124,3 +124,11 @@ runs:
       if: inputs.install-tools == 'true'
       shell: bash
       run: npx --yes playwright@1.63.0 install --with-deps chromium
+
+    # Installs the exact CPython, uv, and FFmpeg/ffprobe from analyst-media-toolchain.json, independent of any Python
+    # project. Each archive is verified against its committed SHA-256 digest; the verified directories reach later steps
+    # through GITHUB_PATH, and SOCALYTICS_PYTHON through GITHUB_ENV.
+    - name: Install the Analyst Python and media toolchain
+      if: inputs.install-tools == 'true'
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/install-analyst-media.sh"
