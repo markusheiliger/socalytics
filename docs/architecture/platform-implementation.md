@@ -12,8 +12,10 @@ and the API, the operational API surface, the layered project structure, and
 the persistence, club and identity, recording lineage and upload, durable
 analysis workflow, and Analyst Manager registration foundations described
 below, with host, architecture, contract, and integration tests. Analyst
-execution, external OpenID Connect sign-in, the Web UI's
-offline mode, deployment configuration, and production-readiness evidence do not exist yet. The
+execution, the Web UI's
+offline mode, deployment configuration, and production-readiness evidence do not exist yet.
+External OpenID Connect sign-in with Club Admin linking exists as development
+evidence against a test provider. The
 Web UI's installable PWA shell and service worker exist as development evidence.
 
 ## Source And Runtime Baseline
@@ -335,8 +337,9 @@ The current API implements local accounts, the server-validated BFF session,
 anti-forgery protection, membership, club and team roles, team-scoped
 authorization, security audit events, and the `Club > Season > Team > Match`
 hierarchy, as specified in
-`specs/archive/20261005-130701-club-identity-foundation`. It implements no external
-OpenID Connect sign-in. The Web UI's generated Kiota
+`specs/archive/20261005-130701-club-identity-foundation`. It also implements
+external OpenID Connect sign-in with linking, as development evidence against
+a test provider, as described below. The Web UI's generated Kiota
 TypeScript client exists and is used behind the adapters in
 `src/clients/web/src/platform/` (see [Client Technology](#client-technology)).
 Exposure and access policy for operational endpoints in a production ingress
@@ -361,7 +364,7 @@ authentication-context claims. A stamp may additionally configure one or
 more external OpenID Connect providers. The login UI displays external options
 only when configured.
 
-External sign-in (decided, not yet implemented): the API runs the
+External sign-in is implemented: the API runs the
 authorization code flow with PKCE, state, and nonce itself and keeps each
 pending sign-in in PostgreSQL, bound to the starting browser by a short-lived
 cookie and completable once, so the API still needs no shared key ring; it
@@ -696,7 +699,11 @@ choice or reveals a material operational tradeoff:
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views
   and the match workflow with recording upload and finalization. External
-  OpenID Connect sign-in, MFA enforcement, the production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
+  OpenID Connect sign-in with Club Admin linking, unlinking, and coexistence
+  with local accounts is evidenced by Integration and Playwright tests against
+  a test provider (`mock-oauth2-server`), with production provider values,
+  secret custody, and lifetimes (`GOV-CRED-006`) still unresolved. The
+  production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
   updates through its service worker as development evidence on Chromium), the other
   Web UI client workflows (analysis review and agent conversations),
   cross-runtime schema agreement, reproducible Analyst
@@ -722,7 +729,9 @@ duplicate delivery. Before treating the remaining choices as
 implementation-proven, evidence must demonstrate:
 
 - optional OIDC login shares the local-account BFF session, with external
-  identities linked only through Club Admin link credentials
+  identities linked only through Club Admin link credentials (evidenced by
+  Integration and Playwright tests against a test provider; production
+  providers and their values are not evidenced)
 - Kiota-generated TypeScript, C#, and Python clients compile and pass contract
   compatibility tests
 - the Web UI PWA meets the supported-browser evidence for offline mode

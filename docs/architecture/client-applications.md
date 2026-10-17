@@ -78,7 +78,9 @@ Local accounts are always available, and configured external OpenID Connect
 providers appear as additional login options. Both paths establish the same
 ASP.NET Core backend-for-frontend session. A member's provider identity is
 linked when the member redeems a Club Admin's link credential at the provider
-(decided, not yet implemented); SocAlytics offers no MFA for local accounts, so
+on the link-account page, which signs the member in at the provider and
+links that identity; unlinking is a Club Admin action on the member screen.
+SocAlytics offers no MFA for local accounts, so
 MFA comes from the external provider. Authentication tokens remain on the
 server; the browser receives a Secure, HttpOnly, SameSite cookie and uses CSRF
 protection for state-changing requests.

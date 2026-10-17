@@ -131,7 +131,7 @@ remains Provisional; inclusion here does not promote it to Accepted.
 | ID | Control | Status | Source or requirement |
 | --- | --- | --- | --- |
 | CTL-001 | Dedicated logical database, object storage, messaging, credentials, and configuration per stamp | Provisional | [Deployment and Technology](tenancy-and-technology.md) |
-| CTL-002 | BFF sessions use secure cookies, CSRF protection, and server-side authorization | Provisional | [Platform Implementation Profile](platform-implementation.md) |
+| CTL-002 | BFF sessions use secure cookies, CSRF protection, and server-side authorization; external OpenID Connect sign-in establishes the same session after ID-token validation, with database-held single-use pending sign-ins bound to the browser (development evidence against a test provider) | Provisional | [Platform Implementation Profile](platform-implementation.md) |
 | CTL-003 | Manager identity uses protected device keys, approval, proof-bound short-lived tokens, and server-side revocation | Provisional | [Analyst Manager](analyst-manager.md) |
 | CTL-004 | Analyst execution is non-root and constrained by mounts, devices, capabilities, network, resources, and credentials | Provisional | [Analyst Runtime and Recovery](analyst-runtime-and-recovery.md) |
 | CTL-005 | Attempts use leases, fencing, idempotent completion, and rejection of stale callbacks | Provisional | [Analyst Runtime and Recovery](analyst-runtime-and-recovery.md) |
@@ -680,7 +680,7 @@ must be rejected rather than recorded as a candidate approval.
 | `GOV-CRED-003` | Manager/workload tokens | Proof binding, bounded lifetime, renewal, immediate revocation, recovery |
 | `GOV-CRED-004` | NATS credentials | Stamp/subject scope, bounded lifetime, rotation, revocation, recovery |
 | `GOV-CRED-005` | Object grants | Object/action scope, bounded lifetime, one-time or replay rules, revocation |
-| `GOV-CRED-006` | External identity credentials | Trust scope, lifetime, renewal, rotation, revocation, provider failure |
+| `GOV-CRED-006` | External identity credentials | Trust scope, lifetime, renewal, rotation, revocation, provider failure; development evidence: explicit per-provider trust configuration, link credentials, unlinking that ends sessions, no provider token kept, and provider discovery failure refused against a test provider; production values, client secret custody, and rotation remain unresolved |
 | `GOV-CRED-007` | Signing keys | Issuance, custody, rotation, revocation, destruction, verification continuity |
 | `GOV-CRED-008` | Encryption keys | Generation, custody, rotation, recovery, revocation, destruction |
 | `GOV-CRED-009` | Recovery credentials | Exceptional issuance, dual control, bounded lifetime, rotation, use and destruction |
