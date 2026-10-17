@@ -21,7 +21,14 @@ public sealed record PreflightResult(
 
     /// <summary>The last reconciliation of this Manager's leftover runtime resources; null when none ran.</summary>
     public ReconciliationState? Reconciliation { get; init; }
+
+    /// <summary>The image cache use after the last prune; null when no cache applies.</summary>
+    public ImageCacheState? ImageCache { get; init; }
 }
+
+/// <summary>The recorded image cache against its budget, what the last prune removed, and images it could not remove (retried by the next pass).</summary>
+public sealed record ImageCacheState(
+    DateTimeOffset RanAt, int Images, long UsedBytes, long BudgetBytes, int Removed, IReadOnlyList<string> Leftovers);
 
 /// <summary>What the last reconciliation removed and which leftovers it could not remove (retried by the next run).</summary>
 public sealed record ReconciliationState(

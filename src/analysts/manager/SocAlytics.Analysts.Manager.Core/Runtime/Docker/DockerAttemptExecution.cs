@@ -30,12 +30,16 @@ public sealed class DockerAttemptExecution : IAttemptExecution
     private readonly ILogger _logger;
     private readonly CancellationTokenSource _stopped = new();
     private readonly TaskCompletionSource<AttemptOutcome> _outcome = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly ImageCache? _imageCache;
     private volatile string? _containerId;
+    private int _imageHeld;
 
     public DockerAttemptExecution(
         DockerEngineClient engine, RegistryCredentialProvider credentials, AttemptLaunch launch, string imageReference,
-        string managerId, string user, ILogger? logger = null)
+        string managerId, string user, ILogger? logger = null,
+        ImageCache? imageCache = null)
     {
+        _imageCache = imageCache;
         _engine = engine;
         _credentials = credentials;
         _launch = launch;
@@ -78,6 +82,12 @@ public sealed class DockerAttemptExecution : IAttemptExecution
         if (_containerId is { } id)
         {
             await GuardedAsync(() => _engine.RemoveContainerAsync(id, true, cancellationToken), "removal");
+        }
+
+        if (_imageCache is not null && Interlocked.Exchange(ref _imageHeld, 0) == 1)
+        {
+            _imageCache.Release(_imageReference);
+            await GuardedAsync(() => _imageCache.PruneAsync(cancellationToken), "image cache pruning");
         }
     }
 
@@ -126,7 +136,16 @@ public sealed class DockerAttemptExecution : IAttemptExecution
 
         try
         {
-            await _engine.PullImageAsync(_imageReference, credential.AuthToken, ct);
+            if (_imageCache is null)
+            {
+                await _engine.PullImageAsync(_imageReference, credential.AuthToken, ct);
+            }
+            else
+            {
+                _imageCache.Acquire(_imageReference);
+                Interlocked.Exchange(ref _imageHeld, 1);
+                await _imageCache.EnsurePulledAsync(_engine, _imageReference, credential.AuthToken, ct);
+            }
         }
         catch (DockerEngineException e) when (e.Kind is not DockerErrorKind.Unreachable and not DockerErrorKind.EndpointRefused
             and not DockerErrorKind.UnsupportedVersion)

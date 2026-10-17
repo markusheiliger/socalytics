@@ -28,14 +28,17 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
     private readonly Func<string?> _managerId;
     private readonly ILogger _logger;
     private readonly Func<bool> _runsAsRoot;
+    private readonly ImageCache? _imageCache;
     private volatile IReadOnlyList<Platform.QueueCapability> _offered = [];
     private volatile IReadOnlyList<NotOfferedCapability> _notOffered = [];
 
     public DockerRuntimeAdapter(
         DockerEngineClient? engine, DockerEndpointDecision endpoint, DockerRuntimeOptions options,
         RegistryCredentialProvider credentials, PlatformClient platform,
-        Func<CancellationToken, Task<PlatformSession?>> session, Func<string?> managerId, ILogger? logger = null, Func<bool>? runsAsRoot = null)
+        Func<CancellationToken, Task<PlatformSession?>> session, Func<string?> managerId, ILogger? logger = null, Func<bool>? runsAsRoot = null,
+        ImageCache? imageCache = null)
     {
+        _imageCache = imageCache;
         _runsAsRoot = runsAsRoot ?? (() => !OperatingSystem.IsWindows() && Environment.IsPrivilegedProcess);
         _engine = engine;
         _endpoint = endpoint;
@@ -157,7 +160,7 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
         var credential = _credentials.Current;
         var reference = ImageReference(credential, launch);
         IAttemptExecution execution = new DockerAttemptExecution(
-            _engine, _credentials, launch, reference, _managerId() ?? string.Empty, DockerLaunchSpec.DefaultUser(), _logger);
+            _engine, _credentials, launch, reference, _managerId() ?? string.Empty, DockerLaunchSpec.DefaultUser(), _logger, _imageCache);
         return Task.FromResult(execution);
     }
 

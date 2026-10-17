@@ -36,8 +36,19 @@ public static class RuntimeStatusText
             lines.AddRange(r.Leftovers.Select(l => $"Could not remove: {l} (retried at the next reconciliation)"));
         }
 
+        if (p.ImageCache is { } cache)
+        {
+            lines.Add($"Image cache: {cache.Images} images, {FormatBytes(cache.UsedBytes)} of {FormatBytes(cache.BudgetBytes)} budget, last pruned {cache.RanAt:u}, removed {cache.Removed} images");
+            lines.AddRange(cache.Leftovers.Select(l => $"Could not remove: {l} (retried at the next image cache pass)"));
+        }
+
         return lines;
     }
+
+    private static string FormatBytes(long bytes) =>
+        bytes >= 1L << 30 ? $"{bytes / (double)(1L << 30):0.#} GiB"
+        : bytes >= 1L << 20 ? $"{bytes / (double)(1L << 20):0.#} MiB"
+        : $"{bytes} bytes";
 
     private static string Health(PreflightResult p, params string[] ids)
     {

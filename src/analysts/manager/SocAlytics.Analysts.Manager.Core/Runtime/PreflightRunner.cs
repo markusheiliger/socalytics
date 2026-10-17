@@ -12,6 +12,7 @@ public sealed class PreflightRunner
     private readonly ApplicationProfile profile;
     private readonly AccountShell accountShell;
     private readonly Docker.DockerReconciliationService? reconciliation;
+    private readonly Docker.ImageCache? imageCache;
 
     public PreflightRunner(
         RuntimeAdapterCatalog catalog,
@@ -20,9 +21,11 @@ public sealed class PreflightRunner
         TimeProvider time,
         ApplicationProfile profile = ApplicationProfile.Tray,
         AccountShell? accountShell = null,
-        Docker.DockerReconciliationService? reconciliation = null)
+        Docker.DockerReconciliationService? reconciliation = null,
+        Docker.ImageCache? imageCache = null)
     {
         this.reconciliation = reconciliation;
+        this.imageCache = imageCache;
         this.profile = profile;
         this.accountShell = accountShell ?? new AccountShell();
         this.catalog = catalog;
@@ -39,7 +42,9 @@ public sealed class PreflightRunner
             return result;
         }
 
-        return result with { Reconciliation = await reconciliation.ReconcileAsync(cancellationToken) };
+        var reconciled = await reconciliation.ReconcileAsync(cancellationToken);
+        var cache = imageCache is null ? null : await imageCache.PruneAsync(cancellationToken);
+        return result with { Reconciliation = reconciled, ImageCache = cache };
     }
 
     private async Task<PreflightResult> RunChecksAsync(CancellationToken cancellationToken)

@@ -137,6 +137,12 @@ public static class ManagerServiceCollectionExtensions
                 () => coordinator.Active?.ManagerId, sp.GetRequiredService<Work.AttemptRegistry>(), sp.GetRequiredService<TimeProvider>(),
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<Runtime.Docker.DockerReconciliationService>());
         });
+        services.AddSingleton(sp => new Runtime.Docker.ImageCache(
+            () => (sp.GetRequiredService<Runtime.RuntimeAdapterCatalog>().Find(Runtime.Docker.DockerRuntimeAdapter.ProfileId)
+                as Runtime.Docker.DockerRuntimeAdapter)?.Engine,
+            ManagerStatePaths.Resolve(sp.GetRequiredService<IOptions<ManagerOptions>>().Value.StateDirectory),
+            sp.GetRequiredService<IOptions<Runtime.Docker.DockerRuntimeOptions>>().Value, sp.GetRequiredService<TimeProvider>(),
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger<Runtime.Docker.ImageCache>()));
         services.AddSingleton(_ => new Runtime.AccountShell());
         services.AddSingleton<Runtime.PreflightRunner>();
         services.AddSingleton<Runtime.PreflightScheduler>();
@@ -199,7 +205,7 @@ public static class ManagerServiceCollectionExtensions
                 await sessions.RefreshAsync(ct);
                 return sessions.Current;
             },
-            () => coordinator.Active?.ManagerId, logger);
+            () => coordinator.Active?.ManagerId, logger, imageCache: sp.GetRequiredService<Runtime.Docker.ImageCache>());
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
