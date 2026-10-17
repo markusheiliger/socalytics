@@ -27,14 +27,16 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
     private readonly Func<CancellationToken, Task<PlatformSession?>> _session;
     private readonly Func<string?> _managerId;
     private readonly ILogger _logger;
+    private readonly Func<bool> _runsAsRoot;
     private volatile IReadOnlyList<Platform.QueueCapability> _offered = [];
     private volatile IReadOnlyList<NotOfferedCapability> _notOffered = [];
 
     public DockerRuntimeAdapter(
         DockerEngineClient? engine, DockerEndpointDecision endpoint, DockerRuntimeOptions options,
         RegistryCredentialProvider credentials, PlatformClient platform,
-        Func<CancellationToken, Task<PlatformSession?>> session, Func<string?> managerId, ILogger? logger = null)
+        Func<CancellationToken, Task<PlatformSession?>> session, Func<string?> managerId, ILogger? logger = null, Func<bool>? runsAsRoot = null)
     {
+        _runsAsRoot = runsAsRoot ?? (() => !OperatingSystem.IsWindows() && Environment.IsPrivilegedProcess);
         _engine = engine;
         _endpoint = endpoint;
         _options = options;
@@ -58,10 +60,14 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
         _offered = [];
         _notOffered = [];
         var ok = new ProbeCheck(true);
+        var profileCheck = _runsAsRoot()
+            ? new ProbeCheck(false, "The Manager runs as root, which the docker-desktop profile does not allow.",
+                "Run the Manager under a non-root operating-system account.")
+            : ok;
         if (!_endpoint.Allowed || _engine is null)
         {
             var refused = new ProbeCheck(false, _endpoint.Reason, _endpoint.Remediation);
-            return Failed(ok, refused);
+            return Failed(ok, refused, profile: profileCheck);
         }
 
         DockerVersionInfo version;
@@ -73,27 +79,34 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
         }
         catch (DockerEngineException e) when (e.Kind == DockerErrorKind.UnsupportedVersion)
         {
-            return Failed(ok, ok, versionSupported: new ProbeCheck(false, e.Message));
+            return Failed(ok, ok, versionSupported: new ProbeCheck(false, e.Message,
+                $"Update Docker Desktop to a version whose Engine API is between {DockerEngineClient.MinimumApiVersion} and {DockerEngineClient.MaximumApiVersion}."));
         }
         catch (DockerEngineException e) when (e.Kind == DockerErrorKind.Unauthorized)
         {
-            return Failed(ok, ok, authorized: new ProbeCheck(false, e.Message));
+            return Failed(ok, ok, authorized: new ProbeCheck(false, e.Message,
+                "Grant this operating-system account access to the Docker Desktop endpoint."), profile: profileCheck);
         }
         catch (Exception e) when (e is DockerEngineException or HttpRequestException or IOException)
         {
-            return Failed(new ProbeCheck(false, e.GetType().Name), ok);
+            return Failed(
+                new ProbeCheck(false, $"The runtime endpoint {_options.Endpoint} did not answer ({e.GetType().Name}).",
+                    "Start Docker Desktop and wait until it reports that the engine is running."),
+                ok, profile: profileCheck);
         }
 
         var backend = info.OsType;
         var backendCheck = string.Equals(backend, "linux", StringComparison.OrdinalIgnoreCase)
             ? ok
-            : new ProbeCheck(false, $"The runtime runs {backend ?? "unknown"} containers.");
+            : new ProbeCheck(false, $"The runtime runs {backend ?? "unknown"} containers; Linux containers are required.",
+                "Switch Docker Desktop to Linux containers.");
 
         var cpus = _options.EffectiveCpus;
         var memory = _options.EffectiveMemoryBytes(info.MemTotal);
         var resources = cpus <= info.Ncpu && memory <= info.MemTotal && info.Ncpu > 0 && info.MemTotal > 0
             ? ok
-            : new ProbeCheck(false, $"Configured {cpus} CPUs and {memory} bytes of memory; the runtime has {info.Ncpu} CPUs and {info.MemTotal} bytes.");
+            : new ProbeCheck(false, $"Configured {cpus} CPUs and {memory} bytes of memory; the runtime has {info.Ncpu} CPUs and {info.MemTotal} bytes.",
+                $"Lower {DockerRuntimeOptions.SectionName}:Cpus to at most {info.Ncpu} and {DockerRuntimeOptions.SectionName}:MemoryBytes to at most {info.MemTotal}, or give Docker Desktop more resources.");
 
         var session = await _session(cancellationToken);
         try
@@ -110,7 +123,8 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
         ProbeCheck platformCheck = ok;
         if (credential is null)
         {
-            registry = new ProbeCheck(false, "No valid registry pull credential is available from the platform.");
+            registry = new ProbeCheck(false, "No valid registry pull credential is available from the platform.",
+                "Check that the stamp's registry is configured and reachable, and that this Manager is registered and active.");
         }
         else
         {
@@ -128,7 +142,7 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
 
         return new RuntimeProbe(
             NormalizeProduct(version.PlatformName), version.Version, backend, HostOs(), Environment.OSVersion.Version.ToString(), HostArchitecture(),
-            ok, ok, ok, ok, backendCheck, registry, platformCheck, resources, [], MaxParallel(cpus, memory));
+            ok, ok, ok, profileCheck, backendCheck, registry, platformCheck, resources, [], MaxParallel(cpus, memory));
     }
 
     public Task<IAttemptExecution> StartAttemptAsync(AttemptLaunch launch, CancellationToken cancellationToken)
@@ -172,7 +186,8 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
     {
         if (!DockerAttemptExecution.IsInsidePrefix(image, credential))
         {
-            return (new ProbeCheck(false, "The probe image lies outside the registry and repositories the platform issued a credential for."), new ProbeCheck(true));
+            return (new ProbeCheck(false, "The probe image lies outside the registry and repositories the platform issued a credential for.",
+                "Set Runtime:ProbeImage to an image inside the stamp's configured registry and repository prefix."), new ProbeCheck(true));
         }
 
         try
@@ -181,18 +196,21 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
             var inspected = await _engine.InspectImageAsync(image, cancellationToken);
             if (inspected is null)
             {
-                return (new ProbeCheck(true), new ProbeCheck(false, "The probe image is not present after the pull."));
+                return (new ProbeCheck(true), new ProbeCheck(false, "The probe image is not present after the pull.",
+                    "Check that the probe image exists in the registry and for this host's platform."));
             }
 
             var matches = string.Equals(inspected.Os, info.OsType, StringComparison.OrdinalIgnoreCase)
                 && string.Equals(inspected.Architecture, version.Arch, StringComparison.OrdinalIgnoreCase);
             return (new ProbeCheck(true), matches
                 ? new ProbeCheck(true)
-                : new ProbeCheck(false, $"The probe image is {inspected.Os}/{inspected.Architecture}; the runtime is {info.OsType}/{version.Arch}."));
+                : new ProbeCheck(false, $"The probe image is {inspected.Os}/{inspected.Architecture}; the runtime is {info.OsType}/{version.Arch}.",
+                    "Publish the probe image for the runtime's platform, or set Runtime:ProbeImage to one that matches."));
         }
         catch (DockerEngineException e) when (e.Kind is DockerErrorKind.Unauthorized or DockerErrorKind.NotFound or DockerErrorKind.Failed)
         {
-            return (new ProbeCheck(false, $"The probe image could not be pulled: {e.Kind}."), new ProbeCheck(true));
+            return (new ProbeCheck(false, $"The probe image could not be pulled: {e.Kind}.",
+                "Check the registry: that it is reachable, the image exists, and the platform-issued pull credential is accepted."), new ProbeCheck(true));
         }
     }
 
@@ -262,13 +280,13 @@ public sealed class DockerRuntimeAdapter : IContainerRuntimeAdapter
         return Math.Max(1, fits.Max());
     }
 
-    private static RuntimeProbe Failed(ProbeCheck reachable, ProbeCheck local, ProbeCheck? authorized = null, ProbeCheck? versionSupported = null)
+    private static RuntimeProbe Failed(ProbeCheck reachable, ProbeCheck local, ProbeCheck? authorized = null, ProbeCheck? versionSupported = null, ProbeCheck? profile = null)
     {
         var ok = new ProbeCheck(true);
         var skipped = new ProbeCheck(false, "Not checked because the runtime could not be queried.");
         return new RuntimeProbe(
             null, null, null, HostOs(), Environment.OSVersion.Version.ToString(), HostArchitecture(),
-            reachable, local, authorized ?? ok, versionSupported ?? ok, skipped, skipped, skipped, skipped, [], 0);
+            reachable, local, authorized ?? ok, versionSupported ?? profile ?? ok, skipped, skipped, skipped, skipped, [], 0);
     }
 
     private static string NormalizeProduct(string? platformName)

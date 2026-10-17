@@ -71,7 +71,7 @@ public sealed class PreflightRunner
                 ? new PreflightCheck("runtime-version-supported", true, $"{probe.RuntimeProduct} {probe.RuntimeVersion}", null)
                 : new PreflightCheck("runtime-version-supported", false,
                     $"{probe.RuntimeProduct} {probe.RuntimeVersion} on {probe.Backend}/{probe.Os}/{probe.Architecture} is not in the compatibility list.",
-                    "Install a runtime version that this Manager version lists as compatible."),
+                    SupportedRuntimes(adapter.Profile)),
             From("profile-version-supported", probe.ProfileVersionSupported, "Use a runtime version supported by the selected profile."),
             From("backend-available", probe.BackendAvailable, "Enable the container backend the runtime requires."),
             From("registry-authentication", probe.RegistryAuthentication, "Sign in to the container registry."),
@@ -99,6 +99,17 @@ public sealed class PreflightRunner
             Offered = passed ? [.. adapter.Capabilities.Select(c => new PreflightCapability(c.Id, c.Version))] : [],
             NotOffered = passed ? [.. adapter.NotOffered.Select(n => new PreflightCapability(n.Id, n.Version, n.Reason))] : [],
         };
+    }
+
+    private string SupportedRuntimes(string profile)
+    {
+        var ranges = compatibility.Entries
+            .Where(e => e.Profile == profile)
+            .Select(e => $"{e.RuntimeProduct} {e.RuntimeVersionRange} ({e.Backend} containers on {e.Os}/{e.Architecture})")
+            .ToArray();
+        return ranges.Length == 0
+            ? "Install a runtime version that this Manager version lists as compatible; it lists none for this profile."
+            : $"Update the runtime to a supported version: {string.Join("; ", ranges)}.";
     }
 
     private PreflightCheck AccountIsolation(RuntimeProbe probe) =>
