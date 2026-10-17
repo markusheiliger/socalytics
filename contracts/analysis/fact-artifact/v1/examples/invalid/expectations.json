@@ -1,0 +1,8 @@
+{
+  "missing-capability.json": "required",
+  "confidence-above-one.json": "maximum",
+  "negative-start.json": "minimum",
+  "payload-not-object.json": "type",
+  "unknown-fact-property.json": "additionalProperties",
+  "unknown-output-type.json": "enum"
+}
