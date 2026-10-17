@@ -939,6 +939,70 @@
         ],
         "type": "object"
       },
+      "ExternalAuthorizationDto": {
+        "properties": {
+          "authorizationUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorizationUrl"
+        ],
+        "type": "object"
+      },
+      "ExternalIdentityDto": {
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "linkedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "providerConfigured": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "provider",
+          "displayName",
+          "linkedAt",
+          "providerConfigured"
+        ],
+        "type": "object"
+      },
+      "IdentityProviderDto": {
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "displayName"
+        ],
+        "type": "object"
+      },
+      "IdentityProvidersDto": {
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityProviderDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers"
+        ],
+        "type": "object"
+      },
       "IssuedCredentialDto": {
         "properties": {
           "credential": {
@@ -1103,6 +1167,15 @@
               {
                 "$ref": "#/components/schemas/MemberEmailDto"
               }
+            ]
+          },
+          "externalIdentities": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalIdentityDto"
+            },
+            "type": [
+              "null",
+              "array"
             ]
           },
           "id": {
@@ -3853,6 +3926,26 @@
         ]
       }
     },
+    "/api/v1/identity-providers": {
+      "get": {
+        "operationId": "listIdentityProviders",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityProvidersDto"
+                }
+              }
+            },
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "Session"
+        ]
+      }
+    },
     "/api/v1/matches/{matchId}": {
       "get": {
         "operationId": "getMatch",
@@ -6292,6 +6385,94 @@
         ]
       }
     },
+    "/api/v1/members/{memberId}/external-identities/{provider}": {
+      "delete": {
+        "operationId": "unlinkExternalIdentity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memberId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Required"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Members"
+        ]
+      }
+    },
     "/api/v1/members/{memberId}/reactivate": {
       "post": {
         "operationId": "reactivateMember",
@@ -7932,6 +8113,75 @@
           }
         },
         "security": [],
+        "tags": [
+          "Session"
+        ]
+      }
+    },
+    "/api/v1/session/external": {
+      "post": {
+        "operationId": "startExternalSignIn",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalAuthorizationDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Session"
+        ]
+      }
+    },
+    "/api/v1/session/external/callback": {
+      "get": {
+        "operationId": "completeExternalSignIn",
+        "responses": {
+          "302": {
+            "description": "Found"
+          }
+        },
         "tags": [
           "Session"
         ]

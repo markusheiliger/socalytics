@@ -10,11 +10,18 @@ public sealed class IssueCredentialHandler(
     IAccountCredentialService credentials,
     IMemberAccountStore members,
     IRequestContext requestContext,
-    IAuditTrail audit)
+    IAuditTrail audit,
+    Microsoft.Extensions.Options.IOptions<IdentityAccessOptions> options)
 {
     public async Task<OperationResult<IssuedCredential>> HandleAsync(IssueCredentialCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
+
+        if (command.Purpose == CredentialPurpose.IdentityLink
+            && (command.ProviderId is null || !options.Value.ExternalProviders.ContainsKey(command.ProviderId)))
+        {
+            return OperationFailure.Validation(new FieldViolation("provider", "invalid-value"));
+        }
 
         await using var scope = await unitOfWork.BeginAsync(cancellationToken);
         var resource = new AuditResource("member", command.MemberId.ToString());
@@ -36,13 +43,18 @@ public sealed class IssueCredentialHandler(
         }
 
         var member = await members.GetMemberAsync(command.MemberId, cancellationToken);
-        var applicable = command.Purpose == CredentialPurpose.SetPassword ? !member!.PasswordSet : member!.PasswordSet;
+        var applicable = command.Purpose switch
+        {
+            CredentialPurpose.SetPassword => !member!.PasswordSet,
+            CredentialPurpose.PasswordReset => member!.PasswordSet,
+            _ => true,
+        };
         if (!applicable)
         {
             return OperationFailure.Conflict("credential-not-applicable");
         }
 
-        var issued = await credentials.IssueCredentialAsync(command.MemberId, command.Purpose, callerId, cancellationToken);
+        var issued = await credentials.IssueCredentialAsync(command.MemberId, command.Purpose, callerId, cancellationToken, command.ProviderId);
         await audit.RecordAsync(
             new AuditEvent
             {
@@ -50,14 +62,25 @@ public sealed class IssueCredentialHandler(
                 Action = "issue-credential",
                 Outcome = AuditOutcome.Succeeded,
                 Resource = new AuditResource("credential", issued.CredentialId.ToString()),
-                Details = new Dictionary<string, string>
-                {
-                    ["purpose"] = command.Purpose.ToWireValue(),
-                    ["targetAccountId"] = command.MemberId.ToString(),
-                },
+                Details = Details(command),
             },
             cancellationToken);
         await scope.CommitAsync(cancellationToken);
         return issued;
+    }
+
+    private static Dictionary<string, string> Details(IssueCredentialCommand command)
+    {
+        var details = new Dictionary<string, string>
+        {
+            ["purpose"] = command.Purpose.ToWireValue(),
+            ["targetAccountId"] = command.MemberId.ToString(),
+        };
+        if (command.Purpose == CredentialPurpose.IdentityLink)
+        {
+            details["provider"] = command.ProviderId!;
+        }
+
+        return details;
     }
 }

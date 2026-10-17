@@ -32,6 +32,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<IMemberAccountStore, MemberAccountStore>();
         services.TryAddScoped<IAccountCredentialService, AccountCredentialService>();
         services.TryAddScoped<ISessionStore, SessionStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn.IExternalIdentityStore, SocAlytics.Platform.Infrastructure.IdentityAccess.ExternalIdentity.DapperExternalIdentityStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn.IPendingExternalSignInStore, SocAlytics.Platform.Infrastructure.IdentityAccess.ExternalIdentity.DapperPendingExternalSignInStore>();
         services.TryAddScoped<IClubHierarchyStore, ClubHierarchyStore>();
         services.TryAddScoped<IRecordingRetryOutcomeStore, RecordingRetryOutcomeStore>();
         services.TryAddScoped<IRecordingStore, RecordingStore>();
@@ -65,6 +67,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IOciImageReader, SocAlytics.Platform.Infrastructure.Registry.Oci.OciImageReader>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Images.IAnalystManifestValidator, SocAlytics.Platform.Infrastructure.Registry.AnalystManifestValidator>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.StatusReporting.IManagerStatusStore, SocAlytics.Platform.Infrastructure.Persistence.Registry.ManagerStatusStore>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn.IOidcProviderClient>(sp => new SocAlytics.Platform.Infrastructure.IdentityAccess.ExternalIdentity.OidcProviderClient(
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<IdentityAccessOptions>>(),
+            new HttpClient(new SocketsHttpHandler { AllowAutoRedirect = false, PooledConnectionLifetime = TimeSpan.FromMinutes(5) }) { Timeout = TimeSpan.FromSeconds(30) },
+            sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SocAlytics.Platform.Infrastructure.IdentityAccess.ExternalIdentity.OidcProviderClient>>()));
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
         services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.Analysis.AnalysisRunScopeSource>();

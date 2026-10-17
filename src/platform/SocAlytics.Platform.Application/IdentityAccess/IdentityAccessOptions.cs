@@ -14,6 +14,10 @@ public sealed class IdentityAccessOptions : IValidatableObject
 
 	public OneTimeCredentialOptions OneTimeCredential { get; set; } = new();
 
+	public Dictionary<string, ExternalProviderOptions> ExternalProviders { get; set; } = new(StringComparer.Ordinal);
+
+	public ExternalSignInOptions ExternalSignIn { get; set; } = new();
+
 	public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
 	{
 		var results = new List<ValidationResult>();
@@ -66,5 +70,31 @@ public sealed class IdentityAccessOptions : IValidatableObject
 	{
 		[Range(typeof(TimeSpan), "00:00:01", "3650.00:00:00")]
 		public TimeSpan Lifetime { get; set; }
+	}
+
+	public sealed class ExternalProviderOptions
+	{
+		public const string BasicAuthMethod = "client_secret_basic";
+		public const string PostAuthMethod = "client_secret_post";
+
+		public string DisplayName { get; set; } = string.Empty;
+
+		public string Authority { get; set; } = string.Empty;
+
+		public string ClientId { get; set; } = string.Empty;
+
+		public string ClientSecret { get; set; } = string.Empty;
+
+		/// <summary>Space-separated scopes; <c>openid</c> is always requested.</summary>
+		public string Scopes { get; set; } = "openid";
+
+		public string TokenEndpointAuthMethod { get; set; } = BasicAuthMethod;
+	}
+
+	public sealed class ExternalSignInOptions
+	{
+		public TimeSpan PendingLifetime { get; set; } = TimeSpan.FromMinutes(5);
+
+		public string WebUiBaseUrl { get; set; } = string.Empty;
 	}
 }

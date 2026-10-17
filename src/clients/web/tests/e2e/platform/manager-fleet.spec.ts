@@ -72,7 +72,7 @@ test('a Registrar pairs a scripted Manager through the verification address and 
   await expect(page).toHaveURL(/\/sign-in\?/);
   await page.getByLabel('Sign-in name').fill(registrarName);
   await page.getByLabel('Password').fill(REGISTRAR_PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 
   await expect(page).toHaveURL(/\/analyst-managers\/pair$/);
   await expect(page.getByRole('heading', { level: 2, name: 'Pair a Manager' })).toBeVisible();
@@ -96,7 +96,7 @@ test('a Club Admin approves the pending request with the fingerprint tail and th
   await page.goto('/');
   await page.getByLabel('Sign-in name').fill(ADMIN_ACCOUNT);
   await page.getByLabel('Password').fill(ADMIN_CHANGED_PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
 
   const navEntry = page.getByRole('navigation').getByRole('link', { name: /^Analyst Managers \(\d+ pending\)$/ });
@@ -141,7 +141,7 @@ test('a Club Admin sees the reporting Manager online in the fleet, revokes it, a
   await page.goto('/');
   await page.getByLabel('Sign-in name').fill(ADMIN_ACCOUNT);
   await page.getByLabel('Password').fill(ADMIN_CHANGED_PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
   await page.getByRole('navigation').getByRole('link', { name: /^Analyst Managers/ }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Analyst Managers' })).toBeVisible();

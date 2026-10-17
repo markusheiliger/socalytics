@@ -35,10 +35,10 @@ public sealed class KolmogorovSmirnovTests
 [Collection(TimingCollection.Name)]
 public sealed class SignInTimingTests(PostgresContainerFixture postgres, ITestOutputHelper output)
 {
-	private const double Alpha = 0.001 / 4;
+	private const double Alpha = 0.001 / 5;
 	private const int Warmup = 20;
 	private const int Samples = 200;
-	private static readonly string[] Classes = ["wrong-password", "unknown", "no-password", "locked", "inactive"];
+	private static readonly string[] Classes = ["wrong-password", "unknown", "no-password", "locked", "inactive", "external-only"];
 
 	[Fact]
 	// Quickstart A55
@@ -51,6 +51,8 @@ public sealed class SignInTimingTests(PostgresContainerFixture postgres, ITestOu
 		await TestMembers.SeedAsync(db, "no-pw", password: null, cancellationToken: ct);
 		await TestMembers.SeedAsync(db, "locked-one", lockedOut: true, cancellationToken: ct);
 		await TestMembers.SeedAsync(db, "inactive-one", membershipStatus: "deactivated", cancellationToken: ct);
+		var externalOnly = await TestMembers.SeedAsync(db, "external-only", password: null, cancellationToken: ct);
+		await CoexistenceSupport.LinkAsync(db, externalOnly, "https://provider.example", "subject", ct);
 		await using var factory = new PlatformApiFactory(db);
 		using var client = factory.CreateApiClient();
 
@@ -61,6 +63,7 @@ public sealed class SignInTimingTests(PostgresContainerFixture postgres, ITestOu
 			["no-password"] = "no-pw",
 			["locked"] = "locked-one",
 			["inactive"] = "inactive-one",
+			["external-only"] = "external-only",
 		};
 
 		var first = await CollectAsync(client, db, names, Samples, ct);

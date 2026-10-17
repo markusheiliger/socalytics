@@ -17,7 +17,7 @@ async function signIn(page: import('@playwright/test').Page, password: string) {
   await expect(page).toHaveURL(/\/sign-in$/);
   await page.getByLabel('Sign-in name').fill(ACCOUNT_NAME);
   await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
 }
 
 test('signs in as the first Club Admin, changes the initial password, signs out, and signs in again', async ({

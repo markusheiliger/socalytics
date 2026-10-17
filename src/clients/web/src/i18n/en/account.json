@@ -18,6 +18,21 @@
     "done": "Your password is set. You can sign in now.",
     "toSignIn": "Go to sign-in"
   },
+  "linkAccount": {
+    "title": "Link your account",
+    "intro": "Enter your sign-in name and the link code a Club Admin gave you, then continue to the provider to confirm your identity.",
+    "signOutFirst": "Another member is signed in. Sign out before you link an account, so the code is applied to the right member.",
+    "noProviders": "No sign-in provider is configured, so an account cannot be linked.",
+    "accountName": "Sign-in name",
+    "code": "Link code",
+    "provider": "Provider",
+    "submit": "Continue to provider",
+    "submitting": "Continuing…",
+    "failed": "The account was not linked. Check the sign-in name and code, or contact a Club Admin for a new code.",
+    "unavailable": "The sign-in provider is currently unavailable. Try again later.",
+    "unreachable": "The platform is not reachable. Try again in a moment.",
+    "error": "Something went wrong while linking the account. Try again later."
+  },
   "account": {
     "title": "Account",
     "signedInAs": "Signed in as {{name}}",

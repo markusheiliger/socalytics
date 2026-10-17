@@ -30,6 +30,8 @@ export function makeSession(
 
 export function fakeAdapter(overrides: Partial<SessionAdapter> = {}): SessionAdapter {
   return {
+    listProviders: vi.fn().mockResolvedValue([]),
+    startExternalSignIn: vi.fn(),
     signIn: vi.fn(),
     restore: vi.fn(),
     signOut: vi.fn().mockResolvedValue(undefined),

@@ -26,6 +26,7 @@ internal static class PersistedTableClassifications
             ["team_role_assignment"] = TableClassification.ChildOf("member_account", "member_account_id"),
             ["member_session"] = TableClassification.Unversioned("operational session state; must not advance the account version"),
             ["one_time_credential"] = TableClassification.Unversioned("single-use credential state; consumption is the guard"),
+            ["pending_external_sign_in"] = TableClassification.Unversioned("short-lived pending sign-in state consumed once and purged; must not advance the account version"),
             ["analyst_manager_access_token"] = TableClassification.Unversioned("operational token rows deleted on revocation; must not advance the registration version"),
             ["analyst_manager_proof_replay"] = TableClassification.Unversioned("proof replay cache purged after expiry"),
             ["analyst_manager_queue_credential"] = TableClassification.Unversioned("issued queue credential rows; revocation and push marks are guarded by the registration unit of work"),

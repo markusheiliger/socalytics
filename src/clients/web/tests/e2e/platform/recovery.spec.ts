@@ -31,7 +31,7 @@ test('resumes a 40 MiB upload after a reload and forgets it after sign-out (SC-0
   async function signIn() {
     await page.getByLabel('Sign-in name').fill(ADMIN_ACCOUNT);
     await page.getByLabel('Password').fill(ADMIN_CHANGED_PASSWORD);
-    await page.getByRole('button', { name: 'Sign in' }).click();
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
   }
 

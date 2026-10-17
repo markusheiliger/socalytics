@@ -23,16 +23,18 @@ export const MEMBERS_KEY = ['members'];
 export function MembersPage() {
   const { t } = useTranslation('members');
   const { t: tc } = useTranslation('common');
-  const { platform } = useSession();
+  const { platform, listProviders } = useSession();
   const { isUnreachable } = useConnectivity();
   const queryClient = useQueryClient();
   const adapter = useMemo(() => createMemberAdapter(platform), [platform]);
   const [accountName, setAccountName] = useState('');
   const [created, setCreated] = useState<{ name: string; credential: CredentialCode }>();
   const [notice, setNotice] = useState(false);
+  const [linkProvider, setLinkProvider] = useState('');
+  const providers = useQuery({ queryKey: ['identity-providers'], queryFn: () => listProviders(), retry: false });
   const query = useQuery({ queryKey: MEMBERS_KEY, queryFn: () => adapter.list(), retry: false });
   const create = useMutation({
-    mutationFn: () => adapter.create({ accountName }),
+    mutationFn: () => adapter.create({ accountName, linkProvider: linkProvider || undefined }),
     onSuccess: (result) => {
       setCreated({ name: result.member.accountName, credential: result.credential });
       setNotice(true);
@@ -89,6 +91,23 @@ export function MembersPage() {
           autoComplete="off"
           required
         />
+        {providers.data && providers.data.length > 0 && (
+          <TextField
+            select
+            label={t('members.credentialChoice')}
+            name="credentialChoice"
+            value={linkProvider}
+            onChange={(e) => setLinkProvider(e.target.value)}
+            slotProps={{ select: { native: true } }}
+          >
+            <option value="">{t('members.choiceSetPassword')}</option>
+            {providers.data.map((p) => (
+              <option key={p.id} value={p.id}>
+                {t('members.choiceLink', { name: p.displayName })}
+              </option>
+            ))}
+          </TextField>
+        )}
         <Button type="submit" variant="contained" disabled={create.isPending || isUnreachable}>
           {create.isPending ? t('members.creating') : t('members.create')}
         </Button>
