@@ -304,6 +304,8 @@ signing, macOS notarization, SmartScreen, and Gatekeeper. Implementation must
 also validate
 registration bootstrap, protected credential storage, rotation, and revocation; and measure concurrency control, queue-depth
 reporting, heartbeat ingestion cost, and suitable interval and timeout values.
+Queue depth is observable per Manager through the stamp's queue-depth operation
+and the Manager's status view; the measurement itself remains open evidence.
 
 Failure tests must cover pause with active jobs, local unregister after drain,
 administrator revocation, process and host failure, network partition, forced

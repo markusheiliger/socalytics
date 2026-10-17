@@ -3559,6 +3559,31 @@
         ]
       }
     },
+    "/api/v1/analyst-managers/self/queue-depth": {
+      "get": {
+        "operationId": "getAnalystManagerQueueDepth",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "capability",
+            "schema": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "tags": [
+          "Analyst Manager self"
+        ]
+      }
+    },
     "/api/v1/analyst-managers/self/registration": {
       "get": {
         "operationId": "getOwnAnalystManagerRegistration",

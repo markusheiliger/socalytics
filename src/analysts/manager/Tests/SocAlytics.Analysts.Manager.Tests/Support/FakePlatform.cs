@@ -12,6 +12,7 @@ internal sealed record RecordedRequest(HttpMethod Method, Uri Uri, string Body);
 internal enum WorkOperation
 {
     QueueCredentials,
+    QueueDepth,
     Claim,
     Heartbeat,
     Completion,
@@ -168,9 +169,11 @@ internal sealed class FakePlatform(TimeProvider time) : HttpMessageHandler
 
         var workPath = request.RequestUri!.AbsolutePath;
         if (workPath.EndsWith("/self/queue-credentials", StringComparison.Ordinal)
+            || workPath.EndsWith("/self/queue-depth", StringComparison.Ordinal)
             || workPath.StartsWith("/api/v1/analysis/", StringComparison.Ordinal))
         {
             var operation = workPath.EndsWith("/self/queue-credentials", StringComparison.Ordinal) ? WorkOperation.QueueCredentials
+                : workPath.EndsWith("/self/queue-depth", StringComparison.Ordinal) ? WorkOperation.QueueDepth
                 : workPath.EndsWith("/claims", StringComparison.Ordinal) ? WorkOperation.Claim
                 : workPath.EndsWith("/heartbeats", StringComparison.Ordinal) ? WorkOperation.Heartbeat
                 : workPath.EndsWith("/result-grants", StringComparison.Ordinal) ? WorkOperation.ResultGrants

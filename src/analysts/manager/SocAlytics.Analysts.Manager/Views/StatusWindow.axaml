@@ -31,6 +31,10 @@
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>
+    <TextBlock Text="Waiting work (approximate)" FontWeight="Bold" />
+    <TextBlock Name="WaitingWorkText" Text="{Binding WaitingWork}" TextWrapping="Wrap" />
+    <TextBlock Text="Host" FontWeight="Bold" />
+    <TextBlock Name="HostText" Text="{Binding HostUtilization}" TextWrapping="Wrap" />
     <TextBlock Text="Pause remaining" FontWeight="Bold" />
     <TextBlock Name="PauseText" Text="{Binding PauseRemaining}" />
     <TextBlock Text="Drain deadline" FontWeight="Bold" />

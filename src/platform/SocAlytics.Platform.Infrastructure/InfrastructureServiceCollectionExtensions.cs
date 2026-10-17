@@ -101,6 +101,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddSingleton<NatsTrust>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.QueueCredentials.IQueueCredentialIssuer, NatsQueueCredentialIssuer>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.QueueCredentials.IQueueAccessRevoker, NatsQueueAccessRevoker>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.QueueDepth.IQueueDepthReader, NatsQueueDepthReader>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.QueueRevocationWorker>();
         services.TryAddSingleton<NatsConnectionProvider>();
         services.TryAddSingleton<TransportReconnectSignal>();

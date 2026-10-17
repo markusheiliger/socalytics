@@ -2,7 +2,7 @@
 
 **Branch**: `20261015-192843-manager-queue-utilization` | **Date**: 2026-10-15 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261015-192843-manager-queue-utilization/spec.md`
+**Input**: Feature specification from `specs/archive/20261015-192843-manager-queue-utilization/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -67,14 +67,14 @@ Re-check after Phase 1 design: still passes; no Complexity Tracking entries.
 
 ### Narratives
 
-- [Analyst Manager](../../docs/architecture/analyst-manager.md): Tray Profile
+- [Analyst Manager](../../../docs/architecture/analyst-manager.md): Tray Profile
   (status window: host utilization and queue depth) and Fleet Visibility In The
   Web UI ("Queue depth remains guidance in the Manager's own status view") —
   implemented by this feature, except accelerator utilization.
-- [Analyst Runtime and Recovery](../../docs/architecture/analyst-runtime-and-recovery.md):
+- [Analyst Runtime and Recovery](../../../docs/architecture/analyst-runtime-and-recovery.md):
   the Analyst Manager responsibility "expose local utilization, active
   attempts, and timestamped queue status".
-- [Analysts, Models, and Hardware](../../docs/architecture/analysts-models-and-hardware.md):
+- [Analysts, Models, and Hardware](../../../docs/architecture/analysts-models-and-hardware.md):
   Implementation Validation ("measure concurrency control, queue-depth …"):
   queue depth becomes measurable per Manager.
 
@@ -121,7 +121,7 @@ rewrites listed here are examples, not the whole job.
 ### Documentation (this feature)
 
 ```text
-specs/20261015-192843-manager-queue-utilization/
+specs/archive/20261015-192843-manager-queue-utilization/
 ├── plan.md
 ├── research.md
 ├── data-model.md

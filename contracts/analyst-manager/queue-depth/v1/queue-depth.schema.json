@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analyst-manager/queue-depth/v1/queue-depth.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analyst Manager queue depth",
+  "description": "Response of GET /api/v1/analyst-managers/self/queue-depth: the approximate number of jobs waiting per requested capability. Capabilities are ordered by id (not expressible in JSON Schema; the tests check it) and omit ids that are not consumers of the resolved default workflow. The socalytics.invalid domain is reserved and never dereferenced.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["observedAt", "capabilities", "total"],
+  "properties": {
+    "observedAt": { "type": "string", "format": "date-time" },
+    "capabilities": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "waiting"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{0,63}$" },
+          "waiting": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "total": { "type": "integer", "minimum": 0 }
+  }
+}
