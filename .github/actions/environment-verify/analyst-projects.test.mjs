@@ -79,17 +79,39 @@ describe('project discovery', () => {
     ]);
   });
 
-  it('ignores nested, hidden, dependency-environment, and generated manifests', () => {
+  it('ignores hidden, dependency-environment, generated, and Manager manifests', () => {
     const root = repository();
-    project(root, 'src/analysts/capabilities/segment/nested', { name: 'nested' });
     project(root, 'src/analysts/capabilities/.venv', { name: 'venv' });
     project(root, 'src/analysts/capabilities/node_modules', { name: 'modules' });
     project(root, 'src/analysts/capabilities/build', { name: 'built' });
     project(root, 'src/analysts/sdk/.venv/lib', { name: 'env' });
-    project(root, 'src/analysts/other', { name: 'other' });
+    project(root, 'src/analysts/other/__pycache__', { name: 'cache' });
+    project(root, 'src/analysts/other/.hidden', { name: 'hidden' });
+    project(root, 'src/analysts/manager', { name: 'manager' });
+    project(root, 'src/analysts/manager/tools/helper', { name: 'helper' });
     const result = discover(root);
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(result.projects, []);
+  });
+
+  it('reports a nested capability manifest as an unsupported layout', () => {
+    const root = repository();
+    project(root, 'src/analysts/capabilities/segment/nested', { name: 'nested' });
+    rejected(root, /project src\/analysts\/capabilities\/segment\/nested\/pyproject\.toml: project convention: unsupported layout/);
+  });
+
+  it('reports an unrecognized manifest under src/analysts and still validates recognized projects', () => {
+    const root = repository();
+    project(root, 'src/analysts/other', { name: 'other' });
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    const result = rejected(root, /project src\/analysts\/other\/pyproject\.toml: project convention: unsupported layout/);
+    assert.equal(result.stderr.trim().split('\n').length, 1);
+  });
+
+  it('reports a manifest at the Analysts area root', () => {
+    const root = repository();
+    project(root, 'src/analysts', { name: 'area' });
+    rejected(root, /project src\/analysts\/pyproject\.toml: project convention: unsupported layout/);
   });
 
   it('does not follow a symbolic-link capability directory', () => {

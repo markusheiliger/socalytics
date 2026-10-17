@@ -12,7 +12,8 @@ Usage: analyst-projects.py discover [--root DIR] [--python-version X.Y[.Z]]
 Prints the validated projects as JSON in dependency order (dependencies first). `select` prints only the projects
 the mode and the changed paths call for, each once with its reason, plus the roots of every existing recognized
 project as the covered source scopes. Contracts stay covered by the platform scope and unowned or deleted project
-sources stay uncovered. Every violation is reported on
+sources stay uncovered. A Python manifest elsewhere under src/analysts (outside Manager and ignored folders) fails as
+an unsupported layout instead of disappearing from verification. Every violation is reported on
 stderr as one line `project <path>: <stage>: <problem>. Recommended action: <action>` and ends with exit code 1.
 """
 
@@ -25,10 +26,12 @@ import tomllib
 
 SDK_ROOT = "src/analysts/sdk"
 CAPABILITIES_ROOT = "src/analysts/capabilities"
+MANAGER_ROOT = "src/analysts/manager"
 IGNORED_DIRECTORIES = {
     ".venv", "venv", "node_modules", "__pycache__", ".git", "build", "dist", "site-packages",
 }
 FIX_MANIFEST = "correct the named manifest to the documented Python product convention, or author the required environment extension, before retrying"
+FIX_LAYOUT = "move the project to src/analysts/sdk or src/analysts/capabilities/<name>, or author the required environment extension, before retrying"
 FIX_LOCK = "commit the consuming project's own uv.lock, generated from its committed declarations, before retrying"
 FIX_RUNTIME = "correct requires-python of the named project so it admits the installed interpreter, or author the required environment extension, before retrying"
 
@@ -100,6 +103,25 @@ def candidate_manifests(root):
                 continue
             if os.path.isfile(os.path.join(path, "pyproject.toml")):
                 found.append(f"{CAPABILITIES_ROOT}/{entry}")
+    return found
+
+
+def unrecognized_manifests(root, recognized):
+    """Returns every pyproject.toml under src/analysts outside the recognized project roots, Manager, and ignored folders."""
+    analysts = os.path.join(root, "src", "analysts")
+    found = []
+    if not os.path.isdir(analysts) or os.path.islink(analysts):
+        return found
+    for directory, names, files in os.walk(analysts):
+        relative = os.path.relpath(directory, root).replace(os.sep, "/")
+        names[:] = sorted(
+            name for name in names
+            if not name.startswith(".") and name not in IGNORED_DIRECTORIES
+            and not os.path.islink(os.path.join(directory, name))
+            and f"{relative}/{name}" != MANAGER_ROOT
+        )
+        if "pyproject.toml" in files and relative not in recognized:
+            found.append(f"{relative}/pyproject.toml")
     return found
 
 
@@ -278,7 +300,12 @@ def order_projects(projects, errors):
 def discover(root, python_version):
     errors = []
     loaded = {}
-    for relative in candidate_manifests(root):
+    candidates = candidate_manifests(root)
+    for manifest in unrecognized_manifests(root, set(candidates)):
+        errors.append(ProjectError(manifest, "project convention",
+                                   f"unsupported layout: Python manifests are recognized only at {SDK_ROOT} and "
+                                   f"{CAPABILITIES_ROOT}/<name>, so its source stays uncovered", FIX_LAYOUT))
+    for relative in candidates:
         project = load_project(root, relative, python_version, errors)
         if project:
             loaded[relative] = project

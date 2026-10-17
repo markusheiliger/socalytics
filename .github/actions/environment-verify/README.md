@@ -24,7 +24,7 @@ Each project needs:
 - a `[build-system]` with `requires` and `build-backend`, and no `[tool.uv].package = false`;
 - pytest in its locked development dependencies and at least one collectable test.
 
-The Analyst Manager (`src/analysts/manager/`), dependency environments (`.venv`, `venv`, `node_modules`, `site-packages`), generated output (`build`, `dist`, `__pycache__`), hidden folders, and symbolic links are never recognized as projects. A shared uv workspace (`[tool.uv.workspace]`, a `workspace` source) and an alternate interpreter are not supported.
+The Analyst Manager (`src/analysts/manager/`), dependency environments (`.venv`, `venv`, `node_modules`, `site-packages`), generated output (`build`, `dist`, `__pycache__`), hidden folders, and symbolic links are never recognized as projects and are not searched. Any other `pyproject.toml` under `src/analysts/` (a manifest nested in a capability, or one in an unrecognized folder such as `src/analysts/<other>/`) fails discovery as an unsupported layout at the `project convention` stage, naming the manifest, so it cannot silently pass finalize verification; its source stays uncovered. A shared uv workspace (`[tool.uv.workspace]`, a `workspace` source) and an alternate interpreter are not supported.
 
 ### Local dependencies
 
