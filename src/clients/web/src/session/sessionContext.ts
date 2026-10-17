@@ -19,7 +19,7 @@ export interface SessionApi extends SessionState {
   platform: ReturnType<typeof createPlatformApi>;
   signIn(accountName: string, password: string): Promise<void>;
   listProviders(): Promise<IdentityProvider[]>;
-  startExternalSignIn(provider: string): Promise<string>;
+  startExternalSignIn(provider: string, link?: { accountName: string; linkCredential: string }): Promise<string>;
   signOut(): Promise<void>;
   changeOwnPassword(currentPassword: string, newPassword: string): Promise<void>;
   redeemCredential(accountName: string, code: string, newPassword: string): Promise<void>;

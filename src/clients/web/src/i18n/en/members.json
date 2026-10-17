@@ -8,6 +8,9 @@
     "accountName": "Sign-in name",
     "create": "Create member",
     "creating": "Creating…",
+    "credentialChoice": "First credential",
+    "choiceSetPassword": "Set-password code (local password)",
+    "choiceLink": "Link code for {{name}}",
     "created": "The member was created. They cannot sign in until a password is set with the code.",
     "back": "Back to members",
     "status": {
@@ -55,15 +58,33 @@
       "deactivated": "The member was deactivated and their sessions ended.",
       "reactivated": "The member was reactivated.",
       "unlocked": "The member was unlocked.",
-      "sessionsEnded": "The member's sessions were ended."
+      "sessionsEnded": "The member's sessions were ended.",
+      "unlinked": "The provider account was unlinked and the member's sessions ended."
     },
     "refusal": {
       "lastClubAdmin": "The platform refused this change: the club needs at least one active Club Admin.",
       "conflict": "The platform refused this change because it conflicts with the current data, for example a sign-in name that is already taken."
     },
+    "externalIdentitiesTitle": "External sign-in",
+    "noExternalIdentities": "No provider account is linked.",
+    "externalIdentityEntry": "{{name}}, linked {{date}}",
+    "providerNotConfigured": "no longer configured",
+    "issueLinkCredential": "Issue link code for {{name}}",
+    "unlink": "Unlink {{name}}",
+    "unlinkTitle": "Unlink {{name}}?",
+    "unlinkBody": "{{member}} can no longer sign in through {{name}}, and their sessions end.",
+    "unlinkConfirm": "Unlink",
+    "unlinkCancel": "Cancel",
     "credential": {
       "title": "Set-password code",
       "intro": "Hand this code to {{name}}. It is shown only now and cannot be shown again.",
+      "codeLabel": "Code",
+      "expires": "Valid until {{date}}.",
+      "close": "I have handed over the code"
+    },
+    "linkCredential": {
+      "title": "Link code",
+      "intro": "Hand this code to {{name}}. They redeem it on the link-account page. It is shown only now and cannot be shown again.",
       "codeLabel": "Code",
       "expires": "Valid until {{date}}.",
       "close": "I have handed over the code"

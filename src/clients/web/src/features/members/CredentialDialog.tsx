@@ -11,17 +11,18 @@ import type { CredentialCode } from '../../platform/models/member';
 /** Shows a credential code once; the caller drops it from state on close, so it is never shown again. */
 export function CredentialDialog({ credential, accountName, onClose }: { credential: CredentialCode | undefined; accountName: string; onClose: () => void }) {
   const { t } = useTranslation('members');
+  const kind = credential?.purpose === 'identity-link' ? 'linkCredential' : 'credential';
   return (
     <Dialog open={Boolean(credential)} onClose={onClose} aria-labelledby="credential-title">
-      <DialogTitle id="credential-title">{t('members.credential.title')}</DialogTitle>
+      <DialogTitle id="credential-title">{t(`members.${kind}.title`)}</DialogTitle>
       <DialogContent>
-        <DialogContentText>{t('members.credential.intro', { name: accountName })}</DialogContentText>
+        <DialogContentText>{t(`members.${kind}.intro`, { name: accountName })}</DialogContentText>
         {credential && (
           <>
             <Typography component="p" sx={{ mt: 2, fontFamily: 'monospace', fontSize: '1.25rem', wordBreak: 'break-all' }}>
-              <span aria-label={t('members.credential.codeLabel')}>{credential.code}</span>
+              <span aria-label={t(`members.${kind}.codeLabel`)}>{credential.code}</span>
             </Typography>
-            <Typography sx={{ mt: 1 }}>{t('members.credential.expires', { date: credential.expiresAt.toLocaleString() })}</Typography>
+            <Typography sx={{ mt: 1 }}>{t(`members.${kind}.expires`, { date: credential.expiresAt.toLocaleString() })}</Typography>
           </>
         )}
       </DialogContent>

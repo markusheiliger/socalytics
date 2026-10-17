@@ -27,7 +27,7 @@ export interface IdentityProvider {
 export interface SessionAdapter {
   listProviders(): Promise<IdentityProvider[]>;
   /** Returns the provider's authorization URL; the browser then navigates to it. */
-  startExternalSignIn(provider: string): Promise<string>;
+  startExternalSignIn(provider: string, link?: { accountName: string; linkCredential: string }): Promise<string>;
   signIn(accountName: string, password: string): Promise<Session>;
   restore(): Promise<Session>;
   signOut(): Promise<void>;
@@ -123,10 +123,10 @@ export function createSessionAdapter(api: { adapter: RequestAdapter; client: Pla
         throw toPlatformFailure(error);
       }
     },
-    startExternalSignIn: async (provider) => {
+    startExternalSignIn: async (provider, link) => {
       try {
         const dto = (await adapter.send(
-          withJson(client.api.v1.session.external.toPostRequestInformation(), { provider }),
+          withJson(client.api.v1.session.external.toPostRequestInformation(), link ? { provider, ...link } : { provider }),
           createExternalAuthorizationDtoFromDiscriminatorValue,
           errorMappings,
         )) as ExternalAuthorizationDto | undefined;

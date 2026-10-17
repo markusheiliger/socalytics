@@ -213,6 +213,10 @@ export class SimulatedApi {
   providers: { id: string; displayName: string }[] = [];
   /** When true, starting an external sign-in answers 503 `provider-unavailable`. */
   providerUnavailable = false;
+  /** Bodies of the external sign-in starts the simulated platform received, in order. */
+  readonly externalStarts: Record<string, unknown>[] = [];
+  /** Link codes the simulated platform accepts; a start that carries any other code answers the generic 400. */
+  readonly linkCodes = new Set<string>();
 
   /**
    * Simulates the provider and the platform callback: the browser navigating to the authorization URL
@@ -403,6 +407,11 @@ export class SimulatedApi {
     }
     if (method === 'POST' && path === '/session/external') {
       if (this.providerUnavailable) return json(503, problem(503, 'Provider unavailable', { code: 'provider-unavailable' }));
+      const started = (route.request().postDataJSON?.() ?? {}) as Record<string, unknown>;
+      this.externalStarts.push(started);
+      if (typeof started.linkCredential === 'string' && !this.linkCodes.has(started.linkCredential)) {
+        return json(400, problem(400, 'Sign-in failed', { code: 'sign-in-failed' }));
+      }
       return json(200, { authorizationUrl: `${SIMULATED_PROVIDER_ORIGIN}/authorize?state=simulated` });
     }
     if (method === 'POST' && path === '/credentials/redeem') {

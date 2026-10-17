@@ -102,7 +102,7 @@ export function SessionProvider({ children, adapter: injected }: SessionProvider
         apply(fromSession(await adapter.signIn(accountName, password)));
       },
       listProviders: () => adapter.listProviders(),
-      startExternalSignIn: (provider) => adapter.startExternalSignIn(provider),
+      startExternalSignIn: (provider, link) => (link ? adapter.startExternalSignIn(provider, link) : adapter.startExternalSignIn(provider)),
       signOut: async () => {
         try {
           await adapter.signOut();

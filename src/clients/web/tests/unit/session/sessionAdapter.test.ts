@@ -118,6 +118,12 @@ describe('sessionAdapter', () => {
     expect(JSON.parse(new TextDecoder().decode(calls[0].init.body as ArrayBuffer))).toEqual({ provider: 'club-entra' });
   });
 
+  it('sends the account name and link credential for a link redemption', async () => {
+    const { adapter, calls } = setup(() => ok(200, { authorizationUrl: 'https://login.example/authorize?x=1' }));
+    await adapter.startExternalSignIn('club-entra', { accountName: 'j.doe', linkCredential: 'CODE' });
+    expect(JSON.parse(new TextDecoder().decode(calls[0].init.body as ArrayBuffer))).toEqual({ provider: 'club-entra', accountName: 'j.doe', linkCredential: 'CODE' });
+  });
+
   it('maps an unavailable provider and a missing URL', async () => {
     await expect(setup(() => problem(503, 'provider-unavailable')).adapter.startExternalSignIn('p')).rejects.toMatchObject({ code: 'provider-unavailable', status: 503 });
     await expect(setup(() => ok(200, {})).adapter.startExternalSignIn('p')).rejects.toMatchObject({ kind: 'incompatible' });
