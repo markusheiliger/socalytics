@@ -74,7 +74,7 @@ description: "Task list for External OpenID Connect Sign-In"
 ## Phase 5: Polish & Cross-Cutting Concerns
 
 - [x] T009 Documentation (plan.md § Architecture Updates): make every narrative listed in plan.md § Architecture Updates and every status statement this feature affects anywhere in `docs/architecture/` true for the merged state, re-reading the documents now rather than only applying the listed rewrites (they are examples, not the whole job): turn the decided external sign-in and linking design in `docs/architecture/platform-implementation.md` and `docs/architecture/client-applications.md` into present tense, correct the "OpenID Connect sign-in does not exist" and evidence statements, and record the evidence for `CTL-002` and `GOV-CRED-006` in `docs/architecture/security-and-data-governance.md` with production values still unresolved; update `README.md` and `src/platform/README.md` (external providers, configuration keys, no MFA for local accounts), `src/clients/web/README.md` (provider sign-in and the link-account page), and the "Current State" in `AGENTS.md` (replace "No OIDC, MFA enforcement" accordingly).
-- [ ] T010 Run the validation in [quickstart.md](quickstart.md) § Automated verification and `node .github/scripts/check-markdown.mjs`; fix what fails.
+- [x] T010 Run the validation in [quickstart.md](quickstart.md) § Automated verification and `node .github/scripts/check-markdown.mjs`; fix what fails.
 
 ---
 
