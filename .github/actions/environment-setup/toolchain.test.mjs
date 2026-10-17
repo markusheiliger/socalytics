@@ -252,3 +252,105 @@ describe('install-analyst-media.sh', () => {
     assertFailure(install(directory, toolchain), 'fixture', 'version');
   });
 });
+
+// The composite action is checked textually so that no YAML dependency is needed.
+const actionText = readFileSync(path.join(here, 'action.yml'), 'utf8');
+const stepsText = actionText.slice(actionText.indexOf('\nruns:'));
+const steps = stepsText
+  .split(/\n(?=    - name: )/)
+  .slice(1)
+  .map((block) => ({
+    name: /^    - name: (.+)$/m.exec(block)[1],
+    condition: /^      if: (.+)$/m.exec(block)?.[1],
+    block,
+  }));
+const header = actionText.slice(0, actionText.indexOf('\nruns:'));
+const names = (section) => [...section.matchAll(/^ {2}([a-z-]+):$/gm)].map((match) => match[1]);
+
+describe('environment-setup action integration', () => {
+  const installerStep = steps.find((step) => step.block.includes('install-analyst-media.sh'));
+
+  it('installs the toolchain only when install-tools is true', () => {
+    assert.ok(installerStep, 'the installer step exists');
+    assert.equal(installerStep.condition, "inputs.install-tools == 'true'");
+    assert.equal(steps.filter((step) => step.block.includes('install-analyst-media.sh')).length, 1);
+    assert.match(installerStep.block, /shell: bash/);
+    assert.match(installerStep.block, /run: bash "\$GITHUB_ACTION_PATH\/install-analyst-media\.sh"/);
+  });
+
+  it('runs the installer after the existing tool setup and publishes no new action output', () => {
+    assert.equal(steps.at(-1), installerStep);
+    const outputs = header.slice(header.indexOf('\noutputs:'));
+    assert.deepEqual(names(outputs), [
+      'nuget-key', 'npm-key', 'nuget-path', 'npm-path', 'nuget-hit', 'npm-hit', 'npm-tools', 'kiota-version',
+    ]);
+    assert.doesNotMatch(outputs, /python|ffmpeg|uv/i);
+  });
+
+  it('preserves the inputs and their defaults', () => {
+    const inputs = header.slice(header.indexOf('\ninputs:'), header.indexOf('\noutputs:'));
+    assert.deepEqual(names(inputs), ['workspace', 'install-tools']);
+    assert.match(inputs, /workspace:[\s\S]*required: true/);
+    assert.match(inputs, /install-tools:[\s\S]*default: "true"/);
+  });
+
+  it('keeps every existing executable tool step gated and in place', () => {
+    const expected = [
+      'Set up .NET',
+      'Calculate dependency cache keys',
+      'Restore NuGet downloads',
+      'Restore npm downloads',
+      'Report dependency cache restores',
+      'Install the Markdown linters',
+      'Install the SoftHSM2 PKCS#11 token',
+      'Install the Kiota client generator',
+      'Install the Playwright Chromium browser',
+      'Install the Analyst Python and media toolchain',
+    ];
+    assert.deepEqual(steps.map((step) => step.name), expected);
+    for (const step of steps.filter((candidate) => candidate.name.startsWith('Install '))) {
+      assert.equal(step.condition, "inputs.install-tools == 'true'", step.name);
+    }
+    assert.match(steps.find((step) => step.name === 'Restore NuGet downloads').block, /actions\/cache\/restore@/);
+  });
+
+  it('never consults future project files', () => {
+    assert.doesNotMatch(installerStep.block, /src\/analysts|pyproject|uv\.lock|workspace/);
+    const installerText = readFileSync(installer, 'utf8');
+    assert.doesNotMatch(installerText, /pyproject|uv\.lock|src\/analysts|GITHUB_WORKSPACE/);
+  });
+
+  it('adds no dependency-cache path, key input, or save step', () => {
+    assert.doesNotMatch(actionText, /actions\/cache\/save|actions\/cache@/);
+    assert.doesNotMatch(readFileSync(path.join(here, 'cache-keys.mjs'), 'utf8'), /analyst-media|toolchain/i);
+  });
+});
+
+describe('real installation', { skip: process.env.ANALYST_MEDIA_REAL_INSTALL !== '1' }, () => {
+  it('installs and verifies CPython, uv, and FFmpeg on the supported Linux runner', () => {
+    const directory = scratch();
+    const githubPath = path.join(directory, 'github-path');
+    const githubEnv = path.join(directory, 'github-env');
+    writeFileSync(githubPath, '');
+    writeFileSync(githubEnv, '');
+    const result = spawnSync('bash', [installer], {
+      encoding: 'utf8',
+      timeout: 900000,
+      env: {
+        ...process.env,
+        ANALYST_MEDIA_INSTALL_ROOT: path.join(directory, 'install'),
+        GITHUB_PATH: githubPath,
+        GITHUB_ENV: githubEnv,
+      },
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const root = path.join(directory, 'install');
+    const python = readFileSync(githubEnv, 'utf8').trim();
+    assert.equal(python, `SOCALYTICS_PYTHON=${path.join(root, 'python/bin/python3.12')}`);
+    assert.equal(readFileSync(githubPath, 'utf8').trim().split('\n').length, 3);
+    for (const tool of realDeclaration.tools) {
+      assert.ok(existsSync(path.join(root, 'notices', tool.id, 'PROVENANCE.txt')), tool.id);
+    }
+    assert.match(execFileSync(python.split('=')[1], ['--version'], { encoding: 'utf8' }), /^Python 3\.12\.15/);
+  });
+});
