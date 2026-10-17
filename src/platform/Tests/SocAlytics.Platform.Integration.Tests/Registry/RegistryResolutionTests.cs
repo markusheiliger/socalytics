@@ -33,7 +33,13 @@ public sealed class RegistryResolutionTests(PostgresContainerFixture postgres)
     }
 
     private static PlatformApiFactory Start(IsolatedDatabase db, string? environment = null, bool omitWorkflow = false) =>
-        new(db, configureServices: environment is null ? null : services => services.AddSingleton<IHostEnvironment>(new FixedEnvironment(environment)), omitWorkflow: omitWorkflow);
+        new(
+            db,
+            configureServices: environment is null ? null : services => services.AddSingleton<IHostEnvironment>(new FixedEnvironment(environment)),
+            extraSettings: environment is null || environment == "Development"
+                ? null
+                : new Dictionary<string, string?> { ["Email:Smtp:Security"] = "StartTls" },
+            omitWorkflow: omitWorkflow);
 
     private static async Task<WorkflowResolution> ResolveAsync(PlatformApiFactory factory, CancellationToken ct)
     {

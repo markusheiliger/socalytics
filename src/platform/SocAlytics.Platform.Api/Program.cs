@@ -9,6 +9,7 @@ using SocAlytics.Platform.Api.Operations;
 using SocAlytics.Platform.Api.Recordings;
 using SocAlytics.Platform.Api.Registry;
 using SocAlytics.Platform.Api.Security;
+using SocAlytics.Platform.Api.WebUi;
 using SocAlytics.Platform.Application;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.IdentityAccess;
@@ -19,6 +20,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
 builder.AddRegistryApi();
+builder.Services.AddEmailRateLimiting();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure();
 builder.Services.AddHttpContextAccessor();
@@ -31,6 +33,7 @@ builder.Services.AddOptions<IdentityAccessOptions>()
 	.ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<IdentityAccessOptions>>(new ExternalProviderOptionsValidator(
 	allowInsecureUrls: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Test")));
+builder.Services.AddMinimumWebVersion(builder.Configuration);
 builder.Services.Configure<ClubBootstrapOptions>(builder.Configuration.GetSection(ClubBootstrapOptions.SectionName));
 builder.Services.Configure<BreakGlassRecoveryOptions>(builder.Configuration.GetSection(BreakGlassRecoveryOptions.SectionName));
 builder.Services.AddSingleton<ClubBootstrapState>();
@@ -59,6 +62,7 @@ builder.Services.AddAuthorizationBuilder()
 
 var app = builder.Build();
 
+app.UseMinimumWebVersion();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -66,6 +70,7 @@ app.MapDefaultEndpoints();
 app.MapOpenApi();
 app.MapSessionEndpoints();
 app.MapSelfEndpoints();
+app.MapEmailEndpoints();
 app.MapClubEndpoints();
 app.MapSeasonEndpoints();
 app.MapTeamEndpoints();

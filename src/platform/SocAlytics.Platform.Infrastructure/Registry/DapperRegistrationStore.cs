@@ -215,6 +215,7 @@ internal sealed class DapperRegistrationStore(IDbSession session, IOptions<Regis
         ["architecture"] = m.Architecture,
         ["managerVersion"] = m.ManagerVersion,
         ["claimedKeyProtection"] = m.ClaimedKeyProtection.ToApiName(),
+        ["claimedApplicationProfile"] = m.ClaimedApplicationProfile?.ToApiName(),
         ["hostLabel"] = m.HostLabel,
     }.Where(p => p.Value is not null).ToDictionary(p => p.Key, p => p.Value));
 
@@ -225,7 +226,7 @@ internal sealed class DapperRegistrationStore(IDbSession session, IOptions<Regis
         string? Get(string name) => root.TryGetProperty(name, out var v) ? v.GetString() : null;
         if (!DeviceMetadata.TryCreate(
                 Get("os"), Get("osVersion"), Get("architecture"), Get("managerVersion"),
-                Get("claimedKeyProtection"), Get("hostLabel"), out var metadata, out _))
+                Get("claimedKeyProtection"), Get("claimedApplicationProfile"), Get("hostLabel"), out var metadata, out _))
         {
             throw new InvalidOperationException("Stored device metadata is invalid.");
         }

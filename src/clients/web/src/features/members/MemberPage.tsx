@@ -19,6 +19,7 @@ import { useSession } from '../../session/sessionContext';
 import { FailureAlert } from '../shared/FailureAlert';
 import { TEAMS_KEY } from '../teams/TeamsPage';
 import { CredentialDialog } from './CredentialDialog';
+import { MemberEmailRow } from './MemberEmailRow';
 import { MemberFailureAlert } from './MemberFailureAlert';
 import { MEMBERS_KEY } from './MembersPage';
 
@@ -131,6 +132,8 @@ export function MemberPage() {
             {t('members.passwordSetLabel', { value: member.passwordSet ? t('members.passwordSet') : t('members.passwordNotSet') })}
           </Typography>
           {member.lockedOut && <Typography>{t('members.lockedOut')}</Typography>}
+
+          <MemberEmailRow memberId={memberId} />
 
           <Typography variant="h3" sx={{ mt: 3 }}>
             {t('members.clubRolesTitle')}

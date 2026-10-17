@@ -51,7 +51,7 @@ public sealed class RegistrySecretGeneratorTests
     public void OptionDefaultsMatchDataModel()
     {
         var o = new RegistryOptions();
-        o.AllowSoftwareKeys.ShouldBeFalse();
+        o.SoftwareKeys.ShouldBe(SoftwareKeyPolicy.Refused);
         o.Pairing.MaxFingerprintMismatches.ShouldBe(3);
         o.Pairing.Window.ShouldBe(TimeSpan.FromMinutes(10));
         o.Pairing.ApprovalWindow.ShouldBe(TimeSpan.FromHours(24));

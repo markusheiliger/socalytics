@@ -320,6 +320,10 @@ export class FakeGitHub {
     return structuredClone(this.repo.pulls.filter((pull) => pull.head.ref === branch).sort((a, b) => b.number - a.number));
   }
 
+  async listOpenPullRequests() {
+    return structuredClone(this.repo.pulls.filter((pull) => pull.state === 'open'));
+  }
+
   async createPullRequest({ title, head, base, body, draft }) {
     if (this.failCreatePull) throw new Error(this.failCreatePull);
     if (this.repo.pulls.some((pull) => pull.head.ref === head && pull.state === 'open')) throw new Error('A pull request already exists');

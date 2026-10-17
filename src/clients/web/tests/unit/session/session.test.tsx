@@ -173,7 +173,7 @@ describe('session provider', () => {
     renderProvider(fakeAdapter({ restore }));
     await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId('status')).toHaveTextContent('unknown');
-    expect(api.restoreFailure?.kind).toBe('unreachable');
+    await waitFor(() => expect(api.restoreFailure?.kind).toBe('unreachable'));
   });
 
   it('passes redeem through without changing the session', async () => {

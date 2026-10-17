@@ -63,6 +63,7 @@ describe('registrationAdapter operations', () => {
       approvalNotice: 'Check the device.',
     });
     expect(registration.deviceMetadata).toMatchObject({ claimedKeyProtection: 'software', hostLabel: 'Lab' });
+    expect(registration.deviceMetadata.claimedApplicationProfile).toBeUndefined();
     expect(registration.pairingOrigin?.sourceAddress).toBe('10.0.0.1');
     expect(registration.status).toBeUndefined();
     expect(registration.connectivity).toBeUndefined();
@@ -148,6 +149,16 @@ describe('registrationAdapter mapping', () => {
   ])('maps state %s to %s', async (wire, state) => {
     const { adapter } = setup(() => ok(dto({ state: wire })));
     expect((await adapter.get(ID)).state).toBe(state);
+  });
+
+  it.each(['tray', 'headless-server'])('maps the claimed %s profile', async (claim) => {
+    const { adapter } = setup(() => ok(dto({ deviceMetadata: { claimedKeyProtection: 'tpm', claimedApplicationProfile: claim } })));
+    expect((await adapter.get(ID)).deviceMetadata.claimedApplicationProfile).toBe(claim);
+  });
+
+  it('maps an unknown claimed profile to not reported', async () => {
+    const { adapter } = setup(() => ok(dto({ deviceMetadata: { claimedKeyProtection: 'tpm', claimedApplicationProfile: 'mainframe' } })));
+    expect((await adapter.get(ID)).deviceMetadata.claimedApplicationProfile).toBeUndefined();
   });
 
   it('maps unknown key protection, operating state, and connectivity to unknown', async () => {

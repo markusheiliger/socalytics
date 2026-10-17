@@ -18,7 +18,7 @@ public sealed class EndpointSecurityTests
     private const string ApiPrefix = "/api/v1";
     private const string SessionScheme = "SocAlyticsSession";
 
-    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken" };
+    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "confirmEmail", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken" };
 
     private const string ManagerScheme = "AnalystManagerDPoP";
 
@@ -115,6 +115,12 @@ public sealed class EndpointSecurityTests
                 ["IdentityAccess:Lockout:LockoutDuration"] = "00:15:00",
                 ["IdentityAccess:Password:RequiredLength"] = "12",
                 ["IdentityAccess:OneTimeCredential:Lifetime"] = "1.00:00:00",
+                ["Email:Smtp:Host"] = "127.0.0.1",
+                ["Email:Smtp:Port"] = "1",
+                ["Email:Smtp:Security"] = "StartTlsWhenAvailable",
+                ["Email:SenderAddress"] = "socalytics@localhost",
+                ["Email:SenderName"] = "SocAlytics",
+                ["Notifications:WebUiBaseUri"] = "http://localhost:5173",
                 ["ObjectStorage:ServiceUrl"] = "http://127.0.0.1:9",
                 ["ObjectStorage:AccessKey"] = "test-access",
                 ["ObjectStorage:SecretKey"] = "test-secret",

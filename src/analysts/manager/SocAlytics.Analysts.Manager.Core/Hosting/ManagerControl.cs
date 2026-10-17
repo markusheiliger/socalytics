@@ -10,6 +10,8 @@ public sealed class ManagerControl : IManagerControl
     private readonly RegistrationCoordinator _coordinator;
     private readonly TimeProvider _time;
     private readonly DateTimeOffset _started;
+    private readonly ApplicationProfile _profile;
+    private readonly LingeringCheck _lingering;
 
     private readonly IManagerWorkTracker _work;
     private readonly Runtime.PreflightScheduler _preflight;
@@ -21,8 +23,11 @@ public sealed class ManagerControl : IManagerControl
 
     public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work, Runtime.PreflightScheduler preflight,
         DrainCoordinator drain, Microsoft.Extensions.Options.IOptions<OperatingOptions> operating,
-        Autostart.IAutostartRegistrar autostart, Work.ConcurrencyLimit concurrency, Work.AttemptRegistry attempts)
+        Autostart.IAutostartRegistrar autostart, Work.ConcurrencyLimit concurrency, Work.AttemptRegistry attempts,
+        ApplicationProfile profile, LingeringCheck lingering)
     {
+        _profile = profile;
+        _lingering = lingering;
         _attempts = attempts;
         _concurrency = concurrency;
         _autostart = autostart;
@@ -75,7 +80,10 @@ public sealed class ManagerControl : IManagerControl
             _coordinator.Fingerprint,
             _concurrency.Snapshot(),
             [.. _attempts.Attempts.Select(a => new ActiveAttemptStatus(
-                a.LogicalJobId, a.AttemptNumber, a.Capability, a.ExecutionState, a.StartedAt, a.LastConfirmedHeartbeat))]);
+                a.LogicalJobId, a.AttemptNumber, a.Capability, a.ExecutionState, a.StartedAt, a.LastConfirmedHeartbeat))],
+            _profile.ToApiName(),
+            _profile == ApplicationProfile.HeadlessServer ? LingeringCheck.ToWireValue(_lingering.Evaluate()) : null,
+            RegistrationCoordinator.ManagerVersion);
     }
 
     public Work.ConcurrencySnapshot GetConcurrency() => _concurrency.Snapshot();

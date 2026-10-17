@@ -1,6 +1,7 @@
 {
   "stampId": "fixture-stamp",
   "softwareKeysAllowed": true,
+  "softwareKeysAllowedFor": ["tray", "headless-server"],
   "pairingEndpoint": "https://stamp.example.test/api/v1/analyst-managers/pairings",
   "activationEndpoint": "https://stamp.example.test/api/v1/analyst-managers/pairings/activation",
   "tokenEndpoint": "https://stamp.example.test/api/v1/analyst-managers/token"

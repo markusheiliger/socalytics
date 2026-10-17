@@ -13,6 +13,7 @@ internal sealed record AnalystManagerDeviceMetadataDto(
 	string Architecture,
 	string ManagerVersion,
 	string ClaimedKeyProtection,
+	[property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? ClaimedApplicationProfile,
 	string? HostLabel);
 
 internal sealed record AnalystManagerPairingOriginDto(string? SourceAddress, DateTimeOffset RequestedAt);

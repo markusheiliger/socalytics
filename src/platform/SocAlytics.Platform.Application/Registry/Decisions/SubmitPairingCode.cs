@@ -17,6 +17,7 @@ public sealed class SubmitPairingCodeHandler(
     IAuditTrail audit,
     IRequestContext context,
     IOptions<RegistryOptions> registryOptions,
+    Notifications.RegistrationPendingNotifier notifier,
     TimeProvider time)
 {
     public const string PairingCodeInvalid = "analyst-manager-pairing-code-invalid";
@@ -83,6 +84,7 @@ public sealed class SubmitPairingCodeHandler(
             ["deviceFingerprint"] = registration.DeviceFingerprint.Value,
             ["windowExpiresAt"] = registration.ApprovalExpiresAt!.Value.ToString("O"),
         }), cancellationToken);
+        await notifier.NotifyAsync(cancellationToken);
         await scope.CommitAsync(cancellationToken);
         return registration.WithVersion(write.Version ?? registration.Version);
     }

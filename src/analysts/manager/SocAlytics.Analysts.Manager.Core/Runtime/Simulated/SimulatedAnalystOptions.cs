@@ -52,6 +52,9 @@ public sealed class SimulatedAnalystOptions
 
     public int MaxParallelAttempts { get; set; } = 4;
 
+    /// <summary>The daemon access the simulated runtime reports: <c>rootless</c>, <c>rootful-group</c>, or unset (unknown).</summary>
+    public string? DaemonAccess { get; set; }
+
     /// <summary>Workflow identity the simulated Analyst records in its manifests; matches the development default workflow.</summary>
     public string WorkflowId { get; set; } = "development-default";
 

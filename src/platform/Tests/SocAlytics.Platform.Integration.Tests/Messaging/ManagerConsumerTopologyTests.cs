@@ -34,6 +34,7 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
         services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
         services.AddLogging();
         services.AddSingleton<IWorkflowDefinitionResolver, ConfiguredWorkflowDefinitionResolver>();
+        services.AddTestHostEnvironment();
         services.AddInfrastructure();
         return services.BuildServiceProvider();
     }

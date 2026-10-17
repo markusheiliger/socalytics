@@ -83,6 +83,7 @@ export function FleetPage() {
                     {isOwnSubmission(r, session?.member.id) && <li>{t('fleet.ownSubmission')}</li>}
                     <li>{t('requests.fingerprint', { value: r.deviceFingerprint })}</li>
                     <li>{t('fleet.keyProtection', { value: t(`keyProtection.${r.deviceMetadata.claimedKeyProtection}`) })}</li>
+                    <li>{t('fleet.profile', { value: t(`applicationProfile.${r.deviceMetadata.claimedApplicationProfile ?? 'notReported'}`) })}</li>
                     <StatusLines r={r} />
                     {r.state === 'pendingApproval' && r.submittedAt && <li>{t('requests.submittedAt', { value: r.submittedAt.toLocaleString() })}</li>}
                     {r.state === 'pendingApproval' && r.approvalExpiresAt && <li>{t('requests.approvalDeadline', { value: r.approvalExpiresAt.toLocaleString() })}</li>}

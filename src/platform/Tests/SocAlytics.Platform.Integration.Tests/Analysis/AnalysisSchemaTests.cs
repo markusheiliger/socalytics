@@ -40,6 +40,7 @@ public sealed class AnalysisSchemaTests(PostgresContainerFixture postgres)
 			.Build();
 		var services = new ServiceCollection();
 		services.AddSingleton<IConfiguration>(configuration);
+		services.AddTestHostEnvironment();
 		services.AddInfrastructure();
 		return (db, services.BuildServiceProvider());
 	}
