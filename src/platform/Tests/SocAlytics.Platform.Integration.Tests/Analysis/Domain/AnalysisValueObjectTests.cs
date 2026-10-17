@@ -62,7 +62,9 @@ public sealed class AnalysisValueObjectTests
 			(AnalysisRunState.Requested, AnalysisRunState.Running),
 			(AnalysisRunState.Running, AnalysisRunState.Completed),
 			(AnalysisRunState.Running, AnalysisRunState.PartiallyCompleted),
-			(AnalysisRunState.Running, AnalysisRunState.Failed));
+			(AnalysisRunState.Running, AnalysisRunState.Failed),
+			(AnalysisRunState.Requested, AnalysisRunState.Cancelled),
+			(AnalysisRunState.Running, AnalysisRunState.Cancelled));
 
 	[Fact]
 	public void Node_transitions_match_the_state_machine() =>
@@ -71,7 +73,9 @@ public sealed class AnalysisValueObjectTests
 			(WorkflowNodeState.Waiting, WorkflowNodeState.Blocked),
 			(WorkflowNodeState.Active, WorkflowNodeState.Completed),
 			(WorkflowNodeState.Active, WorkflowNodeState.Blocked),
-			(WorkflowNodeState.Active, WorkflowNodeState.Failed));
+			(WorkflowNodeState.Active, WorkflowNodeState.Failed),
+			(WorkflowNodeState.Waiting, WorkflowNodeState.Cancelled),
+			(WorkflowNodeState.Active, WorkflowNodeState.Cancelled));
 
 	[Fact]
 	public void Job_transitions_match_the_state_machine() =>
@@ -82,7 +86,10 @@ public sealed class AnalysisValueObjectTests
 			(LogicalJobState.Ready, LogicalJobState.Blocked),
 			(LogicalJobState.Claimed, LogicalJobState.Completed),
 			(LogicalJobState.Claimed, LogicalJobState.Ready),
-			(LogicalJobState.Claimed, LogicalJobState.Failed));
+			(LogicalJobState.Claimed, LogicalJobState.Failed),
+			(LogicalJobState.Waiting, LogicalJobState.Cancelled),
+			(LogicalJobState.Ready, LogicalJobState.Cancelled),
+			(LogicalJobState.Claimed, LogicalJobState.Cancelled));
 
 	[Fact]
 	public void Attempt_transitions_match_the_state_machine() =>
@@ -91,14 +98,30 @@ public sealed class AnalysisValueObjectTests
 			(ExecutionAttemptState.Active, ExecutionAttemptState.Accepted),
 			(ExecutionAttemptState.Active, ExecutionAttemptState.Failed),
 			(ExecutionAttemptState.Active, ExecutionAttemptState.Rejected),
-			(ExecutionAttemptState.Active, ExecutionAttemptState.Stale));
+			(ExecutionAttemptState.Active, ExecutionAttemptState.Stale),
+			(ExecutionAttemptState.Active, ExecutionAttemptState.Cancelled));
 
 	[Fact]
-	public void Nothing_transitions_into_cancelled()
+	public void Nothing_leaves_cancelled()
 	{
-		foreach (var from in Enum.GetValues<AnalysisRunState>())
+		foreach (var to in Enum.GetValues<AnalysisRunState>())
 		{
-			AnalysisStateTransitions.IsAllowed(from, AnalysisRunState.Cancelled).ShouldBeFalse();
+			AnalysisStateTransitions.IsAllowed(AnalysisRunState.Cancelled, to).ShouldBeFalse();
+		}
+
+		foreach (var to in Enum.GetValues<WorkflowNodeState>())
+		{
+			AnalysisStateTransitions.IsAllowed(WorkflowNodeState.Cancelled, to).ShouldBeFalse();
+		}
+
+		foreach (var to in Enum.GetValues<LogicalJobState>())
+		{
+			AnalysisStateTransitions.IsAllowed(LogicalJobState.Cancelled, to).ShouldBeFalse();
+		}
+
+		foreach (var to in Enum.GetValues<ExecutionAttemptState>())
+		{
+			AnalysisStateTransitions.IsAllowed(ExecutionAttemptState.Cancelled, to).ShouldBeFalse();
 		}
 	}
 
