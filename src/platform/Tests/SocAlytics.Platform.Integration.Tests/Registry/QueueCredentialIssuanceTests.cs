@@ -9,6 +9,7 @@ using NATS.NKeys;
 using Npgsql;
 using Shouldly;
 using SocAlytics.Platform.Application.Abstractions;
+using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Application.Registry.QueueCredentials;
 using SocAlytics.Platform.Infrastructure.Messaging.Nats;
 using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
@@ -63,7 +64,7 @@ public sealed class QueueCredentialIssuanceTests(PostgresContainerFixture postgr
             },
             configureServices: services => services.Configure<SocAlytics.Platform.Application.Registry.RegistryOptions>(o =>
             {
-                o.AllowSoftwareKeys = true;
+                o.SoftwareKeys = SoftwareKeyPolicy.All;
                 o.RateLimits.PairingCreationPerMinute = 10_000;
                 o.RateLimits.StatusPerMinute = 10_000;
                 o.RateLimits.ActivationPerMinute = 10_000;

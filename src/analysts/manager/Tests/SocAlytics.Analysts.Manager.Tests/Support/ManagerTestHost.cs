@@ -16,12 +16,12 @@ internal sealed class ManagerTestHost : IAsyncDisposable
     private readonly string _stateDirectory = Path.Combine(Path.GetTempPath(), "socalytics-manager-test-" + Guid.NewGuid().ToString("N"));
 
     public ManagerTestHost(KeyProtection protection = KeyProtection.Tpm, bool providerAvailable = true,
-        Action<IServiceCollection>? configure = null)
+        Action<IServiceCollection>? configure = null, ApplicationProfile profile = ApplicationProfile.Tray)
     {
         Time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 10, 12, 0, 0, TimeSpan.Zero));
         Platform = new FakePlatform(Time);
         Keys = new InMemoryDeviceKeyProvider(protection, providerAvailable);
-        var builder = ManagerHost.CreateBuilder();
+        var builder = ManagerHost.CreateBuilder(null, profile);
         ((Microsoft.Extensions.Configuration.IConfigurationBuilder)builder.Configuration).AddInMemory(_stateDirectory);
         builder.Services.RemoveAll<IDeviceKeyProvider>();
         builder.Services.AddSingleton<IDeviceKeyProvider>(Keys);

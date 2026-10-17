@@ -67,6 +67,7 @@ export function PairingPage() {
             <li>{t('pairing.state', { state: t(`state.${result.state}`) })}</li>
             <li>{t('pairing.hostLabel', { value: result.deviceMetadata.hostLabel ?? none })}</li>
             <li>{t('pairing.keyProtection', { value: t(`keyProtection.${result.deviceMetadata.claimedKeyProtection}`) })}</li>
+            <li>{t('pairing.profile', { value: t(`applicationProfile.${result.deviceMetadata.claimedApplicationProfile ?? 'notReported'}`) })}</li>
             <li>{t('pairing.os', { value: result.deviceMetadata.os ?? none })}</li>
             <li>{t('pairing.fingerprintValue', { value: result.deviceFingerprint })}</li>
             {result.approvalExpiresAt && <li>{t('pairing.deadline', { value: result.approvalExpiresAt.toLocaleString() })}</li>}

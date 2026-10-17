@@ -4,6 +4,18 @@ import { TaskInputError, runTypedCommand } from './speckit-implement-work.mjs';
 
 const COMMANDS = ['package', 'land-tasks', 'repair-report'];
 
+// A repair diff alone omits the code that originally failed, especially after a no-op.
+export function repairVerificationScope({ scope, originalChangedFiles = null, repairChangedFiles = null }) {
+  const paths = (text) => typeof text === 'string' ? text.split(/\r?\n/).filter((file) => file.trim().length > 0) : [];
+  const original = paths(originalChangedFiles);
+  const changedFiles = [...new Set([...original, ...paths(repairChangedFiles)])].sort();
+  return {
+    mode: scope === 'merge' || original.length === 0 || repairChangedFiles === null ? 'finalize' : 'phase',
+    changedFiles,
+    environment: changedFiles.some((file) => /^\.github\/actions\/environment-(setup|verify)\//.test(file)),
+  };
+}
+
 export function main(argv, options = {}) {
   return runTypedCommand('repair', COMMANDS, argv, options);
 }

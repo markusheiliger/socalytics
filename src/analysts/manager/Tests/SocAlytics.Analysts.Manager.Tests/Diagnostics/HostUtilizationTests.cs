@@ -3,7 +3,7 @@ using Shouldly;
 using SocAlytics.Analysts.Manager.Diagnostics;
 using Xunit;
 
-namespace SocAlytics.Analysts.Manager.Tests.Diagnostics;
+namespace SocAlytics.Analysts.Manager.Tests.HostUtilizationSampling;
 
 public sealed class HostUtilizationTests
 {

@@ -25,7 +25,10 @@ internal sealed record MemberDto(
 	IReadOnlyList<string> ClubRoles,
 	IReadOnlyList<MemberTeamRoleDto> TeamRoles,
 	DateTimeOffset CreatedAt,
-	long Version);
+	long Version,
+	MemberEmailDto? Email = null);
+
+internal sealed record MemberEmailDto(string Address, string State);
 
 internal sealed record IssuedCredentialDto(Guid MemberId, string Purpose, string Credential, DateTimeOffset ExpiresAt);
 
@@ -294,7 +297,8 @@ internal static class MemberEndpoints
 		[.. m.ClubRoles.Select(r => r.ToWireValue()).Order(StringComparer.Ordinal)],
 		[.. m.TeamRoles.Select(t => new MemberTeamRoleDto(t.TeamId, t.Role.ToWireValue()))],
 		m.CreatedAt,
-		m.Version);
+		m.Version,
+		m.Email is null ? null : new MemberEmailDto(m.Email.Address, m.Email.State));
 
 	private static async Task<IResult> ListMembersAsync(
 		string? pageSize,

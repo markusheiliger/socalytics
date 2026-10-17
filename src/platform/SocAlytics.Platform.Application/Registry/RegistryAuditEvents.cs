@@ -13,7 +13,7 @@ public static class RegistryAuditEvents
     public static readonly IReadOnlySet<string> AllowedDetailKeys = new HashSet<string>(StringComparer.Ordinal)
     {
         "managerId", "stampId", "keyThumbprint", "fromState", "toState", "windowExpiresAt", "os", "osVersion",
-        "architecture", "managerVersion", "claimedKeyProtection", "deviceFingerprint", "pairingSourceAddress",
+        "architecture", "managerVersion", "claimedKeyProtection", "claimedApplicationProfile", "deviceFingerprint", "pairingSourceAddress",
         "registrationCorrelationId", "fencedAttempts", "revokedCredentials",
         "reference", "imageDigest", "capabilityId", "capabilityVersion", "modelDigest",
         "profileId", "profileVersion", "profileDigest", "selfApproval", "workflowId", "workflowVersion", "definitionDigest",

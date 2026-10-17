@@ -6,7 +6,8 @@ using SocAlytics.Platform.Application.Abstractions.Persistence;
 
 namespace SocAlytics.Platform.Application.IdentityAccess;
 
-public sealed class ListMembersHandler(IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IMemberAccountStore members)
+public sealed class ListMembersHandler(IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IMemberAccountStore members,
+    SocAlytics.Platform.Application.IdentityAccess.Email.IMemberEmailAddressStore addresses)
 {
     public const int DefaultPageSize = 50;
     public const int MaxPageSize = 200;
@@ -43,7 +44,8 @@ public sealed class ListMembersHandler(IUnitOfWork unitOfWork, IAccessAuthorizer
 
         var page = await members.ListMembersAsync(after, pageSize, cancellationToken);
         var token = page.HasMore && page.LastKey is not null ? Encode(page.LastKey) : null;
-        return new MemberPage(page.Items, token);
+        var emails = await addresses.ListSummariesAsync([.. page.Items.Select(m => m.Id)], cancellationToken);
+        return new MemberPage([.. page.Items.Select(m => m with { Email = emails.GetValueOrDefault(m.Id) })], token);
     }
 
     private static string Encode(MemberPageKey key) =>

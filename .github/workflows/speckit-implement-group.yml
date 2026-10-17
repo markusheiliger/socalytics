@@ -192,5 +192,4 @@ jobs:
           SPECKIT_HEAD: ${{ needs.verify.outputs.head }}
           SPECKIT_LAND_OK: "true"
           SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
-          SPECKIT_AUTO_DIAGNOSE: ${{ vars.SPECKIT_AUTO_DIAGNOSE || 'true' }}
         run: node .github/scripts/speckit-group.mjs combined-verified

@@ -20,6 +20,7 @@
             "status",
             "show-status",
             "register",
+            "cancel-registration",
             "pause",
             "resume",
             "exit",
@@ -123,6 +124,7 @@
                 "enum": [
                   "status",
                   "show-status",
+                  "cancel-registration",
                   "resume",
                   "exit"
                 ]
@@ -328,6 +330,7 @@
         "command": {
           "enum": [
             "show-status",
+            "cancel-registration",
             "pause",
             "resume",
             "exit",
@@ -580,6 +583,24 @@
         },
         "concurrency": {
           "$ref": "#/$defs/concurrencyBounds"
+        },
+        "applicationProfile": {
+          "enum": [
+            "tray",
+            "headless-server"
+          ],
+          "description": "The executable the Manager runs as; fixed at start, not configuration."
+        },
+        "lingering": {
+          "enum": [
+            "on",
+            "off",
+            "unknown"
+          ],
+          "description": "Headless server profile only: whether systemd lingering is enabled for the account."
+        },
+        "managerVersion": {
+          "type": "string"
         },
         "activeAttempts": {
           "type": "array",

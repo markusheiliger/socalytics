@@ -1,8 +1,11 @@
 # Email Notifications
 
 This document defines the email channel through which a deployment stamp sends
-transactional messages to club members. The channel is decided as the
-implementation target; no part of it is implemented yet. Production delivery
+transactional messages to club members. Member email addresses, their
+verification, notification preferences, outbox-backed delivery, and the
+pending-request notification of Analyst Manager registration requests are
+implemented as development evidence against a local mail catcher. Self-service
+password recovery and invitations are not implemented, and production delivery
 values remain **Open / Blocking** (see [Production Values](#production-values)).
 
 ## Purpose And Scope
@@ -32,12 +35,10 @@ document defines the rules all of them follow.
   message, so the raw token is never stored. The token travels in the link's
   URL fragment, so it never reaches server logs. The link opens a Web UI page
   that verifies the address only when the member confirms there with one
-  click, so automatic link scanners cannot verify it (decided, not yet
-  implemented). Changing an address requires verifying the new one; the
+  click, so automatic link scanners cannot verify it. Changing an address requires verifying the new one; the
   previous address stops receiving messages at once.
 - An address is contact data, never a sign-in identifier: members keep signing
-  in with their account name. Only the member and Club Admins can read it
-  (decided, not yet implemented).
+  in with their account name. Only the member and Club Admins can read it.
 - A deactivated member receives no messages.
 - Addresses and their verification state belong to the identity records
   (`DAT-001` in [Security and Data Governance](security-and-data-governance.md#data-classes))
@@ -72,21 +73,19 @@ document defines the rules all of them follow.
   dedicated transactional email outbox table in the platform database, in the
   same unit of work, so a message is sent only for committed changes and never
   lost when the API restarts. Email does not use the NATS-published platform
-  outbox, because it needs no broker (decided, not yet implemented).
+  outbox, because it needs no broker.
 - A delivery worker in the API host polls that table, re-checks before sending
   that the recipient is still active, that the address is still the one the
   message was created for, and, for notifications other than account messages,
   that the recipient still belongs to the notification's audience and still
-  has it enabled (decided, not yet implemented). It renders each message and
+  has it enabled. It renders each message and
   submits it by SMTP to the relay configured for the stamp. Submission
   requires TLS and authentication; the channel is provider-neutral and uses no
-  provider-specific API. The platform uses the MailKit SMTP client (decided,
-  not yet implemented).
+  provider-specific API. The platform uses the MailKit SMTP client.
 - Delivery retries transient failures with bounded backoff and records a
   permanent failure without retrying further. Each message has a stable
   identity, and a message recorded as sent is never sent again; only a crash
-  between the relay accepting a message and the platform recording it may
-  cause one duplicate (decided, not yet implemented).
+  between the relay accepting a message and the platform recording it may cause one duplicate.
 - The platform keeps only minimal delivery records (message identity, type,
   recipient member, state, and timestamps) and does not retain rendered message
   bodies after delivery.
@@ -94,7 +93,7 @@ document defines the rules all of them follow.
   explicit configuration. The first notification type, pending Analyst Manager
   registration requests, sends its first message at once and suppresses
   further ones for the same Club Admin within a coalescing window. Address
-  confirmations are limited per member per hour (decided, not yet implemented).
+  confirmations are limited per member per hour.
 - In local development, the Aspire AppHost runs a mail-catcher container
   (Mailpit) as the stamp's relay, and automated tests use the same pinned image
   as a disposable container. No message leaves the developer's machine.

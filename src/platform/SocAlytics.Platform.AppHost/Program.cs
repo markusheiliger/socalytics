@@ -4,6 +4,7 @@ var builder = DistributedApplication.CreateBuilder(args);
 
 var e2eMode = string.Equals(Environment.GetEnvironmentVariable("SOCALYTICS_APPHOST_MODE"), "e2e", StringComparison.OrdinalIgnoreCase);
 const int WebE2ePort = 4174;
+const int MailpitE2ePort = 4175;
 
 var generatedPassword = new GenerateParameterDefault { MinLength = 24, Special = false };
 var migratorPassword = builder.AddParameter("socalytics-migrator-password", generatedPassword, secret: true, persist: true);
@@ -56,6 +57,11 @@ var nats = builder.AddContainer("nats", "nats", "2.14")
     .WithHttpHealthCheck("/healthz", endpointName: "monitor");
 var natsUrl = ReferenceExpression.Create($"{nats.GetEndpoint("client").Property(EndpointProperty.Url)}");
 
+var mailpit = builder.AddContainer("mailpit", "axllent/mailpit", "v1.31.5")
+    .WithEndpoint(targetPort: 1025, name: "smtp", scheme: "tcp")
+    .WithHttpEndpoint(targetPort: 8025, name: "http");
+var mailpitSmtp = mailpit.GetEndpoint("smtp");
+
 var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithHttpEndpoint()
     .WithEnvironment("ASPNETCORE_ENVIRONMENT", "Development")
@@ -78,6 +84,18 @@ var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithEnvironment("Recordings__Upload__MaxGrantsPerRequest", "1000")
     .WithEnvironment("Recordings__Upload__AllowedContentTypes__0", "video/mp4")
     .WithEnvironment("Recordings__Upload__AllowedContentTypes__1", "video/quicktime")
+    .WithEnvironment("Email__Smtp__Host", ReferenceExpression.Create($"{mailpitSmtp.Property(EndpointProperty.Host)}"))
+    .WithEnvironment("Email__Smtp__Port", ReferenceExpression.Create($"{mailpitSmtp.Property(EndpointProperty.Port)}"))
+    .WithEnvironment("Email__Smtp__Security", "StartTlsWhenAvailable")
+    .WithEnvironment("Email__SenderAddress", "socalytics@localhost")
+    .WithEnvironment("Email__SenderName", "SocAlytics")
+    .WithEnvironment("Email__Confirmation__Lifetime", "1.00:00:00")
+    .WithEnvironment("Email__Confirmation__MaxPerHour", "3")
+    .WithEnvironment("Email__Confirmation__AttemptsPerMinute", "10")
+    .WithEnvironment("Email__Delivery__MaxAttempts", "8")
+    .WithEnvironment("Email__Delivery__PollInterval", "00:00:05")
+    .WithEnvironment("Email__Delivery__LeaseDuration", "00:02:00")
+    .WithEnvironment("Notifications__CoalescingWindow", "00:15:00")
     .WithEnvironment("Analysis__Results__GrantLifetime", "00:10:00")
     .WithEnvironment("Analysis__Results__MaxObjectsPerAttempt", "16")
     .WithEnvironment("Analysis__Results__MaxObjectBytes", "104857600")
@@ -99,7 +117,7 @@ var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WaitForCompletion(migrator);
 
 api.WithEnvironment("Stamp__Id", "local-dev-stamp")
-    .WithEnvironment("Registry__AllowSoftwareKeys", "true");
+    .WithEnvironment("Registry__SoftwareKeys", "all");
 
 if (e2eMode)
 {
@@ -110,6 +128,9 @@ if (e2eMode)
     }
 
     api.WithEnvironment("ClubBootstrap__FirstClubAdmin__InitialPassword", e2eAdminPassword);
+
+    // The e2e API has no HTTPS endpoint; the scripted Analyst Manager declares the scheme through X-Forwarded-Proto.
+    api.WithEnvironment("ASPNETCORE_FORWARDEDHEADERS_ENABLED", "true");
 }
 
 // The e2e mode keeps the HTTPS endpoint: the Manager endpoints require HTTPS, and the Web UI's proxy forwards to it.
@@ -133,10 +154,16 @@ var web = builder.AddViteApp("web", webDirectory, e2eMode ? "preview" : "dev")
     .WithEnvironment("SOCALYTICS_OBJECT_STORAGE_ORIGIN", ReferenceExpression.Create($"{rustfsEndpoint.Property(EndpointProperty.Url)}"));
 rustfs.WithEnvironment("RUSTFS_CORS_ALLOWED_ORIGINS", ReferenceExpression.Create($"{web.GetEndpoint("http").Property(EndpointProperty.Url)}"));
 
+api.WithEnvironment("Notifications__WebUiBaseUri", ReferenceExpression.Create($"{web.GetEndpoint("http").Property(EndpointProperty.Url)}"));
+
 if (e2eMode)
 {
     // The built Web UI is served by `vite preview` on a fixed origin for the browser tests.
     web.WithEndpoint("http", endpoint => endpoint.Port = WebE2ePort);
+
+    // The browser tests read the confirmation messages from Mailpit's REST API on a fixed port.
+    mailpit.WithEndpoint("http", endpoint => endpoint.Port = MailpitE2ePort);
+
     // The endpoint reference above resolves to the container network's host alias, which is not the origin the browser
     // sends; the fixed e2e port makes the browser origins known.
     rustfs.WithEnvironment("RUSTFS_CORS_ALLOWED_ORIGINS", string.Concat("http://127.0.0.1:", WebE2ePort.ToString(), ",http://localhost:", WebE2ePort.ToString()));

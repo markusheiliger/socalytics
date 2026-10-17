@@ -10,6 +10,8 @@ public sealed class ManagerControl : IManagerControl
     private readonly RegistrationCoordinator _coordinator;
     private readonly TimeProvider _time;
     private readonly DateTimeOffset _started;
+    private readonly ApplicationProfile _profile;
+    private readonly LingeringCheck _lingering;
 
     private readonly IManagerWorkTracker _work;
     private readonly Runtime.PreflightScheduler _preflight;
@@ -24,10 +26,13 @@ public sealed class ManagerControl : IManagerControl
     public ManagerControl(RegistrationCoordinator coordinator, TimeProvider time, IManagerWorkTracker work, Runtime.PreflightScheduler preflight,
         DrainCoordinator drain, Microsoft.Extensions.Options.IOptions<OperatingOptions> operating,
         Autostart.IAutostartRegistrar autostart, Work.ConcurrencyLimit concurrency, Work.AttemptRegistry attempts,
-        Queue.QueueDepthState queueDepth, HostUtilizationSampler utilization)
+        Queue.QueueDepthState queueDepth, HostUtilizationSampler utilization,
+        ApplicationProfile profile, LingeringCheck lingering)
     {
         _utilization = utilization;
         _queueDepth = queueDepth;
+        _profile = profile;
+        _lingering = lingering;
         _attempts = attempts;
         _concurrency = concurrency;
         _autostart = autostart;
@@ -82,7 +87,10 @@ public sealed class ManagerControl : IManagerControl
             [.. _attempts.Attempts.Select(a => new ActiveAttemptStatus(
                 a.LogicalJobId, a.AttemptNumber, a.Capability, a.ExecutionState, a.StartedAt, a.LastConfirmedHeartbeat))],
             QueueDepthView(),
-            _utilization.Latest);
+            _utilization.Latest,
+            _profile.ToApiName(),
+            _profile == ApplicationProfile.HeadlessServer ? LingeringCheck.ToWireValue(_lingering.Evaluate()) : null,
+            RegistrationCoordinator.ManagerVersion);
     }
 
     private QueueDepthView QueueDepthView()

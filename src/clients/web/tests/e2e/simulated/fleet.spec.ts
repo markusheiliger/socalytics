@@ -117,6 +117,18 @@ test('a Registrar and other members do not reach the fleet (scenario 5, SC-005)'
   await expect(page.getByRole('heading', { name: 'Analyst Managers' })).toBeVisible();
 });
 
+test('the fleet shows the claimed profile, including Not reported', async ({ page, api }) => {
+  api.signInAs('ClubAdmin');
+  add(api, 1, 'active', { deviceMetadata: { os: 'linux', claimedKeyProtection: 'tpm', claimedApplicationProfile: 'headless-server', hostLabel: 'host-1' } });
+  add(api, 2, 'active', { deviceMetadata: { os: 'linux', claimedKeyProtection: 'tpm', claimedApplicationProfile: 'tray', hostLabel: 'host-2' } });
+  add(api, 3, 'active');
+  await page.goto('/analyst-managers');
+  await expect(page.getByText('Profile (claimed): Headless server')).toBeVisible();
+  await expect(page.getByText('Profile (claimed): Tray')).toBeVisible();
+  await expect(page.getByText('Profile (claimed): Not reported')).toBeVisible();
+  await expectNoAxeViolations(page);
+});
+
 test('a never-reported Manager, unknown values, and a long label do not break the view', async ({ page, api }) => {
   api.signInAs('ClubAdmin');
   const long = 'workstation-'.repeat(8);

@@ -49,6 +49,8 @@ export function MyRequestPage() {
         <Stack component="ul" sx={{ listStyle: 'none', m: 0, p: 0, mt: 2 }} spacing={0.5}>
           <li>{t('pairing.hostLabel', { value: r.deviceMetadata.hostLabel ?? none })}</li>
           <li>{t('requests.fingerprint', { value: r.deviceFingerprint })}</li>
+          <li>{t('pairing.keyProtection', { value: t(`keyProtection.${r.deviceMetadata.claimedKeyProtection}`) })}</li>
+          <li>{t('pairing.profile', { value: t(`applicationProfile.${r.deviceMetadata.claimedApplicationProfile ?? 'notReported'}`) })}</li>
           <li>{t('pairing.state', { state: t(`state.${r.state}`) })}</li>
           {r.submittedAt && <li>{t('requests.submittedAt', { value: r.submittedAt.toLocaleString() })}</li>}
           {r.decidedAt && <li>{t('requests.decidedAt', { value: r.decidedAt.toLocaleString() })}</li>}

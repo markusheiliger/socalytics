@@ -15,16 +15,24 @@ internal static class PlatformServices
         IsolatedDatabase database,
         CapturingLoggerProvider? logs = null,
         MutableTimeProvider? time = null,
-        CountingPasswordHasher? hasher = null)
+        CountingPasswordHasher? hasher = null,
+        IReadOnlyDictionary<string, string?>? extraSettings = null)
     {
         var values = new Dictionary<string, string?>(TestIdentityAccessSettings.Values)
         {
             ["ConnectionStrings:socalytics"] = database.AppConnectionString,
         };
+        foreach (var (key, value) in extraSettings ?? new Dictionary<string, string?>())
+        {
+            values[key] = value;
+        }
+
         IConfiguration configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
 
         var services = new ServiceCollection();
         services.AddSingleton(configuration);
+        services.AddSingleton<Microsoft.Extensions.Hosting.IHostEnvironment>(
+            new Microsoft.Extensions.Hosting.Internal.HostingEnvironment { EnvironmentName = "Development" });
         services.AddLogging(builder =>
         {
             if (logs is not null)

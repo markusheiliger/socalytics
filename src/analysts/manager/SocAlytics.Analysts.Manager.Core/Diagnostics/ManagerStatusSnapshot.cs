@@ -105,4 +105,7 @@ public sealed record ManagerStatusSnapshot(
     Work.ConcurrencySnapshot Concurrency,
     IReadOnlyList<ActiveAttemptStatus> ActiveAttempts,
     QueueDepthView QueueDepth,
-    HostUtilizationSample? HostUtilization = null);
+    HostUtilizationSample? HostUtilization = null,
+    string ApplicationProfile = "tray",
+    string? Lingering = null,
+    string ManagerVersion = "0.1.0");

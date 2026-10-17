@@ -4,7 +4,7 @@ import { expect, test } from '../support/fixtures';
 import { match, team } from '../support/simulatedApi';
 import { MiB, writeTestVideo } from '../support/testFiles';
 
-const STORAGE = 'http://127.0.0.1:4175';
+const STORAGE = 'http://127.0.0.1:4176';
 
 async function control(path: string, body?: unknown) {
   await fetch(`${STORAGE}/__control/${path}`, { method: 'POST', body: JSON.stringify(body ?? {}) });
