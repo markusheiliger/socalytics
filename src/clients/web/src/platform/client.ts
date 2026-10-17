@@ -24,11 +24,13 @@ export interface PlatformClientOptions {
   minimumVersion?: MinimumVersionOptions;
 }
 
-// A 429 is shown with its wait time instead of being retried silently.
+// A 429 is shown with its wait time instead of being retried silently; an unavailable
+// provider on external sign-in start is shown at once.
 const noRateLimitRetry = () =>
   new RetryHandler(
     new RetryHandlerOptions({
-      shouldRetry: (_delay, _attempt, _url, _init, response) => response.status !== 429,
+      shouldRetry: (_delay, _attempt, url, _init, response) =>
+        response.status !== 429 && !new URL(url, 'http://localhost').pathname.endsWith('/api/v1/session/external'),
     }),
   );
 

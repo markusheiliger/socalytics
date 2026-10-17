@@ -29,6 +29,8 @@ function compositeDigest(partSizeBytes: number, partDigests: string[]): string {
 export type SimulatedRole = 'ClubAdmin' | 'Registrar' | 'Coach' | 'Viewer';
 
 export const ANTIFORGERY_TOKEN = 'simulated-antiforgery-token-7f3a9c';
+/** Origin of the simulated identity provider's authorization endpoint; no request leaves the browser. */
+export const SIMULATED_PROVIDER_ORIGIN = 'https://login.simulated.test';
 export const SIMULATED_PASSWORD = 'Simulated-Password-1!';
 
 const ids = {
@@ -207,6 +209,23 @@ export class SimulatedApi {
     this.overrides.set(`${method.toUpperCase()} ${path}`, handler);
   }
 
+  /** Identity providers the simulated platform lists; empty means none is configured. */
+  providers: { id: string; displayName: string }[] = [];
+  /** When true, starting an external sign-in answers 503 `provider-unavailable`. */
+  providerUnavailable = false;
+
+  /**
+   * Simulates the provider and the platform callback: the browser navigating to the authorization URL
+   * is redirected as the callback would, to the Web UI home (signed in as `role`) or to `?external=failed`.
+   */
+  async simulateProviderRedirect(outcome: 'success' | 'failed', role: SimulatedRole = 'ClubAdmin'): Promise<void> {
+    await this.page.route(`${SIMULATED_PROVIDER_ORIGIN}/**`, (route) => {
+      const target = new URL(outcome === 'success' ? '/' : '/sign-in?external=failed', this.page.url());
+      if (outcome === 'success') this.signInAs(role);
+      return route.fulfill({ status: 302, headers: { Location: target.toString() } });
+    });
+  }
+
   /** Registrations the simulated platform knows, in list order; tests may add, replace, or clear them. */
   registrations: AnalystManagerRegistrationDto[] = [];
   /** Pairing codes (as typed, upper-case, with dashes) the platform accepts, mapped to the registration they pair. */
@@ -373,6 +392,18 @@ export class SimulatedApi {
         return json(401, problem(401, 'Invalid credentials'));
       }
       return json(200, sessionFor(this.current.role, this.current.passwordChangeRequired));
+    }
+    if (method === 'GET' && path === '/identity-providers') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'Cache-Control': 'no-store' },
+        body: JSON.stringify({ providers: this.providers }),
+      });
+    }
+    if (method === 'POST' && path === '/session/external') {
+      if (this.providerUnavailable) return json(503, problem(503, 'Provider unavailable', { code: 'provider-unavailable' }));
+      return json(200, { authorizationUrl: `${SIMULATED_PROVIDER_ORIGIN}/authorize?state=simulated` });
     }
     if (method === 'POST' && path === '/credentials/redeem') {
       return route.fulfill({ status: 204 });

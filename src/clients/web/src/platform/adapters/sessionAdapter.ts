@@ -8,14 +8,26 @@ import {
   createProblemDetailsFromDiscriminatorValue,
   createCurrentMemberDtoFromDiscriminatorValue,
   createSessionInfoDtoFromDiscriminatorValue,
+  createIdentityProvidersDtoFromDiscriminatorValue,
+  createExternalAuthorizationDtoFromDiscriminatorValue,
   type CurrentMemberDto,
+  type ExternalAuthorizationDto,
+  type IdentityProvidersDto,
   type SessionInfoDto,
 } from '../../generated/platform-api/models';
 import type { PlatformApiClient } from '../../generated/platform-api/platformApiClient';
 import { PlatformFailure, toPlatformFailure } from '../failure';
 import type { ClubRole, Session, TeamRole, TeamRoleName } from '../models/session';
 
+export interface IdentityProvider {
+  id: string;
+  displayName: string;
+}
+
 export interface SessionAdapter {
+  listProviders(): Promise<IdentityProvider[]>;
+  /** Returns the provider's authorization URL; the browser then navigates to it. */
+  startExternalSignIn(provider: string): Promise<string>;
   signIn(accountName: string, password: string): Promise<Session>;
   restore(): Promise<Session>;
   signOut(): Promise<void>;
@@ -103,6 +115,27 @@ export function createSessionAdapter(api: { adapter: RequestAdapter; client: Pla
   };
 
   return {
+    listProviders: async () => {
+      try {
+        const dto = (await adapter.send(client.api.v1.identityProviders.toGetRequestInformation(), createIdentityProvidersDtoFromDiscriminatorValue, errorMappings)) as IdentityProvidersDto | undefined;
+        return (dto?.providers ?? []).flatMap((p): IdentityProvider[] => (p.id && p.displayName ? [{ id: p.id, displayName: p.displayName }] : []));
+      } catch (error) {
+        throw toPlatformFailure(error);
+      }
+    },
+    startExternalSignIn: async (provider) => {
+      try {
+        const dto = (await adapter.send(
+          withJson(client.api.v1.session.external.toPostRequestInformation(), { provider }),
+          createExternalAuthorizationDtoFromDiscriminatorValue,
+          errorMappings,
+        )) as ExternalAuthorizationDto | undefined;
+        if (!dto?.authorizationUrl) throw new PlatformFailure('incompatible');
+        return dto.authorizationUrl;
+      } catch (error) {
+        throw toPlatformFailure(error);
+      }
+    },
     signIn: (accountName, password) =>
       sendSession(withJson(client.api.v1.session.toPostRequestInformation(), { accountName, password })),
     restore: () => sendSession(client.api.v1.session.toGetRequestInformation()),

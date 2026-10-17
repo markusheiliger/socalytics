@@ -103,4 +103,23 @@ describe('sessionAdapter', () => {
     expect(calls[0].url).toBe(`${window.location.origin}/api/v1/credentials/redeem`);
     expect(JSON.parse(new TextDecoder().decode(calls[0].init.body as ArrayBuffer))).toEqual({ accountName: 'ada', credential: 'code-1', newPassword: 'new' });
   });
+
+  it('lists identity providers', async () => {
+    const { adapter, calls } = setup(() => ok(200, { providers: [{ id: 'club-entra', displayName: 'Club account' }, { id: 'x' }] }));
+    expect(await adapter.listProviders()).toEqual([{ id: 'club-entra', displayName: 'Club account' }]);
+    expect(calls[0].url).toBe(`${window.location.origin}/api/v1/identity-providers`);
+    expect(calls[0].init.method).toBe('GET');
+  });
+
+  it('starts an external sign-in and returns the authorization URL', async () => {
+    const { adapter, calls } = setup(() => ok(200, { authorizationUrl: 'https://login.example/authorize?x=1' }));
+    expect(await adapter.startExternalSignIn('club-entra')).toBe('https://login.example/authorize?x=1');
+    expect(calls[0].url).toBe(`${window.location.origin}/api/v1/session/external`);
+    expect(JSON.parse(new TextDecoder().decode(calls[0].init.body as ArrayBuffer))).toEqual({ provider: 'club-entra' });
+  });
+
+  it('maps an unavailable provider and a missing URL', async () => {
+    await expect(setup(() => problem(503, 'provider-unavailable')).adapter.startExternalSignIn('p')).rejects.toMatchObject({ code: 'provider-unavailable', status: 503 });
+    await expect(setup(() => ok(200, {})).adapter.startExternalSignIn('p')).rejects.toMatchObject({ kind: 'incompatible' });
+  });
 });
