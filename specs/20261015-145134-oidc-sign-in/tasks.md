@@ -65,7 +65,7 @@ description: "Task list for External OpenID Connect Sign-In"
 
 **Independent Test**: An external-only member is refused locally; a member with both paths uses either; password change, reset, and break-glass leave links unchanged.
 
-- [ ] T008 [US3] Coexistence (FR-015, FR-016): ensure a member without a local password is refused by `POST /api/v1/session` with the generic failure and equal timing in `src/platform/SocAlytics.Platform.Infrastructure/IdentityAccess/AccountCredentialService.cs` (change only if the existing behavior differs). Tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/ExternalIdentityCoexistenceTests.cs`: US3 scenarios 1–4, including a break-glass directive applied to a linked Club Admin, and the timing rule of `SignInTimingTests` for external-only members.
+- [x] T008 [US3] Coexistence (FR-015, FR-016): ensure a member without a local password is refused by `POST /api/v1/session` with the generic failure and equal timing in `src/platform/SocAlytics.Platform.Infrastructure/IdentityAccess/AccountCredentialService.cs` (change only if the existing behavior differs). Tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/ExternalIdentityCoexistenceTests.cs`: US3 scenarios 1–4, including a break-glass directive applied to a linked Club Admin, and the timing rule of `SignInTimingTests` for external-only members.
 
 **Checkpoint**: All user stories work.
 
