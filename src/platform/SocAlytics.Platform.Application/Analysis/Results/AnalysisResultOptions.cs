@@ -15,11 +15,21 @@ public sealed class AnalysisResultOptions
     public long MaxAttemptBytes { get; set; }
 
     public long MaxManifestBytes { get; set; }
+
+    public long MaxFactArtifactBytes { get; set; }
+
+    public int MaxFactPayloadBytes { get; set; }
+
+    public int MaxFactsPerResult { get; set; }
 }
 
 internal sealed class AnalysisResultOptionsValidator : IValidateOptions<AnalysisResultOptions>
 {
     private const long MinManifestBytes = 1024;
+    private const long MinFactArtifactBytes = 1024;
+    private const int MinFactPayloadBytes = 256;
+    private const int MaxAllowedFactPayloadBytes = 1_048_576;
+    private const int MaxAllowedFactsPerResult = 1_000_000;
 
     public ValidateOptionsResult Validate(string? name, AnalysisResultOptions options)
     {
@@ -49,6 +59,21 @@ internal sealed class AnalysisResultOptionsValidator : IValidateOptions<Analysis
         if (options.MaxAttemptBytes < options.MaxObjectBytes)
         {
             failures.Add($"{section}:MaxAttemptBytes must not be less than MaxObjectBytes.");
+        }
+
+        if (options.MaxFactArtifactBytes < MinFactArtifactBytes || options.MaxFactArtifactBytes > options.MaxObjectBytes)
+        {
+            failures.Add($"{section}:MaxFactArtifactBytes must be between {MinFactArtifactBytes} and MaxObjectBytes.");
+        }
+
+        if (options.MaxFactPayloadBytes < MinFactPayloadBytes || options.MaxFactPayloadBytes > MaxAllowedFactPayloadBytes)
+        {
+            failures.Add($"{section}:MaxFactPayloadBytes must be between {MinFactPayloadBytes} and {MaxAllowedFactPayloadBytes}.");
+        }
+
+        if (options.MaxFactsPerResult < 1 || options.MaxFactsPerResult > MaxAllowedFactsPerResult)
+        {
+            failures.Add($"{section}:MaxFactsPerResult must be between 1 and {MaxAllowedFactsPerResult}.");
         }
 
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
