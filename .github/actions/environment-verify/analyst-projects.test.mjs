@@ -498,6 +498,194 @@ exit 0
     assert.equal(result.outputs.checks, 'Analyst Python projects');
   });
 
+  describe('cross-check regression', () => {
+    const platformSolution = 'src/platform/SocAlytics.Platform.slnx';
+    const platformTests = [
+      'src/platform/Tests/SocAlytics.Platform.Architecture.Tests/SocAlytics.Platform.Architecture.Tests.csproj',
+      'src/platform/Tests/SocAlytics.Platform.Integration.Tests/SocAlytics.Platform.Integration.Tests.csproj',
+    ];
+    const managerSolution = 'src/analysts/manager/SocAlytics.Analysts.Manager.slnx';
+    const managerTest = 'src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/SocAlytics.Analysts.Manager.Tests.csproj';
+
+    // Stubs for every external command the checks run, so no database, package index, or runner is contacted.
+    function toolBin() {
+      const bin = stubBin();
+      for (const tool of ['dotnet', 'npm']) {
+        writeFileSync(path.join(bin, tool), `#!/bin/bash
+echo "$PWD|${tool}|$*" >> "$UV_CALLS"
+echo "start ${tool} $*" >> "$UV_CALLS.events"
+sleep 0.02
+echo "end ${tool} $*" >> "$UV_CALLS.events"
+if [ -n "$FAIL_TOOL" ] && [[ "$*" == *"$FAIL_TOOL"* ]]; then echo "stub failure"; exit 4; fi
+exit 0
+`, { mode: 0o755 });
+      }
+      return bin;
+    }
+
+    function touch(root, relative, content = '') {
+      mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+      writeFileSync(path.join(root, relative), content);
+    }
+
+    function fullRepository({ platform = true, manager = true, web = true, python = true } = {}) {
+      const root = repository();
+      if (platform) {
+        touch(root, platformSolution);
+        for (const test of platformTests) touch(root, test);
+        touch(root, 'src/platform/global.json', '{"sdk":{"version":"10.0.100"}}');
+      }
+      if (manager) {
+        touch(root, managerSolution);
+        touch(root, managerTest);
+        touch(root, 'src/analysts/manager/global.json', '{"sdk":{"version":"10.0.100"}}');
+      }
+      if (web) {
+        touch(root, 'src/clients/web/package.json', '{}');
+        touch(root, 'src/clients/web/node_modules/@playwright/test/package.json', '{"version":"1.63.0"}');
+      }
+      if (python) project(root, sdkRoot, { name: 'sdk' });
+      return root;
+    }
+
+    const names = {
+      platform: 'platform build and tests',
+      manager: 'Analyst Manager build and tests',
+      web: 'Web UI build and tests',
+      python: 'Analyst Python projects',
+      markdown: 'Markdown check',
+    };
+    const commands = (result, tool) => result.calls.filter((call) => call[1] === tool).map((call) => call[2]);
+
+    it('keeps the established checks, order, and sequential platform tests in finalize mode', () => {
+      const root = fullRepository();
+      const result = run(root, { bin: toolBin() });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.outputs.checks, Object.values(names).join(','));
+      assert.deepEqual(commands(result, 'dotnet'), [
+        `restore ${platformSolution}`,
+        `build ${platformSolution} --no-restore`,
+        ...platformTests.map((test) => `test ${test} --no-build`),
+        'restore SocAlytics.Analysts.Manager.slnx',
+        'build SocAlytics.Analysts.Manager.slnx --no-restore',
+        `test ${managerTest.replace('src/analysts/manager/', '')} --no-build`,
+      ]);
+      assert.deepEqual(commands(result, 'npm'), ['ci', 'run build', 'test', 'run test:e2e']);
+      assert.equal(result.outputs.uncovered, '');
+    });
+
+    it('never overlaps the platform test projects', () => {
+      const root = fullRepository({ manager: false, web: false, python: false });
+      const dir = path.join(temporary, `events-${counter++}`);
+      mkdirSync(dir);
+      const calls = path.join(dir, 'calls.txt');
+      const result = run(root, { bin: toolBin(), env: { UV_CALLS: calls } });
+      assert.equal(result.status, 0, result.log);
+      const events = readFileSync(`${calls}.events`, 'utf8').split('\n').filter(Boolean).map((line) => line.split(' ')[0]);
+      assert.ok(events.length > 0);
+      events.forEach((event, index) => assert.equal(event, index % 2 === 0 ? 'start' : 'end'));
+    });
+
+    it('selects each check only for its own trigger in task mode', () => {
+      const root = fullRepository();
+      const bin = toolBin();
+      const web = run(root, { mode: 'task', changed: ['src/clients/web/src/a.ts'], bin });
+      assert.equal(web.outputs.checks, names.web);
+      assert.equal(web.outputs.uncovered, '');
+      const api = run(root, { mode: 'task', changed: ['src/platform/SocAlytics.Platform.Api/a.cs'], bin });
+      assert.equal(api.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.web].join(','));
+      const fixtures = run(root, { mode: 'task', changed: ['contracts/analyst-manager/queue-depth/a.json'], bin });
+      assert.equal(fixtures.outputs.checks, [names.platform.replace('tests', 'affected tests'), names.manager.replace('tests', 'affected tests')].join(','));
+      assert.equal(fixtures.outputs.uncovered, '');
+      const docs = run(root, { mode: 'task', changed: ['docs/a.md'], bin });
+      assert.equal(docs.outputs.checks, names.markdown);
+    });
+
+    it('fails on a failing test project, finishes the remaining projects, and stops the later checks', () => {
+      const root = fullRepository();
+      const result = run(root, {
+        bin: toolBin(), env: { FAIL_TOOL: 'Architecture.Tests.csproj' }, changed: ['src/platform/a.cs', 'src/analysts/other/x.py'],
+      });
+      assert.equal(result.status, 1);
+      assert.equal(result.outputs.checks, names.platform);
+      assert.equal(commands(result, 'dotnet').filter((command) => command.startsWith('test ')).length, 2);
+      assert.equal(commands(result, 'npm').length, 0);
+      assert.match(result.log, /stub failure/);
+      assert.match(result.log, /exit: 4; command: dotnet test/);
+      assert.equal(result.outputs.uncovered, 'src/analysts/other/x.py');
+    });
+
+    it('stops at the first failing Web UI step and still writes every output', () => {
+      const root = fullRepository({ python: false });
+      const result = run(root, { mode: 'phase', changed: ['src/clients/web/a.ts', 'src/clients/other/b.ts'], bin: toolBin(), env: { FAIL_TOOL: 'run build' } });
+      assert.equal(result.status, 1);
+      assert.equal(result.outputs.checks, names.web);
+      assert.deepEqual(commands(result, 'npm'), ['ci', 'run build']);
+      assert.match(result.log, /Web UI step failed: build/);
+      assert.equal(result.outputs.uncovered, 'src/clients/other/b.ts');
+    });
+
+    it('leaves absent project paths uncovered and runs no check for them', () => {
+      const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+      const changed = [
+        'src/platform/a.cs', 'contracts/common/a.json', 'src/analysts/manager/a.cs', 'src/clients/web/a.ts',
+        'src/analysts/sdk/a.py', 'src/analysts/capabilities/c/a.py', 'README.md', 'specs/x/tasks.md',
+      ];
+      const result = run(root, { mode: 'task', changed, bin: toolBin() });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.outputs.uncovered, changed.filter((file) => !/\.md$|^specs\//.test(file)).join(','));
+      assert.equal(result.outputs.checks, names.markdown);
+      assert.equal(result.calls.length, 0);
+    });
+
+    it('leaves deleted or unowned Python project paths uncovered while other scopes stay covered', () => {
+      const root = fullRepository({ python: false });
+      project(root, 'src/analysts/capabilities/kept', { name: 'kept' });
+      const changed = [
+        'src/analysts/capabilities/deleted/pyproject.toml', 'src/analysts/capabilities/deleted/a.py',
+        'src/analysts/other/a.py', 'src/analysts/capabilities/stray.py', 'src/platform/a.cs',
+      ];
+      const result = run(root, { mode: 'task', changed, bin: toolBin() });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.outputs.uncovered, changed.slice(0, 4).join(','));
+      assert.ok(result.outputs.checks.startsWith(names.platform.replace('tests', 'affected tests')));
+      assert.ok(!result.outputs.checks.includes(names.python));
+      assert.equal(result.calls.filter((call) => call[1] === 'never').length, 0);
+    });
+
+    it('covers contracts only while the platform solution exists', () => {
+      const bin = toolBin();
+      const present = run(fullRepository({ python: false }), { mode: 'task', changed: ['contracts/common/a.json'], bin });
+      assert.equal(present.outputs.uncovered, '');
+      assert.equal(present.outputs.checks, names.platform.replace('tests', 'affected tests'));
+      const absent = run(fullRepository({ platform: false, python: false }), { mode: 'task', changed: ['contracts/common/a.json'], bin });
+      assert.equal(absent.outputs.uncovered, 'contracts/common/a.json');
+      assert.equal(absent.outputs.checks, '');
+    });
+
+    it('keeps the environment actions, Markdown, and Spec Kit artifacts covered without running a check', () => {
+      const changed = ['.github/actions/environment-verify/action.yml', '.github/actions/environment-setup/x.sh', 'specs/a/spec.md', '.gitignore'];
+      const result = run(fullRepository({ python: false }), { mode: 'task', changed: changed.filter((file) => !file.endsWith('.md')), bin: toolBin() });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.outputs.checks, '');
+      assert.equal(result.outputs.uncovered, '');
+      assert.equal(result.calls.length, 0);
+    });
+
+    it('keeps the log, checks, and uncovered outputs for an Analyst failure alongside platform checks', () => {
+      const root = fullRepository({ web: false });
+      const result = run(root, {
+        mode: 'phase', changed: ['src/analysts/sdk/a.py', 'src/analysts/capabilities/gone/a.py'],
+        env: { FAIL_STAGE: stages[2] }, bin: toolBin(),
+      });
+      assert.equal(result.status, 1);
+      assert.equal(result.outputs.checks, names.python);
+      assert.equal(result.outputs.uncovered, 'src/analysts/capabilities/gone/a.py');
+      assert.match(result.log, /Analyst Python stage failed: wheel build in src\/analysts\/sdk/);
+      assert.equal(commands(result, 'dotnet').length, 0);
+    });
+  });
+
   const uvReal = spawnSync('uv', ['--version']).status === 0;
   it('passes every stage for a real isolated package fixture without changing declarations', { skip: !uvReal }, () => {
     const root = repository();
