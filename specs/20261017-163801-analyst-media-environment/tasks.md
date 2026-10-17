@@ -109,3 +109,7 @@ The implementation chain must merge all phases before downstream features rely o
 5. Document the implemented environment, pass all final gates, and present the environment change for human review before merge.
 
 The technical MVP is the shared foundation plus US1. It is not permission to merge an incomplete environment feature, request downstream implementation, or claim the later products work.
+
+## Phase 7: Convergence
+
+- [ ] T015 Report every Python product manifest (`pyproject.toml`) under `src/analysts/` outside the recognized `src/analysts/sdk/` and immediate `src/analysts/capabilities/<name>/` roots (excluding `src/analysts/manager/` and the ignored dependency, cache, and generated directories) as an explicit unsupported-layout failure in `.github/actions/environment-verify/analyst-projects.py`, naming the manifest, the `project convention` stage, and one recommended action, while its source stays uncovered; add fixtures in `.github/actions/environment-verify/analyst-projects.test.mjs` for a nested capability manifest, an unrecognized `src/analysts/<other>/pyproject.toml`, and ignored/Manager manifests, and update `.github/actions/environment-verify/README.md` to match, per plan: Product project boundary, FR-006, and the environment interface contract ("An unrecognized product manifest must not silently disappear from finalize verification") (missing)
