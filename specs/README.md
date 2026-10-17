@@ -46,6 +46,7 @@ features it depends on are merged.
 | [Deterministic Web UI Session Restore Retry Test](archive/20261015-202520-fix-session-restore-test/spec.md) | Fix spec: the session restore retry unit test waits for the unreachable failure to be reflected before asserting it, without weakening any assertion | Web UI Foundation |
 | [Free Port for the PWA Tampering Proxy Test](archive/20261016-080200-fix-pwa-tamper-proxy-port/spec.md) | Fix spec: the tampered shell file browser test runs its tampering proxy on an unused port instead of the fake object-store port, without changing any assertion | Installable Web UI with Service Worker Updates |
 | [Patched MessagePack Pin for the Platform Restore](archive/20261016-093032-fix-messagepack-audit/spec.md) | Fix spec: a central transitive pin raises MessagePack to a patched version so the platform restore passes NuGet audit without disabling it | None |
+| [Analyst and Media Verification Environment](20261017-163801-analyst-media-environment/spec.md) | Environment feature: pinned, integrity-verified Python, uv, and media tools; locked SDK and capability verification with dependency-aware selection, honest coverage, and corrective guidance before product projects exist | Environment Verification Coverage, Sequential Platform Test Projects in Environment Verification, Web UI Verification Environment |
 
 Environment Verification Coverage and Platform Persistence Foundation can be
 developed in parallel. Analyst Manager Registration follows Recording Lineage
