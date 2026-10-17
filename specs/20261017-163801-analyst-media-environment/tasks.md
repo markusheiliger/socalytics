@@ -69,7 +69,7 @@
 
 ### Parallel Environment Documentation
 
-- [ ] T012 [P] Document the implemented pinned distributions, artifact integrity and retention limits, notices, Linux x64 scope, tools-disabled behavior, synthetic smoke check, and one-action recovery guidance in `.github/actions/environment-setup/README.md`; describe only executable environment behavior and explicitly exclude product and production approval.
+- [x] T012 [P] Document the implemented pinned distributions, artifact integrity and retention limits, notices, Linux x64 scope, tools-disabled behavior, synthetic smoke check, and one-action recovery guidance in `.github/actions/environment-setup/README.md`; describe only executable environment behavior and explicitly exclude product and production approval.
 - [ ] T013 [P] Document the implemented independent project layout, local dependencies, locked backend and external-wheel expectations, exact command stages, mode/contract/environment triggers, coverage boundaries, self-tests, and corrective actions in `.github/actions/environment-verify/README.md`; do not advertise product commands for an SDK that does not exist.
 
 ### Final Acceptance
