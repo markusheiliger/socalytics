@@ -104,6 +104,10 @@ feedback (`revise`). Locally it runs interactively and asks before it changes
 anything. Its report recommends exactly one command that fits its category and
 can be posted as it is, with the guidance written out; the agent checks it with
 `node .github/scripts/speckit-diagnose.mjs check-report <report.json>` first.
+Publication rejects inconsistent category/command recommendations instead of replacing them with a retry.
+When the required fix is already on the implementation pull request's base branch, the diagnosis uses `outside`
+and recommends `/speckit sync`: the existing Copilot conflict-resolution workflow must merge and verify the
+latest base before implementation can continue.
 
 `/speckit-gha-fix` is the method of the `Spec Kit fix` agentic workflow, which
 a person starts with `/speckit fix <what to fix>` when the cause lies outside

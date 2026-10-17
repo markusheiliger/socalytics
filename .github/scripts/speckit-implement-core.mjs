@@ -4,6 +4,36 @@ export const BRANCH_PREFIX = 'speckit/';
 export const CHECK_RUN_NAME = 'Spec Kit implementation';
 export const START_COMMENT_MARKER = '<!-- speckit-implement:start -->';
 export const RETRY_COMMENT_MARKER = '<!-- speckit-implement:retry -->';
+export const SYNC_COMMENT_MARKER = '<!-- speckit-implement:sync -->';
+const SYNC_BARRIER_PATTERN = /<!-- speckit-implement:sync-barrier (\{[^\n]*?\}) -->/;
+
+export function renderSyncComment(lead, guidance = '', state = null) {
+  return renderRestartComment(SYNC_COMMENT_MARKER, lead, guidance, state);
+}
+
+export const renderSyncBarrierMarker = (state) => `<!-- speckit-implement:sync-barrier ${JSON.stringify(state)} -->`;
+
+// Requests and acknowledgements live on the pull request, not in replaceable workflow inputs or head-bound checks.
+export function syncBarrier(comments, { includeReleased = false } = {}) {
+  const trusted = comments.filter((comment) => comment.user?.login === BOT_LOGIN);
+  const request = trusted.filter((comment) => String(comment.body ?? '').startsWith(SYNC_COMMENT_MARKER)).at(-1);
+  if (!request) return null;
+  const id = String(request.id ?? request.created_at);
+  let completion = null;
+  let completionAt = null;
+  for (const comment of trusted) {
+    try {
+      const state = JSON.parse(String(comment.body ?? '').match(SYNC_BARRIER_PATTERN)?.[1] ?? 'null');
+      if (state?.request === id && ['verified', 'released'].includes(state.state)) {
+        completion = state;
+        completionAt = comment.created_at;
+      }
+    } catch {
+      // Invalid acknowledgements cannot release a barrier.
+    }
+  }
+  return completion?.state === 'released' && !includeReleased ? null : { request: id, at: request.created_at, guidance: parseGuidance(request.body) ?? '', completion, completionAt };
+}
 // Existing pull requests may carry this marker from before `/speckit resume` was removed. It remains a restart marker
 // for attempt accounting and guidance, but no longer causes a base-branch merge.
 export const LEGACY_RESUME_COMMENT_MARKER = '<!-- speckit-implement:resume -->';
@@ -265,7 +295,7 @@ export function latestHumanCommit(commits) {
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
 }
 
-// Guidance a person gave with `/speckit retry` (the text after the command), carried in the retry comment.
+// Guidance a person gave with `/speckit retry` or `/speckit sync`, carried in the workflow comment.
 export function renderGuidanceMarker(text) {
   return `<!-- speckit-implement:guidance ${Buffer.from(JSON.stringify({ text: String(text) }), 'utf8').toString('base64')} -->`;
 }
@@ -825,10 +855,12 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   const exceeded = ({ failures, total }) => failures >= MAX_TASK_ATTEMPTS || total >= MAX_TASK_ATTEMPTS * 2;
 
   const plan = planTasks(tasksMarkdown, { maxEntries });
+  // An already-current required sync can succeed without moving the head, leaving old conflict checks on it.
+  const unresolved = (check) => !attempts.some((attempt) => attempt.kind === 'resolve' && attempt.outcome === 'success' && Date.parse(attempt.at) > checkTime(check));
   // Merging the base branch before a phase or the convergence conflicted on this head: resolve first, best effort.
   // After MAX_SYNC_RESOLVE_ATTEMPTS failed attempts, or one that needs a person, the work continues on its base.
   let syncGivenUp = null;
-  const syncConflict = latestCheckRun(checks.filter((check) => check.external_id === CHECK_SYNC_CONFLICT));
+  const syncConflict = latestCheckRun(checks.filter((check) => check.external_id === CHECK_SYNC_CONFLICT && unresolved(check)));
   if (syncConflict) {
     const list = inWindow.filter((attempt) => attempt.kind === 'resolve' && Date.parse(attempt.at) >= checkTime(syncConflict));
     const failures = list.filter((attempt) => attempt.outcome === 'failure').length;
@@ -866,7 +898,7 @@ export function decideNext({ tasksMarkdown, checks = [], attempts = [], windowSt
   if (!converged) {
     kind = 'converge';
     count = tally((attempt) => attempt.kind === 'converge' && atOf(attempt) > lastTask);
-  } else if (latestCheckRun(checks.filter((check) => [CHECK_MERGE, CHECK_CONFLICT].includes(check.external_id)))?.external_id === CHECK_CONFLICT) {
+  } else if (latestCheckRun(checks.filter((check) => [CHECK_MERGE, CHECK_CONFLICT].includes(check.external_id) && (check.external_id !== CHECK_CONFLICT || unresolved(check))))?.external_id === CHECK_CONFLICT) {
     kind = 'resolve';
     // Only attempts at the current conflict count; earlier, already resolved conflicts do not.
     const conflictAt = checkTime(latestCheckRun(checks.filter((check) => check.external_id === CHECK_CONFLICT)));
@@ -1057,6 +1089,7 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
 // it applies the amendment, closing it discards it, and a comment or review asks for a rework.
 export const PR_COMMANDS = [
   { name: 'retry', usage: '/speckit retry [guidance]', help: 'restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless the guidance starts with `--force`' },
+  { name: 'sync', usage: '/speckit sync [guidance]', help: 'require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved' },
   { name: 'fix', usage: '/speckit fix [guidance]', help: 'for a cause outside this spec: an agent authors a fix spec and opens it against the base branch for your review; once it is merged and implemented, this implementation retries by itself' },
   { name: 'help', usage: '/speckit help', help: 'list these commands' },
 ];
@@ -1096,6 +1129,8 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
     return `Does not merge ${base}; ${argument ? 'runs a repair agent with the guidance, then reverifies' : 'reverifies without running a repair agent'} the pending ${continuation.repair.scope} verification. The original failed scope must pass before normal planning continues; if this repair attempt fails, the implementation stops for a person again. With guidance, a successful no-change repair also reaches reverification without an empty commit.${flag}`;
   }
   switch (parsed.verb) {
+    case 'sync':
+      return `Requires merging ${base} into the implementation branch and successful full verification before any work continues (Copilot resolves conflicts). A pending repair retains its original scope and attempt limit; full verification can clear it only when the original failed scope is covered and passes. ${guidance}`;
     case 'retry':
       return mergesAnyway
         ? `The implementation ${next}, ${attempts}. That work merges ${base} first at its normal synchronization boundary. ${guidance}`

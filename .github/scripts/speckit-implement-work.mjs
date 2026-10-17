@@ -49,6 +49,10 @@ import {
   summarizeTask,
   syncPullRequestTaskList,
   syncPullRequestTicks,
+  syncBarrier,
+  renderSyncBarrierMarker,
+  setAttention,
+  unresolvedRepair,
   tasksPathOf,
   taskProgress,
   tickTask,
@@ -268,6 +272,17 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', baseSha]);
   const conflicts = unmergedPaths(git);
   const result = { kind: inputs.kind, baseSha, head, conflicts, reasons: [], checks: [], verified: false };
+  if (env.SPECKIT_REQUIRED_SYNC) result.requiredSync = env.SPECKIT_REQUIRED_SYNC;
+  if (env.SPECKIT_REQUIRED_SYNC && env.SPECKIT_SYNC_REPAIR) {
+    const repair = parseJsonInput(env.SPECKIT_SYNC_REPAIR, 'SPECKIT_SYNC_REPAIR');
+    const original = env.SPECKIT_SYNC_ORIGINAL_SCOPE;
+    result.syncRepair = {
+      id: repair.id,
+      scope: repair.scope,
+      snapshot: repair,
+      paths: original && existsSync(original) ? readFileSync(original, 'utf8').split(/\r?\n/).filter(Boolean) : [],
+    };
+  }
   if (conflicts.length > 0) writeFileSync(path.join(resultDir, 'merge-index.json'), `${JSON.stringify(Object.fromEntries(indexEntries(git)))}\n`);
   if (merge.status !== 0 && conflicts.length === 0) result.reasons.push(`merging ${baseBranch} failed: ${merge.stderr.trim() || merge.stdout.trim()}`);
   const protectedConflicts = conflicts.filter(isProtected);
@@ -369,6 +384,15 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
       });
       if (changedBytes > MAX_PATCH_BYTES) result.reasons.push(`the resolution changes more than ${MAX_PATCH_BYTES} bytes besides the conflicts`);
     }
+    if (result.reasons.length === 0) {
+      paths = [...new Set([
+        ...splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', result.baseSha])),
+        ...(result.syncRepair?.paths ?? []),
+      ])].sort();
+      result.changedFiles = paths;
+      result.environment = paths.some(isEnvironmentPath);
+      if (env.SPECKIT_REQUIRED_SYNC) result.tree = gitOrThrow(git, ['write-tree']).trim();
+    }
   } else if (inputs.kind === 'repair') {
     const agent = agentReasons(resultDir);
     result = { kind: 'repair', agentExit: agent.agentExit, reasons: [...agent.reasons], checks: [], verified: false };
@@ -393,6 +417,7 @@ export function runPackage({ git, env, inputs, folder, workspace, resultDir, log
   writeResult(resultDir, result);
   const verify = !['converge', 'repair'].includes(inputs.kind) && result.reasons.length === 0;
   setOutput(env, 'verify', String(verify));
+  setOutput(env, 'sync_environment', String(Boolean(env.SPECKIT_REQUIRED_SYNC && result.syncRepair?.scope === 'merge' && result.environment)));
   log(result.reasons.length === 0 ? `Packaged ${kindLabel(inputs)}.` : `Rejected: ${result.reasons.join('; ')}`);
   return { exitCode: 0, verify, result };
 }
@@ -408,7 +433,9 @@ export function runVerdict({ env, inputs, resultDir, log }) {
   const result = readJson(resultFile) ?? { kind: inputs.kind, task: inputs.task, reasons: ['the change was not packaged'], checks: [] };
   const configured = String(env.SPECKIT_VERIFY_CONFIGURED ?? '') === 'true';
   result.verification = configured ? 'configured' : 'not-configured';
+  result.verificationMode = String(env.SPECKIT_VERIFY_MODE ?? '');
   const pendingConflicts = inputs.kind === 'merge' && (result.conflicts ?? []).length > 0;
+  if (env.SPECKIT_REQUIRED_SYNC && !configured) result.reasons.push('required synchronization needs configured verification');
   if (result.reasons.length === 0 && configured && !pendingConflicts) {
     const names = String(env.SPECKIT_VERIFY_CHECKS ?? '').split(',').map((name) => name.trim()).filter(Boolean);
     const outcome = String(env.SPECKIT_VERIFY_OUTCOME ?? '');
@@ -419,6 +446,7 @@ export function runVerdict({ env, inputs, resultDir, log }) {
       result.reasons.push(names.length > 0 ? `${names.at(-1)} failed` : `the verification did not succeed (${outcome || 'not run'})`);
     }
     result.uncovered = String(env.SPECKIT_VERIFY_UNCOVERED ?? '').split(',').map((file) => file.trim()).filter(Boolean);
+    if (env.SPECKIT_REQUIRED_SYNC && result.uncovered.length > 0) result.reasons.push('required synchronization has files not covered by verification');
   }
   if (result.reasons.length === 0 && inputs.kind === 'merge' && result.environment && !pendingConflicts) {
     const selfTest = String(env.SPECKIT_SELFTEST_OUTCOME ?? '');
@@ -426,6 +454,20 @@ export function runVerdict({ env, inputs, resultDir, log }) {
     if (selfTest && !['success', 'skipped'].includes(selfTest)) result.reasons.push(`the changed environment actions failed their self-test (${selfTest})`);
   }
   result.verified = result.reasons.length === 0 && !pendingConflicts;
+  if (result.syncRepair) {
+    const selfTestRequired = result.syncRepair.scope === 'merge' && result.environment;
+    const selfTestPassed = !selfTestRequired ||
+      (env.SPECKIT_SYNC_SETUP_OUTCOME === 'success' && env.SPECKIT_SYNC_VERIFY_OUTCOME === 'success');
+    if (!selfTestPassed) {
+      result.reasons.push('the original merged environment scope did not pass its self-test');
+      result.verified = false;
+    }
+    result.syncRepair.covered = Boolean(env.SPECKIT_REQUIRED_SYNC && result.verified && configured &&
+      result.checks.length > 0 &&
+      (result.syncRepair.paths.length > 0 || (result.verificationMode === 'finalize' && result.syncRepair.scope !== 'merge')) &&
+      ['task', 'group', 'phase', 'merge'].includes(result.syncRepair.scope) &&
+      (result.uncovered ?? []).length === 0 && selfTestPassed);
+  }
   writeFileSync(resultFile, `${JSON.stringify(result, null, 2)}\n`);
   if (pendingConflicts) log(`Conflicts with the base branch: ${result.conflicts.join(', ')}`);
   else if (!result.verified) log(`Not verified: ${result.reasons.join('; ')}`);
@@ -527,7 +569,13 @@ const MAX_LAND_TRIES = 5;
 // runCombinedVerified). Only
 // a change that no longer applies, or conflicts with those edits, has to be redone from the new head: that is a
 // requeue, not a failed attempt.
-function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
+// The shared job lock makes acceptance atomic with publication; rereads also fence stale work and push retries.
+async function publicationBlocked(client, inputs, syncRequest = null) {
+  const barrier = syncBarrier(await client.listIssueComments(inputs.pull));
+  return Boolean(barrier && (inputs.kind !== 'resolve' || barrier.request !== syncRequest));
+}
+
+async function pushTask({ client, inputs, git, env, folder, task, message, resultDir, workspace }) {
   const branch = implementationBranch(folder);
   const tasksPath = tasksPathOf(folder, { archived: isArchivedIn(workspace, folder) });
   const patchFile = path.join(resultDir, 'changes.patch');
@@ -536,6 +584,7 @@ function pushTask({ git, env, folder, task, message, resultDir, workspace }) {
   let onto = base;
   let combined = [];
   for (let tries = 0; tries < MAX_LAND_TRIES; tries += 1) {
+    if (await publicationBlocked(client, inputs)) return { requeue: ['required synchronization was requested before task publication'] };
     const pushed = git(pushArgs(env, branch));
     if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim(), combined };
     const rejection = pushed.stderr.trim().split('\n').at(-1);
@@ -598,14 +647,19 @@ async function completeSupersededProgress(client, parent, head) {
   }
 }
 
-async function push({ client, git, env, inputs, folder, resultDir, report }) {
+async function push({ client, git, env, inputs, folder, resultDir, report, syncRequest }) {
   const branch = implementationBranch(folder);
+  if (await publicationBlocked(client, inputs, syncRequest)) {
+    const requeue = ['required synchronization was requested or replaced before publication'];
+    await reportRequeue({ client, inputs, reasons: requeue });
+    return { requeue };
+  }
   const pushed = git(pushArgs(env, branch));
-  if (pushed.status === 0) return gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
+  if (pushed.status === 0) return { head: gitOrThrow(git, ['rev-parse', 'HEAD']).trim() };
   const reasons = [`the push to \`${branch}\` was rejected; the branch probably moved (${pushed.stderr.trim().split('\n').at(-1)})`];
   await reportFailure({ client, inputs, reasons, resultDir });
   report.flush();
-  return null;
+  return { reasons };
 }
 
 // The next-steps block of an attention comment lists the commands that continue from here.
@@ -615,6 +669,7 @@ const RESUME_HINT = '';
 // latest conflict recorded on the head it started from is CHECK_SYNC_CONFLICT, not the merge's own CHECK_CONFLICT.
 async function bestEffortResolution(client, inputs, result) {
   if (inputs.kind !== 'resolve' || !/^[0-9a-f]{40}$/.test(String(result?.head ?? ''))) return false;
+  if (syncBarrier(await client.listIssueComments(inputs.pull))) return false;
   const conflicts = (await client.listCheckRuns(result.head, CHECK_RUN_NAME)).filter((check) => [CHECK_CONFLICT, CHECK_SYNC_CONFLICT].includes(check.external_id));
   return latestCheckRun(conflicts)?.external_id === CHECK_SYNC_CONFLICT;
 }
@@ -623,6 +678,13 @@ async function bestEffortResolution(client, inputs, result) {
 // pushes it, and reports progress.
 export async function runLand({ client, git, env, inputs, folder, workspace, resultDir, workResult, log }) {
   const report = createReporter(env, log);
+  const pendingSync = syncBarrier(await client.listIssueComments(inputs.pull));
+  if (pendingSync && inputs.kind !== 'resolve') {
+    const reasons = ['required synchronization must merge and pass verification before normal work can land'];
+    await reportRequeue({ client, inputs, reasons });
+    report.flush();
+    return { exitCode: 0, requeue: reasons };
+  }
   const result = readJson(path.join(resultDir, 'result.json'));
   const reasons = [];
   if (!result) reasons.push(`the work job did not finish (result: ${workResult || 'unknown'})`);
@@ -632,6 +694,15 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     if (result.agentExit !== 0) reasons.push('the repair agent did not exit successfully');
   }
   if (result && !result.verified && result.reasons.length === 0) reasons.push('the change was not verified');
+  const barrier = inputs.kind === 'resolve' ? pendingSync : null;
+  if (barrier) env = { ...env, SPECKIT_REQUIRED_SYNC: barrier.request };
+  if (barrier && result) {
+    if (result.requiredSync !== barrier.request) reasons.push('the required synchronization request changed after work started');
+    if (workResult !== 'success') reasons.push('required synchronization work did not succeed');
+    if (result.verification !== 'configured') reasons.push('required synchronization needs configured verification');
+    if ((result.uncovered ?? []).length > 0) reasons.push('required synchronization has files not covered by verification');
+    if (gitOrThrow(git, ['rev-parse', 'HEAD']).trim() !== result.head) reasons.push('required synchronization was verified on a different head');
+  }
   const bestEffort = await bestEffortResolution(client, inputs, result);
 
   if (result?.attention && bestEffort) {
@@ -656,6 +727,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       ? `Implement the remaining gaps yourself on the implementation branch, or adjust the spec and tasks. ${RESUME_HINT}`
       : `Resolve the conflicts on the implementation branch and push; the implementation then continues automatically. ${RESUME_HINT}`;
     await requestAttention({ client, env, inputs, reason: reasons.join('; '), next, resultDir });
+    if (barrier) await setAttention(client, inputs.pull, true);
     report.line(`${title(inputs)} needs a person: ${reasons.join('; ')}`);
     report.flush();
     return { exitCode: 1, reasons };
@@ -696,6 +768,9 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     reasons.push(...replayed.reasons);
     baseOwned = replayed.baseOwned;
   }
+  if (reasons.length === 0 && barrier && result.tree !== gitOrThrow(git, ['write-tree']).trim()) {
+    reasons.push('the replayed synchronization tree differs from the verified tree');
+  }
   if (reasons.length > 0) {
     await reportFailure({ client, inputs, reasons, resultDir });
     report.line(`${title(inputs)} failed: ${reasons.join('; ')}`);
@@ -704,6 +779,12 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   }
 
   const pull = await client.getPullRequest(inputs.pull);
+  if (await publicationBlocked(client, inputs, barrier?.request)) {
+    const requeue = ['required synchronization was requested or replaced while the landing was prepared'];
+    await reportRequeue({ client, inputs, reasons: requeue });
+    report.flush();
+    return { exitCode: 0, requeue };
+  }
   if (inputs.kind === 'repair' && gitOrThrow(git, ['diff', '--cached', '--name-only']).trim() === '') {
     const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
     report.line(`Repair made no changes; reverifying ${head}.`);
@@ -786,20 +867,22 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     const checks = (result.checks ?? []).map((check) => `${check.name} passed`);
     comment = [
       ...(baseOwned.length > 0 ? [renderBaseOwnedMarker(baseOwned)] : []),
-      `**Conflicts resolved** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
+      `**${barrier ? 'Base synchronized and verified' : 'Conflicts resolved'}** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
       '',
       ...(extra.length > 0 ? [`- Also adapted this implementation's own files: ${extra.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
       ...(baseOwned.length > 0 ? [`- Also adapted files of \`${baseBranchOf(pull)}\` that the merged result needed: ${baseOwned.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}. The final merge waits for a person's review of these changes.`] : []),
       `- Verification: ${result.verification === 'not-configured' ? 'no verification configured (no environment-verify action)' : checks.join(', ') || 'no checks'}`,
-      bestEffort ? '- Next: the work continues on the merged branch.' : `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
+      barrier ? '- Next: recheck the latest base before releasing the required synchronization barrier.'
+        : bestEffort ? '- Next: the work continues on the merged branch.' : `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
       ...baseOwnedDiff(git, result.baseSha, baseOwned, baseBranchOf(pull)),
     ];
   }
-  gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
+  const noOpSync = barrier && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0;
+  if (!noOpSync) gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...message.flatMap((part) => ['-m', part])]);
   let head;
   let combined = [];
   if (inputs.kind === 'task') {
-    const landed = pushTask({ git, env, folder, task: inputs.task, message, resultDir, workspace });
+    const landed = await pushTask({ client, inputs, git, env, folder, task: inputs.task, message, resultDir, workspace });
     if (landed.requeue) {
       await reportRequeue({ client, inputs, reasons: landed.requeue });
       report.line(`${title(inputs)} is redone from the new head: ${landed.requeue.join('; ')}`);
@@ -825,9 +908,16 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     body = syncPullRequestTicks(current, landedTasks);
     pull.body = current;
     await completeSupersededProgress(client, gitOrThrow(git, ['rev-parse', 'HEAD~1']).trim(), head);
+  } else if (noOpSync) {
+    head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
   } else {
-    head = await push({ client, git, env, inputs, folder, resultDir, report });
-    if (!head) return { exitCode: 1, reasons: ['push rejected'] };
+    const pushed = await push({ client, git, env, inputs, folder, resultDir, report, syncRequest: barrier?.request });
+    if (pushed.requeue) {
+      report.flush();
+      return { exitCode: 0, requeue: pushed.requeue };
+    }
+    if (!pushed.head) return { exitCode: 1, reasons: pushed.reasons };
+    head = pushed.head;
   }
   if (inputs.kind === 'repair') {
     report.line(`Repair landed as ${head}.`);
@@ -838,6 +928,16 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   await client.updateCheckRun(inputs.checkRun, { status: 'completed', conclusion: 'success', output: { title: checkTitle, summary: message.join('\n\n') } });
   await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'queued', external_id: CHECK_PROGRESS, output: progressOutput(progress) });
   await client.createComment(inputs.pull, [...markerLines(inputs, 'success'), ...comment].join('\n'));
+  if (barrier) {
+    const repair = unresolvedRepair(await client.listIssueComments(inputs.pull));
+    await client.createComment(inputs.pull, renderSyncBarrierMarker({
+      request: barrier.request, state: 'verified', head, base: baseBranchOf(pull), baseSha: result.baseSha,
+      guidanceConsumed: Boolean(barrier.completion?.guidanceConsumed || (result.conflicts ?? []).length > 0),
+      ...(repair && result.syncRepair?.id === repair.id && result.syncRepair.scope === repair.scope && result.syncRepair.covered === true &&
+          JSON.stringify(result.syncRepair.snapshot) === JSON.stringify(repair)
+        ? { repair: { id: repair.id, covered: true, snapshot: repair } } : {}),
+    }));
+  }
   report.line(`${checkTitle}; pushed as ${head}.`);
   report.flush();
   return { exitCode: 0, head, combined };
@@ -1128,7 +1228,8 @@ function replayResolution({ git, env, result, resultDir }) {
     reasons.push(...changes.reasons);
     baseOwned = changes.baseOwned;
   }
-  if (reasons.length === 0 && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0) reasons.push('there is nothing to merge from the base branch');
+  if (reasons.length === 0 && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0 &&
+      !env.SPECKIT_REQUIRED_SYNC) reasons.push('there is nothing to merge from the base branch');
   return { reasons, baseOwned };
 }
 
@@ -1204,6 +1305,12 @@ function baseOwnedDiff(git, baseSha, files, baseBranch) {
 // automatic merging is off.
 export async function runMergeLand({ client, env, inputs, resultDir, workResult, log }) {
   const report = createReporter(env, log);
+  if (syncBarrier(await client.listIssueComments(inputs.pull))) {
+    const reasons = ['required synchronization must merge and pass verification before the implementation can merge'];
+    await reportRequeue({ client, inputs, reasons });
+    report.flush();
+    return { exitCode: 0, requeue: reasons };
+  }
   const result = readJson(path.join(resultDir, 'result.json'));
   const pull = await client.getPullRequest(inputs.pull);
   const baseBranch = baseBranchOf(pull);
@@ -1280,6 +1387,12 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     ...(pullFiles.length >= MAX_PULL_FILES ? [`it changes ${MAX_PULL_FILES} or more files, more than GitHub lists for a pull request`] : []),
     ...((result.uncovered ?? []).length > 0 ? [`no check covers ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}; extend the environment actions with a standalone environment spec`] : []),
   ];
+  if (await publicationBlocked(client, inputs)) {
+    const requeue = ['required synchronization was requested while the merge was prepared'];
+    await reportRequeue({ client, inputs, reasons: requeue });
+    report.flush();
+    return { exitCode: 0, requeue };
+  }
   if (reviewReasons.length > 0) {
     if (pull.draft) await client.markReadyForReview(pull.node_id);
     await client.updateCheckRun(inputs.checkRun, {
@@ -1333,6 +1446,12 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
     }
   }
   if (pull.draft) await client.markReadyForReview(pull.node_id);
+  if (await publicationBlocked(client, inputs)) {
+    const requeue = ['required synchronization was requested before the pull request merge'];
+    await reportRequeue({ client, inputs, reasons: requeue });
+    report.flush();
+    return { exitCode: 0, requeue };
+  }
   const merged = await client.mergePullRequest(inputs.pull, {
     sha: result.head,
     merge_method: 'squash',
@@ -1430,6 +1549,9 @@ export async function runArchive({ client, git, env, folder, log }) {
     return { exitCode, head, checkRun: check };
   };
   const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
+  if (syncBarrier(await client.listIssueComments(pullNumber))) {
+    return finish(1, head, checkRun, 'Required synchronization must merge and pass verification before archiving.');
+  }
   if (expected && head !== expected) return finish(1, head, checkRun, `The implementation branch moved during the merge (${expected} → ${head}); the merge runs again.`);
   const workspace = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
   const undo = () => {
@@ -1473,6 +1595,9 @@ export async function runArchive({ client, git, env, folder, log }) {
     '-m', archived.moved ? `Archive ${specDir(folder)} to ${specDir(folder, { archived: true })}` : `Point new references to ${specDir(folder, { archived: true })}`,
     '-m', `${merging ? `Merges ${baseBranch} first, so references that arrived there are rewritten too. ` : ''}Rewrites the references in ${edited.length} file(s).`]);
   const branch = implementationBranch(folder);
+  if (syncBarrier(await client.listIssueComments(pullNumber))) {
+    return finish(1, head, checkRun, 'Required synchronization was requested before archive publication.');
+  }
   const pushed = git(pushArgs(env, branch));
   if (pushed.status !== 0) return finish(1, head, checkRun, `The archived spec could not be pushed to \`${branch}\`: ${pushed.stderr.trim().split('\n').at(-1)}`);
   const newHead = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();

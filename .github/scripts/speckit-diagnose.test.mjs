@@ -177,7 +177,7 @@ test('records an unusable or missing report', async () => {
     baseBranch: 'main',
   });
   assert.match(outside, /\*\*Recommended next step\*\*: Fix the flaky test outside this spec\.\n\n- \*\*Why\*\*: The test belongs to another feature\.\n- \*\*What it does\*\*: An agent authors a small fix spec[\s\S]*```text\n\/speckit fix Make the flaky test robust\n```/);
-  assert.match(validateReport({ ...REPORT, options: [{ title: 'Sync', why: 'x', command: '/speckit sync' }] }).reasons.join(), /option "Sync" has an invalid command/, 'sync is no command any more');
+  assert.deepEqual(validateReport({ ...REPORT, category: 'outside', options: [{ title: 'Sync', why: 'x', command: '/speckit sync' }] }).reasons, []);
   assert.match(outside, /<summary>Other options<\/summary>[\s\S]*- \*\*Retry on a less loaded runner\. Unlikely to succeed\*\*\n/, 'alternatives are collapsed, without doubled punctuation');
   assert.match(validateReport({ ...REPORT, options: [{ title: 'Apply', why: 'x', command: '/speckit apply' }] }).reasons.join(), /option "Apply" has an invalid command/);
 });
@@ -201,7 +201,7 @@ const PR75_REPORT = {
 test('a retry diagnosis recommends a retry with guidance, also when the agent wrote its options as text', () => {
   const { reasons, report } = validateReport(JSON.stringify(PR75_REPORT));
   assert.equal(report.options.length, 2, 'plain-text options are read, not dropped');
-  assert.deepEqual(report.options.map((option) => [option.command, option.recommended]), [['/speckit retry', true], [null, false]]);
+  assert.deepEqual(report.options.map((option) => [option.command, option.recommended]), [['/speckit retry', true], ['/speckit sync', false]]);
   assert.match(reasons.join('\n'), /option 1 was plain text instead of an object; it was read as "Run '\/speckit retry' so the phase verification runs again\."/);
   const comment = renderDiagnosisComment({ report, reasons, round: 5, baseBranch: 'main', continuation: { text: 'continues with the convergence (the failed verification is not repeated by itself; the next verification, at the latest the full verification before the merge, covers it)', mergesBase: true } });
   assert.match(comment, /^<!-- speckit-implement:diagnosis -->\n\*\*Diagnosis \(round 5\)\*\*: a retry is likely to succeed \(`retry`, confidence high\)\.\n\n_`retry` means:_ The failure was transient/);
@@ -261,6 +261,47 @@ test('check-report prints the problems and the comment, and fails until the repo
     lines.length = 0;
     assert.equal(checkReportFile(file, (line) => lines.push(line)), 0);
     assert.match(lines[0], /^The report is valid\./);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('PR #123: publication rejects retry classification with a sync recommendation instead of generating a retry', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-sync-report-'));
+  try {
+    const output = path.join(dir, 'agent_output.json');
+    const report = {
+      ...REPORT,
+      category: 'retry',
+      artifacts: [],
+      summary: 'Restore fails with NU1902; the dependency fix is already on the base branch.',
+      options: [{ title: 'Merge the fixed base', why: 'The implementation lacks the dependency pin.', command: '/speckit sync', recommended: true }],
+    };
+    const github = diagnosisRepo({ amendment: false });
+    const check = await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-impl', status: 'in_progress', external_id: CHECK_DIAGNOSING });
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report }] }));
+    const rejected = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_CHECK_RUN: String(check.id) }), log: silent });
+    assert.equal(rejected.report, null);
+    assert.match(rejected.reasons.join(), /does not fit the category `retry`/);
+    assert.match(github.comments.at(-1).body, /did not produce a usable report/);
+    assert.doesNotMatch(github.comments.at(-1).body, /\/speckit retry The diagnosis found/);
+    assert.equal(github.repo.checkRuns.find((item) => item.id === check.id).conclusion, 'failure');
+
+    report.category = 'outside';
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report }] }));
+    const accepted = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output }), log: silent });
+    assert.equal(accepted.report.category, 'outside');
+    assert.match(github.comments.at(-1).body, /```text\n\/speckit sync\n```/);
+    assert.doesNotMatch(github.comments.at(-1).body, /\/speckit retry The diagnosis found/);
+
+    report.options = [];
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_diagnosis', report }] }));
+    const missing = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output }), log: silent });
+    assert.equal(missing.report, null);
+    assert.match(missing.reasons.join(), /must recommend one actionable command/);
+    const reportFile = path.join(dir, 'report.json');
+    writeFileSync(reportFile, JSON.stringify(report));
+    assert.equal(checkReportFile(reportFile, silent), 1, 'self-check also rejects a missing actionable recommendation');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

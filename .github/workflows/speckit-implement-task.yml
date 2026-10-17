@@ -178,6 +178,10 @@ jobs:
 
   land:
     name: Commit and push ${{ inputs.task }}
+    concurrency:
+      group: speckit-publication-${{ inputs.pull }}
+      queue: max
+      cancel-in-progress: false
     needs: work
     if: always()
     runs-on: ubuntu-latest

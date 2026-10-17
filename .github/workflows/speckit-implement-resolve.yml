@@ -48,6 +48,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.order)[0] }}
     permissions:
+      actions: read
       contents: read
       copilot-requests: write
     env:
@@ -57,6 +58,9 @@ jobs:
       SPECKIT_PULL: ${{ inputs.pull }}
       SPECKIT_ATTEMPT: ${{ matrix.attempt }}
       SPECKIT_GUIDANCE: ${{ matrix.guidance }}
+      SPECKIT_REQUIRED_SYNC: ${{ matrix.required_sync }}
+      SPECKIT_SYNC_REPAIR: ${{ matrix.sync_repair }}
+      SPECKIT_SYNC_ORIGINAL_SCOPE: ${{ github.workspace }}/failed-verification/changed-files.txt
       SPECKIT_FOLDER: ${{ inputs.folder }}
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_TOOLING: ${{ github.workspace }}/tooling
@@ -90,6 +94,16 @@ jobs:
         uses: ./tooling/.github/actions/environment-setup
         with:
           workspace: workspace
+
+      - name: Download the original failed verification scope
+        if: matrix.sync_repair != '' && fromJSON(matrix.sync_repair).run != '' && fromJSON(matrix.sync_repair).artifact != ''
+        continue-on-error: true
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ fromJSON(matrix.sync_repair).artifact }}
+          run-id: ${{ fromJSON(matrix.sync_repair).run }}
+          github-token: ${{ github.token }}
+          path: ${{ github.workspace }}/failed-verification
 
       - name: Merge the base branch
         id: integrate
@@ -141,12 +155,34 @@ jobs:
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
 
+      - name: Self-test the synchronized environment setup
+        id: sync_setup
+        if: steps.package.outputs.sync_environment == 'true' && hashFiles('workspace/.github/actions/environment-setup/action.yml') != ''
+        continue-on-error: true
+        uses: ./workspace/.github/actions/environment-setup
+        with:
+          workspace: workspace
+
+      - name: Self-test the synchronized environment verification
+        id: sync_verify
+        if: steps.package.outputs.sync_environment == 'true' && hashFiles('workspace/.github/actions/environment-verify/action.yml') != ''
+        continue-on-error: true
+        uses: ./workspace/.github/actions/environment-verify
+        with:
+          workspace: ${{ env.SPECKIT_WORKSPACE }}
+          mode: finalize
+          changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
+          log-file: ${{ env.SPECKIT_RESULT_DIR }}/environment-self-test.log
+
       - name: Record the verdict
         env:
           SPECKIT_VERIFY_CONFIGURED: ${{ hashFiles('tooling/.github/actions/environment-verify/action.yml') != '' }}
           SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
           SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+          SPECKIT_VERIFY_MODE: finalize
+          SPECKIT_SYNC_SETUP_OUTCOME: ${{ steps.sync_setup.outcome }}
+          SPECKIT_SYNC_VERIFY_OUTCOME: ${{ steps.sync_verify.outcome }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-resolve.mjs" verdict
 
       - name: Upload the result
@@ -160,6 +196,10 @@ jobs:
 
   land:
     name: Commit and push the conflict resolution
+    concurrency:
+      group: speckit-publication-${{ inputs.pull }}
+      queue: max
+      cancel-in-progress: false
     needs: work
     if: always()
     runs-on: ubuntu-latest

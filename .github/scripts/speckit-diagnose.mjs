@@ -39,11 +39,11 @@ export { checkAmendment, findAmendment };
 export const CATEGORIES = ['artifacts', 'retry', 'outside', 'decision', 'unknown'];
 export const CONFIDENCE = ['high', 'medium', 'low'];
 export const MODES = ['diagnose', 'fix', 'revise'];
-const COMMAND_PATTERN = /^\/speckit (retry|fix)( [^\n]*)?$/;
+const COMMAND_PATTERN = /^\/speckit (retry|sync|fix)( [^\n]*)?$/;
 // A placeholder an agent may copy from a usage line instead of writing the text: `<guidance>` or `<answers>`.
 // Only these words count, so code such as `IReadOnlyList<Recording>` or task tags such as `[P]` stay intact.
 const PLACEHOLDER_PATTERN = /<(?:concrete |your )?(?:guidance|answers?|guidance or answers|choice|first choice|what to examine next|what to fix[^<>\n]{0,60})>|\[(?:concrete |your )?(?:guidance|answers?|guidance or answers)\]/gi;
-const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|fix))\b/;
+const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|resume|sync|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|resume|sync|fix))\b/;
 const MAX_EVIDENCE_BYTES = 200_000;
 const LOG_TAIL_LINES = 150;
 
@@ -400,7 +400,7 @@ const CATEGORY_TEXT = {
 // command never disagree. The first is the category's default.
 export const CATEGORY_COMMANDS = Object.freeze({
   retry: ['retry'],
-  outside: ['fix'],
+  outside: ['fix', 'sync'],
   artifacts: [],
   decision: ['retry'],
   unknown: [],
@@ -551,10 +551,15 @@ export async function runRecord({ client, env, log }) {
   const { reasons, report } = withheld
     ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
     : reports.length > 0 ? validateReport(reports.at(-1)) : { reasons: ['the agent did not report'], report: null };
-  const usable = report && report.category ? report : null;
+  const amendment = report?.category && reasons.length === 0 ? await createdAmendment(client, env, folder, reasons) : null;
+  const recommendationProblems = report?.category ? recommendNextSteps(report, { amendment }).notes : [];
+  reasons.push(...recommendationProblems);
+  if (report?.category && !amendment && !report.options.some((option) => option.recommended && option.command)) {
+    reasons.push('the report must recommend one actionable command that fits its category');
+  }
+  const usable = report && report.category && reasons.length === 0 ? report : null;
   const comments = await client.listIssueComments(pullNumber);
   const round = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).length + 1;
-  const amendment = usable ? await createdAmendment(client, env, folder, reasons) : null;
   const context = await nextStepContext(client, await client.getPullRequest(pullNumber), folder);
   const runUrl = env.GITHUB_RUN_ID ? `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
   const repeat = !usable || usable.category === 'unknown' || (usable.category === 'artifacts' && !amendment);
@@ -699,6 +704,10 @@ export function checkReportFile(file, log = console.log) {
   if (!file || !existsSync(file)) throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs check-report <report.json>');
   const { reasons, report } = validateReport(readFileSync(file, 'utf8'));
   const notes = report?.category ? recommendNextSteps(report).notes : [];
+  if (report?.category && report.category !== 'artifacts' &&
+      !report.options.some((option) => option.recommended && option.command)) {
+    notes.push('the report must recommend one actionable command that fits its category');
+  }
   const problems = [...reasons, ...notes];
   log(problems.length > 0 ? `Fix these problems before you report:\n${problems.map((item) => `- ${item}`).join('\n')}` : 'The report is valid.');
   if (report?.category) log(`\nThe comment would read:\n\n${renderDiagnosisComment({ report, reasons, round: 1 })}`);

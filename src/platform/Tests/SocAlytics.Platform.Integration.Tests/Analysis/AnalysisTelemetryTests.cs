@@ -103,7 +103,9 @@ public sealed class AnalysisTelemetryTests(PostgresContainerFixture postgres, Na
         }
 
         listener.RecordObservableInstruments();
-        var seen = sink.Select(s => s.Name).ToHashSet();
+        List<(string Name, long Value, Dictionary<string, object?> Tags)> snapshot;
+        lock (sink) { snapshot = sink.ToList(); }
+        var seen = snapshot.Select(s => s.Name).ToHashSet();
         foreach (var name in new[]
         {
             "socalytics.analysis.lease_expiries", "socalytics.analysis.heartbeats_rejected", "socalytics.messaging.published",
@@ -115,7 +117,7 @@ public sealed class AnalysisTelemetryTests(PostgresContainerFixture postgres, Na
         }
 
         var allowed = new HashSet<string> { "capability", "message_type", "outcome", "failure_category" };
-        foreach (var tags in sink.Select(s => s.Tags))
+        foreach (var tags in snapshot.Select(s => s.Tags))
         {
             tags.Keys.ShouldAllBe(k => allowed.Contains(k));
             foreach (var v in tags.Values)

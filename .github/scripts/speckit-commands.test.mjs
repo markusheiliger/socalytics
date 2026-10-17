@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
-import { main, parseCommand, renderHelp, runCommand } from './speckit-commands.mjs';
+import { main, parseCommand, renderHelp, runCommand, runCommandTarget } from './speckit-commands.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
-const run = (github, body, { pull = 9, actor = 'dev' } = {}) => runCommand({
+const run = (github, body, { pull = 9, actor = 'dev', env = {} } = {}) => runCommand({
   client: github,
-  env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_PULL: String(pull), SPECKIT_COMMENT_ID: '501', SPECKIT_ACTOR: actor, SPECKIT_COMMENT_BODY: body },
+  env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_PULL: String(pull), SPECKIT_COMMENT_ID: '501', SPECKIT_ACTOR: actor, SPECKIT_COMMENT_BODY: body, ...env },
   log: silent,
   now: () => github.clock,
 });
@@ -16,8 +16,8 @@ test('parses commands: the first word, the name, and the rest as argument', () =
   assert.deepEqual(parseCommand('/speckit retry Use the helper\nand keep the test'), { name: 'retry', given: 'retry', argument: 'Use the helper\nand keep the test' });
   assert.deepEqual(parseCommand('/speckit'), { name: 'help', given: '', argument: '' });
   assert.equal(parseCommand('/speckit deploy now').name, 'unknown');
+  assert.equal(parseCommand('/speckit sync').name, 'sync');
   assert.equal(parseCommand('/speckit resume').name, 'unknown');
-  assert.equal(parseCommand('/speckit sync').name, 'unknown');
   assert.equal(parseCommand('/speckit diagnose').name, 'unknown');
   assert.equal(parseCommand('please /speckit retry'), null);
   assert.equal(parseCommand('/speckit-gha-diagnose'), null, 'a skill name is not a command');
@@ -26,7 +26,7 @@ test('parses commands: the first word, the name, and the rest as argument', () =
   assert.doesNotMatch(renderHelp(), /\/speckit diagnose/);
   assert.equal(parseCommand('/speckit retry Rerun as is').name, 'retry');
   assert.equal(parseCommand('/speckit fix Make the test robust').name, 'fix');
-  assert.doesNotMatch(renderHelp(), /\/speckit sync/);
+  assert.match(renderHelp(), /\/speckit sync \[guidance\]/);
 });
 
 test('ignores people without write access and bots, reacts, and answers help and unknown commands', async () => {
@@ -45,6 +45,18 @@ test('ignores people without write access and bots, reacts, and answers help and
   assert.match(elsewhere.rejected, /not a Spec Kit implementation or amendment pull request/);
 });
 
+test('commands on amendments acquire their implementation publication lock and reject a changed lock target', async () => {
+  const github = diagnosisRepo();
+  const target = await runCommandTarget({
+    client: github,
+    env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_PULL: '11', SPECKIT_COMMENT_BODY: '/speckit sync' },
+  });
+  assert.equal(target, 9);
+  assert.equal((await run(github, '/speckit sync', { pull: 11, env: { SPECKIT_PUBLICATION_PULL: '11' } })).rejected, 'publication target changed');
+  assert.equal(github.comments.some((comment) => comment.body.startsWith('<!-- speckit-implement:sync -->')), false);
+  assert.equal((await run(github, '/speckit sync', { pull: 11, env: { SPECKIT_PUBLICATION_PULL: String(target) } })).outcome, 'sync requested');
+});
+
 test('apply, revise, and discard are no commands: the amendment pull request is merged, commented, or closed', async () => {
   const github = diagnosisRepo();
   for (const name of ['apply', 'revise', 'discard']) {
@@ -55,15 +67,44 @@ test('apply, revise, and discard are no commands: the amendment pull request is 
   assert.equal(github.repo.merges.length, 0);
 });
 
-test('removed resume and sync commands show help without starting work', async () => {
+test('sync persists a required barrier before dispatching', async () => {
   const github = diagnosisRepo();
-  for (const name of ['resume', 'sync']) {
+  const runs = github.repo.runs.length;
+  const branch = github.repo.branches['speckit/f'];
+  const sync = await run(github, '/speckit sync');
+  assert.equal(sync.command, 'sync');
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:sync -->[\s\S]*Required synchronization requested by @dev/);
+  assert.equal(github.repo.runs.length, runs + 1);
+  assert.equal(github.repo.branches['speckit/f'], branch, 'the commands never merge themselves; the chain pulls the base branch');
+  await assert.rejects(() => main(['other'], { env: {}, client: github }), /Usage/);
+});
+
+test('removed resume and diagnose commands show help without starting work', async () => {
+  const github = diagnosisRepo();
+  for (const name of ['resume', 'diagnose']) {
     const result = await run(github, `/speckit ${name}`);
     assert.equal(result.command, 'unknown');
     assert.match(github.comments.at(-1).body, new RegExp(`^Unknown command \`/speckit ${name}\`\\.[\\s\\S]*\\*\\*Spec Kit commands\\*\\*`));
   }
   assert.equal(github.repo.runs.length, 0);
   await assert.rejects(() => main(['other'], { env: {}, client: github }), /Usage/);
+});
+
+test('sync bypasses unchanged retry refusal, uses the actual base, and survives dispatch failure', async () => {
+  const github = diagnosisRepo({ amendment: false });
+  const pull = github.repo.pulls[0];
+  pull.base.ref = 'release';
+  github.repo.branches.release = 'base-release';
+  await run(github, '/speckit retry');
+  await run(github, '/speckit retry');
+  pull.labels = [{ name: ATTENTION_LABEL }];
+  assert.equal((await run(github, '/speckit retry')).outcome, 'refused');
+  github.dispatchWorkflow = async () => { throw new Error('dispatch unavailable'); };
+  assert.equal((await run(github, '/speckit sync Keep both migrations')).outcome, 'sync requested');
+  const comment = github.comments.at(-1).body;
+  assert.match(comment, /merge `release` and pass full verification/);
+  assert.equal(parseGuidance(comment), 'Keep both migrations');
+  assert.equal(pull.labels.length, 0);
 });
 
 test('retry restarts what stopped with guidance, on the branch as it is', async () => {

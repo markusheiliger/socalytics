@@ -78,7 +78,7 @@ workflow started you): never ask, and turn every open question into a report que
    | --- | --- | --- |
    | `artifacts` | The task cannot be done as written, or doing it as written cannot meet the spec: a missing, ambiguous, or contradictory design decision; a wrong assumption in research; a task too vague to diagnose its failure; a missing prerequisite task; a wrong task order; or a code fix inside this feature needed first (a **corrective task**) | an amendment pull request (step 5) that the person reviews and merges |
    | `retry` | Transient infrastructure (timeouts, rate limits, runner or network failures, Copilot errors, a flaky test with evidence), or the agent took a poor approach although the artifacts are adequate | `/speckit retry <concrete guidance>`: restarts without merging the base branch for it |
-   | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | `/speckit fix <what to fix, where, and how>`, which has a fix spec authored for the cause |
+   | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | code, tests, or environment actions: `/speckit fix <what to fix, where, and how>`, which has a fix spec authored for it; the fix is already on the base branch: `/speckit sync`, which requires merging and verification before continuing; tooling under `.github/` or a non-code cause: name the action in the title, then `/speckit sync` |
    | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered questions with the recommended choice first; `/speckit retry 1. <choice> 2. <choice>` prefilled with the recommended answers as guidance |
    | `unknown` | Not enough evidence | what was checked and ruled out; the workflow starts another diagnosis automatically with these findings as context |
 
@@ -159,11 +159,15 @@ workflow started you): never ask, and turn every open question into a report que
   not the cheapest one. It is the only next step the person sees prominently, so never recommend a retry you expect to
   fail. The person decides from the comment alone: `why` explains in one or two sentences why the option solves this
   problem (the comment adds what the command does).
-- The recommended command must fit the category, or the comment replaces it with the category's default: `retry` →
-  `/speckit retry`; `outside` → `/speckit fix`; `decision` → `/speckit retry` with the recommended answers as
-  guidance. `artifacts` must create an amendment pull request. `unknown` starts another diagnosis automatically and
-  must not ask a person to trigger it.
-- A `command` is one line a person can post as it is: `/speckit retry <guidance>` (restarts what stopped without
+- The recommended command must fit the category: `retry` → `/speckit retry`; `outside` → `/speckit fix`,
+  or `/speckit sync`; `decision` → `/speckit retry` with the recommended answers as guidance.
+  `artifacts` must create an amendment pull request, and `unknown` starts another diagnosis automatically.
+  Inconsistent reports are rejected at publication, not replaced with a retry. A required fix
+  already on the base branch is `outside`, not `retry`; recommend `/speckit sync` so the merge and verification
+  are mandatory. Never embed another command in retry guidance as a substitute for selecting that command.
+- A `command` is one line a person can post as it is: `/speckit sync` (requires the latest PR base branch to be
+  merged, with Copilot resolving conflicts, and verified before continuing; unlike automatic sync, failures stop
+  the implementation), `/speckit retry <guidance>` (restarts what stopped without
   merging the base branch for it; a phase that has not started, the convergence, and the merge always merge it first),
   `/speckit fix <what to fix>` (has a fix spec authored for a cause on the base branch; the implementation
   retries by itself once it has landed). Write the guidance or answers out from your findings; never leave

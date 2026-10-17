@@ -1,7 +1,7 @@
 name: Spec Kit commands
 
 # Handles people's input on Spec Kit pull requests:
-# - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): retry, fix,
+# - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): retry, sync, fix,
 #     help.
 #   - Feedback on amendment pull requests (speckit-amend/<folder>) and fix spec pull requests (speckit-fix/<folder>): a
 #     comment, or a review with Comment or Request changes, has it reworked (Spec Kit diagnose or Spec Kit fix, mode
@@ -32,8 +32,43 @@ on:
 permissions: {}
 
 jobs:
+  target:
+    name: Resolve the command publication target
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.issue.pull_request &&
+      github.event.comment.user.type != 'Bot' &&
+      startsWith(github.event.comment.body, '/speckit')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      pull: ${{ steps.target.outputs.pull }}
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Resolve the implementation pull request
+        id: target
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SPECKIT_PULL: ${{ github.event.issue.number }}
+          SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
+        run: node .github/scripts/speckit-commands.mjs target
+
   command:
     name: Handle the /speckit command
+    needs: target
     # issue_comment always uses this workflow from the default branch; no job checks out pull request code.
     if: >-
       github.event_name == 'issue_comment' &&
@@ -42,9 +77,10 @@ jobs:
       startsWith(github.event.comment.body, '/speckit')
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Job-level, so comments that are not commands (their job is skipped) never displace a pending command.
+    # Atomic with all branch publication jobs; queue rather than replacing pending commands or parallel task landings.
     concurrency:
-      group: speckit-commands-${{ github.event.issue.number }}
+      group: speckit-publication-${{ needs.target.outputs.pull }}
+      queue: max
       cancel-in-progress: false
     permissions:
       actions: write
@@ -73,6 +109,7 @@ jobs:
           SPECKIT_COMMENT_ID: ${{ github.event.comment.id }}
           SPECKIT_ACTOR: ${{ github.event.comment.user.login }}
           SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
+          SPECKIT_PUBLICATION_PULL: ${{ needs.target.outputs.pull }}
         run: node .github/scripts/speckit-commands.mjs command
 
   feedback:

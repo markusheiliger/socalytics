@@ -157,6 +157,10 @@ jobs:
 
   land:
     name: Commit and push the repair
+    concurrency:
+      group: speckit-publication-${{ inputs.pull }}
+      queue: max
+      cancel-in-progress: false
     needs: work
     if: ${{ !inputs.verify_only && always() }}
     runs-on: ubuntu-latest
@@ -349,6 +353,10 @@ jobs:
 
   report:
     name: Report the repair
+    concurrency:
+      group: speckit-publication-${{ inputs.pull }}
+      queue: max
+      cancel-in-progress: false
     needs: [land, verify]
     if: ${{ always() && (inputs.verify_only || needs.land.result == 'success') }}
     runs-on: ubuntu-latest

@@ -16,10 +16,14 @@ import {
   CHECK_RUN_NAME,
   CHECK_SYNC_CONFLICT,
   DONE_COMMENT_MARKER,
+  DIAGNOSIS_STALE_MS,
   MAX_SYNC_RESOLVE_ATTEMPTS,
   MAX_TASK_ATTEMPTS,
   RESTART_COMMENT_MARKERS,
   RETRY_COMMENT_MARKER,
+  SYNC_COMMENT_MARKER,
+  syncBarrier,
+  renderSyncBarrierMarker,
   baseBranchOf,
   nextStepContext,
   phaseNotStarted,
@@ -95,7 +99,7 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   const checks = await client.listCheckRuns(pull.head.sha, CHECK_RUN_NAME);
   const comments = await client.listIssueComments(pullNumber);
   const attempts = parseAttempts(comments);
-  const restartedAt = RESTART_COMMENT_MARKERS.flatMap((marker) => markerTimes(comments, marker));
+  const restartedAt = [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].flatMap((marker) => markerTimes(comments, marker));
   const pushedAt = latestHumanCommit(await client.listPullRequestCommits(pullNumber));
   const done = markerTimes(comments, DONE_COMMENT_MARKER).length > 0;
   const windowStart = [pull.created_at, ...restartedAt, ...(pushedAt ? [pushedAt] : [])].sort((a, b) => Date.parse(b) - Date.parse(a))[0];
@@ -110,11 +114,14 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
     const latestRepairAttempt = repairAttempts.map((attempt) => Date.parse(attempt.at)).sort((a, b) => b - a)[0] ?? 0;
     const restart = comments
       .filter((comment) => comment.user?.login === BOT_LOGIN &&
-        RESTART_COMMENT_MARKERS.some((marker) => String(comment.body ?? '').startsWith(marker)) &&
+        [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)) &&
         Date.parse(comment.created_at) >= Math.max(Date.parse(repair.at), latestRepairAttempt))
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
-    if (restart) {
-      const guidance = parseGuidance(restart.body) ?? '';
+    if (restart && (!String(restart.body ?? '').startsWith(SYNC_COMMENT_MARKER) ||
+        repairAttempts.filter((attempt) => attempt.outcome === 'failure').length < MAX_TASK_ATTEMPTS)) {
+      const guidance = String(restart.body ?? '').startsWith(SYNC_COMMENT_MARKER)
+        ? currentGuidance({ comments, ledger: attempts, pushedAt }) ?? ''
+        : parseGuidance(restart.body) ?? '';
       decision = {
         action: 'repair',
         kind: 'repair',
@@ -136,6 +143,66 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   }
   // The ledger is not called attempts, which a limit decision uses for its count.
   const state = { pull, tasksMarkdown, archived, checks, comments, ledger: attempts, pushedAt };
+  const barrier = syncBarrier(comments);
+  if (barrier) {
+    const completion = barrier.completion;
+    const base = baseBranchOf(pull);
+    // A successful work run is only provisional until the latest base is checked again in the planner.
+    let current = false;
+    if (completion?.head === pull.head.sha && completion.base === base) {
+      try {
+        current = completion.baseSha === await client.getBranchSha(base) &&
+          await client.aheadBy(pull.head.sha, completion.baseSha) === 0;
+        if (current) {
+          const latest = await client.getPullRequest(pullNumber);
+          current = latest.head.sha === completion.head && baseBranchOf(latest) === base &&
+            await client.getBranchSha(base) === completion.baseSha;
+        }
+      } catch {
+        // An unavailable comparison cannot release a required barrier.
+      }
+    }
+    if (current) {
+      if (repair && completion.repair?.id === repair.id && completion.repair.covered === true &&
+          JSON.stringify(completion.repair.snapshot) === JSON.stringify(repair)) {
+        await client.createComment(pullNumber, [
+          renderRepairMarker({ id: repair.id, state: 'resolved', at: new Date(now).toISOString(), head: pull.head.sha }),
+          `**Original ${repair.scope} verification passed during required synchronization** on \`${pull.head.sha}\`. Existing repair attempts remain recorded; no repair attempt limit was reset.`,
+        ].join('\n'));
+      }
+      await client.createComment(pullNumber, renderSyncBarrierMarker({ ...completion, state: 'released' }));
+      // Replan from the durable acknowledgement, including any original failure that the full verification cleared.
+      return decideForPull(client, { twin, folder, pullNumber, now, context });
+    } else {
+      const since = Math.max(Date.parse(barrier.at), Date.parse(pushedAt ?? '') || 0, ...RESTART_COMMENT_MARKERS.flatMap((marker) => markerTimes(comments, marker).map(Date.parse)));
+      const list = attempts.filter((attempt) => attempt.kind === 'resolve' && Date.parse(attempt.at) >= since);
+      const stop = latestCheckRun(checks);
+      if ([CHECK_LIMIT, CHECK_DIAGNOSING, CHECK_DIAGNOSED].includes(stop?.external_id) &&
+          Date.parse(stop.started_at ?? stop.created_at ?? 0) > since) {
+        const diagnosing = stop.external_id === CHECK_DIAGNOSING && stop.status !== 'completed';
+        const stale = diagnosing && (now - Date.parse(stop.started_at ?? stop.created_at ?? 0) >= DIAGNOSIS_STALE_MS ||
+          await diagnosisRunEnded(client, twin, stop));
+        return {
+          action: diagnosing && !stale ? 'diagnosing' : 'failed',
+          requiredSync: barrier,
+          diagnosis: { state: stale ? 'stale' : stop.external_id === CHECK_DIAGNOSED ? 'reported' : 'none', check: stop, count: checks.filter((check) => [CHECK_DIAGNOSING, CHECK_DIAGNOSED].includes(check.external_id)).length },
+          ...state,
+        };
+      }
+      const count = list.filter((attempt) => attempt.outcome === 'failure').length;
+      if (count >= MAX_TASK_ATTEMPTS || list.length >= MAX_TASK_ATTEMPTS * 2) {
+        return { action: 'limit', kind: 'resolve', attempts: list.length, requiredSync: barrier, ...state };
+      }
+      if (list.some((attempt) => attempt.outcome === 'attention')) {
+        return { action: 'failed', requiredSync: barrier, diagnosis: { state: 'reported', count: 0 }, ...state };
+      }
+      return {
+        action: 'tasks', kind: 'resolve', requiredSync: barrier, repair,
+        order: [[{ task: null, attempt: list.length + 1 }]], phaseEnd: false, lastIsParallel: false,
+        ...state,
+      };
+    }
+  }
   if (decision.action === 'diagnosing' && (await diagnosisRunEnded(client, twin, latestCheckRun(checks)))) {
     const count = checks.filter((item) => [CHECK_DIAGNOSING, CHECK_DIAGNOSED].includes(item.external_id)).length;
     return { action: 'failed', diagnosis: { state: 'stale', check: latestCheckRun(checks), count }, ...state };
@@ -150,17 +217,20 @@ export function needsRun(decision, env) {
   return true;
 }
 
-// Guidance from the latest retry (`/speckit retry <guidance>`). It applies to
-// the stopped task, repair, convergence, or conflict resolution: it ends when an attempt reported success after the
-// restart, or when a person pushed since.
+// Guidance from the latest restart or sync ends after the first prompted work succeeds, or a person pushes.
+// A clean/no-op sync has no prompt and carries its unconsumed guidance into the first continued work.
 function currentGuidance({ comments, ledger, pushedAt }) {
   const restart = comments
-    .filter((comment) => comment.user?.login === BOT_LOGIN && RESTART_COMMENT_MARKERS.some((marker) => String(comment.body ?? '').startsWith(marker)))
+    .filter((comment) => comment.user?.login === BOT_LOGIN && [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)))
     .at(-1);
   const guidance = restart ? parseGuidance(restart.body) : null;
   if (!guidance) return null;
   if (pushedAt && Date.parse(pushedAt) > Date.parse(restart.created_at)) return null;
-  if (ledger.some((attempt) => attempt.outcome === 'success' && Date.parse(attempt.at) > Date.parse(restart.created_at))) return null;
+  const sync = String(restart.body ?? '').startsWith(SYNC_COMMENT_MARKER) ? syncBarrier(comments, { includeReleased: true }) : null;
+  if (sync?.completion?.guidanceConsumed) return null;
+  // A clean/no-op sync has no Copilot prompt; only work after its acknowledgement consumes the guidance.
+  const since = sync?.completionAt ?? restart.created_at;
+  if (ledger.some((attempt) => attempt.outcome === 'success' && Date.parse(attempt.at) > Date.parse(since))) return null;
   return guidance;
 }
 
@@ -250,7 +320,9 @@ function readSpecInputs(env) {
 // verified on its own (mode `task`); the phase gets its full verification in its own job after its last task, so a
 // failure there is never charged to the task that happens to come last.
 function prepareOrder(decision, folder) {
-  const guidance = normalizeWriterGuidance(currentGuidance(decision));
+  const guidance = normalizeWriterGuidance(
+    decision.requiredSync?.completion?.guidanceConsumed ? '' : decision.requiredSync?.guidance || currentGuidance(decision),
+  );
   const texts = new Map(listTasks(decision.tasksMarkdown).map((task) => [task.id, task.text]));
   return decision.order.map((entry, index) => ({
     include: entry.map(({ task, attempt }) => {
@@ -261,6 +333,8 @@ function prepareOrder(decision, folder) {
         attempt,
         prompt: prompt ? appendWriterGuidance(prompt, activeGuidance) : prompt,
         ...(decision.kind === 'resolve' && activeGuidance ? { guidance: activeGuidance } : {}),
+        ...(decision.requiredSync ? { required_sync: decision.requiredSync.request } : {}),
+        ...(decision.requiredSync && decision.repair ? { sync_repair: JSON.stringify(decision.repair) } : {}),
         verify_mode: decision.kind === 'resolve' ? 'finalize' : 'task',
         summary: task ? neutralizeMarkers(summarizeTask(texts.get(task) ?? '')).slice(0, 300) : '',
       };
@@ -299,6 +373,8 @@ export function integrationTarget(decision) {
 // own (CHECK_CONFLICT, resolution required); before other work as CHECK_SYNC_CONFLICT (best effort). Either way the
 // decide job of the same run then starts the conflict resolution.
 export async function integrateBase(client, env, { decision, folder, report }) {
+  // Required sync always uses the isolated resolve/verify/land workflow, including clean and no-op merges.
+  if (decision.requiredSync) return 'required';
   if (!syncBaseEnabled(env)) return 'none';
   const target = integrationTarget(decision);
   if (!target) return 'none';
@@ -314,6 +390,7 @@ export async function integrateBase(client, env, { decision, folder, report }) {
   }
   let result;
   try {
+    if (syncBarrier(await client.listIssueComments(pull.number))) return 'required';
     result = await client.mergeBranch(branch, base, `Merge ${base} into ${branch} before the ${target}`);
   } catch (error) {
     const reason = `GitHub refused the merge (${neutralizeMarkers(String(error.message).slice(0, 300))})`;
@@ -416,6 +493,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
     return finish('stop', common);
   }
   if (decision.action === 'failed') {
+    if (decision.requiredSync) await setAttention(client, pull.number, true);
     if (decision.diagnosis?.state !== 'reported') {
       const diagnosing = await maybeDiagnose(client, env, { twin, pull, folder }, decision.diagnosis, report);
       await setAttention(client, pull.number, !diagnosing);
@@ -463,7 +541,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
 
   const order = prepareOrder(decision, folder);
   await startAttemptChecks(client, { head: common.head, kind: decision.kind, entries: order[0].include });
-  const subject = taskSubject(decision.kind, order[0].include);
+  const subject = decision.requiredSync ? 'Required base synchronization' : taskSubject(decision.kind, order[0].include);
   report.line(`Next: ${renderImplementTitle('task', twin, subject)}.`);
   reportOrder(report, decision.kind, order);
   return finish(decision.kind, { ...common, order: JSON.stringify(order), job_name: subject });
