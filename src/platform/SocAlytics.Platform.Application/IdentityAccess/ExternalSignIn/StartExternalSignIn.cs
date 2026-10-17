@@ -2,15 +2,18 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Domain.IdentityAccess;
 
 namespace SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn;
 
-public sealed record StartExternalSignInCommand(string ProviderId, string RedirectUri);
+public sealed record StartExternalSignInCommand(
+    string ProviderId, string RedirectUri, string? AccountName = null, string? LinkCredential = null);
 
 public enum StartExternalSignInOutcome
 {
     Started,
     UnknownProvider,
+    InvalidLinkCredential,
     ProviderUnavailable,
 }
 
@@ -25,6 +28,8 @@ public sealed class StartExternalSignInHandler(
     IUnitOfWork unitOfWork,
     IOidcProviderClient provider,
     IPendingExternalSignInStore pending,
+    IMemberAccountStore members,
+    IAccountCredentialService credentials,
     IOptions<IdentityAccessOptions> options,
     TimeProvider time)
 {
@@ -40,6 +45,7 @@ public sealed class StartExternalSignInHandler(
             return new StartExternalSignInResult(StartExternalSignInOutcome.UnknownProvider, null, null, TimeSpan.Zero);
         }
 
+        var linking = command.AccountName is not null || command.LinkCredential is not null;
         var state = RandomValue();
         var nonce = RandomValue();
         var verifier = RandomValue();
@@ -61,13 +67,36 @@ public sealed class StartExternalSignInHandler(
         var now = time.GetUtcNow();
         var lifetime = settings.ExternalSignIn.PendingLifetime;
         await using var scope = await unitOfWork.BeginAsync(cancellationToken);
+        Guid? linkCredentialId = null;
+        if (linking)
+        {
+            linkCredentialId = await ValidateLinkCredentialAsync(command, cancellationToken);
+            if (linkCredentialId is null)
+            {
+                return new StartExternalSignInResult(StartExternalSignInOutcome.InvalidLinkCredential, null, null, TimeSpan.Zero);
+            }
+        }
+
         await pending.DeleteExpiredOrConsumedAsync(now, ExpiredBatchSize, cancellationToken);
         await pending.CreateAsync(
             new PendingExternalSignIn(
-                Guid.NewGuid(), Hash(state), Hash(binding), nonce, verifier, command.ProviderId, null, now, now + lifetime),
+                Guid.NewGuid(), Hash(state), Hash(binding), nonce, verifier, command.ProviderId, linkCredentialId, now, now + lifetime),
             cancellationToken);
         await scope.CommitAsync(cancellationToken);
         return new StartExternalSignInResult(StartExternalSignInOutcome.Started, url, binding, lifetime);
+    }
+
+    // Only checks; the credential is consumed by the callback together with the link.
+    private async Task<Guid?> ValidateLinkCredentialAsync(StartExternalSignInCommand command, CancellationToken cancellationToken)
+    {
+        if (!AccountName.TryCreate(command.AccountName, out var name, out _)
+            || string.IsNullOrEmpty(command.LinkCredential)
+            || await members.FindAccountIdByNameAsync(name, cancellationToken) is not { } accountId)
+        {
+            return null;
+        }
+
+        return await credentials.ValidateLinkCredentialAsync(accountId, command.LinkCredential, command.ProviderId, cancellationToken);
     }
 
     internal static byte[] Hash(string value) => SHA256.HashData(Encoding.UTF8.GetBytes(value));

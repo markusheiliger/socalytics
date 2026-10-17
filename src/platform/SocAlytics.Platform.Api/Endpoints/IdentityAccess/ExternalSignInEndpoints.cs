@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
+using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn;
 using SocAlytics.Platform.Application.Registry;
@@ -11,7 +12,7 @@ internal sealed record IdentityProviderDto(string Id, string DisplayName);
 
 internal sealed record IdentityProvidersDto(IReadOnlyList<IdentityProviderDto> Providers);
 
-internal sealed record StartExternalSignInRequest(string? Provider);
+internal sealed record StartExternalSignInRequest(string? Provider, string? AccountName = null, string? LinkCredential = null);
 
 internal sealed record ExternalAuthorizationDto(string AuthorizationUrl);
 
@@ -77,12 +78,15 @@ internal static class ExternalSignInEndpoints
 		}
 
 		var result = await handler.HandleAsync(
-			new StartExternalSignInCommand(request.Provider, stamp.Value.Build(CallbackPath).ToString()),
+			new StartExternalSignInCommand(
+				request.Provider, stamp.Value.Build(CallbackPath).ToString(), request.AccountName, request.LinkCredential),
 			cancellationToken);
 		switch (result.Outcome)
 		{
 			case StartExternalSignInOutcome.UnknownProvider:
 				return ProblemResults.Problem(StatusCodes.Status400BadRequest, "invalid-request");
+			case StartExternalSignInOutcome.InvalidLinkCredential:
+				return ProblemResults.From(OperationFailure.SignInFailed());
 			case StartExternalSignInOutcome.ProviderUnavailable:
 				return ProblemResults.Problem(StatusCodes.Status503ServiceUnavailable, "provider-unavailable");
 		}
@@ -110,12 +114,13 @@ internal static class ExternalSignInEndpoints
 			stamp.Value.Build(CallbackPath).ToString(),
 			presented is null ? null : SessionCookie.Hash(presented));
 
-		var result = await handler.HandleAsync(command, cancellationToken);
+		var completion = await handler.HandleAsync(command, cancellationToken);
+		var result = completion.Result;
 		ExternalBindingCookie.Clear(http.Response);
 		http.Response.Headers.CacheControl = "no-store";
 		if (!result.IsSuccess)
 		{
-			return Results.Redirect($"{webUi}/sign-in?external=failed");
+			return Results.Redirect($"{webUi}/{(completion.Linking ? "link-account" : "sign-in")}?external=failed");
 		}
 
 		SessionCookie.Write(http.Response, result.Value.RawToken);

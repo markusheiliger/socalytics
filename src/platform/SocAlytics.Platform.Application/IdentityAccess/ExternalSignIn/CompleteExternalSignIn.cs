@@ -17,18 +17,30 @@ public sealed record CompleteExternalSignInCommand(
     string RedirectUri,
     byte[]? PresentedTokenHash = null);
 
+/// <param name="Linking">True when the pending sign-in redeems a link credential; the caller redirects failures to the link page.</param>
+public sealed record ExternalSignInCompletion(OperationResult<SignedInSession> Result, bool Linking);
+
 /// <summary>Every failure is the same generic outcome; its cause is only audited.</summary>
 public sealed class CompleteExternalSignInHandler(
     IUnitOfWork unitOfWork,
     IOidcProviderClient provider,
     IPendingExternalSignInStore pending,
     IExternalIdentityStore links,
+    IAccountCredentialService credentials,
     IMemberAccountStore members,
     ISessionStore sessions,
     IAuditTrail audit,
     TimeProvider time)
 {
-    public async Task<OperationResult<SignedInSession>> HandleAsync(CompleteExternalSignInCommand command, CancellationToken cancellationToken)
+    public async Task<ExternalSignInCompletion> HandleAsync(CompleteExternalSignInCommand command, CancellationToken cancellationToken)
+    {
+        var linking = false;
+        var result = await CompleteAsync(command, linked => linking = linked, cancellationToken);
+        return new ExternalSignInCompletion(result, linking);
+    }
+
+    private async Task<OperationResult<SignedInSession>> CompleteAsync(
+        CompleteExternalSignInCommand command, Action<bool> markLinking, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
 
@@ -50,6 +62,7 @@ public sealed class CompleteExternalSignInHandler(
         }
 
         var providerId = consumed.ProviderId;
+        markLinking(consumed.LinkCredentialId is not null);
         if (string.IsNullOrEmpty(command.BrowserBinding)
             || !CryptographicOperations.FixedTimeEquals(StartExternalSignInHandler.Hash(command.BrowserBinding), consumed.BrowserBindingHash))
         {
@@ -85,6 +98,11 @@ public sealed class CompleteExternalSignInHandler(
         await using var signInScope = await unitOfWork.BeginAsync(cancellationToken);
         var now = time.GetUtcNow();
         var link = await links.FindByIssuerAndSubjectAsync(identity.Issuer, identity.Subject, cancellationToken);
+        if (consumed.LinkCredentialId is { } credentialId)
+        {
+            return await LinkAsync(credentialId, providerId, identity, link, signInScope, now, command.PresentedTokenHash, cancellationToken);
+        }
+
         if (link is null || !string.Equals(link.ProviderId, providerId, StringComparison.Ordinal))
         {
             return await FailInScopeAsync("unlinked", providerId, signInScope, cancellationToken);
@@ -96,7 +114,15 @@ public sealed class CompleteExternalSignInHandler(
             return await FailInScopeAsync("membership-inactive", providerId, signInScope, cancellationToken);
         }
 
-        if (command.PresentedTokenHash is { } presented)
+        var signedIn = await CreateSessionAsync(link.AccountId, binding.SecurityStamp, providerId, now, command.PresentedTokenHash, cancellationToken);
+        await signInScope.CommitAsync(cancellationToken);
+        return signedIn;
+    }
+
+    private async Task<SignedInSession> CreateSessionAsync(
+        Guid accountId, string securityStamp, string providerId, DateTimeOffset now, byte[]? presentedTokenHash, CancellationToken cancellationToken)
+    {
+        if (presentedTokenHash is { } presented)
         {
             var presentedSession = await sessions.FindByTokenHashAsync(presented, cancellationToken);
             if (presentedSession is { EndedAt: null })
@@ -107,7 +133,7 @@ public sealed class CompleteExternalSignInHandler(
 
         var rawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         var created = await sessions.CreateAsync(
-            link.AccountId, StartExternalSignInHandler.Hash(rawToken), binding.SecurityStamp, now, cancellationToken);
+            accountId, StartExternalSignInHandler.Hash(rawToken), securityStamp, now, cancellationToken);
         await audit.RecordAsync(
             new AuditEvent
             {
@@ -115,13 +141,83 @@ public sealed class CompleteExternalSignInHandler(
                 Action = "external-sign-in",
                 Outcome = AuditOutcome.Succeeded,
                 Resource = new AuditResource("session", created.SessionId.ToString()),
-                ActorOverride = new AuditActorOverride(AuditActorKind.Member, link.AccountId),
+                ActorOverride = new AuditActorOverride(AuditActorKind.Member, accountId),
                 Details = new Dictionary<string, string> { ["provider"] = providerId },
             },
             cancellationToken);
-        await signInScope.CommitAsync(cancellationToken);
-        return new SignedInSession(created.SessionId, rawToken, created.IdleExpiresAt, created.AbsoluteExpiresAt, false, link.AccountId);
+        return new SignedInSession(created.SessionId, rawToken, created.IdleExpiresAt, created.AbsoluteExpiresAt, false, accountId);
     }
+
+    private async Task<OperationResult<SignedInSession>> LinkAsync(
+        Guid credentialId,
+        string providerId,
+        OidcIdentity identity,
+        ExternalIdentityLink? existing,
+        IUnitOfWorkScope scope,
+        DateTimeOffset now,
+        byte[]? presentedTokenHash,
+        CancellationToken cancellationToken)
+    {
+        if (existing is not null)
+        {
+            return await RefuseLinkAsync("already-linked", providerId, null, scope, cancellationToken);
+        }
+
+        var redeemed = await credentials.ConsumeLinkCredentialAsync(credentialId, providerId, cancellationToken);
+        if (redeemed is null)
+        {
+            return await RefuseLinkAsync("credential-invalid", providerId, null, scope, cancellationToken);
+        }
+
+        var link = new ExternalIdentityLink(Guid.CreateVersion7(), redeemed.AccountId, providerId, identity.Issuer, identity.Subject, now, redeemed.IssuedBy);
+        if (await links.InsertAsync(link, cancellationToken) != ExternalIdentityInsertOutcome.Inserted)
+        {
+            await scope.RollbackAsync(cancellationToken);
+            await audit.RecordIndependentAsync(LinkRefusedEvent("already-linked", providerId, redeemed.AccountId), cancellationToken);
+            return OperationFailure.SignInFailed();
+        }
+
+        var binding = await members.GetSessionBindingAsync(redeemed.AccountId, cancellationToken);
+        if (binding is null || binding.Status != MembershipStatus.Active)
+        {
+            await scope.RollbackAsync(cancellationToken);
+            await audit.RecordIndependentAsync(LinkRefusedEvent("credential-invalid", providerId, redeemed.AccountId), cancellationToken);
+            return OperationFailure.SignInFailed();
+        }
+
+        await audit.RecordAsync(
+            new AuditEvent
+            {
+                EventType = "identity.linked",
+                Action = "link-identity",
+                Outcome = AuditOutcome.Succeeded,
+                Resource = new AuditResource("member", redeemed.AccountId.ToString()),
+                ActorOverride = new AuditActorOverride(AuditActorKind.Member, redeemed.AccountId),
+                Details = new Dictionary<string, string> { ["provider"] = providerId },
+            },
+            cancellationToken);
+        var signedIn = await CreateSessionAsync(redeemed.AccountId, binding.SecurityStamp, providerId, now, presentedTokenHash, cancellationToken);
+        await scope.CommitAsync(cancellationToken);
+        return signedIn;
+    }
+
+    private async Task<OperationResult<SignedInSession>> RefuseLinkAsync(
+        string cause, string providerId, Guid? accountId, IUnitOfWorkScope scope, CancellationToken cancellationToken)
+    {
+        await audit.RecordAsync(LinkRefusedEvent(cause, providerId, accountId), cancellationToken);
+        await scope.CommitAsync(cancellationToken);
+        return OperationFailure.SignInFailed();
+    }
+
+    private static AuditEvent LinkRefusedEvent(string cause, string providerId, Guid? accountId) => new()
+    {
+        EventType = "identity.link-refused",
+        Action = "link-identity",
+        Outcome = AuditOutcome.Failed,
+        Resource = new AuditResource("member", accountId?.ToString()),
+        ActorOverride = new AuditActorOverride(AuditActorKind.Anonymous, null),
+        Details = new Dictionary<string, string> { ["provider"] = providerId, ["cause"] = cause },
+    };
 
     private async Task<OperationResult<SignedInSession>> FailAsync(string cause, string? providerId, CancellationToken cancellationToken)
     {

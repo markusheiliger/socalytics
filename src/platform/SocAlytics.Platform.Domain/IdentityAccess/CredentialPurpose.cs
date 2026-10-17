@@ -4,6 +4,7 @@ public enum CredentialPurpose
 {
     SetPassword,
     PasswordReset,
+    IdentityLink,
 }
 
 public static class CredentialPurposeExtensions
@@ -12,6 +13,7 @@ public static class CredentialPurposeExtensions
     {
         CredentialPurpose.SetPassword => "set-password",
         CredentialPurpose.PasswordReset => "password-reset",
+        CredentialPurpose.IdentityLink => "identity-link",
         _ => throw new ArgumentOutOfRangeException(nameof(purpose), purpose, null),
     };
 
@@ -19,6 +21,7 @@ public static class CredentialPurposeExtensions
     {
         "set-password" => CredentialPurpose.SetPassword,
         "password-reset" => CredentialPurpose.PasswordReset,
+        "identity-link" => CredentialPurpose.IdentityLink,
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
     };
 }
