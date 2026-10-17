@@ -63,6 +63,7 @@
     "applyFilter": "Apply filters",
     "clearFilter": "Clear filters",
     "listEntry": "Version {{version}} – {{state}}",
+    "capability": "{{capability}} {{version}}",
     "newProfile": "New profile"
   },
   "profileCreate": {
