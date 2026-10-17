@@ -19,7 +19,7 @@
 
 **Purpose**: Establish the exact environment-local toolchain declaration without creating a future product.
 
-- [ ] T001 Create `.github/actions/environment-setup/analyst-media-toolchain.json` as the sole implementation source of the exact CPython, uv, and retained monthly LGPL FFmpeg/ffprobe pins from `research.md`, including complete archive URLs, committed SHA-256 values, expected executable layouts, version/build identity, supported Linux x64 host, and license/provenance locations; validate that it is valid JSON and introduces no floating selector or dependency-cache change.
+- [x] T001 Create `.github/actions/environment-setup/analyst-media-toolchain.json` as the sole implementation source of the exact CPython, uv, and retained monthly LGPL FFmpeg/ffprobe pins from `research.md`, including complete archive URLs, committed SHA-256 values, expected executable layouts, version/build identity, supported Linux x64 host, and license/provenance locations; validate that it is valid JSON and introduces no floating selector or dependency-cache change.
 
 ## Phase 2: Foundational
 
