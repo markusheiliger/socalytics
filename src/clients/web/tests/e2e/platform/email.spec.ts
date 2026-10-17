@@ -27,7 +27,7 @@ test('sets an address, reads the link from Mailpit, confirms it, and sees it ver
   await expect(page).toHaveURL(/\/sign-in$/);
   await page.getByLabel('Sign-in name').fill(ADMIN_ACCOUNT);
   await page.getByLabel('Password').fill(ADMIN_CHANGED_PASSWORD);
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Home' })).toBeVisible();
 
   await page.goto('/account');

@@ -2,13 +2,16 @@ using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.IdentityAccess;
+using SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn;
 using SocAlytics.Platform.Domain.IdentityAccess;
 
 namespace SocAlytics.Platform.Api.Endpoints.IdentityAccess;
 
-internal sealed record MemberCreateRequest(string? AccountName);
+internal sealed record MemberCreateRequest(string? AccountName, MemberCredentialChoice? Credential = null);
 
-internal sealed record CredentialIssueRequest(string? Purpose);
+internal sealed record MemberCredentialChoice(string? Kind, string? Provider);
+
+internal sealed record CredentialIssueRequest(string? Purpose, string? Provider = null);
 
 internal sealed record TeamRoleAssignmentRequest(string? Role);
 
@@ -26,7 +29,10 @@ internal sealed record MemberDto(
 	IReadOnlyList<MemberTeamRoleDto> TeamRoles,
 	DateTimeOffset CreatedAt,
 	long Version,
-	MemberEmailDto? Email = null);
+	MemberEmailDto? Email = null,
+	IReadOnlyList<ExternalIdentityDto>? ExternalIdentities = null);
+
+internal sealed record ExternalIdentityDto(string Provider, string DisplayName, DateTimeOffset LinkedAt, bool ProviderConfigured);
 
 internal sealed record MemberEmailDto(string Address, string State);
 
@@ -140,7 +146,33 @@ internal static class MemberEndpoints
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict)
 			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+		members.MapDelete("/members/{memberId:guid}/external-identities/{provider}", UnlinkExternalIdentityAsync)
+			.WithName("unlinkExternalIdentity")
+			.WithTags("Members")
+			.Produces(StatusCodes.Status204NoContent)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		return routes;
+	}
+
+	private static async Task<IResult> UnlinkExternalIdentityAsync(
+		Guid memberId,
+		string provider,
+		HttpContext http,
+		UnlinkExternalIdentityHandler handler,
+		CancellationToken cancellationToken)
+	{
+		var version = IfMatchHeader.Parse(http.Request);
+		if (!version.IsSuccess)
+		{
+			return ProblemResults.From(version.Failure);
+		}
+
+		var result = await handler.HandleAsync(new UnlinkExternalIdentityCommand(memberId, provider, version.Value), cancellationToken);
+		return result.IsSuccess ? Results.NoContent() : ProblemResults.From(result.Failure);
 	}
 
 	private static async Task<IResult> IssueCredentialAsync(
@@ -163,6 +195,7 @@ internal static class MemberEndpoints
 		{
 			"set-password" => CredentialPurpose.SetPassword,
 			"password-reset" => CredentialPurpose.PasswordReset,
+			"identity-link" => CredentialPurpose.IdentityLink,
 			_ => (CredentialPurpose?)null,
 		};
 		if (purpose is null)
@@ -170,7 +203,7 @@ internal static class MemberEndpoints
 			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("purpose", "invalid-value")));
 		}
 
-		var result = await handler.HandleAsync(new IssueCredentialCommand(memberId, purpose.Value), cancellationToken);
+		var result = await handler.HandleAsync(new IssueCredentialCommand(memberId, purpose.Value, body!.Provider), cancellationToken);
 		if (!result.IsSuccess)
 		{
 			return ProblemResults.From(result.Failure);
@@ -298,7 +331,8 @@ internal static class MemberEndpoints
 		[.. m.TeamRoles.Select(t => new MemberTeamRoleDto(t.TeamId, t.Role.ToWireValue()))],
 		m.CreatedAt,
 		m.Version,
-		m.Email is null ? null : new MemberEmailDto(m.Email.Address, m.Email.State));
+		m.Email is null ? null : new MemberEmailDto(m.Email.Address, m.Email.State),
+		m.ExternalIdentities?.Select(i => new ExternalIdentityDto(i.ProviderId, i.DisplayName, i.LinkedAt, i.ProviderConfigured)).ToArray());
 
 	private static async Task<IResult> ListMembersAsync(
 		string? pageSize,
@@ -340,7 +374,7 @@ internal static class MemberEndpoints
 			body = null;
 		}
 
-		var result = await handler.HandleAsync(new CreateMemberCommand(body?.AccountName), cancellationToken);
+		var result = await handler.HandleAsync(new CreateMemberCommand(body?.AccountName, body?.Credential?.Kind, body?.Credential?.Provider), cancellationToken);
 		if (!result.IsSuccess)
 		{
 			return ProblemResults.From(result.Failure);
@@ -354,6 +388,6 @@ internal static class MemberEndpoints
 			$"{MemberApiRouteGroup.Prefix}/members/{created.Member.Id}",
 			new MemberCreatedDto(
 				ToDto(created.Member),
-				new IssuedCredentialDto(created.Member.Id, CredentialPurpose.SetPassword.ToWireValue(), credential.RawCredential, credential.ExpiresAt)));
+				new IssuedCredentialDto(created.Member.Id, created.CredentialPurpose.ToWireValue(), credential.RawCredential, credential.ExpiresAt)));
 	}
 }

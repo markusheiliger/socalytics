@@ -12,7 +12,8 @@ internal static class IdentityAccessRegistration
         services.AddIdentityCore<IdentityMemberAccount>()
             .AddUserStore<DapperMemberAccountStore>()
             .AddTokenProvider<OneTimeCredentialTokenProvider>(OneTimeCredentialTokenProvider.SetPasswordPurpose)
-            .AddTokenProvider<OneTimeCredentialTokenProvider>(OneTimeCredentialTokenProvider.PasswordResetPurpose);
+            .AddTokenProvider<OneTimeCredentialTokenProvider>(OneTimeCredentialTokenProvider.PasswordResetPurpose)
+            .AddTokenProvider<OneTimeCredentialTokenProvider>(OneTimeCredentialTokenProvider.IdentityLinkPurpose);
         services.AddSingleton<IConfigureOptions<IdentityOptions>, ConfigureIdentityOptions>();
         return services;
     }

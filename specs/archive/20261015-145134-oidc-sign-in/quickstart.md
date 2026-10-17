@@ -11,6 +11,7 @@ dotnet restore src/platform/SocAlytics.Platform.slnx
 dotnet build src/platform/SocAlytics.Platform.slnx --no-restore
 dotnet test src/platform/Tests/SocAlytics.Platform.Integration.Tests --no-build
 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --no-build
+dotnet test src/platform/Tests/SocAlytics.Platform.Architecture.Tests --no-build
 cd src/clients/web
 npm ci
 npm run build
@@ -23,6 +24,7 @@ npm run test:e2e
 | Integration tests with `OidcProviderContainerFixture` | Provider listing; start and callback with PKCE, state, nonce, and the browser binding; linked, unlinked, deactivated, invalid-response, provider-error, expired, and replayed sign-ins; link credential issue, redemption, refusal (expired, used, already linked); unlink ends sessions; member creation with either credential; no token or secret in responses, logs, or audit records (SC-002, SC-003, SC-005). |
 | Unit tests of the ID-token validator | Issuer, audience, signature, lifetime, nonce, and key rotation with locally signed tokens. |
 | Host tests | OpenAPI snapshot contains every operation of [contracts/external-sign-in-api.md](contracts/external-sign-in-api.md); startup validation of provider configuration. |
+| Architecture tests | `EndpointSecurityTests` classifies `listIdentityProviders`, `startExternalSignIn`, and `completeExternalSignIn` as anonymous; every other operation of this feature requires authorization. |
 | Web UI unit tests | Provider buttons, link-account page, member page link section, creation choice, generic failure display. |
 | Playwright `simulated` | The sign-in and link flows with an intercepted start call and a simulated callback; accessibility checks with axe. |
 | Playwright `platform` | Against the AppHost in `e2e` mode with the test provider container: create a member with a link credential, redeem it through the provider, sign out, sign in through the provider, unlink, and be refused (SC-001, SC-004). |

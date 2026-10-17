@@ -1,6 +1,7 @@
 import { createBrowserRouter, useParams, type RouteObject } from 'react-router';
 import { AccountPage } from './features/account/AccountPage';
 import { EmailConfirmPage } from './features/email-confirm/EmailConfirmPage';
+import { LinkAccountPage } from './features/link-account/LinkAccountPage';
 import { SetPasswordPage } from './features/set-password/SetPasswordPage';
 import { PasswordChangePage } from './features/account/PasswordChangePage';
 import { ClubPage } from './features/club/ClubPage';
@@ -51,6 +52,7 @@ const clubAdminOnly = (element: React.ReactNode) => <RequireRole allow={isClubAd
 export const appRoutes: RouteObject[] = [
   { element: <RequireSignedOut routes={() => appRoutes} />, children: [{ path: '/sign-in', element: <SignInPage /> }] },
   { path: '/set-password', element: <SetPasswordPage /> },
+  { path: '/link-account', element: <LinkAccountPage /> },
   { path: '/email/confirm', element: <EmailConfirmPage /> },
   { element: <RequirePasswordChange />, children: [{ path: '/password-change', element: <PasswordChangePage /> }] },
   {

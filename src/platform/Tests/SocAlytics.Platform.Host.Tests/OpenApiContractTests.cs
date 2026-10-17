@@ -58,7 +58,7 @@ public sealed class OpenApiContractTests
 		// Recording operations are verified by RecordingsOpenApiTests and Registry operations by
 		// RegistryOpenApiTests and AnalystRegistryOpenApiTests, not against the Club contract.
 		var operationCount = paths.EnumerateObject()
-			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name))
+			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name) && !IsExternalSignInPath(p.Name))
 			.Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
 		operationCount.ShouldBe(ContractOperations.All.Count);
 
@@ -86,6 +86,15 @@ public sealed class OpenApiContractTests
 		|| path == "/api/v1/me/notification-preferences"
 		|| path.StartsWith("/api/v1/me/notification-preferences/", StringComparison.Ordinal)
 		|| path == "/api/v1/members/{memberId}/email";
+
+	// External sign-in operations are verified by ExternalSignInEndpointTests against
+	// specs/archive/20261015-145134-oidc-sign-in/contracts/external-sign-in-api.md, not against the Club contract.
+	private static bool IsExternalSignInPath(string path) =>
+		path == "/api/v1/identity-providers"
+		|| path == "/api/v1/session/external"
+		|| path == "/api/v1/session/external/callback"
+		|| (path.StartsWith("/api/v1/members/", StringComparison.Ordinal)
+			&& path.Contains("/external-identities/", StringComparison.Ordinal));
 
 	private static bool IsAnalysisPath(string path) =>
 		path.StartsWith("/api/v1/analysis/", StringComparison.Ordinal)

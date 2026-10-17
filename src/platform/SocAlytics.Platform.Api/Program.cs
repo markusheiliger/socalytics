@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Api.Bootstrap;
 using SocAlytics.Platform.Api.Endpoints.Club;
 using SocAlytics.Platform.Api.Endpoints.IdentityAccess;
@@ -12,11 +13,14 @@ using SocAlytics.Platform.Api.WebUi;
 using SocAlytics.Platform.Application;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.IdentityAccess;
+using SocAlytics.Platform.Application.IdentityAccess.ExternalSignIn;
 using SocAlytics.Platform.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.AddServiceDefaults();
+// The hosting request log would write the external sign-in callback's authorization code (query string) to the logs.
+builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 builder.AddRegistryApi();
 builder.Services.AddEmailRateLimiting();
 builder.Services.AddApplication();
@@ -29,6 +33,8 @@ builder.Services.AddOptions<IdentityAccessOptions>()
 	.Bind(builder.Configuration.GetSection(IdentityAccessOptions.SectionName))
 	.ValidateDataAnnotations()
 	.ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<IdentityAccessOptions>>(new ExternalProviderOptionsValidator(
+	allowInsecureUrls: builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Test")));
 builder.Services.AddMinimumWebVersion(builder.Configuration);
 builder.Services.Configure<ClubBootstrapOptions>(builder.Configuration.GetSection(ClubBootstrapOptions.SectionName));
 builder.Services.Configure<BreakGlassRecoveryOptions>(builder.Configuration.GetSection(BreakGlassRecoveryOptions.SectionName));
@@ -65,6 +71,7 @@ app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapOpenApi();
 app.MapSessionEndpoints();
+app.MapExternalSignInEndpoints();
 app.MapSelfEndpoints();
 app.MapEmailEndpoints();
 app.MapClubEndpoints();

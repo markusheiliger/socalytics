@@ -7,6 +7,13 @@ export interface MemberTeamRole {
   role: TeamRoleName;
 }
 
+export interface ExternalIdentityLink {
+  provider: string;
+  displayName: string;
+  linkedAt: Date;
+  providerConfigured: boolean;
+}
+
 export interface Member {
   id: string;
   accountName: string;
@@ -17,6 +24,7 @@ export interface Member {
   twoFactorEnabled: boolean;
   clubRoles: ClubRole[];
   teamRoles: MemberTeamRole[];
+  externalIdentities: ExternalIdentityLink[];
   createdAt: Date;
   version: number;
 }

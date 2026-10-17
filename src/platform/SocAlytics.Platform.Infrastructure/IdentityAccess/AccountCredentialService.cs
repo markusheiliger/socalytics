@@ -145,7 +145,8 @@ internal sealed class AccountCredentialService(
             : new PasswordChangeResult(PasswordChangeOutcome.PolicyViolation, null);
     }
 
-    public async Task<IssuedCredential> IssueCredentialAsync(Guid accountId, CredentialPurpose purpose, Guid issuedBy, CancellationToken cancellationToken)
+    public async Task<IssuedCredential> IssueCredentialAsync(
+        Guid accountId, CredentialPurpose purpose, Guid issuedBy, CancellationToken cancellationToken, string? providerId = null)
     {
         var superseded = await RevokeOpenCredentialsForAccountAsync(accountId, "superseded", cancellationToken);
         foreach (var credential in superseded)
@@ -160,8 +161,8 @@ internal sealed class AccountCredentialService(
         var connection = await dbSession.GetConnectionAsync(cancellationToken);
         await connection.ExecuteAsync(new CommandDefinition(
             "INSERT INTO socalytics.one_time_credential " +
-            "(id, member_account_id, purpose, credential_hash, issued_at, issued_by_account_id, expires_at) " +
-            "VALUES (@Id, @AccountId, @Purpose, @Hash, @IssuedAt, @IssuedBy, @ExpiresAt)",
+            "(id, member_account_id, purpose, credential_hash, issued_at, issued_by_account_id, expires_at, provider_id) " +
+            "VALUES (@Id, @AccountId, @Purpose, @Hash, @IssuedAt, @IssuedBy, @ExpiresAt, @ProviderId)",
             new
             {
                 Id = id,
@@ -171,11 +172,54 @@ internal sealed class AccountCredentialService(
                 IssuedAt = now.UtcDateTime,
                 IssuedBy = issuedBy,
                 ExpiresAt = expiresAt.UtcDateTime,
+                ProviderId = purpose == CredentialPurpose.IdentityLink ? providerId : null,
             },
             dbSession.RequireTransaction(),
             cancellationToken: cancellationToken));
         return new IssuedCredential(id, raw, expiresAt);
     }
+
+    public async Task<Guid?> ValidateLinkCredentialAsync(Guid accountId, string rawCredential, string providerId, CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(rawCredential))
+        {
+            return null;
+        }
+
+        var connection = await dbSession.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<Guid?>(new CommandDefinition(
+            "SELECT c.id FROM socalytics.one_time_credential c " +
+            "JOIN socalytics.member_account a ON a.id = c.member_account_id " +
+            "WHERE c.credential_hash = @Hash AND c.member_account_id = @AccountId AND c.purpose = 'identity-link' " +
+            "AND c.provider_id = @ProviderId AND a.membership_status = 'active' " +
+            "AND c.consumed_at IS NULL AND c.revoked_at IS NULL AND c.expires_at > @Now",
+            new
+            {
+                Hash = SecretHashing.Sha256(rawCredential),
+                AccountId = accountId,
+                ProviderId = providerId,
+                Now = time.GetUtcNow().UtcDateTime,
+            },
+            dbSession.Transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<ConsumedLinkCredential?> ConsumeLinkCredentialAsync(Guid credentialId, string providerId, CancellationToken cancellationToken)
+    {
+        var connection = await dbSession.GetConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<ConsumedLinkRow>(new CommandDefinition(
+            "UPDATE socalytics.one_time_credential c SET consumed_at = @Now FROM socalytics.member_account a " +
+            "WHERE c.id = @Id AND a.id = c.member_account_id AND a.membership_status = 'active' " +
+            "AND c.purpose = 'identity-link' AND c.provider_id = @ProviderId " +
+            "AND c.consumed_at IS NULL AND c.revoked_at IS NULL AND c.expires_at > @Now " +
+            "RETURNING c.member_account_id AS AccountId, c.issued_by_account_id AS IssuedBy",
+            new { Now = time.GetUtcNow().UtcDateTime, Id = credentialId, ProviderId = providerId },
+            dbSession.RequireTransaction(),
+            cancellationToken: cancellationToken));
+        return row is null ? null : new ConsumedLinkCredential(row.AccountId, row.IssuedBy);
+    }
+
+    private sealed record ConsumedLinkRow(Guid AccountId, Guid IssuedBy);
 
     private const string ConsumeSql =
         """

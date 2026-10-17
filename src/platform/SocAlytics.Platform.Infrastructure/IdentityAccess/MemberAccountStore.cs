@@ -325,6 +325,19 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
             cancellationToken: cancellationToken));
     }
 
+    public async Task<AccountSessionBinding?> GetSessionBindingAsync(Guid accountId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<BindingRow>(new CommandDefinition(
+            "SELECT membership_status AS Status, security_stamp AS SecurityStamp FROM socalytics.member_account WHERE id = @accountId",
+            new { accountId },
+            session.Transaction,
+            cancellationToken: cancellationToken));
+        return row is null || !MembershipStatusRules.TryParse(row.Status, out var status)
+            ? null
+            : new AccountSessionBinding(status, row.SecurityStamp);
+    }
+
     public async Task<bool> UnlockAccountAsync(Guid accountId, CancellationToken cancellationToken)
     {
         var transaction = session.RequireTransaction();
@@ -390,6 +403,8 @@ internal sealed class MemberAccountStore(IDbSession session, TimeProvider time) 
         long Version);
 
     private sealed record PageKeyRow(Guid Id, string NormalizedAccountName);
+
+    private sealed record BindingRow(string Status, string SecurityStamp);
 
     private sealed record AccountRow(string Status, bool PasswordChangeRequired);
 

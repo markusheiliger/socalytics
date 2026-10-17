@@ -10,16 +10,18 @@ import {
 } from '../../generated/platform-api/models';
 import type { Guid, ParsableFactory } from '@microsoft/kiota-abstractions';
 import { PlatformFailure } from '../failure';
-import type { CredentialCode, Member, MembershipStatus, MemberTeamRole } from '../models/member';
+import type { CredentialCode, ExternalIdentityLink, Member, MembershipStatus, MemberTeamRole } from '../models/member';
 import type { ClubRole, TeamRoleName } from '../models/session';
-import { sendFor, sendNoContentFor, withJson, type PlatformApi } from './kiota';
+import { sendFor, sendNoContentFor, withIfMatch, withJson, type PlatformApi } from './kiota';
 
 export interface MemberAdapter {
   list(): Promise<Member[]>;
   get(id: string): Promise<Member>;
   /** The platform also issues the first set-password credential, returned here to show once. */
-  create(input: { accountName: string }): Promise<{ member: Member; credential: CredentialCode }>;
-  issueCredential(id: string): Promise<CredentialCode>;
+  create(input: { accountName: string; linkProvider?: string }): Promise<{ member: Member; credential: CredentialCode }>;
+  issueCredential(id: string, linkProvider?: string): Promise<CredentialCode>;
+  /** Removes the link; the platform also ends the member's sessions. */
+  unlinkExternalIdentity(id: string, provider: string, version: number): Promise<void>;
   deactivate(id: string): Promise<Member>;
   reactivate(id: string): Promise<Member>;
   unlock(id: string): Promise<Member>;
@@ -57,6 +59,9 @@ export function toMember(dto: MemberDto | undefined | null): Member {
     const role = find(TEAM_ROLES, r.role);
     return r.teamId && role ? [{ teamId: r.teamId.toString(), role }] : [];
   });
+  const externalIdentities = (dto.externalIdentities ?? []).flatMap((i): ExternalIdentityLink[] =>
+    i.provider && i.linkedAt ? [{ provider: i.provider, displayName: i.displayName ?? i.provider, linkedAt: i.linkedAt, providerConfigured: i.providerConfigured === true }] : [],
+  );
   return {
     id: dto.id.toString(),
     accountName: dto.accountName,
@@ -67,6 +72,7 @@ export function toMember(dto: MemberDto | undefined | null): Member {
     twoFactorEnabled: dto.twoFactorEnabled === true,
     clubRoles: (dto.clubRoles ?? []).flatMap((r) => find(CLUB_ROLES, r) ?? []),
     teamRoles,
+    externalIdentities,
     createdAt: dto.createdAt,
     version: dto.version,
   };
@@ -101,19 +107,27 @@ export function createMemberAdapter(api: PlatformApi): MemberAdapter {
     create: async (input) => {
       const created = await sendFor<MemberCreatedDto>(
         api,
-        withJson(members.toPostRequestInformation(), { accountName: input.accountName }),
+        withJson(members.toPostRequestInformation(), {
+          accountName: input.accountName,
+          ...(input.linkProvider ? { credential: { kind: 'identity-link', provider: input.linkProvider } } : {}),
+        }),
         createMemberCreatedDtoFromDiscriminatorValue as ParsableFactory<MemberCreatedDto>,
       );
       return { member: toMember(created.member), credential: toCredentialCode(created.setPasswordCredential) };
     },
-    issueCredential: async (id) =>
+    issueCredential: async (id, linkProvider) =>
       toCredentialCode(
         await sendFor(
           api,
-          withJson(item(id).credentials.toPostRequestInformation(), { purpose: 'set-password' }),
+          withJson(
+            item(id).credentials.toPostRequestInformation(),
+            linkProvider ? { purpose: 'identity-link', provider: linkProvider } : { purpose: 'set-password' },
+          ),
           createIssuedCredentialDtoFromDiscriminatorValue,
         ),
       ),
+    unlinkExternalIdentity: (id, provider, version) =>
+      sendNoContentFor(api, withIfMatch(item(id).externalIdentities.byProvider(provider).toDeleteRequestInformation(), version)),
     deactivate: (id) => member(item(id).deactivate.toPostRequestInformation()),
     reactivate: (id) => member(item(id).reactivate.toPostRequestInformation()),
     unlock: (id) => member(item(id).unlock.toPostRequestInformation()),

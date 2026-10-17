@@ -12,6 +12,7 @@
 		<PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
 		<PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" />
+		<PackageReference Include="Microsoft.IdentityModel.Protocols.OpenIdConnect" />
 		<PackageReference Include="NATS.Client.JetStream" />
 		<PackageReference Include="NATS.Jwt" />
 		<PackageReference Include="NATS.NKeys" />

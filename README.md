@@ -99,8 +99,14 @@ prerequisite above.
 The identity foundation is implemented as development evidence: local accounts,
 a server-validated BFF session with anti-forgery protection, membership, club
 and team roles, team-scoped authorization, security audit events, and the
-`Club > Season > Team > Match` hierarchy under `/api/v1`. OIDC, MFA
-enforcement, self-service recovery, clients,
+`Club > Season > Team > Match` hierarchy under `/api/v1`. External OpenID
+Connect sign-in is implemented as development evidence against a test
+provider (providers under `IdentityAccess:ExternalProviders:<id>` with
+`DisplayName`, `Authority`, `ClientId`, `ClientSecret`, `Scopes`, and
+`TokenEndpointAuthMethod`, plus `IdentityAccess:ExternalSignIn:WebUiBaseUrl`
+and `PendingLifetime`); members are linked only through Club Admin link
+credentials, and SocAlytics offers no MFA for local accounts (a club that needs
+MFA uses a provider that enforces it). Self-service recovery, clients,
 production values for POL-001, POL-002, and POL-009, deployment, and
 production readiness remain deferred.
 

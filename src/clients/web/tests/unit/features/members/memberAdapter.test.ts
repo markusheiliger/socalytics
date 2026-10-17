@@ -68,6 +68,30 @@ describe('memberAdapter', () => {
     expect(body(calls[0])).toBe(JSON.stringify({ purpose: 'set-password' }));
   });
 
+  it('creates with a link credential choice and issues a link credential', async () => {
+    const { adapter, calls } = setup(() => json(201, { member: member(), setPasswordCredential: { ...credential, purpose: 'identity-link' } }));
+    expect((await adapter.create({ accountName: 'ada', linkProvider: 'club-entra' })).credential.purpose).toBe('identity-link');
+    expect(body(calls[0])).toBe(JSON.stringify({ accountName: 'ada', credential: { kind: 'identity-link', provider: 'club-entra' } }));
+    const issued = setup(() => json(201, { ...credential, purpose: 'identity-link' }));
+    await issued.adapter.issueCredential(MEMBER, 'club-entra');
+    expect(body(issued.calls[0])).toBe(JSON.stringify({ purpose: 'identity-link', provider: 'club-entra' }));
+  });
+
+  it('maps linked identities without issuer or subject and unlinks with If-Match', async () => {
+    const { adapter, calls } = setup((_url, init) =>
+      init.method === 'DELETE'
+        ? new Response(null, { status: 204 })
+        : json(200, member({ externalIdentities: [{ provider: 'club-entra', displayName: 'Club account', linkedAt: '2026-10-13T12:00:00Z', providerConfigured: false }] })),
+    );
+    const got = await adapter.get(MEMBER);
+    expect(got.externalIdentities).toEqual([
+      { provider: 'club-entra', displayName: 'Club account', linkedAt: new Date('2026-10-13T12:00:00Z'), providerConfigured: false },
+    ]);
+    await adapter.unlinkExternalIdentity(MEMBER, 'club-entra', 3);
+    expect(route(calls[1])).toBe(`DELETE /api/v1/members/${MEMBER}/external-identities/club-entra`);
+    expect(new Headers(calls[1].init.headers as HeadersInit).get('If-Match')).toBe('"3"');
+  });
+
   it('calls the lifecycle and role operations', async () => {
     const { adapter, calls } = setup((_url, init) => (init.method === 'DELETE' && _url.endsWith('/sessions') ? new Response(null, { status: 204 }) : json(200, member())));
     await adapter.deactivate(MEMBER);

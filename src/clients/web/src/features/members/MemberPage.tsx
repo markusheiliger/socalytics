@@ -19,6 +19,7 @@ import { useSession } from '../../session/sessionContext';
 import { FailureAlert } from '../shared/FailureAlert';
 import { TEAMS_KEY } from '../teams/TeamsPage';
 import { CredentialDialog } from './CredentialDialog';
+import { ExternalIdentitySection } from './ExternalIdentitySection';
 import { MemberEmailRow } from './MemberEmailRow';
 import { MemberFailureAlert } from './MemberFailureAlert';
 import { MEMBERS_KEY } from './MembersPage';
@@ -34,7 +35,8 @@ type Action =
   | { kind: 'deactivate' }
   | { kind: 'reactivate' }
   | { kind: 'unlock' }
-  | { kind: 'endSessions' };
+  | { kind: 'endSessions' }
+  | { kind: 'unlink'; provider: string; version: number };
 
 const NOTICES: Record<Action['kind'], string> = {
   assignClubRole: 'roleAssigned',
@@ -45,6 +47,7 @@ const NOTICES: Record<Action['kind'], string> = {
   reactivate: 'reactivated',
   unlock: 'unlocked',
   endSessions: 'sessionsEnded',
+  unlink: 'unlinked',
 };
 
 async function perform(adapter: MemberAdapter, id: string, action: Action): Promise<Member | undefined> {
@@ -66,6 +69,9 @@ async function perform(adapter: MemberAdapter, id: string, action: Action): Prom
     case 'endSessions':
       await adapter.endSessions(id);
       return undefined;
+    case 'unlink':
+      await adapter.unlinkExternalIdentity(id, action.provider, action.version);
+      return undefined;
   }
 }
 
@@ -74,7 +80,7 @@ export function MemberPage() {
   const { memberId = '' } = useParams();
   const { t } = useTranslation('members');
   const { t: tc } = useTranslation('common');
-  const { platform } = useSession();
+  const { platform, listProviders } = useSession();
   const { isUnreachable } = useConnectivity();
   const queryClient = useQueryClient();
   const adapter = useMemo(() => createMemberAdapter(platform), [platform]);
@@ -85,6 +91,7 @@ export function MemberPage() {
   const [teamId, setTeamId] = useState('');
   const [teamRole, setTeamRole] = useState<TeamRoleName>('Coach');
   const query = useQuery({ queryKey: key, queryFn: () => adapter.get(memberId), retry: false });
+  const providers = useQuery({ queryKey: ['identity-providers'], queryFn: () => listProviders(), retry: false });
   const teams = useQuery({ queryKey: [...TEAMS_KEY, 'mine'], queryFn: () => teamAdapter.listMine(), retry: false });
   const change = useMutation({
     mutationFn: (action: Action) => perform(adapter, memberId, action),
@@ -96,7 +103,7 @@ export function MemberPage() {
     },
   });
   const issue = useMutation({
-    mutationFn: () => adapter.issueCredential(memberId),
+    mutationFn: (linkProvider?: string) => adapter.issueCredential(memberId, linkProvider),
     onSuccess: (result) => {
       setCredential(result);
       issue.reset();
@@ -223,11 +230,23 @@ export function MemberPage() {
             </Stack>
           )}
 
+          <ExternalIdentitySection
+            member={member}
+            providers={providers.data ?? []}
+            busy={busy}
+            onIssueLink={(provider) => {
+              setNotice(undefined);
+              change.reset();
+              issue.mutate(provider);
+            }}
+            onUnlink={(provider) => run({ kind: 'unlink', provider, version: member.version })}
+          />
+
           <Typography variant="h3" sx={{ mt: 3 }}>
             {t('members.actionsTitle')}
           </Typography>
           <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 1 }}>
-            <Button variant="outlined" disabled={busy} onClick={() => issue.mutate()}>
+            <Button variant="outlined" disabled={busy} onClick={() => issue.mutate(undefined)}>
               {t('members.issueCredential')}
             </Button>
             {member.status === 'active' ? (

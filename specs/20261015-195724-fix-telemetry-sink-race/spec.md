@@ -6,7 +6,7 @@
 
 **Input**: User description: "AnalysisTelemetryTests.Instruments_are_emitted_without_ids_or_secrets enumerates the shared sink list without a lock while MeterListener callbacks on background threads still add to it (InvalidOperationException: Collection was modified, line 118). Take a snapshot of the sink under lock (sink) after listener.RecordObservableInstruments() and use the snapshot for the instrument name and tag assertions. Do not change the assertions themselves."
 
-**Fix for**: #113 (implementation of `specs/20261015-145134-oidc-sign-in`)
+**Fix for**: #113 (implementation of `specs/archive/20261015-145134-oidc-sign-in`)
 
 ## Problem
 
@@ -55,4 +55,4 @@ A maintainer runs the Integration tests. The telemetry test reads the collected 
 ## Assumptions
 
 - The smallest fix is in the test only: `List<T>` copy via `lock (sink) { snapshot = sink.ToList(); }` directly after `listener.RecordObservableInstruments()`, with the two `sink.Select(...)` enumerations reading `snapshot`. The listener callbacks and the `Listen` helper already lock correctly and stay unchanged.
-- Dependencies: the feature owning the test is [Durable Analysis Workflow](../archive/20261005-130703-durable-analysis-workflow/spec.md); the implementation this fix unblocks is #113 (`specs/20261015-145134-oidc-sign-in`).
+- Dependencies: the feature owning the test is [Durable Analysis Workflow](../archive/20261005-130703-durable-analysis-workflow/spec.md); the implementation this fix unblocks is #113 (`specs/archive/20261015-145134-oidc-sign-in`).

@@ -52,6 +52,52 @@ describe('sign-in view', () => {
   });
 });
 
+describe('external sign-in', () => {
+  const signedOut = (overrides = {}) =>
+    fakeAdapter({ restore: vi.fn().mockRejectedValue(ended()), ...overrides });
+
+  it('shows no provider buttons when none is configured', async () => {
+    renderApp(signedOut(), '/sign-in');
+    await screen.findByLabelText(/sign-in name/i);
+    expect(screen.queryByRole('button', { name: /Sign in with/ })).not.toBeInTheDocument();
+  });
+
+  it('shows one button per provider and navigates to the authorization URL', async () => {
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    const adapter = signedOut({
+      listProviders: vi.fn().mockResolvedValue([
+        { id: 'club-entra', displayName: 'Club account' },
+        { id: 'other', displayName: 'Other' },
+      ]),
+      startExternalSignIn: vi.fn().mockResolvedValue('https://login.example/authorize?state=1'),
+    });
+    renderApp(adapter, '/sign-in');
+    await screen.findByRole('button', { name: 'Sign in with Other' });
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in with Club account' }));
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('https://login.example/authorize?state=1'));
+    expect(adapter.startExternalSignIn).toHaveBeenCalledWith('club-entra');
+    vi.unstubAllGlobals();
+  });
+
+  it('shows the generic refusal for ?external=failed', async () => {
+    renderApp(signedOut(), '/sign-in?external=failed');
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Sign-in was not possible/);
+  });
+
+  it('shows a distinct message when the provider is unavailable and keeps the local form usable', async () => {
+    const adapter = signedOut({
+      listProviders: vi.fn().mockResolvedValue([{ id: 'club-entra', displayName: 'Club account' }]),
+      startExternalSignIn: vi.fn().mockRejectedValue(new PlatformFailure('unexpected', { status: 503, code: 'provider-unavailable' })),
+    });
+    renderApp(adapter, '/sign-in');
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Club account' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/currently unavailable/i);
+    expect(screen.getByLabelText(/sign-in name/i)).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Sign in with Club account' })).toBeEnabled();
+  });
+});
+
 describe('password-change and sign-out views', () => {
   it('shows only the password-change view and returns home after the change', async () => {
     const restore = vi.fn().mockResolvedValue(makeSession({ passwordChangeRequired: true }));

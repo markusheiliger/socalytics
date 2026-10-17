@@ -2,7 +2,7 @@
 
 **Branch**: `20261015-145134-oidc-sign-in` | **Date**: 2026-10-15 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261015-145134-oidc-sign-in/spec.md`
+**Input**: Feature specification from `specs/archive/20261015-145134-oidc-sign-in/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -79,20 +79,20 @@ Re-check after Phase 1 design: still passes; no Complexity Tracking entries.
 
 ### Narratives
 
-- [Platform Implementation](../../docs/architecture/platform-implementation.md):
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md):
   API And Identity (external sign-in, linking, MFA decision), the opening
   status paragraph, Acceptance Evidence, and Architecture Reassessment —
   implemented by this feature.
-- [Client Applications](../../docs/architecture/client-applications.md): Web UI
+- [Client Applications](../../../docs/architecture/client-applications.md): Web UI
   (login options, linking, MFA from the provider).
-- [Security and Data Governance](../../docs/architecture/security-and-data-governance.md):
+- [Security and Data Governance](../../../docs/architecture/security-and-data-governance.md):
   `ACT-006` (optional OIDC provider), `BND-007` (explicit trust configuration,
   minimum scopes, failure closed), `CTL-002` (BFF sessions), and
   `GOV-CRED-006` (external identity credentials) — evidence provided, values
   still unresolved.
-- [Analyst Manager](../../docs/architecture/analyst-manager.md) (pairing: "normal
+- [Analyst Manager](../../../docs/architecture/analyst-manager.md) (pairing: "normal
   local or external OpenID Connect authentication in the system browser") and
-  [Tenancy and Technology](../../docs/architecture/tenancy-and-technology.md)
+  [Tenancy and Technology](../../../docs/architecture/tenancy-and-technology.md)
   ("optional external OpenID Connect providers") — become implemented, no
   wording change needed beyond status.
 
@@ -151,7 +151,7 @@ rewrites listed here are examples, not the whole job.
 ### Documentation (this feature)
 
 ```text
-specs/20261015-145134-oidc-sign-in/
+specs/archive/20261015-145134-oidc-sign-in/
 ├── plan.md
 ├── research.md
 ├── data-model.md
