@@ -1418,7 +1418,10 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
       '',
       ...reviewReasons.map((reason) => `- ${reason}`),
       '',
-      `Merge it to complete the implementation.${reviewNote}`,
+      `**Recommended next step**: Review the listed risks and merge #${inputs.pull} into \`${baseBranch}\`.`,
+      '',
+      '- **Why**: Implementation and convergence are complete; the reasons above require a person to review the result instead of an automatic merge.',
+      `- **What it does**: Lands the implementation on \`${baseBranch}\` and completes spec twin #${inputs.twin}.${reviewNote}`,
     ].join('\n'));
     report.line(`Ready for review: #${inputs.pull}: ${reviewReasons.join('; ')}.${reviewNote}`);
     report.flush();

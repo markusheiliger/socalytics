@@ -152,7 +152,10 @@ test('restarts that leave a stopped implementation unchanged are refused, unless
   stop();
   const before = [restarts(), github.repo.runs.length];
   assert.equal((await run(github, '/speckit retry After pushing the rename')).outcome, 'refused');
-  assert.match(github.comments.at(-1).body, /`\/speckit retry` was not run[\s\S]*`\/speckit retry --force <guidance>`/);
+  assert.match(github.comments.at(-1).body, /`\/speckit retry` was not run[\s\S]*\*\*Recommended next step\*\*: Review the latest diagnosis on #9[\s\S]*push it to `speckit\/f`/);
+  assert.equal(github.comments.at(-1).body.match(/\*\*Recommended next step\*\*/g)?.length, 1);
+  assert.doesNotMatch(github.comments.at(-1).body, /<guidance>|<what to fix>/);
+  assert.match(github.comments.at(-1).body, /<summary>Other options<\/summary>[\s\S]*`\/speckit retry --force`/);
   assert.deepEqual([restarts(), github.repo.runs.length], before, 'nothing was restarted');
 
   // New commits on the base branch do not change the current phase's retry guard.

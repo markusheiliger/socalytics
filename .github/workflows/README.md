@@ -212,6 +212,14 @@ started from a branch other than the default branch.
 
 ## Pull requests that need attention
 
+The automation's goal is to get pull requests merged by giving people the best guidance to reach that goal. Every
+handoff to a person prominently recommends exactly one concrete next action, explains why it is the best way forward
+and what it triggers, and identifies the target pull request. A comment action includes ready-to-paste text or a
+`/speckit` command with actual guidance, never placeholders. A completed pull request explicitly recommends review
+and merge. Alternatives stay collapsed. Correctable findings trigger automatic correction rounds, not just a report;
+while automation is running, no action is needed yet. This goal never bypasses required verification or makes a
+failed or missing analysis a reason to merge.
+
 Implementation, amendment, and fix spec pull requests carry GitHub's default label `help wanted` ("Extra attention is
 needed") while they wait for a person, and lose it as soon as a person's action puts automation back to work or the
 pull request is merged or closed. The label is a convenience; the comments and check runs stay authoritative.
@@ -219,6 +227,14 @@ pull request is merged or closed. The label is a convenience; the comments and c
 Every label comes with a comment that explains it. `help wanted` is only added together with a comment that recommends
 exactly one next step (a diagnosis, an outcome to decide on, or a review); a stop whose diagnosis is still running
 waits without it, so the label never appears before the recommendation does.
+
+When an amendment or fix spec passes its consistency check and correction rounds are finished, its description,
+review handoff comment, and notification on the stopped implementation explicitly recommend **Review and merge** the
+pull request. They explain why and what merging triggers: an amendment resumes the implementation; a fix spec is
+implemented first and resumes it after the fix lands. A failed or missing analysis never gets this merge recommendation.
+Failed checks, failed reworks, and exhausted correction rounds recommend a ready-to-paste feedback comment that
+restarts rework and analysis. Starting new work replaces the previous recommendation with an explicit wait; a failed
+or abandoned run replaces that wait with the recovery action in both the description and its comment.
 
 An implementation waiting for a prerequisite fix spec carries the separate custom `blocked` label instead of
 `help wanted`, including while the fix spec is reviewed or implemented. GitHub has no default label for an on-hold

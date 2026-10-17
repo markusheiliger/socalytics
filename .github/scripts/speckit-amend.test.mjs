@@ -14,6 +14,7 @@ import {
   runGuard,
   runPushed,
   runRecordAnalysis,
+  startAnalysis,
   startRework,
   validateAnalysis,
 } from './speckit-amend.mjs';
@@ -58,11 +59,22 @@ test('a consistent amendment is handed to the requester for review', async () =>
   const presented = github.comments.find((comment) => comment.number === 11);
   assert.match(presented.body, /^<!-- speckit-amend:presented -->\n<!-- speckit-amend:cutoff \S+ -->\n@dev ✅ \*\*Consistent\*\*/);
   assert.match(github.comments.find((comment) => comment.number === 9).body, /^\*\*Amendment #11 is ready for your review\*\*/);
+  for (const body of [pull.body, presented.body, github.comments.find((comment) => comment.number === 9).body]) {
+    assert.equal(body.match(/\*\*Recommended next step\*\*/g)?.length, 1);
+    assert.match(body, /\*\*Recommended next step\*\*: Review and merge amendment #11\./);
+    assert.match(body, /#9 then continues automatically from the next unchecked task with a fresh attempt count/);
+  }
   const attention = () => (amendmentPull(github).labels ?? []).some((label) => label.name === ATTENTION_LABEL);
   assert.equal(attention(), true, 'a presented amendment waits for its reviewer');
 
   await startRework(github, env(), await resolveAmendment(github, env(), 11), { mode: 'revise', feedback: { items: [], since: null } });
   assert.equal(attention(), false, 'a rework after feedback is processing');
+  assert.match(pull.body, /\*\*Recommended next step\*\*: Wait for the rework and its consistency check/);
+  assert.doesNotMatch(pull.body, /Review and merge/);
+
+  await startAnalysis(github, env(), await resolveAmendment(github, env(), 11), { round: 0 });
+  assert.match(pull.body, /\*\*Recommended next step\*\*: Wait for the consistency check/);
+  assert.doesNotMatch(pull.body, /Review and merge/);
 });
 
 test('LOW findings get correction rounds too, and are handed over once a round resolves none of them', async () => {
@@ -91,6 +103,7 @@ test('LOW findings get correction rounds too, and are handed over once a round r
   assert.deepEqual([handed.check.conclusion, handed.check.output.title], ['success', 'Consistent']);
   assert.equal(amendmentPull(declined).draft, false);
   assert.match(amendmentPull(declined).body, /✅ \*\*Consistent\*\*[^\n]*\(1 LOW finding\(s\) that the correction rounds left as they are, listed for information; nothing needs fixing by hand\)/);
+  assert.match(amendmentPull(declined).body, /\*\*Recommended next step\*\*: Review and merge amendment #11\./);
   assert.match(declined.comments.find((comment) => comment.number === 11).body, /\*\*LOW\*\* \(Coverage\) `tasks\.md T001`: SC-003 is not verified by T001\./);
 });
 
@@ -127,6 +140,17 @@ test('correction rounds continue while they make progress and stop after three r
   assert.deepEqual(github.repo.reviewRequests, [{ number: 11, reviewers: ['dev'] }]);
   assert.match(amendmentPull(github).body, /⚠️ \*\*Not consistent\*\*: 1 inconsistency\(ies\) remain; 3 of 6 correction round\(s\) made no progress/);
   assert.match(github.comments.find((comment) => comment.number === 9 && /not consistent/.test(comment.body)).body, /^\*\*Amendment #11 is not consistent\*\* \(1 inconsistency\(ies\) remain; 3 of 6/);
+  assert.doesNotMatch(amendmentPull(github).body, /\*\*Recommended next step\*\*: Review and merge/);
+  for (const body of [
+    amendmentPull(github).body,
+    github.comments.filter((comment) => comment.number === 11).at(-1).body,
+    github.comments.filter((comment) => comment.number === 9).at(-1).body,
+  ]) {
+    assert.equal(body.match(/\*\*Recommended next step\*\*/g)?.length, 1);
+    assert.match(body, /Post the following comment on amendment #11 to restart its rework/);
+    assert.match(body, /```text\nPlease rework this amendment [^\n]+\n```/);
+    assert.ok(body.indexOf('**Recommended next step**') < (body.indexOf('<details><summary>Other options</summary>') >>> 0));
+  }
 
   const capped = diagnosisRepo();
   const limit = await recordAnalysis(capped, { findings: [HIGH], resolved: ['F1'] }, { round: 10, stalls: 0, previous: fix.inputs.findings });
@@ -153,6 +177,8 @@ test('a missing or withheld analysis is reported, not mistaken for consistency',
   assert.equal(missing.outcome, 'no analysis');
   assert.equal(missing.check.conclusion, 'failure');
   assert.match(amendmentPull(github).body, /⚠️ \*\*Not consistent\*\*: the analysis did not report/);
+  assert.doesNotMatch(amendmentPull(github).body, /\*\*Recommended next step\*\*: Review and merge/);
+  assert.match(amendmentPull(github).body, /\*\*Recommended next step\*\*: Post the following comment/);
   const withheld = await recordAnalysis(diagnosisRepo(), { findings: [] }, { detection: 'failure' });
   assert.equal(withheld.outcome, 'no analysis');
   assert.match(validateAnalysis('{nope').reasons[0], /not valid JSON/);
@@ -163,6 +189,32 @@ test('a missing or withheld analysis is reported, not mistaken for consistency',
   amendmentPull(closed).state = 'closed';
   const ignored = await recordAnalysis(closed, { findings: [] });
   assert.deepEqual([ignored.outcome, ignored.check.conclusion], ['closed', 'neutral']);
+});
+
+test('failed dispatches recommend a ready-to-post comment that actually restarts the rework', async () => {
+  for (const action of ['analysis', 'rework']) {
+    const github = diagnosisRepo();
+    const context = await resolveAmendment(github, env(), 11);
+    const dispatch = github.dispatchWorkflow.bind(github);
+    github.dispatchWorkflow = async () => { throw new Error('Dispatch unavailable'); };
+    const result = action === 'analysis'
+      ? await startAnalysis(github, env(), context, { round: 0 })
+      : await startRework(github, env(), context, { mode: 'revise' });
+    assert.equal(result.started, false);
+    const body = github.comments.at(-1).body;
+    assert.equal(body.match(/\*\*Recommended next step\*\*/g)?.length, 1);
+    assert.match(body, /Post the following comment on amendment #11/);
+    assert.match(amendmentPull(github).body, /Post the following comment on amendment #11/);
+    const feedback = body.match(/```text\n([^\n]+)\n```/)?.[1];
+    assert.ok(feedback, 'the recommended action includes the exact comment');
+    assert.doesNotMatch(feedback, /<guidance>|<what to fix>|\/speckit/);
+    github.dispatchWorkflow = dispatch;
+    github.commentAuthor = 'dev';
+    await github.createComment(11, feedback);
+    github.commentAuthor = undefined;
+    assert.equal((await runFeedback({ client: github, env: env({ SPECKIT_PULL: '11' }), log: silent, now: () => github.clock })).outcome, 'rework');
+    assert.match(github.repo.runs.at(-1).inputs.guidance, /Please rework this amendment/);
+  }
 });
 
 test('collects feedback since the last rework or presentation from people with write access', async () => {
@@ -339,7 +391,9 @@ test('the orchestrator checks unreported pushes, picks up feedback that no event
   const stuck = github.repo.checkRuns.at(-1);
   assert.equal((await maintainAmendment(github, env(), context, { now: github.clock + 2 * 60 * 60 * 1000 + 60_000 })).outcome, 'stale');
   assert.equal(stuck.conclusion, 'failure');
-  assert.match(github.comments.at(-1).body, /did not finish\. Comment on this pull request to try again\./);
+  assert.match(github.comments.at(-1).body, /did not finish\.[\s\S]*\*\*Recommended next step\*\*: Post the following comment on amendment #11[\s\S]*```text\nPlease rework this amendment/);
+  assert.match(amendmentPull(github).body, /\*\*Recommended next step\*\*: Post the following comment on amendment #11/);
+  assert.doesNotMatch(amendmentPull(github).body, /\*\*Recommended next step\*\*: Wait/);
   assert.equal((await maintainAmendment(diagnosisRepo({ amendment: false }), env(), context)).outcome, 'none');
 });
 
