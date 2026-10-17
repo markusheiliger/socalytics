@@ -62,6 +62,9 @@ public interface ILogicalJobStore
         int? attemptsUsed,
         CancellationToken cancellationToken);
 
+    // Moves the run's Waiting, Ready, and Claimed jobs to Cancelled in id order and returns their ids in that order.
+    Task<IReadOnlyList<Guid>> CancelUnfinishedByRunAsync(Guid runId, CancellationToken cancellationToken);
+
     // Returns false when the inputs were already recorded.
     Task<bool> TryInsertInputsAsync(Guid jobId, string inputsJson, CancellationToken cancellationToken);
 

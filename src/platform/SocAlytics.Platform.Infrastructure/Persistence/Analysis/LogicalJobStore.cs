@@ -155,6 +155,27 @@ internal sealed class LogicalJobStore(IDbSession session, TimeProvider time) : I
         return changed == 1;
     }
 
+    public async Task<IReadOnlyList<Guid>> CancelUnfinishedByRunAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var ids = await connection.QueryAsync<Guid>(new CommandDefinition(
+            """
+            WITH locked AS (
+                SELECT id FROM socalytics.analysis_logical_jobs
+                WHERE run_id = @runId AND state IN ('Waiting', 'Ready', 'Claimed')
+                ORDER BY id FOR UPDATE)
+            UPDATE socalytics.analysis_logical_jobs j
+            SET state = 'Cancelled', updated_at = @now
+            FROM locked WHERE j.id = locked.id
+            RETURNING j.id
+            """,
+            new { runId, now = time.GetUtcNow() },
+            transaction,
+            cancellationToken: cancellationToken));
+        return ids.OrderBy(id => id.ToString(), StringComparer.Ordinal).ToList();
+    }
+
     public async Task<bool> TryInsertInputsAsync(Guid jobId, string inputsJson, CancellationToken cancellationToken)
     {
         var transaction = session.RequireTransaction();

@@ -37,6 +37,20 @@ internal sealed class PublicationReconciliationStore(IDbSession session) : IPubl
             new { runId }, transaction, cancellationToken: cancellationToken));
     }
 
+    public async Task<int> DiscardReadyWorkAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE socalytics.outbox_messages m SET state = 'discarded', next_attempt_at = NULL
+            FROM socalytics.analysis_logical_jobs j
+            WHERE j.run_id = @runId AND m.logical_job_id = j.id
+              AND m.message_type = 'analysis.ready-work' AND m.state IN ('pending', 'failed')
+            """,
+            new { runId }, transaction, cancellationToken: cancellationToken));
+    }
+
     public async Task<IReadOnlyList<Guid>> ListNotificationsAsync(Guid after, int batchSize, CancellationToken cancellationToken)
     {
         var transaction = session.RequireTransaction();
