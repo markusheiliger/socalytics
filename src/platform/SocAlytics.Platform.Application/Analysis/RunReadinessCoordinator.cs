@@ -232,7 +232,7 @@ public sealed class RunReadinessCoordinator(
 
     private string Now() => time.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
 
-    private async Task EnqueueRunStateAsync(AnalysisRunRecord run, AnalysisRunState from, AnalysisRunState to, string? reason, CancellationToken ct)
+    public async Task EnqueueRunStateAsync(AnalysisRunRecord run, AnalysisRunState from, AnalysisRunState to, string? reason, CancellationToken ct)
     {
         var messageId = Guid.CreateVersion7();
         var transitionId = Guid.CreateVersion7();

@@ -1,0 +1,79 @@
+using SocAlytics.Platform.Application.Abstractions;
+using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.Analysis.Queries;
+using SocAlytics.Platform.Application.Analysis.Results;
+using SocAlytics.Platform.Application.Analysis.Stores;
+using SocAlytics.Platform.Application.IdentityAccess;
+using SocAlytics.Platform.Domain.Analysis;
+
+namespace SocAlytics.Platform.Application.Analysis.Commands;
+
+public sealed record CancelAnalysisRunCommand(Guid RunId, long ExpectedVersion, string? Reason);
+
+public sealed class CancelAnalysisRunHandler(
+    IUnitOfWork unitOfWork,
+    IAccessAuthorizer authorizer,
+    IRequestContext requestContext,
+    IAnalysisRunStore runs,
+    IAnalysisRunQueries queries,
+    RunReadinessCoordinator coordinator,
+    IAuditTrail audit)
+{
+    public const string RunTerminalCode = "analysis-run-terminal";
+
+    public async Task<OperationResult<AnalysisRunStatusView>> HandleAsync(CancelAnalysisRunCommand command, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+
+        await using var scope = await unitOfWork.BeginAsync(cancellationToken);
+        var decision = await authorizer.AuthorizeTeamResourceAsync(new("analysis-run", command.RunId), TeamPermission.Write, cancellationToken);
+        if (!decision.IsGranted)
+        {
+            return decision.Kind == AccessDecisionKind.Forbidden ? OperationFailure.Forbidden() : OperationFailure.NotFound();
+        }
+
+        var run = await runs.LockRunAsync(command.RunId, cancellationToken);
+        if (run is null)
+        {
+            return OperationFailure.NotFound();
+        }
+
+        if (!RunCancellation.TryNormalizeReason(command.Reason, out var reason, out var violation))
+        {
+            return OperationFailure.Validation(new FieldViolation(violation!.Field, violation.Message));
+        }
+
+        if (run.State == AnalysisRunState.Cancelled
+            && RunCancellation.IsIdempotentRepeatVersion(run.Version, command.ExpectedVersion))
+        {
+            return await ReadAsync(command.RunId, cancellationToken);
+        }
+
+        if (run.State is not (AnalysisRunState.Requested or AnalysisRunState.Running))
+        {
+            return OperationFailure.Conflict(RunTerminalCode) with { State = run.State.ToString() };
+        }
+
+        if (run.Version != command.ExpectedVersion)
+        {
+            return OperationFailure.VersionMismatch(run.Version);
+        }
+
+        var actor = requestContext.MemberAccountId!.Value;
+        if (!await runs.TryCancelAsync(run.Id, run.State, actor, reason, cancellationToken))
+        {
+            throw new InvalidOperationException("The locked run changed state concurrently.");
+        }
+
+        await audit.RecordAsync(AnalysisAuditEvents.RunCancelled(run.Id, run.TeamId, run.State.ToString()), cancellationToken);
+        await coordinator.EnqueueRunStateAsync(run, run.State, AnalysisRunState.Cancelled, null, cancellationToken);
+
+        var status = await ReadAsync(run.Id, cancellationToken);
+        await scope.CommitAsync(cancellationToken);
+        return status;
+    }
+
+    private async Task<AnalysisRunStatusView> ReadAsync(Guid runId, CancellationToken cancellationToken) =>
+        await queries.GetStatusAsync(runId, cancellationToken)
+            ?? throw new InvalidOperationException("The cancelled analysis run cannot be read.");
+}

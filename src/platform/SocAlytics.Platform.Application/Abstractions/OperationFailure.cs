@@ -21,6 +21,9 @@ public sealed record OperationFailure(
     IReadOnlyList<FieldViolation> FieldViolations,
     long? CurrentVersion)
 {
+    /// <summary>The resource state that made a conflict, when callers report it.</summary>
+    public string? State { get; init; }
+
     private static readonly IReadOnlyList<FieldViolation> NoViolations = [];
 
     public static OperationFailure Validation(params FieldViolation[] fieldViolations) =>
