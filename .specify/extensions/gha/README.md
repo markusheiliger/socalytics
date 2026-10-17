@@ -9,7 +9,7 @@ extension with the ID `github`.
 
 | Command | Skill | Purpose |
 | --- | --- | --- |
-| `speckit.gha.author` | `/speckit-gha-author [architecture section, folder, or feature idea] [notes]` | Guide a spec through specify, clarify, plan, tasks, and analyze to a pushed spec; without input, propose the next logical spec |
+| `speckit.gha.author` | `/speckit-gha-author [architecture section, folders, feature idea, or "the N logical next specs"] [notes]` | Guide specs through specify, clarify, plan, tasks, analyze, and the publish checks until they only need to be committed; without input, propose the next logical spec; with a count, find and author that many next specs in order; in autopilot, answer every decision with its recommended choice |
 | `speckit.gha.route` | `/speckit-gha-route` | Mandatory `before_implement` hook: choose local implementation or a GitHub request |
 | `speckit.gha.request` | `/speckit-gha-request [folder]` | Request implementation on GitHub directly |
 | `speckit.gha.diagnose` | `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` | Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause |
@@ -47,24 +47,42 @@ both ends of a spec:
 `/speckit-gha-author` keeps the whole authoring flow in Copilot Chat. It runs
 the repository's Spec Kit skills in Spec Kit's order (`/speckit-specify`,
 `/speckit-clarify`, `/speckit-plan`, optional `/speckit-checklist`,
-`/speckit-tasks` with its refine hook, `/speckit-analyze`) and pauses after
-specify and clarify, plan, tasks, and analyze. It changes spec artifacts only
-through those skills and never ticks a checklist item without the user's
-confirmation. Its additions are:
+`/speckit-tasks` with its refine hook, `/speckit-analyze`) and creates every
+artifact, so a spec leaves the flow ready to commit. It changes spec artifacts
+only through those skills; `checklists/requirements.md` is maintained by
+`/speckit-specify` and `/speckit-clarify`, and it never ticks any other
+checklist item without the user's confirmation. Its additions are:
 
 - **Input:** nothing (it compares the architecture with the existing specs,
-  twin issues, and code, and proposes the next three specs), an architecture
-  section such as `docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui`,
+  twin issues, and code, and proposes the next three specs), a count such as
+  `the 3 logical next specs` (it finds that many next specs and authors them
+  one after another, each through the publish checks, before the single commit
+  decision), an architecture section such as
+  `docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui`,
   a feature idea in free text (it maps the idea to the architecture first and
-  says when the architecture must change with it), or a spec folder to resume.
+  says when the architecture must change with it), or one or more spec folders
+  to resume.
+- **Interactive and autopilot:** interactively it pauses after specify and
+  clarify, plan, tasks, and analyze, and asks at each decision with the
+  recommended choice first. In autopilot (the Copilot session mode the user
+  sets; the command has no flag for it) it never asks: it answers every
+  decision, including each clarification question, with the recommended
+  choice, reruns `/speckit-clarify` until no material ambiguity is left and
+  `/speckit-analyze` until no finding with a concrete fix is left (each at
+  most three times), and ends with the specs ready to commit. It commits and
+  pushes only when the input asks for it (for example `and push`), because
+  `AGENTS.md` forbids committing or pushing without an explicit request.
 - **Environment check:** when the plan needs new frameworks, SDKs, or tools, it
-  stops and offers to author the environment spec first, then records it as a
-  dependency through `/speckit-clarify`.
+  stops and offers to author the environment spec first (in a batch, as an
+  extra spec ahead of the one that needs it), then records it as a dependency
+  through `/speckit-clarify`.
 - **Publish checks:** stage `tasked`, no open clarification markers or checklist
   items, a `specs/README.md` row, an `## Architecture Updates` section in
   `plan.md` with its documentation task, and a clean Markdown check.
-- **Last decision:** commit and push the spec folder and `specs/README.md`.
-  Everything after the push belongs to the GitHub workflows.
+- **Last decision:** commit each spec separately (`Spec: <title>`) and push the
+  spec folders and their `specs/README.md` rows. Everything after the push
+  belongs to the GitHub workflows. The closing report lists every spec's state
+  and the decisions autopilot took, with one recommended next action.
 
 `node .github/scripts/speckit-author.mjs status [folder] [--json]` reports a
 spec's next Spec Kit step, its publish blockers, and its Git state, which is how
