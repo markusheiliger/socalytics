@@ -122,6 +122,34 @@ describe('fleet page', () => {
     expect(within(list).getAllByText('Profile (claimed): Not reported').length).toBeGreaterThan(0);
   });
 
+  it('marks only Managers below the minimum with version and minimum as text, pending requests included', async () => {
+    const minimum = { minimumManagerVersion: '2.0.0' };
+    const rows = [
+      dto(1, 'active', { ...minimum, belowMinimumVersion: false, status, connectivity: 'online' }),
+      dto(2, 'active', { ...minimum, belowMinimumVersion: true, connectivity: 'offline' }),
+      dto(3, 'pending_approval', { ...minimum, belowMinimumVersion: true }),
+      dto(4, 'active', { connectivity: 'online' }),
+    ];
+    vi.stubGlobal('fetch', vi.fn(async () => json(200, { items: rows })));
+    renderApp(as('ClubAdmin'), '/analyst-managers');
+    const list = await screen.findByRole('list', { name: 'Analyst Managers' });
+    const marks = within(list).getAllByText('Update required: version 1.2.3, minimum 2.0.0');
+    expect(marks).toHaveLength(2);
+    const owners = marks.map((m) => m.closest('ul')?.closest('li')?.textContent ?? '');
+    expect(owners.some((o) => o.includes('host-2'))).toBe(true);
+    expect(owners.some((o) => o.includes('host-3'))).toBe(true);
+    expect(owners.some((o) => o.includes('host-1') || o.includes('host-4'))).toBe(false);
+    expect(within(list).getByText('Version: 2.0.0')).toBeInTheDocument();
+    for (const mark of marks) expect(mark.closest('li')).not.toBeNull();
+  });
+
+  it('marks nothing without a minimum', async () => {
+    serve();
+    renderApp(as('ClubAdmin'), '/analyst-managers');
+    await screen.findByRole('list', { name: 'Analyst Managers' });
+    expect(screen.queryByText(/Update required/)).not.toBeInTheDocument();
+  });
+
   it('shows unknown values and shortens long labels without failing', async () => {
     serve();
     renderApp(as('ClubAdmin'), '/analyst-managers');
