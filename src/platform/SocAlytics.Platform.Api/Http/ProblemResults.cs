@@ -18,6 +18,7 @@ internal static class ProblemResults
 			OperationFailureKind.Unauthenticated => StatusCodes.Status401Unauthorized,
 			OperationFailureKind.PasswordChangeRequired => StatusCodes.Status403Forbidden,
 			OperationFailureKind.Unavailable => StatusCodes.Status503ServiceUnavailable,
+			OperationFailureKind.TooManyRequests => StatusCodes.Status429TooManyRequests,
 			_ => throw new ArgumentOutOfRangeException(nameof(failure)),
 		};
 		return Problem(status, failure.Code, failure.FieldViolations);
