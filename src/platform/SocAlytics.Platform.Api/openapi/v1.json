@@ -7815,6 +7815,16 @@
               }
             },
             "description": "Unsupported Media Type"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           }
         },
         "security": [
@@ -7854,6 +7864,16 @@
               }
             },
             "description": "Unsupported Media Type"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           }
         },
         "security": [
@@ -7893,6 +7913,16 @@
               }
             },
             "description": "Unsupported Media Type"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           }
         },
         "security": [

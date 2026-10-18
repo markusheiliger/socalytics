@@ -23,6 +23,7 @@ builder.AddServiceDefaults();
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 builder.AddRegistryApi();
 builder.Services.AddEmailRateLimiting();
+builder.Services.AddPasswordRecoveryRateLimiting();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure();
 builder.Services.AddHttpContextAccessor();

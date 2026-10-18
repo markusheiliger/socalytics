@@ -23,26 +23,32 @@ internal static class PasswordRecoveryEndpoints
 		recovery.MapPost("/requests", RequestAsync)
 			.AllowAnonymous()
 			.AddEndpointFilter<JsonOnlyFilter>()
+			.RequireRateLimiting(PasswordRecoveryRateLimiting.RequestPolicy)
 			.WithName("requestPasswordRecovery")
 			.WithTags(Tag)
 			.Produces(StatusCodes.Status202Accepted)
 			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status429TooManyRequests)
 			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
 		recovery.MapPost("/checks", CheckAsync)
 			.AllowAnonymous()
 			.AddEndpointFilter<JsonOnlyFilter>()
+			.RequireRateLimiting(PasswordRecoveryRateLimiting.TokenPolicy)
 			.WithName("checkPasswordRecovery")
 			.WithTags(Tag)
 			.Produces<PasswordRecoveryCheckDto>()
 			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status429TooManyRequests)
 			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
 		recovery.MapPost("/completions", CompleteAsync)
 			.AllowAnonymous()
 			.AddEndpointFilter<JsonOnlyFilter>()
+			.RequireRateLimiting(PasswordRecoveryRateLimiting.TokenPolicy)
 			.WithName("completePasswordRecovery")
 			.WithTags(Tag)
 			.Produces(StatusCodes.Status204NoContent)
 			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status429TooManyRequests)
 			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
 		return routes;
 	}
