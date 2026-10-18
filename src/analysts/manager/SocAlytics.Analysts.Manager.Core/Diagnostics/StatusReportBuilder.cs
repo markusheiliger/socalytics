@@ -59,15 +59,12 @@ public static class RuntimeStatusText
 
 /// <summary>Builds the status report sent with every registration check while the registration is Active.</summary>
 public sealed class StatusReportBuilder(
-    RegistrationCoordinator coordinator, PreflightScheduler preflight, IManagerWorkTracker work)
+    RegistrationCoordinator coordinator, PreflightScheduler preflight, IManagerWorkTracker work, ManagerBuildVersion buildVersion)
 {
     /// <summary>Concurrency limit until Analyst Manager Work Execution provides a configurable one.</summary>
     private const int DefaultConcurrencyLimit = 1;
 
     private const int MaxAnalystsBound = 1024;
-
-    private static readonly string Version =
-        typeof(StatusReportBuilder).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
 
     /// <summary>Returns null while no reportable operating state exists (no machine, or the Manager has ended).</summary>
     public StatusReport? Build()
@@ -94,7 +91,7 @@ public sealed class StatusReportBuilder(
 
         var active = Math.Clamp(work.ActiveCount, 0, MaxAnalystsBound);
         var max = Math.Clamp(Math.Max(DefaultConcurrencyLimit, active), 0, MaxAnalystsBound);
-        return new StatusReport(wire, pausedUntil, reason, active, max, Truncate(Version, 64));
+        return new StatusReport(wire, pausedUntil, reason, active, max, Truncate(buildVersion.Value, 64));
     }
 
     private static DateTimeOffset? PauseEnd(OperatingIntent intent) =>

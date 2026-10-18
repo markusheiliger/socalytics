@@ -104,6 +104,7 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Platform.InactiveSignalSink>();
         services.AddSingleton<Registration.ProtectedStoreFailureHandler>();
         services.AddSingleton<Platform.ManagerTokenCache>();
+        services.TryAddSingleton(Diagnostics.ManagerBuildVersion.Current);
         services.AddSingleton<Diagnostics.StatusReportBuilder>();
         services.AddSingleton(_ => Diagnostics.HostUtilizationReaders.ForCurrentOs());
         services.AddSingleton<Diagnostics.HostUtilizationSampler>();
