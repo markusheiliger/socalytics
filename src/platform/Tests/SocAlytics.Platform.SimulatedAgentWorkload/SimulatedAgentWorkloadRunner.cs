@@ -138,9 +138,46 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 		var attemptId = envelope.GetProperty("attemptId").GetGuid();
 		var agentId = envelope.GetProperty("agentId").GetString()!;
 		var fencingToken = envelope.GetProperty("fencingToken").GetString()!;
+		var attemptNumber = envelope.GetProperty("attemptNumber").GetInt32();
+		var leaseSeconds = envelope.GetProperty("leaseSeconds").GetInt32();
+		var behavior = BehaviorOf(envelope.GetProperty("question").GetString());
+
+		if (behavior == Behavior.Stall && attemptNumber == 1)
+		{
+			// The first attempt neither renews nor ends; the platform's monitor expires it and the next attempt succeeds.
+			return true;
+		}
+
+		var attemptPath = $"/api/v1/agent-orchestration/attempts/{attemptId}";
+		if (!await SendReportAsync(
+			$"{attemptPath}/checkpoints",
+			new { operationId = NewOperationId(), fencingToken, kind = "simulated-progress", note = $"Simulated work on attempt {attemptNumber}" },
+			cancellationToken))
+		{
+			return false;
+		}
+
+		if (!await WorkAsync(attemptPath, fencingToken, leaseSeconds, cancellationToken))
+		{
+			return false;
+		}
+
+		if (behavior is Behavior.FailRetryable or Behavior.FailPermanent || (behavior == Behavior.FailOnce && attemptNumber == 1))
+		{
+			return await SendReportAsync(
+				$"{attemptPath}/failure",
+				new
+				{
+					operationId = NewOperationId(),
+					fencingToken,
+					reasonCode = behavior == Behavior.FailPermanent ? "simulated-permanent" : "simulated-retryable",
+					retryable = behavior != Behavior.FailPermanent,
+				},
+				cancellationToken);
+		}
 
 		using var completion = await SendAsync(
-			HttpMethod.Post, $"/api/v1/agent-orchestration/attempts/{attemptId}/completion",
+			HttpMethod.Post, $"{attemptPath}/completion",
 			new
 			{
 				operationId = NewOperationId(),
@@ -165,6 +202,67 @@ public sealed class SimulatedAgentWorkloadRunner : IAsyncDisposable
 
 		_logger?.LogWarning("The completion of {InvocationId} answered {Status}.", invocationId, (int)completion.StatusCode);
 		return false;
+	}
+
+	// Renews the lease once and, while simulating a longer work duration, at every third of the lease.
+	private async Task<bool> WorkAsync(string attemptPath, string fencingToken, int leaseSeconds, CancellationToken cancellationToken)
+	{
+		var step = TimeSpan.FromSeconds(Math.Max(1, leaseSeconds / 3.0));
+		var remaining = _options.WorkDuration;
+		do
+		{
+			if (!await SendReportAsync($"{attemptPath}/lease", new { fencingToken }, cancellationToken))
+			{
+				return false;
+			}
+
+			var wait = remaining < step ? remaining : step;
+			if (wait > TimeSpan.Zero)
+			{
+				await Task.Delay(wait, _time, cancellationToken);
+			}
+
+			remaining -= wait;
+		}
+		while (remaining > TimeSpan.Zero);
+
+		return true;
+	}
+
+	// A stale or unknown attempt (409, 404) is settled by the platform and not retried; other failures are transient.
+	private async Task<bool> SendReportAsync(string path, object body, CancellationToken cancellationToken)
+	{
+		using var response = await SendAsync(HttpMethod.Post, path, body, cancellationToken);
+		if (response.IsSuccessStatusCode)
+		{
+			return true;
+		}
+
+		if (response.StatusCode is HttpStatusCode.Conflict or HttpStatusCode.NotFound)
+		{
+			return false;
+		}
+
+		_logger?.LogWarning("The report {Path} answered {Status}.", path, (int)response.StatusCode);
+		return false;
+	}
+
+	private static Behavior BehaviorOf(string? question) => question switch
+	{
+		not null when question.StartsWith("[simulate:fail-once]", StringComparison.Ordinal) => Behavior.FailOnce,
+		not null when question.StartsWith("[simulate:fail-retryable]", StringComparison.Ordinal) => Behavior.FailRetryable,
+		not null when question.StartsWith("[simulate:fail-permanent]", StringComparison.Ordinal) => Behavior.FailPermanent,
+		not null when question.StartsWith("[simulate:stall]", StringComparison.Ordinal) => Behavior.Stall,
+		_ => Behavior.Succeed,
+	};
+
+	private enum Behavior
+	{
+		Succeed,
+		FailOnce,
+		FailRetryable,
+		FailPermanent,
+		Stall,
 	}
 
 	private async Task<NatsJSContext> EnsureQueueAsync(CancellationToken cancellationToken)

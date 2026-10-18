@@ -22,4 +22,7 @@ public sealed class SimulatedAgentWorkloadOptions
 	public TimeSpan FetchExpiry { get; set; } = TimeSpan.FromSeconds(5);
 
 	public TimeSpan RetryDelay { get; set; } = TimeSpan.FromSeconds(2);
+
+	/// <summary>Simulated working time per attempt, during which the lease is renewed; zero renews once.</summary>
+	public TimeSpan WorkDuration { get; set; } = TimeSpan.Zero;
 }
