@@ -174,6 +174,7 @@ public static class ApplicationServiceCollectionExtensions
             .Validate(SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.IsValid, SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.InvalidMessage)
             .ValidateOnStart();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.ManagerVersions.MinimumManagerVersionProvider>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionGate>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StampOptions.SectionName);
 
