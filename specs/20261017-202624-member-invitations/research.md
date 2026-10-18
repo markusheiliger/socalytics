@@ -1,7 +1,7 @@
 # Research: Member Invitations by Email
 
 All Technical Context items are resolved from the architecture, the existing code, the clarifications in
-[spec.md](spec.md), and the mechanics that [Self-Service Password Recovery](../20261017-200823-password-recovery/research.md)
+[spec.md](spec.md), and the mechanics that [Self-Service Password Recovery](../archive/20261017-200823-password-recovery/research.md)
 defines for the same email channel. No new framework, SDK, or tool is needed.
 
 ## R1 - Invitation as a separate record
@@ -46,7 +46,7 @@ defines for the same email channel. No new framework, SDK, or tool is needed.
   `ConfirmationTokens`, stores its hash and expiry on the link (`Invitations:LinkLifetime`), and sends to the
   invitation's address. The link is
   `<Web UI base address>/invitations/accept#token=<token>`, built like the recovery link of
-  [Self-Service Password Recovery](../20261017-200823-password-recovery/contracts/password-recovery-api.md).
+  [Self-Service Password Recovery](../archive/20261017-200823-password-recovery/contracts/password-recovery-api.md).
 - **Rationale**: FR-005, FR-006, and FR-008: same worker-issued, hash-only, fragment-carried token as verification
   and recovery; a resend supersedes the earlier link, so an earlier unsent message is discarded and an earlier
   sent link fails. Keeping links out of the versioned invitation keeps delivery from changing its version.

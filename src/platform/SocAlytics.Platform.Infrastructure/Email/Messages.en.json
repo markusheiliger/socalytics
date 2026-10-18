@@ -4,6 +4,11 @@
     "text": "An email address was added to a SocAlytics account for {clubName}.\n\nTo confirm it, open this link:\n{link}\n\nThe link is valid for {lifetime} and can be used once.\n\nIf you do nothing, nothing happens. You can ignore this message.\n",
     "html": "<p>An email address was added to a SocAlytics account for {clubName}.</p>\n<p>To confirm it, open this link:<br><a href=\"{link}\">{link}</a></p>\n<p>The link is valid for {lifetime} and can be used once.</p>\n<p>If you do nothing, nothing happens. You can ignore this message.</p>\n"
   },
+  "password-recovery": {
+    "subject": "Reset your SocAlytics password",
+    "text": "A password reset was requested for a SocAlytics account that uses this email address.\n\nTo choose a new password, open this link:\n{link}\n\nThe link is valid for {lifetime} and can be used once.\n\nIf you did not request this, ignore this message. Your password stays unchanged.\n",
+    "html": "<p>A password reset was requested for a SocAlytics account that uses this email address.</p>\n<p>To choose a new password, open this link:<br><a href=\"{link}\">{link}</a></p>\n<p>The link is valid for {lifetime} and can be used once.</p>\n<p>If you did not request this, ignore this message. Your password stays unchanged.</p>\n"
+  },
   "registration-pending": {
     "subject": "An Analyst Manager registration request waits for approval",
     "text": "One or more Analyst Manager registration requests wait for a Club Admin's decision.\n\nOpen the Analyst Managers page:\n{link}\n",

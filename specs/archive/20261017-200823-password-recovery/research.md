@@ -12,7 +12,7 @@ All Technical Context items are resolved from the architecture, the existing cod
   nullable `password_recovery_id` column referencing it, beside `confirmation_id`. The token is generated and hashed with
   the existing `ConfirmationTokens` helper and carried in the link fragment (`#token=`), exactly as confirmations.
 - **Rationale**: Reuses the proven confirmation pattern that
-  [Email Notifications → Email Addresses](../../docs/architecture/email-notifications.md#email-addresses) prescribes
+  [Email Notifications → Email Addresses](../../../docs/architecture/email-notifications.md#email-addresses) prescribes
   (worker-issued token, hash only, fragment), keeps the raw token out of the database and logs, and lets each worker
   attempt issue a fresh token.
 - **Alternatives considered**: Reusing `one_time_credential` with a new purpose (rejected: those credentials are issued
@@ -96,7 +96,7 @@ All Technical Context items are resolved from the architecture, the existing cod
   Detail keys are added to the `PostgresAuditTrail` allow-list where missing. No token, password, or full address is
   ever recorded.
 - **Rationale**: FR-018 and the masked-address audit rule of
-  [Email Notifications → Security And Governance](../../docs/architecture/email-notifications.md#security-and-governance).
+  [Email Notifications → Security And Governance](../../../docs/architecture/email-notifications.md#security-and-governance).
   Link checks change nothing and are rate limited, so they are not audited.
 - **Alternatives considered**: One event per request listing all members (rejected: the audit resource is a single
   member).
@@ -110,7 +110,8 @@ All Technical Context items are resolved from the architecture, the existing cod
   `Cache-Control: no-store`. Neutral failures use the problem code `password-recovery-invalid`. See
   [contracts/password-recovery-api.md](contracts/password-recovery-api.md).
 - **Rationale**: Follows `confirmEmail` (anonymous, `JsonOnlyFilter`, rate limited) and keeps tokens out of URLs.
-- **Alternatives considered**: A `GET` link check with the token in the query (rejected: tokens would reach logs).
+- **Guard**: `EndpointSecurityTests` forbids any API path containing `recovery` (meant for bootstrap, setup, and break-glass recovery) and lists the anonymous operations. Observed failure of T013 (two attempts): `POST /api/v1/password-recovery/requests (requestPasswordRecovery) must not expose bootstrap, setup, or recovery paths.` The guard is narrowed, not removed: `bootstrap`, `setup`, and every other recovery path stay forbidden; only these three named operations at these three paths are allowed, and they must be anonymous (T031).
+- **Alternatives considered**: Renaming the paths to avoid the word `recovery` (rejected: it would only evade the guard and diverge from the contract and feature name); A `GET` link check with the token in the query (rejected: tokens would reach logs).
 
 ## R9 - Web UI
 
