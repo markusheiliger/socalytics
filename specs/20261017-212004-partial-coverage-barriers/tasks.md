@@ -152,7 +152,7 @@ partial-coverage node shows one failed and the rest accepted, and nodes without 
 
 ### End-to-end evidence
 
-- [ ] T027 Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/PartialCoverageEndToEndTests.cs`: run the development workflow with a recording and segmentation duration that yield at least two segments (the harness may override the configured workflow's segmentation duration) and the simulated Analyst failing the segment starting at `0` (`FailSegmentStartsMs`), and assert that `dev-match-node` is blocked, `dev-partial-match-node`'s result is accepted with `inputCoverage` naming the failed segment, the run ends `PartiallyCompleted`, the staged coverage, accepted result, and run status read agree for every unit, and that with all segments succeeding the run ends `Completed`; keep the existing end-to-end tests green with the three-node workflow (FR-021; SC-001, SC-005)
+- [x] T027 Add `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/PartialCoverageEndToEndTests.cs`: run the development workflow with a recording and segmentation duration that yield at least two segments (the harness may override the configured workflow's segmentation duration) and the simulated Analyst failing the segment starting at `0` (`FailSegmentStartsMs`), and assert that `dev-match-node` is blocked, `dev-partial-match-node`'s result is accepted with `inputCoverage` naming the failed segment, the run ends `PartiallyCompleted`, the staged coverage, accepted result, and run status read agree for every unit, and that with all segments succeeding the run ends `Completed`; keep the existing end-to-end tests green with the three-node workflow (FR-021; SC-001, SC-005)
 
 ### Documentation
 
