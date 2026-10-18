@@ -25,6 +25,8 @@ internal sealed class TestAgentWorkload : IDisposable
 
 	public string Thumbprint => _key.Thumbprint;
 
+	public string PrivateKey => _key.PrivateKeyBase64;
+
 	public string Assertion(
 		DateTimeOffset now, string? clientId = null, string? jti = null, Action<Dictionary<string, object>>? claims = null) =>
 		_key.ClientAssertion(now, Origin + TokenPath, clientId ?? ClientId, jti: jti, claims: claims);
