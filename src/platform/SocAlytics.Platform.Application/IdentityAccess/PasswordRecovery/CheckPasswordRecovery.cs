@@ -48,8 +48,11 @@ internal sealed class PasswordRecoveryTokenValidator(
         }
 
         var member = await accounts.GetMemberAsync(recovery.AccountId, cancellationToken);
+        var binding = await accounts.GetSessionBindingAsync(recovery.AccountId, cancellationToken);
         var stored = await addresses.FindAsync(recovery.AccountId, cancellationToken);
         if (member is not { MembershipStatus: MembershipStatus.Active, PasswordSet: true }
+            || binding is null
+            || !string.Equals(binding.SecurityStamp, recovery.SecurityStamp, StringComparison.Ordinal)
             || stored is not { State: EmailAddressStates.Verified }
             || !EmailAddress.TryCreate(stored.Address, out var address, out _)
             || address.Hash != recovery.AddressHash)
