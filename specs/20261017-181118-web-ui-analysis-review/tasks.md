@@ -13,7 +13,7 @@ description: "Task list for Web UI Connected Analysis Review"
 
 **Organization**: Tasks are grouped by user story so each story can be implemented and tested independently. All paths are relative to the repository root; Web UI paths start with `src/clients/web/`.
 
-**Before starting**: the batch sibling [Accepted Fact Indexing and Capability-Scoped Fact Queries](../20261017-175648-fact-indexing-queries/spec.md) must be merged, so the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` contains `listAnalysisRunFactStreams` and `listAnalysisRunFacts`; `npm run build` (or `npm run generate`) in `src/clients/web` regenerates the ignored Kiota client from it. This feature never changes the snapshot.
+**Before starting**: the batch sibling [Accepted Fact Indexing and Capability-Scoped Fact Queries](../archive/20261017-175648-fact-indexing-queries/spec.md) must be merged, so the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` contains `listAnalysisRunFactStreams` and `listAnalysisRunFacts`; `npm run build` (or `npm run generate`) in `src/clients/web` regenerates the ignored Kiota client from it. This feature never changes the snapshot.
 
 ## Format: `[ID] [P?] [Story] Description`
 

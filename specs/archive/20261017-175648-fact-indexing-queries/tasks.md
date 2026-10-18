@@ -5,7 +5,7 @@ description: "Task list for Accepted Fact Indexing and Capability-Scoped Fact Qu
 
 # Tasks: Accepted Fact Indexing and Capability-Scoped Fact Queries
 
-**Input**: Design documents from `specs/20261017-175648-fact-indexing-queries/`
+**Input**: Design documents from `specs/archive/20261017-175648-fact-indexing-queries/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 
