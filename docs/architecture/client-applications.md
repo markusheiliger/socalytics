@@ -21,6 +21,20 @@ worker and installable PWA are implemented as development evidence; offline
 mode, the OCI container image, and Docker Compose deployment are not
 implemented yet.
 
+The Web UI image is decided but not implemented yet (see
+[Platform Implementation](platform-implementation.md#source-and-runtime-baseline)).
+It serves the built shell byte for byte, so every shell file keeps passing its
+integrity check, with the production security headers from the same policy
+module as preview mode; the object storage origin allowed in `connect-src` is
+its only runtime-configurable part. `index.html`, `sw.js`,
+`shell-manifest.json`, and the web app manifest are revalidated on every
+request, and only fingerprinted assets may be cached long-term. Client routes
+return the HTML shell, and missing files return not found. The image forwards
+`/api` and `/alive` to the API container named by its configuration, streams
+requests and responses without a smaller size or time limit than the API's,
+and answers those paths with a gateway error while the API is unreachable, so
+the connection-required state appears.
+
 The PWA is served from a single origin. Its service worker caches the
 application shell and is versioned with each release, so an installed PWA
 always runs the current release after it reconnects. There is no separate
@@ -51,8 +65,8 @@ The React Web UI supports connected platform and club workflows, including:
   accept on a public invitation page (decided, not yet implemented; see
   [Email Notifications](email-notifications.md#member-invitations))
 - platform configuration and administration (the Analyst Registry
-  administration and the workflow operations area for Club Admins are
-  decided, not yet implemented; see below)
+  administration, the workflow operations area, and the agent catalog
+  administration for Club Admins are decided, not yet implemented; see below)
 - Analyst Manager pairing for Registrars and the fleet view for Club Admins
   (implemented): registration approval, rejection, and revocation, and each
   Manager's connectivity, operating state, and activity (see
@@ -113,7 +127,22 @@ their own conversations without start, participant, or question controls. The
 views are online only and keep conversation content, drafts, and idempotency
 keys in memory only; Coach Agents, consultations, streaming, editing,
 deletion, sharing, and evidence clip playback are not part of them (see
-[Connected Agent Conversations](#connected-agent-conversations)).
+[Connected Agent Conversations](#connected-agent-conversations)). Direct Coach
+Agent conversations in these views are decided and not yet implemented: Coach
+Agents are offered as a separate participant group with their simulation
+disclosure, every Coach Agent advice is shown with that disclosure, and on
+request the advice's applied philosophy emphasis (base, modifier, and applied
+weight per dimension, modifier reasons, and evidence references) is shown with
+the statement that weights change priority, not facts; the Agent Catalog area
+enables Coach Agent versions like Specialist Agent versions. Delegated
+consultations in these views are decided and not yet implemented: a Coach
+Agent turn shows while it consults which Specialists it asked and when it
+combines their answers, and below its advice each consultation is attributed
+to its Specialist with the question, the response and its evidence references
+or the reason it was unavailable, and whether the Coach Agent adopted or
+disagreed with it, a conflict marked as a disagreement; the Agent Catalog area
+shows and registers consultation policies and lets Coach Agent versions
+reference one.
 
 The Analyst Registry administration is decided as follows and not yet
 implemented. Club Admins, the only role that operates the Registry, see the
@@ -146,6 +175,27 @@ accepted state (see
 [Production Queue Recovery and Backpressure](job-processing.md#production-queue-recovery-and-backpressure)),
 and they see its outcome. The area offers no per-message retry, edit, or
 deletion, no automatic refresh, charts, or alerts, and is online only.
+
+The agent catalog administration is decided as follows and not yet
+implemented. Club Admins, who operate the agent catalog until a stamp-operator
+role exists (see
+[Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance)),
+open an Agent Catalog area that lists the catalog's agents with their kind,
+enabled version, version states, and what triage conversations offer as the
+platform's available-agents read reports it. They read agent versions with
+every artifact reference and digest and each artifact read-only: prompt text
+exactly as stored, model selections without secrets, tool and safety
+policies, and for Coach Agents the disclosure, dimension set, base philosophy
+profile as a table of dimensions and integer weights totalling 100 with its
+distances, and the modifier policy. They register artifacts and agent versions
+from structured forms whose hints never replace the platform's validation,
+which the forms show next to each field; approve and retire versions; and
+enable, change, or disable an agent's version. Approvals, retirements, and
+enablement changes are confirmed and conditional on the state last seen; an
+enablement change applies only to questions submitted afterwards, while
+existing invocations keep their pinned versions. The area is online only and
+offers no deletion, editing of registered records, model-rendered previews, or
+evaluation results.
 
 Recording uploads run in a dedicated upload worker that hashes the parts
 and transfers them directly to object storage with the platform's per-part

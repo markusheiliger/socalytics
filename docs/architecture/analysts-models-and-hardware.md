@@ -85,6 +85,29 @@ not yet implemented, see [Web UI](client-applications.md#web-ui)):
 - References must use a digest, not a tag, and lie within the configured
   registry host and repository prefix.
 
+A development reference Analyst is decided as follows and not yet implemented
+(see the
+[reference Analyst contract](../../specs/20261018-095952-reference-analyst/contracts/reference-media-probe.md)).
+The capability `reference-media-probe` is the first Analyst built on the
+Analyst SDK: the independent locked Python project
+`src/analysts/capabilities/reference-media-probe/`, a low-level,
+segment-scoped capability with a `required` video policy and no upstream
+dependencies, that decodes its staged segment media with the environment's
+pinned FFmpeg build and writes one `frame-second-probe` fact per covered
+match-second of the nominal window (decoded-frame count and frame luma
+statistics). It contains no model and declares the platform's no-model digest
+(`sha-256:` followed by 64 zeros). Its image follows the convention above with
+literal labels that the build verifies against the manifest, is built from
+the repository root, and uses only pinned inputs: a base image pinned by
+digest, the project's `uv.lock`, and the environment's hash-verified uv and
+FFmpeg archives; byte-identical rebuilds are not claimed. It runs under any
+non-root user on a read-only root file system. It is development evidence
+only: it is registered by the Docker-backed end-to-end tests and a documented
+local procedure through the normal Registry operations, is never published to
+GHCR, and is not part of the
+[Analyst Capability Catalog](analyst-capability-catalog.md); only convention
+keeps it out of production stamps.
+
 ### Implementation Profile
 
 Analyst Containers use Python projects managed with `uv`, `pyproject.toml`, and

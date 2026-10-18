@@ -97,6 +97,26 @@ development composition, service discovery, health checks, OpenTelemetry
 defaults, and developer dependencies. Aspire is not the production
 orchestrator.
 
+The images of the platform API, the Migrator, and the Web UI are decided but
+not implemented yet (see the
+[container-image contract](../../specs/20261018-092503-oci-images/contracts/container-images.md)).
+Each has one Dockerfile next to the project it packages
+(`SocAlytics.Platform.Api`, `SocAlytics.Platform.Migrator`, and
+`src/clients/web`) with a Dockerfile-specific allow-list ignore file, and is
+built with the Docker CLI from the repository root. The multi-stage builds pin
+every base image by digest: chiseled .NET runtime images for the API and the
+Migrator and the unprivileged nginx image for the Web UI. The images run as
+fixed non-root users (UID 1654 for the .NET images, UID 101 for the Web UI) on
+a read-only root filesystem with `/tmp` as the only writable location, read
+their configuration only from environment variables, and declare no
+in-container health probe, so orchestrators probe `/alive` and `/health` over
+HTTP. Every build requires the source revision and one release version in the
+Web UI's `YYYY.MMDD.HHMMSS` shape and writes both to the standard OCI revision
+and version labels, so the three images of a release carry the same values.
+The API image contains neither the Migrator nor DbUp. The Web UI image itself
+forwards `/api` and `/alive` to the API container, so every profile gets one
+origin from the two images.
+
 Docker Compose is the initial deployment mechanism. It will compose the
 platform API and Web UI as separate OCI containers: the API container will be
 built from the platform source area, while the Web UI container will be built
@@ -114,6 +134,32 @@ passwords, which the AppHost persists in its user secrets, and keeps its data in
 a named development volume; these local values are not production values, and
 production credentials, role-to-identity mapping, and the scheduling of the
 Migrator remain unresolved.
+
+A self-hosted evaluation composition of one stamp is decided but not
+implemented yet (see the
+[Compose stamp contract](../../specs/20261018-094332-compose-stamp/contracts/compose-stamp.md)).
+It lives in `src/platform/deploy/compose/` as one Compose file, an environment
+file template, and its documentation, and is started under one Compose project
+name per stamp; it fixes no container, network, or volume name. It runs the
+platform API, Migrator, and Web UI images from image references that the
+operator must supply, and PostgreSQL, NATS JetStream, and RustFS from images
+pinned by digest, each with a health check and a stamp-scoped named volume.
+The Migrator is a one-shot service, and the API depends on it with
+`condition: service_completed_successfully`. Four project-scoped networks keep
+PostgreSQL, NATS, storage, and the Migrator on internal networks, give the API
+one egress network for its configured external endpoints such as the SMTP
+relay, and publish only the Web UI, on the host's loopback interface. The API
+runs in its production environment with NATS JWT authentication, the roles
+of the committed initialization script, the bucket created by its existing
+startup option, and an operator-supplied SMTP relay instead of a mail catcher.
+A setup console, `SocAlytics.Platform.StampSetup`, writes every secret and the
+NATS operator, stamp account, and system account trust material into a new
+stamp directory outside the repository. The readiness rule is unchanged, so a
+stamp reports healthy only once its Registry holds a resolvable default
+analysis workflow, and the browser's direct recording uploads are unavailable
+because object storage is not published. The composition is an evaluation
+aid: it is not a production profile, passes no production preflight, and
+does not replace the Aspire AppHost as the supported local entry point.
 
 Azure Container Apps is the Provisional target cloud profile, and Compose
 remains supported as the self-hostable profile. Both run the same cloud-neutral
@@ -518,6 +564,78 @@ agent workload under `src/platform/Tests`, which runs only in Development and
 Test and is started by the AppHost, executes direct specialist invocations with
 deterministic simulated advice in place of Hermes. See
 [Intelligence and Agents](intelligence-and-agents.md#client-transport-and-runtime-protocol).
+
+The agent catalog registry is decided and not yet implemented: a `Catalog`
+folder inside the Agent Orchestration functional area of each layer stores
+immutable agent catalog artifacts (`agent_catalog_artifacts`), agent versions
+with their draft, approved, and retired lifecycle (`agent_versions`), one
+enablement row per catalog agent identifier (`agent_enablements`), and the
+references pinned into each invocation at submission (`agent_invocation_pins`).
+Records are validated at runtime against the embedded `contracts/agent-catalog/`
+schemas and addressed by the SHA-256 digest of their canonical JSON. The
+catalog enablement replaces the configured list of enabled specialists, and in
+Development and Test a seed registers and enables `specialist-tactics` and
+`specialist-video-analysis` from the catalog's first-draft prompts with a
+simulated model provider. Club Admins will operate the catalog from the Web
+UI's Agent Catalog area (decided, not yet implemented; see
+[Client Applications → Web UI](client-applications.md#web-ui)). See
+[Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance).
+
+The MCP-facing application tools are decided and not yet implemented: a `Tools`
+folder inside the Agent Orchestration functional area of each layer maps the
+`/api/v1/agent-tools` route group, binds each call to the workload's current
+attempt and the invocation's pinned tool policy, re-evaluates the initiating
+user's authority, reserves the call in the immutable `agent_tool_calls` table
+(call-identifier uniqueness and per-attempt limits), runs the read outside the
+invocation lock through the same read cores as the member fact and
+evidence-media operations, and appends a `tool-call` lineage entry. See
+[Intelligence and Agents → MCP Tools](intelligence-and-agents.md#mcp-tools).
+
+The MCP server is decided and not yet implemented: a separate Python OCI
+deployment under `src/agents/mcp-server` with no database access, built on the
+official MCP Python SDK, that authenticates as its own stamp-local workload
+client with `private_key_jwt` and DPoP-bound tokens and exposes the
+`/api/v1/agent-tools` operations to the agent runtime as MCP tools. See
+[Intelligence and Agents → MCP Layer](intelligence-and-agents.md#mcp-layer).
+
+Hermes' first slice is decided and not yet implemented: a separate Python OCI
+deployment under `src/agents/hermes` on Microsoft Agent Framework with no
+database access and no durable state, authenticated as its own stamp-local
+workload client, that pulls agent work notifications, executes direct
+Specialist Agent invocations with the pinned artifacts, reaches evidence only
+through the MCP server, and reaches models through a provider-neutral adapter
+for the OpenAI API, GitHub Models, and a Development and Test scripted
+provider. The `attempt-report` contract's release 1.1.0 adds the pinned
+model-selection reference and the resolved parameters to completions, which
+Agent Orchestration checks against the pins. Its cross-process evidence runs
+the API, MCP server, and Hermes images together with an HTTPS test
+certificate authority. See
+[Intelligence and Agents → Agent Orchestration Authority](intelligence-and-agents.md#agent-orchestration-authority).
+
+Direct Coach Agent conversations are decided and not yet implemented: a
+forward-only migration admits the `user-to-coach` route and stores the applied
+philosophy profile on accepted advice; the `attempt-report` contract's release
+1.2.0 adds the applied profile to profile checkpoints and completions, which
+the Agent Orchestration layers validate against the pins and the attempt's
+tool calls; the catalog seed registers, approves, and enables the three Coach
+Agents in Development and Test; and the simulated agent workload and Hermes
+execute Coach Agent invocations. See
+[Intelligence and Agents → Agent Orchestration Authority](intelligence-and-agents.md#agent-orchestration-authority).
+
+Delegated consultations are decided and not yet implemented: a forward-only
+migration adds the versioned `agent_consultations` table, whose pending rows
+are the parents' waiting edges, links child invocations to their parent and
+consultation, admits the `coach-to-specialist` route and the
+`waiting-for-consultations` and `synthesizing` states, and stores influence
+declarations on accepted advice; the workload operations
+`requestAgentConsultation` and `readAgentConsultationOutcomes` serve the
+parent's current attempt; the `consultation-policy` catalog artifact, the
+`consultation-request` contract, and new releases of the `agent-version`,
+`work-notification`, `execution-envelope`, and `attempt-report` contracts
+carry the change; the catalog seed adds consulting Coach and Specialist Agent
+versions in Development and Test; and the simulated agent workload executes
+children and, on request, consults. See
+[Intelligence and Agents → Agent Orchestration Authority](intelligence-and-agents.md#agent-orchestration-authority).
 
 ## Client Technology
 
