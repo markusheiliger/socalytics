@@ -209,3 +209,9 @@ T016 acceptance coverage check (ResultManifestVerifier, CompleteAttempt)
 2. US3 lets real images and the seed opt in.
 3. US4 shows the coverage to members.
 4. Polish adds the development workflow case, end-to-end evidence, and documentation.
+
+---
+
+## Phase 7: Convergence
+
+- [ ] T030 Correct the partial-coverage sentence in `docs/architecture/job-processing.md` → Readiness And Dependencies ("When a capability permits partial coverage, its job snapshot records the accepted, failed, missing, and skipped segments and the result reports that coverage explicitly"): the implemented input snapshot (`SegmentCoverageState` in `src/platform/SocAlytics.Platform.Domain/Analysis/ReadinessEvaluator.cs`) records each expected upstream segment as `accepted`, `failed`, or `blocked`, so the sentence must name those states (keeping that the result reports the same coverage and that partial input is never mistaken for a complete barrier), and pass `node .github/scripts/check-markdown.mjs` per Constitution I, plan: Architecture Updates (partial)
