@@ -34,6 +34,12 @@ public sealed class RunReadinessCoordinator(
         var run = hierarchy.Run;
         var runTransitions = 0;
 
+        // Cancelled and other settled runs get no readiness, publication, node completion, or terminal evaluation.
+        if (run.State is not (AnalysisRunState.Requested or AnalysisRunState.Running))
+        {
+            return new ReadinessApplication(0, 0);
+        }
+
         if (run.State == AnalysisRunState.Requested)
         {
             if (!await runs.TryTransitionAsync(runId, AnalysisRunState.Requested, AnalysisRunState.Running, null, cancellationToken))
