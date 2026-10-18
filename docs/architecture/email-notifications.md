@@ -4,9 +4,10 @@ This document defines the email channel through which a deployment stamp sends
 transactional messages to club members. Member email addresses, their
 verification, notification preferences, outbox-backed delivery, and the
 pending-request notification of Analyst Manager registration requests are
-implemented as development evidence against a local mail catcher. Self-service
-password recovery and invitations are not implemented, and production delivery
-values remain **Open / Blocking** (see [Production Values](#production-values)).
+implemented as development evidence against a local mail catcher, and so is
+self-service password recovery. Invitations are not implemented, and production
+delivery values remain **Open / Blocking** (see
+[Production Values](#production-values)).
 
 ## Purpose And Scope
 
@@ -16,11 +17,10 @@ Email carries only transactional account and workflow messages:
   notification of Club Admins about Analyst Manager registration requests
   that wait for their decision (see
   [Fleet Visibility In The Web UI](analyst-manager.md#fleet-visibility-in-the-web-ui)).
-- **Account messages**: verification of a member's email address and, each
-  through its own later specification, self-service password recovery and
-  invitations. Password recovery is decided as described in
-  [Password Recovery](#password-recovery) and not yet implemented;
-  invitations are decided as described in
+- **Account messages**: verification of a member's email address,
+  self-service password recovery (see [Password Recovery](#password-recovery);
+  implemented as development evidence), and, through its own later
+  specification, invitations. Invitations are decided as described in
   [Member Invitations](#member-invitations) and not yet implemented.
 
 The platform never sends marketing, newsletters, digests, or bulk messages.
@@ -51,8 +51,8 @@ document defines the rules all of them follow.
 
 - Each notification type is on by default for a member once their address is
   verified, and each member can turn each type off and on again.
-- Account messages (address verification and, once implemented, password
-  recovery; see [Password Recovery](#password-recovery)) are always sent and
+- Account messages (address verification and password recovery; see
+  [Password Recovery](#password-recovery)) are always sent and
   cannot be turned off. Invitations (decided, not yet implemented; see
   [Member Invitations](#member-invitations)) are always sent as well, but they
   address a person who is not yet a member, so they never appear among a
@@ -68,8 +68,9 @@ document defines the rules all of them follow.
 - Messages contain no host labels, device fingerprints, team, match, or player
   data, recordings, results, or agent content.
 - Notification links carry no credentials or tokens. Account messages that need
-  a single-use token (verification, and later password recovery) define it in
-  their specification (for password recovery, see
+  a single-use token (verification, password recovery, and invitations) define
+  it in their specification (for verification, see
+  [Email Addresses](#email-addresses); for password recovery, see
   [Password Recovery](#password-recovery); for invitations, see
   [Member Invitations](#member-invitations)); such tokens are short-lived,
   single-use, and stored only as hashes.
@@ -110,8 +111,8 @@ document defines the rules all of them follow.
 
 ## Password Recovery
 
-Self-service password recovery is decided as follows and not yet implemented.
-It is an account message for members who sign in with a local password; Club
+Self-service password recovery is implemented as development evidence against
+the local mail catcher, as follows. It is an account message for members who sign in with a local password; Club
 Admin-issued reset credentials and break-glass recovery (see
 [API And Identity](platform-implementation.md#api-and-identity)) stay
 unchanged.
@@ -220,8 +221,8 @@ These values are **Open / Blocking** for production and are recorded in the
 - retention of delivery records
 - rate limits and coalescing windows
 - the password-recovery link lifetime, the minimum answer duration of recovery
-  requests, and the recovery message and client limits (decided, not yet
-  implemented; see [Password Recovery](#password-recovery))
+  requests, and the recovery message and client limits (development values
+  exist; see [Password Recovery](#password-recovery))
 - the invitation link lifetime, the resend limit per invitation, and the
   per-client limit of invitation link checks and acceptances (decided, not yet
   implemented; see [Member Invitations](#member-invitations))

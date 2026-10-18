@@ -51,7 +51,9 @@ provider (providers under `IdentityAccess:ExternalProviders:<id>` with
 `TokenEndpointAuthMethod`, plus `IdentityAccess:ExternalSignIn:WebUiBaseUrl`
 and `PendingLifetime`); members are linked only through Club Admin link
 credentials, and SocAlytics offers no MFA for local accounts (a club that needs
-MFA uses a provider that enforces it). Self-service recovery, clients, Analyst Manager identity,
+MFA uses a provider that enforces it). Self-service password recovery by
+email is implemented as development evidence against the Mailpit mail catcher.
+Invitations, clients, Analyst Manager identity,
 production values for POL-001, POL-002, and POL-009, deployment, and
 production readiness remain deferred.
 
