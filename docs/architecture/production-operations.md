@@ -83,6 +83,16 @@ one-shot service that every API service depends on with
 `condition: service_completed_successfully`, so migrations complete once per
 deployment before any API replica starts.
 
+A self-hosted evaluation composition of one stamp (decided, not yet
+implemented; see
+[Platform Implementation](platform-implementation.md#source-and-runtime-baseline))
+applies these fixed architecture choices but approves no profile value: its
+loopback-only ingress without TLS, secrets in an operator-held environment
+file, single unsized replicas, and engine-managed volume paths are evaluation
+choices, not approved values. It is not a production profile, passes no
+preflight, and is not the real Compose deployment that production acceptance
+requires.
+
 ### Azure Container Apps Target Profile (Provisional)
 
 Azure Container Apps is the target cloud hosting for SocAlytics stamps. It is
@@ -95,6 +105,13 @@ Portability rules that bind both profiles:
 
 - both profiles run the same cloud-neutral OCI images built from the same
   release;
+- the platform's images share one deployable contract (decided, not yet
+  implemented; see
+  [Platform Implementation](platform-implementation.md#source-and-runtime-baseline)):
+  non-root users, a read-only root filesystem with `/tmp` as the only writable
+  location, configuration through environment variables, HTTP health through
+  `/alive` and `/health` without in-container probes, OCI revision and version
+  labels, and one origin provided by the Web UI image;
 - application code uses only protocol-level dependencies (PostgreSQL, NATS,
   S3-compatible object storage, OpenID Connect, OpenTelemetry) and no service
   that only one profile can provide;
