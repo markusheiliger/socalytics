@@ -116,7 +116,7 @@ description: "Task list for Agent Orchestration Direct Invocations"
 ### Workers, registration, and endpoints for User Story 2
 
 - [x] T034 [US2] Add `src/platform/SocAlytics.Platform.Infrastructure/Workers/AgentAttemptMonitorWorker.cs` and `AgentWorkReconciliationWorker.cs` on the existing `WorkerLoop` with the `AgentOrchestration:Monitor` intervals; register the handlers of T031–T033 in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs` and the workers in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs` (FR-023, FR-029)
-- [ ] T035 [US2] Add the workload operations `renewAgentAttemptLease`, `recordAgentCheckpoint`, and `failAgentAttempt` to `src/platform/SocAlytics.Platform.Api/AgentOrchestration/AgentWorkloadEndpoints.cs`; refresh `src/platform/SocAlytics.Platform.Api/openapi/v1.json` as in T016 (FR-018, FR-020, FR-035)
+- [x] T035 [US2] Add the workload operations `renewAgentAttemptLease`, `recordAgentCheckpoint`, and `failAgentAttempt` to `src/platform/SocAlytics.Platform.Api/AgentOrchestration/AgentWorkloadEndpoints.cs`; refresh `src/platform/SocAlytics.Platform.Api/openapi/v1.json` as in T016 (FR-018, FR-020, FR-035)
 - [ ] T036 [US2] Extend `src/platform/Tests/SocAlytics.Platform.SimulatedAgentWorkload/SimulatedAgentWorkloadRunner.cs` to renew the lease while working, record at least one checkpoint before completing, and honour the question markers of research R10 (`[simulate:fail-once]`, `[simulate:fail-retryable]`, `[simulate:fail-permanent]`, `[simulate:stall]`) (FR-031, FR-032)
 
 ### Tests for User Story 2

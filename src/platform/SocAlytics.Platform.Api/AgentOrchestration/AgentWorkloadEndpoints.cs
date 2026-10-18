@@ -17,6 +17,12 @@ internal sealed record AgentWorkloadQueueCredentialsDto(
 
 internal sealed record AgentClaimRequestDto(string? OperationId);
 
+internal sealed record AgentLeaseRequestDto(string? FencingToken);
+
+internal sealed record AgentLeaseResponseDto(Guid AttemptId, DateTimeOffset LeaseExpiresAt);
+
+internal sealed record AgentCheckpointResponseDto(Guid AttemptId, int Sequence, bool Replayed);
+
 internal sealed record AgentCompletionResponseDto(Guid AttemptId, Guid InvocationId, string InvocationState, bool Replayed);
 
 internal static class AgentWorkloadEndpoints
@@ -79,7 +85,113 @@ internal static class AgentWorkloadEndpoints
 			.ProducesProblem(StatusCodes.Status400BadRequest)
 			.ProducesProblem(StatusCodes.Status404NotFound)
 			.ProducesProblem(StatusCodes.Status409Conflict);
+		routes.MapPost("/api/v1/agent-orchestration/attempts/{attemptId:guid}/lease", RenewLeaseAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AgentWorkload)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithTags("Agent workload")
+			.WithName("renewAgentAttemptLease")
+			.Accepts<AgentLeaseRequestDto>("application/json")
+			.Produces<AgentLeaseResponseDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
+		routes.MapPost("/api/v1/agent-orchestration/attempts/{attemptId:guid}/checkpoints", RecordCheckpointAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AgentWorkload)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithTags("Agent workload")
+			.WithName("recordAgentCheckpoint")
+			.Produces<AgentCheckpointResponseDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
+		routes.MapPost("/api/v1/agent-orchestration/attempts/{attemptId:guid}/failure", FailAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AgentWorkload)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithTags("Agent workload")
+			.WithName("failAgentAttempt")
+			.Produces<AgentCompletionResponseDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
 		return routes;
+	}
+
+	private static async Task<IResult> RenewLeaseAsync(
+		Guid attemptId, HttpContext http, RenewAgentAttemptLeaseHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		if (ClientId(http) is not { } clientId)
+		{
+			return ProblemResults.From(OperationFailure.Unauthenticated());
+		}
+
+		var body = await ReadBodyAsync<AgentLeaseRequestDto>(http, cancellationToken);
+		if (string.IsNullOrWhiteSpace(body?.FencingToken) || body.FencingToken.Length > 255)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("fencingToken", "invalid")));
+		}
+
+		var result = await handler.HandleAsync(new RenewAgentAttemptLeaseCommand(attemptId, clientId, body.FencingToken), cancellationToken);
+		return result.IsSuccess
+			? Results.Ok(new AgentLeaseResponseDto(result.Value.AttemptId, result.Value.LeaseExpiresAt))
+			: Failure(result.Failure);
+	}
+
+	private static async Task<IResult> RecordCheckpointAsync(
+		Guid attemptId, HttpContext http, RecordAgentCheckpointHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		if (ClientId(http) is not { } clientId)
+		{
+			return ProblemResults.From(OperationFailure.Unauthenticated());
+		}
+
+		if (await ReadObjectAsync(http, cancellationToken) is not { } body)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("body", "invalid")));
+		}
+
+		var result = await handler.HandleAsync(new RecordAgentCheckpointCommand(attemptId, clientId, body), cancellationToken);
+		return result.IsSuccess
+			? Results.Ok(new AgentCheckpointResponseDto(result.Value.AttemptId, result.Value.Sequence, result.Value.Replayed))
+			: Failure(result.Failure);
+	}
+
+	private static async Task<IResult> FailAsync(
+		Guid attemptId, HttpContext http, FailAgentAttemptHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		if (ClientId(http) is not { } clientId)
+		{
+			return ProblemResults.From(OperationFailure.Unauthenticated());
+		}
+
+		if (await ReadObjectAsync(http, cancellationToken) is not { } body)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("body", "invalid")));
+		}
+
+		var result = await handler.HandleAsync(new FailAgentAttemptCommand(attemptId, clientId, body), cancellationToken);
+		return result.IsSuccess
+			? Results.Ok(new AgentCompletionResponseDto(
+				result.Value.AttemptId, result.Value.InvocationId, result.Value.InvocationState, result.Value.Replayed))
+			: Failure(result.Failure);
+	}
+
+	private static async Task<JsonElement?> ReadObjectAsync(HttpContext http, CancellationToken cancellationToken)
+	{
+		try
+		{
+			var body = await JsonSerializer.DeserializeAsync<JsonElement>(http.Request.Body, BodyOptions, cancellationToken);
+			return body.ValueKind == JsonValueKind.Object ? body : null;
+		}
+		catch (JsonException)
+		{
+			return null;
+		}
 	}
 
 	private static async Task<IResult> IssueQueueCredentialsAsync(
