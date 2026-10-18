@@ -104,6 +104,24 @@ expose Pydantic models and validate both boundaries; it and cross-runtime
 schema agreement remain future work. The platform validates the same schemas
 independently rather than treating Python types as cross-language authority.
 
+The Analyst SDK is decided as follows and not yet implemented. It is the
+independently locked Python project `src/analysts/sdk/` (distribution
+`socalytics-analyst-sdk`, package `socalytics_analyst`), whose major version
+follows the contracts' major version. It carries a byte-identical, test-verified
+copy of the schemas it implements (analyst-job, analyst-attempt,
+result-manifest, upstream-results, fact-artifact, and the common definitions),
+validates every document it reads or writes against them in addition to its
+typed Pydantic models, and its tests validate every example of those contracts,
+so a contract change the SDK does not follow fails its verification. It reads
+the job and attempt context, verifies staged upstream manifests against the
+input snapshot and staged artifacts against their manifests, writes all facts
+of a result into one fact artifact `facts.json`, refuses facts outside the
+half-open validity window, derives scope, attempt, provenance, lineage, and
+partial-coverage reports from its inputs, and writes artifacts and the manifest
+atomically. Its entry point exits 0 only after writing the manifest, 2 for
+invalid or unverifiable inputs, and 1 for every other failure. It contains no
+capability, model, network client, or credentials.
+
 ### Analyst Profiles And Container-Owned Preprocessing
 
 An Analyst profile is a versioned, digest-addressed execution choice for one
@@ -164,7 +182,10 @@ each digest-pinned Analyst image. It includes:
 
 - capability ID and version, Analyst tier, and independently declared execution
     scope (`segment` or `match`)
-- required upstream capability and schema versions
+- required upstream capability and schema versions, and per dependency whether
+    the capability permits partial upstream coverage and its minimum (decided,
+    not yet implemented; see
+    [Readiness And Dependencies](job-processing.md#readiness-and-dependencies))
 - whether source video access is required, optional, or forbidden
 - output schema version and compatible Analyst-profile identities
 - immutable image and model digests plus runtime and hardware constraints
@@ -191,6 +212,9 @@ Every tier emits a versioned result manifest containing:
 - nominal validity window and fact count
 - complete upstream lineage: accepted result IDs, capability and schema
     versions, and algorithm-qualified artifact digests
+- the input coverage used per upstream dependency, required for
+    partial-coverage dependencies and compared with the job's input snapshot on
+    acceptance (decided, not yet implemented)
 - output type (`foundational-facts` or `soccer-concepts`), confidence, and
     supporting evidence references
 - optional supporting video-segment identifiers that the API can resolve,
@@ -258,13 +282,19 @@ Manager-mediated read, the staging, and the coverage are implemented as
 development evidence against the simulated Analyst, whose match-level lineage
 is built from the staged inputs; real Analyst execution is implemented on the
 Docker Desktop profile, while production evidence remains future work, as does
-source-video access for ACs.
+source-video access for ACs. For a dependency that permits partial coverage,
+the read reports the coverage recorded in the job's input snapshot together
+with the declared coverage mode, and members see each node's input coverage
+counts in the run status read (decided, not yet implemented).
 
 Only accepted results are visible. Every response and reference is constrained
 to the job's authorized team and match, and Analysts never query PostgreSQL
-directly. If the capability declaration permits video, the AC may request
-short-lived presigned object-storage access for specific source segments;
-video bytes do not pass through the API.
+directly. If the run-pinned Analyst profile's video policy permits video, the
+AC receives its segment's materialized media staged by the AM through
+short-lived per-object read grants, as described in
+[Analyst Runtime and Recovery](analyst-runtime-and-recovery.md#runtime-preflight-and-status)
+(decided, not yet implemented); the AC itself never receives presigned access,
+and video bytes do not pass through the API.
 
 The same capability-scoped pattern is decided, but not yet implemented, for
 people: members with read access to a run's team (Club Admins, and Coaches and
@@ -277,6 +307,27 @@ expected execution unit as a half-open match-time window that is accepted,
 missing, failed, blocked, or skipped, without segment, recording, or storage
 identifiers. A listing names every capability node of the run with its fact
 count and coverage. Reads never cross runs.
+
+The evidence of those facts is decided, but not yet implemented, to be
+resolvable to video by the same members (see
+[Evidence Clip Access](../../specs/20261017-224326-evidence-clip-access/spec.md)):
+a member-facing `/api/v1` operation resolves one indexed fact of a run (with
+optional, bounded context before and after it) or an explicit, bounded
+match-time range of the run to ordered parts. Parts come only from the run's
+own finalized recording-set version, timeline mappings, and pinned
+segmentation policy; where several recordings cover the same match time, the
+first recording in the set's order is used. Each part is either a short-lived,
+read-only, per-object presigned link to the covering materialized segment's
+media, with its media digest and the start and end offsets inside that media,
+or an explicit state: `materializing` or `rematerializing` (the operation has
+requested the segment from the Segment Service and returns a retry hint),
+`failed` with the sanitized reason, or `not-covered`. Before issuing a link,
+the platform confirms the media's attested digest and size and the manifest
+checksum; it never reads media bytes, never stores or logs links, re-evaluates
+team authorization on every request, rate-limits resolutions per member, and
+records each resolution that issues links as an artifact-authorization audit
+event without the links. This is the API side of `get_video_clip()`; the MCP
+tool remains future work.
 
 ---
 

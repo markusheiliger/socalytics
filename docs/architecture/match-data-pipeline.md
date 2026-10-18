@@ -211,6 +211,34 @@ implemented initially. Purge never changes logical identity: a later request
 deterministically rematerializes the same logical segment, subject to the same
 manifest and digest validation.
 
+The Segment Service is decided as follows and not yet implemented (see
+[Materialized Video Segments and Analyst Input Staging](../../specs/20261017-222433-materialized-segments/spec.md)).
+It is the `Segments` functional area of the platform and runs as a background
+worker of the API host; no API operation reads or relays media bytes. One
+durable record per materialized identity holds its state, its single current
+association, and a lease; workers claim records with row locks, write each
+candidate under its own object keys, and publish only the candidate that still
+owns the lease, so losing and expired candidates are deleted and never seen.
+Segmentation policy version 1 extracts by stream copy, without transcoding,
+with the pinned FFmpeg and ffprobe toolchain: the worker reads the source
+recording through a short-lived presigned read, keeps only the primary video
+stream (no audio, subtitle, data, or source metadata) in an MP4, starts at the
+keyframe at or before the requested source interval, and keeps source
+timestamps so the probed encoded interval is compared with the requested one.
+When the nominal window covers several mapped spans, the requested source
+interval is the smallest contiguous media interval covering them. The
+manifest, validated against `contracts/segments/segment-manifest/v1/`, also
+lists the mapped timeline spans inside the nominal window, so Analysts convert
+media time to match time. A segmentation-policy digest is bound to the policy
+version and duration of its first validated request, and a conflicting reuse is
+rejected. The manual purge is a Club Admin operation per match that deletes
+the objects of every materialized segment not pinned by a waiting, ready, or
+claimed job and returns it to `absent`. A member's evidence resolution (see
+[Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access))
+is decided, not yet implemented, to request the materialization of `absent`
+segments it needs as another requester, without pinning them against the
+purge; a purged segment is then rematerialized on demand.
+
 ### Segment And Match Analysis Scope
 
 Low-level Analyst Containers primarily consume materialized segments and emit

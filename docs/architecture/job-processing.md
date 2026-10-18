@@ -180,7 +180,15 @@ and evolve additively within their major version.
 
 For each analysis run, the Scheduler:
 
-1. Materializes required logical segments on demand.
+1. Materializes required logical segments on demand. Decided, not yet
+    implemented: at run creation the Scheduler requests the materialized
+    identity of every segment-scoped job whose run-pinned Analyst profile's
+    video policy is `required` or `optional`, never for `forbidden`. Such a job
+    stays waiting until its segment is `available`, and its input snapshot and
+    job message then pin the segment association (the segment manifest's
+    checksum). When the segment ends `failed`, a `required` job fails with
+    `segment-unavailable` and the normal dependency and coverage rules apply,
+    while an `optional` job becomes ready without media.
 2. Creates one logical job per segment for each segment-scoped capability and
     one logical job per match for each match-scoped capability. Every job for a
     capability copies the same run-pinned Analyst-profile, OCI image, and model
@@ -218,6 +226,24 @@ by their capability. When a capability permits partial coverage, its job
 snapshot records the accepted, failed, missing, and skipped segments and the
 result reports that coverage explicitly; partial input is never mistaken for a
 complete match barrier.
+
+Partial-coverage barriers are decided as follows and not yet implemented. A
+match-scoped capability declares partial coverage per required or conditional
+dependency in its Analyst manifest, with a minimum of at least one accepted
+segment and an optional minimum accepted fraction of the expected segments;
+segment-scoped capabilities and optional dependencies cannot declare it. The
+declaration is copied into the run snapshot. Through such a dependency on a
+segment-scoped upstream, a failed or blocked upstream node does not block the
+match-scoped job by itself: the job waits until every expected upstream segment
+job is final (accepted, failed, or blocked) and becomes ready when the accepted
+segments meet the minimum, or blocked by that upstream when they do not. Its
+immutable input snapshot records each expected segment's state, the Manager's
+upstream read and staged inputs report exactly that coverage, and the result
+must report the same coverage to be accepted. Dependencies without the
+declaration, and all dependencies between segment-scoped capabilities, keep
+complete-coverage barriers and node-level blocking. A run whose failed or
+blocked segments were bridged this way still ends `PartiallyCompleted`, never
+`Completed`.
 
 Detection, tracking, counter-attack detection, and formation analysis are
 capability names, not execution components. New capabilities extend a versioned
