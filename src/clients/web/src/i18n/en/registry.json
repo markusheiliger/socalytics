@@ -151,6 +151,8 @@
     "back": "Back to the workflows",
     "notFound": "This workflow version was not found.",
     "isDefault": "This is the default workflow version.",
+    "nodeLabel": "Node {{key}}",
+    "edgeUnknownNodes": "An end of this edge is not among the nodes.",
     "nodesTitle": "Nodes",
     "edgesTitle": "Edges",
     "noEdges": "This workflow has no edges.",
