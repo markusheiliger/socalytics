@@ -177,7 +177,7 @@ public sealed class FailAgentAttemptHandler(
 
         await outbox.EnqueueAsync(
             new OutboxMessageDraft(
-                Guid.CreateVersion7(), PublishOutboxBatch.AgentInvocationReadyMessageType, "1.0.0", queue.AgentWorkSubject, payload, invocation.Id),
+                Guid.CreateVersion7(), PublishOutboxBatch.AgentInvocationReadyMessageType, "1.0.0", queue.AgentWorkSubject, payload, Guid.CreateVersion7()),
             cancellationToken);
     }
 
