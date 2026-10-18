@@ -91,5 +91,7 @@ public interface IAnalysisRunStore
     // Moves the run's Waiting and Active nodes to Cancelled in id order and returns how many changed.
     Task<int> CancelUnfinishedNodesAsync(Guid runId, CancellationToken cancellationToken);
 
+    Task<int> CountCancelledNodesAsync(Guid runId, CancellationToken cancellationToken);
+
     Task<AnalysisRunHierarchy?> LoadAsync(Guid runId, CancellationToken cancellationToken);
 }

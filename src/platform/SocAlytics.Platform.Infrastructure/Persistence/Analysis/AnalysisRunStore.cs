@@ -239,6 +239,14 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
             cancellationToken: cancellationToken));
     }
 
+    public async Task<int> CountCancelledNodesAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT count(*) FROM socalytics.analysis_workflow_nodes WHERE run_id = @runId AND state = 'Cancelled'",
+            new { runId }, session.Transaction, cancellationToken: cancellationToken));
+    }
+
     public async Task<AnalysisRunHierarchy?> LoadAsync(Guid runId, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);
