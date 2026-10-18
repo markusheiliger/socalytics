@@ -98,7 +98,7 @@ it, and acceptance rejects missing or different coverage reports.
 ### Coverage evidence
 
 - [ ] T017 [P] [US2] Cover the platform side in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/UpstreamReadTests.cs` (snapshot coverage and `upstream.coverage` for partial and complete dependencies, unchanged reads for other jobs), `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/ResultManifestVerifierTests.cs` (equal, missing, different, duplicated, and unknown-dependency reports; a report for a complete dependency checked only on its `accepted` units; `1.0.0` manifests without reports for jobs without partial barriers), and `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Results/ValidatedAcceptanceTests.cs` (a rejected report ends the attempt as failed with `result-coverage-mismatch`, counted by `socalytics.analysis.completions_rejected`, and the retry rules apply) (FR-012, FR-015, FR-016, FR-023; SC-003)
-- [ ] T018 [P] [US2] Cover the Manager's own contract check of `1.1.0` result manifests (accepted with `inputCoverage`, rejected with an unknown state as `result-manifest-schema-invalid`) in `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Work/AttemptRunnerTests.cs` (FR-014)
+- [x] T018 [P] [US2] Cover the Manager's own contract check of `1.1.0` result manifests (accepted with `inputCoverage`, rejected with an unknown state as `result-manifest-schema-invalid`) in `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Work/AttemptRunnerTests.cs` (FR-014)
 
 **Checkpoint**: Coverage is fixed, staged, reported, and verified
 
