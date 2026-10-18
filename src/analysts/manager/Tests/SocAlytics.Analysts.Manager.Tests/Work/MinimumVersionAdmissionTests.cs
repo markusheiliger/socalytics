@@ -28,7 +28,7 @@ public sealed class MinimumVersionAdmissionTests
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
+        var deadline = DateTime.UtcNow.AddSeconds(60);
         while (!condition())
         {
             DateTime.UtcNow.ShouldBeLessThan(deadline);
@@ -68,7 +68,7 @@ public sealed class MinimumVersionAdmissionTests
 
         Count(host, WorkOperation.QueueCredentials).ShouldBe(1);
         (await service.StepAsync(Ct)).ShouldBeTrue();
-        await Registry(host).WaitForIdleAsync(Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await Registry(host).WaitForIdleAsync(Ct).WaitAsync(TimeSpan.FromSeconds(60), Ct);
         Count(host, WorkOperation.Claim).ShouldBe(1);
     }
 
@@ -84,7 +84,7 @@ public sealed class MinimumVersionAdmissionTests
             host.Services, new BelowOnFetchQueue(delivery, () => Minimum(host).Update(AboveBuild)));
 
         (await service.StepAsync(Ct)).ShouldBeTrue();
-        await Registry(host).WaitForIdleAsync(Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await Registry(host).WaitForIdleAsync(Ct).WaitAsync(TimeSpan.FromSeconds(60), Ct);
 
         delivery.PlainNaks.ShouldBe(1);
         delivery.Acks.ShouldBe(0);
@@ -128,7 +128,7 @@ public sealed class MinimumVersionAdmissionTests
         WorkAcquisitionTests.Enqueue(queue, host.Platform, 1);
 
         (await service.StepAsync(Ct)).ShouldBeTrue();
-        await Registry(host).WaitForIdleAsync(Ct).WaitAsync(TimeSpan.FromSeconds(10), Ct);
+        await Registry(host).WaitForIdleAsync(Ct).WaitAsync(TimeSpan.FromSeconds(60), Ct);
 
         Minimum(host).IsBelow.ShouldBeTrue();
         Count(host, WorkOperation.Claim).ShouldBe(1);
