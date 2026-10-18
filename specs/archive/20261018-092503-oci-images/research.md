@@ -2,7 +2,7 @@
 
 All decisions build on the existing projects (see [plan.md](plan.md)). Values that belong to a production profile
 (registries, host architecture, ports exposed to users, TLS, secrets, replica counts) stay **Open / Blocking** as
-[Production Deployment and Operations](../../docs/architecture/production-operations.md#versioned-production-profile)
+[Production Deployment and Operations](../../../docs/architecture/production-operations.md#versioned-production-profile)
 defines.
 
 ## R1 Build tool and build context
@@ -83,8 +83,8 @@ defines.
   file extension or under `/assets/` that do not exist return 404; other paths return `index.html` (client routes).
   `.webmanifest` is served as `application/manifest+json`. Every response the server produces itself carries the
   production Content Security Policy and `X-Content-Type-Options`, `Referrer-Policy`, and `Permissions-Policy` from the
-  [security-header contract](../archive/20261012-150657-web-ui-foundation/contracts/security-headers.md) as extended
-  by the [PWA contract](../archive/20261015-194113-web-ui-pwa-updates/contracts/web-ui-pwa.md); `connect-src` adds
+  [security-header contract](../20261012-150657-web-ui-foundation/contracts/security-headers.md) as extended
+  by the [PWA contract](../20261015-194113-web-ui-pwa-updates/contracts/web-ui-pwa.md); `connect-src` adds
   `SOCALYTICS_OBJECT_STORAGE_ORIGIN` when set (the same variable `vite.config.ts` reads). Forwarded API responses keep
   the API's own headers. The production policy moves into one module (`src/clients/web/build/securityHeaders.ts`) used
   by `vite.config.ts`, and a Vitest test fails when the server template's policy differs from it.

@@ -2,7 +2,7 @@
 
 **Branch**: `20261018-092503-oci-images` | **Date**: 2026-10-18 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261018-092503-oci-images/spec.md`
+**Input**: Feature specification from `specs/archive/20261018-092503-oci-images/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -55,7 +55,7 @@ one publish exclusion, one test project, and documentation.
 
 | Principle | Check | Result |
 | --- | --- | --- |
-| I. Architecture is the design authority | Implements the image parts of [platform implementation](../../docs/architecture/platform-implementation.md#source-and-runtime-baseline), [client delivery](../../docs/architecture/client-applications.md#source-ownership-and-delivery), and the [portability rules](../../docs/architecture/production-operations.md#azure-container-apps-target-profile-provisional); the design choices it adds are recorded under Architecture Updates; production values stay Open / Blocking. | Pass |
+| I. Architecture is the design authority | Implements the image parts of [platform implementation](../../../docs/architecture/platform-implementation.md#source-and-runtime-baseline), [client delivery](../../../docs/architecture/client-applications.md#source-ownership-and-delivery), and the [portability rules](../../../docs/architecture/production-operations.md#azure-container-apps-target-profile-provisional); the design choices it adds are recorded under Architecture Updates; production values stay Open / Blocking. | Pass |
 | II. Source-area ownership | API and Migrator definitions in `src/platform`, Web UI definition in `src/clients/web`; no new `src/` child; tests in `src/platform/Tests`. | Pass |
 | III. API-first control plane | The Web UI image forwards API paths without business logic; video bytes keep going directly to object storage. | Pass |
 | IV. Evidence over claims | Docker-backed tests prove every requirement; images are not presented as deployment support or production readiness. | Pass |
@@ -68,17 +68,17 @@ Post-design re-check: Pass; no violation needs Complexity Tracking.
 
 ### Narratives
 
-- [Platform Implementation — Source And Runtime Baseline](../../docs/architecture/platform-implementation.md#source-and-runtime-baseline):
+- [Platform Implementation — Source And Runtime Baseline](../../../docs/architecture/platform-implementation.md#source-and-runtime-baseline):
   the cloud-neutral OCI images, the Migrator as its own image, and the API image without a migration path.
-- [Client Applications — Source Ownership And Delivery](../../docs/architecture/client-applications.md#source-ownership-and-delivery):
+- [Client Applications — Source Ownership And Delivery](../../../docs/architecture/client-applications.md#source-ownership-and-delivery):
   the Web UI as a separate OCI container from `src/clients`, release-coupled to the API, on one origin.
-- [Platform Implementation — Client Technology](../../docs/architecture/platform-implementation.md#client-technology):
+- [Platform Implementation — Client Technology](../../../docs/architecture/platform-implementation.md#client-technology):
   the separately containerized Web UI and its production server configuration.
-- [Production Deployment and Operations — Azure Container Apps Target Profile](../../docs/architecture/production-operations.md#azure-container-apps-target-profile-provisional):
+- [Production Deployment and Operations — Azure Container Apps Target Profile](../../../docs/architecture/production-operations.md#azure-container-apps-target-profile-provisional):
   the portability rules (both profiles run the same images).
-- [Security and Data Governance](../../docs/architecture/security-and-data-governance.md): the Web UI Content Security
+- [Security and Data Governance](../../../docs/architecture/security-and-data-governance.md): the Web UI Content Security
   Policy and its production server configuration.
-- [Architecture Overview — Implementation Profile](../../docs/architecture/overview.md#implementation-profile): the
+- [Architecture Overview — Implementation Profile](../../../docs/architecture/overview.md#implementation-profile): the
   production artifacts as cloud-neutral OCI images.
 
 ### Design updates (applied now, worded as decided but not implemented)
@@ -132,7 +132,7 @@ publication, Compose, and Azure Container Apps explicitly unresolved or future.
 ### Documentation (this feature)
 
 ```text
-specs/20261018-092503-oci-images/
+specs/archive/20261018-092503-oci-images/
 ├── plan.md
 ├── research.md
 ├── data-model.md

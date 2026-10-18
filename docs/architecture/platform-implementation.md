@@ -103,7 +103,7 @@ The images of the platform API, the Migrator, and the Web UI are implemented and
 verified by Docker-backed tests in `SocAlytics.Platform.Images.Tests`; they are
 neither deployment support nor production readiness, and no registry,
 publication, or production profile value is decided (see the
-[container-image contract](../../specs/20261018-092503-oci-images/contracts/container-images.md)).
+[container-image contract](../../specs/archive/20261018-092503-oci-images/contracts/container-images.md)).
 Each has one Dockerfile next to the project it packages
 (`SocAlytics.Platform.Api`, `SocAlytics.Platform.Migrator`, and
 `src/clients/web`) with a Dockerfile-specific allow-list ignore file, and is

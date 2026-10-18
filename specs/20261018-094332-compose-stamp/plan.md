@@ -25,7 +25,7 @@ restart, isolation of a second project, and leak-free teardown (see [research.md
 Docker CLI's Compose v2 plugin; POSIX shell only inside container health checks.
 
 **Primary Dependencies**: The API, Migrator, and Web UI images of the batch sibling
-[`specs/20261018-092503-oci-images`](../20261018-092503-oci-images/contracts/container-images.md); infrastructure images
+[`specs/archive/20261018-092503-oci-images`](../archive/20261018-092503-oci-images/contracts/container-images.md); infrastructure images
 `postgres:18`, `nats:2.14-alpine`, and `rustfs/rustfs:1.0.1`, each pinned by digest; the existing roles script
 `src/platform/SocAlytics.Platform.AppHost/PostgresInit/01-socalytics-roles.sh`; `NATS.Jwt` 1.0.1 and `NATS.NKeys` 1.0.2
 (already pinned); xUnit v3 and Shouldly for the evidence. No new package.
@@ -62,7 +62,7 @@ evidence-only override file, and documentation.
 | III. API-first control plane | No business logic outside the API; video bytes never pass through the API or the Web UI (uploads are unavailable rather than proxied). | Pass |
 | IV. Evidence over claims | Docker-backed tests prove every requirement; the documentation states that the composition is not a production profile and passes no preflight. | Pass |
 | V. Focused, minimal changes | No new package; one small console for the trust material that shell tools cannot produce; no platform behavior change. | Pass |
-| Environment features | Needs .NET 10 and Docker with the Compose v2 plugin; the SDK comes from `environment-setup`, Docker and Compose from the runner (research R11). No environment spec. Depends on `specs/20261018-092503-oci-images` for the images. | Pass |
+| Environment features | Needs .NET 10 and Docker with the Compose v2 plugin; the SDK comes from `environment-setup`, Docker and Compose from the runner (research R11). No environment spec. Depends on `specs/archive/20261018-092503-oci-images` for the images. | Pass |
 
 Post-design re-check: Pass; no violation needs Complexity Tracking.
 

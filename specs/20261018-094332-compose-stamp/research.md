@@ -1,7 +1,7 @@
 # Research: Compose Stamp Composition for Self-Hosted Evaluation
 
 All decisions build on the existing projects and on the image contract of the batch sibling
-[Cloud-Neutral OCI Images](../20261018-092503-oci-images/contracts/container-images.md) (see [plan.md](plan.md)).
+[Cloud-Neutral OCI Images](../archive/20261018-092503-oci-images/contracts/container-images.md) (see [plan.md](plan.md)).
 Values that belong to a production profile (host, engine and Compose versions, ports, DNS, certificates, secret source,
 volume paths, replicas, resource sizes) stay **Open / Blocking** as
 [Production Deployment and Operations](../../docs/architecture/production-operations.md#versioned-production-profile)
@@ -150,7 +150,7 @@ defines; where the evaluation stamp needs a value, it is a documented evaluation
   starts `postgres`, `migrator`, and the rest with an evidence-only override file
   `src/platform/Tests/SocAlytics.Platform.Compose.Tests/compose.evidence.yaml` that publishes PostgreSQL on an ephemeral
   loopback port, arranges the workflow with the existing configured-workflow seeding in-process in the Test environment
-  (as `specs/20261018-092503-oci-images` and `ReadinessProgressionTests` do), and then waits for `/health`.
+  (as `specs/archive/20261018-092503-oci-images` and `ReadinessProgressionTests` do), and then waits for `/health`.
 - **Rationale**: The evidence must reach healthy (FR-020) without changing the platform; an override that only the
   evidence uses leaves the committed definition's ingress untouched, and the ingress assertions run against the
   committed definition alone (R10).
@@ -193,7 +193,7 @@ defines; where the evaluation stamp needs a value, it is a documented evaluation
 
 The plan needs the .NET 10 SDK and Docker with the Compose v2 plugin (`docker compose`). The SDK is installed by
 `environment-setup`; Docker is on the runner, as `environment-setup` states and the Docker-backed platform tests and the
-image evidence of `specs/20261018-092503-oci-images` rely on, and the GitHub-hosted `ubuntu-latest` runner image ships
+image evidence of `specs/archive/20261018-092503-oci-images` rely on, and the GitHub-hosted `ubuntu-latest` runner image ships
 the Compose v2 plugin with its Docker installation. No new framework, SDK, or package is needed (`NATS.Jwt` and
 `NATS.NKeys` are already pinned). No environment spec is needed; the evidence fails visibly with a named message when
 `docker compose` is unavailable. The new files live in the covered platform scope, and the evidence runs with the
