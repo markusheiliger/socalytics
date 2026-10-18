@@ -24,10 +24,12 @@ internal static class ProblemResults
 		return Problem(status, failure.Code, failure.FieldViolations);
 	}
 
-	public static IResult Problem(int status, string code, IReadOnlyList<FieldViolation>? violations = null) =>
-		new ProblemResult(status, code, violations);
+	public static IResult Problem(
+		int status, string code, IReadOnlyList<FieldViolation>? violations = null, IReadOnlyDictionary<string, string>? extensions = null) =>
+		new ProblemResult(status, code, violations, extensions);
 
-	private sealed class ProblemResult(int status, string code, IReadOnlyList<FieldViolation>? violations) : IResult
+	private sealed class ProblemResult(
+		int status, string code, IReadOnlyList<FieldViolation>? violations, IReadOnlyDictionary<string, string>? extensions) : IResult
 	{
 		public Task ExecuteAsync(HttpContext httpContext)
 		{
@@ -42,6 +44,14 @@ internal static class ProblemResults
 			if (Detail(code) is { } detail)
 			{
 				body["detail"] = detail;
+			}
+
+			if (extensions is not null)
+			{
+				foreach (var (name, value) in extensions)
+				{
+					body[name] = value;
+				}
 			}
 
 			if (violations is { Count: > 0 })

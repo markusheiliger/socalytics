@@ -1,13 +1,31 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Authentication;
 using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Registry;
 using SocAlytics.Platform.Api.Security;
+using SocAlytics.Platform.Application.Abstractions;
+using SocAlytics.Platform.Application.AgentOrchestration.Execution;
 using SocAlytics.Platform.Application.AgentOrchestration.Workloads;
+
 
 namespace SocAlytics.Platform.Api.AgentOrchestration;
 
+internal sealed record AgentWorkloadQueueCredentialsRequestDto(string? UserPublicKey);
+
+internal sealed record AgentWorkloadQueueCredentialsDto(
+	string UserJwt, DateTimeOffset ExpiresAt, string QueueUrl, string Stream, string Consumer, string InboxPrefix);
+
+internal sealed record AgentClaimRequestDto(string? OperationId);
+
+internal sealed record AgentCompletionResponseDto(Guid AttemptId, Guid InvocationId, string InvocationState, bool Replayed);
+
 internal static class AgentWorkloadEndpoints
 {
+	private static readonly JsonSerializerOptions BodyOptions = new(JsonSerializerDefaults.Web)
+	{
+		UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
+	};
+
 	public static IServiceCollection AddAgentWorkloadSecurity(this IServiceCollection services)
 	{
 		services.AddAuthentication()
@@ -29,7 +47,145 @@ internal static class AgentWorkloadEndpoints
 			.RequireRateLimiting(RegistryRateLimiting.Token)
 			.WithTags("Agent workload")
 			.WithName("issueAgentWorkloadToken");
+		routes.MapPost("/api/v1/agent-orchestration/workload/queue-credentials", IssueQueueCredentialsAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AgentWorkload)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithTags("Agent workload")
+			.WithName("issueAgentWorkloadQueueCredentials")
+			.Accepts<AgentWorkloadQueueCredentialsRequestDto>("application/json")
+			.Produces<AgentWorkloadQueueCredentialsDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status409Conflict);
+		routes.MapPost("/api/v1/agent-orchestration/invocations/{invocationId:guid}/claims", ClaimAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AgentWorkload)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithTags("Agent workload")
+			.WithName("claimAgentInvocation")
+			.Accepts<AgentClaimRequestDto>("application/json")
+			.Produces(StatusCodes.Status201Created, contentType: "application/json")
+			.Produces(StatusCodes.Status200OK, contentType: "application/json")
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
+		routes.MapPost("/api/v1/agent-orchestration/attempts/{attemptId:guid}/completion", CompleteAsync)
+			.RequireAuthorization(AuthorizationPolicyNames.AgentWorkload)
+			.AddEndpointFilter<RequireHttpsEndpointFilter>()
+			.AddEndpointFilter<JsonOnlyFilter>()
+			.WithTags("Agent workload")
+			.WithName("completeAgentAttempt")
+			.Produces<AgentCompletionResponseDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict);
 		return routes;
+	}
+
+	private static async Task<IResult> IssueQueueCredentialsAsync(
+		HttpContext http, IssueAgentWorkloadQueueCredentialsHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		var body = await ReadBodyAsync<AgentWorkloadQueueCredentialsRequestDto>(http, cancellationToken);
+		var result = await handler.HandleAsync(new IssueAgentWorkloadQueueCredentialsCommand(body?.UserPublicKey), cancellationToken);
+		return result.IsSuccess
+			? Results.Ok(new AgentWorkloadQueueCredentialsDto(
+				result.Value.UserJwt, result.Value.ExpiresAt, result.Value.QueueUrl, result.Value.Stream, result.Value.Consumer,
+				result.Value.InboxPrefix))
+			: Failure(result.Failure);
+	}
+
+	private static async Task<IResult> ClaimAsync(
+		Guid invocationId, HttpContext http, ClaimAgentInvocationHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		if (ClientId(http) is not { } clientId)
+		{
+			return ProblemResults.From(OperationFailure.Unauthenticated());
+		}
+
+		var body = await ReadBodyAsync<AgentClaimRequestDto>(http, cancellationToken);
+		if (string.IsNullOrWhiteSpace(body?.OperationId) || body.OperationId.Length > 255)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("operationId", "invalid")));
+		}
+
+		var result = await handler.HandleAsync(new ClaimAgentInvocationCommand(invocationId, clientId, body.OperationId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return Failure(result.Failure);
+		}
+
+		var envelope = result.Value.Envelope;
+		var attemptId = envelope.GetProperty("attemptId").GetGuid();
+		if (result.Value.Replayed)
+		{
+			return Results.Json(envelope, statusCode: StatusCodes.Status200OK);
+		}
+
+		http.Response.Headers.Location = $"/api/v1/agent-orchestration/attempts/{attemptId}";
+		return Results.Json(envelope, statusCode: StatusCodes.Status201Created);
+	}
+
+	private static async Task<IResult> CompleteAsync(
+		Guid attemptId, HttpContext http, CompleteAgentAttemptHandler handler, CancellationToken cancellationToken)
+	{
+		http.Response.Headers.CacheControl = "no-store";
+		if (ClientId(http) is not { } clientId)
+		{
+			return ProblemResults.From(OperationFailure.Unauthenticated());
+		}
+
+		JsonElement body;
+		try
+		{
+			body = await JsonSerializer.DeserializeAsync<JsonElement>(http.Request.Body, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("body", "invalid")));
+		}
+
+		if (body.ValueKind != JsonValueKind.Object)
+		{
+			return ProblemResults.From(OperationFailure.Validation(new FieldViolation("body", "invalid")));
+		}
+
+		var result = await handler.HandleAsync(new CompleteAgentAttemptCommand(attemptId, clientId, body), cancellationToken);
+		return result.IsSuccess
+			? Results.Ok(new AgentCompletionResponseDto(
+				result.Value.AttemptId, result.Value.InvocationId, result.Value.InvocationState, result.Value.Replayed))
+			: Failure(result.Failure);
+	}
+
+	private static string? ClientId(HttpContext http) =>
+		http.User.FindFirst(AgentWorkloadClaimTypes.ClientId)?.Value is { Length: > 0 } id ? id : null;
+
+	private static async Task<T?> ReadBodyAsync<T>(HttpContext http, CancellationToken cancellationToken)
+		where T : class
+	{
+		try
+		{
+			return await JsonSerializer.DeserializeAsync<T>(http.Request.Body, BodyOptions, cancellationToken);
+		}
+		catch (JsonException)
+		{
+			return null;
+		}
+	}
+
+	// The stale refusal carries its disposition as a problem member instead of a field error.
+	private static IResult Failure(OperationFailure failure)
+	{
+		if (failure.Code == AgentExecutionCodes.AttemptStale
+			&& failure.FieldViolations?.FirstOrDefault(v => v.Field == AgentExecutionCodes.DispositionField) is { } disposition)
+		{
+			return ProblemResults.Problem(
+				StatusCodes.Status409Conflict, failure.Code, null,
+				new Dictionary<string, string> { [AgentExecutionCodes.DispositionField] = disposition.Code });
+		}
+
+		return ProblemResults.From(failure);
 	}
 
 	private static async Task<IResult> IssueTokenAsync(
