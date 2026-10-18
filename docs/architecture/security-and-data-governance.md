@@ -63,7 +63,7 @@ evidence references.
 
 | ID | Data class | Classification | Purpose and authoritative owner | Permitted locations and copies | Lifecycle policy |
 | --- | --- | --- | --- | --- | --- |
-| DAT-001 | Identity, role, team, and registration records, including members' optional email addresses, their verification state, and notification preferences | Restricted | API identity and domain functional areas | Stamp database, authorized indexes, replicas, backups | POL-001 |
+| DAT-001 | Identity, role, team, and registration records, including members' optional email addresses, their verification state, notification preferences, and pending member invitations with their invited addresses (invitations decided, not yet implemented) | Restricted | API identity and domain functional areas | Stamp database, authorized indexes, replicas, backups | POL-001 |
 | DAT-002 | Device keys, tokens, grants, and broker credentials | Secret | Issuing identity or credential service; protected endpoint for device keys | Protected keystore or issuing service; transient authorized process memory; secrets MUST NOT enter logs, caches, or backups unless explicitly required and protected | POL-002 |
 | DAT-003 | Source recordings and timeline mappings | Sensitive | Object storage for bytes; database for immutable references and mappings | Stamp object storage, metadata database, approved replicas and backups | POL-003 |
 | DAT-004 | Materialized segments and media caches | Sensitive | Segment Service and object storage | Stamp object storage and bounded processing caches; approved replicas and backups only when policy requires | POL-004 |
@@ -158,7 +158,7 @@ remains Provisional; inclusion here does not promote it to Accepted.
 | THR-009 | Accidental or malicious deletion removes authoritative evidence or leaves unauthorized orphan copies | CTL-009, CTL-010 | Deletion request, authorization, copy inventory, purge result, tombstone, backup-expiry, and hold events | Asynchronous deletion and immutable backups delay physical removal; approved policy and restore suppression are required | Open / Blocking |
 | THR-010 | Shared storage, replica, cache, index, backup, or telemetry infrastructure leaks data | CTL-001, CTL-008, CTL-010, CTL-012 | Configuration evidence, access denials, copy inventory, residency and encryption checks | Provider/operator defects remain; deployment evidence and residual-risk acceptance are required | Open / Blocking |
 | THR-011 | Lifecycle policy is bypassed through an untracked copy or unsupported restore | CTL-009, CTL-010 | Periodic inventory reconciliation, orphan detection, restore suppression, and expiry evidence | Unknown copies cannot be governed; production deployment must enumerate every copy class | Open / Blocking |
-| THR-012 | Platform email across BND-010 is spoofed, misdirected, or discloses data to an unintended recipient | CTL-008, CTL-009 | Address change, verification, and preference audit events with masked addresses; delivery outcomes without full addresses or bodies | Copies at the relay and in mailboxes are outside stamp control; sender authentication, bounce handling, and relay residency are unresolved; minimal content limits exposure | Open / Blocking |
+| THR-012 | Platform email across BND-010 is spoofed, misdirected, or discloses data to an unintended recipient | CTL-008, CTL-009 | Address change, verification, and preference audit events with masked addresses; password-recovery request, issue, completion, and refusal events with masked addresses (decided, not yet implemented); invitation creation, issue, resend, revocation, acceptance, and refusal events with masked addresses (decided, not yet implemented); delivery outcomes without full addresses or bodies | Copies at the relay and in mailboxes are outside stamp control; sender authentication, bounce handling, and relay residency are unresolved; minimal content limits exposure; a password-recovery link lets whoever controls a verified mailbox set a new local password until it expires or is used; an invitation link lets whoever controls the invited mailbox create the invited account with its team roles until it expires, is revoked, or is used | Open / Blocking |
 
 ## Encryption And Secret Handling
 
@@ -240,10 +240,17 @@ token, private key, unnecessary payload, or durable presigned URL. Access to
 audit evidence and every export or redaction of it MUST itself be audited.
 
 At minimum, authentication and authorization decisions, role changes, Manager
-registration and revocation, credential lifecycle, artifact authorization,
+registration and revocation, credential lifecycle, artifact authorization
+(including member evidence-media links, recorded without the links; decided,
+not yet implemented),
 attempt rejection and acceptance, policy changes, data export, deletion,
 retention expiry, hold lifecycle, restore suppression, vulnerability decisions,
 email address and notification-preference changes (with masked addresses),
+password recovery (with masked addresses; decided, not yet implemented),
+member invitations (with masked addresses; decided, not yet implemented),
+agent conversation creation, invocation submission, workload claims,
+completions, failures, lease expiries, and scope-loss outcomes (identifiers
+only, never question or advice text; decided, not yet implemented),
 and declared security incidents require audit evidence.
 
 ## Supply Chain And Vulnerability Handling
@@ -580,7 +587,11 @@ age; source-deletion, authorization-loss, corruption, and expiry triggers;
 bounded propagation and purge verification across Primary, Cache, Index,
 Telemetry, Replica, Backup, and Audit copies; backup justification and expiry;
 owner; approvals; and evidence. Backup is permitted only with explicit approved
-need, and an indefinite cache or unsupported backup remains blocking.
+need, and an indefinite cache or unsupported backup remains blocking. During
+initial private development, the only purge is the manual Club Admin purge of a
+match's unused materialized segments (decided, not yet implemented; see
+[On-Demand Video Segmentation](match-data-pipeline.md#on-demand-video-segmentation)),
+which does not resolve this policy.
 
 #### POL-005 Facts, Results, And Manifests
 
@@ -675,9 +686,9 @@ must be rejected rather than recorded as a candidate approval.
 
 | Entry | Credential class | Required unresolved decisions |
 | --- | --- | --- |
-| `GOV-CRED-001` | Human sessions | Issuance, bounded lifetime, renewal, revocation, recovery |
+| `GOV-CRED-001` | Human sessions | Issuance, bounded lifetime, renewal, revocation, recovery; self-service password recovery by email (single-use, hashed, short-lived links that end every session) is decided development scope, not yet implemented, with production link lifetime and limits unresolved; member invitations by email (single-use, hashed, expiring links that create the invited account) are decided development scope, not yet implemented, with production link lifetime and limits unresolved |
 | `GOV-CRED-002` | Device keys | Protected issuance, non-exportability, rotation, revocation, replacement, and production approval of key stores; the stamp exception for software-backed keys on headless Linux servers without a TPM is enforced in development evidence (`headless-server-only`), with production values unresolved |
-| `GOV-CRED-003` | Manager/workload tokens | Proof binding, bounded lifetime, renewal, immediate revocation, recovery |
+| `GOV-CRED-003` | Manager/workload tokens | Proof binding, bounded lifetime, renewal, immediate revocation, recovery; agent workload clients configured with a public key and DPoP-bound tokens are decided development scope, not yet implemented, with production lifetime and key custody unresolved |
 | `GOV-CRED-004` | NATS credentials | Stamp/subject scope, bounded lifetime, rotation, revocation, recovery |
 | `GOV-CRED-005` | Object grants | Object/action scope, bounded lifetime, one-time or replay rules, revocation |
 | `GOV-CRED-006` | External identity credentials | Trust scope, lifetime, renewal, rotation, revocation, provider failure; development evidence: explicit per-provider trust configuration, link credentials, unlinking that ends sessions, no provider token kept, and provider discovery failure refused against a test provider; production values, client secret custody, and rotation remain unresolved |
@@ -957,6 +968,11 @@ from `SOCALYTICS_OBJECT_STORAGE_ORIGIN` (the local store in development);
 without it `connect-src` stays `'self'`. Part transfers go directly to object
 storage, `media-src blob:` only lets a detached video element read a local
 file's duration, and `worker-src 'self'` is explicit for the bundled worker.
+For evidence playback, `media-src` is decided, but not yet implemented, to
+become `blob: <object-storage-origin>`, and the video elements load media in
+CORS mode, so only the Web UI origin on the object store's cross-origin
+allow-list can play it (see
+[Client Applications](client-applications.md#web-ui)).
 Every emitted script and stylesheet in the build carries a SHA-384
 Subresource Integrity attribute, and fonts and icons are bundled, so no
 third-party script or style origin is used. The production storage origin

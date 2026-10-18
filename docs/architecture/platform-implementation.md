@@ -190,7 +190,10 @@ Application contracts rather than persistence types. Registry data includes the
 queryable Analyst manifest cache keyed by immutable image digest. Analysis data
 covers durable runs, DAG state, logical jobs, attempts, and accepted-result
 references. Segment materialization runs on demand within the control-plane
-deployment unless measured scaling later justifies extraction.
+deployment unless measured scaling later justifies extraction; it is decided,
+not yet implemented, as a background worker of the API host that needs the
+pinned FFmpeg and ffprobe toolchain on the host (see
+[On-Demand Video Segmentation](match-data-pipeline.md#on-demand-video-segmentation)).
 
 ### Persistence And CQRS
 
@@ -416,7 +419,20 @@ same lock, at most once per identifier, which it records in the recovery
 ledger. Applying it sets the credential, ends the account's sessions, and
 requires a password change at the next sign-in. It grants no roles and is
 audited. The platform never writes the credential to logs or diagnostics, and
-no API operation, authenticated or not, performs recovery.
+no API operation, authenticated or not, performs this break-glass recovery.
+Members who sign in with a local password and have a verified email address
+will also recover a forgotten password themselves through a single-use
+password-recovery account message (decided, not yet implemented; see
+[Email Notifications](email-notifications.md#password-recovery)). Recovery
+never creates a local password, changes external identity links, grants roles,
+or reactivates an account, and completing it ends every session of the member.
+Club Admins will also be able to invite a person by email instead of handing
+over a credential (decided, not yet implemented; see
+[Email Notifications](email-notifications.md#member-invitations)): an
+invitation is a pending record that reserves an account name and address, and
+the member account, its verified address, and its team roles are created only
+when the invitee accepts with a local password through the emailed
+single-use link.
 
 Members may register an optional email address, verified through a single-use
 confirmation link before any message is sent, and choose which notification
@@ -452,11 +468,16 @@ The complete workflow is defined in the
 
 The Analyst Manager token endpoint is a minimal endpoint in the API's
 Registry functional area that supports only this grant; the platform does not
-run a general-purpose authorization server for machine clients.
+run a general-purpose authorization server for machine clients. Agent workload
+clients will use a second minimal endpoint of the same kind in the Agent
+Orchestration functional area (decided, not yet implemented; see
+[Agent Runtime](#agent-runtime)).
 
 Until a dedicated stamp-operator role is defined, operational workflow
 inspection and reconciliation operations under `/api/v1/operations` are
-restricted to Club Admins and audited when they change state.
+restricted to Club Admins and audited when they change state. Club Admins will
+use them from the Web UI's Operations area (decided, not yet implemented; see
+[Client Applications → Web UI](client-applications.md#web-ui)).
 
 ### Agent Runtime
 
@@ -484,6 +505,19 @@ and recovery contract is defined by
 [Intelligence and Agents](intelligence-and-agents.md#agent-orchestration-authority).
 MCP tools, prompt/profile resolution, model execution, and Web UI agent
 workflows remain future implementation work.
+
+The first slice is decided and not yet implemented: an `AgentOrchestration`
+folder in each platform layer stores conversations, participants, invocations,
+attempts, append-only lineage, accepted advice, and workload operation records
+in the stamp database; publishes `agent-invocation-ready` notifications from
+the transactional outbox to a JetStream work-queue stream; runs a monitor for
+lease expiry, attempt deadlines, and scope loss and a reconciliation worker for
+missing notifications; and authenticates configured workload clients through a
+minimal workload token endpoint with `private_key_jwt` and DPoP. A simulated
+agent workload under `src/platform/Tests`, which runs only in Development and
+Test and is started by the AppHost, executes direct specialist invocations with
+deterministic simulated advice in place of Hermes. See
+[Intelligence and Agents](intelligence-and-agents.md#client-transport-and-runtime-protocol).
 
 ## Client Technology
 

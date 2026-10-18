@@ -232,6 +232,20 @@ host-local setting switches to manual updates through the tray or the CLI; the
 minimum version still applies. The stamp needs outbound access to GitHub for
 the feed.
 
+The minimum version is decided ahead of the update feed and not yet
+implemented: it is the stamp's deployment setting
+`Registry:ManagerVersion:Minimum` (empty means no minimum; validated at start
+and applied on configuration reload). It reaches each Manager in the response
+of its periodic status report, and the Manager compares it with the build
+version it reports. Below it, the Manager keeps its registration and status
+reports, lets running attempts finish, claims no job, requests no queue
+credentials, and shows an update notice with both versions in its status
+window, tray menu, and CLI `status`. The platform independently refuses queue
+credentials and new claims from a Manager whose latest reported version (or,
+before its first report, the version claimed at pairing) is below the minimum,
+with the problem `analyst-manager-version-below-minimum`; operations on work
+already held continue. Production values for the minimum remain open.
+
 ---
 
 ## Registration And Stamp Binding
@@ -457,7 +471,9 @@ the registration requests they submitted. Per Manager, the fleet view lists the
 host label, registration state, claimed profile and device-key protection,
 connectivity, local operating state (running, paused with its resume time,
 runtime unavailable with its reason, draining), active and maximum Analysts,
-Manager version, and the time of the last status report.
+Manager version, and the time of the last status report. Decided but not yet
+implemented: the view also marks every Manager, including pending requests,
+whose version is below the stamp's minimum, and names the minimum.
 
 With its existing periodic registration check, every active Manager sends a
 small status report: operating state, the reason when the runtime is
