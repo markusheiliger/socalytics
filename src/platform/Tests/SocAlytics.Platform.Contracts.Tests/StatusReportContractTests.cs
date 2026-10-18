@@ -62,6 +62,6 @@ public class StatusReportContractTests
     [Fact]
     public void Every_example_file_is_covered_by_a_test_case()
     {
-        Directory.EnumerateFiles(Folder, "*.json", SearchOption.AllDirectories).Count().ShouldBe(11);
+        Directory.EnumerateFiles(Folder, "*.json", SearchOption.AllDirectories).Count().ShouldBe(14);
     }
 }
