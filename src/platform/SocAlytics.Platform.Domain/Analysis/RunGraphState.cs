@@ -2,7 +2,10 @@ namespace SocAlytics.Platform.Domain.Analysis;
 
 public sealed record RunNodeState(string NodeKey, string CapabilityId, ExecutionScope Scope, WorkflowNodeState State);
 
-public sealed record RunEdgeState(string UpstreamNodeKey, string DependentNodeKey, DependencyKind Kind, ConditionalPredicate? Predicate = null);
+public sealed record RunEdgeState(string UpstreamNodeKey, string DependentNodeKey, DependencyKind Kind, ConditionalPredicate? Predicate = null)
+{
+	public CoveragePolicy CoveragePolicy { get; init; } = CoveragePolicy.Complete;
+}
 
 public sealed record RunJobState(
 	Guid JobId,
