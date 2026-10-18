@@ -5,7 +5,7 @@ description: "Task list for Partial-Coverage Match Barriers"
 
 # Tasks: Partial-Coverage Match Barriers
 
-**Input**: Design documents from `specs/20261017-212004-partial-coverage-barriers/`
+**Input**: Design documents from `specs/archive/20261017-212004-partial-coverage-barriers/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 
@@ -156,7 +156,7 @@ partial-coverage node shows one failed and the rest accepted, and nodes without 
 
 ### Documentation
 
-- [X] T028 Make `docs/architecture/` true for the merged state: re-read [job-processing.md](../../docs/architecture/job-processing.md) (Readiness And Dependencies, including scheduler step 4, and Run State And Recovery), [analysts-models-and-hardware.md](../../docs/architecture/analysts-models-and-hardware.md) (Capability Declaration, Result Manifest And Lineage, Capability-Scoped Result Access), [platform-implementation.md](../../docs/architecture/platform-implementation.md) (development evidence), and every other document that mentions coverage or segment barriers, and correct every statement this feature makes false, including the "decided as follows and not yet implemented" and "(decided, not yet implemented)" wording added for partial coverage, which becomes present tense as development evidence against the simulated Analyst; the rewrites listed in plan.md → Architecture Updates are examples, not the whole job. Keep `AGENTS.md` "Current State" and `src/platform/README.md` consistent with the implemented partial-coverage barriers, and pass `node .github/scripts/check-markdown.mjs` (Constitution Principle I)
+- [X] T028 Make `docs/architecture/` true for the merged state: re-read [job-processing.md](../../../docs/architecture/job-processing.md) (Readiness And Dependencies, including scheduler step 4, and Run State And Recovery), [analysts-models-and-hardware.md](../../../docs/architecture/analysts-models-and-hardware.md) (Capability Declaration, Result Manifest And Lineage, Capability-Scoped Result Access), [platform-implementation.md](../../../docs/architecture/platform-implementation.md) (development evidence), and every other document that mentions coverage or segment barriers, and correct every statement this feature makes false, including the "decided as follows and not yet implemented" and "(decided, not yet implemented)" wording added for partial coverage, which becomes present tense as development evidence against the simulated Analyst; the rewrites listed in plan.md → Architecture Updates are examples, not the whole job. Keep `AGENTS.md` "Current State" and `src/platform/README.md` consistent with the implemented partial-coverage barriers, and pass `node .github/scripts/check-markdown.mjs` (Constitution Principle I)
 
 ### Validation
 
