@@ -53,6 +53,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Messaging.PurgeOutboxMessagesHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListMatchAnalysisRunsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.ListRunFactsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.ListRunFactStreamsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisOperationalSummaryHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListNotificationReceiptsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.RunAnalysisReconciliationHandler>();
@@ -140,6 +142,14 @@ public static class ApplicationServiceCollectionExtensions
 
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadTokenHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.AuthenticateAgentWorkloadRequestHandler>();
+
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions>,
+            SocAlytics.Platform.Application.Analysis.Facts.FactReadOptionsValidator>());
+
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.StartPairingHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.GetPairingStatusHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.ActivateRegistrationHandler>();

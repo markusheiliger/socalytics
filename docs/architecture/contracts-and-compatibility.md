@@ -74,8 +74,8 @@ and run-state-changed schemas, and Analyst Manager Registration added the
 registration golden fixtures. Analysis Result Manifests added the
 result-manifest and result-grants contracts under `contracts/analysis/`, and
 Analysis Result Read for Jobs added the upstream-results envelope for accepted
-upstream facts. Accepted Fact Indexing will add the `fact-artifact` envelope for
-the facts inside result artifacts (decided, not yet implemented). The Python
+upstream facts. Fact Indexing and Queries added the `fact-artifact` envelope for
+the facts inside result artifacts under `contracts/analysis/fact-artifact/`. The Python
 Analyst SDK will add the `analyst-attempt` contract for the attempt context in
 the Analyst container and the additive Analyst job version 1.1.0 with the run's
 workflow and the segment window (decided, not yet implemented). Materialized
