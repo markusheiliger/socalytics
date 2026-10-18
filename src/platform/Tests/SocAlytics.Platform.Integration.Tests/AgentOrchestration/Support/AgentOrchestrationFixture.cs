@@ -21,6 +21,7 @@ internal enum SeededRunState
 	PartiallyCompleted,
 	Failed,
 	Running,
+	Cancelled,
 }
 
 // A platform API with enabled agents, configured workload clients, and short lease and monitor values.

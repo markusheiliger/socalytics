@@ -72,7 +72,8 @@ public sealed class CreateAgentConversationHandler(
         var decision = await authorizer.AuthorizeTeamResourceAsync(new("match", matchId), TeamPermission.Write, cancellationToken);
         if (!decision.IsGranted)
         {
-            return decision.IsForbidden ? OperationFailure.Forbidden() : OperationFailure.NotFound();
+            // Members without a role on the owning team get the same answer as for a missing match.
+            return decision.Kind == AccessDecisionKind.Forbidden ? OperationFailure.Forbidden() : OperationFailure.NotFound();
         }
 
         if (invalid is not null)
