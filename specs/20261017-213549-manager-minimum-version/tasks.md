@@ -123,7 +123,7 @@ the outdated one with its version and the minimum; a Registrar sees no fleet ope
 
 ### Fleet consumers
 
-- [ ] T021 [P] [US3] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/FleetMinimumVersionTests.cs`: the Club Admin list and detail carry `minimumManagerVersion` and `belowMinimumVersion` for active, offline, and pending registrations (pending from the pairing version); no minimum yields `null` and `false`; the Registrar's view of their own submissions and decision responses carry neither (FR-016; SC-005)
+- [x] T021 [P] [US3] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/FleetMinimumVersionTests.cs`: the Club Admin list and detail carry `minimumManagerVersion` and `belowMinimumVersion` for active, offline, and pending registrations (pending from the pairing version); no minimum yields `null` and `false`; the Registrar's view of their own submissions and decision responses carry neither (FR-016; SC-005)
 - [ ] T022 [P] [US3] Show the marking in the Web UI: regenerate the Kiota client with `npm run generate` in `src/clients/web`; map both properties in `src/clients/web/src/platform/models/registrations.ts` and `src/clients/web/src/platform/adapters/registrationAdapter.ts`; render `Update required: version <version>, minimum <minimum>` as a list item with a text label and an icon that is not the only carrier in `src/clients/web/src/features/managers/StatusLines.tsx`, used by `src/clients/web/src/features/managers/FleetPage.tsx` and `src/clients/web/src/features/managers/RegistrationPage.tsx` for current and pending registrations; add the strings to `src/clients/web/src/i18n/en/managers.json` (research R9; FR-017)
 
 ### Tests for User Story 3
