@@ -12,21 +12,46 @@ const run = (github, body, { pull = 9, actor = 'dev', env = {} } = {}) => runCom
   now: () => github.clock,
 });
 
-test('parses commands: the first word, the name, and the rest as argument', () => {
-  assert.deepEqual(parseCommand('/speckit retry Use the helper\nand keep the test'), { name: 'retry', given: 'retry', argument: 'Use the helper\nand keep the test' });
-  assert.deepEqual(parseCommand('/speckit'), { name: 'help', given: '', argument: '' });
+test('parses commands: the first word, the name, and the rest as flags and guidance', () => {
+  assert.deepEqual(parseCommand('/speckit retry Use the helper\nand keep the test'), { name: 'retry', given: 'retry', argument: 'Use the helper\nand keep the test', flags: [], unknownFlags: [], guidance: 'Use the helper\nand keep the test' });
+  assert.deepEqual(parseCommand('/speckit'), { name: 'help', given: '', argument: '', flags: [], unknownFlags: [], guidance: '' });
   assert.equal(parseCommand('/speckit deploy now').name, 'unknown');
   assert.equal(parseCommand('/speckit sync').name, 'sync');
   assert.equal(parseCommand('/speckit resume').name, 'unknown');
   assert.equal(parseCommand('/speckit diagnose').name, 'unknown');
   assert.equal(parseCommand('please /speckit retry'), null);
   assert.equal(parseCommand('/speckit-gha-diagnose'), null, 'a skill name is not a command');
-  assert.match(renderHelp(), /\| `\/speckit retry \[guidance\]` \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*fix spec pull request[\s\S]*skill `\/speckit-gha-diagnose`/);
+  assert.match(renderHelp(), /`\/speckit <command> \[flags\] \[guidance\]`/);
+  assert.match(renderHelp(), /\| `\/speckit retry \[--force\] \[guidance\]` \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*fix spec pull request[\s\S]*skill `\/speckit-gha-diagnose`/);
   assert.doesNotMatch(renderHelp(), /\/speckit resume/);
   assert.doesNotMatch(renderHelp(), /\/speckit diagnose/);
   assert.equal(parseCommand('/speckit retry Rerun as is').name, 'retry');
   assert.equal(parseCommand('/speckit fix Make the test robust').name, 'fix');
   assert.match(renderHelp(), /\/speckit sync \[guidance\]/);
+});
+
+test('flags come right after the command, tolerate case and trailing punctuation, and end at the guidance or `--`', () => {
+  for (const body of ['/speckit retry --force', '/speckit retry --force;', '/speckit retry --FORCE,', '/speckit retry\n--force.', '/speckit retry --force --force']) {
+    assert.deepEqual([parseCommand(body).flags, parseCommand(body).unknownFlags, parseCommand(body).guidance], [['--force'], [], ''], body);
+  }
+  const guided = parseCommand('/speckit retry --force; Update both navigation specs --force');
+  assert.deepEqual([guided.flags, guided.guidance], [['--force'], 'Update both navigation specs --force']);
+  assert.deepEqual([parseCommand('/speckit retry Do it --force').flags, parseCommand('/speckit retry Do it --force').guidance], [[], 'Do it --force'], 'flags only lead');
+  assert.deepEqual([parseCommand('/speckit retry -- --force is guidance').flags, parseCommand('/speckit retry -- --force is guidance').guidance], [[], '--force is guidance']);
+  assert.deepEqual(parseCommand('/speckit retry --forse Rerun').unknownFlags, ['--forse']);
+  assert.deepEqual([parseCommand('/speckit sync --force').flags, parseCommand('/speckit sync --force').unknownFlags], [[], ['--force']], 'flags depend on the command');
+  assert.deepEqual(parseCommand('/speckit fix ---- not a flag').guidance, '---- not a flag');
+});
+
+test('unsupported flags are refused with the command usage instead of becoming guidance', async () => {
+  const github = diagnosisRepo();
+  const result = await run(github, '/speckit sync --force Keep both migrations');
+  assert.equal(result.rejected, 'unsupported flag');
+  assert.match(github.comments.at(-1).body, /^\*\*`\/speckit sync` was not run\*\*: it does not support `--force`\. It supports no flags\.[\s\S]*`\/speckit sync \[guidance\]`/);
+  await run(github, '/speckit retry --forse Rerun');
+  assert.match(github.comments.at(-1).body, /does not support `--forse`\. Its flags: `--force`: restart even after/);
+  assert.equal(github.repo.runs.length, 0, 'nothing was started');
+  assert.equal(github.comments.some((comment) => /^<!-- speckit-implement:(retry|sync) -->/.test(comment.body)), false);
 });
 
 test('ignores people without write access and bots, reacts, and answers help and unknown commands', async () => {
@@ -162,9 +187,12 @@ test('restarts that leave a stopped implementation unchanged are refused, unless
   github.repo.branches.main = 'sha-main-2';
   assert.equal((await run(github, '/speckit retry Again')).outcome, 'refused');
 
-  // The person insists: --force restarts, and is not part of the guidance.
+  // The person insists: --force restarts, and is not part of the guidance, even with trailing punctuation.
   assert.equal((await run(github, '/speckit retry --force The registry outage is over')).outcome, 'retried');
   assert.equal(parseGuidance(github.comments.at(-1).body), 'The registry outage is over');
+  stop();
+  assert.equal((await run(github, '/speckit retry --force; Still over')).outcome, 'retried');
+  assert.equal(parseGuidance(github.comments.at(-1).body), 'Still over');
 
   // A push moves the head: restarts count from there.
   stop();

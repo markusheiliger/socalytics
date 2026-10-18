@@ -180,6 +180,8 @@ test('records an unusable or missing report', async () => {
   assert.deepEqual(validateReport({ ...REPORT, category: 'outside', options: [{ title: 'Sync', why: 'x', command: '/speckit sync' }] }).reasons, []);
   assert.match(outside, /<summary>Other options<\/summary>[\s\S]*- \*\*Retry on a less loaded runner\. Unlikely to succeed\*\*\n/, 'alternatives are collapsed, without doubled punctuation');
   assert.match(validateReport({ ...REPORT, options: [{ title: 'Apply', why: 'x', command: '/speckit apply' }] }).reasons.join(), /option "Apply" has an invalid command/);
+  assert.match(validateReport({ ...REPORT, options: [{ title: 'Sync hard', why: 'x', command: '/speckit sync --force' }] }).reasons.join(), /option "Sync hard" has an invalid command/, 'a flag the command does not support');
+  assert.deepEqual(validateReport({ ...REPORT, options: [{ title: 'Insist', why: 'x', command: '/speckit retry --force Name both navigation specs' }] }).reasons, []);
 });
 
 // The report of diagnosis round 5 on PR #75 (run 38448806133): `retry` with high confidence, but its options are plain

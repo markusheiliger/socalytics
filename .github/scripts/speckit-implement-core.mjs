@@ -1085,14 +1085,42 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
   return result.length > GITHUB_BODY_LIMIT ? syncPullRequestTicks(text, tasksMarkdown) : result;
 }
 
-// The commands a person can comment on an implementation pull request. An amendment pull request needs none: merging
-// it applies the amendment, closing it discards it, and a comment or review asks for a rework.
+// The commands a person can comment on an implementation pull request, all in the form
+// `/speckit <command> [flags] [guidance]`; `flags` lists the flags each command supports. An amendment pull request
+// needs none: merging it applies the amendment, closing it discards it, and a comment or review asks for a rework.
 export const PR_COMMANDS = [
-  { name: 'retry', usage: '/speckit retry [guidance]', help: 'restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless the guidance starts with `--force`' },
-  { name: 'sync', usage: '/speckit sync [guidance]', help: 'require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved' },
-  { name: 'fix', usage: '/speckit fix [guidance]', help: 'for a cause outside this spec: an agent authors a fix spec and opens it against the base branch for your review; once it is merged and implemented, this implementation retries by itself' },
-  { name: 'help', usage: '/speckit help', help: 'list these commands' },
+  { name: 'retry', usage: '/speckit retry [--force] [guidance]', flags: { [RESTART_FORCE_FLAG]: 'restart even after 2 restarts in a row that left the branch unchanged' }, help: 'restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given' },
+  { name: 'sync', usage: '/speckit sync [guidance]', flags: {}, help: 'require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved' },
+  { name: 'fix', usage: '/speckit fix [guidance]', flags: {}, help: 'for a cause outside this spec: an agent authors a fix spec and opens it against the base branch for your review; once it is merged and implemented, this implementation retries by itself' },
+  { name: 'help', usage: '/speckit help', flags: {}, help: 'list these commands' },
 ];
+
+// Splits the text after `/speckit <command>` into flags and guidance. Flags are the leading words that start with
+// `--` (case-insensitive, trailing punctuation such as `--force;` or `--force,` tolerated); a bare `--` ends them, so
+// guidance can itself start with `--`. Everything after the flags is the guidance. `flags` holds the supported flags
+// of the command (lowercased, without duplicates), `unknownFlags` the others as given.
+const FLAG_PATTERN = /^(--[a-z][a-z0-9-]*)[.,;:!]*$/i;
+export function parseCommandArguments(name, argument) {
+  const supported = Object.keys(PR_COMMANDS.find((command) => command.name === name)?.flags ?? {});
+  const flags = [];
+  const unknownFlags = [];
+  let rest = String(argument ?? '').trim();
+  for (;;) {
+    const word = rest.match(/^\S+/)?.[0];
+    if (!word) break;
+    if (word === '--') {
+      rest = rest.slice(word.length).trim();
+      break;
+    }
+    const flag = word.match(FLAG_PATTERN)?.[1];
+    if (!flag) break;
+    const normalized = flag.toLowerCase();
+    if (!supported.includes(normalized)) unknownFlags.push(flag);
+    else if (!flags.includes(normalized)) flags.push(normalized);
+    rest = rest.slice(word.length).trim();
+  }
+  return { flags, unknownFlags, guidance: rest };
+}
 
 // What a diagnosis category means, for the person who decides how to continue.
 export const CATEGORY_MEANING = Object.freeze({
@@ -1103,10 +1131,13 @@ export const CATEGORY_MEANING = Object.freeze({
   unknown: 'The evidence is not enough to name a cause yet.',
 });
 
-// The verb and the text after it of a `/speckit <verb> [text]` command; null for anything else.
+// The verb, the text after it, and its flags and guidance (parseCommandArguments) of a
+// `/speckit <verb> [flags] [guidance]` command; null for anything else.
 export function parseNextCommand(command) {
   const match = String(command ?? '').trim().match(/^\/speckit ([a-z]+)(?:[ \t]+([\s\S]*))?$/);
-  return match ? { verb: match[1], argument: String(match[2] ?? '').trim() } : null;
+  if (!match) return null;
+  const argument = String(match[2] ?? '').trim();
+  return { verb: match[1], argument, ...parseCommandArguments(match[1], argument) };
 }
 
 // What a next step does, so a person knows the consequences before posting it. `baseBranch` is the implementation
@@ -1119,9 +1150,9 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
   const next = (typeof continuation === 'string' ? continuation : continuation?.text) ?? 'continues with what stopped';
   const mergesAnyway = typeof continuation === 'object' && continuation?.mergesBase === true;
   const attempts = `with a fresh attempt count (at most ${MAX_TASK_ATTEMPTS} failed attempts)`;
-  const forced = parsed.verb === 'retry' && /^--force(?:\s+|$)/i.test(parsed.argument);
-  const argument = forced ? parsed.argument.replace(/^--force(?:\s+|$)/i, '').trim() : parsed.argument;
-  const flag = forced ? ' `--force` is a flag that bypasses the unchanged-restart guard, not guidance.' : '';
+  const forced = parsed.verb === 'retry' && parsed.flags.includes(RESTART_FORCE_FLAG);
+  const argument = parsed.guidance;
+  const flag = forced ? ` \`${RESTART_FORCE_FLAG}\` is a flag that bypasses the unchanged-restart guard, not guidance.` : '';
   const guidance = (argument
     ? 'The text after the command goes into the next attempt\'s prompt as guidance.'
     : 'Text you add after the command goes into the next attempt\'s prompt as guidance.') + flag;
@@ -1137,7 +1168,7 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
         : `Does not merge ${base}: the implementation ${next} on the branch as it is, ${attempts}. ${guidance}`;
     case 'fix':
       return [
-        `An agent authors a small fix spec for the cause${parsed.argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and then waits for your review.`,
+        `An agent authors a small fix spec for the cause${argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and then waits for your review.`,
         `Once you merge it, the fix spec is implemented like any spec, this implementation waits for it, and then retries by itself on its current phase base, ${attempts}.`,
       ].join(' ');
     default:
