@@ -468,6 +468,9 @@
               "string"
             ]
           },
+          "belowMinimumVersion": {
+            "type": "boolean"
+          },
           "connectivity": {
             "type": [
               "null",
@@ -522,6 +525,12 @@
           },
           "managerId": {
             "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "minimumManagerVersion": {
             "type": [
               "null",
               "string"
