@@ -1208,6 +1208,58 @@
         ],
         "type": "object"
       },
+      "FactStreamCoverageDto": {
+        "properties": {
+          "accepted": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "blocked": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "failed": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "missing": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "skipped": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "accepted",
+          "missing",
+          "failed",
+          "blocked",
+          "skipped"
+        ],
+        "type": "object"
+      },
       "FactStreamDto": {
         "properties": {
           "capability": {
@@ -1236,6 +1288,72 @@
           "outputType",
           "executionScope",
           "provenance"
+        ],
+        "type": "object"
+      },
+      "FactStreamEntryDto": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/FactCapabilityDto"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/FactStreamCoverageDto"
+          },
+          "executionScope": {
+            "type": "string"
+          },
+          "factCount": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "nodeKey": {
+            "type": "string"
+          },
+          "outputType": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/FactProvenanceDto"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "schemaVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nodeKey",
+          "capability",
+          "schemaVersion",
+          "outputType",
+          "executionScope",
+          "required",
+          "factCount",
+          "provenance",
+          "coverage"
+        ],
+        "type": "object"
+      },
+      "FactStreamListDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FactStreamEntryDto"
+            },
+            "type": "array"
+          },
+          "run": {
+            "$ref": "#/components/schemas/FactRunDto"
+          }
+        },
+        "required": [
+          "run",
+          "items"
         ],
         "type": "object"
       },
@@ -3321,6 +3439,60 @@
         },
         "tags": [
           "Analysis runs"
+        ]
+      }
+    },
+    "/api/v1/analysis/runs/{runId}/fact-streams": {
+      "get": {
+        "operationId": "listAnalysisRunFactStreams",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactStreamListDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "304": {
+            "description": "Not Modified"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "tags": [
+          "Analysis facts"
         ]
       }
     },
