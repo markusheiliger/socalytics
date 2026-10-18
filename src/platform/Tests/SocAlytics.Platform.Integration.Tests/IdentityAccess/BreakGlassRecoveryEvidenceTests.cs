@@ -20,6 +20,14 @@ public sealed class BreakGlassRecoveryEvidenceTests(PostgresContainerFixture pos
 	private const string PolicyViolating = "zq7short";
 	private const string Changed = "Evidence-Changed-Pass-91011";
 
+	// The self-service password recovery operations are the only recovery routes.
+	private static readonly HashSet<string> SelfServiceRecoveryRoutes = new(StringComparer.Ordinal)
+	{
+		"/api/v1/password-recovery/requests",
+		"/api/v1/password-recovery/checks",
+		"/api/v1/password-recovery/completions",
+	};
+
 	private static Dictionary<string, string?> Bootstrap() => new()
 	{
 		["ClubDisplayName"] = "Evidence Club",
@@ -151,7 +159,8 @@ public sealed class BreakGlassRecoveryEvidenceTests(PostgresContainerFixture pos
 			var routes = applied.Services.GetRequiredService<EndpointDataSource>().Endpoints
 				.OfType<RouteEndpoint>()
 				.Select(e => e.RoutePattern.RawText ?? string.Empty);
-			routes.ShouldNotContain(r => r.Contains("recover", StringComparison.OrdinalIgnoreCase)
+			routes.ShouldNotContain(r => (r.Contains("recover", StringComparison.OrdinalIgnoreCase)
+					&& !SelfServiceRecoveryRoutes.Contains(r))
 				|| r.Contains("break-glass", StringComparison.OrdinalIgnoreCase)
 				|| r.Contains("directive", StringComparison.OrdinalIgnoreCase));
 
