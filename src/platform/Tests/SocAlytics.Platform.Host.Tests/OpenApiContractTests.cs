@@ -58,7 +58,7 @@ public sealed class OpenApiContractTests
 		// Recording operations are verified by RecordingsOpenApiTests and Registry operations by
 		// RegistryOpenApiTests and AnalystRegistryOpenApiTests, not against the Club contract.
 		var operationCount = paths.EnumerateObject()
-			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name) && !IsExternalSignInPath(p.Name))
+			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name) && !IsExternalSignInPath(p.Name) && !IsPasswordRecoveryPath(p.Name))
 			.Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
 		operationCount.ShouldBe(ContractOperations.All.Count);
 
@@ -95,6 +95,11 @@ public sealed class OpenApiContractTests
 		|| path == "/api/v1/session/external/callback"
 		|| (path.StartsWith("/api/v1/members/", StringComparison.Ordinal)
 			&& path.Contains("/external-identities/", StringComparison.Ordinal));
+
+	// Password recovery operations are verified against
+	// specs/archive/20261017-200823-password-recovery/contracts/password-recovery-api.md, not against the Club contract.
+	private static bool IsPasswordRecoveryPath(string path) =>
+		path.StartsWith("/api/v1/password-recovery/", StringComparison.Ordinal);
 
 	private static bool IsAnalysisPath(string path) =>
 		path.StartsWith("/api/v1/analysis/", StringComparison.Ordinal)

@@ -1,6 +1,6 @@
 # Data Model: Self-Service Password Recovery
 
-Persistence follows the platform conventions in [src/platform/README.md](../../src/platform/README.md): forward-only DbUp
+Persistence follows the platform conventions in [src/platform/README.md](../../../src/platform/README.md): forward-only DbUp
 migrations, one migration file numbered at implementation time as the next free number
 (`NNNN_identityaccess_password_recovery.sql`), and a `PersistedTableClassifications` entry for every new table without
 `version`.

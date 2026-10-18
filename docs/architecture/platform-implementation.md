@@ -473,8 +473,8 @@ requires a password change at the next sign-in. It grants no roles and is
 audited. The platform never writes the credential to logs or diagnostics, and
 no API operation, authenticated or not, performs this break-glass recovery.
 Members who sign in with a local password and have a verified email address
-will also recover a forgotten password themselves through a single-use
-password-recovery account message (decided, not yet implemented; see
+also recover a forgotten password themselves through a single-use
+password-recovery account message (implemented as development evidence; see
 [Email Notifications](email-notifications.md#password-recovery)). Recovery
 never creates a local password, changes external identity links, grants roles,
 or reactivates an account, and completing it ends every session of the member.
@@ -492,9 +492,9 @@ types they receive. The API sends transactional notifications and account
 messages through a dedicated transactional email outbox table and a delivery
 worker that submits them with MailKit by authenticated, TLS-protected SMTP to
 the stamp's configured relay; the Aspire AppHost and tests use a Mailpit
-mail-catcher container. Self-service password
-recovery and invitations may use this channel through their own
-specifications. The channel is implemented as development evidence against
+mail-catcher container. Self-service password recovery uses this channel;
+invitations may use it through their own specification. The channel and
+password recovery are implemented as development evidence against
 Mailpit; see [Email Notifications](email-notifications.md).
 
 Analyst Manager registration uses browser device-code pairing initiated by a

@@ -217,10 +217,10 @@ linked when the member redeems a Club Admin's link credential at the provider
 on the link-account page, which signs the member in at the provider and
 links that identity; unlinking is a Club Admin action on the member screen.
 SocAlytics offers no MFA for local accounts, so
-MFA comes from the external provider. The sign-in page will offer members with
+MFA comes from the external provider. The sign-in page offers members with
 a local password a "Forgot your password?" entry that leads to a public
 recovery request page and, from the emailed link, to a public page for setting
-a new password (decided, not yet implemented; see
+a new password (implemented as development evidence; see
 [Email Notifications](email-notifications.md#password-recovery)). Authentication tokens remain on the
 server; the browser receives a Secure, HttpOnly, SameSite cookie and uses CSRF
 protection for state-changing requests.

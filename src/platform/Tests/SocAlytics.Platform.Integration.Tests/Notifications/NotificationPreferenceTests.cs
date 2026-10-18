@@ -92,7 +92,7 @@ public sealed class NotificationPreferenceTests(PostgresContainerFixture postgre
 		await using var h = await EmailApiHarness.StartAsync(postgres, mailpit, ct);
 
 		var items = await ListAsync(h.Admin, ct);
-		items.Select(i => i.GetProperty("type").GetString()).ShouldBe(["email-confirmation", "registration-pending"], ignoreOrder: true);
+		items.Select(i => i.GetProperty("type").GetString()).ShouldBe(["email-confirmation", "password-recovery", "registration-pending"], ignoreOrder: true);
 		var pending = items.Single(i => i.GetProperty("type").GetString() == "registration-pending");
 		pending.GetProperty("enabled").GetBoolean().ShouldBeTrue();
 		pending.GetProperty("accountMessage").GetBoolean().ShouldBeFalse();
@@ -102,7 +102,7 @@ public sealed class NotificationPreferenceTests(PostgresContainerFixture postgre
 
 		await TestMembers.SeedAsync(h.Db, "reg-1", clubRoles: ["registrar"], cancellationToken: ct);
 		using var registrar = await ApiSession.SignInAsync(h.Factory, "reg-1", TestMembers.DefaultPassword, ct);
-		(await ListAsync(registrar, ct)).Select(i => i.GetProperty("type").GetString()).ShouldBe(["email-confirmation"]);
+		(await ListAsync(registrar, ct)).Select(i => i.GetProperty("type").GetString()).ShouldBe(["email-confirmation", "password-recovery"], ignoreOrder: true);
 	}
 
 	[Fact]
@@ -114,7 +114,7 @@ public sealed class NotificationPreferenceTests(PostgresContainerFixture postgre
 		await TestMembers.SeedAsync(h.Db, "reg-1", clubRoles: ["registrar"], cancellationToken: ct);
 		using var registrar = await ApiSession.SignInAsync(h.Factory, "reg-1", TestMembers.DefaultPassword, ct);
 
-		foreach (var (session, type) in new[] { (h.Admin, "email-confirmation"), (h.Admin, "unknown-type"), (registrar, "registration-pending") })
+		foreach (var (session, type) in new[] { (h.Admin, "email-confirmation"), (h.Admin, "password-recovery"), (h.Admin, "unknown-type"), (registrar, "registration-pending") })
 		{
 			using var response = await SetAsync(session, type, false, ct);
 			response.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
@@ -122,7 +122,7 @@ public sealed class NotificationPreferenceTests(PostgresContainerFixture postgre
 		}
 
 		(await ScalarAsync(h.Db, "SELECT count(*) FROM socalytics.notification_preferences", ct)).ShouldBe(0);
-		(await ListAsync(h.Admin, ct)).Length.ShouldBe(2);
+		(await ListAsync(h.Admin, ct)).Length.ShouldBe(3);
 	}
 
 	[Fact]
