@@ -160,7 +160,7 @@ partial-coverage node shows one failed and the rest accepted, and nodes without 
 
 ### Validation
 
-- [ ] T029 Run the validation in [quickstart.md](quickstart.md) (contracts, integration, host, Manager, and end-to-end tests) and fix any failure in the files of the task that caused it (SC-001 to SC-005)
+- [x] T029 Run the validation in [quickstart.md](quickstart.md) (contracts, integration, host, Manager, and end-to-end tests) and fix any failure in the files of the task that caused it (SC-001 to SC-005)
 
 ---
 

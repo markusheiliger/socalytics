@@ -86,20 +86,21 @@ public sealed class RegistryResolutionTests(PostgresContainerFixture postgres)
 
         definition.WorkflowId.ShouldBe("development-default");
         definition.WorkflowVersion.ShouldBe("1");
-        definition.Nodes.Count.ShouldBe(2);
-        definition.RequestedCapabilities.Count.ShouldBe(2);
+        definition.Nodes.Count.ShouldBe(3);
+        definition.RequestedCapabilities.Count.ShouldBe(3);
         definition.SegmentationPolicy.DurationSeconds.ShouldBe(300);
         var segment = definition.Nodes.Single(n => n.ExecutionScope == ExecutionScope.Segment);
         segment.ImageDigest.ToString().ShouldBe("sha-256:" + new string('3', 64));
         segment.ModelDigest.ShouldBeNull();
         segment.MaxAttempts.ShouldBe(3);
         segment.Resources["cpu"].ShouldBe("1");
-        var match = definition.Nodes.Single(n => n.ExecutionScope == ExecutionScope.Match);
+        var match = definition.Nodes.Single(n => n.NodeKey == "dev-match-node");
         match.ModelDigest!.ToString().ShouldBe("sha-256:" + new string('6', 64));
-        definition.Edges.ShouldHaveSingleItem().Kind.ShouldBe("required");
+        definition.Edges.Count.ShouldBe(2);
+        definition.Edges.ShouldAllBe(e => e.Kind == "required");
 
-        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration WHERE source = 'seed'", ct)).ShouldBe(2);
-        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_profile WHERE state = 'approved'", ct)).ShouldBe(2);
+        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration WHERE source = 'seed'", ct)).ShouldBe(3);
+        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_profile WHERE state = 'approved'", ct)).ShouldBe(3);
         (await CountAsync(db, "SELECT count(*) FROM socalytics.default_workflow", ct)).ShouldBe(1);
         (await CountAsync(db, "SELECT count(*) FROM socalytics.security_audit_event WHERE event_type = 'registry.seeded' AND actor_kind = 'system'", ct)).ShouldBe(1);
     }
@@ -120,7 +121,7 @@ public sealed class RegistryResolutionTests(PostgresContainerFixture postgres)
 
         second.ShouldBeOfType<WorkflowResolution.ResolvedResult>().Definition.Nodes.Select(n => n.AnalystProfileDigest)
             .ShouldBe(first.ShouldBeOfType<WorkflowResolution.ResolvedResult>().Definition.Nodes.Select(n => n.AnalystProfileDigest));
-        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration", ct)).ShouldBe(2);
+        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration", ct)).ShouldBe(3);
         (await CountAsync(db, "SELECT count(*) FROM socalytics.workflow_definition", ct)).ShouldBe(1);
         (await CountAsync(db, "SELECT count(*) FROM socalytics.security_audit_event WHERE event_type = 'registry.seeded'", ct)).ShouldBe(1);
     }
@@ -188,11 +189,11 @@ public sealed class RegistryResolutionTests(PostgresContainerFixture postgres)
         var ct = TestContext.Current.CancellationToken;
         await using var db = await CreateDatabaseAsync(ct);
         await using var factory = Start(db, settings: EdgeCoverage("partial", "0.5"));
-        var edge = (await ResolveAsync(factory, ct)).ShouldBeOfType<WorkflowResolution.ResolvedResult>().Definition.Edges.ShouldHaveSingleItem();
+        var edge = (await ResolveAsync(factory, ct)).ShouldBeOfType<WorkflowResolution.ResolvedResult>().Definition.Edges.Single(e => e.DependentNodeKey == "dev-match-node");
 
         edge.CoveragePolicy.Mode.ShouldBe(CoverageMode.Partial);
         edge.CoveragePolicy.MinimumAcceptedFraction.ShouldBe(0.5m);
-        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration WHERE manifest->>'manifestVersion' = '1.1.0' AND manifest->'upstream'->0->'coverage'->>'mode' = 'partial'", ct)).ShouldBe(1);
+        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration WHERE manifest->>'manifestVersion' = '1.1.0' AND manifest->'upstream'->0->'coverage'->>'mode' = 'partial'", ct)).ShouldBe(2);
         (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration WHERE manifest->>'manifestVersion' = '1.0.0'", ct)).ShouldBe(1);
     }
 
@@ -202,10 +203,10 @@ public sealed class RegistryResolutionTests(PostgresContainerFixture postgres)
         var ct = TestContext.Current.CancellationToken;
         await using var db = await CreateDatabaseAsync(ct);
         await using var factory = Start(db);
-        var edge = (await ResolveAsync(factory, ct)).ShouldBeOfType<WorkflowResolution.ResolvedResult>().Definition.Edges.ShouldHaveSingleItem();
+        var edge = (await ResolveAsync(factory, ct)).ShouldBeOfType<WorkflowResolution.ResolvedResult>().Definition.Edges.Single(e => e.DependentNodeKey == "dev-match-node");
 
         edge.CoveragePolicy.ShouldBe(CoveragePolicy.Complete);
-        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration WHERE manifest->>'manifestVersion' = '1.1.0'", ct)).ShouldBe(0);
+        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration WHERE manifest->>'manifestVersion' = '1.1.0'", ct)).ShouldBe(1);
     }
 
     [Theory]
@@ -237,7 +238,7 @@ public sealed class RegistryResolutionTests(PostgresContainerFixture postgres)
 
         // The registry is no longer empty, so the restarted host without the configured coverage resolves from the stored declaration only.
         await using var factory = Start(db);
-        var edge = (await ResolveAsync(factory, ct)).ShouldBeOfType<WorkflowResolution.ResolvedResult>().Definition.Edges.ShouldHaveSingleItem();
+        var edge = (await ResolveAsync(factory, ct)).ShouldBeOfType<WorkflowResolution.ResolvedResult>().Definition.Edges.Single(e => e.DependentNodeKey == "dev-match-node");
 
         edge.CoveragePolicy.Mode.ShouldBe(CoverageMode.Partial);
         edge.CoveragePolicy.MinimumAcceptedFraction.ShouldBeNull();

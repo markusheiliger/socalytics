@@ -131,7 +131,7 @@ public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsCo
 		var outcomes = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => Task.Run(() => HandleAsync(s, n, ct), ct)));
 		outcomes.ShouldAllBe(o => o is NotificationOutcome.RunCreated || o is NotificationOutcome.RunExists);
 		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(1);
-		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_logical_jobs", ct)).ShouldBe(2);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_logical_jobs", ct)).ShouldBe(3);
 		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_logical_jobs WHERE segment_number = 1 AND recording_version_id IS NOT NULL", ct)).ShouldBe(1);
 	}
 
@@ -189,8 +189,8 @@ public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsCo
 		var (n, s) = await StartWithCoverageAsync(setting, ct);
 		await using var _ = s;
 		(await HandleAsync(s, n, ct)).ShouldBeOfType<NotificationOutcome.RunCreated>();
-		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'partial' AND minimum_accepted_fraction = 0.5", ct)).ShouldBe(1);
-		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges", ct)).ShouldBe(1);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'partial' AND minimum_accepted_fraction = 0.5", ct)).ShouldBe(2);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges", ct)).ShouldBe(2);
 		using var snapshot = JsonDocument.Parse(await SnapshotAsync(s, "snapshot::text", ct));
 		var coverage = snapshot.RootElement.GetProperty("edges")[0].GetProperty("coverage");
 		coverage.GetProperty("mode").GetString().ShouldBe("partial");
@@ -204,7 +204,7 @@ public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsCo
 		var (n, s) = await StartWithCoverageAsync(new CoverageResolver.Setting(), ct);
 		await using var _ = s;
 		(await HandleAsync(s, n, ct)).ShouldBeOfType<NotificationOutcome.RunCreated>();
-		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'complete' AND minimum_accepted_fraction IS NULL", ct)).ShouldBe(1);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'complete' AND minimum_accepted_fraction IS NULL", ct)).ShouldBe(2);
 		var json = await SnapshotAsync(s, "snapshot::text", ct);
 		json.ShouldNotContain("coverage");
 
@@ -231,7 +231,7 @@ public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsCo
 		setting.Policy = CoveragePolicy.Complete;
 		(await HandleAsync(s, n with { EventId = Guid.NewGuid() }, ct)).ShouldBeOfType<NotificationOutcome.RunExists>();
 		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(1);
-		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'partial' AND minimum_accepted_fraction = 0.5", ct)).ShouldBe(1);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'partial' AND minimum_accepted_fraction = 0.5", ct)).ShouldBe(2);
 		(await SnapshotAsync(s, "snapshot_digest", ct)).ShouldBe(digest);
 		await using var scope = s.Factory.Services.CreateAsyncScope();
 		var run = await scope.ServiceProvider.GetRequiredService<SocAlytics.Platform.Application.Analysis.Stores.IAnalysisRunStore>()
@@ -278,9 +278,9 @@ public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsCo
 	{
 		var ct = TestContext.Current.CancellationToken;
 		var workflow = DevWorkflow();
-		workflow["Analysis:DefaultWorkflow:Edges:1:UpstreamNodeKey"] = upstream;
-		workflow["Analysis:DefaultWorkflow:Edges:1:DependentNodeKey"] = dependent;
-		workflow["Analysis:DefaultWorkflow:Edges:1:Kind"] = "required";
+		workflow["Analysis:DefaultWorkflow:Edges:2:UpstreamNodeKey"] = upstream;
+		workflow["Analysis:DefaultWorkflow:Edges:2:DependentNodeKey"] = dependent;
+		workflow["Analysis:DefaultWorkflow:Edges:2:Kind"] = "required";
 		var (n, s) = await StartAsync(workflow, ct);
 		await using var _ = s;
 		(await HandleAsync(s, n, ct)).ShouldBeOfType<NotificationOutcome.RunCreated>();
