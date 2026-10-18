@@ -234,7 +234,7 @@ declared detector capability and receives only its merged source-frame result.
 An analysis run can be `Requested`, `Running`, `PartiallyCompleted`,
 `Completed`, `Failed`, or `Cancelled`. A workflow node may additionally be
 `Blocked` when a required dependency fails, and `Cancelled` when its run is
-cancelled (decided, not yet implemented). Node and logical-job state
+cancelled. Node and logical-job state
 is sufficient to reconstruct dependency readiness after a Scheduler or control-
 plane restart.
 
@@ -245,9 +245,8 @@ revokes queued work, advances or invalidates attempt fencing tokens, and
 rejects later completions. Stopping an active container is best effort;
 correctness relies on completion rejection.
 
-Member-initiated cancellation is decided as follows and not yet implemented.
-Club Admins and Coaches of the owning team cancel a `Requested` or `Running`
-run through the member API, naming the run's version; the run records who
+Member-initiated cancellation is implemented as follows. Club Admins and
+Coaches of the owning team cancel a `Requested` or `Running` run through the member API, naming the run's version; the run records who
 cancelled it, when (its end time), and an optional plain-text reason, and the
 transition is audited and announced through the run-state-changed
 notification without the reason. In the same transaction the run's unfinished

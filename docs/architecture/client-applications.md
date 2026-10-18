@@ -53,10 +53,10 @@ The React Web UI supports connected platform and club workflows, including:
   Manager's connectivity, operating state, and activity (see
   [Analyst Manager](analyst-manager.md#fleet-visibility-in-the-web-ui))
 - match creation, recording uploads, and upload finalization (implemented as
-  connected workflows); the match page's analysis run list will offer Club
+  connected workflows); the match page's analysis run list offers Club
   Admins and Coaches of the owning team a confirmed cancel action with an
   optional reason for requested and running runs, and shows cancelled runs
-  with who cancelled them, when, and why (decided, not yet implemented); the
+  with who cancelled them, when, and why (implemented); the
   run list will also mark the match's current run and each superseded run
   with the run that superseded it, and shows a run cancelled because it was
   superseded without a member (decided, not yet implemented)
