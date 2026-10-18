@@ -45,6 +45,13 @@ OCI image digest and one model digest plus compatible runtime, hardware, and
 resource requirements. Analysis-run creation resolves that binding once for
 every recording, segment, and retry in the match.
 
+Development reference capabilities are not part of this catalog. The first one,
+`reference-media-probe` (decided, not yet implemented; see
+[Image Metadata And Packaging](analysts-models-and-hardware.md#image-metadata-and-packaging)),
+proves the Analyst SDK, segment media staging, and fact indexing with a real
+container; it passes none of the gates below and never enters a production
+workflow.
+
 ## Container-Owned Preprocessing And Spatial Tiling
 
 Spatial frame tiling is model-specific preprocessing inside a detector AC. It

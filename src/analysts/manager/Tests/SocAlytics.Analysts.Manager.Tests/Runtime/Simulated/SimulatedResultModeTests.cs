@@ -62,6 +62,33 @@ public sealed class SimulatedResultModeTests : IDisposable
         ((string)manifest["provenance"]!["imageDigest"]!).ShouldBe(job.Pinned.ImageDigest);
         ((string)manifest["upstreamLineage"]![0]!["manifestChecksum"]!).ShouldBe(UpstreamChecksum);
         manifest["artifacts"]!.AsArray().Count.ShouldBe(1);
+        ((string)manifest["artifacts"]![0]!["mediaType"]!).ShouldBe("application/vnd.socalytics.facts+json");
+        ((int)manifest["factCount"]!).ShouldBe(3);
+
+        var facts = ReadFacts()["facts"]!.AsArray();
+        facts.Count.ShouldBe(3);
+        var start = (long)manifest["validityWindow"]!["startMs"]!;
+        var end = (long)manifest["validityWindow"]!["endMs"]!;
+        foreach (var fact in facts)
+        {
+            ((string)fact!["kind"]!).ShouldBe("simulated-concept");
+            ((double)fact["confidence"]!).ShouldBe(0.9);
+            ((long)fact["startMs"]!).ShouldBeGreaterThanOrEqualTo(start);
+            ((long)fact["endMs"]!).ShouldBeLessThanOrEqualTo(end);
+            ((long)fact["endMs"]!).ShouldBeGreaterThan((long)fact["startMs"]!);
+        }
+    }
+
+    private JsonNode ReadFacts() => JsonNode.Parse(File.ReadAllText(Path.Combine(_directory, "facts.json")))!;
+
+    [Fact]
+    public void Invalid_facts_writes_one_fact_outside_the_window()
+    {
+        var manifest = Write(SimulatedResultModes.InvalidFacts, out _);
+
+        IsSchemaValid().ShouldBeTrue();
+        var end = (long)manifest["validityWindow"]!["endMs"]!;
+        ReadFacts()["facts"]!.AsArray().Count(f => (long)f!["endMs"]! > end).ShouldBe(1);
     }
 
     [Fact]
@@ -152,10 +179,13 @@ public sealed class SimulatedResultModeTests : IDisposable
             ((string)lineage[0]!["manifestChecksum"]!).ShouldBe(
                 ResultPublisher.Digest(File.ReadAllBytes(Path.Combine(inputs, "player-detection", "staged-res-1", "manifest.json"))));
 
-            var artifact = JsonNode.Parse(File.ReadAllText(Path.Combine(_directory, "facts.json")))!;
+            var artifact = JsonNode.Parse(File.ReadAllText(Path.Combine(_directory, "inputs.json")))!;
             var coverage = artifact["consumedCoverage"]!["player-detection"]!.AsArray();
             coverage.Count.ShouldBe(2);
             ((string)coverage[1]!["state"]!).ShouldBe("missing");
+            var artifacts = manifest["artifacts"]!.AsArray();
+            artifacts.Select(a => (string)a!["name"]!).ShouldBe(["facts.json", "inputs.json"]);
+            ((string)artifacts[1]!["mediaType"]!).ShouldBe("application/json");
         }
         finally
         {

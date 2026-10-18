@@ -1,0 +1,9 @@
+{
+  "contractVersion": "1.0.0",
+  "capability": { "id": "player-detection", "version": "1.0.0" },
+  "schemaVersion": "1.0.0",
+  "outputType": "foundational-facts",
+  "facts": [
+    { "kind": "player-detected", "startMs": 100, "endMs": 140, "confidence": 0.9, "payload": {}, "frameUrl": "https://example.invalid/frame.png" }
+  ]
+}

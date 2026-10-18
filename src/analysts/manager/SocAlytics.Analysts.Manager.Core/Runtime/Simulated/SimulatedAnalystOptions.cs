@@ -25,11 +25,14 @@ public static class SimulatedResultModes
     /// <summary>Drops the reported input coverage.</summary>
     public const string CoverageOmitted = "coverage-omitted";
 
+    /// <summary>Writes one fact outside the job's validity window.</summary>
+    public const string InvalidFacts = "invalid-facts";
+
     /// <summary>Reports an empty lineage even when upstream results were staged.</summary>
     public const string IgnoreInputs = "ignore-inputs";
 
     public static readonly IReadOnlyList<string> All =
-        [Valid, ScopeMismatch, ProvenanceMismatch, LineageMismatch, ArtifactMissing, ValidityInvalid, ContractInvalid, IgnoreInputs, CoverageMismatch, CoverageOmitted];
+        [Valid, ScopeMismatch, ProvenanceMismatch, LineageMismatch, ArtifactMissing, ValidityInvalid, ContractInvalid, IgnoreInputs, CoverageMismatch, CoverageOmitted, InvalidFacts];
 }
 
 public sealed class SimulatedCapabilityOptions

@@ -38,6 +38,11 @@ internal static class TestIdentityAccessSettings
 		["Analysis:Results:MaxObjectBytes"] = "104857600",
 		["Analysis:Results:MaxAttemptBytes"] = "1073741824",
 		["Analysis:Results:MaxManifestBytes"] = "1048576",
+		["Analysis:Results:MaxFactArtifactBytes"] = "16777216",
+		["Analysis:Results:MaxFactPayloadBytes"] = "16384",
+		["Analysis:Results:MaxFactsPerResult"] = "50000",
+		["Analysis:Facts:DefaultPageSize"] = "100",
+		["Analysis:Facts:MaxPageSize"] = "500",
 		["Analysis:Reads:GrantLifetime"] = "00:10:00",
 		["Analysis:Reads:MaxPageSize"] = "100",
 	};
