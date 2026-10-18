@@ -179,3 +179,9 @@ Task: "T013 Guard publication reconciliation in .../Commands/ReconcileAnalysisPu
 - The migration number is assigned at implementation time as the next free number; renumber before merge if it was taken.
 - No new table, so `PersistedTableClassifications` stays unchanged; `analysis_runs` keeps its `version` trigger.
 - Never refresh the OpenAPI snapshot in the verification environment; T009 refreshes it in development and commits it.
+
+---
+
+## Phase 6: Convergence
+
+- [ ] T024 Record the run's match in the `analysis.run-cancelled` audit event by passing `run.MatchId` from `CancelAnalysisRunHandler` in `src/platform/SocAlytics.Platform.Application/Analysis/Commands/CancelAnalysisRun.cs` to `AnalysisAuditEvents.RunCancelled` in `src/platform/SocAlytics.Platform.Application/Analysis/Results/AnalysisAuditEvents.cs` (a match-id detail next to the run id), and assert the match id in the audit-event checks of `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/RunCancellationTests.cs` per FR-005 (partial)
