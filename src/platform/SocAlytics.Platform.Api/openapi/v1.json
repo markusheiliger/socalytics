@@ -2315,10 +2315,34 @@
         ],
         "type": "object"
       },
+      "UpstreamCoverageModeDto": {
+        "properties": {
+          "minimumAcceptedFraction": {
+            "format": "double",
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ]
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "minimumAcceptedFraction"
+        ],
+        "type": "object"
+      },
       "UpstreamDependencyDto": {
         "properties": {
           "capability": {
             "$ref": "#/components/schemas/UpstreamCapabilityDto"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/UpstreamCoverageModeDto"
           },
           "edgeKind": {
             "type": "string"
@@ -2330,7 +2354,8 @@
         "required": [
           "capability",
           "schemaVersion",
-          "edgeKind"
+          "edgeKind",
+          "coverage"
         ],
         "type": "object"
       },
