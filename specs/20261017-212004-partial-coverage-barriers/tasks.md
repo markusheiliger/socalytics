@@ -113,7 +113,7 @@ stored, and invalid declarations are refused as `manifest-invalid` with the vali
 
 ### Declaration validation
 
-- [ ] T019 [US3] Validate declarations in `src/platform/SocAlytics.Platform.Infrastructure/Registry/AnalystManifestValidator.cs`: accept `manifestVersion` `1.0.0` and `1.1.0`, parse `upstream[].coverage` into `DeclaredUpstream`, and return an invalid result with the error `partial-coverage` at `/upstream/<i>/coverage` when the capability's `executionScope` is `segment` or the entry's `kind` is `optional` (the fraction range comes from the schema); update the class comment that names the `1.0.0` release (research R3; FR-001, FR-003)
+- [x] T019 [US3] Validate declarations in `src/platform/SocAlytics.Platform.Infrastructure/Registry/AnalystManifestValidator.cs`: accept `manifestVersion` `1.0.0` and `1.1.0`, parse `upstream[].coverage` into `DeclaredUpstream`, and return an invalid result with the error `partial-coverage` at `/upstream/<i>/coverage` when the capability's `executionScope` is `segment` or the entry's `kind` is `optional` (the fraction range comes from the schema); update the class comment that names the `1.0.0` release (research R3; FR-001, FR-003)
 - [ ] T020 [US3] Seed declarations in `src/platform/SocAlytics.Platform.Infrastructure/Registry/ConfiguredWorkflowSeeder.cs`: build the seed manifest of a dependent node as `1.1.0` with `upstream[].coverage` from the configured edge's `Coverage` (and `1.0.0` without), and validate it through `IAnalystManifestValidator` so an invalid configured declaration fails the seed visibly instead of being stored (research R3; FR-005)
 
 ### Declaration evidence
