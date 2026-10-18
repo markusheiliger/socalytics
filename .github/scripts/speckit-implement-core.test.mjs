@@ -370,7 +370,9 @@ test('describes what each command does and what a restart continues with', () =>
     assert.match(guided, /runs a repair agent with the guidance, then reverifies/);
     assert.match(guided, /`--force` is a flag/);
   }
-  assert.deepEqual(parseNextCommand('/speckit retry Rerun as is'), { verb: 'retry', argument: 'Rerun as is' });
+  assert.deepEqual(parseNextCommand('/speckit retry Rerun as is'), { verb: 'retry', argument: 'Rerun as is', flags: [], unknownFlags: [], guidance: 'Rerun as is' });
+  assert.deepEqual(parseNextCommand('/speckit retry --force; Rerun'), { verb: 'retry', argument: '--force; Rerun', flags: ['--force'], unknownFlags: [], guidance: 'Rerun' });
+  assert.match(describeCommandEffect('/speckit retry --force;', context), /`--force` is a flag/);
   assert.equal(parseNextCommand('please /speckit retry'), null);
   assert.match(describeCommandEffect('/speckit retry', { baseBranch: 'main', continuation: 'continues with the convergence' }), /^Does not merge `main`: the implementation continues with the convergence on the branch as it is[\s\S]*Text you add after the command/);
   assert.equal(describeCommandEffect('/speckit resume Use x', { baseBranch: 'main' }), null);
