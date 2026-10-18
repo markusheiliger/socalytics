@@ -177,6 +177,7 @@ src/platform/
 │   ├── Program.cs                                                        # map endpoints, add rate limiting
 │   └── openapi/v1.json                                                   # refreshed OpenAPI snapshot
 └── Tests/
+    ├── SocAlytics.Platform.Architecture.Tests/EndpointSecurityTests.cs   # allow the three anonymous recovery operations, keep the guard
     ├── SocAlytics.Platform.Integration.Tests/IdentityAccess/SelfServicePasswordRecovery*Tests.cs  # new
     └── SocAlytics.Platform.Integration.Tests/Structure/PersistedTableClassifications.cs          # new table
 
