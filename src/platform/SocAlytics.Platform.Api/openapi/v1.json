@@ -974,6 +974,404 @@
         ],
         "type": "object"
       },
+      "FactCapabilityDto": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ],
+        "type": "object"
+      },
+      "FactCoverageDto": {
+        "properties": {
+          "endMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "startMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "startMs",
+          "endMs",
+          "state"
+        ],
+        "type": "object"
+      },
+      "FactItemDto": {
+        "properties": {
+          "acceptedResultId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "confidence": {
+            "format": "double",
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "endMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "ordinal": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "payload": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "startMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "acceptedResultId",
+          "ordinal",
+          "kind",
+          "startMs",
+          "endMs",
+          "confidence",
+          "payload"
+        ],
+        "type": "object"
+      },
+      "FactPageDto": {
+        "properties": {
+          "continuationToken": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/FactCoverageDto"
+            },
+            "type": "array"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FactItemDto"
+            },
+            "type": "array"
+          },
+          "range": {
+            "$ref": "#/components/schemas/FactRangeDto"
+          },
+          "run": {
+            "$ref": "#/components/schemas/FactRunDto"
+          },
+          "stream": {
+            "$ref": "#/components/schemas/FactStreamDto"
+          }
+        },
+        "required": [
+          "run",
+          "stream",
+          "range",
+          "items",
+          "coverage",
+          "continuationToken"
+        ],
+        "type": "object"
+      },
+      "FactProfileDto": {
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "FactProvenanceDto": {
+        "properties": {
+          "analystProfile": {
+            "$ref": "#/components/schemas/FactProfileDto"
+          },
+          "imageDigest": {
+            "type": "string"
+          },
+          "modelDigest": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "workflow": {
+            "$ref": "#/components/schemas/FactWorkflowDto"
+          }
+        },
+        "required": [
+          "workflow",
+          "analystProfile",
+          "imageDigest",
+          "modelDigest"
+        ],
+        "type": "object"
+      },
+      "FactRangeDto": {
+        "properties": {
+          "fromMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          },
+          "toMs": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "fromMs",
+          "toMs"
+        ],
+        "type": "object"
+      },
+      "FactRunDto": {
+        "properties": {
+          "matchId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "runId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "teamId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "teamId",
+          "matchId",
+          "state"
+        ],
+        "type": "object"
+      },
+      "FactStreamCoverageDto": {
+        "properties": {
+          "accepted": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "blocked": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "failed": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "missing": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "skipped": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "accepted",
+          "missing",
+          "failed",
+          "blocked",
+          "skipped"
+        ],
+        "type": "object"
+      },
+      "FactStreamDto": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/FactCapabilityDto"
+          },
+          "executionScope": {
+            "type": "string"
+          },
+          "nodeKey": {
+            "type": "string"
+          },
+          "outputType": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/FactProvenanceDto"
+          },
+          "schemaVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nodeKey",
+          "capability",
+          "schemaVersion",
+          "outputType",
+          "executionScope",
+          "provenance"
+        ],
+        "type": "object"
+      },
+      "FactStreamEntryDto": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/FactCapabilityDto"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/FactStreamCoverageDto"
+          },
+          "executionScope": {
+            "type": "string"
+          },
+          "factCount": {
+            "format": "int64",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "nodeKey": {
+            "type": "string"
+          },
+          "outputType": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/FactProvenanceDto"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "schemaVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "nodeKey",
+          "capability",
+          "schemaVersion",
+          "outputType",
+          "executionScope",
+          "required",
+          "factCount",
+          "provenance",
+          "coverage"
+        ],
+        "type": "object"
+      },
+      "FactStreamListDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FactStreamEntryDto"
+            },
+            "type": "array"
+          },
+          "run": {
+            "$ref": "#/components/schemas/FactRunDto"
+          }
+        },
+        "required": [
+          "run",
+          "items"
+        ],
+        "type": "object"
+      },
+      "FactWorkflowDto": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ],
+        "type": "object"
+      },
       "IdentityProviderDto": {
         "properties": {
           "displayName": {
@@ -3052,6 +3450,180 @@
         },
         "tags": [
           "Analysis runs"
+        ]
+      }
+    },
+    "/api/v1/analysis/runs/{runId}/fact-streams": {
+      "get": {
+        "operationId": "listAnalysisRunFactStreams",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactStreamListDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "304": {
+            "description": "Not Modified"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "tags": [
+          "Analysis facts"
+        ]
+      }
+    },
+    "/api/v1/analysis/runs/{runId}/facts": {
+      "get": {
+        "operationId": "listAnalysisRunFacts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "capabilityId",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "capabilityVersion",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "schemaVersion",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "nodeKey",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "fromMs",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "toMs",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "continuationToken",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FactPageDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "304": {
+            "description": "Not Modified"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "tags": [
+          "Analysis facts"
         ]
       }
     },
@@ -8830,6 +9402,9 @@
     },
     {
       "name": "Analysis runs"
+    },
+    {
+      "name": "Analysis facts"
     },
     {
       "name": "Workflow operations"

@@ -43,6 +43,9 @@ public sealed class AnalysisResultOptionsTests
 		options.MaxObjectBytes.ShouldBe(104_857_600);
 		options.MaxAttemptBytes.ShouldBe(1_073_741_824);
 		options.MaxManifestBytes.ShouldBe(1_048_576);
+		options.MaxFactArtifactBytes.ShouldBe(16_777_216);
+		options.MaxFactPayloadBytes.ShouldBe(16_384);
+		options.MaxFactsPerResult.ShouldBe(50_000);
 	}
 
 	[Theory]
@@ -54,6 +57,12 @@ public sealed class AnalysisResultOptionsTests
 	[InlineData("MaxManifestBytes", "1023")]
 	[InlineData("MaxObjectBytes", "1048575")]
 	[InlineData("MaxAttemptBytes", "104857599")]
+	[InlineData("MaxFactArtifactBytes", "1023")]
+	[InlineData("MaxFactArtifactBytes", "104857601")]
+	[InlineData("MaxFactPayloadBytes", "255")]
+	[InlineData("MaxFactPayloadBytes", "1048577")]
+	[InlineData("MaxFactsPerResult", "0")]
+	[InlineData("MaxFactsPerResult", "1000001")]
 	public void Invalid_value_fails_at_start(string field, string value)
 	{
 		var settings = ValidSettings();
@@ -67,6 +76,9 @@ public sealed class AnalysisResultOptionsTests
 	[InlineData("MaxObjectBytes")]
 	[InlineData("MaxAttemptBytes")]
 	[InlineData("MaxManifestBytes")]
+	[InlineData("MaxFactArtifactBytes")]
+	[InlineData("MaxFactPayloadBytes")]
+	[InlineData("MaxFactsPerResult")]
 	public void Missing_value_fails_at_start(string field)
 	{
 		var settings = ValidSettings();
@@ -83,6 +95,15 @@ public sealed class AnalysisResultOptionsTests
 		settings["Analysis:Results:MaxManifestBytes"] = "1024";
 		settings["Analysis:Results:MaxObjectBytes"] = "1024";
 		settings["Analysis:Results:MaxAttemptBytes"] = "1024";
+		settings["Analysis:Results:MaxFactArtifactBytes"] = "1024";
+		settings["Analysis:Results:MaxFactPayloadBytes"] = "256";
+		settings["Analysis:Results:MaxFactsPerResult"] = "1";
+		Should.NotThrow(() => Validate(settings));
+		settings["Analysis:Results:MaxObjectBytes"] = "104857600";
+		settings["Analysis:Results:MaxAttemptBytes"] = "104857600";
+		settings["Analysis:Results:MaxFactArtifactBytes"] = "104857600";
+		settings["Analysis:Results:MaxFactPayloadBytes"] = "1048576";
+		settings["Analysis:Results:MaxFactsPerResult"] = "1000000";
 		Should.NotThrow(() => Validate(settings));
 	}
 

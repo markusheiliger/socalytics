@@ -61,7 +61,7 @@ public sealed class UpstreamResultReadEndToEndTests
             "SELECT manifest_reference FROM socalytics.analysis_accepted_results WHERE run_id = @runId AND capability_id = @capability",
             runId, EndToEndHarness.MatchCapability, ct)).Single();
         using var s3 = harness.Store.CreateS3Client();
-        using var response = await s3.GetObjectAsync(harness.Store.Bucket, reference[..(reference.LastIndexOf('/') + 1)] + "facts.json", ct);
+        using var response = await s3.GetObjectAsync(harness.Store.Bucket, reference[..(reference.LastIndexOf('/') + 1)] + "inputs.json", ct);
         using var artifact = await JsonDocument.ParseAsync(response.ResponseStream, cancellationToken: ct);
         var coverage = artifact.RootElement.GetProperty("consumedCoverage").GetProperty(EndToEndHarness.SegmentCapability).EnumerateArray().ToList();
         coverage.Count.ShouldBe(Segments);
@@ -127,7 +127,7 @@ public sealed class UpstreamResultReadEndToEndTests
             "SELECT manifest_reference FROM socalytics.analysis_accepted_results WHERE run_id = @runId AND capability_id = @capability",
             runId, EndToEndHarness.MatchCapability, ct)).Single();
         using var s3 = harness.Store.CreateS3Client();
-        using var response = await s3.GetObjectAsync(harness.Store.Bucket, reference[..(reference.LastIndexOf('/') + 1)] + "facts.json", ct);
+        using var response = await s3.GetObjectAsync(harness.Store.Bucket, reference[..(reference.LastIndexOf('/') + 1)] + "inputs.json", ct);
         using var artifact = await JsonDocument.ParseAsync(response.ResponseStream, cancellationToken: ct);
         var coverage = artifact.RootElement.GetProperty("consumedCoverage").GetProperty(EndToEndHarness.SegmentCapability).EnumerateArray().ToList();
         coverage.Count.ShouldBe(Segments);
