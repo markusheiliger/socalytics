@@ -99,4 +99,30 @@ public class ResultContractsTests
             expectations.ContainsKey("request." + name + ".json").ShouldBeTrue(name);
         }
     }
+
+    [Theory]
+    [InlineData("analyst-manifest", new[] { "match-high-level-with-upstream.json", "segment-low-level.json" })]
+    [InlineData("result-manifest", new[] { "match-result-with-lineage.json", "segment-result.json" })]
+    [InlineData("upstream-results", new[] { "empty-page.json", "segment-upstream-partial-coverage.json" })]
+    public void Schema_1_1_0_is_same_major_compatible_with_its_1_0_0_baseline(string name, string[] baselineExamples)
+    {
+        var dir = Path.Combine(AnalysisRoot, name, "v1");
+        var baseline = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "releases", "1.0.0.schema.json")))!;
+        var current = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, name + ".schema.json")))!;
+        var baselineFile = Path.Combine(dir, "releases", "1.0.0.schema.json");
+
+        current["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order()
+            .ShouldBe(baseline["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order());
+        foreach (var property in baseline["properties"]!.AsObject().Select(p => p.Key))
+        {
+            current["properties"]!.AsObject().ContainsKey(property).ShouldBeTrue($"{name}: property {property} removed");
+        }
+
+        foreach (var example in baselineExamples)
+        {
+            var file = Path.Combine(dir, "examples", "valid", example);
+            ContractCatalog.EvaluateAgainstRelease(baselineFile, file).IsValid.ShouldBeTrue($"{name}/{example} under 1.0.0");
+            ContractCatalog.EvaluateAgainstRelease(Path.Combine(dir, name + ".schema.json"), file).IsValid.ShouldBeTrue($"{name}/{example} under 1.1.0");
+        }
+    }
 }

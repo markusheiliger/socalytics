@@ -84,6 +84,8 @@ public class AnalystManifestContractTests
         invalid.ShouldContain("unknown-property.json");
         invalid.ShouldContain("bad-digest.json");
         invalid.ShouldContain("unknown-tier.json");
+        invalid.ShouldContain("partial-coverage-zero-fraction.json");
+        invalid.ShouldContain("partial-coverage-unknown-mode.json");
     }
 
     [Fact]

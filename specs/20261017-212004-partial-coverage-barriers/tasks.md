@@ -38,7 +38,7 @@ Foundational work (contracts, schema, policy type, and carrying the declaration 
 
 ### Contract index and contract tests
 
-- [ ] T004 Update `contracts/README.md` to list version `1.1.0` and the `releases/1.1.0.schema.json` baselines of the three schemas, and extend `src/platform/Tests/SocAlytics.Platform.Contracts.Tests/AnalystManifestContractTests.cs`, `src/platform/Tests/SocAlytics.Platform.Contracts.Tests/ResultContractsTests.cs`, and `src/platform/Tests/SocAlytics.Platform.Contracts.Tests/ContractCatalog.cs` so the new valid examples validate, the new invalid examples are rejected, `1.0.0` documents stay valid, and the `1.1.0` schemas are same-major compatible with their `1.0.0` baselines (FR-001, FR-014, FR-022; SC-004)
+- [x] T004 Update `contracts/README.md` to list version `1.1.0` and the `releases/1.1.0.schema.json` baselines of the three schemas, and extend `src/platform/Tests/SocAlytics.Platform.Contracts.Tests/AnalystManifestContractTests.cs`, `src/platform/Tests/SocAlytics.Platform.Contracts.Tests/ResultContractsTests.cs`, and `src/platform/Tests/SocAlytics.Platform.Contracts.Tests/ContractCatalog.cs` so the new valid examples validate, the new invalid examples are rejected, `1.0.0` documents stay valid, and the `1.1.0` schemas are same-major compatible with their `1.0.0` baselines (FR-001, FR-014, FR-022; SC-004)
 
 ### Coverage policy and schema
 
