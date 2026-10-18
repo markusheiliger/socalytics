@@ -129,7 +129,7 @@ the outdated one with its version and the minimum; a Registrar sees no fleet ope
 ### Tests for User Story 3
 
 - [x] T023 [P] [US3] Extend `src/clients/web/tests/unit/platform/registrationAdapter.test.ts` (mapping with and without a minimum) and `src/clients/web/tests/unit/features/managers/fleet/fleet.test.tsx` (only Managers below the minimum are marked, with version and minimum, announced by text, pending requests included) (FR-017; SC-005)
-- [ ] T024 [P] [US3] Extend `src/clients/web/tests/e2e/support/simulatedApi.ts` with a configurable minimum and per-registration flags and `src/clients/web/tests/e2e/simulated/fleet.spec.ts` with a fleet containing one Manager below and one at the minimum, checking the marking in the list and the detail and an axe scan of both (FR-017; SC-005)
+- [x] T024 [P] [US3] Extend `src/clients/web/tests/e2e/support/simulatedApi.ts` with a configurable minimum and per-registration flags and `src/clients/web/tests/e2e/simulated/fleet.spec.ts` with a fleet containing one Manager below and one at the minimum, checking the marking in the list and the detail and an axe scan of both (FR-017; SC-005)
 
 **Checkpoint**: All user stories are independently functional
 

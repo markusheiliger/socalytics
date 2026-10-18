@@ -46,8 +46,8 @@ export function StatusLines({ r, showVersion = true }: { r: Registration; showVe
       {showVersion && version && <li>{t('fleet.version', { value: version })}</li>}
       {r.belowMinimumVersion && r.minimumManagerVersion && (
         <li>
-          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, color: 'warning.dark' }}>
-            <SvgIcon fontSize="small" aria-hidden="true" focusable="false">
+          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+            <SvgIcon fontSize="small" sx={{ color: 'warning.dark' }} aria-hidden="true" focusable="false">
               <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
             </SvgIcon>
             <span>
