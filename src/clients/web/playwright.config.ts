@@ -87,11 +87,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
+      name: 'platform-cancellation',
+      testDir: './tests/e2e/platform',
+      testMatch: /run-cancellation\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-upload'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
       name: 'platform-recovery',
       testDir: './tests/e2e/platform',
       testMatch: /recovery\.spec\.ts$/,
       fullyParallel: false,
-      dependencies: ['platform-upload'],
+      dependencies: ['platform-cancellation'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
