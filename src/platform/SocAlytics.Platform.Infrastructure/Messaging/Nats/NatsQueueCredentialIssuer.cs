@@ -7,6 +7,8 @@ namespace SocAlytics.Platform.Infrastructure.Messaging.Nats;
 /// <summary>Signs Manager user JWTs with the stamp account key; the JWT is never logged.</summary>
 internal sealed class NatsQueueCredentialIssuer(NatsTrust trust, IOptions<NatsOptions> options) : IQueueCredentialIssuer
 {
+    public bool CanIssue => trust.IsJwt;
+
     public string JobsStream => options.Value.JobsStream;
 
     public bool IsValidUserPublicKey(string userPublicKey)

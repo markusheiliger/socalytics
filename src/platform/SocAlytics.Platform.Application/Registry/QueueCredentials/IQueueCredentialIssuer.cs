@@ -2,6 +2,9 @@ namespace SocAlytics.Platform.Application.Registry.QueueCredentials;
 
 public interface IQueueCredentialIssuer
 {
+    /// <summary>False when the broker runs without authentication (<c>Nats:Authentication:Mode</c> <c>None</c>) and no JWT can be issued.</summary>
+    bool CanIssue { get; }
+
     string JobsStream { get; }
 
     bool IsValidUserPublicKey(string userPublicKey);
