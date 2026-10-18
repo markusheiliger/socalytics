@@ -80,9 +80,15 @@ internal sealed class CapabilityDeclarationStore(IDbSession session) : ICapabili
         foreach (var item in root["upstream"]?.AsArray() ?? [])
         {
             _ = AnalysisPersistedNames.TryParseDependencyKind(item!["kind"]!.GetValue<string>(), out var kind);
+            var coverage = item["coverage"] is JsonObject coverageNode
+                ? CoveragePolicy.Partial(coverageNode["minimumAcceptedFraction"]?.GetValue<decimal>())
+                : CoveragePolicy.Complete;
             upstream.Add(new(
                 item["capabilityId"]!.GetValue<string>(), item["capabilityVersion"]!.GetValue<string>(),
-                item["schemaVersion"]!.GetValue<string>(), kind));
+                item["schemaVersion"]!.GetValue<string>(), kind)
+            {
+                CoveragePolicy = coverage,
+            });
         }
 
         return new CapabilityDeclaration(
