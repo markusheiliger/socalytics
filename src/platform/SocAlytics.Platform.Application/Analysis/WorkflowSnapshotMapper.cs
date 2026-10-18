@@ -70,7 +70,8 @@ public sealed class WorkflowSnapshotMapper(ICanonicalJson canonicalJson)
             edge["coverage"] = new Dictionary<string, object?>
             {
                 ["mode"] = AnalysisPersistedNames.ToPersistedName(e.CoveragePolicy.Mode),
-                ["minimumAcceptedFraction"] = e.CoveragePolicy.MinimumAcceptedFraction,
+                // Canonical JSON admits only integers, so the fraction is carried as an invariant decimal string.
+                ["minimumAcceptedFraction"] = e.CoveragePolicy.MinimumAcceptedFraction?.ToString(System.Globalization.CultureInfo.InvariantCulture),
             };
         }
 
