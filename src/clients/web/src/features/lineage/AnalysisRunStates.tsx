@@ -1,13 +1,16 @@
+import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAdapter';
 import { createRecordingLineageAdapter } from '../../platform/adapters/recordingLineageAdapter';
-import { toPlatformFailure } from '../../platform/failure';
+import { toPlatformFailure, type PlatformFailure } from '../../platform/failure';
 import type { AnalysisRunSummary } from '../../platform/models/recordings';
+import { canEditTeamMatches } from '../../session/roles';
 import { useSession } from '../../session/sessionContext';
-import { FailureAlert } from '../shared/FailureAlert';
+import { FailureAlert, useFieldError } from '../shared/FailureAlert';
+import { CancelRunDialog } from './CancelRunDialog';
 import { formatKickoff } from '../matches/MatchForm';
 
 export const LINEAGE_KEY = (matchId: string) => ['matches', 'lineage', matchId];
@@ -17,10 +20,18 @@ const MAX_PAGES = 20;
 
 const isUnfinished = (run: AnalysisRunSummary) => run.state === 'Requested' || run.state === 'Running';
 
+const cancelled = (run: AnalysisRunSummary) => run.state === 'Cancelled' && Boolean(run.cancelledBy);
+
 /** Finalized recording-set versions with the state of the analysis runs created from them (FR-022, FR-023); no results. */
-export function AnalysisRunStates({ matchId }: { matchId: string }) {
+export function AnalysisRunStates({ matchId, teamId }: { matchId: string; teamId?: string }) {
   const { t } = useTranslation('lineage');
-  const { platform } = useSession();
+  const { t: tc } = useTranslation('common');
+  const { platform, session } = useSession();
+  const queryClient = useQueryClient();
+  const [target, setTarget] = useState<AnalysisRunSummary | undefined>();
+  const [cancelFailure, setCancelFailure] = useState<PlatformFailure | undefined>();
+  const member = session?.member;
+  const canCancel = Boolean(member && teamId && canEditTeamMatches(member, teamId));
   const lineageAdapter = useMemo(() => createRecordingLineageAdapter(platform), [platform]);
   const runAdapter = useMemo(() => createAnalysisRunAdapter(platform), [platform]);
   const lineage = useQuery({ queryKey: LINEAGE_KEY(matchId), queryFn: () => lineageAdapter.getLineage(matchId), retry: false, refetchOnWindowFocus: false });
@@ -44,6 +55,27 @@ export function AnalysisRunStates({ matchId }: { matchId: string }) {
     refetchIntervalInBackground: false,
   });
   const { refetch: refetchLineage } = lineage;
+  const { refetch: refetchRuns } = runs;
+  const cancel = useMutation({
+    mutationFn: ({ run, reason }: { run: AnalysisRunSummary; reason?: string }) => runAdapter.cancel(run.runId, run.version, reason),
+    onSuccess: (updated) => {
+      setCancelFailure(undefined);
+      setTarget(undefined);
+      queryClient.setQueryData<AnalysisRunSummary[]>(RUNS_KEY(matchId), (old) => old?.map((r) => (r.runId === updated.runId ? updated : r)));
+      void refetchRuns();
+    },
+    onError: (error) => {
+      const failure = toPlatformFailure(error);
+      setCancelFailure(failure);
+      if (failure.kind !== 'validation') setTarget(undefined);
+      void refetchRuns();
+    },
+  });
+  const reasonError = useFieldError(cancelFailure, 'reason', tc);
+  const closeDialog = () => {
+    setTarget(undefined);
+    setCancelFailure(undefined);
+  };
 
   const sets = useMemo(
     () => [...(lineage.data?.recordingSetVersions ?? [])].sort((a, b) => b.finalizedAt.getTime() - a.finalizedAt.getTime()),
@@ -70,6 +102,7 @@ export function AnalysisRunStates({ matchId }: { matchId: string }) {
           }}
         />
       )}
+      {cancelFailure && cancelFailure.kind !== 'validation' && <FailureAlert failure={cancelFailure} onReload={() => void refetchRuns()} />}
       {lineage.data && sets.length === 0 && <Typography>{t('runs.empty')}</Typography>}
       {sets.length > 0 && (
         <ul aria-label={t('runs.listLabel')}>
@@ -92,14 +125,33 @@ export function AnalysisRunStates({ matchId }: { matchId: string }) {
                   <ul aria-label={t('runs.runsLabel')}>
                     {setRuns.map((run) => (
                       <li key={run.runId}>
-                        <span role="status">{t('runs.stateLabel', { state: t(`runs.state.${run.state}`, { defaultValue: run.state }) })}</span>
+                        <span role="status">
+                          {cancelled(run)
+                            ? t('runs.cancelledBy', { name: run.cancelledBy?.accountName })
+                            : t('runs.stateLabel', { state: t(`runs.state.${run.state}`, { defaultValue: run.state }) })}
+                          {cancelled(run) && run.terminatedAt && ` · ${formatKickoff(run.terminatedAt)}`}
+                          {cancelled(run) && run.cancellationReason && ` · ${run.cancellationReason}`}
+                        </span>
                         {' · '}
                         {t('runs.run', { workflow: run.workflowId, version: run.workflowVersion })}
                         {' · '}
                         {t('runs.created', { time: formatKickoff(run.createdAt) })}
                         {run.runningAt && ` · ${t('runs.started', { time: formatKickoff(run.runningAt) })}`}
-                        {run.terminatedAt && ` · ${t('runs.ended', { time: formatKickoff(run.terminatedAt) })}`}
+                        {run.terminatedAt && !cancelled(run) && ` · ${t('runs.ended', { time: formatKickoff(run.terminatedAt) })}`}
                         {run.failureReason && ` · ${t('runs.failure', { reason: run.failureReason })}`}
+                        {canCancel && isUnfinished(run) && (
+                          <Button
+                            size="small"
+                            color="error"
+                            sx={{ ml: 1 }}
+                            onClick={() => {
+                              setCancelFailure(undefined);
+                              setTarget(run);
+                            }}
+                          >
+                            {t('runs.cancelAction')}
+                          </Button>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -109,6 +161,13 @@ export function AnalysisRunStates({ matchId }: { matchId: string }) {
           })}
         </ul>
       )}
+      <CancelRunDialog
+        open={Boolean(target)}
+        busy={cancel.isPending}
+        fieldError={reasonError}
+        onConfirm={(reason) => target && cancel.mutate({ run: target, reason })}
+        onClose={closeDialog}
+      />
     </section>
   );
 }

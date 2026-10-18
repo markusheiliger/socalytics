@@ -100,7 +100,7 @@ description: "Task list for Analysis Run Cancellation"
 
 ### Run list integration
 
-- [ ] T018 [US3] Show the cancel action for `Requested` and `Running` runs only when `canEditTeamMatches(member, teamId)`, open `CancelRunDialog`, call `cancel` with the run's version, update the run in the `RUNS_KEY` cache and refetch, show refusals through the existing `FailureAlert` and refetch, and display cancelled runs as `Cancelled · by <accountName> · <end time> · <reason>` with the reason rendered as text in `src/clients/web/src/features/lineage/AnalysisRunStates.tsx` (with the team id passed from `src/clients/web/src/features/matches/MatchPage.tsx` if not already available) and the display keys in `src/clients/web/src/i18n/en/lineage.json` (FR-017–FR-020)
+- [x] T018 [US3] Show the cancel action for `Requested` and `Running` runs only when `canEditTeamMatches(member, teamId)`, open `CancelRunDialog`, call `cancel` with the run's version, update the run in the `RUNS_KEY` cache and refetch, show refusals through the existing `FailureAlert` and refetch, and display cancelled runs as `Cancelled · by <accountName> · <end time> · <reason>` with the reason rendered as text in `src/clients/web/src/features/lineage/AnalysisRunStates.tsx` (with the team id passed from `src/clients/web/src/features/matches/MatchPage.tsx` if not already available) and the display keys in `src/clients/web/src/i18n/en/lineage.json` (FR-017–FR-020)
 
 ### Tests for User Story 3
 

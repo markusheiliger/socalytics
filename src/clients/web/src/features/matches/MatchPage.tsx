@@ -136,7 +136,7 @@ export function MatchPage() {
             {t('matches.backToTeam')}
           </Button>
           <RecordingsSection matchId={m.id} teamId={m.teamId} canUpload={canEdit} />
-          <AnalysisRunStates matchId={m.id} />
+          <AnalysisRunStates matchId={m.id} teamId={m.teamId} />
           <LineageSection matchId={m.id} />
         </>
       )}

@@ -52,6 +52,8 @@
       "Cancelled": "Cancelled"
     },
     "stateLabel": "State: {{state}}",
+    "cancelledBy": "Cancelled · by {{name}}",
+    "cancelAction": "Cancel run",
     "created": "Requested {{time}}",
     "started": "Started {{time}}",
     "ended": "Ended {{time}}",
