@@ -994,7 +994,9 @@ injects `<style>` elements, and a nonce is not possible for statically hosted
 pages. It permits injected styles, but `connect-src` (limited to the
 application and object-storage origins) and `img-src 'self' data:` mitigate CSS-based data exfiltration, and scripts stay
 fully locked down. It can be revisited with build-time CSS extraction. The
-production server configuration is not implemented and remains deferred.
+Web UI image applies the same policy as its production server configuration;
+only the object storage origin is runtime-configurable, and the production
+storage origin remains unresolved.
 
 REST delta synchronization and offline entitlement are bound to the current
 user, one club stamp, authorized teams and matches, roles, policy version, and

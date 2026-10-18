@@ -15,13 +15,12 @@ committed OpenAPI snapshot, and Vitest and Playwright tests. The AppHost
 composes it with the platform API on one origin as a Vite resource, without
 moving Web UI source under `src/platform`.
 
-The Web UI release is coordinated with the platform API and is intended to be
-built and deployed as a separate OCI container from `src/clients`. The service
-worker and installable PWA are implemented as development evidence; offline
-mode, the OCI container image, and Docker Compose deployment are not
-implemented yet.
+The Web UI release is coordinated with the platform API and is
+deployed as a separate OCI container whose image is built from `src/clients`.
+The service worker and installable PWA are implemented as development
+evidence; offline mode and Docker Compose deployment are not implemented yet.
 
-The Web UI image is decided but not implemented yet (see
+The Web UI image is implemented (see
 [Platform Implementation](platform-implementation.md#source-and-runtime-baseline)).
 It serves the built shell byte for byte, so every shell file keeps passing its
 integrity check, with the production security headers from the same policy
