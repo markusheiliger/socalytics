@@ -163,6 +163,78 @@ public sealed class SimulatedResultModeTests : IDisposable
         }
     }
 
+    private const string PartialCoverage =
+        """{"upstream":{"capability":{"id":"player-detection","version":"1.0.0"},"schemaVersion":"1.0.0","edgeKind":"required"},"mode":"partial","coverage":[{"segmentId":"s-1","state":"failed"},{"segmentId":"s-2","state":"accepted"}]}""";
+
+    [Fact]
+    public void Valid_mode_writes_a_1_1_0_manifest_with_input_coverage_from_every_staged_coverage_file()
+    {
+        var inputs = StageUpstream("staged-res-1", "a", PartialCoverage);
+        try
+        {
+            var manifest = Write(null, out _, inputs);
+
+            IsSchemaValid().ShouldBeTrue();
+            ((string)manifest["contractVersion"]!).ShouldBe("1.1.0");
+            var report = manifest["inputCoverage"]!.AsArray().Single()!;
+            ((string)report["capability"]!["id"]!).ShouldBe("player-detection");
+            ((string)report["schemaVersion"]!).ShouldBe("1.0.0");
+            var units = report["units"]!.AsArray();
+            units.Count.ShouldBe(2);
+            ((string)units[0]!["segmentId"]!).ShouldBe("s-1");
+            ((string)units[0]!["state"]!).ShouldBe("failed");
+            ((string)units[1]!["state"]!).ShouldBe("accepted");
+        }
+        finally
+        {
+            Directory.Delete(inputs, true);
+        }
+    }
+
+    [Fact]
+    public void Without_staged_inputs_no_input_coverage_is_reported()
+    {
+        var manifest = Write(null, out _);
+
+        manifest["inputCoverage"].ShouldBeNull();
+    }
+
+    [Fact]
+    public void Coverage_mismatch_flips_one_unit_state()
+    {
+        var inputs = StageUpstream("staged-res-1", "a", PartialCoverage);
+        try
+        {
+            var manifest = Write(SimulatedResultModes.CoverageMismatch, out _, inputs);
+
+            IsSchemaValid().ShouldBeTrue();
+            var units = manifest["inputCoverage"]![0]!["units"]!.AsArray();
+            ((string)units[0]!["state"]!).ShouldBe("accepted");
+            ((string)units[1]!["state"]!).ShouldBe("accepted");
+        }
+        finally
+        {
+            Directory.Delete(inputs, true);
+        }
+    }
+
+    [Fact]
+    public void Coverage_omitted_drops_the_input_coverage()
+    {
+        var inputs = StageUpstream("staged-res-1", "a", PartialCoverage);
+        try
+        {
+            var manifest = Write(SimulatedResultModes.CoverageOmitted, out _, inputs);
+
+            IsSchemaValid().ShouldBeTrue();
+            manifest["inputCoverage"].ShouldBeNull();
+        }
+        finally
+        {
+            Directory.Delete(inputs, true);
+        }
+    }
+
     [Fact]
     public void Ignore_inputs_reports_an_empty_lineage_although_inputs_were_staged()
     {
