@@ -435,6 +435,176 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
         await ShouldRejectAsync(p, "result-validity-invalid");
     }
 
+    private static ExpectedInputDependency Partial(params (string Segment, string State)[] coverage) =>
+        new("upstream-capability", "1", "1.0.0", CoverageMode.Partial,
+            coverage.Select(c => new SegmentCoverage(c.Segment, c.State)).ToList(),
+            coverage.Where(c => c.State == "accepted").Select(c => ExpectedInputDependency.SegmentUnit(c.Segment)).ToHashSet());
+
+    private static ExpectedInputDependency Complete(params string[] acceptedSegments) =>
+        new("upstream-capability", "1", "1.0.0", CoverageMode.Complete, null,
+            acceptedSegments.Select(ExpectedInputDependency.SegmentUnit).ToHashSet());
+
+    private static JsonObject Report(string capability, params (string Segment, string State)[] units) => new()
+    {
+        ["capability"] = new JsonObject { ["id"] = capability, ["version"] = "1.0.0" },
+        ["schemaVersion"] = "1.0.0",
+        ["units"] = new JsonArray(units.Select(u => (JsonNode)new JsonObject { ["segmentId"] = u.Segment, ["state"] = u.State }).ToArray()),
+    };
+
+    private async Task<Prepared> PrepareCoverageAsync(string? version, JsonObject[]? reports, params ExpectedInputDependency[] dependencies)
+    {
+        var p = await PrepareAsync(
+            NewScenario(matchScope: true),
+            m =>
+            {
+                if (version is not null)
+                {
+                    m["contractVersion"] = version;
+                }
+
+                if (reports is not null)
+                {
+                    m["inputCoverage"] = new JsonArray(reports.Select(r => (JsonNode)r).ToArray());
+                }
+            });
+        return p with { Request = p.Request with { InputDependencies = dependencies } };
+    }
+
+    private static async Task ShouldBeValidAsync(Prepared p)
+    {
+        var outcome = await p.Verifier.VerifyAsync(p.Request, TestContext.Current.CancellationToken);
+        outcome.Status.ShouldBe(ResultVerificationStatus.Valid, outcome.Reason);
+    }
+
+    [Fact]
+    public async Task Check_9b_report_equal_to_the_partial_snapshot_coverage_is_accepted_in_any_order()
+    {
+        var p = await PrepareCoverageAsync(
+            "1.1.0",
+            [Report("upstream-capability", ("s2", "failed"), ("s1", "accepted"), ("s3", "blocked"))],
+            Partial(("s1", "accepted"), ("s2", "failed"), ("s3", "blocked")));
+
+        await ShouldBeValidAsync(p);
+    }
+
+    [Fact]
+    public async Task Check_9b_partial_barrier_without_a_report_is_a_coverage_mismatch()
+    {
+        var p = await PrepareCoverageAsync("1.1.0", null, Partial(("s1", "accepted"), ("s2", "failed")));
+
+        await ShouldRejectAsync(p, "result-coverage-mismatch");
+    }
+
+    [Fact]
+    public async Task Check_9b_report_with_a_missing_unit_is_a_coverage_mismatch()
+    {
+        var p = await PrepareCoverageAsync(
+            "1.1.0", [Report("upstream-capability", ("s1", "accepted"))], Partial(("s1", "accepted"), ("s2", "failed")));
+
+        await ShouldRejectAsync(p, "result-coverage-mismatch");
+    }
+
+    [Fact]
+    public async Task Check_9b_report_with_an_unknown_extra_unit_is_a_coverage_mismatch()
+    {
+        var p = await PrepareCoverageAsync(
+            "1.1.0",
+            [Report("upstream-capability", ("s1", "accepted"), ("s2", "failed"), ("s9", "accepted"))],
+            Partial(("s1", "accepted"), ("s2", "failed")));
+
+        await ShouldRejectAsync(p, "result-coverage-mismatch");
+    }
+
+    [Fact]
+    public async Task Check_9b_report_with_a_different_state_is_a_coverage_mismatch()
+    {
+        var p = await PrepareCoverageAsync(
+            "1.1.0",
+            [Report("upstream-capability", ("s1", "accepted"), ("s2", "accepted"))],
+            Partial(("s1", "accepted"), ("s2", "failed")));
+
+        await ShouldRejectAsync(p, "result-coverage-mismatch");
+    }
+
+    [Fact]
+    public async Task Check_9b_duplicated_unit_is_a_coverage_mismatch()
+    {
+        var p = await PrepareCoverageAsync(
+            "1.1.0",
+            [Report("upstream-capability", ("s1", "accepted"), ("s1", "accepted"))],
+            Partial(("s1", "accepted")));
+
+        await ShouldRejectAsync(p, "result-coverage-mismatch");
+    }
+
+    [Fact]
+    public async Task Check_9b_duplicated_dependency_report_is_a_coverage_mismatch()
+    {
+        var p = await PrepareCoverageAsync(
+            "1.1.0",
+            [Report("upstream-capability", ("s1", "accepted")), Report("upstream-capability", ("s1", "accepted"))],
+            Partial(("s1", "accepted")));
+
+        await ShouldRejectAsync(p, "result-coverage-mismatch");
+    }
+
+    [Fact]
+    public async Task Check_9b_report_for_an_unknown_dependency_is_a_coverage_mismatch()
+    {
+        var p = await PrepareCoverageAsync(
+            "1.1.0",
+            [Report("upstream-capability", ("s1", "accepted")), Report("other-capability", ("s1", "accepted"))],
+            Partial(("s1", "accepted")));
+
+        await ShouldRejectAsync(p, "result-coverage-mismatch");
+    }
+
+    [Fact]
+    public async Task Check_9b_complete_dependency_report_is_checked_only_on_its_accepted_units()
+    {
+        var p = await PrepareCoverageAsync(
+            "1.1.0",
+            [Report("upstream-capability", ("s1", "accepted"), ("s2", "accepted"), ("s3", "failed"))],
+            Complete("s1", "s2"));
+
+        await ShouldBeValidAsync(p);
+    }
+
+    [Fact]
+    public async Task Check_9b_complete_dependency_report_with_other_accepted_units_is_a_coverage_mismatch()
+    {
+        var p = await PrepareCoverageAsync(
+            "1.1.0",
+            [Report("upstream-capability", ("s1", "accepted"), ("s2", "failed"))],
+            Complete("s1", "s2"));
+
+        await ShouldRejectAsync(p, "result-coverage-mismatch");
+    }
+
+    [Fact]
+    public async Task Check_9b_complete_dependency_does_not_require_a_report()
+    {
+        var p = await PrepareCoverageAsync("1.1.0", null, Complete("s1", "s2"));
+
+        await ShouldBeValidAsync(p);
+    }
+
+    [Fact]
+    public async Task Check_9b_one_zero_zero_manifest_without_reports_is_accepted_without_partial_barriers()
+    {
+        var p = await PrepareCoverageAsync(null, null, Complete("s1"));
+
+        await ShouldBeValidAsync(p);
+    }
+
+    [Fact]
+    public async Task Check_9b_one_zero_zero_manifest_without_reports_is_rejected_for_a_partial_barrier()
+    {
+        var p = await PrepareCoverageAsync(null, null, Partial(("s1", "accepted")));
+
+        await ShouldRejectAsync(p, "result-coverage-mismatch");
+    }
+
     private class DelegatingStorage(IObjectStorage inner) : IObjectStorage
     {
         public virtual Task<MultipartUploadReference> InitiateCompositeMultipartUploadAsync(string objectKey, string contentType, CancellationToken cancellationToken) =>
