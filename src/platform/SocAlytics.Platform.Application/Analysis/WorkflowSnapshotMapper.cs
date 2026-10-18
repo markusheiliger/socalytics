@@ -44,21 +44,37 @@ public sealed class WorkflowSnapshotMapper(ICanonicalJson canonicalJson)
                 ["digest"] = definition.SegmentationPolicy.Digest.ToString(),
             },
             ["nodes"] = definition.Nodes.Select(NodeObject).ToList(),
-            ["edges"] = definition.Edges.Select(e => new Dictionary<string, object?>
-            {
-                ["upstreamNodeKey"] = e.UpstreamNodeKey,
-                ["dependentNodeKey"] = e.DependentNodeKey,
-                ["kind"] = e.Kind,
-                ["predicate"] = e.Predicate is null ? null : new Dictionary<string, object?>
-                {
-                    ["kind"] = e.Predicate.Kind,
-                    ["capabilityId"] = e.Predicate.CapabilityId,
-                    ["nodeKey"] = e.Predicate.NodeKey,
-                },
-            }).ToList(),
+            ["edges"] = definition.Edges.Select(EdgeObject).ToList(),
         };
         var element = JsonSerializer.SerializeToElement(snapshot);
         return new MappedWorkflow(graph, planner, nodeJson, element.GetRawText(), canonicalJson.Fingerprint(element));
+    }
+
+    private static Dictionary<string, object?> EdgeObject(ResolvedWorkflowEdge e)
+    {
+        var edge = new Dictionary<string, object?>
+        {
+            ["upstreamNodeKey"] = e.UpstreamNodeKey,
+            ["dependentNodeKey"] = e.DependentNodeKey,
+            ["kind"] = e.Kind,
+            ["predicate"] = e.Predicate is null ? null : new Dictionary<string, object?>
+            {
+                ["kind"] = e.Predicate.Kind,
+                ["capabilityId"] = e.Predicate.CapabilityId,
+                ["nodeKey"] = e.Predicate.NodeKey,
+            },
+        };
+
+        if (e.CoveragePolicy.Mode == CoverageMode.Partial)
+        {
+            edge["coverage"] = new Dictionary<string, object?>
+            {
+                ["mode"] = AnalysisPersistedNames.ToPersistedName(e.CoveragePolicy.Mode),
+                ["minimumAcceptedFraction"] = e.CoveragePolicy.MinimumAcceptedFraction,
+            };
+        }
+
+        return edge;
     }
 
     private static Dictionary<string, object?> NodeObject(ResolvedWorkflowNode n) => new()

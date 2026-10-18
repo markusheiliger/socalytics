@@ -61,7 +61,10 @@ public sealed class RunReadinessCoordinator(
                 nodesById[e.UpstreamNodeId].NodeKey,
                 nodesById[e.DependentNodeId].NodeKey,
                 e.Kind,
-                e.PredicateJson is not null && ConditionalPredicate.TryParseJson(e.PredicateJson, out var p) ? p : null)).ToList(),
+                e.PredicateJson is not null && ConditionalPredicate.TryParseJson(e.PredicateJson, out var p) ? p : null)
+            {
+                CoveragePolicy = e.CoveragePolicy,
+            }).ToList(),
             jobRecords.Select(j => new RunJobState(
                 j.Id,
                 nodesById[j.NodeId].NodeKey,
