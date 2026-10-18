@@ -106,6 +106,9 @@ public static class ApplicationServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions.SectionName)
             .Validate(SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions.IsValid, "Email:Confirmation:MaxPerHour and Email:Confirmation:AttemptsPerMinute must be greater than zero.")
             .ValidateOnStart();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.RequestPasswordRecoveryHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.CheckPasswordRecoveryHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.CompletePasswordRecoveryHandler>();
         services.AddOptions<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions.SectionName)
             .Validate(SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions.IsValid, "PasswordRecovery:LinkLifetime, MaxMessagesPerHour, RequestsPerMinute, TokenAttemptsPerMinute, and MinimumResponseDuration must be greater than zero.")
