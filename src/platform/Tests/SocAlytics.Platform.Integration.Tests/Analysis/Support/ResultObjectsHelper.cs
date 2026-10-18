@@ -11,6 +11,8 @@ using SocAlytics.Platform.Integration.Tests.Recordings;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis.Support;
 
+internal sealed record FactSpec(string Kind, long StartMs, long EndMs);
+
 internal sealed record PreparedResult(string ManifestReference, string ManifestChecksum, JsonObject Manifest);
 
 /// <summary>Builds, declares and uploads a result manifest that matches the seeded attempt, so tests can complete attempts successfully.</summary>
@@ -28,12 +30,24 @@ internal static class ResultObjectsHelper
         IReadOnlyCollection<Guid>? upstream = null,
         Action<JsonObject>? mutate = null,
         bool uploadManifest = true,
+        IReadOnlyList<FactSpec>? facts = null,
         CancellationToken ct = default)
     {
         await using var c = new NpgsqlConnection(db.MigratorConnectionString);
         await c.OpenAsync(ct);
 
         var manifest = await BuildAsync(c, attemptId, upstream ?? [], ct);
+        var artifact = Artifact;
+        if (facts is not null)
+        {
+            artifact = FactArtifactBytes(manifest, facts);
+            var declared = (JsonObject)manifest["artifacts"]![0]!;
+            declared["digest"] = DigestOf(artifact);
+            declared["sizeBytes"] = artifact.Length;
+            declared["mediaType"] = "application/vnd.socalytics.facts+json";
+            manifest["factCount"] = facts.Count;
+        }
+
         mutate?.Invoke(manifest);
         var manifestBytes = Encoding.UTF8.GetBytes(manifest.ToJsonString());
         var runId = Guid.Parse(manifest["scope"]!["runId"]!.GetValue<string>());
@@ -41,14 +55,39 @@ internal static class ResultObjectsHelper
         var location = IssueResultGrantsHandler.ResultLocation(runId, jobId, attemptId);
 
         await DeclareAsync(c, attemptId, "manifest.json", manifestBytes, ct);
-        await DeclareAsync(c, attemptId, "facts.json", Artifact, ct);
+        await DeclareAsync(c, attemptId, "facts.json", artifact, ct);
         if (uploadManifest)
         {
             await PutAsync(rustFs, location + "manifest.json", manifestBytes, ct);
         }
 
-        await PutAsync(rustFs, location + "facts.json", Artifact, ct);
+        await PutAsync(rustFs, location + "facts.json", artifact, ct);
         return new PreparedResult(location + "manifest.json", DigestOf(manifestBytes), manifest);
+    }
+
+    private static byte[] FactArtifactBytes(JsonObject manifest, IReadOnlyList<FactSpec> facts)
+    {
+        var provenance = manifest["provenance"]!;
+        var artifact = new JsonObject
+        {
+            ["contractVersion"] = "1.0.0",
+            ["capability"] = new JsonObject
+            {
+                ["id"] = provenance["capability"]!["id"]!.GetValue<string>(),
+                ["version"] = provenance["capability"]!["version"]!.GetValue<string>(),
+            },
+            ["schemaVersion"] = provenance["schemaVersion"]!.GetValue<string>(),
+            ["outputType"] = manifest["outputType"]!.GetValue<string>(),
+            ["facts"] = new JsonArray(facts.Select(f => (JsonNode)new JsonObject
+            {
+                ["kind"] = f.Kind,
+                ["startMs"] = f.StartMs,
+                ["endMs"] = f.EndMs,
+                ["confidence"] = 0.5,
+                ["payload"] = new JsonObject { ["k"] = f.Kind },
+            }).ToArray()),
+        };
+        return Encoding.UTF8.GetBytes(artifact.ToJsonString());
     }
 
     public static async Task ApplyAsync(

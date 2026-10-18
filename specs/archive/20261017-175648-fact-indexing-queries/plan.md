@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-175648-fact-indexing-queries` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-175648-fact-indexing-queries/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-175648-fact-indexing-queries/spec.md`
 
 ## Summary
 
@@ -96,7 +96,7 @@ verifier check, one simulated-Analyst change.
 
 | Principle | Status | Evidence |
 | --- | --- | --- |
-| I. Architecture is the design authority | Pass | Implements [Segment And Match Analysis Scope](../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope), [Result Manifest And Lineage](../../docs/architecture/analysts-models-and-hardware.md#result-manifest-and-lineage), and [Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access); the member read and the fact-artifact contract are added to the narratives now (see Architecture Updates). |
+| I. Architecture is the design authority | Pass | Implements [Segment And Match Analysis Scope](../../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope), [Result Manifest And Lineage](../../../docs/architecture/analysts-models-and-hardware.md#result-manifest-and-lineage), and [Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access); the member read and the fact-artifact contract are added to the narratives now (see Architecture Updates). |
 | II. Source-area ownership | Pass | Platform code in `src/platform/`, contract in `contracts/analysis/`, simulated Analyst in `src/analysts/manager/`; no new `src/` child. |
 | III. API-first control plane | Pass | Members read only through `/api/v1`; the fact envelope is a JSON Schema 2020-12 contract; no video bytes; payloads are metadata. |
 | IV. Evidence over claims | Pass | Contract, integration, host, end-to-end, and Manager tests (FR-024); nothing is presented as production readiness. |
@@ -109,12 +109,12 @@ Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 
 ### Narratives
 
-- [Match Data Pipeline → Segment And Match Analysis Scope](../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope): fact indexing at acceptance and the ordered, match-wide fact stream, now also read by members.
-- [Analysts, Models, and Hardware → Result Manifest And Lineage](../../docs/architecture/analysts-models-and-hardware.md#result-manifest-and-lineage): fact artifacts, their validation, and indexing in stamp metadata.
-- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access): the member-facing capability-scoped fact read with coverage and provenance.
-- [Contracts And Compatibility → Contract Authority and Scope And Dependencies](../../docs/architecture/contracts-and-compatibility.md#scope-and-dependencies): the new `fact-artifact` contract.
-- [Platform Implementation Profile → Data Organization and Acceptance Evidence](../../docs/architecture/platform-implementation.md#data-organization): indexed facts as Analysis data and the new evidence.
-- [Job Processing](../../docs/architecture/job-processing.md) step 4 and the completion sequence ("Accept completion and index facts"), which become true without design change.
+- [Match Data Pipeline → Segment And Match Analysis Scope](../../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope): fact indexing at acceptance and the ordered, match-wide fact stream, now also read by members.
+- [Analysts, Models, and Hardware → Result Manifest And Lineage](../../../docs/architecture/analysts-models-and-hardware.md#result-manifest-and-lineage): fact artifacts, their validation, and indexing in stamp metadata.
+- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access): the member-facing capability-scoped fact read with coverage and provenance.
+- [Contracts And Compatibility → Contract Authority and Scope And Dependencies](../../../docs/architecture/contracts-and-compatibility.md#scope-and-dependencies): the new `fact-artifact` contract.
+- [Platform Implementation Profile → Data Organization and Acceptance Evidence](../../../docs/architecture/platform-implementation.md#data-organization): indexed facts as Analysis data and the new evidence.
+- [Job Processing](../../../docs/architecture/job-processing.md) step 4 and the completion sequence ("Accept completion and index facts"), which become true without design change.
 
 ### Design updates (applied now, worded as decided but not implemented)
 
@@ -145,7 +145,7 @@ not the whole job.
 ### Documentation (this feature)
 
 ```text
-specs/20261017-175648-fact-indexing-queries/
+specs/archive/20261017-175648-fact-indexing-queries/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output

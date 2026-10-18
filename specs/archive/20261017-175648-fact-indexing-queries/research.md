@@ -25,7 +25,7 @@
   `startMs`/`endMs` (non-negative integers, `endMs > startMs`), `confidence`
   (0..1), and `payload` (a JSON object at most 16 KiB serialized).
 - **Rationale**: Capability payload semantics belong to the capability owners
-  ([Contracts And Compatibility → Semantic Ownership](../../docs/architecture/contracts-and-compatibility.md#semantic-ownership));
+  ([Contracts And Compatibility → Semantic Ownership](../../../docs/architecture/contracts-and-compatibility.md#semantic-ownership));
   the Analyst manifest declares only `output.schemaVersion`, so there is no
   payload schema to validate against yet.
 - **Alternatives considered**: importing per-capability payload schemas from
@@ -155,7 +155,7 @@
   version basis, the selection, and the page cursor; `If-None-Match` → `304`.
   Reads are not audited, like `getAnalysisRun`.
 - **Rationale**: Reuses the established member-read pattern and the
-  [representation conventions](../../docs/architecture/contracts-and-compatibility.md#representation-conventions)
+  [representation conventions](../../../docs/architecture/contracts-and-compatibility.md#representation-conventions)
   for views.
 
 ## R12 — Simulated Analyst facts
