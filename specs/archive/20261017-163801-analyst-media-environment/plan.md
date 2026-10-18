@@ -47,7 +47,7 @@ No gate exception is needed.
 
 None: this standalone environment feature changes only the two environment action folders. Its pins, fixture checks, and project-verification convention are environment-local executable guidance; they introduce no product component, topology, protocol, canonical contract, or production profile.
 
-The architecture review checked [Analyst Technology](../../docs/architecture/platform-implementation.md#analyst-technology), [Analyst Containers](../../docs/architecture/analysts-models-and-hardware.md#analyst-containers), [Analytics](../../docs/architecture/tenancy-and-technology.md#analytics), [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md), and [On-Demand Video Segmentation](../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation). The existing adopted Python/`uv` direction is unchanged. The statement that the internal Analyst SDK is planned remains true, as do the planned Python transport-client and real media-processing boundaries.
+The architecture review checked [Analyst Technology](../../../docs/architecture/platform-implementation.md#analyst-technology), [Analyst Containers](../../../docs/architecture/analysts-models-and-hardware.md#analyst-containers), [Analytics](../../../docs/architecture/tenancy-and-technology.md#analytics), [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md), and [On-Demand Video Segmentation](../../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation). The existing adopted Python/`uv` direction is unchanged. The statement that the internal Analyst SDK is planned remains true, as do the planned Python transport-client and real media-processing boundaries.
 
 No architecture status statement becomes false when tooling alone merges. Do not mark SDK, capability, Segment Service, client generation, or production behavior implemented. No architecture file changes or `docs/architecture/` documentation task are required; environment-local documentation remains inside the permitted action folders. Downstream product plans must independently adopt their actual source layouts and correct their own implementation-status statements.
 
@@ -56,7 +56,7 @@ No architecture status statement becomes false when tooling alone merges. Do not
 ### Documentation (this feature)
 
 ```text
-specs/20261017-163801-analyst-media-environment/
+specs/archive/20261017-163801-analyst-media-environment/
   spec.md
   plan.md
   research.md

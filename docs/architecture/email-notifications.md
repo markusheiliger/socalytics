@@ -18,7 +18,10 @@ Email carries only transactional account and workflow messages:
   [Fleet Visibility In The Web UI](analyst-manager.md#fleet-visibility-in-the-web-ui)).
 - **Account messages**: verification of a member's email address and, each
   through its own later specification, self-service password recovery and
-  invitations.
+  invitations. Password recovery is decided as described in
+  [Password Recovery](#password-recovery) and not yet implemented;
+  invitations are decided as described in
+  [Member Invitations](#member-invitations) and not yet implemented.
 
 The platform never sends marketing, newsletters, digests, or bulk messages.
 Every message type is introduced by the specification that needs it; this
@@ -48,8 +51,12 @@ document defines the rules all of them follow.
 
 - Each notification type is on by default for a member once their address is
   verified, and each member can turn each type off and on again.
-- Account messages (address verification and, once specified, password
-  recovery) are always sent and cannot be turned off.
+- Account messages (address verification and, once implemented, password
+  recovery; see [Password Recovery](#password-recovery)) are always sent and
+  cannot be turned off. Invitations (decided, not yet implemented; see
+  [Member Invitations](#member-invitations)) are always sent as well, but they
+  address a person who is not yet a member, so they never appear among a
+  member's preferences.
 - Recipients are resolved when the message is created, from current roles and
   memberships: a member who lost the role that a notification addresses
   receives no further messages of that type.
@@ -62,8 +69,10 @@ document defines the rules all of them follow.
   data, recordings, results, or agent content.
 - Notification links carry no credentials or tokens. Account messages that need
   a single-use token (verification, and later password recovery) define it in
-  their specification; such tokens are short-lived, single-use, and stored only
-  as hashes.
+  their specification (for password recovery, see
+  [Password Recovery](#password-recovery); for invitations, see
+  [Member Invitations](#member-invitations)); such tokens are short-lived,
+  single-use, and stored only as hashes.
 - Message text comes from translation keys, as the Web UI's does; English is
   the first language.
 
@@ -87,7 +96,8 @@ document defines the rules all of them follow.
   identity, and a message recorded as sent is never sent again; only a crash
   between the relay accepting a message and the platform recording it may cause one duplicate.
 - The platform keeps only minimal delivery records (message identity, type,
-  recipient member, state, and timestamps) and does not retain rendered message
+  recipient member (for invitations, once implemented, the invitation), state,
+  and timestamps) and does not retain rendered message
   bodies after delivery.
 - Coalescing of repeated notifications and per-recipient rate limits are
   explicit configuration. The first notification type, pending Analyst Manager
@@ -98,14 +108,103 @@ document defines the rules all of them follow.
   (Mailpit) as the stamp's relay, and automated tests use the same pinned image
   as a disposable container. No message leaves the developer's machine.
 
+## Password Recovery
+
+Self-service password recovery is decided as follows and not yet implemented.
+It is an account message for members who sign in with a local password; Club
+Admin-issued reset credentials and break-glass recovery (see
+[API And Identity](platform-implementation.md#api-and-identity)) stay
+unchanged.
+
+- From the Web UI sign-in page, anyone can request a recovery for an email
+  address. Every well-formed request performs the same lookup and receives the
+  same generic answer, no earlier than a configured minimum duration after
+  receipt, so the answer reveals neither whether the address belongs to a
+  member nor whether that member is eligible.
+- Only an active member with a local password whose current address is
+  verified and matches the request receives a message. When several eligible
+  members share the address, each receives its own message whose link applies
+  only to that member. Recovery never creates a local password, never changes
+  links to external identity providers, and never reactivates an account, so a
+  member who signs in only through a provider recovers at the provider.
+- The request writes a recovery record and the message into the transactional
+  email outbox in one unit of work. As for verification, the delivery worker
+  re-checks eligibility, generates the single-use token when it sends the
+  message, stores only its hash, and carries it in the link's URL fragment.
+- A newer request supersedes the member's older links. A link stops working
+  when it expires, is used, or when the member's security stamp (any password
+  change), address, address verification, or membership changes; every such
+  case fails with one neutral answer.
+- The link opens a public Web UI page that checks the token without using it,
+  shows the account name the link resets, and accepts a new password under the
+  existing policy. Completing it replaces the password, clears a pending
+  password-change requirement, uses the token, and ends every session of the
+  member; it creates no session and does not lift a sign-in lockout.
+- Recovery messages are limited per member per hour, counted from the delivery
+  records; requests and token checks are limited per client. Excess requests
+  for a member still receive the generic answer; excess client traffic is
+  refused with the time to wait.
+- Requests, issued messages, completions, and refused completions emit audit
+  events with masked addresses and never contain the token, password, or full
+  address.
+
+## Member Invitations
+
+Invitations by email are decided as follows and not yet implemented. They are
+an account message through which a Club Admin offers membership to a person;
+creating a member directly with a handed-over set-password or link credential
+(see [API And Identity](platform-implementation.md#api-and-identity)) stays
+unchanged.
+
+- Only Club Admins invite. An invitation names one email address, the account
+  name the Club Admin chooses for the new member, and optional team roles
+  (`Coach` or `Viewer` per team). It is a pending record, not a member: no
+  member account, role assignment, or member address exists until the invitee
+  accepts, so an invitee can never sign in, hold a session, or receive other
+  messages before acceptance.
+- A pending invitation, also once its link expired, reserves its account
+  name and address until it is accepted or revoked. Inviting an address that
+  is the current address of a member or of another such invitation, or an
+  account name that is taken or reserved, is refused with the conflict only,
+  which a Club Admin may already know.
+- Creating an invitation writes it and its message into the transactional
+  email outbox in one unit of work. The delivery worker re-checks that the
+  invitation is still pending and that the message carries its current link,
+  generates the single-use token when it sends the message, stores only its
+  hash, and carries it in the link's URL fragment, as for
+  verification and recovery. The message names only the club and the link's
+  lifetime.
+- The link opens a public Web UI page that checks the token without using it,
+  shows the club and the account name, and accepts a password under the
+  existing policy. Accepting creates the active member with that account name
+  and password, records the invited address as verified (receipt of the link
+  proves control of it), assigns the invited team roles, uses the token, and
+  creates no session. Acceptance always sets a local password; a Club Admin
+  links an external identity afterwards with the existing link credential.
+- Club Admins list invitations as pending, expired (the current link's
+  lifetime passed), accepted, or revoked, with the delivery state of the latest
+  message. They can resend a pending or expired invitation, which sends a new
+  link and invalidates the previous one, and revoke a pending or expired one,
+  which releases its reservations; both are conditional on the version last
+  seen.
+  Expired, superseded, revoked, used, and unknown links fail with one neutral
+  answer.
+- Resends are limited per invitation per hour, and link checks and
+  acceptances per client. Creation, issued messages, resends, revocations,
+  acceptances, and refused acceptances emit audit events with masked
+  addresses and never contain the token, password, or full address.
+
 ## Security And Governance
 
 - Submission to the relay crosses the trust boundary `BND-010` (platform to
   external email relay). Messages become copies outside the stamp's control,
   which is why their content stays minimal.
 - Setting, changing, verifying, and removing an address and changing
-  preferences emit audit events with masked addresses; delivery outcomes are
-  counted and logged without full addresses or message bodies (`THR-008`).
+  preferences emit audit events with masked addresses (password-recovery and
+  invitation events follow the same rule; see [Password Recovery](#password-recovery)
+  and [Member Invitations](#member-invitations));
+  delivery outcomes are counted and logged without full addresses or message
+  bodies (`THR-008`).
 - Threat `THR-012` covers spoofed or misdirected platform mail. Minimal
   content, verified addresses, no credentials in notification links, and the
   production sender authentication below are its controls.
@@ -120,5 +219,11 @@ These values are **Open / Blocking** for production and are recorded in the
 - bounce and complaint handling, and when an address stops receiving messages
 - retention of delivery records
 - rate limits and coalescing windows
+- the password-recovery link lifetime, the minimum answer duration of recovery
+  requests, and the recovery message and client limits (decided, not yet
+  implemented; see [Password Recovery](#password-recovery))
+- the invitation link lifetime, the resend limit per invitation, and the
+  per-client limit of invitation link checks and acceptances (decided, not yet
+  implemented; see [Member Invitations](#member-invitations))
 
 Return to the [architecture index](README.md).

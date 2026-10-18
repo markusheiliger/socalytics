@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "description": "Exact, hash-verified CPU toolchain for Analyst Python projects and synthetic media checks. Sole source of these pins; changing any entry requires a standalone environment change.",
+  "supportedHost": {
+    "os": "Linux",
+    "architecture": "x86_64"
+  },
+  "installRoot": "analyst-media-tools",
+  "tools": [
+    {
+      "id": "cpython",
+      "name": "CPython",
+      "version": "3.12.15",
+      "publisher": "astral-sh/python-build-standalone",
+      "release": "20261013",
+      "releaseUrl": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261013",
+      "releaseImmutable": true,
+      "archive": {
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261013/cpython-3.12.15%2B20261013-x86_64-unknown-linux-gnu-install_only.tar.gz",
+        "fileName": "cpython-3.12.15+20261013-x86_64-unknown-linux-gnu-install_only.tar.gz",
+        "format": "tar.gz",
+        "sha256": "5d546fc004fc2435fa142eb8f42ed8de5eb4725963dc22f7e6671014a80eb560"
+      },
+      "extractedRoot": "python",
+      "executables": {
+        "python": "python/bin/python3.12"
+      },
+      "versionCheck": {
+        "executable": "python",
+        "arguments": ["--version"],
+        "expectedOutput": "Python 3.12.15"
+      },
+      "environmentVariable": "SOCALYTICS_PYTHON",
+      "pathDirectories": ["python/bin"],
+      "licenseLocations": [
+        "python/lib/python3.12/LICENSE.txt"
+      ],
+      "provenanceLocation": "https://github.com/astral-sh/python-build-standalone/releases/tag/20261013"
+    },
+    {
+      "id": "uv",
+      "name": "uv",
+      "version": "0.13.1",
+      "publisher": "astral-sh/uv",
+      "release": "0.13.1",
+      "releaseUrl": "https://github.com/astral-sh/uv/releases/tag/0.13.1",
+      "releaseImmutable": true,
+      "archive": {
+        "url": "https://github.com/astral-sh/uv/releases/download/0.13.1/uv-x86_64-unknown-linux-gnu.tar.gz",
+        "fileName": "uv-x86_64-unknown-linux-gnu.tar.gz",
+        "format": "tar.gz",
+        "sha256": "eadd9d27c134ab5ac1ffd4473b97a741407f3ea238288f03121fc4deddf90220"
+      },
+      "extractedRoot": "uv-x86_64-unknown-linux-gnu",
+      "executables": {
+        "uv": "uv-x86_64-unknown-linux-gnu/uv"
+      },
+      "versionCheck": {
+        "executable": "uv",
+        "arguments": ["--version"],
+        "expectedOutput": "uv 0.13.1"
+      },
+      "pathDirectories": ["uv-x86_64-unknown-linux-gnu"],
+      "licenseLocations": [],
+      "provenanceLocation": "https://github.com/astral-sh/uv/releases/tag/0.13.1"
+    },
+    {
+      "id": "ffmpeg",
+      "name": "FFmpeg and ffprobe (LGPL build)",
+      "version": "n8.1.3-9-g29e619e767",
+      "buildRevision": "g29e619e767",
+      "publisher": "BtbN/FFmpeg-Builds",
+      "release": "autobuild-2026-09-30-13-08",
+      "releaseUrl": "https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-09-30-13-08",
+      "releaseImmutable": false,
+      "integrityBoundary": "archive.sha256",
+      "variant": "lgpl",
+      "archive": {
+        "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-30-13-08/ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1.tar.xz",
+        "fileName": "ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1.tar.xz",
+        "format": "tar.xz",
+        "sha256": "dfa863a00ca81f1bdf58a372b18cff4820f0017e55de32778de8ecd8ed92a02e"
+      },
+      "extractedRoot": "ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1",
+      "executables": {
+        "ffmpeg": "ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1/bin/ffmpeg",
+        "ffprobe": "ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1/bin/ffprobe"
+      },
+      "versionCheck": {
+        "executable": "ffmpeg",
+        "arguments": ["-hide_banner", "-version"],
+        "expectedOutput": "ffmpeg version n8.1.3-9-g29e619e767",
+        "additionalChecks": [
+          {
+            "executable": "ffprobe",
+            "arguments": ["-hide_banner", "-version"],
+            "expectedOutput": "ffprobe version n8.1.3-9-g29e619e767"
+          }
+        ]
+      },
+      "pathDirectories": ["ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1/bin"],
+      "licenseLocations": [
+        "ffmpeg-n8.1.3-9-g29e619e767-linux64-lgpl-8.1/LICENSE.txt"
+      ],
+      "provenanceLocation": "https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-09-30-13-08",
+      "retentionPolicy": "https://github.com/BtbN/FFmpeg-Builds#release-retention-policy"
+    }
+  ]
+}

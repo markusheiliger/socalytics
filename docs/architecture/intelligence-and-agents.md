@@ -51,7 +51,9 @@ Representative tools resolve as follows:
 - `get_tactical_phases()` queries accepted `tactical-phase-aggregation`
     summaries.
 - `get_video_clip()` resolves accepted evidence time ranges to short-lived
-    presigned media access.
+    presigned media access (its API side, the member evidence-media operation
+    of [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access),
+    is decided, not yet implemented; the MCP tool is future work).
 
 When required analysis is unavailable or incomplete, MCP reports that state. It
 does not infer missing concepts from bounding boxes, silently trigger ad hoc LLM
@@ -169,6 +171,15 @@ The planned control-plane API exposes versioned submission, private query,
 claim, lease, checkpoint, consultation, completion, and lifecycle operations.
 Agent Orchestration will use PostgreSQL, optimistic concurrency, idempotency,
 fencing, a transactional outbox, bounded recovery, and tombstone reapplication.
+
+The first implementation is decided and not yet implemented: it covers direct
+`User -> SA` triage conversations for the Specialist Agents the stamp enables
+(the first catalog wave), with conversation creation, participants, submission,
+private conditional reads, and the workload claim, lease, checkpoint,
+completion, and failure operations, executed in Development and Test by a
+simulated agent workload that stands in for Hermes. Consultations, Coach Agents,
+lifecycle operations, and tombstones remain later work. See
+`specs/20261017-204332-agent-orchestration-invocations`.
 
 Hermes is a separate Python OCI service using Microsoft Agent Framework for
 agent execution and CA-to-SA orchestration. Framework-specific types remain
@@ -292,6 +303,22 @@ checkpoint, consultation, and completion replay idempotent. Only the current
 attempt and fencing token can mutate active state; an expired, duplicate, or
 late operation receives an explicit stale disposition.
 
+The workload identity is decided and not yet implemented: each agent runtime is
+a workload client configured in the stamp's protected deployment configuration
+with an ECDSA public key, not paired by members. It obtains short-lived access
+tokens from a minimal Agent Orchestration token endpoint with the OAuth 2.0
+client credentials grant, a `private_key_jwt` assertion, and a DPoP proof, the
+same proof rules as Analyst Manager machine access, and calls the workload
+operations with DPoP-bound tokens; disabling a client stops its tokens at once.
+With NATS JWT authentication it obtains short-lived queue credentials limited to
+pulling and acknowledging agent work notifications. Each invocation stores the
+versioned execution policy (`direct-invocation/1`: attempt limit, lease and
+maximum attempt duration, envelope history bound, and length limits) that
+governs its retries, and each owner may have a configured number of unfinished
+invocations. Every workload operation carries an operation identifier recorded
+with a hash of its request, so a replay returns the recorded outcome and a
+conflicting reuse is refused.
+
 If Hermes stops or a lease expires, Agent Orchestration retains partial lineage, expires
 and fences the attempt, and creates a new attempt for the same logical
 invocation within versioned retry limits. Parent waiting edges and accepted
@@ -332,6 +359,17 @@ administrator, or security administrator receives no implicit ordinary read
 access. Exceptional governance review uses a separate purpose-limited
 operation and audits its actor, purpose, scope, affected resources, and outcome
 under Security and Data Governance.
+
+The role rules are decided and not yet implemented: Club Admins and Coaches of
+the owning team may create conversations and submit; Viewers may not. Ordinary
+reads are granted to the initiating user while active and holding Club Admin or
+a Coach or Viewer role on the owning team. Execution authority requires the
+initiating user to remain active and Club Admin or Coach of the team; Agent
+Orchestration re-evaluates it at claim, lease renewal, checkpoint, completion,
+and failure, and in a periodic check of active attempts, and a scope-lost
+invocation fails and is never retried. Supersession of the conversation's run
+is not scope loss: the conversation stays bound to its run and usable, and its
+read shows that the run is no longer the match's current run.
 
 Accepted advice has one append-oriented, ordered, idempotent lineage across its
 parent, consultations, and attempts. It retains the initiating actor and

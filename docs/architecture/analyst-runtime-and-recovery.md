@@ -126,6 +126,28 @@ container's output stays on the host as a bounded log for the operator; the
 platform receives only the sanitized failure category of the attempt
 completion.
 
+The interface is completed as follows (decided, not yet implemented; see
+[Analysts, Models, and Hardware](analysts-models-and-hardware.md#implementation-profile)
+for the Analyst SDK that consumes it): `/socalytics/job.json` holds the
+received Logical Job message byte for byte, and job messages of contract
+version 1.1.0 state the run's workflow and, for segment-scoped jobs, the
+segment identity and the half-open nominal window that result acceptance
+compares. The AM also writes a read-only attempt context to
+`/socalytics/attempt.json` (`contracts/analysis/analyst-attempt/v1`) with the
+claimed attempt's identity and number, and nothing else: no lease, fencing
+token, grant, or address.
+
+Segment media reaches an Analyst only through the AM (decided, not yet
+implemented): for a job whose message pins segment media, the AM obtains, for
+its current, unfenced attempt, the segment manifest and short-lived per-object
+read grants for the manifest and the media (`getAnalysisSegmentMedia`,
+response contract `contracts/analysis/segment-media/v1/`), verifies the
+manifest against the job's pinned checksum and the media against the
+manifest's digest and size within the attempt's staging bound, and stages both
+read-only at `/socalytics/media/` (`segment-manifest.json` and `segment.mp4`).
+The mount is absent for every other job, and the staged media is deleted with
+the attempt directory.
+
 ### Registration And Runtime Credentials
 
 The durable AM registration is not a durable bearer secret. The AM proves its
@@ -307,6 +329,10 @@ pair. Retry and fencing semantics remain identical across implementations.
 - read and stage accepted upstream results (manifests, artifacts, and coverage,
   digest-verified and size-bounded) into the attempt's read-only input mount
   before launching high-level attempts, and delete them when the attempt ends
+- read and stage a segment job's pinned segment manifest and media,
+  digest-verified and size-bounded, into the attempt's read-only media mount
+  before launch, and delete them when the attempt ends (decided, not yet
+  implemented)
 - pull the image digest that the job pins (the platform assigns it; the AM
   never selects an image) and refuse images outside the stamp's registry prefix
 - launch and constrain the selected Analyst container through the runtime

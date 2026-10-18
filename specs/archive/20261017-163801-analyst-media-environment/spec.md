@@ -116,16 +116,16 @@ A maintainer reviews a verification result before deciding whether a pull reques
 
 ### Dependencies
 
-- [Environment Verification Coverage](../archive/20261007-115855-environment-verification-coverage/spec.md) provides the existing setup and verification extension points; it is implemented.
-- [Sequential Platform Test Projects in Environment Verification](../archive/20261014-180324-fix-sequential-platform-tests/spec.md) provides the established sequential platform-test execution that this feature preserves; it is implemented.
-- [Web UI Verification Environment](../archive/20261012-145505-web-ui-environment/spec.md) provides the existing Web UI check and pinned tooling that this feature preserves; it is implemented.
+- [Environment Verification Coverage](../20261007-115855-environment-verification-coverage/spec.md) provides the existing setup and verification extension points; it is implemented.
+- [Sequential Platform Test Projects in Environment Verification](../20261014-180324-fix-sequential-platform-tests/spec.md) provides the established sequential platform-test execution that this feature preserves; it is implemented.
+- [Web UI Verification Environment](../20261012-145505-web-ui-environment/spec.md) provides the existing Web UI check and pinned tooling that this feature preserves; it is implemented.
 - The Python Analyst SDK and Segment Service are downstream consumers, not prerequisites. This feature MUST merge before their implementation requires the new tooling. The Docker Desktop runtime feature, now implemented, is not a prerequisite for environment setup or synthetic smoke checks.
 
 ### Architecture Alignment
 
-- [Analyst Technology](../../docs/architecture/platform-implementation.md#analyst-technology) and [Analytics](../../docs/architecture/tenancy-and-technology.md#analytics) establish the Python, locked-project, and canonical-contract direction.
-- [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md) governs shared schema authority and independent consumer validation.
-- [On-Demand Video Segmentation](../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation) motivates the media tooling; this feature does not select or implement the service architecture.
+- [Analyst Technology](../../../docs/architecture/platform-implementation.md#analyst-technology) and [Analytics](../../../docs/architecture/tenancy-and-technology.md#analytics) establish the Python, locked-project, and canonical-contract direction.
+- [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md) governs shared schema authority and independent consumer validation.
+- [On-Demand Video Segmentation](../../../docs/architecture/match-data-pipeline.md#on-demand-video-segmentation) motivates the media tooling; this feature does not select or implement the service architecture.
 - Exact tool versions and the extraction distribution are planning decisions, supported by compatibility, provenance, licensing, and installation evidence. No named model, dataset, production profile, or quality threshold is promoted by installing tools.
 
 ### Scope Boundaries
