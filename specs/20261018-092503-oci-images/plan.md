@@ -59,7 +59,7 @@ one publish exclusion, one test project, and documentation.
 | II. Source-area ownership | API and Migrator definitions in `src/platform`, Web UI definition in `src/clients/web`; no new `src/` child; tests in `src/platform/Tests`. | Pass |
 | III. API-first control plane | The Web UI image forwards API paths without business logic; video bytes keep going directly to object storage. | Pass |
 | IV. Evidence over claims | Docker-backed tests prove every requirement; images are not presented as deployment support or production readiness. | Pass |
-| V. Focused, minimal changes | No new package; only the npm script split and a publish exclusion touch existing projects. | Pass |
+| V. Focused, minimal changes | No new package; only the npm script split, a publish exclusion, the Infrastructure `InternalsVisibleTo` entry, and the `PersistenceArchitectureTests.cs` allow-list extension touch existing projects. | Pass |
 | Environment features | Needs .NET 10, Node.js 24, and Docker with `docker build`; all provided by `environment-setup` and the runner (research R9). No environment spec. | Pass |
 
 Post-design re-check: Pass; no violation needs Complexity Tracking.
