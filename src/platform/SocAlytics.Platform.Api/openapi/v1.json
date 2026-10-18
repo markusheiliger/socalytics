@@ -1601,6 +1601,17 @@
         ],
         "type": "object"
       },
+      "PasswordRecoveryCheckDto": {
+        "properties": {
+          "accountName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountName"
+        ],
+        "type": "object"
+      },
       "ProblemDetails": {
         "properties": {
           "detail": {
@@ -7199,6 +7210,130 @@
         ]
       }
     },
+    "/api/v1/password-recovery/checks": {
+      "post": {
+        "operationId": "checkPasswordRecovery",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordRecoveryCheckDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Password recovery"
+        ]
+      }
+    },
+    "/api/v1/password-recovery/completions": {
+      "post": {
+        "operationId": "completePasswordRecovery",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Password recovery"
+        ]
+      }
+    },
+    "/api/v1/password-recovery/requests": {
+      "post": {
+        "operationId": "requestPasswordRecovery",
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Password recovery"
+        ]
+      }
+    },
     "/api/v1/registry/analyst-images": {
       "get": {
         "operationId": "listAnalystImages",
@@ -8668,6 +8803,9 @@
     },
     {
       "name": "Self"
+    },
+    {
+      "name": "Password recovery"
     },
     {
       "name": "Club"
