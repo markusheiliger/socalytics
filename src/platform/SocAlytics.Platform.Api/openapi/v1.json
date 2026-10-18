@@ -62,6 +62,76 @@
         ],
         "type": "object"
       },
+      "AnalysisNodeInputCoverageDto": {
+        "properties": {
+          "accepted": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "blocked": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "coverageMode": {
+            "type": "string"
+          },
+          "failed": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "minimumAcceptedFraction": {
+            "format": "double",
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ]
+          },
+          "missing": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "skipped": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "upstreamNodeKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "upstreamNodeKey",
+          "coverageMode",
+          "minimumAcceptedFraction",
+          "accepted",
+          "failed",
+          "blocked",
+          "skipped",
+          "missing"
+        ],
+        "type": "object"
+      },
       "AnalysisNodeStatusDto": {
         "properties": {
           "blockedByNodeKey": {
@@ -78,6 +148,15 @@
           },
           "executionScope": {
             "type": "string"
+          },
+          "inputCoverage": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisNodeInputCoverageDto"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
           },
           "jobs": {
             "$ref": "#/components/schemas/AnalysisJobCountsDto"
@@ -105,7 +184,8 @@
           "executionScope",
           "state",
           "blockedByNodeKey",
-          "jobs"
+          "jobs",
+          "inputCoverage"
         ],
         "type": "object"
       },
