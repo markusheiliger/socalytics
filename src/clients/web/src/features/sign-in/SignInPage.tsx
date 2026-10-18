@@ -2,12 +2,13 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
+import Link from '@mui/material/Link';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useEffect, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useSearchParams } from 'react-router';
+import { Link as RouterLink, useSearchParams } from 'react-router';
 import type { IdentityProvider } from '../../platform/adapters/sessionAdapter';
 import { toPlatformFailure, type PlatformFailure } from '../../platform/failure';
 import { useSession } from '../../session/sessionContext';
@@ -115,6 +116,9 @@ export function SignInPage() {
         <Button type="submit" variant="contained" disabled={busy || !accountName.trim() || !password}>
           {busy ? t('signIn.submitting') : t('signIn.submit')}
         </Button>
+        <Link component={RouterLink} to="/password-recovery" variant="body2">
+          {t('signIn.forgotPassword')}
+        </Link>
         {providers.length > 0 && (
           <Stack component="section" spacing={1} aria-label={t('signIn.providersHeading')}>
             <Typography variant="body2">{t('signIn.providersHeading')}</Typography>
