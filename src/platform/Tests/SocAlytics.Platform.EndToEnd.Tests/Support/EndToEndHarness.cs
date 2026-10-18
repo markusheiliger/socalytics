@@ -245,6 +245,14 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         revoke.EnsureSuccessStatusCode();
     }
 
+    /// <summary>Sets <c>Registry:ManagerVersion:Minimum</c> (null or empty removes the minimum) and reloads the platform configuration.</summary>
+    public void SetMinimumManagerVersion(string? minimum)
+    {
+        var root = (IConfigurationRoot)Platform.Services.GetRequiredService<IConfiguration>();
+        root["Registry:ManagerVersion:Minimum"] = minimum ?? string.Empty;
+        root.Reload();
+    }
+
     public static async Task WaitAsync(Func<bool> condition, TimeSpan timeout, string failure, CancellationToken ct)
     {
         await WaitAsync(() => Task.FromResult(condition()), timeout, failure, ct);
