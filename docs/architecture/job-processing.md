@@ -225,10 +225,10 @@ run are serialized so that concurrent completions cannot hide each other's
 accepted results.
 
 Match-scoped foundational jobs wait for the required segment results declared
-by their capability. When a capability permits partial coverage, its job
-snapshot records the accepted, failed, missing, and skipped segments and the
-result reports that coverage explicitly; partial input is never mistaken for a
-complete match barrier.
+by their capability. When a capability permits partial coverage, its input
+snapshot records each expected upstream segment as `accepted`, `failed`, or
+`blocked`, and the result reports the same coverage explicitly; partial input
+is never mistaken for a complete match barrier.
 
 Partial-coverage barriers are implemented as development evidence against the
 simulated Analyst. A match-scoped capability declares partial coverage per required or conditional
