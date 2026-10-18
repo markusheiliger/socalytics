@@ -55,7 +55,7 @@ public sealed record UnregistrationResult(string ManagerId, string State);
 
 public sealed record Problem(
     string Type, string Title, int Status, string Code, string CorrelationId,
-    string? Detail = null, string? Instance = null, string? RegistrationState = null);
+    string? Detail = null, string? Instance = null, string? RegistrationState = null, string? MinimumManagerVersion = null);
 
 public static class PlatformJson
 {

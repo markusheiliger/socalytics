@@ -154,6 +154,13 @@ public sealed class QueueCredentialProvider(
         }
 
         key.Dispose();
+        if (result.IsVersionRefusal)
+        {
+            minimumVersion?.MarkRefused(result.MinimumManagerVersion);
+            Discard("version below minimum");
+            return IdlePoll;
+        }
+
         if (result.Kind is WorkResultKind.Inactive or WorkResultKind.Refused)
         {
             Discard("refused");

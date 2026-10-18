@@ -16,7 +16,17 @@ public enum WorkResultKind
     Transient,
 }
 
-public sealed record WorkResult<T>(WorkResultKind Kind, T? Value = null, string? Code = null) where T : class;
+public sealed record WorkResult<T>(
+    WorkResultKind Kind, T? Value = null, string? Code = null, string? MinimumManagerVersion = null) where T : class
+{
+    /// <summary>The platform refused the operation because this Manager is below the stamp's minimum version.</summary>
+    public bool IsVersionRefusal => Kind == WorkResultKind.Refused && Code == VersionRefusal.Code;
+}
+
+public static class VersionRefusal
+{
+    public const string Code = "analyst-manager-version-below-minimum";
+}
 
 public sealed record QueueCapability(string Id, string Version);
 
