@@ -41,7 +41,7 @@ description: "Task list for Agent Orchestration Direct Invocations"
 
 ### Contract index
 
-- [ ] T007 Add index rows for the three `contracts/agent-orchestration/*/v1` contracts to `contracts/README.md` following the existing `$id` convention, so that `ContractCatalog`, `ContractIndexTests`, and `SchemaMetaValidationTests` in `src/platform/Tests/SocAlytics.Platform.Contracts.Tests` load and validate them and their fixtures; run `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests` (FR-036)
+- [x] T007 Add index rows for the three `contracts/agent-orchestration/*/v1` contracts to `contracts/README.md` following the existing `$id` convention, so that `ContractCatalog`, `ContractIndexTests`, and `SchemaMetaValidationTests` in `src/platform/Tests/SocAlytics.Platform.Contracts.Tests` load and validate them and their fixtures; run `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests` (FR-036)
 
 ### Stores, scope, and transport
 
