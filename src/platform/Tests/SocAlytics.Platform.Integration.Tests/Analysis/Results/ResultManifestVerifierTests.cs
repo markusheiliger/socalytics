@@ -162,9 +162,22 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
         string? declaredManifestDigest = null,
         long maxManifestBytes = 1048576,
         bool lineageUpstream = true,
-        IObjectStorage? storage = null)
+        IObjectStorage? storage = null,
+        IReadOnlyList<(string Name, byte[] Bytes, string MediaType)>? extraArtifacts = null,
+        Action<AnalysisResultOptions>? configure = null)
     {
         var manifest = BaselineManifest(s);
+        foreach (var (name, body, mediaType) in extraArtifacts ?? [])
+        {
+            ((JsonArray)manifest["artifacts"]!).Add(new JsonObject
+            {
+                ["name"] = name,
+                ["digest"] = DigestOf(body),
+                ["sizeBytes"] = body.Length,
+                ["mediaType"] = mediaType,
+            });
+        }
+
         mutate?.Invoke(manifest);
         var bytes = Encoding.UTF8.GetBytes(manifest.ToJsonString());
         var ct = TestContext.Current.CancellationToken;
@@ -182,6 +195,12 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
 
         var declarations = new InMemoryDeclarations();
         var now = DateTimeOffset.UtcNow;
+        foreach (var (name, body, _) in extraArtifacts ?? [])
+        {
+            await PutAsync(s.Location + name, body);
+            declarations.Items.Add(new ResultObjectDeclaration(s.AttemptId, name, body.Length, DigestOf(body), now));
+        }
+
         if (declareManifest)
         {
             declarations.Items.Add(new ResultObjectDeclaration(s.AttemptId, "manifest.json", bytes.Length, declaredManifestDigest ?? DigestOf(bytes), now));
@@ -193,10 +212,52 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
             storage ?? store.CreateObjectStorage(),
             new JsonSchemaContractValidator(),
             declarations,
-            Options.Create(new AnalysisResultOptions { MaxManifestBytes = maxManifestBytes }));
+            Options.Create(NewOptions(maxManifestBytes, configure)));
         var request = BuildRequest(s, reportedChecksum ?? DigestOf(bytes), s.Location + "manifest.json", lineageUpstream);
         return new Prepared(verifier, request, declarations, bytes);
     }
+
+    private static AnalysisResultOptions NewOptions(long maxManifestBytes, Action<AnalysisResultOptions>? configure)
+    {
+        var result = new AnalysisResultOptions
+        {
+            MaxManifestBytes = maxManifestBytes,
+            MaxFactArtifactBytes = 16 * 1024 * 1024,
+            MaxFactPayloadBytes = 16 * 1024,
+            MaxFactsPerResult = 50_000,
+        };
+        configure?.Invoke(result);
+        return result;
+    }
+
+    private const string FactMediaType = "application/vnd.socalytics.facts+json";
+
+    private static JsonObject Fact(long start, long end, string kind = "detection", double confidence = 0.9, JsonNode? payload = null) => new()
+    {
+        ["kind"] = kind,
+        ["startMs"] = start,
+        ["endMs"] = end,
+        ["confidence"] = confidence,
+        ["payload"] = payload ?? new JsonObject { ["x"] = 1 },
+    };
+
+    private static (string Name, byte[] Bytes, string MediaType) FactArtifact(string name, Action<JsonObject>? mutate, params JsonObject[] facts)
+    {
+        var root = new JsonObject
+        {
+            ["contractVersion"] = "1.0.0",
+            ["capability"] = new JsonObject { ["id"] = "player-detection", ["version"] = "1.0.0" },
+            ["schemaVersion"] = "1.0.0",
+            ["outputType"] = "foundational-facts",
+            ["facts"] = new JsonArray(facts.Select(f => (JsonNode)f).ToArray()),
+        };
+        mutate?.Invoke(root);
+        return (name, Encoding.UTF8.GetBytes(root.ToJsonString()), FactMediaType);
+    }
+
+    private static (string Name, byte[] Bytes, string MediaType) FactArtifact(string name, params JsonObject[] facts) => FactArtifact(name, null, facts);
+
+    private static void SetFactCount(JsonObject manifest, int count) => manifest["factCount"] = count;
 
     private static ResultVerificationRequest BuildRequest(Scenario s, string checksum, string reference, bool lineageUpstream)
     {
@@ -435,6 +496,238 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
         await ShouldRejectAsync(p, "result-validity-invalid");
     }
 
+    [Fact]
+    public async Task Check_12_valid_fact_artifacts_are_returned_in_artifact_then_fact_order()
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, 3),
+            extraArtifacts:
+            [
+                FactArtifact("facts-a.json", Fact(600000, 610000, "a"), Fact(610000, 620000, "b")),
+                FactArtifact("facts-b.json", Fact(890000, 900000, "c", 1, new JsonObject())),
+                ("inputs.json", Encoding.UTF8.GetBytes("not json at all"), "application/json"),
+            ]);
+
+        var outcome = await p.Verifier.VerifyAsync(p.Request, TestContext.Current.CancellationToken);
+
+        outcome.Status.ShouldBe(ResultVerificationStatus.Valid);
+        outcome.Manifest!.Facts.Select(f => f.Kind).ShouldBe(["a", "b", "c"]);
+        outcome.Manifest.Facts[0].StartMs.ShouldBe(600000);
+        outcome.Manifest.Facts[2].EndMs.ShouldBe(900000);
+        outcome.Manifest.Facts[2].PayloadJson.ShouldBe("{}");
+    }
+
+    [Fact]
+    public async Task Check_12_result_without_facts_has_an_empty_fact_list()
+    {
+        var p = await PrepareAsync(NewScenario(false));
+
+        var outcome = await p.Verifier.VerifyAsync(p.Request, TestContext.Current.CancellationToken);
+
+        outcome.Manifest!.Facts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Check_12_opaque_artifact_with_another_media_type_is_never_parsed()
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            extraArtifacts: [("facts-like.json", Encoding.UTF8.GetBytes("{\"facts\":[{\"bad\":true}]}"), "application/json")]);
+
+        var outcome = await p.Verifier.VerifyAsync(p.Request, TestContext.Current.CancellationToken);
+
+        outcome.Status.ShouldBe(ResultVerificationStatus.Valid);
+        outcome.Manifest!.Facts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Check_12_fact_count_without_a_fact_artifact_is_a_mismatch()
+    {
+        var p = await PrepareAsync(NewScenario(false), m => SetFactCount(m, 2));
+
+        await ShouldRejectAsync(p, "result-facts-count-mismatch");
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task Check_12_fact_total_differing_from_the_count_is_a_mismatch(int declared)
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, declared),
+            extraArtifacts: [FactArtifact("fact-data.json", Fact(600000, 610000), Fact(610000, 620000))]);
+
+        await ShouldRejectAsync(p, "result-facts-count-mismatch");
+    }
+
+    [Fact]
+    public async Task Check_12_oversize_fact_artifact_is_too_large_by_declared_size()
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, 1),
+            extraArtifacts: [FactArtifact("fact-data.json", Fact(600000, 610000))],
+            configure: o => o.MaxFactArtifactBytes = 10);
+
+        await ShouldRejectAsync(p, "result-facts-too-large");
+    }
+
+    [Fact]
+    public async Task Check_12_digest_of_read_bytes_differing_from_the_manifest_is_an_invalid_artifact()
+    {
+        var s = NewScenario(false);
+        var good = FactArtifact("fact-data.json", Fact(600000, 610000));
+        var p = await PrepareAsync(s, m => SetFactCount(m, 1), extraArtifacts: [good]);
+        var tampered = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(good.Bytes).Replace("detection", "detectioX", StringComparison.Ordinal));
+        await PutAsync(s.Location + "fact-data.json", tampered);
+
+        // the stored object no longer hashes to the manifest digest, so the storage-attested check already fails closed
+        await ShouldRejectAsync(p, "result-artifact-invalid");
+    }
+
+    [Fact]
+    public async Task Check_12_unparseable_fact_artifact_is_invalid()
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, 1),
+            extraArtifacts: [("fact-data.json", Encoding.UTF8.GetBytes("{not json"), FactMediaType)]);
+
+        await ShouldRejectAsync(p, "result-facts-invalid");
+    }
+
+    [Theory]
+    [InlineData("contract")]
+    [InlineData("capability-id")]
+    [InlineData("capability-version")]
+    [InlineData("schema-version")]
+    [InlineData("output-type")]
+    [InlineData("extra-property")]
+    [InlineData("end-not-after-start")]
+    [InlineData("confidence-above-one")]
+    [InlineData("payload-not-object")]
+    public async Task Check_12_contract_or_header_violations_are_invalid(string defect)
+    {
+        var fact = Fact(600000, 610000);
+        Action<JsonObject> mutate = defect switch
+        {
+            "contract" => r => r["contractVersion"] = "1.1.0",
+            "capability-id" => r => r["capability"]!["id"] = "other-capability",
+            "capability-version" => r => r["capability"]!["version"] = "2.0.0",
+            "schema-version" => r => r["schemaVersion"] = "2.0.0",
+            "output-type" => r => r["outputType"] = "soccer-concepts",
+            "extra-property" => r => r["extra"] = true,
+            "end-not-after-start" => r => r["facts"]![0]!["endMs"] = 600000,
+            "confidence-above-one" => r => r["facts"]![0]!["confidence"] = 1.5,
+            _ => r => r["facts"]![0]!["payload"] = "text",
+        };
+        var p = await PrepareAsync(NewScenario(false), m => SetFactCount(m, 1), extraArtifacts: [FactArtifact("fact-data.json", mutate, fact)]);
+
+        await ShouldRejectAsync(p, "result-facts-invalid");
+    }
+
+    [Fact]
+    public async Task Check_12_payload_over_the_limit_is_too_large()
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, 1),
+            extraArtifacts: [FactArtifact("fact-data.json", Fact(600000, 610000, payload: new JsonObject { ["text"] = new string('p', 300) }))],
+            configure: o => o.MaxFactPayloadBytes = 256);
+
+        await ShouldRejectAsync(p, "result-facts-too-large");
+    }
+
+    [Fact]
+    public async Task Check_12_payload_at_the_limit_is_accepted()
+    {
+        var payload = new JsonObject { ["text"] = new string('p', 20) };
+        var size = Encoding.UTF8.GetByteCount(payload.ToJsonString());
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, 1),
+            extraArtifacts: [FactArtifact("fact-data.json", Fact(600000, 610000, payload: payload))],
+            configure: o => o.MaxFactPayloadBytes = size);
+
+        var outcome = await p.Verifier.VerifyAsync(p.Request, TestContext.Current.CancellationToken);
+
+        outcome.Status.ShouldBe(ResultVerificationStatus.Valid);
+    }
+
+    [Fact]
+    public async Task Check_12_more_facts_than_the_limit_across_artifacts_are_too_large()
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, 3),
+            extraArtifacts:
+            [
+                FactArtifact("facts-a.json", Fact(600000, 610000), Fact(610000, 620000)),
+                FactArtifact("facts-b.json", Fact(620000, 630000)),
+            ],
+            configure: o => o.MaxFactsPerResult = 2);
+
+        await ShouldRejectAsync(p, "result-facts-too-large");
+    }
+
+    [Fact]
+    public async Task Check_12_facts_at_the_limit_are_accepted()
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, 2),
+            extraArtifacts: [FactArtifact("fact-data.json", Fact(600000, 610000), Fact(610000, 620000))],
+            configure: o => o.MaxFactsPerResult = 2);
+
+        var outcome = await p.Verifier.VerifyAsync(p.Request, TestContext.Current.CancellationToken);
+
+        outcome.Status.ShouldBe(ResultVerificationStatus.Valid);
+    }
+
+    [Theory]
+    [InlineData(599999, 610000)]
+    [InlineData(890000, 900001)]
+    [InlineData(900000, 910000)]
+    [InlineData(0, 600000)]
+    public async Task Check_12_fact_outside_the_validity_window_is_out_of_window(long start, long end)
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, 1),
+            extraArtifacts: [FactArtifact("fact-data.json", Fact(start, end))]);
+
+        await ShouldRejectAsync(p, "result-facts-out-of-window");
+    }
+
+    [Fact]
+    public async Task Check_12_fact_spanning_exactly_the_validity_window_is_accepted()
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, 1),
+            extraArtifacts: [FactArtifact("fact-data.json", Fact(600000, 900000))]);
+
+        var outcome = await p.Verifier.VerifyAsync(p.Request, TestContext.Current.CancellationToken);
+
+        outcome.Status.ShouldBe(ResultVerificationStatus.Valid);
+    }
+
+    [Fact]
+    public async Task Check_12_storage_unavailable_while_reading_a_fact_artifact_is_unavailable()
+    {
+        var p = await PrepareAsync(
+            NewScenario(false),
+            m => SetFactCount(m, 1),
+            extraArtifacts: [FactArtifact("fact-data.json", Fact(600000, 610000))],
+            storage: new FactReadUnavailableStorage(store.CreateObjectStorage()));
+
+        var outcome = await p.Verifier.VerifyAsync(p.Request, TestContext.Current.CancellationToken);
+
+        outcome.Status.ShouldBe(ResultVerificationStatus.StorageUnavailable);
+    }
+
     private class DelegatingStorage(IObjectStorage inner) : IObjectStorage
     {
         public virtual Task<MultipartUploadReference> InitiateCompositeMultipartUploadAsync(string objectKey, string contentType, CancellationToken cancellationToken) =>
@@ -482,5 +775,13 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
     {
         public override Task<ObjectReadResult?> ReadObjectAsync(string objectKey, long maxBytes, CancellationToken cancellationToken) =>
             throw new ObjectStorageUnavailableException();
+    }
+
+    private sealed class FactReadUnavailableStorage(IObjectStorage inner) : DelegatingStorage(inner)
+    {
+        public override Task<ObjectReadResult?> ReadObjectAsync(string objectKey, long maxBytes, CancellationToken cancellationToken) =>
+            objectKey.EndsWith("manifest.json", StringComparison.Ordinal)
+                ? base.ReadObjectAsync(objectKey, maxBytes, cancellationToken)
+                : throw new ObjectStorageUnavailableException();
     }
 }

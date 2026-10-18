@@ -19,11 +19,14 @@ public static class SimulatedResultModes
     public const string ValidityInvalid = "validity-invalid";
     public const string ContractInvalid = "contract-invalid";
 
+    /// <summary>Writes one fact outside the job's validity window.</summary>
+    public const string InvalidFacts = "invalid-facts";
+
     /// <summary>Reports an empty lineage even when upstream results were staged.</summary>
     public const string IgnoreInputs = "ignore-inputs";
 
     public static readonly IReadOnlyList<string> All =
-        [Valid, ScopeMismatch, ProvenanceMismatch, LineageMismatch, ArtifactMissing, ValidityInvalid, ContractInvalid, IgnoreInputs];
+        [Valid, ScopeMismatch, ProvenanceMismatch, LineageMismatch, ArtifactMissing, ValidityInvalid, ContractInvalid, IgnoreInputs, InvalidFacts];
 }
 
 public sealed class SimulatedCapabilityOptions

@@ -22,6 +22,10 @@ public static class ResultRejectionReasons
     public const string LineageMismatch = "result-lineage-mismatch";
     public const string ArtifactInvalid = "result-artifact-invalid";
     public const string ValidityInvalid = "result-validity-invalid";
+    public const string FactsInvalid = "result-facts-invalid";
+    public const string FactsOutOfWindow = "result-facts-out-of-window";
+    public const string FactsCountMismatch = "result-facts-count-mismatch";
+    public const string FactsTooLarge = "result-facts-too-large";
 }
 
 public enum ResultVerificationStatus
@@ -31,6 +35,9 @@ public enum ResultVerificationStatus
     StorageUnavailable,
 }
 
+/// <summary>One verified fact of a fact artifact; the payload is the raw JSON object, not interpreted.</summary>
+public sealed record ParsedFact(string Kind, long StartMs, long EndMs, double Confidence, string PayloadJson);
+
 public sealed record ValidatedResultManifest(
     string ContractVersion,
     string OutputType,
@@ -38,7 +45,8 @@ public sealed record ValidatedResultManifest(
     long ValidityEndMs,
     int FactCount,
     string ArtifactsJson,
-    string UpstreamLineageJson);
+    string UpstreamLineageJson,
+    IReadOnlyList<ParsedFact> Facts);
 
 public sealed record ResultVerificationOutcome(ResultVerificationStatus Status, string? Reason, ValidatedResultManifest? Manifest)
 {
@@ -70,6 +78,7 @@ public sealed class ResultManifestVerifier(
     IOptions<AnalysisResultOptions> options)
 {
     public const string SupportedContractVersion = "1.0.0";
+    public const string FactMediaType = "application/vnd.socalytics.facts+json";
 
     public async Task<ResultVerificationOutcome> VerifyAsync(ResultVerificationRequest request, CancellationToken cancellationToken)
     {
@@ -191,6 +200,19 @@ public sealed class ResultManifestVerifier(
                 return Reject(ResultRejectionReasons.ValidityInvalid);
             }
 
+            // 12: fact artifacts
+            var facts = new List<ParsedFact>();
+            var factsRejection = await ReadFactsAsync(request, root, artifacts, location, startMs, endMs, facts, ct);
+            if (factsRejection is not null)
+            {
+                return Reject(factsRejection);
+            }
+
+            if (facts.Count != factCount)
+            {
+                return Reject(ResultRejectionReasons.FactsCountMismatch);
+            }
+
             return ResultVerificationOutcome.Accepted(new ValidatedResultManifest(
                 SupportedContractVersion,
                 root.GetProperty("outputType").GetString()!,
@@ -198,8 +220,112 @@ public sealed class ResultManifestVerifier(
                 endMs,
                 factCount,
                 artifacts.GetRawText(),
-                root.GetProperty("upstreamLineage").GetRawText()));
+                root.GetProperty("upstreamLineage").GetRawText(),
+                facts));
         }
+    }
+
+    // Returns the rejection reason, or null when every fact artifact is valid; facts are appended in artifact, then fact order.
+    private async Task<string?> ReadFactsAsync(
+        ResultVerificationRequest request, JsonElement root, JsonElement artifacts, string location, long windowStartMs, long windowEndMs,
+        List<ParsedFact> facts, CancellationToken ct)
+    {
+        var limits = options.Value;
+        FactRange.TryCreate(windowStartMs, windowEndMs, out var window);
+        var hasWindow = windowEndMs > windowStartMs;
+        var outputType = root.GetProperty("outputType").GetString();
+
+        foreach (var artifact in artifacts.EnumerateArray())
+        {
+            if (!artifact.TryGetProperty("mediaType", out var mediaType)
+                || !string.Equals(mediaType.GetString(), FactMediaType, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (artifact.GetProperty("sizeBytes").GetInt64() > limits.MaxFactArtifactBytes)
+            {
+                return ResultRejectionReasons.FactsTooLarge;
+            }
+
+            var read = await storage.ReadObjectAsync(location + artifact.GetProperty("name").GetString(), limits.MaxFactArtifactBytes, ct);
+            if (read is null)
+            {
+                return ResultRejectionReasons.ArtifactInvalid;
+            }
+
+            if (read.TooLarge)
+            {
+                return ResultRejectionReasons.FactsTooLarge;
+            }
+
+            if (!Sha256Digest.TryParse(artifact.GetProperty("digest").GetString(), out var expected)
+                || !Sha256Digest.FromBytes(SHA256.HashData(read.Content!)).Equals(expected))
+            {
+                return ResultRejectionReasons.ArtifactInvalid;
+            }
+
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(read.Content!);
+            }
+            catch (JsonException)
+            {
+                return ResultRejectionReasons.FactsInvalid;
+            }
+
+            using (document)
+            {
+                var factRoot = document.RootElement;
+                if (!validator.Validate(ContractSchemaIds.FactArtifactV1, factRoot).IsValid
+                    || !FactHeaderMatches(request, factRoot, outputType))
+                {
+                    return ResultRejectionReasons.FactsInvalid;
+                }
+
+                var items = factRoot.GetProperty("facts");
+                var parsed = new List<ParsedFact>();
+                foreach (var item in items.EnumerateArray())
+                {
+                    if (!item.GetProperty("startMs").TryGetInt64(out var start)
+                        || !item.GetProperty("endMs").TryGetInt64(out var end)
+                        || !FactRange.TryCreate(start, end, out _))
+                    {
+                        return ResultRejectionReasons.FactsInvalid;
+                    }
+
+                    var payload = item.GetProperty("payload");
+                    if (System.Text.Encoding.UTF8.GetByteCount(payload.GetRawText()) > limits.MaxFactPayloadBytes
+                        || facts.Count + parsed.Count + 1 > limits.MaxFactsPerResult)
+                    {
+                        return ResultRejectionReasons.FactsTooLarge;
+                    }
+
+                    parsed.Add(new ParsedFact(
+                        item.GetProperty("kind").GetString()!, start, end, item.GetProperty("confidence").GetDouble(), payload.GetRawText()));
+                }
+
+                if (parsed.Any(f => !hasWindow || !new FactRange(f.StartMs, f.EndMs).IsWithin(window)))
+                {
+                    return ResultRejectionReasons.FactsOutOfWindow;
+                }
+
+                facts.AddRange(parsed);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool FactHeaderMatches(ResultVerificationRequest request, JsonElement factRoot, string? manifestOutputType)
+    {
+        var capability = factRoot.GetProperty("capability");
+        return Pad(factRoot.GetProperty("contractVersion").GetString()) == Pad(SupportedContractVersion)
+            && capability.GetProperty("id").GetString() == request.Node.CapabilityId
+            && Pad(capability.GetProperty("version").GetString()) == Pad(request.Node.CapabilityVersion)
+            && Pad(factRoot.GetProperty("schemaVersion").GetString()) == Pad(request.Snapshot.SchemaVersion)
+            && factRoot.GetProperty("outputType").GetString() == manifestOutputType;
     }
 
     private static ResultVerificationOutcome Reject(string reason) => ResultVerificationOutcome.Rejected(reason);
