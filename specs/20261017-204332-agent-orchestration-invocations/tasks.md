@@ -54,7 +54,7 @@ description: "Task list for Agent Orchestration Direct Invocations"
 
 ### Registration
 
-- [ ] T014 Register the stores, scope sources, `IInvocationScopeEvaluator`, and `AgentOrchestrationMetrics` in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs` and `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`; bind and validate `AgentOrchestrationOptions`; set the development values explicitly in an `AgentOrchestration` section of `src/platform/SocAlytics.Platform.Api/appsettings.Development.json`, with `Agents:Enabled` "at least `specialist-tactics` and `specialist-video-analysis`" and no workload client (the AppHost and tests configure clients) (FR-005, FR-025)
+- [x] T014 Register the stores, scope sources, `IInvocationScopeEvaluator`, and `AgentOrchestrationMetrics` in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs` and `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`; bind and validate `AgentOrchestrationOptions`; set the development values explicitly in an `AgentOrchestration` section of `src/platform/SocAlytics.Platform.Api/appsettings.Development.json`, with `Agents:Enabled` "at least `specialist-tactics` and `specialist-video-analysis`" and no workload client (the AppHost and tests configure clients) (FR-005, FR-025)
 
 ### Workload authentication
 

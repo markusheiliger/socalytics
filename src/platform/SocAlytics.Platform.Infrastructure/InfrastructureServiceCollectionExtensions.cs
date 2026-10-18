@@ -78,6 +78,13 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
         services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.Analysis.AnalysisRunScopeSource>();
+        services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.AgentOrchestration.AgentConversationScopeSource>();
+        services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.AgentOrchestration.AgentInvocationScopeSource>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IAgentConversationStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentConversationStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IAgentInvocationStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentInvocationStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IAgentAttemptStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentAttemptStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IAgentWorkloadOperationStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentWorkloadOperationStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IAgentWorkloadTokenStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentWorkloadTokenStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisRunQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisOperationalQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisOperationalQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Messaging.IOutboxMessageQueries, SocAlytics.Platform.Infrastructure.Persistence.Messaging.OutboxMessageQueries>();
