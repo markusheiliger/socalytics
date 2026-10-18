@@ -11,6 +11,7 @@ using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Registry;
 using SocAlytics.Platform.Application.Registry.Images;
+using SocAlytics.Platform.Domain.Analysis;
 using SocAlytics.Platform.Domain.Recordings;
 using SocAlytics.Platform.Domain.Registry;
 using SocAlytics.Platform.Infrastructure.Workers;
@@ -165,11 +166,14 @@ internal sealed partial class ConfiguredWorkflowSeeder(
                 .Select(g => g.First())
                 .ToList();
 
-            var manifestJson = BuildManifest(node, model, upstream.Select(x => (x.Node!, x.Edge.Kind)).ToList());
+            var manifestJson = BuildManifest(node, model, upstream.Select(x => (x.Node!, x.Edge.Kind, x.Edge.Coverage)).ToList());
             var validation = manifestValidator.Validate(imageDigest, manifestJson);
             if (!validation.IsValid || validation.Declaration is null)
             {
-                logger.LogWarning("The seeded manifest of node {NodeKey} is invalid; the Registry is not seeded", node.NodeKey);
+                logger.LogWarning(
+                    "The seeded manifest of node {NodeKey} is invalid ({Errors}); the Registry is not seeded",
+                    node.NodeKey,
+                    string.Join(", ", validation.Errors.Select(e => $"{e.Field}:{e.Keyword}")));
                 return null;
             }
 
@@ -261,7 +265,7 @@ internal sealed partial class ConfiguredWorkflowSeeder(
         return edge;
     }
 
-    private static string BuildManifest(ConfiguredNode node, string model, IReadOnlyList<(ConfiguredNode Node, string Kind)> upstream)
+    private static string BuildManifest(ConfiguredNode node, string model, IReadOnlyList<(ConfiguredNode Node, string Kind, ConfiguredCoverage? Coverage)> upstream)
     {
         var resources = new JsonObject();
         foreach (var pair in node.Resources)
@@ -269,9 +273,24 @@ internal sealed partial class ConfiguredWorkflowSeeder(
             resources[pair.Key] = pair.Value;
         }
 
+        var upstreamEntries = upstream.Select(u => (Entry: new JsonObject
+        {
+            ["capabilityId"] = u.Node.CapabilityId,
+            ["capabilityVersion"] = Semver(u.Node.CapabilityVersion),
+            ["schemaVersion"] = Semver(u.Node.SchemaVersion),
+            ["kind"] = u.Kind,
+        }, Coverage: PartialCoverage(u.Coverage))).ToList();
+        foreach (var (entry, coverage) in upstreamEntries)
+        {
+            if (coverage is not null)
+            {
+                entry["coverage"] = coverage;
+            }
+        }
+
         var manifest = new JsonObject
         {
-            ["manifestVersion"] = "1.0.0",
+            ["manifestVersion"] = upstreamEntries.Any(u => u.Coverage is not null) ? "1.1.0" : "1.0.0",
             ["capability"] = new JsonObject
             {
                 ["id"] = node.CapabilityId,
@@ -279,13 +298,7 @@ internal sealed partial class ConfiguredWorkflowSeeder(
                 ["tier"] = node.Tier,
                 ["executionScope"] = node.ExecutionScope,
             },
-            ["upstream"] = new JsonArray(upstream.Select(u => (JsonNode)new JsonObject
-            {
-                ["capabilityId"] = u.Node.CapabilityId,
-                ["capabilityVersion"] = Semver(u.Node.CapabilityVersion),
-                ["schemaVersion"] = Semver(u.Node.SchemaVersion),
-                ["kind"] = u.Kind,
-            }).ToArray()),
+            ["upstream"] = new JsonArray(upstreamEntries.Select(u => (JsonNode)u.Entry).ToArray()),
             ["videoAccess"] = VideoPolicies.Optional,
             ["output"] = new JsonObject { ["schemaVersion"] = Semver(node.SchemaVersion) },
             ["compatibleProfiles"] = new JsonArray(JsonValue.Create(node.AnalystProfileId)),
@@ -302,6 +315,25 @@ internal sealed partial class ConfiguredWorkflowSeeder(
             ["determinism"] = new JsonObject { ["deterministic"] = false, ["idempotent"] = true },
         };
         return manifest.ToJsonString();
+    }
+
+    /// <summary>The manifest coverage declaration of a configured partial edge; complete edges declare nothing.</summary>
+    private static JsonObject? PartialCoverage(ConfiguredCoverage? coverage)
+    {
+        if (coverage is null
+            || !AnalysisPersistedNames.TryParseCoverageMode(coverage.Mode, out var mode)
+            || mode != CoverageMode.Partial)
+        {
+            return null;
+        }
+
+        var declaration = new JsonObject { ["mode"] = "partial" };
+        if (coverage.MinimumAcceptedFraction is { } fraction)
+        {
+            declaration["minimumAcceptedFraction"] = fraction;
+        }
+
+        return declaration;
     }
 
     /// <summary>Manifests and profiles carry semantic versions; the configured development values may be shorter (for example <c>1</c>).</summary>
