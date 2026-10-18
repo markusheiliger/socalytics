@@ -2521,6 +2521,25 @@
   },
   "openapi": "3.1.1",
   "paths": {
+    "/api/v1/agent-orchestration/workload/token": {
+      "post": {
+        "operationId": "issueAgentWorkloadToken",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Agent workload"
+        ]
+      }
+    },
     "/api/v1/analysis/attempts/{attemptId}/completion": {
       "post": {
         "operationId": "completeAttempt",
@@ -8665,6 +8684,9 @@
     },
     {
       "name": "Analyst Manager self"
+    },
+    {
+      "name": "Agent workload"
     },
     {
       "name": "Self"
