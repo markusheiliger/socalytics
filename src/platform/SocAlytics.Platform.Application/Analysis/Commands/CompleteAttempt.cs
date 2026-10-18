@@ -155,9 +155,13 @@ public sealed class CompleteAttemptHandler(
             {
                 var upstream = (await results.ListByRunAsync(run.Id, cancellationToken)).Where(r => recordedUpstream.Contains(r.Id)).ToList();
                 var result = body.GetProperty("result");
+                var inputSnapshot = await jobs.LoadInputSnapshotAsync(job.Id, cancellationToken);
+                var inputDependencies = ExpectedInputDependency.Build(
+                    inputSnapshot, hierarchy.Nodes, await jobs.LoadByRunAsync(run.Id, cancellationToken), upstream);
                 pending.Request = new ResultVerificationRequest(
                     run, hierarchy.Snapshot.SnapshotJson, node, job, snapshot, attempt.Id, attempt.AttemptNumber,
-                    result.GetProperty("manifestReference").GetString()!, result.GetProperty("manifestChecksum").GetString()!, upstream);
+                    result.GetProperty("manifestReference").GetString()!, result.GetProperty("manifestChecksum").GetString()!, upstream,
+                    inputDependencies);
                 return null;
             }
 

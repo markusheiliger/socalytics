@@ -22,6 +22,7 @@ public static class ResultRejectionReasons
     public const string LineageMismatch = "result-lineage-mismatch";
     public const string ArtifactInvalid = "result-artifact-invalid";
     public const string ValidityInvalid = "result-validity-invalid";
+    public const string CoverageMismatch = "result-coverage-mismatch";
 }
 
 public enum ResultVerificationStatus
@@ -60,7 +61,8 @@ public sealed record ResultVerificationRequest(
     int AttemptNumber,
     string ManifestReference,
     string ManifestChecksum,
-    IReadOnlyList<AcceptedResultRecord> Upstream);
+    IReadOnlyList<AcceptedResultRecord> Upstream,
+    IReadOnlyList<ExpectedInputDependency>? InputDependencies = null);
 
 /// <summary>Performs the ordered manifest checks of the result-acceptance contract; reads storage but never the database transaction.</summary>
 public sealed class ResultManifestVerifier(
@@ -69,7 +71,9 @@ public sealed class ResultManifestVerifier(
     IResultDeclarationStore declarations,
     IOptions<AnalysisResultOptions> options)
 {
-    public const string SupportedContractVersion = "1.0.0";
+    public const string SupportedContractVersion = "1.1.0";
+
+    private static readonly string[] AcceptedContractVersions = ["1.0.0", SupportedContractVersion];
 
     public async Task<ResultVerificationOutcome> VerifyAsync(ResultVerificationRequest request, CancellationToken cancellationToken)
     {
@@ -141,7 +145,7 @@ public sealed class ResultManifestVerifier(
             if (root.ValueKind == JsonValueKind.Object
                 && root.TryGetProperty("contractVersion", out var declaredVersion)
                 && declaredVersion.ValueKind == JsonValueKind.String
-                && !string.Equals(declaredVersion.GetString(), SupportedContractVersion, StringComparison.Ordinal)
+                && !AcceptedContractVersions.Contains(declaredVersion.GetString(), StringComparer.Ordinal)
                 && System.Text.RegularExpressions.Regex.IsMatch(declaredVersion.GetString()!, @"^1\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"))
             {
                 return Reject(ResultRejectionReasons.ManifestVersionUnsupported);
@@ -171,6 +175,12 @@ public sealed class ResultManifestVerifier(
                 return Reject(ResultRejectionReasons.LineageMismatch);
             }
 
+            // 9b: input coverage
+            if (!CoverageMatches(request, root))
+            {
+                return Reject(ResultRejectionReasons.CoverageMismatch);
+            }
+
             // 10: artifacts
             var artifacts = root.GetProperty("artifacts");
             if (!await ArtifactsValidAsync(artifacts, declared, location, ct))
@@ -192,7 +202,7 @@ public sealed class ResultManifestVerifier(
             }
 
             return ResultVerificationOutcome.Accepted(new ValidatedResultManifest(
-                SupportedContractVersion,
+                root.GetProperty("contractVersion").GetString()!,
                 root.GetProperty("outputType").GetString()!,
                 startMs,
                 endMs,
@@ -310,6 +320,60 @@ public sealed class ResultManifestVerifier(
                 Checksum: e.GetProperty("manifestChecksum").GetString()!))
             .Order().ToList();
         return expected.SequenceEqual(reported);
+    }
+
+    private static bool CoverageMatches(ResultVerificationRequest request, JsonElement root)
+    {
+        var expected = request.InputDependencies ?? [];
+        var reports = root.TryGetProperty("inputCoverage", out var array) && array.ValueKind == JsonValueKind.Array
+            ? array.EnumerateArray().ToList()
+            : [];
+
+        var reported = new HashSet<ExpectedInputDependency>();
+        foreach (var report in reports)
+        {
+            var capability = report.GetProperty("capability");
+            var dependency = expected.FirstOrDefault(d =>
+                d.CapabilityId == capability.GetProperty("id").GetString()
+                && Pad(d.CapabilityVersion) == Pad(capability.GetProperty("version").GetString())
+                && Pad(d.SchemaVersion) == Pad(report.GetProperty("schemaVersion").GetString()));
+            if (dependency is null || !reported.Add(dependency))
+            {
+                return false;
+            }
+
+            var units = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var unit in report.GetProperty("units").EnumerateArray())
+            {
+                var key = unit.TryGetProperty("segmentId", out var segment)
+                    ? ExpectedInputDependency.SegmentUnit(segment.GetString()!)
+                    : ExpectedInputDependency.MatchUnit;
+                if (!units.TryAdd(key, unit.GetProperty("state").GetString()!))
+                {
+                    return false;
+                }
+            }
+
+            if (dependency.Coverage is { } coverage)
+            {
+                var snapshotUnits = coverage.ToDictionary(c => ExpectedInputDependency.SegmentUnit(c.SegmentId), c => c.State, StringComparer.Ordinal);
+                if (units.Count != snapshotUnits.Count || units.Any(u => !snapshotUnits.TryGetValue(u.Key, out var state) || state != u.Value))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                var acceptedUnits = units.Where(u => u.Value == "accepted").Select(u => u.Key).ToHashSet(StringComparer.Ordinal);
+                if (!acceptedUnits.SetEquals(dependency.AcceptedUnits))
+                {
+                    return false;
+                }
+            }
+        }
+
+        // A partial barrier must always be reported.
+        return expected.Where(d => d.Coverage is not null).All(reported.Contains);
     }
 
     private async Task<bool> ArtifactsValidAsync(

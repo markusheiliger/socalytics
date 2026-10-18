@@ -331,7 +331,7 @@ public sealed class ResultManifestVerifierTests(RustFsContainerFixture store)
     [Fact]
     public async Task Check_5_unsupported_contract_version()
     {
-        var p = await PrepareAsync(NewScenario(false), m => m["contractVersion"] = "1.1.0");
+        var p = await PrepareAsync(NewScenario(false), m => m["contractVersion"] = "1.2.0");
 
         await ShouldRejectAsync(p, "result-manifest-version-unsupported");
     }
