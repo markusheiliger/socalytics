@@ -143,6 +143,7 @@ defines.
   test, so the image evidence checks it at the HTTP level.
 - **Alternatives considered**: A Playwright project in the Web UI that starts containers (would build the API image on
   every Web UI verification); Playwright for .NET (a new tool the environment does not install).
+- **Refinement (diagnosis of the T003 stop)**: The Images test project needs `InternalsVisibleTo` from the Infrastructure project for the in-process seeding. `PersistenceArchitectureTests` pins the exact set of assemblies that may see Infrastructure internals (Migrator, Integration, EndToEnd), so T003 failed that test on both attempts (`Images.Tests` unexpected). Decision: T003 extends the expected set by this one evidence assembly in the same task. Rejected: dropping `InternalsVisibleTo` (the seeding needs internals) and loosening the test to a subset or prefix check (it would stop guarding the boundary). Evidence: both T003 attempts built the project cleanly and only that architecture test failed.
 
 ## R9 Environment check
 

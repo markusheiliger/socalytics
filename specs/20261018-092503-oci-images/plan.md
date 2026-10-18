@@ -154,6 +154,8 @@ src/platform/
 │   ├── Dockerfile                     # new: Migrator image
 │   └── Dockerfile.dockerignore        # new
 ├── SocAlytics.Platform.slnx           # changed: adds the Images test project
+├── SocAlytics.Platform.Infrastructure/ # changed: InternalsVisibleTo for the Images test project
+├── Tests/SocAlytics.Platform.Architecture.Tests/PersistenceArchitectureTests.cs # changed: the internals allow-list names the Images test project
 ├── README.md                          # changed: image build commands and runtime contract summary
 └── Tests/
     └── SocAlytics.Platform.Images.Tests/   # new: Docker-backed image evidence
