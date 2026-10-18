@@ -153,6 +153,11 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.ListAgentConversationTurnsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.ClaimAgentInvocationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.CompleteAgentAttemptHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.RenewAgentAttemptLeaseHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.RecordAgentCheckpointHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.FailAgentAttemptHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.MonitorAgentAttemptsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.ReconcileAgentWorkHandler>();
 
         services.AddOptions<SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions.SectionName)
