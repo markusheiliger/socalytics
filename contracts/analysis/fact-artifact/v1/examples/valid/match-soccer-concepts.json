@@ -1,0 +1,15 @@
+{
+  "contractVersion": "1.0.0",
+  "capability": { "id": "possession-phases", "version": "1.2.0" },
+  "schemaVersion": "1.0.0",
+  "outputType": "soccer-concepts",
+  "facts": [
+    {
+      "kind": "possession-phase",
+      "startMs": 60000,
+      "endMs": 95000,
+      "confidence": 0.8,
+      "payload": { "side": "home" }
+    }
+  ]
+}

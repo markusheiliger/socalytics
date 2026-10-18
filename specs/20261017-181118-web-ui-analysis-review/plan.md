@@ -16,7 +16,7 @@ run's indexed facts per capability with coverage and provenance.
   run list (`AnalysisRunStates`).
 - **Platform reads only**: `getAnalysisRun` (existing), and
   `listAnalysisRunFactStreams` and `listAnalysisRunFacts`, which
-  [Accepted Fact Indexing and Capability-Scoped Fact Queries](../20261017-175648-fact-indexing-queries/spec.md)
+  [Accepted Fact Indexing and Capability-Scoped Fact Queries](../archive/20261017-175648-fact-indexing-queries/spec.md)
   adds to the OpenAPI snapshot. No new platform operation; the Kiota client is
   regenerated from the snapshot by the existing `npm run build`.
 - **Adapters**: `analysisRunAdapter` gains `getRun`; a new

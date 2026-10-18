@@ -234,8 +234,9 @@ retention remain governed by POL-009 in
 Table definitions and SQL live in the Infrastructure layer. The API references
 Application contracts rather than persistence types. Registry data includes the
 queryable Analyst manifest cache keyed by immutable image digest. Analysis data
-covers durable runs, DAG state, logical jobs, attempts, and accepted-result
-references. Segment materialization runs on demand within the control-plane
+covers durable runs, DAG state, logical jobs, attempts, accepted-result
+references, and the indexed facts of accepted results (immutable rows written in
+the acceptance transaction). Segment materialization runs on demand within the control-plane
 deployment unless measured scaling later justifies extraction; it is decided,
 not yet implemented, as a background worker of the API host that needs the
 pinned FFmpeg and ffprobe toolchain on the host (see
@@ -808,6 +809,12 @@ current and non-current migration states; and
   per-object read grants, coverage), digest-verified staging with cleanup in the
   Analyst Manager, and simulated match-level lineage equal to the staged
   results; and
+- integration and end-to-end tests cover fact validation (the twelfth ordered
+  manifest check), atomic and idempotent fact indexing at acceptance, and the
+  member reads `listAnalysisRunFacts` and `listAnalysisRunFactStreams`
+  (authorization, keyset paging, range overlap, coverage, provenance, weak
+  ETags), including an end-to-end read-back of the simulated Analyst's facts
+  and a rejected out-of-window fact artifact; and
 - Web UI browser tests cover Analyst Manager pairing, the Club Admin decision
   view, and the fleet view with revocation, and the match workflow and
   recording upload (match creation and editing, direct multipart upload with
@@ -857,7 +864,8 @@ choice or reveals a material operational tradeoff:
   persistence, outbox publication to NATS JetStream, local-account BFF
   sessions, S3-compatible upload, Analyst Manager registration, member email addresses with verified, outbox-backed transactional delivery to the Mailpit mail catcher, and result
   write grants with validated result acceptance against a simulated Analyst and a real Analyst container on the Docker Desktop profile (Linux engine), and the Manager-mediated
-  read and staging of accepted upstream results are
+  read and staging of accepted upstream results, fact indexing, and the member
+  fact reads are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views
   and the match workflow with recording upload and finalization. External

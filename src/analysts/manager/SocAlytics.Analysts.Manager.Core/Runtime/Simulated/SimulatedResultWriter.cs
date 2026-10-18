@@ -11,6 +11,9 @@ internal static class SimulatedResultWriter
     private const long SegmentWindowMs = 300_000;
     private const long MatchWindowMs = 5_400_000;
     private const string ArtifactName = "facts.json";
+    private const string InputsArtifactName = "inputs.json";
+    private const string FactMediaType = "application/vnd.socalytics.facts+json";
+    private const long FactLengthMs = 1_000;
 
     public static void Write(AttemptLaunch launch, SimulatedAnalystOptions options)
     {
@@ -31,16 +34,6 @@ internal static class SimulatedResultWriter
         var staged = launch.InputsDirectory is { } inputsDirectory && Directory.Exists(inputsDirectory)
             ? ReadStagedInputs(inputsDirectory)
             : null;
-        var artifact = JsonSerializer.SerializeToUtf8Bytes(
-            new Dictionary<string, object?>
-            {
-                ["capability"] = job.Capability.Id,
-                ["facts"] = Array.Empty<string>(),
-                ["consumedCoverage"] = staged?.Coverage,
-            },
-            PlatformJson.Options);
-        File.WriteAllBytes(Path.Combine(directory, ArtifactName), artifact);
-
         var segment = job.Segment;
         var scope = new Dictionary<string, object?>
         {
@@ -69,6 +62,33 @@ internal static class SimulatedResultWriter
             scope["match"] = true;
         }
 
+        var outputType = segment is null ? "soccer-concepts" : "foundational-facts";
+        var factKind = segment is null ? "simulated-concept" : "simulated-observation";
+        var starts = new[] { start, start + (end - start) / 2, end - FactLengthMs };
+        if (mode == SimulatedResultModes.InvalidFacts)
+        {
+            starts[2] = end;
+        }
+
+        var artifact = JsonSerializer.SerializeToUtf8Bytes(
+            new Dictionary<string, object?>
+            {
+                ["contractVersion"] = "1.0.0",
+                ["capability"] = new { id = job.Capability.Id, version = job.Capability.Version },
+                ["schemaVersion"] = job.SchemaVersion,
+                ["outputType"] = outputType,
+                ["facts"] = starts.Select((factStart, index) => new Dictionary<string, object?>
+                {
+                    ["kind"] = factKind,
+                    ["startMs"] = factStart,
+                    ["endMs"] = factStart + FactLengthMs,
+                    ["confidence"] = 0.9,
+                    ["payload"] = new { index },
+                }).ToList(),
+            },
+            PlatformJson.Options);
+        File.WriteAllBytes(Path.Combine(directory, ArtifactName), artifact);
+
         var provenance = new Dictionary<string, object?>
         {
             ["capability"] = new { id = job.Capability.Id, version = job.Capability.Version },
@@ -85,8 +105,15 @@ internal static class SimulatedResultWriter
 
         var artifacts = new List<object>
         {
-            new { name = ArtifactName, digest = ResultPublisher.Digest(artifact), sizeBytes = artifact.Length, mediaType = "application/json" },
+            new { name = ArtifactName, digest = ResultPublisher.Digest(artifact), sizeBytes = artifact.Length, mediaType = FactMediaType },
         };
+        if (staged is not null)
+        {
+            var inputsArtifact = JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object?> { ["consumedCoverage"] = staged.Coverage }, PlatformJson.Options);
+            File.WriteAllBytes(Path.Combine(directory, InputsArtifactName), inputsArtifact);
+            artifacts.Add(new { name = InputsArtifactName, digest = ResultPublisher.Digest(inputsArtifact), sizeBytes = inputsArtifact.Length, mediaType = "application/json" });
+        }
+
         var lineage = staged?.Lineage ?? (job.Inputs ?? [])
             .SelectMany(i => i.AcceptedResults ?? [])
             .Where(r => r.Capability is not null)
@@ -138,9 +165,9 @@ internal static class SimulatedResultWriter
             ["attempt"] = new { attemptId = launch.AttemptId, attemptNumber = launch.AttemptNumber },
             ["artifacts"] = artifacts,
             ["validityWindow"] = new { startMs = start, endMs = end },
-            ["factCount"] = 0,
+            ["factCount"] = 3,
             ["upstreamLineage"] = lineage,
-            ["outputType"] = segment is null ? "soccer-concepts" : "foundational-facts",
+            ["outputType"] = outputType,
             ["confidence"] = 1,
             ["evidenceReferences"] = Array.Empty<string>(),
         };
