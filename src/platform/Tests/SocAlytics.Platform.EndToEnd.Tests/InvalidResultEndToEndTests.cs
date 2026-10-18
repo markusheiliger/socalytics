@@ -64,6 +64,31 @@ public sealed class InvalidResultEndToEndTests
         (listed.S3Objects ?? []).ShouldBeEmpty("Nothing is stored under the result location of a contract-invalid attempt.");
     }
 
+    [Fact]
+    public async Task Facts_outside_the_validity_window_fail_the_attempt_and_no_fact_is_readable()
+    {
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(4));
+        var ct = cts.Token;
+        var started = await EndToEndHarness.StartAsync(ct);
+        if (started is null)
+        {
+            Assert.Skip("SoftHSM2 (libsofthsm2 and softhsm2-util) is required on Linux for the Manager's device key.");
+            return;
+        }
+
+        await using var harness = started;
+        await harness.StartManagerAsync(ct, TimeSpan.FromSeconds(1), resultMode: SimulatedResultModes.InvalidFacts);
+        var runId = await WorkExecutionEndToEndTests.SeedReadyJobAsync(harness, ct);
+
+        await Wait(harness, runId,
+            async () => await ScalarAsync(harness, "SELECT count(*) FROM socalytics.analysis_completion_outcomes o JOIN socalytics.analysis_logical_jobs j ON j.id = o.logical_job_id WHERE j.run_id = @runId AND o.outcome = 'failed' AND o.reason = 'result-facts-out-of-window'", runId, ct) > 0,
+            TimeSpan.FromSeconds(60), "The attempt was not failed with result-facts-out-of-window.", ct);
+
+        (await WorkExecutionEndToEndTests.CountAcceptedAsync(harness, runId, ct)).ShouldBe(0);
+        (await ScalarAsync(harness, "SELECT count(*) FROM socalytics.analysis_indexed_facts WHERE run_id = @runId", runId, ct))
+            .ShouldBe(0, "No fact of a rejected result is readable.");
+    }
+
     private static async Task Wait(EndToEndHarness harness, Guid runId, Func<Task<bool>> condition, TimeSpan timeout, string failure, CancellationToken ct)
     {
         try
