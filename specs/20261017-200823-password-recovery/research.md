@@ -110,7 +110,8 @@ All Technical Context items are resolved from the architecture, the existing cod
   `Cache-Control: no-store`. Neutral failures use the problem code `password-recovery-invalid`. See
   [contracts/password-recovery-api.md](contracts/password-recovery-api.md).
 - **Rationale**: Follows `confirmEmail` (anonymous, `JsonOnlyFilter`, rate limited) and keeps tokens out of URLs.
-- **Alternatives considered**: A `GET` link check with the token in the query (rejected: tokens would reach logs).
+- **Guard**: `EndpointSecurityTests` forbids any API path containing `recovery` (meant for bootstrap, setup, and break-glass recovery) and lists the anonymous operations. Observed failure of T013 (two attempts): `POST /api/v1/password-recovery/requests (requestPasswordRecovery) must not expose bootstrap, setup, or recovery paths.` The guard is narrowed, not removed: `bootstrap`, `setup`, and every other recovery path stay forbidden; only these three named operations at these three paths are allowed, and they must be anonymous (T031).
+- **Alternatives considered**: Renaming the paths to avoid the word `recovery` (rejected: it would only evade the guard and diverge from the contract and feature name); A `GET` link check with the token in the query (rejected: tokens would reach logs).
 
 ## R9 - Web UI
 

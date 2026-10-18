@@ -66,6 +66,7 @@ description: "Task list for Self-Service Password Recovery"
 
 ### API
 
+- [ ] T031 [US1] Update the endpoint classification guard `src/platform/Tests/SocAlytics.Platform.Architecture.Tests/EndpointSecurityTests.cs` for the three self-service operations without weakening it: add `requestPasswordRecovery`, `checkPasswordRecovery`, and `completePasswordRecovery` to `AnonymousOperations` (so each must still be anonymous), and replace the blanket `recovery` entry of `ForbiddenPathSegments` (it fails `POST /api/v1/password-recovery/requests` before T013 can pass) by a check that keeps `bootstrap`, `setup`, and every other recovery path forbidden and allows a `recovery` path only for exactly these three operations at exactly `/api/v1/password-recovery/requests`, `/checks`, and `/completions`; `confirmEmail`-style anonymous operations stay classified as before (research.md R8; FR-021)
 - [ ] T013 [US1] Add `src/platform/SocAlytics.Platform.Api/Endpoints/IdentityAccess/PasswordRecoveryEndpoints.cs` with the anonymous, JSON-only operations `requestPasswordRecovery` (`POST /api/v1/password-recovery/requests`, `202` empty), `checkPasswordRecovery` (`POST /api/v1/password-recovery/checks`, `200 { accountName }`), and `completePasswordRecovery` (`POST /api/v1/password-recovery/completions`, `204`), tag `Password recovery`, `Cache-Control: no-store` on every answer, `ProblemResults` for 400 and 415, tokens only in bodies; map them in `src/platform/SocAlytics.Platform.Api/Program.cs` (contracts/password-recovery-api.md; FR-021)
 - [ ] T014 [US1] Refresh the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests` and confirm the Host tests pass with the three operations (FR-021)
 
@@ -147,7 +148,7 @@ description: "Task list for Self-Service Password Recovery"
 ### Within Each Phase
 
 - T001–T003 run in parallel; T004–T006 run in parallel after them; T007 registers what they created; T008 tests it.
-- T009–T011 run in parallel; T012 registers their handlers; T013 exposes them; T014 refreshes the snapshot the Web UI client is generated from; T015–T018 build the Web UI in order; T019 and T020 run in parallel after it; T021 and T022 run one after the other because both are end-to-end suites with shared support files.
+- T009–T011 run in parallel; T012 registers their handlers; T031 first teaches the endpoint classification guard about the three operations; T013 exposes them; T014 refreshes the snapshot the Web UI client is generated from; T015–T018 build the Web UI in order; T019 and T020 run in parallel after it; T021 and T022 run one after the other because both are end-to-end suites with shared support files.
 - T023 then T024; T025, T026, and T027 run one after the other because T025 and T026 change the same handler and T027 changes the endpoints and snapshot; T028 tests them.
 
 ### Parallel Opportunities
