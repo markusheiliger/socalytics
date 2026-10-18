@@ -1,0 +1,31 @@
+{
+  "manifestVersion": "1.1.0",
+  "capability": {
+    "id": "pressing-analysis",
+    "version": "2.1.0",
+    "tier": "high-level",
+    "executionScope": "match"
+  },
+  "upstream": [
+    {
+      "capabilityId": "player-detection",
+      "capabilityVersion": "1.2.0",
+      "schemaVersion": "1.0.0",
+      "kind": "required",
+      "coverage": { "mode": "partial", "minimumAcceptedFraction": 0 }
+    }
+  ],
+  "videoAccess": "forbidden",
+  "output": { "schemaVersion": "2.0.0" },
+  "compatibleProfiles": ["cpu-standard", "gpu-standard"],
+  "model": { "digest": "sha-256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210" },
+  "runtime": { "constraints": ["linux-amd64"], "accelerators": [] },
+  "resources": { "memory": "4Gi" },
+  "requirements": {
+    "minMaxAttempts": 2,
+    "minLeaseSeconds": 30,
+    "minStaleTimeoutSeconds": 90,
+    "minExecutionTimeoutSeconds": 600
+  },
+  "determinism": { "deterministic": false, "idempotent": true }
+}

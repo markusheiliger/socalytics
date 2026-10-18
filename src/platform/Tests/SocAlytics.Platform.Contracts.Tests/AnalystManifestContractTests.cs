@@ -102,12 +102,12 @@ public class AnalystManifestContractTests
     {
         var schema = JsonNode.Parse(File.ReadAllText(SchemaFile))!;
         schema["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
-        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.0.0");
+        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.1.0");
         foreach (var path in new[] { "capability", "output", "model", "runtime", "requirements", "determinism" })
         {
             schema["properties"]![path]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse(path);
         }
 
-        File.ReadAllBytes(Path.Combine(VersionRoot, "releases", "1.0.0.schema.json")).ShouldBe(File.ReadAllBytes(SchemaFile));
+        File.ReadAllBytes(Path.Combine(VersionRoot, "releases", "1.1.0.schema.json")).ShouldBe(File.ReadAllBytes(SchemaFile));
     }
 }
