@@ -81,7 +81,7 @@ description: "Task list for Agent Orchestration Direct Invocations"
 
 ### Registration and endpoints for User Story 1
 
-- [ ] T022 [US1] Register the handlers of T018–T021 in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs` (FR-035)
+- [x] T022 [US1] Register the handlers of T018–T021 in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs` (FR-035)
 - [ ] T023 [US1] Add the member operations `listAvailableAgents`, `createAgentConversation`, `listAgentConversations`, `getAgentConversation`, `addAgentConversationParticipant`, `submitAgentInvocation` (`202`, `Location`, `Retry-After`), `listAgentConversationTurns`, and `getAgentInvocation` in the new `src/platform/SocAlytics.Platform.Api/AgentOrchestration/AgentConversationEndpoints.cs` with `MapMemberApi()`, `IfMatchHeader`, `ProblemResults`, strong `ETag` and `If-None-Match` answering `304` as in `AnalysisRunEndpoints`, and typed OpenAPI schemas per contracts/agent-orchestration-api.md; map them in `src/platform/SocAlytics.Platform.Api/Program.cs`; refresh `src/platform/SocAlytics.Platform.Api/openapi/v1.json` as in T016 (FR-008, FR-010–FR-012, FR-035)
 - [ ] T024 [US1] Add the workload operations `issueAgentWorkloadQueueCredentials`, `claimAgentInvocation` (`201`, replay `200`), and `completeAgentAttempt` with `RequireAuthorization(AgentWorkload)`, strict JSON bodies, and the stale problem with its `disposition` to `src/platform/SocAlytics.Platform.Api/AgentOrchestration/AgentWorkloadEndpoints.cs`; refresh `src/platform/SocAlytics.Platform.Api/openapi/v1.json` as in T016 (FR-015, FR-019, FR-021, FR-035)
 
