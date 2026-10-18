@@ -42,7 +42,8 @@ public sealed record OAuthError(
 public sealed record OwnRegistration(
     string ManagerId, string StampId, string State, string ClubName, string KeyThumbprint,
     DateTimeOffset ActivatedAt, double? StatusCheckIntervalSeconds = null,
-    bool? ReportAccepted = null, IReadOnlyList<ReportViolation>? ReportViolations = null);
+    bool? ReportAccepted = null, IReadOnlyList<ReportViolation>? ReportViolations = null,
+    string? MinimumManagerVersion = null);
 
 public sealed record ReportViolation(string Field, string Code);
 

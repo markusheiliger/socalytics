@@ -9,7 +9,9 @@ namespace SocAlytics.Analysts.Manager.Queue;
 /// Requests queue credentials with a fresh in-memory user NKey per credential, renews them at two thirds of
 /// their lifetime, and discards them on revocation, unregistration, inactivity, and exit.
 /// </summary>
-public sealed class QueueCredentialProvider(PlatformClient platform, TimeProvider time, ILogger<QueueCredentialProvider>? logger = null)
+public sealed class QueueCredentialProvider(
+    PlatformClient platform, TimeProvider time, ILogger<QueueCredentialProvider>? logger = null,
+    Registration.MinimumVersionState? minimumVersion = null)
     : IDisposable
 {
     public static readonly TimeSpan IdlePoll = TimeSpan.FromSeconds(5);
@@ -76,6 +78,11 @@ public sealed class QueueCredentialProvider(PlatformClient platform, TimeProvide
                 {
                     return current.RenewAt - now;
                 }
+            }
+
+            if (minimumVersion is { IsBelow: true })
+            {
+                return IdlePoll;
             }
 
             return await RequestAsync(session, offered, cancellationToken);

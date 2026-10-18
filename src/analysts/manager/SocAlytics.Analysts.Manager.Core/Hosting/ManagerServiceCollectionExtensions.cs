@@ -85,6 +85,7 @@ public static class ManagerServiceCollectionExtensions
                 sp.GetRequiredService<TimeProvider>(), staging, loopbackHttp,
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<Work.UpstreamStager>());
         });
+        services.AddSingleton<Registration.MinimumVersionState>();
         services.AddSingleton<Operating.AdmissionGate>();
         services.AddSingleton<Work.AttemptRegistry>();
         services.AddSingleton<Operating.IManagerWorkTracker>(sp => sp.GetRequiredService<Work.AttemptRegistry>());
