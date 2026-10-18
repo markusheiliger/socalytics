@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
 using SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery;
@@ -62,11 +63,22 @@ internal static class PasswordRecoveryEndpoints
 	private static async Task<IResult> RequestAsync(
 		HttpContext http,
 		RequestPasswordRecoveryHandler handler,
+		IOptions<PasswordRecoveryOptions> options,
+		TimeProvider time,
 		CancellationToken cancellationToken)
 	{
+		var started = time.GetTimestamp();
 		var body = await ReadBodyAsync<RequestPasswordRecoveryRequest>(http, cancellationToken);
 		http.Response.Headers.CacheControl = "no-store";
 		var result = await handler.HandleAsync(new RequestPasswordRecoveryCommand(body?.Address), cancellationToken);
+
+		// Every answer, success or validation failure, takes at least the minimum duration so timing does not reveal whether an account exists.
+		var remaining = options.Value.MinimumResponseDuration - time.GetElapsedTime(started);
+		if (remaining > TimeSpan.Zero)
+		{
+			await Task.Delay(remaining, time, cancellationToken);
+		}
+
 		return result.IsSuccess ? Results.Accepted() : ProblemResults.From(result.Failure);
 	}
 

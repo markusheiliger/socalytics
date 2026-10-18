@@ -96,7 +96,7 @@ description: "Task list for Self-Service Password Recovery"
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Return every `requestPasswordRecovery` answer (success and validation failure alike) no earlier than `PasswordRecovery:MinimumResponseDuration` after receipt, measured with the injected `TimeProvider`, in `src/platform/SocAlytics.Platform.Api/Endpoints/IdentityAccess/PasswordRecoveryEndpoints.cs` (FR-002; SC-002)
+- [x] T023 [US2] Return every `requestPasswordRecovery` answer (success and validation failure alike) no earlier than `PasswordRecovery:MinimumResponseDuration` after receipt, measured with the injected `TimeProvider`, in `src/platform/SocAlytics.Platform.Api/Endpoints/IdentityAccess/PasswordRecoveryEndpoints.cs` (FR-002; SC-002)
 
 ### Tests for User Story 2
 
