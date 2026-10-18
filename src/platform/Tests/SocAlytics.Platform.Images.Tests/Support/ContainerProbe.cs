@@ -50,6 +50,7 @@ internal sealed class ContainerProbe : IDisposable
         string? user = null,
         string[]? command = null,
         string[]? entrypoint = null,
+        string? alias = null,
         CancellationToken ct = default)
     {
         var body = new Dictionary<string, object?>
@@ -66,6 +67,14 @@ internal sealed class ContainerProbe : IDisposable
         if (user is not null)
         {
             body["User"] = user;
+        }
+
+        if (alias is not null && network is not null)
+        {
+            body["NetworkingConfig"] = new Dictionary<string, object?>
+            {
+                ["EndpointsConfig"] = new Dictionary<string, object?> { [network] = new Dictionary<string, object?> { ["Aliases"] = new[] { alias } } },
+            };
         }
 
         if (command is not null)
