@@ -88,6 +88,7 @@ app.MapAnalysisFactEndpoints();
 app.MapWorkflowOperationsEndpoints();
 app.MapAnalystManagerEndpoints();
 app.MapRegistryEndpoints();
+app.MapAgentConversationEndpoints();
 app.MapAgentWorkloadEndpoints();
 
 app.Run();
