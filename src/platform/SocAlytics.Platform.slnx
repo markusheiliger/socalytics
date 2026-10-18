@@ -12,5 +12,6 @@
     <Project Path="Tests/SocAlytics.Platform.EndToEnd.Tests/SocAlytics.Platform.EndToEnd.Tests.csproj" />
     <Project Path="Tests/SocAlytics.Platform.Host.Tests/SocAlytics.Platform.Host.Tests.csproj" />
     <Project Path="Tests/SocAlytics.Platform.Integration.Tests/SocAlytics.Platform.Integration.Tests.csproj" />
+    <Project Path="Tests/SocAlytics.Platform.SimulatedAgentWorkload/SocAlytics.Platform.SimulatedAgentWorkload.csproj" />
   </Folder>
 </Solution>
