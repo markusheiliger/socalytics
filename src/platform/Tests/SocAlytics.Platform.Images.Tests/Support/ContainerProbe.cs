@@ -141,9 +141,16 @@ internal sealed class ContainerProbe : IDisposable
     /// <summary>The UIDs of the processes of a running container, from the Docker Engine <c>top</c> operation.</summary>
     public async Task<IReadOnlyList<string>> ProcessUidsAsync(string containerId, CancellationToken ct = default)
     {
-        var top = await GetJsonAsync($"/containers/{containerId}/top?ps_args=-eo%20uid", ct);
+        // The engine requires a PID column in the ps output.
+        var top = await GetJsonAsync($"/containers/{containerId}/top?ps_args=-eo%20pid,uid", ct);
+        var uidColumn = top.GetProperty("Titles").EnumerateArray().Select(t => t.GetString()).ToList().IndexOf("UID");
+        if (uidColumn < 0)
+        {
+            throw new InvalidOperationException("The Docker Engine top output has no UID column: " + top.GetProperty("Titles"));
+        }
+
         return top.GetProperty("Processes").EnumerateArray()
-            .Select(row => row[0].GetString()!.Trim())
+            .Select(row => row[uidColumn].GetString()!.Trim())
             .ToList();
     }
 
