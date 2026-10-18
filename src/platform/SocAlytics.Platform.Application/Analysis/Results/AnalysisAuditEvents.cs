@@ -22,6 +22,7 @@ public static class AnalysisAuditEvents
     public const string ManagerIdDetail = "managerId";
     public const string LogicalJobIdDetail = "logicalJobId";
     public const string RunIdDetail = "runId";
+    public const string MatchIdDetail = "matchId";
 
     public static AuditEvent ResultRejected(Guid attemptId, Guid logicalJobId, Guid runId, Guid teamId, Guid managerId, string reason) =>
         new()
@@ -76,7 +77,7 @@ public static class AnalysisAuditEvents
         };
 
     // The cancellation reason is free text and is deliberately not part of the event.
-    public static AuditEvent RunCancelled(Guid runId, Guid teamId, string previousState) =>
+    public static AuditEvent RunCancelled(Guid runId, Guid matchId, Guid teamId, string previousState) =>
         new()
         {
             EventType = RunCancelledEvent,
@@ -87,6 +88,7 @@ public static class AnalysisAuditEvents
             Details = new Dictionary<string, string>
             {
                 [RunIdDetail] = runId.ToString(),
+                [MatchIdDetail] = matchId.ToString(),
                 [PreviousStateDetail] = previousState,
             },
         };

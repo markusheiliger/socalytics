@@ -83,7 +83,7 @@ public sealed class CancelAnalysisRunHandler(
             AnalysisMetrics.TagActivity(run.Id, attempt.LogicalJobId, attempt.AttemptId);
         }
 
-        await audit.RecordAsync(AnalysisAuditEvents.RunCancelled(run.Id, run.TeamId, run.State.ToString()), cancellationToken);
+        await audit.RecordAsync(AnalysisAuditEvents.RunCancelled(run.Id, run.MatchId, run.TeamId, run.State.ToString()), cancellationToken);
         await coordinator.EnqueueRunStateAsync(run, run.State, AnalysisRunState.Cancelled, null, cancellationToken);
 
         var status = await ReadAsync(run.Id, cancellationToken);

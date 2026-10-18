@@ -178,7 +178,11 @@ public sealed class RunCancellationTests(PostgresContainerFixture postgres, Rust
 		await using var rows = await audit.ExecuteReaderAsync(ct);
 		(await rows.ReadAsync(ct)).ShouldBeTrue();
 		rows.GetString(0).ShouldBe("succeeded");
-		rows.GetString(1).ShouldNotContain(Reason);
+		var details = rows.GetString(1);
+		details.ShouldNotContain(Reason);
+		var detailValues = JsonDocument.Parse(details).RootElement;
+		detailValues.GetProperty("runId").GetString().ShouldBe(run.ToString());
+		detailValues.GetProperty("matchId").GetString().ShouldBe(s.Hierarchy.MatchId.ToString());
 		(await rows.ReadAsync(ct)).ShouldBeFalse();
 	}
 
