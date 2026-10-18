@@ -15,6 +15,10 @@ public static class AgentOrchestrationAuditEvents
     public const string InvocationExhaustedEvent = "agent.invocation.exhausted";
     public const string AttemptScopeLostEvent = "agent.attempt.scope-lost";
 
+    public const string CredentialIssuedEvent = "agent-workload.credential-issued";
+    public const string CredentialRefusedEvent = "agent-workload.credential-refused";
+
+    public const string WorkloadResourceType = "agent-workload";
     public const string ConversationResourceType = "agent-conversation";
     public const string InvocationResourceType = "agent-invocation";
 
@@ -70,6 +74,16 @@ public static class AgentOrchestrationAuditEvents
     public static AuditEvent AttemptScopeLost(Guid attemptId, Guid invocationId, Guid teamId, int attemptNumber, string agentId, string disposition) =>
         Workload(AttemptScopeLostEvent, "fence-attempt", AuditOutcome.Refused, attemptId, invocationId, teamId, attemptNumber, agentId, null, disposition, disposition, SystemActor);
 
+    public static AuditEvent WorkloadCredentialIssued(string clientId) =>
+        Build(CredentialIssuedEvent, "issue-credential", AuditOutcome.Succeeded, WorkloadResourceType, clientId, null, null,
+            [(WorkloadClientIdDetail, clientId)], WorkloadActor);
+
+    // The client id is caller-supplied for refusals, so it is bounded and only recorded as the resource.
+    public static AuditEvent WorkloadCredentialRefused(string? clientId, string reason) =>
+        Build(CredentialRefusedEvent, "issue-credential", AuditOutcome.Refused, WorkloadResourceType,
+            clientId is { Length: > 128 } ? clientId[..128] : clientId, null, reason,
+            Pairs((ReasonCodeDetail, reason)), WorkloadActor);
+
     private static readonly AuditActorOverride WorkloadActor = new(AuditActorKind.AgentWorkload, null);
     private static readonly AuditActorOverride SystemActor = new(AuditActorKind.System, null);
 
@@ -111,12 +125,24 @@ public static class AgentOrchestrationAuditEvents
         string? reason,
         IEnumerable<(string Key, string Value)> details,
         AuditActorOverride? actor = null) =>
+        Build(eventType, action, outcome, resourceType, resourceId.ToString(), teamId, reason, details, actor);
+
+    private static AuditEvent Build(
+        string eventType,
+        string action,
+        AuditOutcome outcome,
+        string resourceType,
+        string? resourceId,
+        Guid? teamId,
+        string? reason,
+        IEnumerable<(string Key, string Value)> details,
+        AuditActorOverride? actor = null) =>
         new()
         {
             EventType = eventType,
             Action = action,
             Outcome = outcome,
-            Resource = new AuditResource(resourceType, resourceId.ToString()),
+            Resource = new AuditResource(resourceType, resourceId),
             TeamId = teamId,
             ReasonCode = reason,
             Details = details.ToDictionary(d => d.Key, d => d.Value),
