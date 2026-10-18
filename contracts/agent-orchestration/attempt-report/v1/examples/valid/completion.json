@@ -1,0 +1,14 @@
+{
+  "operationId": "op-complete-0001",
+  "fencingToken": "ft_2f9c1a7e4b6d4c0f9a3e",
+  "advice": "Drop the back line five metres after losing the ball and press the first pass only when the ball side is covered.",
+  "executionReferences": {
+    "runtime": "reference-runtime-1",
+    "modelProvider": "provider-1",
+    "model": "model-1",
+    "deployment": "deployment-1",
+    "promptRef": "prompt-tactics-1",
+    "toolPolicyRef": "tool-policy-1",
+    "safetyPolicyRef": "safety-policy-1"
+  }
+}
