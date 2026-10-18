@@ -53,9 +53,10 @@ public class ResultContractsTests
         var dir = Path.Combine(AnalysisRoot, "upstream-results", "v1");
         var file = Path.Combine(dir, "upstream-results.schema.json");
         var schema = JsonNode.Parse(File.ReadAllText(file))!;
-        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.0.0");
+        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.1.0");
         schema["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
         schema["properties"]!["upstream"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
+        schema["properties"]!["upstream"]!["properties"]!["coverage"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
         var defs = schema["$defs"]!;
         defs["result"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
         defs["result"]!["properties"]!["scope"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
@@ -65,7 +66,8 @@ public class ResultContractsTests
         defs["coverageEntry"]!["properties"]!["state"]!["enum"]!.AsArray().Select(n => n!.GetValue<string>())
             .ShouldBe(["accepted", "missing", "failed", "blocked", "skipped"]);
 
-        File.ReadAllBytes(Path.Combine(dir, "releases", "1.0.0.schema.json")).ShouldBe(File.ReadAllBytes(file));
+        File.ReadAllBytes(Path.Combine(dir, "releases", "1.1.0.schema.json")).ShouldBe(File.ReadAllBytes(file));
+        File.Exists(Path.Combine(dir, "releases", "1.0.0.schema.json")).ShouldBeTrue();
     }
 
     [Fact]
