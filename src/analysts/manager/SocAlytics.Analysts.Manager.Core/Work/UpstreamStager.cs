@@ -395,6 +395,8 @@ public sealed partial class UpstreamStager(
         {
             upstream = dependency.Upstream,
             coverage = dependency.Coverage,
+            mode = dependency.Upstream.Coverage?.Mode ?? "complete",
+            minimumAcceptedFraction = dependency.Upstream.Coverage?.MinimumAcceptedFraction,
         };
         File.WriteAllText(Path.Combine(directory, "coverage.json"), JsonSerializer.Serialize(document, PlatformJson.Options));
     }
