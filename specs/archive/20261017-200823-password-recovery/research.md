@@ -12,7 +12,7 @@ All Technical Context items are resolved from the architecture, the existing cod
   nullable `password_recovery_id` column referencing it, beside `confirmation_id`. The token is generated and hashed with
   the existing `ConfirmationTokens` helper and carried in the link fragment (`#token=`), exactly as confirmations.
 - **Rationale**: Reuses the proven confirmation pattern that
-  [Email Notifications → Email Addresses](../../docs/architecture/email-notifications.md#email-addresses) prescribes
+  [Email Notifications → Email Addresses](../../../docs/architecture/email-notifications.md#email-addresses) prescribes
   (worker-issued token, hash only, fragment), keeps the raw token out of the database and logs, and lets each worker
   attempt issue a fresh token.
 - **Alternatives considered**: Reusing `one_time_credential` with a new purpose (rejected: those credentials are issued
@@ -96,7 +96,7 @@ All Technical Context items are resolved from the architecture, the existing cod
   Detail keys are added to the `PostgresAuditTrail` allow-list where missing. No token, password, or full address is
   ever recorded.
 - **Rationale**: FR-018 and the masked-address audit rule of
-  [Email Notifications → Security And Governance](../../docs/architecture/email-notifications.md#security-and-governance).
+  [Email Notifications → Security And Governance](../../../docs/architecture/email-notifications.md#security-and-governance).
   Link checks change nothing and are rate limited, so they are not audited.
 - **Alternatives considered**: One event per request listing all members (rejected: the audit resource is a single
   member).

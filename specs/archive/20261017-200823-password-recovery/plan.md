@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-200823-password-recovery` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261017-200823-password-recovery/spec.md`
+**Input**: Feature specification from `/specs/archive/20261017-200823-password-recovery/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -54,7 +54,7 @@ pages, one message type.
 
 | Principle | Gate | Result |
 | --- | --- | --- |
-| I. Architecture Is the Design Authority | The feature implements [Email Notifications](../../docs/architecture/email-notifications.md) (the account message "self-service password recovery", reserved for its own specification) and the local-account rules of [API And Identity](../../docs/architecture/platform-implementation.md#api-and-identity); design decisions not yet stated there are applied now as decided but not implemented (see Architecture Updates). | Pass |
+| I. Architecture Is the Design Authority | The feature implements [Email Notifications](../../../docs/architecture/email-notifications.md) (the account message "self-service password recovery", reserved for its own specification) and the local-account rules of [API And Identity](../../../docs/architecture/platform-implementation.md#api-and-identity); design decisions not yet stated there are applied now as decided but not implemented (see Architecture Updates). | Pass |
 | II. Respect Source-Area Ownership | Code lives in `src/platform/` (Domain, Application, Infrastructure, Api, Tests) and `src/clients/web/`; no new first-level area or project. | Pass |
 | III. API-First Control Plane | The Web UI uses three new `/api/v1` operations through its generated client and adapters; the OpenAPI snapshot is refreshed; the UI holds no recovery logic beyond input checks. | Pass |
 | IV. Evidence Over Claims | Integration tests cover answers, eligibility, limits, token lifecycle, completion, sessions, audit, and privacy; Web UI unit and Playwright tests cover the pages; development values are not presented as production values. | Pass |
@@ -67,22 +67,22 @@ Post-design re-check: unchanged, all gates pass. No Complexity Tracking entries.
 
 **Narratives** (implemented or changed by this feature):
 
-- [Email Notifications → Purpose And Scope](../../docs/architecture/email-notifications.md#purpose-and-scope),
-  [Email Addresses](../../docs/architecture/email-notifications.md#email-addresses),
-  [Notification Preferences](../../docs/architecture/email-notifications.md#notification-preferences),
-  [Message Content](../../docs/architecture/email-notifications.md#message-content),
-  [Delivery](../../docs/architecture/email-notifications.md#delivery),
-  [Security And Governance](../../docs/architecture/email-notifications.md#security-and-governance), and
-  [Production Values](../../docs/architecture/email-notifications.md#production-values): the password-recovery account
+- [Email Notifications → Purpose And Scope](../../../docs/architecture/email-notifications.md#purpose-and-scope),
+  [Email Addresses](../../../docs/architecture/email-notifications.md#email-addresses),
+  [Notification Preferences](../../../docs/architecture/email-notifications.md#notification-preferences),
+  [Message Content](../../../docs/architecture/email-notifications.md#message-content),
+  [Delivery](../../../docs/architecture/email-notifications.md#delivery),
+  [Security And Governance](../../../docs/architecture/email-notifications.md#security-and-governance), and
+  [Production Values](../../../docs/architecture/email-notifications.md#production-values): the password-recovery account
   message, its token, its limits, its audit events, and its production values.
-- [Platform Implementation Profile → API And Identity](../../docs/architecture/platform-implementation.md#api-and-identity):
+- [Platform Implementation Profile → API And Identity](../../../docs/architecture/platform-implementation.md#api-and-identity):
   local-account recovery beside Club Admin-issued reset credentials and break-glass recovery.
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): the sign-in page's recovery
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): the sign-in page's recovery
   entry and the public recovery pages.
-- [Security and Data Governance → Threat Model](../../docs/architecture/security-and-data-governance.md#threat-model)
-  (`THR-012`), [Audit Events](../../docs/architecture/security-and-data-governance.md#audit-events), and the
+- [Security and Data Governance → Threat Model](../../../docs/architecture/security-and-data-governance.md#threat-model)
+  (`THR-012`), [Audit Events](../../../docs/architecture/security-and-data-governance.md#audit-events), and the
   credential-class entry `GOV-CRED-001` (human sessions, recovery).
-- [Production Deployment and Operations → Versioned Production Profile](../../docs/architecture/production-operations.md#versioned-production-profile):
+- [Production Deployment and Operations → Versioned Production Profile](../../../docs/architecture/production-operations.md#versioned-production-profile):
   the Email row.
 
 **Design updates** (applied now to the owning narratives, worded as decided but not yet implemented; the implementation
@@ -141,7 +141,7 @@ implemented" wording about recovery elsewhere); the rewrites listed above are ex
 ### Documentation (this feature)
 
 ```text
-specs/20261017-200823-password-recovery/
+specs/archive/20261017-200823-password-recovery/
 ├── plan.md
 ├── research.md
 ├── data-model.md

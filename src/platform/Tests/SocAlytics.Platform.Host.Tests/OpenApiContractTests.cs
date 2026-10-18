@@ -97,7 +97,7 @@ public sealed class OpenApiContractTests
 			&& path.Contains("/external-identities/", StringComparison.Ordinal));
 
 	// Password recovery operations are verified against
-	// specs/20261017-200823-password-recovery/contracts/password-recovery-api.md, not against the Club contract.
+	// specs/archive/20261017-200823-password-recovery/contracts/password-recovery-api.md, not against the Club contract.
 	private static bool IsPasswordRecoveryPath(string path) =>
 		path.StartsWith("/api/v1/password-recovery/", StringComparison.Ordinal);
 
