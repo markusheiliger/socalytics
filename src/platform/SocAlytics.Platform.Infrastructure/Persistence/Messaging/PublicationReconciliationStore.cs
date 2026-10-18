@@ -14,9 +14,10 @@ internal sealed class PublicationReconciliationStore(IDbSession session) : IPubl
         var connection = await session.GetConnectionAsync(cancellationToken);
         var rows = await connection.QueryAsync<Guid>(new CommandDefinition(
             """
-            SELECT DISTINCT run_id FROM socalytics.analysis_logical_jobs
-            WHERE state = 'Ready' AND run_id > @after
-            ORDER BY run_id LIMIT @batchSize
+            SELECT DISTINCT j.run_id FROM socalytics.analysis_logical_jobs j
+            JOIN socalytics.analysis_runs r ON r.id = j.run_id
+            WHERE j.state = 'Ready' AND r.state IN ('Requested', 'Running') AND j.run_id > @after
+            ORDER BY j.run_id LIMIT @batchSize
             """,
             new { after, batchSize }, transaction, cancellationToken: cancellationToken));
         return rows.AsList();
@@ -30,7 +31,8 @@ internal sealed class PublicationReconciliationStore(IDbSession session) : IPubl
             $"""
             UPDATE socalytics.outbox_messages m SET {Reset}
             FROM socalytics.analysis_logical_jobs j
-            WHERE j.run_id = @runId AND j.state = 'Ready'
+            JOIN socalytics.analysis_runs r ON r.id = j.run_id
+            WHERE j.run_id = @runId AND j.state = 'Ready' AND r.state IN ('Requested', 'Running')
               AND m.message_type = 'analysis.ready-work'
               AND m.causation_id = j.current_readiness_occurrence_id
             """,
