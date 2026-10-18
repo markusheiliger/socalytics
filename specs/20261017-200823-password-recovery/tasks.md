@@ -41,7 +41,7 @@ description: "Task list for Self-Service Password Recovery"
 
 ### Registration
 
-- [ ] T007 Register `IPasswordRecoveryStore` in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs` and bind and validate `PasswordRecoveryOptions` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`; add any detail key the password-recovery audit events use that the allow-list in `src/platform/SocAlytics.Platform.Infrastructure/Persistence/PostgresAuditTrail.cs` lacks (`maskedAddress` is already allowed) (FR-017, FR-018)
+- [x] T007 Register `IPasswordRecoveryStore` in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs` and bind and validate `PasswordRecoveryOptions` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`; add any detail key the password-recovery audit events use that the allow-list in `src/platform/SocAlytics.Platform.Infrastructure/Persistence/PostgresAuditTrail.cs` lacks (`maskedAddress` is already allowed) (FR-017, FR-018)
 
 ### Foundational tests
 
