@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.IdentityAccess.Email;
@@ -14,6 +15,7 @@ public static class PasswordRecoveryAuditEvents
 
     public const string ReasonQueued = "queued";
     public const string ReasonNotEligible = "not-eligible";
+    public const string ReasonRateLimited = "rate-limited";
     public const string ReasonNoEligibleAccount = "no-eligible-account";
     public const string ReasonRecoveryInvalid = "recovery-invalid";
     public const string ReasonPasswordPolicy = "password-policy";
@@ -25,9 +27,14 @@ public sealed class RequestPasswordRecoveryHandler(
     IUnitOfWork unitOfWork,
     IPasswordRecoveryStore recoveries,
     IEmailOutbox outbox,
+    IEmailMessageStore messages,
+    INotificationRecipientStore recipients,
+    IOptions<PasswordRecoveryOptions> options,
     IAuditTrail audit,
     TimeProvider time)
 {
+    private static readonly TimeSpan Window = TimeSpan.FromHours(1);
+
     public async Task<OperationResult<bool>> HandleAsync(RequestPasswordRecoveryCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -55,6 +62,16 @@ public sealed class RequestPasswordRecoveryHandler(
                 && candidate.AddressHash == address.Hash;
             if (eligible)
             {
+                // Serializes concurrent requests per member so the hourly limit cannot be raced.
+                await recipients.LockRecipientAsync(NotificationTypes.PasswordRecoveryCode, candidate.AccountId, cancellationToken);
+                var count = await messages.CountCreatedSinceAsync(
+                    NotificationTypes.PasswordRecoveryCode, candidate.AccountId, time.GetUtcNow() - Window, cancellationToken);
+                if (count >= options.Value.MaxMessagesPerHour)
+                {
+                    await RecordAsync(candidate.AccountId, PasswordRecoveryAuditEvents.ReasonRateLimited, details, cancellationToken);
+                    continue;
+                }
+
                 await recoveries.SupersedeOpenAsync(candidate.AccountId, cancellationToken);
                 var recoveryId = Guid.NewGuid();
                 await recoveries.CreatePendingAsync(
