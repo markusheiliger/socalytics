@@ -108,6 +108,28 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
         (await FetchAsync(js, MatchCapability, payload, ct)).ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task Agent_work_stream_and_consumer_are_provisioned_and_deduplicate_by_message_id()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var provider = Provider();
+        var js = await ProvisionAsync(provider, ct);
+
+        var consumer = await js.GetConsumerAsync("AGENT_WORK", "agent-workload", ct);
+        consumer.Info.Config.FilterSubject.ShouldBe("agents.invocations.ready");
+        consumer.Info.Config.AckPolicy.ShouldBe(NATS.Client.JetStream.Models.ConsumerConfigAckPolicy.Explicit);
+        consumer.Info.Config.MaxDeliver.ShouldBe(-1);
+        var stream = await js.GetStreamAsync("AGENT_WORK", cancellationToken: ct);
+        stream.Info.Config.Retention.ShouldBe(NATS.Client.JetStream.Models.StreamConfigRetention.Workqueue);
+        stream.Info.Config.DuplicateWindow.ShouldBe(TimeSpan.FromSeconds(120));
+
+        var transport = provider.GetRequiredService<IMessageTransport>();
+        var id = Guid.NewGuid() + ":1";
+        var message = new TransportMessage("agents.invocations.ready", id, Encoding.UTF8.GetBytes("{}"));
+        (await transport.PublishAsync(message, ct)).ShouldBe(TransportPublishResult.Published);
+        (await transport.PublishAsync(message, ct)).ShouldBe(TransportPublishResult.Duplicate);
+    }
+
     private static async Task<bool> FetchAsync(NatsJSContext js, string capability, string payload, CancellationToken ct)
     {
         var consumer = await js.GetConsumerAsync(Stream, "analyst-" + capability, ct);
