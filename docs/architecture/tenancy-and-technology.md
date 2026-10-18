@@ -186,14 +186,25 @@ Lite artifacts and matching Edge TPU compiler and runtime versions.
 ### AI
 
 - MCP with an explicit agent-safe read-only API allowlist
-- Hermes as a separate Python OCI runtime with no database access
+- MCP server as a separate Python OCI service on the official MCP Python SDK
+  (decided, not yet implemented)
+- Hermes as a separate Python OCI runtime with no database access (its first
+  slice for direct Specialist Agents in `src/agents/hermes` is decided, not yet
+  implemented; direct Coach Agents and delegated consultations are decided,
+  not yet implemented)
 - Microsoft Agent Framework behind Hermes-owned adapters
 - OpenAI API as the default model provider
 - GitHub Models as a manually selected development alternative
+- a deterministic scripted model provider for Development and Test only
+  (decided, not yet implemented)
 
 For each invocation, Hermes resolves versioned prompt,
-model/deployment, tool-policy, and safety-policy artifacts under the
-authenticated user's team and resource authorization. Hermes claims durable
+model/deployment, tool-policy, and safety-policy artifacts, and for a Coach
+Agent its dimension-set, philosophy-profile, and modifier-policy artifacts
+and any consultation-policy artifact (decided, not yet implemented), under the
+authenticated user's team and resource authorization; they are the artifacts
+Agent Orchestration pinned from the platform's agent catalog at submission
+(decided, not yet implemented). Hermes claims durable
 work through versioned Agent Orchestration API operations. PostgreSQL remains
 authoritative; transactional-outbox notifications on JetStream are minimal and
 at least once. A provider-neutral adapter prevents provider SDK types from
