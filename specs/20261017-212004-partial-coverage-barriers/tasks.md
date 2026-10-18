@@ -118,7 +118,7 @@ stored, and invalid declarations are refused as `manifest-invalid` with the vali
 
 ### Declaration evidence
 
-- [ ] T021 [P] [US3] Cover import in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/AnalystImageImportTests.cs`: a `1.1.0` manifest with a partial declaration and one with a fraction are stored with the declaration, a `1.0.0` manifest is stored with complete coverage, and partial declarations on a segment-scoped capability, on an optional dependency, or with fraction `0` or above `1` are refused (FR-001, FR-002, FR-003; SC-004)
+- [x] T021 [P] [US3] Cover import in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/AnalystImageImportTests.cs`: a `1.1.0` manifest with a partial declaration and one with a fraction are stored with the declaration, a `1.0.0` manifest is stored with complete coverage, and partial declarations on a segment-scoped capability, on an optional dependency, or with fraction `0` or above `1` are refused (FR-001, FR-002, FR-003; SC-004)
 - [ ] T022 [P] [US3] Cover the seed and resolution in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Registry/RegistryResolutionTests.cs`: a configured partial edge is seeded and resolved with its policy, an invalid configured declaration is not seeded, and a Registry workflow resolves the policy from the dependent's declaration (FR-004, FR-005)
 
 **Checkpoint**: Capabilities opt in through the Registry and the development seed
