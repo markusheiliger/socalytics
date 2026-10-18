@@ -68,6 +68,16 @@ internal sealed class AgentAttemptStore(IDbSession session) : IAgentAttemptStore
         return row is null ? null : ToRecord(row);
     }
 
+    public async Task<AgentAttemptRecord?> FindAsync(Guid attemptId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var row = await connection.QuerySingleOrDefaultAsync<Row>(new CommandDefinition(
+            $"SELECT {Columns} FROM socalytics.agent_attempts WHERE id = @attemptId",
+            new { attemptId }, transaction, cancellationToken: cancellationToken));
+        return row is null ? null : ToRecord(row);
+    }
+
     public async Task<bool> TryTransitionAsync(
         Guid attemptId, AgentAttemptState expectedState, AgentAttemptState newState, string? endReason,
         DateTimeOffset? endedAt, CancellationToken cancellationToken)

@@ -179,6 +179,9 @@ public interface IAgentAttemptStore
 
     Task<AgentAttemptRecord?> LockAsync(Guid attemptId, CancellationToken cancellationToken);
 
+    // Unlocked read, for callers that must take the invocation lock before the attempt lock.
+    Task<AgentAttemptRecord?> FindAsync(Guid attemptId, CancellationToken cancellationToken);
+
     // Applies only while the attempt is in expectedState; sets ended_at and end_reason as given.
     Task<bool> TryTransitionAsync(
         Guid attemptId, AgentAttemptState expectedState, AgentAttemptState newState, string? endReason,
