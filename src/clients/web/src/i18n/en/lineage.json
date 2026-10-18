@@ -58,6 +58,16 @@
     "failure": "Reason: {{reason}}",
     "loadFailed": "The analysis runs could not be loaded."
   },
+  "cancelRun": {
+    "title": "Cancel this analysis run?",
+    "consequences": "Work in progress stops. Results that were already accepted remain. The cancellation cannot be undone.",
+    "reason": "Reason (optional)",
+    "hint": "{{count}} / {{max}} characters",
+    "tooLong": "The reason is too long: {{count}} of at most {{max}} characters. Shorten it to cancel the run.",
+    "dismiss": "Keep the run",
+    "confirm": "Cancel run",
+    "working": "Cancelling the run…"
+  },
   "review": {
     "title": "Recording lineage",
     "intro": "Every recording version, timeline mapping, and finalized set of this match. Earlier versions stay unchanged.",

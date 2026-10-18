@@ -96,7 +96,7 @@ description: "Task list for Analysis Run Cancellation"
 ### Adapter and dialog
 
 - [ ] T016 [P] [US3] Add `version`, `cancelledBy?: { memberId, accountName }`, and `cancellationReason?` to `AnalysisRunSummary` in `src/clients/web/src/platform/models/recordings.ts`, map them in `toAnalysisRun`, and add `cancel(runId, version, reason?)` that sends `If-Match` and `{ reason }` with the existing `withIfMatch` and `withJson` helpers and maps the `AnalysisRunStatusDto` response in `src/clients/web/src/platform/adapters/analysisRunAdapter.ts`, over the Kiota client that `npm run build` regenerates from the refreshed snapshot, and update existing unit-test fixtures that construct `AnalysisRunSummary` (contracts/web-ui-cancel-action.md; FR-016, FR-018, FR-020)
-- [ ] T017 [P] [US3] Add `CancelRunDialog` in `src/clients/web/src/features/lineage/CancelRunDialog.tsx` (consequence text, optional multiline reason with a counter and a 500-character limit, dismiss as default focus, `Escape` to dismiss, focus return, disabled confirmation and announced progress while sending) and its translation keys in `src/clients/web/src/i18n/en/lineage.json` (FR-018, FR-020)
+- [x] T017 [P] [US3] Add `CancelRunDialog` in `src/clients/web/src/features/lineage/CancelRunDialog.tsx` (consequence text, optional multiline reason with a counter and a 500-character limit, dismiss as default focus, `Escape` to dismiss, focus return, disabled confirmation and announced progress while sending) and its translation keys in `src/clients/web/src/i18n/en/lineage.json` (FR-018, FR-020)
 
 ### Run list integration
 
