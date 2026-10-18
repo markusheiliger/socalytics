@@ -14,7 +14,7 @@ public class ResultContractsTests
     public void Result_manifest_closes_every_object_and_has_a_released_copy()
     {
         var schema = JsonNode.Parse(File.ReadAllText(ManifestSchemaFile))!;
-        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.0.0");
+        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.1.0");
         schema["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
         foreach (var path in new[] { "scope", "provenance", "attempt", "validityWindow" })
         {
@@ -24,7 +24,7 @@ public class ResultContractsTests
         schema["properties"]!["artifacts"]!["items"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
         schema["properties"]!["upstreamLineage"]!["items"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
 
-        File.ReadAllBytes(Path.Combine(AnalysisRoot, "result-manifest", "v1", "releases", "1.0.0.schema.json"))
+        File.ReadAllBytes(Path.Combine(AnalysisRoot, "result-manifest", "v1", "releases", "1.1.0.schema.json"))
             .ShouldBe(File.ReadAllBytes(ManifestSchemaFile));
     }
 
