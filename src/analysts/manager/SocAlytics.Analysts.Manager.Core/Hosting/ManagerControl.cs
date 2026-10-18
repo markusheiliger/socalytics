@@ -13,6 +13,7 @@ public sealed class ManagerControl : IManagerControl
     private readonly ApplicationProfile _profile;
     private readonly LingeringCheck _lingering;
     private readonly ManagerBuildVersion _buildVersion;
+    private readonly Registration.MinimumVersionState _minimumVersion;
 
     private readonly IManagerWorkTracker _work;
     private readonly Runtime.PreflightScheduler _preflight;
@@ -28,8 +29,10 @@ public sealed class ManagerControl : IManagerControl
         DrainCoordinator drain, Microsoft.Extensions.Options.IOptions<OperatingOptions> operating,
         Autostart.IAutostartRegistrar autostart, Work.ConcurrencyLimit concurrency, Work.AttemptRegistry attempts,
         Queue.QueueDepthState queueDepth, HostUtilizationSampler utilization,
-        ApplicationProfile profile, LingeringCheck lingering, ManagerBuildVersion buildVersion)
+        ApplicationProfile profile, LingeringCheck lingering, ManagerBuildVersion buildVersion,
+        Registration.MinimumVersionState minimumVersion)
     {
+        _minimumVersion = minimumVersion;
         _buildVersion = buildVersion;
         _utilization = utilization;
         _queueDepth = queueDepth;
@@ -92,8 +95,14 @@ public sealed class ManagerControl : IManagerControl
             _buildVersion.Value,
             _utilization.Latest,
             _profile.ToApiName(),
-            _profile == ApplicationProfile.HeadlessServer ? LingeringCheck.ToWireValue(_lingering.Evaluate()) : null);
+            _profile == ApplicationProfile.HeadlessServer ? LingeringCheck.ToWireValue(_lingering.Evaluate()) : null,
+            UpdateRequired());
     }
+
+    private UpdateRequiredStatus? UpdateRequired() =>
+        _minimumVersion.IsBelow
+            ? new UpdateRequiredStatus(true, _minimumVersion.BuildVersion, _minimumVersion.Minimum ?? "unknown")
+            : null;
 
     private QueueDepthView QueueDepthView()
     {

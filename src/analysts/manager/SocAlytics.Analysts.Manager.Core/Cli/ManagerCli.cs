@@ -336,6 +336,11 @@ public static class ManagerCli
 
         lines.AddRange(Diagnostics.RuntimeStatusText.Lines(
             n["preflight"] is { } pf ? pf.Deserialize<Runtime.PreflightResult>(LocalControlProtocol.Json) : null));
+        if (n["update"] is { } update && (bool?)update["required"] == true)
+        {
+            lines.Add($"Update required: Manager {(string?)update["managerVersion"]} is below the stamp minimum {(string?)update["minimumVersion"]}.");
+        }
+
         lines.AddRange(QueueText(n["queueDepth"]));
         var host = n["hostUtilization"];
         lines.Add(Diagnostics.HostUtilizationText.Cpu(host?["cpuPercent"] is { } cpu ? (decimal)cpu : null));
