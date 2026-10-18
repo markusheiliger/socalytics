@@ -74,6 +74,7 @@ app.MapSessionEndpoints();
 app.MapExternalSignInEndpoints();
 app.MapSelfEndpoints();
 app.MapEmailEndpoints();
+app.MapPasswordRecoveryEndpoints();
 app.MapClubEndpoints();
 app.MapSeasonEndpoints();
 app.MapTeamEndpoints();
