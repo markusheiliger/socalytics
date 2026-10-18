@@ -309,7 +309,7 @@ node shows that it is blocked.
   one segment still leaves an accepted one.
 - Depends on the merged Durable Analysis Workflow, Analyst Registry, Analysis Result Manifests and Validated
   Acceptance, Analysis Result Read for Jobs, and Analyst Manager Work Execution (archived under `specs/archive/`), and
-  coordinates with `specs/20261017-175648-fact-indexing-queries`, `specs/20261017-182600-analysis-run-cancellation`,
+  coordinates with `specs/20261017-175648-fact-indexing-queries`, `specs/archive/20261017-182600-analysis-run-cancellation`,
   and `specs/20261017-183953-analysis-run-supersession`, which are being implemented.
 - Implements [job processing: readiness and dependencies](../../docs/architecture/job-processing.md#readiness-and-dependencies),
   the capability declaration and coverage of

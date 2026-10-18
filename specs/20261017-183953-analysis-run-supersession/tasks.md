@@ -11,7 +11,7 @@ description: "Task list for Analysis Run Supersession"
 
 **Tests**: The spec requires automated evidence (FR-022), so every story has test tasks. Test tasks follow the implementation tasks of their story so that each landed task keeps the build and test suites green.
 
-**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story. The Analysis Run Cancellation feature (`specs/20261017-182600-analysis-run-cancellation/`) must be merged first; its `CancelAnalysisRunHandler`, cancellation store operations, read fields, and run-list cancel action are the starting point.
+**Organization**: Tasks are grouped by user story to enable independent implementation and testing of each story. The Analysis Run Cancellation feature (`specs/archive/20261017-182600-analysis-run-cancellation/`) must be merged first; its `CancelAnalysisRunHandler`, cancellation store operations, read fields, and run-list cancel action are the starting point.
 
 ## Format: `[ID] [P?] [Story] Description`
 

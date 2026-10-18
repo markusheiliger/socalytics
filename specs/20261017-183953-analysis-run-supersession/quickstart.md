@@ -9,7 +9,7 @@ Web UI behavior in
 ## Prerequisites
 
 - The Analysis Run Cancellation feature
-  ([spec](../20261017-182600-analysis-run-cancellation/spec.md)) is merged.
+  ([spec](../archive/20261017-182600-analysis-run-cancellation/spec.md)) is merged.
 - .NET SDK from `src/platform/global.json`, a running Docker-compatible
   container runtime, and on Linux SoftHSM2 for the end-to-end tests.
 - Node.js 24, Kiota 1.36.0 on `PATH`, and Playwright 1.63.0 Chromium for the
