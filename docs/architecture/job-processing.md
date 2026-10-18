@@ -197,7 +197,10 @@ For each analysis run, the Scheduler:
     capabilities may depend on other foundational capabilities, such as
     tracking depending on detections.
 4. Waits until accepted, API-indexed foundational results exist at the declared
-     versions for all required match segments. Match-consistent continuity work,
+     versions for all required match segments, except through a dependency that
+     declares partial coverage, which waits only until every expected segment
+     job is final and the accepted segments meet the declared minimum (see
+     the partial-coverage paragraph below). Match-consistent continuity work,
      such as track and identity reconciliation, is part of this barrier when a
      downstream capability declares it.
 5. Publishes a match-level high-level job only after every declared upstream
@@ -227,8 +230,8 @@ snapshot records the accepted, failed, missing, and skipped segments and the
 result reports that coverage explicitly; partial input is never mistaken for a
 complete match barrier.
 
-Partial-coverage barriers are decided as follows and not yet implemented. A
-match-scoped capability declares partial coverage per required or conditional
+Partial-coverage barriers are implemented as development evidence against the
+simulated Analyst. A match-scoped capability declares partial coverage per required or conditional
 dependency in its Analyst manifest, with a minimum of at least one accepted
 segment and an optional minimum accepted fraction of the expected segments;
 segment-scoped capabilities and optional dependencies cannot declare it. The
@@ -262,7 +265,9 @@ An analysis run can be `Requested`, `Running`, `PartiallyCompleted`,
 `Blocked` when a required dependency fails, and `Cancelled` when its run is
 cancelled (decided, not yet implemented). Node and logical-job state
 is sufficient to reconstruct dependency readiness after a Scheduler or control-
-plane restart.
+plane restart. A match-scoped result built from partial coverage keeps its run
+from ending `Completed`: failed or blocked segment nodes bridged through a
+partial-coverage dependency still end the run `PartiallyCompleted`.
 
 Retrying an execution attempt does not restart its analysis run. Accepted
 upstream outputs are reused, duplicate or stale completions are rejected by the

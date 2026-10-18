@@ -216,6 +216,19 @@ without disclosure (`analysis.upstream-read-refused` audit events). Options
 (100) are development values. Contract:
 `contracts/analysis/upstream-results/v1/`.
 
+Partial-coverage match barriers are implemented as development evidence
+against the simulated Analyst. A match-scoped capability declares partial
+coverage per required or conditional dependency on a segment-scoped upstream in
+its Analyst manifest (`upstream[].coverage`, with a minimum of at least one
+accepted segment and an optional minimum accepted fraction). The job becomes
+ready once every expected upstream segment job is final and the accepted
+segments meet the minimum, and is blocked otherwise. Its input snapshot fixes
+each segment's state, the upstream read reports that coverage, result
+acceptance rejects a manifest whose `inputCoverage` differs
+(`result-coverage-mismatch`), and the run status read reports input coverage
+counts per node. A run that bridged failed or blocked segments ends
+`PartiallyCompleted`.
+
 Real Analyst execution is implemented on the Manager's `docker-desktop`
 profile and verified against a Linux engine; Docker Desktop on Windows awaits
 manual evidence. Production transport values and production readiness remain
