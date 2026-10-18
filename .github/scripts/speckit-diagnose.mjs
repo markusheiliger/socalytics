@@ -275,7 +275,7 @@ export function validateReport(raw, { requireCategory = true } = {}) {
   for (const option of normalized.options) {
     if (!option.command) continue;
     const command = removePlaceholderArgument(option.command);
-    if (command === null || !COMMAND_PATTERN.test(command) || command.length > 600 || command.includes('```')) {
+    if (command === null || !COMMAND_PATTERN.test(command) || command.length > 600 || command.includes('```') || parseNextCommand(command)?.unknownFlags.length) {
       reasons.push(`option "${option.title}" has an invalid command`);
       option.command = null;
     } else {

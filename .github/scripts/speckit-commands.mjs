@@ -16,6 +16,7 @@ import {
   folderOfBranch,
   implementationBranch,
   neutralizeMarkers,
+  parseCommandArguments,
   renderRetryComment,
   renderSyncComment,
   setAttention,
@@ -28,23 +29,33 @@ export class CommandUsageError extends Error {}
 
 const COMMAND_NAMES = PR_COMMANDS.map((command) => command.name);
 
-// Parses a pull request comment like "/speckit retry use the existing helper". The command must be the first word;
-// the rest of the comment (first line and following lines) is its argument.
+// Parses a pull request comment in the form `/speckit <command> [flags] [guidance]`, like
+// "/speckit retry --force use the existing helper". The command must be the first word; the rest of the comment (first
+// line and following lines) is its argument, split into the flags and the guidance (parseCommandArguments).
 export function parseCommand(body) {
   const text = String(body ?? '').replace(/^\s+/, '');
   const match = text.match(/^\/speckit(?:[ \t]+([A-Za-z-]+))?(?=\s|$)([\s\S]*)$/);
   if (!match) return null;
   const name = (match[1] ?? 'help').toLowerCase();
-  return { name: COMMAND_NAMES.includes(name) ? name : 'unknown', given: match[1] ?? '', argument: match[2].trim() };
+  const known = COMMAND_NAMES.includes(name) ? name : 'unknown';
+  const argument = match[2].trim();
+  return { name: known, given: match[1] ?? '', argument, ...parseCommandArguments(known, argument) };
 }
+
+const describeFlags = (command) => {
+  const flags = Object.entries(command.flags ?? {});
+  return flags.length > 0 ? flags.map(([flag, help]) => `\`${flag}\`: ${help}`).join('; ') : 'none';
+};
 
 export function renderHelp() {
   return [
     '**Spec Kit commands** — comment one of these on an implementation pull request (`speckit/<folder>`). Only people with write access can use them; the command must be the first word of the comment.',
     '',
-    '| Command | What it does |',
-    '| --- | --- |',
-    ...PR_COMMANDS.map((command) => `| \`${command.usage}\` | ${command.help} |`),
+    'Every command has the form `/speckit <command> [flags] [guidance]`: flags start with `--` and come right after the command (each command supports its own), and everything after them is guidance for the next agent. Put `--` before guidance that itself starts with `--`.',
+    '',
+    '| Command | What it does | Flags |',
+    '| --- | --- | --- |',
+    ...PR_COMMANDS.map((command) => `| \`${command.usage}\` | ${command.help} | ${describeFlags(command)} |`),
     '',
     'An amendment pull request (`speckit-amend/<folder>`) or fix spec pull request (`speckit-fix/<folder>`) needs no commands: merge it to apply it, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
     '',
@@ -125,6 +136,16 @@ export async function runCommand({ client, env, log, now = Date.now }) {
     ]);
     return { exitCode: 0, handled: true, command: command.name };
   }
+  if (command.unknownFlags.length > 0) {
+    const definition = PR_COMMANDS.find((item) => item.name === command.name);
+    const supported = Object.keys(definition.flags ?? {});
+    await reply(client, number, [
+      `**\`/speckit ${command.name}\` was not run**: it does not support ${command.unknownFlags.map((flag) => `\`${neutralizeMarkers(flag)}\``).join(', ')}. ${supported.length > 0 ? `Its flags: ${describeFlags(definition)}.` : 'It supports no flags.'}`,
+      '',
+      `Use \`${definition.usage}\`; put \`--\` before guidance that itself starts with \`--\`.`,
+    ]);
+    return { exitCode: 0, handled: true, command: command.name, rejected: 'unsupported flag' };
+  }
   const target = await resolveTarget(client, env, number);
   if (target.reason) {
     await reply(client, number, `\`/speckit ${command.name}\` cannot run here: ${target.reason}.`);
@@ -135,13 +156,13 @@ export async function runCommand({ client, env, log, now = Date.now }) {
     return { exitCode: 0, handled: true, command: command.name, rejected: 'publication target changed' };
   }
   const handler = HANDLERS[command.name];
-  const result = await handler({ client, env, actor, number, argument: command.argument, now, ...target });
+  const result = await handler({ client, env, actor, number, flags: command.flags, guidance: command.guidance.slice(0, 4000), now, ...target });
   log(`/speckit ${command.name} by @${actor}: ${result.outcome}`);
   return { exitCode: 0, handled: true, command: command.name, ...result };
 }
 
-async function handleRetry({ client, env, actor, number, argument, folder, implementation, twin }) {
-  const { force, guidance } = restartArgument(argument);
+async function handleRetry({ client, env, actor, number, flags, guidance, folder, implementation, twin }) {
+  const force = flags.includes(RESTART_FORCE_FLAG);
   const state = await restartState(client, implementation);
   if (!force && (await refuseUnchangedRestart(client, { name: 'retry', number, implementation, folder, state }))) return { outcome: 'refused' };
   await retryImplementation(client, env, { implementation, twin, folder }, `Implementation retried by @${actor}; what stopped restarts with a fresh attempt count while preserving the current phase base.`, guidance, state);
@@ -149,10 +170,10 @@ async function handleRetry({ client, env, actor, number, argument, folder, imple
   return { outcome: 'retried' };
 }
 
-async function handleSync({ client, env, actor, number, argument, implementation, twin }) {
+async function handleSync({ client, env, actor, number, guidance, implementation, twin }) {
   await client.createComment(implementation.number, renderSyncComment(
     `Required synchronization requested by @${actor}; merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.`,
-    argument,
+    guidance,
     await restartState(client, implementation),
   ));
   await setAttention(client, implementation.number, false);
@@ -163,12 +184,6 @@ async function handleSync({ client, env, actor, number, argument, implementation
   }
   if (number !== implementation.number) await reply(client, number, `Synchronization requested; progress is reported on #${implementation.number}.`);
   return { outcome: 'sync requested' };
-}
-
-// `--force` as the first word of a retry skips the unchanged-restart guard; the rest is the guidance.
-function restartArgument(argument) {
-  const match = argument.match(/^--force(?:\s+|$)([\s\S]*)$/i);
-  return { force: Boolean(match), guidance: (match ? match[1] : argument).trim().slice(0, 4000) };
 }
 
 async function restartState(client, implementation) {
@@ -205,8 +220,8 @@ async function refuseUnchangedRestart(client, { name, number, implementation, fo
   return true;
 }
 
-async function handleFix({ client, env, actor, number, argument, now, implementation, twin }) {
-  const started = await startFixAuthoring(client, env, { twin, implementation, guidance: argument.slice(0, 4000), actor, now: now() });
+async function handleFix({ client, env, actor, number, guidance, now, implementation, twin }) {
+  const started = await startFixAuthoring(client, env, { twin, implementation, guidance, actor, now: now() });
   if (!started.started) {
     await reply(client, number, `\`/speckit fix\` cannot start: ${neutralizeMarkers(started.reason)}.`);
     return { outcome: 'refused' };
