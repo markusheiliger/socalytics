@@ -45,7 +45,7 @@ description: "Task list for Self-Service Password Recovery"
 
 ### Foundational tests
 
-- [ ] T008 Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/SelfServicePasswordRecoveryStoreTests.cs`: the migration applies and the persistence structure tests accept the new table and column; the state constraints refuse a `pending` row with a token hash and a `used` row without `used_at`; token hashes are unique; candidates are found case-insensitively by normalized address and none for an unknown address; supersession changes only open recoveries of the account; `ResetPasswordByRecoveryAsync` changes the security stamp, clears the password-change requirement, keeps lockout, and ends every session (FR-003, FR-009, FR-011, FR-012)
+- [x] T008 Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess/SelfServicePasswordRecoveryStoreTests.cs`: the migration applies and the persistence structure tests accept the new table and column; the state constraints refuse a `pending` row with a token hash and a `used` row without `used_at`; token hashes are unique; candidates are found case-insensitively by normalized address and none for an unknown address; supersession changes only open recoveries of the account; `ResetPasswordByRecoveryAsync` changes the security stamp, clears the password-change requirement, keeps lockout, and ends every session (FR-003, FR-009, FR-011, FR-012)
 
 **Checkpoint**: Schema, options, message type, stores, and the credential operation exist; no behavior is exposed yet
 
