@@ -121,3 +121,26 @@ def validate(kind: str, document: object, *, output: bool = False) -> str:
             raise errors.ResultError(errors.OUTPUT_INVALID, message)
         raise errors.InputError(errors.INPUT_INVALID, message)
     return version
+
+
+@lru_cache(maxsize=None)
+def _fragment_validator(kind: str, fragment: str) -> Draft202012Validator:
+    version = supported_versions(kind)[-1]
+    folder, stem, _ = KINDS[kind]
+    schema = _read(f"analysis/{folder}/v1/releases/{version}.schema.json")
+    base = schema["$id"]
+    resolved = registry().with_resource(base, Resource.from_contents(schema, DRAFT202012))
+    return Draft202012Validator({"$ref": f"{base}#{fragment}"}, registry=resolved, format_checker=_FORMATS)
+
+
+def validate_fragment(kind: str, fragment: str, document: object, *, label: str) -> None:
+    """Validate `document` against the definition at the JSON pointer `fragment` of the newest `kind` release.
+
+    Raises `InputError` (`input-invalid`); the message names the keyword and the path, never a document value.
+    """
+    found = sorted(
+        _fragment_validator(kind, fragment).iter_errors(document), key=lambda e: list(map(str, e.absolute_path))
+    )
+    if found:
+        details = "; ".join(_describe(error) for error in found[:10])
+        raise errors.InputError(errors.INPUT_INVALID, f"{label} violates its schema: {details}.")
