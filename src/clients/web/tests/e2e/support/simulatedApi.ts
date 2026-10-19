@@ -496,8 +496,16 @@ export class SimulatedApi {
     if (role !== 'ClubAdmin') return json(403, problem(403, 'Forbidden', { code: 'forbidden' }));
     const request = route.request();
     const url = new URL(request.url());
+    // A 503 carries Retry-After: 0 so the client's automatic retries do not slow the test down.
     const refuse = (status: number, code: string, errors?: { field: string; code: string }[]) =>
-      json(status, problem(status, code, { code, ...(errors ? { errors } : {}) }));
+      status === 503
+        ? route.fulfill({
+            status,
+            contentType: 'application/problem+json',
+            headers: { 'Retry-After': '0' },
+            body: JSON.stringify(problem(status, code, { code, ...(errors ? { errors } : {}) })),
+          })
+        : json(status, problem(status, code, { code, ...(errors ? { errors } : {}) }));
     const respond = (status: number, body: unknown, rowVersion?: number) =>
       route.fulfill({
         status,

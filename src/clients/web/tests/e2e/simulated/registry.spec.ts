@@ -214,3 +214,84 @@ test.describe('Browse', () => {
     await expect(page.getByRole('link', { name: 'Back to the images' })).toBeVisible();
   });
 });
+
+test.describe('Register image', () => {
+  const reference = (c: string) => `registry.example/analysts/ball-tracking@sha256:${c.repeat(64)}`;
+  const submit = async (page: import('@playwright/test').Page, value: string) => {
+    await page.getByLabel('Image reference').fill(value);
+    await page.getByRole('button', { name: 'Register image' }).click();
+  };
+
+  test('a tag reference is explained without a request (acceptance 1)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    const posts: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST') posts.push(request.url());
+    });
+    await page.goto('/registry/images');
+    await page.getByRole('link', { name: 'Register an image' }).click();
+    await expect(page).toHaveURL(/\/registry\/images\/register$/);
+    await submit(page, 'registry.example/analysts/ball-tracking:latest');
+    await expect(page.getByText('The reference must contain @sha256: followed by 64 hexadecimal characters.')).toBeVisible();
+    expect(posts).toEqual([]);
+    await expectNoAxeViolations(page);
+  });
+
+  test('each scripted refusal shows its message and details and keeps the reference (acceptance 2)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    const refusals: [string, string, string][] = [
+      ['reference-not-allowed', '1', 'The reference points to a registry or repository that is not allowed.'],
+      ['image-not-found', '2', 'The image was not found in the registry.'],
+      ['digest-mismatch', '3', 'The registry returned content that does not match the digest.'],
+      ['manifest-missing', '4', 'The image carries no Analyst manifest.'],
+      ['manifest-invalid', '5', "The image's Analyst manifest is invalid."],
+      ['labels-mismatch', '6', 'The image labels do not match its Analyst manifest.'],
+      ['unsupported-media-type', '7', 'The image uses a media type that is not supported.'],
+    ];
+    for (const [code, digit] of refusals) {
+      api.imageRefusals.set(reference(digit), { code, errors: [{ field: 'reference', code }] });
+    }
+    await page.goto('/registry/images/register');
+    for (const [code, digit, message] of refusals) {
+      await submit(page, reference(digit));
+      const alert = page.getByRole('alert').filter({ hasText: 'The platform refused the' });
+      await expect(alert).toContainText(message);
+      await expect(alert).toContainText(`reference: ${code}`);
+      await expect(alert).not.toContainText('Try again later.');
+      await expect(page.getByLabel('Image reference')).toHaveValue(reference(digit));
+    }
+    await expectNoAxeViolations(page);
+  });
+
+  test('an unavailable image registry is refused with "try again later" (acceptance 2)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    api.imageRefusals.set(reference('8'), { code: 'registry-unavailable' });
+    await page.goto('/registry/images/register');
+    await submit(page, reference('8'));
+    const alert = page.getByRole('alert').filter({ hasText: 'The platform refused the' });
+    await expect(alert).toContainText('The image registry is unavailable.');
+    await expect(alert).toContainText('Try again later.');
+    await expect(page.getByLabel('Image reference')).toHaveValue(reference('8'));
+  });
+
+  test('a new registration opens the declaration and a repeated one says nothing changed (acceptance 3, 4, SC-003)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    const offered = hex('1');
+    api.registryCatalog.set(offered, image(offered, 'passing', '3.0.0', 'low-level', 'segment', { manifestVersion: '1.0.0' }));
+    await page.goto('/registry/images/register');
+    await submit(page, reference('1'));
+    await expect(page).toHaveURL(new RegExp(`/registry/images/${encodeURIComponent(offered)}$`));
+    await expect(page.getByRole('heading', { level: 2, name: 'Analyst image' })).toBeVisible();
+    await expect(page.getByText('registry.example/analysts/passing', { exact: true })).toBeVisible();
+    await expect(page.getByText('The image was already registered, nothing changed.')).toHaveCount(0);
+
+    await page.goto('/registry/images/register');
+    await submit(page, reference('1'));
+    await expect(page.getByRole('heading', { level: 2, name: 'Analyst image' })).toBeVisible();
+    await expect(page.getByText('The image was already registered, nothing changed.')).toBeVisible();
+  });
+});
