@@ -128,6 +128,24 @@ internal sealed class MemberInvitationStore(IDbSession session) : IMemberInvitat
             "UPDATE socalytics.member_invitation_links SET state = 'superseded' WHERE invitation_id = @invitationId AND state IN ('pending', 'issued')",
             new { invitationId }, cancellationToken);
 
+    public async Task<IReadOnlyList<DateTimeOffset>> ListResendLinkTimesSinceAsync(
+        Guid invitationId, DateTimeOffset since, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var times = await connection.QueryAsync<DateTime>(new CommandDefinition(
+            "SELECT created_at FROM socalytics.member_invitation_links WHERE invitation_id = @invitationId AND created_at >= @since " +
+            "AND id <> (SELECT id FROM socalytics.member_invitation_links WHERE invitation_id = @invitationId ORDER BY created_at, id LIMIT 1) " +
+            "ORDER BY created_at, id",
+            new { invitationId, since }, session.Transaction, cancellationToken: cancellationToken));
+        return times.Select(EmailRows.Utc).ToList();
+    }
+
+    public Task<VersionedWriteResult> MarkResentAsync(Guid id, long expectedVersion, CancellationToken cancellationToken) =>
+        Guarded(
+            "UPDATE socalytics.member_invitations SET resend_count = resend_count + 1 " +
+            "WHERE id = @id AND version = @expectedVersion AND state = 'pending' RETURNING version",
+            new { id, expectedVersion }, id, cancellationToken);
+
     public async Task<int> CountLinksCreatedSinceAsync(Guid invitationId, DateTimeOffset since, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);

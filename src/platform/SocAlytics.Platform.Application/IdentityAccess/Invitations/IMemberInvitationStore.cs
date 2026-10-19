@@ -63,6 +63,12 @@ public interface IMemberInvitationStore
     /// <summary>Supersedes every open (pending or issued) link of the invitation; returns the number changed.</summary>
     Task<int> SupersedeOpenLinksAsync(Guid invitationId, CancellationToken cancellationToken);
 
+    /// <summary>The creation times, oldest first, of the links the resends of the invitation created at or after <paramref name="since"/>; the link created with the invitation is not included.</summary>
+    Task<IReadOnlyList<DateTimeOffset>> ListResendLinkTimesSinceAsync(Guid invitationId, DateTimeOffset since, CancellationToken cancellationToken);
+
+    /// <summary>Increments <c>resend_count</c> of a pending invitation.</summary>
+    Task<VersionedWriteResult> MarkResentAsync(Guid id, long expectedVersion, CancellationToken cancellationToken);
+
     Task<int> CountLinksCreatedSinceAsync(Guid invitationId, DateTimeOffset since, CancellationToken cancellationToken);
 
     Task<StoredInvitationLink?> FindLinkAsync(Guid id, CancellationToken cancellationToken);
