@@ -63,6 +63,35 @@ public sealed class SimulatedRuntimeTests
         outcome.FailureReason.ShouldBe("model-error");
     }
 
+    [Theory]
+    [InlineData(1, false)]
+    [InlineData(2, true)]
+    public async Task Fail_segment_starts_fail_only_the_listed_segment_windows(int segmentNumber, bool succeeds)
+    {
+        var adapter = Adapter(new FakeTimeProvider(), new SimulatedCapabilityOptions
+        {
+            FailureReason = "segment-error",
+            FailSegmentStartsMs = [0],
+        });
+        var job = new global::SocAlytics.Analysts.Manager.Work.AnalystJobMessage(
+            "m", "o", "run-1", "node-1", "job-1", "team-1", "match-1",
+            new global::SocAlytics.Analysts.Manager.Platform.QueueCapability("cap-a", "1.0.0"), "1.0.0",
+            "segment", null, new global::SocAlytics.Analysts.Manager.Work.JobPinned("d", "i", null),
+            new global::SocAlytics.Analysts.Manager.Work.JobResources(1, 1),
+            new global::SocAlytics.Analysts.Manager.Platform.CompletionCorrelation("c"),
+            "rsv-1", new global::SocAlytics.Analysts.Manager.Work.JobSegment("rec-1", segmentNumber));
+        var launch = Launch with { Job = job };
+
+        var execution = await adapter.StartAttemptAsync(launch, TestContext.Current.CancellationToken);
+        var outcome = await execution.Outcome;
+
+        outcome.Succeeded.ShouldBe(succeeds);
+        if (!succeeds)
+        {
+            outcome.FailureReason.ShouldBe("segment-error");
+        }
+    }
+
     [Fact]
     public async Task Crash_faults_the_outcome_without_a_result()
     {

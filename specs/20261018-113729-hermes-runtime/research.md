@@ -6,7 +6,7 @@ siblings [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec
 [Agent Evidence Tools API](../20261018-104924-agent-evidence-tools/spec.md),
 [MCP Server](../20261018-111804-mcp-server/spec.md),
 [Agents Python Verification Environment](../20261018-110526-agents-python-environment/spec.md), and
-[Cloud-Neutral OCI Images](../20261018-092503-oci-images/spec.md), and on
+[Cloud-Neutral OCI Images](../archive/20261018-092503-oci-images/spec.md), and on
 [Intelligence and Agents](../../docs/architecture/intelligence-and-agents.md).
 
 ## R1 - Project location, name, and dependencies
@@ -204,7 +204,7 @@ siblings [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec
 
 - **Decision**: A new Docker-backed test class `AgentRuntimeStackTests` in
   `src/platform/Tests/SocAlytics.Platform.Images.Tests` (the image evidence project of
-  [Cloud-Neutral OCI Images](../20261018-092503-oci-images/research.md#r8-evidence-design)), next to the MCP server's
+  [Cloud-Neutral OCI Images](../archive/20261018-092503-oci-images/research.md#r8-evidence-design)), next to the MCP server's
   `McpServerImageTests` and a new `HermesImageTests`. Its image fixture builds the API, Migrator, MCP server, and Hermes
   images with their documented commands. On one Testcontainers network it starts PostgreSQL with the roles script,
   NATS with JWT trust, and RustFS, runs the Migrator image, and runs in process (Test environment) the existing

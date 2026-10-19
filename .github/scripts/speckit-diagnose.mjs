@@ -18,8 +18,12 @@ import {
   MAX_CORRECTION_ROUNDS,
   IMPLEMENT_WORKFLOW_FILE,
   MAX_STALLED_ROUNDS,
+  MAX_WRITER_GUIDANCE,
+  PR_COMMANDS,
+  RECOMMENDABLE_COMMANDS,
   amendmentBranch,
   baseBranchOf,
+  commandsForCategory,
   defaultBranchOf,
   diagnosisRunsUrl,
   implementationBranch,
@@ -30,8 +34,10 @@ import {
   nextTaskGroup,
   parseNextCommand,
   readSpecTasks,
+  renderCommandReference,
   renderNextSteps,
   setAttention,
+  unresolvedRepair,
 } from './speckit-implement-core.mjs';
 
 export { checkAmendment, findAmendment };
@@ -39,11 +45,24 @@ export { checkAmendment, findAmendment };
 export const CATEGORIES = ['artifacts', 'retry', 'outside', 'decision', 'unknown'];
 export const CONFIDENCE = ['high', 'medium', 'low'];
 export const MODES = ['diagnose', 'fix', 'revise'];
-const COMMAND_PATTERN = /^\/speckit (retry|sync|fix)( [^\n]*)?$/;
+// Every command list of the diagnosis is derived from PR_COMMANDS, so a new, changed, or removed command needs no edit
+// here (see commandPatterns and categoryCommands).
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function commandPatterns(names = RECOMMENDABLE_COMMANDS) {
+  const verbs = names.map(escapeRegExp).join('|');
+  return {
+    command: new RegExp(`^\\/speckit (${verbs})( [^\\n]*)?$`),
+    inText: new RegExp(`[\`'"](\\/speckit (?:${verbs})(?: [^\`'"\\n]*)?)[\`'"]|(\\/speckit (?:${verbs}))\\b`),
+  };
+}
+const { command: COMMAND_PATTERN, inText: COMMAND_IN_TEXT } = commandPatterns();
+// A recommended command: the longest `/speckit <verb>` with all its flags, a space, and the guidance limit the
+// commands accept.
+export const MAX_RECOMMENDED_COMMAND = Math.max(...PR_COMMANDS.filter((command) => command.recommend)
+  .map((command) => `/speckit ${command.name} ${Object.keys(command.flags ?? {}).join(' ')} `.length)) + MAX_WRITER_GUIDANCE;
 // A placeholder an agent may copy from a usage line instead of writing the text: `<guidance>` or `<answers>`.
 // Only these words count, so code such as `IReadOnlyList<Recording>` or task tags such as `[P]` stay intact.
 const PLACEHOLDER_PATTERN = /<(?:concrete |your )?(?:guidance|answers?|guidance or answers|choice|first choice|what to examine next|what to fix[^<>\n]{0,60})>|\[(?:concrete |your )?(?:guidance|answers?|guidance or answers)\]/gi;
-const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|resume|sync|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|resume|sync|fix))\b/;
 const MAX_EVIDENCE_BYTES = 200_000;
 const LOG_TAIL_LINES = 150;
 
@@ -182,6 +201,8 @@ export async function runEvidence({ client, env, log }) {
     for (const comment of comments.slice(-10)) sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 4000), '');
   } else {
     sections.push('## Guidance from the person who started this diagnosis', '', env.SPECKIT_GUIDANCE?.trim() ? env.SPECKIT_GUIDANCE.trim() : '_None._', '');
+    // The live command reference: what each command does on this pull request, generated from PR_COMMANDS.
+    sections.push(renderCommandReference({ baseBranch, repair: unresolvedRepair(comments) }));
   }
   sections.push(
     '## Check runs on the head (oldest first)',
@@ -275,7 +296,7 @@ export function validateReport(raw, { requireCategory = true } = {}) {
   for (const option of normalized.options) {
     if (!option.command) continue;
     const command = removePlaceholderArgument(option.command);
-    if (command === null || !COMMAND_PATTERN.test(command) || command.length > 600 || command.includes('```')) {
+    if (command === null || !COMMAND_PATTERN.test(command) || command.length > MAX_RECOMMENDED_COMMAND || command.includes('```') || parseNextCommand(command)?.unknownFlags.length) {
       reasons.push(`option "${option.title}" has an invalid command`);
       option.command = null;
     } else {
@@ -397,14 +418,11 @@ const CATEGORY_TEXT = {
 };
 
 // The commands that fit each category: a recommendation must use one of them, so the headline and the recommended
-// command never disagree. The first is the category's default.
-export const CATEGORY_COMMANDS = Object.freeze({
-  retry: ['retry'],
-  outside: ['fix', 'sync'],
-  artifacts: [],
-  decision: ['retry'],
-  unknown: [],
-});
+// command never disagree (defaultRecommendation chooses the fallback when none fits). Derived from PR_COMMANDS.
+export function categoryCommands(commands = PR_COMMANDS) {
+  return Object.freeze(Object.fromEntries(CATEGORIES.map((category) => [category, commandsForCategory(category, commands)])));
+}
+export const CATEGORY_COMMANDS = categoryCommands();
 
 // One line of guidance for the agent of the next attempt, from the diagnosis' findings.
 export function guidanceFrom(report, max = 500) {
@@ -696,10 +714,14 @@ async function recordRework({ client, env, log, inputs }) {
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command, file] = argv;
   if (command === 'check-report') return checkReportFile(file, log);
+  if (command === 'commands') {
+    log(renderCommandReference());
+    return 0;
+  }
   const run = { client: client ?? createGitHubClient(env), env, log };
   if (command === 'evidence') return (await runEvidence(run)).exitCode;
   if (command === 'record') return (await runRecord(run)).exitCode;
-  throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs <evidence | record | check-report <report.json>>');
+  throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs <evidence | record | check-report <report.json> | commands>');
 }
 
 // The agent's self-check before it reports: prints what validation changes and the comment a person would see. Exits

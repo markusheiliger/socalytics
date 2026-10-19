@@ -193,6 +193,34 @@ describe('registrationAdapter mapping', () => {
     expect(registration.connectivity).toBe('notApplicable');
   });
 
+  it('maps the minimum Manager version and the below-minimum flag', async () => {
+    const { adapter } = setup(() => ok(dto({ state: 'active', minimumManagerVersion: '2.0.0', belowMinimumVersion: true })));
+    const registration = await adapter.get(ID);
+    expect(registration.minimumManagerVersion).toBe('2.0.0');
+    expect(registration.belowMinimumVersion).toBe(true);
+  });
+
+  it('maps a registration without a minimum to no minimum and not below', async () => {
+    const { adapter } = setup(() => ok(dto({ state: 'active' })));
+    const registration = await adapter.get(ID);
+    expect(registration.minimumManagerVersion).toBeUndefined();
+    expect(registration.belowMinimumVersion).toBe(false);
+  });
+
+  it('keeps a minimum without the flag as not below', async () => {
+    const { adapter } = setup(() => ok(dto({ state: 'active', minimumManagerVersion: '1.0.0', belowMinimumVersion: false })));
+    const registration = await adapter.get(ID);
+    expect(registration.minimumManagerVersion).toBe('1.0.0');
+    expect(registration.belowMinimumVersion).toBe(false);
+  });
+
+  it('treats a null minimum as absent', async () => {
+    const { adapter } = setup(() => ok(dto({ state: 'active', minimumManagerVersion: null, belowMinimumVersion: null })));
+    const registration = await adapter.get(ID);
+    expect(registration.minimumManagerVersion).toBeUndefined();
+    expect(registration.belowMinimumVersion).toBe(false);
+  });
+
   it('treats a response without identity as incompatible', () => {
     expect(() => toRegistration(undefined)).toThrow(PlatformFailure);
     expect(() => toRegistration({ deviceFingerprint: 'X', version: 1 })).toThrow(PlatformFailure);

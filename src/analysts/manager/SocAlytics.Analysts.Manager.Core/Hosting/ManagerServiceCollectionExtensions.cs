@@ -85,6 +85,7 @@ public static class ManagerServiceCollectionExtensions
                 sp.GetRequiredService<TimeProvider>(), staging, loopbackHttp,
                 sp.GetRequiredService<ILoggerFactory>().CreateLogger<Work.UpstreamStager>());
         });
+        services.AddSingleton<Registration.MinimumVersionState>();
         services.AddSingleton<Operating.AdmissionGate>();
         services.AddSingleton<Work.AttemptRegistry>();
         services.AddSingleton<Operating.IManagerWorkTracker>(sp => sp.GetRequiredService<Work.AttemptRegistry>());
@@ -104,6 +105,7 @@ public static class ManagerServiceCollectionExtensions
         services.AddSingleton<Platform.InactiveSignalSink>();
         services.AddSingleton<Registration.ProtectedStoreFailureHandler>();
         services.AddSingleton<Platform.ManagerTokenCache>();
+        services.TryAddSingleton(Diagnostics.ManagerBuildVersion.Current);
         services.AddSingleton<Diagnostics.StatusReportBuilder>();
         services.AddSingleton(_ => Diagnostics.HostUtilizationReaders.ForCurrentOs());
         services.AddSingleton<Diagnostics.HostUtilizationSampler>();

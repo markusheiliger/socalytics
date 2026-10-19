@@ -62,6 +62,7 @@ internal static class PersistedTableClassifications
             ["agent_workload_operations"] = TableClassification.Unversioned("immutable idempotency record of workload operations keyed by client and operation"),
             ["agent_workload_access_tokens"] = TableClassification.Unversioned("operational token rows deleted on expiry; must not advance any aggregate version"),
             ["email_confirmations"] = TableClassification.Unversioned("single-use confirmation state; the state transition is the guard"),
+            ["password_recoveries"] = TableClassification.Unversioned("single-use recovery state; the state transition is the guard"),
             ["notification_preferences"] = TableClassification.Unversioned("per-member preference rows upserted by key"),
             ["email_messages"] = TableClassification.Unversioned("operational email outbox; transitions guarded by row lock, lease, and state"),
             ["outbox_messages"] = TableClassification.Unversioned("operational publication record; transitions guarded by row lock and state"),

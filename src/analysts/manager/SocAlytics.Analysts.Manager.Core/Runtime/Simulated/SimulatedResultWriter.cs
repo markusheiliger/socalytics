@@ -15,6 +15,8 @@ internal static class SimulatedResultWriter
     private const string FactMediaType = "application/vnd.socalytics.facts+json";
     private const long FactLengthMs = 1_000;
 
+    public static long SegmentStartMs(int segmentNumber) => (segmentNumber - 1) * SegmentWindowMs;
+
     public static void Write(AttemptLaunch launch, SimulatedAnalystOptions options)
     {
         if (launch.Job is not { } job || launch.ResultDirectory is not { } directory)
@@ -48,7 +50,7 @@ internal static class SimulatedResultWriter
         long end = MatchWindowMs;
         if (segment is not null)
         {
-            start = (segment.SegmentNumber - 1) * SegmentWindowMs;
+            start = SegmentStartMs(segment.SegmentNumber);
             end = segment.SegmentNumber * SegmentWindowMs;
             scope["segment"] = new Dictionary<string, object?>
             {
@@ -126,6 +128,8 @@ internal static class SimulatedResultWriter
             })
             .ToList();
 
+        var inputCoverage = staged?.InputCoverage ?? [];
+
         switch (mode)
         {
             case SimulatedResultModes.IgnoreInputs:
@@ -155,11 +159,17 @@ internal static class SimulatedResultWriter
             case SimulatedResultModes.ValidityInvalid:
                 start = end + 1;
                 break;
+            case SimulatedResultModes.CoverageOmitted:
+                inputCoverage.Clear();
+                break;
+            case SimulatedResultModes.CoverageMismatch when inputCoverage.Count > 0 && inputCoverage[0]["units"] is JsonArray { Count: > 0 } units:
+                units[0]!["state"] = (string?)units[0]!["state"] == "accepted" ? "failed" : "accepted";
+                break;
         }
 
         var manifest = new Dictionary<string, object?>
         {
-            ["contractVersion"] = "1.0.0",
+            ["contractVersion"] = "1.1.0",
             ["scope"] = scope,
             ["provenance"] = provenance,
             ["attempt"] = new { attemptId = launch.AttemptId, attemptNumber = launch.AttemptNumber },
@@ -171,6 +181,11 @@ internal static class SimulatedResultWriter
             ["confidence"] = 1,
             ["evidenceReferences"] = Array.Empty<string>(),
         };
+        if (inputCoverage.Count > 0)
+        {
+            manifest["inputCoverage"] = inputCoverage;
+        }
+
         if (mode == SimulatedResultModes.ContractInvalid)
         {
             manifest.Remove("scope");
@@ -184,12 +199,44 @@ internal static class SimulatedResultWriter
     {
         var lineage = new List<Dictionary<string, object?>>();
         var coverage = new SortedDictionary<string, JsonNode?>(StringComparer.Ordinal);
+        var inputCoverage = new List<JsonNode>();
         foreach (var capabilityDirectory in Directory.EnumerateDirectories(inputsDirectory).Order(StringComparer.Ordinal))
         {
             var coveragePath = Path.Combine(capabilityDirectory, "coverage.json");
             if (File.Exists(coveragePath))
             {
-                coverage[Path.GetFileName(capabilityDirectory)] = JsonNode.Parse(File.ReadAllText(coveragePath))?["coverage"];
+                var document = JsonNode.Parse(File.ReadAllText(coveragePath));
+                coverage[Path.GetFileName(capabilityDirectory)] = document?["coverage"];
+                if (document?["upstream"] is { } upstream && upstream["capability"] is { } capability)
+                {
+                    var units = new JsonArray();
+                    foreach (var entry in document["coverage"]?.AsArray() ?? [])
+                    {
+                        var unit = new JsonObject();
+                        if (entry?["segmentId"] is { } segmentId)
+                        {
+                            unit["segmentId"] = segmentId.GetValue<string>();
+                        }
+                        else
+                        {
+                            unit["match"] = true;
+                        }
+
+                        unit["state"] = entry?["state"]?.GetValue<string>();
+                        units.Add(unit);
+                    }
+
+                    inputCoverage.Add(new JsonObject
+                    {
+                        ["capability"] = new JsonObject
+                        {
+                            ["id"] = capability["id"]?.GetValue<string>(),
+                            ["version"] = capability["version"]?.GetValue<string>(),
+                        },
+                        ["schemaVersion"] = upstream["schemaVersion"]?.GetValue<string>(),
+                        ["units"] = units,
+                    });
+                }
             }
 
             foreach (var resultDirectory in Directory.EnumerateDirectories(capabilityDirectory).Order(StringComparer.Ordinal))
@@ -207,8 +254,8 @@ internal static class SimulatedResultWriter
             }
         }
 
-        return new StagedInputs(lineage, coverage);
+        return new StagedInputs(lineage, coverage, inputCoverage);
     }
 
-    private sealed record StagedInputs(List<Dictionary<string, object?>> Lineage, SortedDictionary<string, JsonNode?> Coverage);
+    private sealed record StagedInputs(List<Dictionary<string, object?>> Lineage, SortedDictionary<string, JsonNode?> Coverage, List<JsonNode> InputCoverage);
 }

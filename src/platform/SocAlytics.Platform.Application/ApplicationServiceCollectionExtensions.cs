@@ -108,6 +108,13 @@ public static class ApplicationServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions.SectionName)
             .Validate(SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions.IsValid, "Email:Confirmation:MaxPerHour and Email:Confirmation:AttemptsPerMinute must be greater than zero.")
             .ValidateOnStart();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.RequestPasswordRecoveryHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.CheckPasswordRecoveryHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.CompletePasswordRecoveryHandler>();
+        services.AddOptions<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions.SectionName)
+            .Validate(SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions.IsValid, "PasswordRecovery:LinkLifetime, MaxMessagesPerHour, RequestsPerMinute, TokenAttemptsPerMinute, and MinimumResponseDuration must be greater than zero.")
+            .ValidateOnStart();
         services.AddOptions<SocAlytics.Platform.Application.Notifications.NotificationOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Notifications.NotificationOptions.SectionName)
             .ValidateOnStart();
@@ -206,6 +213,12 @@ public static class ApplicationServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StatusReporting.StatusReportingOptions.SectionName)
             .Validate(static o => o.Interval > TimeSpan.Zero, "Registry:StatusReporting:Interval must be positive.")
             .Validate(static o => o.MissedIntervalsBeforeOffline >= 1, "Registry:StatusReporting:MissedIntervalsBeforeOffline must be at least 1.");
+        services.AddOptions<SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.SectionName)
+            .Validate(SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.IsValid, SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.InvalidMessage)
+            .ValidateOnStart();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.ManagerVersions.MinimumManagerVersionProvider>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionGate>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StampOptions.SectionName);
 

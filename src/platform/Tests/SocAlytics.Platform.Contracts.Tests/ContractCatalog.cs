@@ -111,6 +111,20 @@ public static class ContractCatalog
         return registry;
     }
 
+    public static EvaluationResults EvaluateAgainstRelease(string releaseFile, string instanceFile)
+    {
+        var registry = new SchemaRegistry { Fetch = (_, _) => null };
+        var target = Parse(releaseFile)["$id"]?.GetValue<string>();
+        foreach (var other in Schemas.Where(s => s.Id != target))
+        {
+            JsonSchema.FromText(File.ReadAllText(other.FullPath), new BuildOptions { SchemaRegistry = registry });
+        }
+
+        var schema = JsonSchema.FromText(File.ReadAllText(releaseFile), new BuildOptions { SchemaRegistry = registry });
+        var instance = System.Text.Json.JsonDocument.Parse(File.ReadAllText(instanceFile)).RootElement;
+        return schema.Evaluate(instance, new EvaluationOptions { OutputFormat = OutputFormat.List });
+    }
+
     private static string[] Cells(string line) =>
         line.Trim('|').Split('|').Select(c => c.Trim()).ToArray();
 

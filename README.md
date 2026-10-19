@@ -106,7 +106,9 @@ provider (providers under `IdentityAccess:ExternalProviders:<id>` with
 `TokenEndpointAuthMethod`, plus `IdentityAccess:ExternalSignIn:WebUiBaseUrl`
 and `PendingLifetime`); members are linked only through Club Admin link
 credentials, and SocAlytics offers no MFA for local accounts (a club that needs
-MFA uses a provider that enforces it). Self-service recovery, clients,
+MFA uses a provider that enforces it). Self-service password recovery by
+email is implemented as development evidence against the Mailpit mail catcher.
+Invitations, clients,
 production values for POL-001, POL-002, and POL-009, deployment, and
 production readiness remain deferred.
 
@@ -153,8 +155,9 @@ The Web UI under `src/clients/web/` is a React and TypeScript single-page
 application built with Vite, developed as development evidence: an installable PWA whose service worker
 precaches only the application shell and updates with each release (the platform
 option `WebUi:MinimumVersion` sets the minimum Web UI version sent in the
-`SocAlytics-Minimum-Web-Version` response header), with no offline mode, container
-image, or deployment configuration. It
+`SocAlytics-Minimum-Web-Version` response header), with no offline mode or
+deployment configuration (its container image is described under
+[Container images](#container-images)). It
 needs Node.js 24, the Kiota 1.36.0 CLI on `PATH`
 (`dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0`), and
 for browser tests the Playwright Chromium browser
@@ -179,6 +182,34 @@ $env:SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT='1'; dotnet test src/platform/Tests/SocA
 ```
 
 Then run the test again without the variable.
+
+### Container images
+
+Three cloud-neutral OCI images are built from the repository root (build context `.`): the platform API, the
+Migrator, and the Web UI. Every build requires `SOCALYTICS_REVISION` (the full source commit hash) and
+`SOCALYTICS_VERSION` (shape `YYYY.MMDD.HHMMSS`, the same value for the three images of one release); a missing or
+malformed argument fails the build and names it. A running Docker-compatible container runtime with BuildKit is
+required.
+
+```powershell
+$revision = git rev-parse HEAD
+$version = (Get-Date).ToUniversalTime().ToString('yyyy.MMdd.HHmmss')
+docker build -f src/platform/SocAlytics.Platform.Api/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-api:local .
+docker build -f src/platform/SocAlytics.Platform.Migrator/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-migrator:local .
+docker build -f src/clients/web/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-web:local .
+```
+
+The evidence is the Docker-backed image test project, which builds the three images and verifies their runtime
+contract:
+
+```powershell
+dotnet test src/platform/Tests/SocAlytics.Platform.Images.Tests
+```
+
+The images are not deployment support or production readiness: registries, publication, the composed stamp, and the
+production profile values remain unresolved. Their runtime contract is described in
+[`src/platform/README.md`](src/platform/README.md#container-images) and
+[`src/clients/README.md`](src/clients/README.md#container-image).
 
 ### Analyst Manager
 
@@ -658,23 +689,11 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     access can use them; a 👀 reaction confirms receipt, and a comment reports
     the result.
 
-    | Command | Effect |
-    | --- | --- |
-    | `/speckit retry [guidance]` | restart what stopped with a fresh attempt count, without merging the base branch for it (a phase that has not started, the convergence, and the merge always merge it first); the guidance goes into its prompt |
-    | `/speckit sync [guidance]` | require the latest PR base branch to be merged and verified before continuing; Copilot resolves conflicts, and failures stop for attention instead of proceeding on the old base |
-    | `/speckit fix [guidance]` | have a fix spec authored for a cause outside this spec (below); the implementation waits and retries by itself once the fix has landed |
-    | `/speckit help` | list the commands |
-
-    Explicit sync ignores disabled automatic synchronization and earlier best-effort skips. Its durable barrier
-    checks for new base commits before release and preserves pending verification scope and repair attempt limits.
-    Category/command inconsistencies in diagnosis reports are rejected rather than rewritten into a retry.
-
-    Writer guidance is capped at 4,000 characters. Retry and sync guidance
-    is persisted in a bot-authored pull request marker and reaches every task
-    in the first retried parallel group, or the first convergence, repair, or
-    conflict-resolution prompt. It expires after successful work or a newer
-    person-authored push. Clean merges and verification-only repair retries do
-    not invoke an agent and therefore use no prompt guidance.
+    The commands (`retry`, `sync`, `fix`, and `help`), their flags, guidance,
+    and limits are described in
+    [Comment commands](.github/workflows/README.md#comment-commands); the
+    command table there is generated from the tooling, and `/speckit help`
+    posts the same table on the pull request.
 
     What restarts is decided from the pull request's state: the stopped task,
     the convergence, the conflict resolution, or the merge. A failed phase

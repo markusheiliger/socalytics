@@ -18,7 +18,7 @@ public sealed class EndpointSecurityTests
     private const string ApiPrefix = "/api/v1";
     private const string SessionScheme = "SocAlyticsSession";
 
-    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "confirmEmail", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken", "listIdentityProviders", "startExternalSignIn", "completeExternalSignIn", "issueAgentWorkloadToken" };
+    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "confirmEmail", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken", "listIdentityProviders", "startExternalSignIn", "completeExternalSignIn", "requestPasswordRecovery", "checkPasswordRecovery", "completePasswordRecovery", "issueAgentWorkloadToken" };
 
     private const string ManagerScheme = "AnalystManagerDPoP";
     private const string WorkloadScheme = "AgentWorkloadDPoP";
@@ -26,7 +26,15 @@ public sealed class EndpointSecurityTests
     private static readonly HashSet<string> SessionHolderOperations =
         new(StringComparer.Ordinal) { "getSession", "signOut", "getCurrentMember", "changeOwnPassword" };
 
-    private static readonly string[] ForbiddenPathSegments = ["bootstrap", "setup", "recovery"];
+    private static readonly string[] ForbiddenPathSegments = ["bootstrap", "setup"];
+
+    // The only recovery paths: the self-service password recovery operations, each at exactly one path.
+    private static readonly Dictionary<string, string> SelfServiceRecoveryPaths = new(StringComparer.Ordinal)
+    {
+        ["requestPasswordRecovery"] = ApiPrefix + "/password-recovery/requests",
+        ["checkPasswordRecovery"] = ApiPrefix + "/password-recovery/checks",
+        ["completePasswordRecovery"] = ApiPrefix + "/password-recovery/completions",
+    };
 
     [Fact]
     public async Task Every_api_endpoint_is_explicitly_classified()
@@ -54,6 +62,13 @@ public sealed class EndpointSecurityTests
             ForbiddenPathSegments.ShouldNotContain(
                 segment => path.Contains(segment, StringComparison.OrdinalIgnoreCase),
                 $"{label} must not expose bootstrap, setup, or recovery paths.");
+
+            if (path.Contains("recovery", StringComparison.OrdinalIgnoreCase))
+            {
+                SelfServiceRecoveryPaths.TryGetValue(name, out var allowedPath).ShouldBeTrue(
+                    $"{label} must not expose bootstrap, setup, or recovery paths.");
+                path.ShouldBe(allowedPath, $"{label} must expose recovery only at {allowedPath}.");
+            }
 
             var anonymous = endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null;
             var authorizeData = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>();

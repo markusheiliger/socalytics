@@ -25,6 +25,7 @@ builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.W
 builder.AddRegistryApi();
 builder.Services.AddAgentWorkloadSecurity();
 builder.Services.AddEmailRateLimiting();
+builder.Services.AddPasswordRecoveryRateLimiting();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure();
 builder.Services.AddHttpContextAccessor();
@@ -76,6 +77,7 @@ app.MapSessionEndpoints();
 app.MapExternalSignInEndpoints();
 app.MapSelfEndpoints();
 app.MapEmailEndpoints();
+app.MapPasswordRecoveryEndpoints();
 app.MapClubEndpoints();
 app.MapSeasonEndpoints();
 app.MapTeamEndpoints();

@@ -88,6 +88,96 @@ public sealed class AnalysisSchemaTests(PostgresContainerFixture postgres)
 	}
 
 	[Fact]
+	public async Task EdgeCoveragePolicyDefaultsToCompleteAndRoundTrips()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var run = NewRun(Guid.NewGuid(), "1", out var low, out var high);
+		var partial = run with
+		{
+			Edges = [run.Edges[0] with { CoveragePolicy = CoveragePolicy.Partial(0.5m) }],
+		};
+		var completeId = await InsertAsync(provider, NewRun(Guid.NewGuid(), "1", out _, out _), ct);
+		var partialId = await InsertAsync(provider, partial, ct);
+
+		await using var scope = provider.CreateAsyncScope();
+		var store = scope.ServiceProvider.GetRequiredService<IAnalysisRunStore>();
+		var complete = (await store.LoadAsync(completeId, ct))!.Edges.Single();
+		complete.CoveragePolicy.Mode.ShouldBe(CoverageMode.Complete);
+		complete.CoveragePolicy.MinimumAcceptedFraction.ShouldBeNull();
+		var loaded = (await store.LoadAsync(partialId, ct))!.Edges.Single();
+		loaded.UpstreamNodeId.ShouldBe(low);
+		loaded.DependentNodeId.ShouldBe(high);
+		loaded.CoveragePolicy.Mode.ShouldBe(CoverageMode.Partial);
+		loaded.CoveragePolicy.MinimumAcceptedFraction.ShouldBe(0.5m);
+
+		await using var connection = new NpgsqlConnection(db.MigratorConnectionString);
+		await connection.OpenAsync(ct);
+		(await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+			"SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'complete' AND minimum_accepted_fraction IS NULL", cancellationToken: ct))).ShouldBe(1);
+		(await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+			"SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'partial' AND minimum_accepted_fraction = 0.5", cancellationToken: ct))).ShouldBe(1);
+	}
+
+	[Theory]
+	[InlineData("'bogus', NULL")]
+	[InlineData("'complete', 0.5")]
+	[InlineData("'partial', 0")]
+	[InlineData("'partial', 1.5")]
+	public async Task EdgeCoverageChecksRejectInvalidCombinations(string values)
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		await InsertAsync(provider, NewRun(Guid.NewGuid(), "1", out _, out _), ct);
+		await using var connection = new NpgsqlConnection(db.MigratorConnectionString);
+		await connection.OpenAsync(ct);
+		var ex = await Should.ThrowAsync<PostgresException>(() => connection.ExecuteAsync(new CommandDefinition(
+			$"""
+			INSERT INTO socalytics.analysis_dependency_edges (run_id, upstream_node_id, dependent_node_id, kind, predicate, coverage_mode, minimum_accepted_fraction)
+			SELECT run_id, dependent_node_id, upstream_node_id, 'required', NULL, {values} FROM socalytics.analysis_dependency_edges
+			""", cancellationToken: ct)));
+		ex.SqlState.ShouldBe(PostgresErrorCodes.CheckViolation);
+	}
+
+	[Fact]
+	public async Task EdgeCoverageAcceptsPartialWithoutAFraction()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var run = NewRun(Guid.NewGuid(), "1", out _, out _);
+		var id = await InsertAsync(provider, run with { Edges = [run.Edges[0] with { CoveragePolicy = CoveragePolicy.Partial() }] }, ct);
+		await using var scope = provider.CreateAsyncScope();
+		var loaded = (await scope.ServiceProvider.GetRequiredService<IAnalysisRunStore>().LoadAsync(id, ct))!.Edges.Single();
+		loaded.CoveragePolicy.Mode.ShouldBe(CoverageMode.Partial);
+		loaded.CoveragePolicy.MinimumAcceptedFraction.ShouldBeNull();
+	}
+
+	[Fact]
+	public async Task LogicalJobFailureReasonAcceptsTheCoverageBelowMinimumReason()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (db, provider) = await CreateAsync(ct);
+		await using var dbScope = db;
+		await using var providerScope = provider;
+		var run = NewRun(Guid.NewGuid(), "1", out _, out var high);
+		var runId = await InsertAsync(provider, run, ct);
+		await InsertJobsAsync(provider, ct, MatchJob(runId, high));
+		await using var connection = new NpgsqlConnection(db.MigratorConnectionString);
+		await connection.OpenAsync(ct);
+		await connection.ExecuteAsync(new CommandDefinition(
+			"UPDATE socalytics.analysis_logical_jobs SET failure_reason = 'upstream-coverage-below-minimum'", cancellationToken: ct));
+		var ex = await Should.ThrowAsync<PostgresException>(() => connection.ExecuteAsync(new CommandDefinition(
+			"UPDATE socalytics.analysis_logical_jobs SET failure_reason = 'bogus'", cancellationToken: ct)));
+		ex.SqlState.ShouldBe(PostgresErrorCodes.CheckViolation);
+	}
+
+	[Fact]
 	public async Task SecondRunForTheSameSetAndWorkflowVersionViolatesUniqueness()
 	{
 		var ct = TestContext.Current.CancellationToken;

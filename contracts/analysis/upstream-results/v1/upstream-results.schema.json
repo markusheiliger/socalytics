@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://socalytics.invalid/contracts/analysis/upstream-results/v1/upstream-results.schema.json",
-  "x-socalytics-version": "1.0.0",
+  "x-socalytics-version": "1.1.0",
   "title": "Analysis upstream results page v1",
   "description": "Response of GET /api/v1/analysis/attempts/{attemptId}/upstream-results (operation listAnalysisUpstreamResults). One page of the accepted results of one upstream dependency of an Execution Attempt, each with its embedded result manifest, its checksum, and single-object presigned GET grants, plus the coverage of the requested scope. The page carries no credentials other than the grant URLs, which are never logged or audited.",
   "type": "object",
@@ -17,7 +17,17 @@
       "properties": {
         "capability": { "$ref": "../../../common/v1/common.schema.json#/$defs/capabilityRef" },
         "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
-        "edgeKind": { "enum": ["required", "optional", "conditional"] }
+        "edgeKind": { "enum": ["required", "optional", "conditional"] },
+        "coverage": {
+          "description": "Coverage policy of the dependency edge. Absent means complete, as in 1.0.0.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": { "enum": ["complete", "partial"] },
+            "minimumAcceptedFraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+          }
+        }
       }
     },
     "results": {

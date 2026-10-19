@@ -18,7 +18,7 @@ creates the active member with the verified address and the invited team roles i
 session. Club Admins list invitations (pending, expired, accepted, revoked) and resend or revoke them conditionally on
 the version. Link lifetime, resend limit, and per-client token limit are configuration with development values. The
 worker-issued token, check-then-complete pattern, and per-client token limit reuse the mechanics of
-[Self-Service Password Recovery](../20261017-200823-password-recovery/plan.md). See [research.md](research.md).
+[Self-Service Password Recovery](../archive/20261017-200823-password-recovery/plan.md). See [research.md](research.md).
 
 ## Technical Context
 
@@ -120,7 +120,7 @@ implementation turns each into present tense)
 **Status statements at merge** (each must become true for the merged state)
 
 - `email-notifications.md` intro: "Self-service password recovery and invitations are not implemented" (or, if
-  [Self-Service Password Recovery](../20261017-200823-password-recovery/plan.md) merged first, its rewrite) →
+  [Self-Service Password Recovery](../archive/20261017-200823-password-recovery/plan.md) merged first, its rewrite) →
   invitations are implemented as development evidence against the local mail catcher.
 - `email-notifications.md` Purpose And Scope: "each through its own later specification, self-service password
   recovery and invitations" and "invitations are decided as described in Member Invitations and not yet implemented"
@@ -211,6 +211,6 @@ no project. `PersistedTableClassifications` classifies the team-role table as a 
 links table as unversioned. The OpenAPI snapshot is refreshed with
 `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests`
 during implementation, never in the verification environment. Where
-[Self-Service Password Recovery](../20261017-200823-password-recovery/plan.md) merges first, its shared pieces
+[Self-Service Password Recovery](../archive/20261017-200823-password-recovery/plan.md) merges first, its shared pieces
 (fragment-token page pattern, anonymous JSON-only token endpoints) are reused; where this feature merges first, it
 builds the same pieces on the email confirmation implementation.

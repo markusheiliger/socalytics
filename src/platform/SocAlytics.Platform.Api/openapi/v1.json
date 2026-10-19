@@ -586,6 +586,76 @@
         ],
         "type": "object"
       },
+      "AnalysisNodeInputCoverageDto": {
+        "properties": {
+          "accepted": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "blocked": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "coverageMode": {
+            "type": "string"
+          },
+          "failed": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "minimumAcceptedFraction": {
+            "format": "double",
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ]
+          },
+          "missing": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "skipped": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "upstreamNodeKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "upstreamNodeKey",
+          "coverageMode",
+          "minimumAcceptedFraction",
+          "accepted",
+          "failed",
+          "blocked",
+          "skipped",
+          "missing"
+        ],
+        "type": "object"
+      },
       "AnalysisNodeStatusDto": {
         "properties": {
           "blockedByNodeKey": {
@@ -602,6 +672,15 @@
           },
           "executionScope": {
             "type": "string"
+          },
+          "inputCoverage": {
+            "items": {
+              "$ref": "#/components/schemas/AnalysisNodeInputCoverageDto"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
           },
           "jobs": {
             "$ref": "#/components/schemas/AnalysisJobCountsDto"
@@ -629,7 +708,8 @@
           "executionScope",
           "state",
           "blockedByNodeKey",
-          "jobs"
+          "jobs",
+          "inputCoverage"
         ],
         "type": "object"
       },
@@ -992,6 +1072,9 @@
               "string"
             ]
           },
+          "belowMinimumVersion": {
+            "type": "boolean"
+          },
           "connectivity": {
             "type": [
               "null",
@@ -1046,6 +1129,12 @@
           },
           "managerId": {
             "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "minimumManagerVersion": {
             "type": [
               "null",
               "string"
@@ -2571,6 +2660,17 @@
         ],
         "type": "object"
       },
+      "PasswordRecoveryCheckDto": {
+        "properties": {
+          "accountName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accountName"
+        ],
+        "type": "object"
+      },
       "ProblemDetails": {
         "properties": {
           "detail": {
@@ -3306,10 +3406,34 @@
         ],
         "type": "object"
       },
+      "UpstreamCoverageModeDto": {
+        "properties": {
+          "minimumAcceptedFraction": {
+            "format": "double",
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ]
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "minimumAcceptedFraction"
+        ],
+        "type": "object"
+      },
       "UpstreamDependencyDto": {
         "properties": {
           "capability": {
             "$ref": "#/components/schemas/UpstreamCapabilityDto"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/UpstreamCoverageModeDto"
           },
           "edgeKind": {
             "type": "string"
@@ -3321,7 +3445,8 @@
         "required": [
           "capability",
           "schemaVersion",
-          "edgeKind"
+          "edgeKind",
+          "coverage"
         ],
         "type": "object"
       },
@@ -9385,6 +9510,160 @@
         ]
       }
     },
+    "/api/v1/password-recovery/checks": {
+      "post": {
+        "operationId": "checkPasswordRecovery",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordRecoveryCheckDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Password recovery"
+        ]
+      }
+    },
+    "/api/v1/password-recovery/completions": {
+      "post": {
+        "operationId": "completePasswordRecovery",
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Password recovery"
+        ]
+      }
+    },
+    "/api/v1/password-recovery/requests": {
+      "post": {
+        "operationId": "requestPasswordRecovery",
+        "responses": {
+          "202": {
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unsupported Media Type"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Password recovery"
+        ]
+      }
+    },
     "/api/v1/registry/analyst-images": {
       "get": {
         "operationId": "listAnalystImages",
@@ -10857,6 +11136,9 @@
     },
     {
       "name": "Self"
+    },
+    {
+      "name": "Password recovery"
     },
     {
       "name": "Club"

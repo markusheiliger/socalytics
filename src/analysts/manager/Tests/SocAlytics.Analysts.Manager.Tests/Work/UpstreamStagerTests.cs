@@ -92,7 +92,7 @@ public sealed class UpstreamStagerTests : IDisposable
 
     private static string Digest(byte[] bytes) => "sha-256:" + Convert.ToHexStringLower(SHA256.HashData(bytes));
 
-    private string Page(IEnumerable<Stored> results, string? next, string coverage)
+    private string Page(IEnumerable<Stored> results, string? next, string coverage, string version = "1.0.0", string? policy = null)
     {
         var items = new JsonArray();
         var index = 0;
@@ -119,15 +119,21 @@ public sealed class UpstreamStagerTests : IDisposable
             index++;
         }
 
+        var upstream = new JsonObject
+        {
+            ["capability"] = new JsonObject { ["id"] = Upstream, ["version"] = "1.0.0" },
+            ["schemaVersion"] = "1.0.0",
+            ["edgeKind"] = "required",
+        };
+        if (policy is not null)
+        {
+            upstream["coverage"] = JsonNode.Parse(policy);
+        }
+
         return new JsonObject
         {
-            ["contractVersion"] = "1.0.0",
-            ["upstream"] = new JsonObject
-            {
-                ["capability"] = new JsonObject { ["id"] = Upstream, ["version"] = "1.0.0" },
-                ["schemaVersion"] = "1.0.0",
-                ["edgeKind"] = "required",
-            },
+            ["contractVersion"] = version,
+            ["upstream"] = upstream,
             ["results"] = items,
             ["coverage"] = JsonNode.Parse($"[{coverage}]"),
             ["continuationToken"] = next,
@@ -294,6 +300,66 @@ public sealed class UpstreamStagerTests : IDisposable
         Validate("#/properties/upstream", coverage["upstream"]).ShouldBeTrue();
         Validate("#/$defs/coverageEntry", JsonNode.Parse("""{"segmentId":"s","state":"unknown"}""")).ShouldBeFalse();
         Validate("#/properties/upstream", JsonNode.Parse("""{"capability":{"id":"c","version":"1"}}""")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Complete_mode_is_staged_next_to_the_coverage()
+    {
+        var result = AddResult("seg-1");
+        _pages.Enqueue(Page([result], null, Accepted(result), "1.1.0", """{"mode":"complete"}"""));
+
+        (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
+
+        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(StagedDirectory, Upstream, "coverage.json")))!;
+        ((string)coverage["mode"]!).ShouldBe("complete");
+        coverage["minimumAcceptedFraction"].ShouldBeNull();
+        Validate("#/properties/upstream", coverage["upstream"]).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Partial_mode_with_its_fraction_and_non_accepted_states_is_staged()
+    {
+        var result = AddResult("seg-1");
+        _pages.Enqueue(Page([result], null, Accepted(result) + """,{"segmentId":"seg-2","state":"failed"}""", "1.1.0",
+            """{"mode":"partial","minimumAcceptedFraction":0.5}"""));
+
+        (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
+
+        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(StagedDirectory, Upstream, "coverage.json")))!;
+        ((string)coverage["mode"]!).ShouldBe("partial");
+        ((double)coverage["minimumAcceptedFraction"]!).ShouldBe(0.5);
+        coverage["coverage"]!.AsArray().Select(c => (string)c!["state"]!).ShouldBe(["accepted", "failed"]);
+        Validate("#/properties/upstream", coverage["upstream"]).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Version_1_0_0_pages_without_a_policy_are_staged_as_complete()
+    {
+        var result = AddResult("seg-1");
+        _pages.Enqueue(Page([result], null, Accepted(result)));
+
+        (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
+
+        var coverage = JsonNode.Parse(File.ReadAllText(Path.Combine(StagedDirectory, Upstream, "coverage.json")))!;
+        ((string)coverage["mode"]!).ShouldBe("complete");
+    }
+
+    [Fact]
+    public async Task Retried_attempt_stages_an_identical_coverage_file()
+    {
+        var result = AddResult("seg-1");
+        var page = Page([result], null, Accepted(result) + """,{"segmentId":"seg-2","state":"failed"}""", "1.1.0",
+            """{"mode":"partial","minimumAcceptedFraction":0.5}""");
+        _pages.Enqueue(page);
+        (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
+        var path = Path.Combine(StagedDirectory, Upstream, "coverage.json");
+        var first = File.ReadAllBytes(path);
+
+        Directory.Delete(_snapshot, true);
+        _pages.Enqueue(page);
+        (await RunAsync()).ShouldBe(AttemptRunEnd.Completed);
+
+        File.ReadAllBytes(path).ShouldBe(first);
     }
 
     [Fact]

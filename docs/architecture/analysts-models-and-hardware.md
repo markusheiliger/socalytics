@@ -206,8 +206,8 @@ each digest-pinned Analyst image. It includes:
 - capability ID and version, Analyst tier, and independently declared execution
     scope (`segment` or `match`)
 - required upstream capability and schema versions, and per dependency whether
-    the capability permits partial upstream coverage and its minimum (decided,
-    not yet implemented; see
+    the capability permits partial upstream coverage and its minimum (implemented
+    as development evidence against the simulated Analyst; see
     [Readiness And Dependencies](job-processing.md#readiness-and-dependencies))
 - whether source video access is required, optional, or forbidden
 - output schema version and compatible Analyst-profile identities
@@ -237,7 +237,8 @@ Every tier emits a versioned result manifest containing:
     versions, and algorithm-qualified artifact digests
 - the input coverage used per upstream dependency, required for
     partial-coverage dependencies and compared with the job's input snapshot on
-    acceptance (decided, not yet implemented)
+    acceptance (implemented as development evidence against the simulated
+    Analyst)
 - output type (`foundational-facts` or `soccer-concepts`), confidence, and
     supporting evidence references
 - optional supporting video-segment identifiers that the API can resolve,
@@ -254,7 +255,8 @@ attempt's lease. The AM then completes through the API callback. Before
 acceptance, the API reads the manifest from storage and validates the current
 fenced attempt, the manifest's checksum and schema, team and match scope,
 pinned Analyst-profile, image and model digests, declared dependencies,
-complete lineage, the stored artifacts' digests, and that every emitted fact
+complete lineage, the reported input coverage against the job's input snapshot,
+the stored artifacts' digests, and that every emitted fact
 falls within the nominal half-open validity window. A manifest that fails any
 check ends the attempt as failed with a named reason, and the normal retry
 rules apply. The API then marks the result accepted and indexes queryable facts
@@ -311,7 +313,8 @@ source-video access for ACs. The member fact read described below is implemented
 as development evidence against the simulated Analyst. For a dependency that permits partial coverage,
 the read reports the coverage recorded in the job's input snapshot together
 with the declared coverage mode, and members see each node's input coverage
-counts in the run status read (decided, not yet implemented).
+counts in the run status read (implemented as development evidence against the
+simulated Analyst).
 
 Only accepted results are visible. Every response and reference is constrained
 to the job's authorized team and match, and Analysts never query PostgreSQL
@@ -410,8 +413,9 @@ adapter ships (the Docker Desktop adapter reaches a Linux engine only in
 Development and Test). The Velopack spike proves, unsigned first, per-user install, delta
 updates, forward-fix, uninstall that leaves the OCI runtime untouched, the FUSE
 and extract-and-run start modes on minimal server images, self-update in both,
-and the stamp-served update feed with attestation checks, minimum version, and
-drain before applying; a second round after the publisher decision proves
+and the stamp-served update feed with attestation checks and drain before
+applying (the minimum version is already enforced by the platform and the
+Manager); a second round after the publisher decision proves
 signing, macOS notarization, SmartScreen, and Gatekeeper. Implementation must
 also validate
 registration bootstrap, protected credential storage, rotation, and revocation; and measure concurrency control, queue-depth

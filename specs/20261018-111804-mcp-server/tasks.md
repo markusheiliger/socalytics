@@ -224,7 +224,7 @@ against the fake platform; the image builds and runs read-only as a non-root use
 ### Image evidence
 
 - [ ] T013 [US3] Add `src/platform/Tests/SocAlytics.Platform.Images.Tests/McpServerImageTests.cs` using the image test
-  support of [Cloud-Neutral OCI Images](../20261018-092503-oci-images/tasks.md) (`ImageBuildFixture`, `ContainerProbe`,
+  support of [Cloud-Neutral OCI Images](../archive/20261018-092503-oci-images/tasks.md) (`ImageBuildFixture`, `ContainerProbe`,
   `LayerScanner`): build `src/agents/mcp-server/Dockerfile` from the repository root with both build arguments and
   assert the build fails without each; start the image read-only with a `/tmp` tmpfs, only environment variables,
   and mounted test key and secret files, with `SOCALYTICS_MCP_PLATFORM_URL` pointing at an unreachable address; assert

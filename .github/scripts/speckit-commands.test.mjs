@@ -1,8 +1,24 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
-import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
-import { main, parseCommand, renderHelp, runCommand, runCommandTarget } from './speckit-commands.mjs';
+import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, PR_COMMANDS, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
+import {
+  COMMAND_DOCS_END,
+  COMMAND_DOCS_FILE,
+  COMMAND_DOCS_START,
+  CommandUsageError,
+  main,
+  parseCommand,
+  renderCommandDocs,
+  renderCommandTable,
+  renderHelp,
+  runCommand,
+  runCommandTarget,
+  syncCommandDocs,
+} from './speckit-commands.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
 const run = (github, body, { pull = 9, actor = 'dev', env = {} } = {}) => runCommand({
@@ -12,21 +28,46 @@ const run = (github, body, { pull = 9, actor = 'dev', env = {} } = {}) => runCom
   now: () => github.clock,
 });
 
-test('parses commands: the first word, the name, and the rest as argument', () => {
-  assert.deepEqual(parseCommand('/speckit retry Use the helper\nand keep the test'), { name: 'retry', given: 'retry', argument: 'Use the helper\nand keep the test' });
-  assert.deepEqual(parseCommand('/speckit'), { name: 'help', given: '', argument: '' });
+test('parses commands: the first word, the name, and the rest as flags and guidance', () => {
+  assert.deepEqual(parseCommand('/speckit retry Use the helper\nand keep the test'), { name: 'retry', given: 'retry', argument: 'Use the helper\nand keep the test', flags: [], unknownFlags: [], guidance: 'Use the helper\nand keep the test' });
+  assert.deepEqual(parseCommand('/speckit'), { name: 'help', given: '', argument: '', flags: [], unknownFlags: [], guidance: '' });
   assert.equal(parseCommand('/speckit deploy now').name, 'unknown');
   assert.equal(parseCommand('/speckit sync').name, 'sync');
   assert.equal(parseCommand('/speckit resume').name, 'unknown');
   assert.equal(parseCommand('/speckit diagnose').name, 'unknown');
   assert.equal(parseCommand('please /speckit retry'), null);
   assert.equal(parseCommand('/speckit-gha-diagnose'), null, 'a skill name is not a command');
-  assert.match(renderHelp(), /\| `\/speckit retry \[guidance\]` \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*fix spec pull request[\s\S]*skill `\/speckit-gha-diagnose`/);
+  assert.match(renderHelp(), /`\/speckit <command> \[flags\] \[guidance\]`/);
+  assert.match(renderHelp(), /\| `\/speckit retry \[--force\] \[guidance\]` \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*fix spec pull request[\s\S]*skill `\/speckit-gha-diagnose`/);
   assert.doesNotMatch(renderHelp(), /\/speckit resume/);
   assert.doesNotMatch(renderHelp(), /\/speckit diagnose/);
   assert.equal(parseCommand('/speckit retry Rerun as is').name, 'retry');
   assert.equal(parseCommand('/speckit fix Make the test robust').name, 'fix');
   assert.match(renderHelp(), /\/speckit sync \[guidance\]/);
+});
+
+test('flags come right after the command, tolerate case and trailing punctuation, and end at the guidance or `--`', () => {
+  for (const body of ['/speckit retry --force', '/speckit retry --force;', '/speckit retry --FORCE,', '/speckit retry\n--force.', '/speckit retry --force --force']) {
+    assert.deepEqual([parseCommand(body).flags, parseCommand(body).unknownFlags, parseCommand(body).guidance], [['--force'], [], ''], body);
+  }
+  const guided = parseCommand('/speckit retry --force; Update both navigation specs --force');
+  assert.deepEqual([guided.flags, guided.guidance], [['--force'], 'Update both navigation specs --force']);
+  assert.deepEqual([parseCommand('/speckit retry Do it --force').flags, parseCommand('/speckit retry Do it --force').guidance], [[], 'Do it --force'], 'flags only lead');
+  assert.deepEqual([parseCommand('/speckit retry -- --force is guidance').flags, parseCommand('/speckit retry -- --force is guidance').guidance], [[], '--force is guidance']);
+  assert.deepEqual(parseCommand('/speckit retry --forse Rerun').unknownFlags, ['--forse']);
+  assert.deepEqual([parseCommand('/speckit sync --force').flags, parseCommand('/speckit sync --force').unknownFlags], [[], ['--force']], 'flags depend on the command');
+  assert.deepEqual(parseCommand('/speckit fix ---- not a flag').guidance, '---- not a flag');
+});
+
+test('unsupported flags are refused with the command usage instead of becoming guidance', async () => {
+  const github = diagnosisRepo();
+  const result = await run(github, '/speckit sync --force Keep both migrations');
+  assert.equal(result.rejected, 'unsupported flag');
+  assert.match(github.comments.at(-1).body, /^\*\*`\/speckit sync` was not run\*\*: it does not support `--force`\. It supports no flags\.[\s\S]*`\/speckit sync \[guidance\]`/);
+  await run(github, '/speckit retry --forse Rerun');
+  assert.match(github.comments.at(-1).body, /does not support `--forse`\. Its flags: `--force`: restart even after/);
+  assert.equal(github.repo.runs.length, 0, 'nothing was started');
+  assert.equal(github.comments.some((comment) => /^<!-- speckit-implement:(retry|sync) -->/.test(comment.body)), false);
 });
 
 test('ignores people without write access and bots, reacts, and answers help and unknown commands', async () => {
@@ -162,9 +203,12 @@ test('restarts that leave a stopped implementation unchanged are refused, unless
   github.repo.branches.main = 'sha-main-2';
   assert.equal((await run(github, '/speckit retry Again')).outcome, 'refused');
 
-  // The person insists: --force restarts, and is not part of the guidance.
+  // The person insists: --force restarts, and is not part of the guidance, even with trailing punctuation.
   assert.equal((await run(github, '/speckit retry --force The registry outage is over')).outcome, 'retried');
   assert.equal(parseGuidance(github.comments.at(-1).body), 'The registry outage is over');
+  stop();
+  assert.equal((await run(github, '/speckit retry --force; Still over')).outcome, 'retried');
+  assert.equal(parseGuidance(github.comments.at(-1).body), 'Still over');
 
   // A push moves the head: restarts count from there.
   stop();
@@ -198,4 +242,59 @@ test('commands need an open implementation pull request with a twin', async () =
   noTwin.repo.pulls[0].body = 'no closing keyword';
   assert.match((await run(noTwin, '/speckit retry')).rejected, /does not name its twin/);
   await noTwin.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-impl', status: 'completed', external_id: CHECK_DIAGNOSED });
+});
+
+const repoFile = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+test('the command table in the workflows README is generated from PR_COMMANDS and current', () => {
+  const docs = repoFile(COMMAND_DOCS_FILE);
+  assert.equal(docs, syncCommandDocs(docs), `The command table in ${COMMAND_DOCS_FILE} is stale; run \`node .github/scripts/speckit-commands.mjs docs --write\`.`);
+  assert.match(docs, /^## Comment commands$/m);
+  assert.ok(renderHelp().includes(renderCommandTable()), '/speckit help shows the same table');
+  for (const command of PR_COMMANDS) assert.ok(docs.includes(`\`${command.usage}\``), command.usage);
+});
+
+test('syncCommandDocs replaces only the marked block and requires the markers', () => {
+  const text = `intro\n${COMMAND_DOCS_START}\nold table\n${COMMAND_DOCS_END}\noutro\n`;
+  const synced = syncCommandDocs(text, [{ name: 'rebase', usage: '/speckit rebase', help: 'rebase the branch', flags: {} }]);
+  assert.equal(synced, `intro\n${renderCommandDocs([{ name: 'rebase', usage: '/speckit rebase', help: 'rebase the branch', flags: {} }])}\noutro\n`);
+  assert.match(synced, /\| `\/speckit rebase` \| rebase the branch \| none \|/);
+  assert.doesNotMatch(synced, /old table/);
+  assert.throws(() => syncCommandDocs('no markers'), CommandUsageError);
+  assert.throws(() => syncCommandDocs(`${COMMAND_DOCS_END}\n${COMMAND_DOCS_START}`), CommandUsageError);
+});
+
+test('tooling docs name only known comment commands and the root README links to the canonical section', () => {
+  const names = PR_COMMANDS.map((command) => command.name);
+  for (const path of ['README.md', COMMAND_DOCS_FILE, 'AGENTS.md', '.specify/extension-src/gha/README.md']) {
+    const text = repoFile(path).replace(/```mermaid[\s\S]*?```/g, '');
+    const unknown = [...text.matchAll(/\/speckit[ \t]+([A-Za-z][A-Za-z-]*)/g)].map((match) => match[1]).filter((name) => !names.includes(name));
+    assert.deepEqual([...new Set(unknown)], [], `${path} names commands that PR_COMMANDS does not define`);
+  }
+  const readme = repoFile('README.md');
+  assert.ok(readme.includes('(.github/workflows/README.md#comment-commands)'), 'the root README links to the canonical command section');
+  assert.doesNotMatch(readme, /^\s*\| `\/speckit /m, 'the root README has no command table of its own');
+  assert.ok(repoFile('AGENTS.md').includes('(.github/workflows/README.md#comment-commands)'));
+});
+
+test('docs checks the command table and refreshes it with --write, keeping line endings', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'speckit-docs-'));
+  try {
+    const file = join(dir, 'README.md');
+    const stale = `# Title\r\n\r\n${COMMAND_DOCS_START}\r\nold\r\n${COMMAND_DOCS_END}\r\n`;
+    writeFileSync(file, stale);
+    const lines = [];
+    const log = (line) => lines.push(line);
+    assert.equal(await main(['docs'], { docsFile: file, log }), 1);
+    assert.equal(readFileSync(file, 'utf8'), stale, 'the check does not write');
+    assert.match(lines.at(-1), /stale; run `node \.github\/scripts\/speckit-commands\.mjs docs --write`/);
+    assert.equal(await main(['docs', '--write'], { docsFile: file, log }), 0);
+    const written = readFileSync(file, 'utf8');
+    assert.ok(written.includes(renderCommandTable().replace(/\n/g, '\r\n')));
+    assert.doesNotMatch(written.replace(/\r\n/g, ''), /\n/, 'CRLF stays CRLF');
+    assert.equal(await main(['docs'], { docsFile: file, log }), 0);
+    await assert.rejects(main(['docs', '--force'], { docsFile: file, log }), CommandUsageError);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

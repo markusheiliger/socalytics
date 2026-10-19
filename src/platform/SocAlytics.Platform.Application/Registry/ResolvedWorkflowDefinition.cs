@@ -32,7 +32,10 @@ public sealed record ResolvedWorkflowEdge(
     string UpstreamNodeKey,
     string DependentNodeKey,
     string Kind,
-    ConditionalPredicate? Predicate = null);
+    ConditionalPredicate? Predicate = null)
+{
+    public CoveragePolicy CoveragePolicy { get; init; } = CoveragePolicy.Complete;
+}
 
 public sealed record ResolvedWorkflowDefinition(
     string WorkflowId,

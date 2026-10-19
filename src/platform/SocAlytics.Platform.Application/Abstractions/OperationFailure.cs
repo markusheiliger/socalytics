@@ -20,7 +20,8 @@ public sealed record OperationFailure(
     OperationFailureKind Kind,
     string Code,
     IReadOnlyList<FieldViolation> FieldViolations,
-    long? CurrentVersion)
+    long? CurrentVersion,
+    IReadOnlyDictionary<string, string>? Extensions = null)
 {
     private static readonly IReadOnlyList<FieldViolation> NoViolations = [];
 

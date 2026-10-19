@@ -1,6 +1,8 @@
 {
   "bad-digest.json": "pattern",
   "missing-capability.json": "required",
+  "partial-coverage-unknown-mode.json": "enum",
+  "partial-coverage-zero-fraction.json": "exclusiveMinimum",
   "unknown-property.json": "additionalProperties",
   "unknown-tier.json": "enum"
 }

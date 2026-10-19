@@ -21,7 +21,7 @@ internal static class ProblemResults
 			OperationFailureKind.TooManyRequests => StatusCodes.Status429TooManyRequests,
 			_ => throw new ArgumentOutOfRangeException(nameof(failure)),
 		};
-		return Problem(status, failure.Code, failure.FieldViolations);
+		return new ProblemResult(status, failure.Code, failure.FieldViolations, failure.Extensions);
 	}
 
 	public static IResult Problem(
@@ -59,6 +59,14 @@ internal static class ProblemResults
 				body["errors"] = violations.Select(v => new { field = v.Field, code = v.Code }).ToArray();
 			}
 
+			if (extensions is not null)
+			{
+				foreach (var (name, value) in extensions)
+				{
+					body.TryAdd(name, value);
+				}
+			}
+
 			return Results.Json(body, statusCode: status, contentType: "application/problem+json").ExecuteAsync(httpContext);
 		}
 	}
@@ -66,6 +74,8 @@ internal static class ProblemResults
 	private static string? Detail(string code) => code switch
 	{
 		"analyst-manager-software-key-not-allowed" => "This stamp requires hardware-backed key storage for this Manager profile.",
+		"analyst-manager-version-below-minimum" =>
+			"Update the Analyst Manager to the stamp's minimum version or later before it acquires new work.",
 		_ => null,
 	};
 
@@ -83,6 +93,7 @@ internal static class ProblemResults
 		"version-required" => "A version precondition is required.",
 		"queue-unavailable" => "The queue depth is temporarily unavailable.",
 		"version-mismatch" => "The version precondition failed.",
+		"analyst-manager-version-below-minimum" => "The Analyst Manager version is below the stamp's minimum.",
 		_ => "The request could not be completed.",
 	};
 }

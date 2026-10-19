@@ -83,15 +83,17 @@ internal sealed class RegistryWorkflowDefinitionResolver(IServiceScopeFactory sc
         }
 
         var nodes = new List<ResolvedWorkflowNode>();
+        var declaredUpstream = new Dictionary<string, IReadOnlyList<DeclaredUpstream>>(StringComparer.Ordinal);
         foreach (var node in root.GetProperty("nodes").EnumerateArray())
         {
-            var resolved = await MapNodeAsync(node, profiles, declarations, cancellationToken);
-            if (resolved is null)
+            var mapped = await MapNodeAsync(node, profiles, declarations, cancellationToken);
+            if (mapped is null)
             {
                 return null;
             }
 
-            nodes.Add(resolved);
+            nodes.Add(mapped.Value.Node);
+            declaredUpstream[mapped.Value.Node.NodeKey] = mapped.Value.Upstream;
         }
 
         var edges = new List<ResolvedWorkflowEdge>();
@@ -106,11 +108,21 @@ internal sealed class RegistryWorkflowDefinitionResolver(IServiceScopeFactory sc
                     p.TryGetProperty("nodeKey", out var nodeKey) ? nodeKey.GetString() : null);
             }
 
+            var upstreamKey = edge.GetProperty("upstreamNodeKey").GetString()!;
+            var dependentKey = edge.GetProperty("dependentNodeKey").GetString()!;
+            var upstreamNode = nodes.FirstOrDefault(n => n.NodeKey == upstreamKey);
+            var coverage = upstreamNode is not null && declaredUpstream.TryGetValue(dependentKey, out var declared)
+                ? declared.FirstOrDefault(d => d.CapabilityId == upstreamNode.CapabilityId)?.CoveragePolicy ?? CoveragePolicy.Complete
+                : CoveragePolicy.Complete;
+
             edges.Add(new ResolvedWorkflowEdge(
-                edge.GetProperty("upstreamNodeKey").GetString()!,
-                edge.GetProperty("dependentNodeKey").GetString()!,
+                upstreamKey,
+                dependentKey,
                 edge.GetProperty("kind").GetString()!,
-                predicate));
+                predicate)
+            {
+                CoveragePolicy = coverage,
+            });
         }
 
         return new ResolvedWorkflowDefinition(
@@ -123,7 +135,7 @@ internal sealed class RegistryWorkflowDefinitionResolver(IServiceScopeFactory sc
             edges);
     }
 
-    private static async Task<ResolvedWorkflowNode?> MapNodeAsync(
+    private static async Task<(ResolvedWorkflowNode Node, IReadOnlyList<DeclaredUpstream> Upstream)?> MapNodeAsync(
         JsonElement node,
         IAnalystProfileStore profiles,
         ICapabilityDeclarationStore declarations,
@@ -150,7 +162,7 @@ internal sealed class RegistryWorkflowDefinitionResolver(IServiceScopeFactory sc
             return null;
         }
 
-        return new ResolvedWorkflowNode(
+        var resolvedNode = new ResolvedWorkflowNode(
             node.GetProperty("nodeKey").GetString()!,
             content.CapabilityId,
             content.CapabilityVersion,
@@ -167,6 +179,7 @@ internal sealed class RegistryWorkflowDefinitionResolver(IServiceScopeFactory sc
             content.LeaseSeconds,
             content.StaleTimeoutSeconds,
             content.ExecutionTimeoutSeconds);
+        return (resolvedNode, declaration.Declaration.Upstream);
     }
 
     /// <summary>The Registry stores image digests in the OCI form; the analysis workflow uses the platform digest form.</summary>

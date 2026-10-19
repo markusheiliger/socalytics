@@ -209,6 +209,13 @@ export class SimulatedApi {
     this.overrides.set(`${method.toUpperCase()} ${path}`, handler);
   }
 
+  /** Usable recovery tokens mapped to their account name; a completion uses its token up. */
+  readonly recoveryTokens = new Map<string, string>();
+  /** Addresses of the recovery requests the simulated platform accepted, in order. */
+  readonly recoveryRequests: string[] = [];
+  /** Completed recoveries, in order. */
+  readonly recoveryCompletions: { accountName: string; newPassword: string }[] = [];
+
   /** Identity providers the simulated platform lists; empty means none is configured. */
   providers: { id: string; displayName: string }[] = [];
   /** When true, starting an external sign-in answers 503 `provider-unavailable`. */
@@ -237,6 +244,25 @@ export class SimulatedApi {
   /** When set, every code submission answers 429 with this `Retry-After` in seconds. */
   rateLimitSubmissionsFor: number | null = null;
 
+  /**
+   * The minimum Manager version the simulated platform reports to Club Admins. A registration that does not set
+   * `belowMinimumVersion` itself is flagged when its effective version (status report, else device metadata) is lower.
+   */
+  minimumManagerVersion: string | null = null;
+
+  private isBelowMinimum(r: AnalystManagerRegistrationDto, minimum: string): boolean {
+    const effective = r.status?.managerVersion ?? r.deviceMetadata?.managerVersion;
+    if (!effective) return false;
+    const parts = (v: string) => v.split('.').map((p) => Number.parseInt(p, 10) || 0);
+    const a = parts(String(effective));
+    const b = parts(minimum);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const d = (a[i] ?? 0) - (b[i] ?? 0);
+      if (d !== 0) return d < 0;
+    }
+    return false;
+  }
+
   /** Adds a registration, and optionally a pairing code that submits it. */
   addRegistration(registration: AnalystManagerRegistrationDto, pairingCode?: string): AnalystManagerRegistrationDto {
     this.registrations.push(registration);
@@ -256,10 +282,21 @@ export class SimulatedApi {
     if (!isAdmin && role !== 'Registrar') return json(403, problem(403, 'Forbidden'));
     const self = String(members[role].id);
     const visible = (r: AnalystManagerRegistrationDto) => isAdmin || String(r.submittedBy) === self;
-    // Status and connectivity belong to the Club Admin fleet view only.
+    // Status, connectivity, and the minimum version marking belong to the Club Admin fleet view only.
     const shape = (r: AnalystManagerRegistrationDto): AnalystManagerRegistrationDto => {
-      if (isAdmin) return r;
-      const { status: _status, connectivity: _connectivity, ...rest } = r;
+      if (isAdmin) {
+        const minimum = r.minimumManagerVersion ?? this.minimumManagerVersion ?? undefined;
+        const below = r.belowMinimumVersion ?? (minimum !== undefined && this.isBelowMinimum(r, minimum));
+        if (minimum === undefined && !below) return r;
+        return { ...r, minimumManagerVersion: minimum, belowMinimumVersion: below } as AnalystManagerRegistrationDto;
+      }
+      const {
+        status: _status,
+        connectivity: _connectivity,
+        minimumManagerVersion: _minimum,
+        belowMinimumVersion: _below,
+        ...rest
+      } = r;
       return rest as AnalystManagerRegistrationDto;
     };
     const entity = (r: AnalystManagerRegistrationDto, status = 200) =>
@@ -415,6 +452,28 @@ export class SimulatedApi {
       return json(200, { authorizationUrl: `${SIMULATED_PROVIDER_ORIGIN}/authorize?state=simulated` });
     }
     if (method === 'POST' && path === '/credentials/redeem') {
+      return route.fulfill({ status: 204 });
+    }
+    if (method === 'POST' && path === '/password-recovery/requests') {
+      const address = String((request.postDataJSON() as { address?: unknown } | null)?.address ?? '').trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
+        return json(400, problem(400, 'Validation failed', { errors: [{ field: 'address', code: address ? 'invalid' : 'required' }] }));
+      }
+      this.recoveryRequests.push(address);
+      return route.fulfill({ status: 202, headers: { 'Cache-Control': 'no-store' } });
+    }
+    if (method === 'POST' && (path === '/password-recovery/checks' || path === '/password-recovery/completions')) {
+      const sent = (request.postDataJSON() ?? {}) as { token?: string; newPassword?: string };
+      const accountName = sent.token ? this.recoveryTokens.get(sent.token) : undefined;
+      if (!accountName) {
+        return json(400, problem(400, 'Password recovery invalid', { code: 'password-recovery-invalid' }));
+      }
+      if (path === '/password-recovery/checks') return json(200, { accountName });
+      if (!sent.newPassword) {
+        return json(400, problem(400, 'Validation failed', { errors: [{ field: 'newPassword', code: 'required' }] }));
+      }
+      this.recoveryTokens.delete(sent.token as string);
+      this.recoveryCompletions.push({ accountName, newPassword: sent.newPassword });
       return route.fulfill({ status: 204 });
     }
     if (!this.current) {
