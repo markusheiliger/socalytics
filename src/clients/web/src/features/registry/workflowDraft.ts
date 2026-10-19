@@ -1,6 +1,7 @@
 import type { ProfileVersion, WorkflowDraft, WorkflowDraftNode, WorkflowVersion } from '../../platform/models/registry';
 
-const SHA256 = /^sha256:[0-9a-f]{64}$/;
+// The platform stores digests as `sha-256:`; the plain `sha256:` spelling is accepted too and the platform decides.
+const SHA256 = /^sha-?256:[0-9a-f]{64}$/;
 
 export interface DraftViolation {
   code: 'no-nodes' | 'duplicate-node-key' | 'unknown-edge-node' | 'unknown-predicate-node' | 'flagged-node' | 'invalid-duration' | 'invalid-digest';
