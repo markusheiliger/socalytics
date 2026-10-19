@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
+import { useConnectivity } from '../../connectivity/useConnectivity';
 import { createAnalysisFactAdapter } from '../../platform/adapters/analysisFactAdapter';
 import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAdapter';
 import type { FactStreamSummary } from '../../platform/models/analysis';
@@ -55,6 +56,7 @@ export function AnalysisRunPage() {
   const factAdapter = useMemo(() => createAnalysisFactAdapter(platform), [platform]);
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const { isUnreachable } = useConnectivity();
   const [reloads, setReloads] = useState(0);
   const [loaded, setLoaded] = useState<{ id: string; stream: FactStreamSummary }>();
   const { match, team, permitted } = useMatchContext(matchId);
@@ -78,6 +80,17 @@ export function AnalysisRunPage() {
     refetchInterval: runOutcome?.kind === 'found' ? runRefreshInterval(runOutcome.run) : false,
     refetchIntervalInBackground: false,
   });
+
+  // Without a connection no earlier analysis data stays on screen and nothing is kept in browser storage (FR-018).
+  if (isUnreachable) {
+    return (
+      <Container component="main" maxWidth="md" sx={{ py: 4 }}>
+        <Typography variant="h1">{tc('app.name')}</Typography>
+        <Typography variant="h2">{t('page.title')}</Typography>
+        <Typography role="alert">{t('states.connectionRequired')}</Typography>
+      </Container>
+    );
+  }
 
   const isNotPermitted = (error: unknown) => Boolean(error) && toPlatformFailure(error).kind === 'notPermitted';
   if ((match.data && !permitted) || isNotPermitted(match.error) || isNotPermitted(run.error) || isNotPermitted(streams.error)) return <NotPermittedPage />;
