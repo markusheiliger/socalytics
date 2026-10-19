@@ -218,6 +218,32 @@ without disclosure (`analysis.upstream-read-refused` audit events). Options
 (100) are development values. Contract:
 `contracts/analysis/upstream-results/v1/`.
 
+Agent Orchestration direct invocations are implemented as development evidence
+(migrations `0024_agentorchestration_conversations_and_invocations.sql` and
+`0025_agentorchestration_outbox_message_type.sql`): members who are Club Admins
+or Coaches of the owning team create private `User -> SA` conversations bound to
+one terminal successful analysis run, add enabled Specialist Agents, and submit
+questions asynchronously (`202`, conditional polling of turns, invocation, and
+lineage under `/api/v1`); the initiating user alone reads them.
+
+- Workloads authenticate as configured clients (`AgentOrchestration:Workloads:Clients`
+  with `ClientId`, `PublicJwk`, and `Enabled`) through a minimal token endpoint
+  with `private_key_jwt` and DPoP (`AgentWorkload` policy), obtain scoped NATS
+  queue credentials, and claim, renew, checkpoint, complete, or fail fenced
+  attempts. The contracts are `contracts/agent-orchestration/`
+  (`work-notification`, `execution-envelope`, `attempt-report`).
+- The outbox publishes content-free `agent-invocation-ready` notifications to a
+  JetStream work queue; the attempt monitor (lease expiry, deadlines, scope
+  loss) and the reconciliation worker run in the API host. Options:
+  `AgentOrchestration:Agents:Enabled`, `Execution` (attempt, lease, history,
+  length, and unfinished-invocation limits), `Workloads`, and `Monitor`; the
+  values are development values, not adopted production values.
+- `Tests/SocAlytics.Platform.SimulatedAgentWorkload` is the Development and Test
+  simulated agent workload that stands in for Hermes with deterministic advice;
+  the AppHost starts it with an ephemeral key. It is not an agent runtime.
+- Hermes, consultations, Coach Agents, MCP tools, lifecycle operations, the
+  Web UI, and production values remain deferred.
+
 Partial-coverage match barriers are implemented as development evidence
 against the simulated Analyst. A match-scoped capability declares partial
 coverage per required or conditional dependency on a segment-scoped upstream in
