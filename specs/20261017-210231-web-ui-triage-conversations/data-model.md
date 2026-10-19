@@ -3,7 +3,7 @@
 The Web UI keeps no persistent data. These are the application-owned client models in
 `src/clients/web/src/platform/models/agents.ts` that `agentConversationAdapter` maps from the generated client, and the
 in-memory view state of the triage views. Platform field names follow
-[the sibling's API contract](../20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md).
+[the sibling's API contract](../archive/20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md).
 
 ## EnabledAgent
 

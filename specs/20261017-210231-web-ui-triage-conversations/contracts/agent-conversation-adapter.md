@@ -1,7 +1,7 @@
 # Contract: Agent Conversation Adapter
 
 `src/clients/web/src/platform/adapters/agentConversationAdapter.ts`, over the generated Kiota client (regenerated from
-the OpenAPI snapshot that [Agent Orchestration Direct Invocations](../../20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md)
+the OpenAPI snapshot that [Agent Orchestration Direct Invocations](../../archive/20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md)
 refreshes). Models: [data-model.md](../data-model.md). Callers own idempotency keys; the adapter never creates one.
 
 | Method | Operation | Request | Result |

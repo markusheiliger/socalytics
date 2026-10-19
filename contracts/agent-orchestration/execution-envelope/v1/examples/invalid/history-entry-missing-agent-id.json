@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "inv-0001",
+  "conversationId": "conv-0001",
+  "attemptId": "att-0001",
+  "attemptNumber": 1,
+  "fencingToken": "ft_2f9c1a7e4b6d4c0f9a3e",
+  "leaseExpiresAt": "2026-10-17T20:45:00Z",
+  "leaseSeconds": 60,
+  "deadlineAt": "2026-10-17T20:55:00Z",
+  "correlationId": "corr-0001",
+  "route": "user-to-specialist",
+  "agentId": "specialist-tactics",
+  "question": "How did the team defend against counterattacks in the second half?",
+  "history": [
+    {
+      "invocationId": "inv-0001",
+      "question": "Q",
+      "advice": "A"
+    }
+  ],
+  "scope": {
+    "teamId": "team-0001",
+    "matchId": "match-0001",
+    "analysisRunId": "run-0001"
+  },
+  "limits": {
+    "maxAdviceCharacters": 4000,
+    "maxCheckpointNoteCharacters": 500
+  }
+}

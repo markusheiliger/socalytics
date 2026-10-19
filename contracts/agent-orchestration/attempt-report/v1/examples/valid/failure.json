@@ -1,0 +1,6 @@
+{
+  "operationId": "op-fail-0001",
+  "fencingToken": "ft_2f9c1a7e4b6d4c0f9a3e",
+  "reasonCode": "model-unavailable",
+  "retryable": true
+}

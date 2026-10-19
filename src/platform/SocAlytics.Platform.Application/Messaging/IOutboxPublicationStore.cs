@@ -1,6 +1,6 @@
 namespace SocAlytics.Platform.Application.Messaging;
 
-public sealed record OutboxPublicationRow(Guid Id, string Subject, string Payload, int AttemptCount, int PublicationRound, DateTime CreatedAt);
+public sealed record OutboxPublicationRow(Guid Id, string Subject, string Payload, int AttemptCount, int PublicationRound, DateTime CreatedAt, string MessageType = "");
 
 public interface IOutboxPublicationStore
 {

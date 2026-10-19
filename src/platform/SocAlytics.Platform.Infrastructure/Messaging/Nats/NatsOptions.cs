@@ -14,5 +14,11 @@ internal sealed class NatsOptions
 
     public string[] JobsSubjects { get; set; } = ["analysis.jobs.ready.>"];
 
+    public string AgentWorkStream { get; set; } = "AGENT_WORK";
+
+    public string AgentWorkSubject { get; set; } = "agents.invocations.ready";
+
+    public string AgentWorkConsumer { get; set; } = "agent-workload";
+
     public int DuplicateWindowSeconds { get; set; } = 120;
 }
