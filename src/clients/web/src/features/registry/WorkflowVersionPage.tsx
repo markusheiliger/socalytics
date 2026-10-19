@@ -1,14 +1,17 @@
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
+import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { toPlatformFailure } from '../../platform/failure';
 import type { MemberRef } from '../../platform/models/registry';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { FailureAlert } from '../shared/FailureAlert';
+import { SetDefaultWorkflowDialog } from './SetDefaultWorkflowDialog';
 import { DigestText } from './DigestText';
 import { describeEdge, type RegistryText } from './edgeText';
 import { useDefaultWorkflow, useMemberNames, useWorkflow } from './registryKeys';
@@ -30,6 +33,7 @@ export function WorkflowVersionPage() {
   const query = useWorkflow(workflowId, version);
   const current = useDefaultWorkflow();
   const names = useMemberNames();
+  const [dialog, setDialog] = useState(false);
   const failure = query.error ? toPlatformFailure(query.error) : undefined;
 
   if (failure?.kind === 'notPermitted') return <NotPermittedPage />;
@@ -72,6 +76,23 @@ export function WorkflowVersionPage() {
             <Field label={t('field.createdAt')}>{w.createdAt.toLocaleString()}</Field>
             <Field label={t('field.createdBy')}>{who(w.createdBy)}</Field>
           </Box>
+          <Stack direction="row" spacing={2} sx={{ mt: 2, alignItems: 'center' }}>
+            {!isDefault && current.data !== undefined && (
+              <Button variant="contained" onClick={() => setDialog(true)}>{t('workflowVersion.makeDefault')}</Button>
+            )}
+            <Link to={`/registry/workflows/new?fromId=${encodeURIComponent(w.workflowId)}&fromVersion=${encodeURIComponent(w.workflowVersion)}`}>
+              {t('workflowVersion.newVersion')}
+            </Link>
+          </Stack>
+          {current.data !== undefined && (
+            <SetDefaultWorkflowDialog
+              workflowId={w.workflowId}
+              workflowVersion={w.workflowVersion}
+              current={current.data}
+              open={dialog}
+              onClose={() => setDialog(false)}
+            />
+          )}
           <Typography variant="h4" sx={{ mt: 2 }}>{t('workflowVersion.nodesTitle')}</Typography>
           <Box component="ul" aria-label={t('workflowVersion.nodesTitle')} sx={{ m: 0, pl: 2 }}>
             {w.nodes.map((node) => (

@@ -23,6 +23,7 @@ export function WorkflowsPage() {
       <Typography variant="h1">{tc('app.name')}</Typography>
       <Typography variant="h2">{t('workflows.title')}</Typography>
       <Link to="/registry">{t('overview.title')}</Link>
+      <div><Link to="/registry/workflows/new">{t('workflows.newWorkflow')}</Link></div>
       {failure && <FailureAlert failure={failure} onReload={() => void query.refetch()} />}
       {query.isPending && <Typography role="status" sx={{ mt: 2 }}>{t('overview.loading')}</Typography>}
       {query.data &&

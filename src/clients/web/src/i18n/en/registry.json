@@ -11,7 +11,11 @@
     "profilesLink": "Analyst profiles",
     "workflowsLink": "Workflows",
     "loading": "Loading the Registry…",
-    "reload": "Reload"
+    "reload": "Reload",
+    "changeDefault": "Change default",
+    "chooseDefault": "Workflow version",
+    "chooseDefaultPlaceholder": "Choose a workflow version",
+    "continueDefault": "Continue"
   },
   "images": {
     "title": "Analyst images",
@@ -108,7 +112,7 @@
     "listEntry": "{{workflowId}} version {{version}}",
     "defaultMarker": "Default",
     "createdAt": "Created {{value}}",
-    "newWorkflow": "Define a workflow"
+    "newWorkflow": "Define workflow version"
   },
   "workflowCreate": {
     "title": "Define a workflow version",
@@ -127,6 +131,12 @@
     "removeNode": "Remove node {{key}}",
     "nodeFlagged": "The profile version of node {{key}} is no longer approved. Choose an approved profile version.",
     "nodeKeyDuplicate": "Node keys must be unique.",
+    "nodeProfileRequired": "Choose an approved profile version for node {{key}}.",
+    "durationInvalid": "Enter a segment duration greater than zero.",
+    "digestInvalid": "Enter the segmentation digest as sha256: followed by 64 hexadecimal digits.",
+    "segmentationVersionInvalid": "Enter a whole segmentation version greater than zero.",
+    "predicateRequired": "Choose the capability of each conditional edge.",
+    "startedFrom": "Started from {{workflowId}} version {{version}}.",
     "nodeRequired": "Add at least one node.",
     "edgesTitle": "Edges",
     "edgeUpstream": "Upstream node",
