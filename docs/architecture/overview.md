@@ -90,8 +90,9 @@ JetStream, RustFS/S3, a .NET and Avalonia Analyst Manager, and an installable
 React and TypeScript Web UI without offline mode. The Web UI's offline mode,
 Python Analyst Containers, and Hermes as a separate Python OCI service are
 planned. Source
-remains in one monorepo and production artifacts will be cloud-neutral OCI
-images.
+remains in one monorepo. The platform API, the Migrator, and the Web UI exist
+as cloud-neutral OCI images; their registry, publication, and production
+readiness remain unresolved.
 
 The canonical technologies, boundaries, and required evidence are defined in
 the [Platform Implementation Profile](platform-implementation.md).

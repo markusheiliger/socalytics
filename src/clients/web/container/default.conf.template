@@ -1,0 +1,65 @@
+# Rendered by the nginx image entrypoint (envsubst) into /tmp/nginx/conf.d.
+# contracts/container-images.md section 6; the policy text matches build/securityHeaders.ts.
+
+# Only fingerprinted assets that exist are cached; everything else, including a 404, must revalidate.
+map "$uri:$status" $socalytics_cache_control {
+    default "no-cache";
+    "~^/assets/.*:(200|206|304)$" "public, max-age=31536000, immutable";
+}
+
+server {
+    listen 8080 default_server;
+    server_name _;
+
+    root /usr/share/nginx/html;
+
+    resolver ${NGINX_LOCAL_RESOLVERS} valid=10s;
+
+    # Forwarded to the API. The security headers are deliberately not inherited here, so the API's own
+    # response headers pass unchanged.
+    location ~ ^/(?:api(?:/.*)?|alive)$ {
+        set $socalytics_api_upstream "${SOCALYTICS_API_UPSTREAM}";
+        proxy_pass $socalytics_api_upstream$request_uri;
+
+        proxy_http_version 1.1;
+        proxy_set_header Host $http_host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        client_max_body_size 0;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+
+        error_page 502 504 = @api_unavailable;
+    }
+
+    location @api_unavailable {
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; media-src blob:; connect-src 'self' ${SOCALYTICS_OBJECT_STORAGE_ORIGIN}; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; require-trusted-types-for 'script'; trusted-types default react-dom upload-worker service-worker" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+        add_header Cache-Control "no-cache" always;
+        return 502;
+    }
+
+    # Nested locations inherit these headers because none of them sets its own.
+    location / {
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; media-src blob:; connect-src 'self' ${SOCALYTICS_OBJECT_STORAGE_ORIGIN}; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; require-trusted-types-for 'script'; trusted-types default react-dom upload-worker service-worker" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "no-referrer" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+        add_header Cache-Control $socalytics_cache_control always;
+
+        location ^~ /assets/ {
+            try_files $uri =404;
+        }
+
+        location ~ \.[^/]+$ {
+            try_files $uri =404;
+        }
+
+        try_files $uri /index.html;
+    }
+}

@@ -337,6 +337,35 @@ AppHost user secrets. To reset local data, stop the AppHost and run
 `docker volume rm socalytics-postgres-data`. This removes development data
 only.
 
+## Container Images
+
+The API and the Migrator each have a Dockerfile that builds a cloud-neutral OCI image from the repository root. Both
+builds require the arguments `SOCALYTICS_REVISION` and `SOCALYTICS_VERSION` (see the root
+[README](../../README.md#container-images) for the three build commands):
+
+```powershell
+docker build -f src/platform/SocAlytics.Platform.Api/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-api:local .
+docker build -f src/platform/SocAlytics.Platform.Migrator/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-migrator:local .
+```
+
+| Property | API image | Migrator image |
+| --- | --- | --- |
+| User | numeric `1654` (non-root; any non-root UID works) | numeric `1654` |
+| Port | `8080` (HTTP; TLS terminates outside the image) | none |
+| Hosting environment | `Production` | `Production` |
+| Writable location | tmpfs at `/tmp` (root filesystem can be read-only) | tmpfs at `/tmp` |
+| Health probe | none (`/alive` and `/health` are probed by the orchestrator) | none |
+| Lifetime | long-running | one run, then exit; do not restart after success |
+
+Configuration is read only from environment variables. The API takes its existing options, for example
+`ConnectionStrings__socalytics`, `ConnectionStrings__nats`, `Nats__Authentication__*`, `ObjectStorage__*`,
+`Email__*`, `Stamp__*`, `ClubBootstrap__*`, `IdentityAccess__*`, `WebUi__MinimumVersion`, and
+`ASPNETCORE_FORWARDEDHEADERS_ENABLED`; invalid options stop the host at start. The Migrator takes
+`ConnectionStrings__socalytics-migrator` and the optional `Migrator__*` timeouts and exits with the codes of the
+Migrator Contract. The API image contains no Migrator or DbUp, and neither image contains secret or development
+values. The images are not deployment support or production readiness; `dotnet test
+src/platform/Tests/SocAlytics.Platform.Images.Tests` (Docker required) is their evidence.
+
 ## Migrator Contract
 
 The Migrator applies all pending platform migrations once and exits. It is safe

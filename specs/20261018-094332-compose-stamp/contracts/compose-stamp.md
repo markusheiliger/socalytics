@@ -1,7 +1,7 @@
 # Contract: Compose Evaluation Stamp
 
 This contract is the interface the committed composition offers to an operator who evaluates a self-hosted stamp. It
-builds on the [deployable image contract](../../20261018-092503-oci-images/contracts/container-images.md). Values
+builds on the [deployable image contract](../../archive/20261018-092503-oci-images/contracts/container-images.md). Values
 marked *open* are production profile values that stay **Open / Blocking** in
 [Production Deployment and Operations](../../../docs/architecture/production-operations.md#versioned-production-profile);
 the evaluation stamp uses them as operator values or documented evaluation choices, never as approved values.

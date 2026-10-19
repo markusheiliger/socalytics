@@ -216,7 +216,7 @@ README.md, AGENTS.md                            # commands and Current State
 **Structure Decision**: One independent agent project as the environment convention defines it, with a src layout so
 tests import the installed package. The tool catalog is generated into the package because the image contains no
 repository files. Docker-backed image evidence joins the image test project of
-[Cloud-Neutral OCI Images](../20261018-092503-oci-images/plan.md) instead of making the agent project's default test
+[Cloud-Neutral OCI Images](../archive/20261018-092503-oci-images/plan.md) instead of making the agent project's default test
 run depend on Docker. This feature is implemented after the agents Python environment, the Agent Evidence Tools API
 (its allowlist contract and refreshed OpenAPI snapshot), the Agent Catalog Registry (pinned-artifact read), the
 Agent Orchestration invocations (workload token), and the OCI images feature (image test project) have merged.
