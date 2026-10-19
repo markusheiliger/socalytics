@@ -30,3 +30,10 @@ export function extractConfirmationLink(text: string): URL {
   if (!match) throw new Error('The message contains no confirmation link.');
   return new URL(match[0]);
 }
+
+/** Reads the first invitation link (with its `#token=` fragment) from a message body. */
+export function extractInvitationLink(text: string): URL {
+  const match = /https?:\/\/[^\s<>"]+\/invitations\/accept#token=[^\s<>"]+/.exec(text);
+  if (!match) throw new Error('The message contains no invitation link.');
+  return new URL(match[0]);
+}
