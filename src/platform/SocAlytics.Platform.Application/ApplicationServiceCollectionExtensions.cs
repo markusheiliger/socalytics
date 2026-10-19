@@ -151,6 +151,16 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.AuthenticateAgentWorkloadRequestHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadQueueCredentialsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.AgentCatalogRecordValidator>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Registration.AgentCatalogRegistrar>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Registration.RegisterAgentCatalogArtifactHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Registration.RegisterAgentVersionHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Reads.GetAgentCatalogBaselineHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Reads.ListAgentCatalogArtifactsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Reads.GetAgentCatalogArtifactHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Reads.ListAgentVersionsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Reads.GetAgentVersionHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Lifecycle.ApproveAgentVersionHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.Lifecycle.RetireAgentVersionHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAvailableAgentsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.CreateAgentConversationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAgentConversationsHandler>();
