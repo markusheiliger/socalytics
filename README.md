@@ -10,7 +10,8 @@ through approved changes.
 - [`src/platform/`](src/platform/README.md) contains the executable control-plane
     platform host and its ownership guidance.
 - [`src/clients/`](src/clients/README.md) contains the executable
-    Web UI foundation (without offline mode), including its installable PWA shell, under
+    Web UI foundation (without offline mode), including its installable PWA shell and the
+    match triage conversations with Specialist Agents, under
     `src/clients/web/`; the offline mode for coaches is planned.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.
