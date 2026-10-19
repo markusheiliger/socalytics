@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-catalog/catalog-baseline/v1/catalog-baseline.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent catalog baseline v1",
+  "description": "The versioned list of the catalog's agent identifiers with group, domain, display name, and permitted-tool baseline, and the platform tool allowlist, as fixed by docs/architecture/intelligence-agent-catalog.md (Specialist Agent Catalog, Coach Agent Catalog, MCP Tool Policy). The baseline changes only with the architecture: it is read through GET /api/v1/agent-catalog/baseline and is never registered or changed through the platform. Tool identifiers are written without parentheses.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "version", "toolAllowlist", "agents"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "kind": { "const": "catalog-baseline" },
+    "version": {
+      "description": "Version of the catalog baseline (SemVer 2.0.0 without build metadata).",
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "toolAllowlist": {
+      "description": "Every tool identifier that a tool policy may grant.",
+      "type": "array",
+      "minItems": 11,
+      "maxItems": 11,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/toolId" }
+    },
+    "agents": {
+      "description": "The nine catalog agents: three Coach Agents and six Specialist Agents.",
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 9,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/agent" }
+    }
+  },
+  "$defs": {
+    "toolId": {
+      "description": "A tool identifier of the platform tool allowlist, written without ().",
+      "enum": [
+        "get_match",
+        "get_player_stats",
+        "find_counter_attacks",
+        "find_turnovers",
+        "get_heatmap",
+        "find_ball_actions",
+        "find_set_plays",
+        "get_formations",
+        "find_pressing_phases",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agentId", "group", "domain", "displayName", "permittedTools"],
+      "properties": {
+        "agentId": {
+          "enum": [
+            "coach-jurgen-klopp",
+            "coach-pep-guardiola",
+            "coach-jose-mourinho",
+            "specialist-fitness",
+            "specialist-goalkeeping",
+            "specialist-tactics",
+            "specialist-video-analysis",
+            "specialist-scouting",
+            "specialist-player-development"
+          ]
+        },
+        "group": { "enum": ["coach", "specialist"] },
+        "domain": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "permittedTools": {
+          "description": "The permitted-tool baseline of the agent; a tool policy may grant at most these tools.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 11,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/toolId" }
+        }
+      }
+    }
+  }
+}
