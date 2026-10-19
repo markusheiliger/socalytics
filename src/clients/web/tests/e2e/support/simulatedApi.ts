@@ -535,7 +535,7 @@ export class SimulatedApi {
 
   /** Adds an analysis run of the match in an eligible state that conversations may bind to. */
   seedEligibleRun(matchId: string = String(match.id)): AnalysisRunSummaryDto {
-    const run = { ...analysisRun, runId: newId(), matchId, state: [...this.eligibleRunStates][0] ?? 'Completed' };
+    const run = { ...analysisRun, runId: newId(), matchId, recordingSetVersionId: newId(), state: [...this.eligibleRunStates][0] ?? 'Completed' };
     this.analysisRuns.push(run);
     return run;
   }
@@ -772,7 +772,7 @@ export class SimulatedApi {
         if (!canWrite) return refuse(agentRefusals.forbidden);
         const ifMatch = headers['if-match'];
         if (!ifMatch) return refuse(agentRefusals.preconditionRequired);
-        if (ifMatch !== conversationEtag(conversation)) return refuse(agentRefusals.staleVersion);
+        if (ifMatch !== `"${conversation.version}"`) return refuse(agentRefusals.staleVersion);
         const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
         if (!agentId) return refuse({ status: 400, errors: [{ field: 'agentId', code: 'required' }] });
         if (!this.agents.some((a) => a.agentId === agentId)) return refuse(agentRefusals.agentNotAvailable);
