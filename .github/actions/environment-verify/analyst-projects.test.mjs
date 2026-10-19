@@ -794,6 +794,101 @@ it('${id}', () => {
     });
   });
 
+  describe('agent projects', () => {
+    const mcpRoot = 'src/agents/mcp';
+    const agentRepository = () => {
+      const root = repository();
+      project(root, mcpRoot, { name: 'mcp' });
+      return root;
+    };
+
+    it('runs the four exact stages in order with only the download and interpreter variables', () => {
+      const result = run(agentRepository());
+      assert.equal(result.status, 0, result.log);
+      assert.deepEqual(result.calls.map((call) => call[3]), stages);
+      for (const call of result.calls) {
+        assert.ok(call[0].endsWith(mcpRoot));
+        assert.equal(call[1], 'never');
+        assert.equal(call[2], python);
+      }
+      assert.equal(result.outputs.checks, 'Agent Python projects,Markdown check');
+      const lines = result.log.split('\n');
+      assert.ok(lines.includes(`Agent Python project: ${mcpRoot}`));
+      for (const stage of ['bootstrap sync', 'project sync', 'wheel build', 'tests']) {
+        assert.ok(lines.includes(`Agent Python stage: ${stage} (${mcpRoot})`), stage);
+      }
+      assert.doesNotMatch(result.log, /Analyst Python/);
+    });
+
+    it('adds only the download and interpreter variables to the stage commands', () => {
+      const result = run(agentRepository());
+      assert.equal(result.status, 0, result.log);
+      const commands = result.log.split('\n').filter((line) => line.startsWith('$ env '));
+      assert.equal(commands.length, 4);
+      for (const line of commands) assert.match(line, new RegExp(`^\\$ env UV_PYTHON_DOWNLOADS=never UV_PYTHON=${python.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} uv `));
+    });
+
+    for (const [index, stage] of ['bootstrap sync', 'project sync', 'wheel build', 'tests'].entries()) {
+      it(`fails the ${stage} stage with the project, command, and one recommendation`, () => {
+        const result = run(agentRepository(), { env: { FAIL_STAGE: stages[index] } });
+        assert.equal(result.status, 1);
+        assert.deepEqual(result.calls.map((call) => call[3]), stages.slice(0, index + 1));
+        assert.equal(result.outputs.checks, 'Agent Python projects');
+        const failure = result.log.split('\n').filter((line) => line.startsWith('Agent Python stage failed: '));
+        assert.equal(failure.length, 1);
+        assert.match(failure[0], new RegExp(`^Agent Python stage failed: ${stage} in ${mcpRoot} \\(command: uv ${stages[index].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)\\. Recommended action: `));
+        assert.equal(failure[0].match(/Recommended action:/g).length, 1);
+        assert.doesNotMatch(failure[0], /--no-locked|--frozen|--upgrade|skip|ignore|disable|merge/i);
+      });
+    }
+
+    it('orders dependencies first and stops at the first failing project', () => {
+      const root = repository();
+      project(root, 'src/agents/mcp-server', { name: 'mcp-server', dependencies: ['mcp'], sources: { mcp: '../mcp' } });
+      project(root, mcpRoot, { name: 'mcp' });
+      const ok = run(root);
+      assert.equal(ok.status, 0, ok.log);
+      assert.deepEqual([...new Set(ok.calls.map((call) => path.relative(root, call[0])))], [mcpRoot, 'src/agents/mcp-server']);
+      const failed = run(root, { env: { FAIL_STAGE: stages[0] } });
+      assert.equal(failed.status, 1);
+      assert.equal(failed.calls.length, 1);
+    });
+
+    it('fails explicitly without the installed interpreter or uv', () => {
+      const result = run(agentRepository(), { withPython: false });
+      assert.equal(result.status, 1);
+      assert.match(result.log, /Agent Python projects: environment setup: .*Recommended action: run environment-setup/);
+      assert.equal(result.calls.length, 0);
+      assert.equal(result.outputs.checks, 'Agent Python projects');
+    });
+
+    it('covers an agent root in task mode and leaves other agent paths uncovered', () => {
+      const result = run(agentRepository(), { mode: 'task', changed: [`${mcpRoot}/src/x.py`, 'src/agents/mcp-other/y.py'] });
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.calls.length, 4);
+      assert.equal(result.outputs.uncovered, 'src/agents/mcp-other/y.py');
+    });
+
+    it('runs no agent check when no agent project exists', () => {
+      const result = run(sdkRepository());
+      assert.equal(result.status, 0, result.log);
+      assert.ok(!result.outputs.checks.includes('Agent Python projects'));
+      assert.ok(!/Agent Python/.test(result.log));
+      const empty = run(repository(), { mode: 'task', changed: ['src/agents/x/a.py'] });
+      assert.equal(empty.outputs.checks, '');
+      assert.equal(empty.outputs.uncovered, 'src/agents/x/a.py');
+    });
+
+    it('runs the Analyst check before the agent check', () => {
+      const root = sdkRepository();
+      project(root, mcpRoot, { name: 'mcp' });
+      const result = run(root);
+      assert.equal(result.status, 0, result.log);
+      assert.equal(result.outputs.checks, 'Analyst Python projects,Agent Python projects,Markdown check');
+      assert.deepEqual([...new Set(result.calls.map((call) => path.relative(root, call[0])))], [sdkRoot, mcpRoot]);
+    });
+  });
+
   const uvReal = spawnSync('uv', ['--version']).status === 0;
   it('passes every stage for a real isolated package fixture without changing declarations', { skip: !uvReal }, () => {
     const root = repository();
@@ -835,6 +930,43 @@ dev = ["pytest>=8", "setuptools>=68"]
     const stale = run(root, { bin });
     assert.equal(stale.status, 1);
     assert.match(stale.log, /Analyst Python stage failed: bootstrap sync/);
+  });
+
+  it('passes every stage for a real isolated agents-area package without changing declarations', { skip: !uvReal }, () => {
+    const root = repository();
+    const directory = path.join(root, 'src/agents/demo');
+    mkdirSync(path.join(directory, 'src/demo_agent'), { recursive: true });
+    mkdirSync(path.join(directory, 'tests'), { recursive: true });
+    writeFileSync(path.join(directory, 'pyproject.toml'), `[project]
+name = "demo-agent"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = ["pytest>=8", "setuptools>=68"]
+`);
+    writeFileSync(path.join(directory, 'src/demo_agent/__init__.py'), 'VALUE = 1\n');
+    writeFileSync(path.join(directory, 'tests/test_demo.py'), 'import demo_agent\n\n\ndef test_value():\n    assert demo_agent.VALUE == 1\n');
+    const locked = spawnSync('uv', ['lock'], { cwd: directory, encoding: 'utf8', env: { ...process.env, UV_PYTHON: python } });
+    if (locked.status !== 0) return; // package index unreachable: the real fixture cannot be locked
+    const before = readFileSync(path.join(directory, 'pyproject.toml'), 'utf8') + readFileSync(path.join(directory, 'uv.lock'), 'utf8');
+    const bin = path.join(temporary, `bin-${counter++}`);
+    mkdirSync(bin);
+    symlinkSync(spawnSync('which', ['uv'], { encoding: 'utf8' }).stdout.trim(), path.join(bin, 'uv'));
+    const passed = run(root, { bin });
+    assert.equal(passed.status, 0, passed.log);
+    assert.equal(passed.outputs.checks, 'Agent Python projects,Markdown check');
+    assert.equal(before, readFileSync(path.join(directory, 'pyproject.toml'), 'utf8') + readFileSync(path.join(directory, 'uv.lock'), 'utf8'));
+    writeFileSync(path.join(directory, 'tests/test_demo.py'), 'def test_value():\n    assert False\n');
+    assert.equal(run(root, { bin }).status, 1);
   });
 });
 
