@@ -114,7 +114,7 @@ internal sealed class MemberInvitationStore(IDbSession session) : IMemberInvitat
             new { now, displayState = displayState?.ToWireValue() }, session.Transaction, cancellationToken: cancellationToken));
 
         return rows
-            .Select(r => new InvitationListItem(ToInvitation(r), r.TeamNames, r.InvitedByAccountName, r.DeliveryState))
+            .Select(r => new InvitationListItem(ToInvitation(r), r.TeamNames.Cast<string>().ToList(), r.InvitedByAccountName, r.DeliveryState))
             .ToList();
     }
 
@@ -258,7 +258,7 @@ internal sealed class MemberInvitationStore(IDbSession session) : IMemberInvitat
         Guid Id, string Address, string AddressNormalized, string AddressHash, string AccountName, string State,
         Guid InvitedBy, DateTime CreatedAt, int ResendCount, Guid? RevokedBy, DateTime? RevokedAt, Guid? AcceptedMemberId,
         DateTime? AcceptedAt, DateTime? OpenLinkIssuedAt, DateTime? OpenLinkExpiresAt, long Version, string DisplayState,
-        string[] TeamNames, string InvitedByAccountName, string? DeliveryState)
+        Array TeamNames, string InvitedByAccountName, string? DeliveryState)
     {
         public InvitationRow ToInvitationRow() =>
             new(Id, Address, AddressNormalized, AddressHash, AccountName, State, InvitedBy, CreatedAt, ResendCount,

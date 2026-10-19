@@ -68,4 +68,5 @@ ALTER TABLE socalytics.email_messages
     ALTER COLUMN account_id DROP NOT NULL,
     ADD COLUMN invitation_ref uuid NULL REFERENCES socalytics.member_invitation_links (id),
     ADD CONSTRAINT ck_email_messages_invitation CHECK (
-        (notification_type = 'member-invitation') = (invitation_ref IS NOT NULL AND account_id IS NULL));
+        (notification_type = 'member-invitation') = (invitation_ref IS NOT NULL AND account_id IS NULL)
+        AND (notification_type = 'member-invitation' OR account_id IS NOT NULL));
