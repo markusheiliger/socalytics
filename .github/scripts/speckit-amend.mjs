@@ -14,21 +14,20 @@ import {
   CHECK_AMEND_INCONSISTENT,
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_STALE_MS,
-  FIX_BRANCH_PREFIX,
   FIX_WORKFLOW_FILE,
   MAX_CORRECTION_ROUNDS,
   MAX_STALLED_ROUNDS,
   amendmentBranch,
   defaultBranchOf,
   dispatchImplementation,
-  fixBranch,
   folderOfBranch,
   implementationBranch,
+  isPrerequisiteBranch,
+  SPEC_BRANCH_PREFIX,
   isTwinRunOf,
   latestCheckRun,
   neutralizeMarkers,
   nextStepContext,
-  parseFixFor,
   renderAmendmentHowTo,
   renderFixHowTo,
   renderNextSteps,
@@ -77,7 +76,7 @@ export async function guardPullRequest(client, env, pull, { report = () => {} } 
   const folder = folderOfBranch(head);
   if (!folder || pull.state !== 'open' || (env.GITHUB_REPOSITORY && pull.head?.repo?.full_name !== env.GITHUB_REPOSITORY)) return { actions: [] };
   const isAmendment = head === amendmentBranch(folder);
-  const isFix = head === fixBranch(folder);
+  const isFix = isPrerequisiteBranch(head);
   const notes = [];
   const actions = [];
   if (pull.stack?.number) {
@@ -97,7 +96,7 @@ export async function guardPullRequest(client, env, pull, { report = () => {} } 
   if (isFix && defaultBranch && pull.base?.ref !== defaultBranch) {
     await client.updatePullRequest(pull.number, { base: defaultBranch });
     actions.push(`retargeted from ${pull.base?.ref}`);
-    notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${defaultBranch}\`: a fix spec merges into the default branch, where its twin is created and its implementation starts.`);
+    notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${defaultBranch}\`: a prerequisite spec merges into the default branch, where its twin is created and its implementation starts.`);
   }
   if (actions.length > 0) {
     await client.createComment(pull.number, notes.join('\n\n'));
@@ -107,12 +106,12 @@ export async function guardPullRequest(client, env, pull, { report = () => {} } 
 }
 
 // Checks a spec pull request against its hard rules: an amendment's paths and task checks (the spec folder is
-// wherever the amendment's base, the implementation branch, has it, archived or not), or a fix spec's rules
+// wherever the amendment's base, the implementation branch, has it, archived or not), or a prerequisite spec's rules
 // (checkFixSpec).
 export async function checkAmendment(client, { folder, amendment, kind = 'amend', implementation = null }) {
   if (kind === 'fix') {
     const { checkFixSpec } = await import('./speckit-fix.mjs');
-    return checkFixSpec(client, { folder, pull: amendment, implementationPull: implementation?.number ?? parseFixFor(amendment.body)?.pull ?? null });
+    return checkFixSpec(client, { folder, pull: amendment });
   }
   const files = await client.listPullRequestFiles(amendment.number);
   const changedPaths = [...new Set(files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean))];
@@ -125,19 +124,20 @@ export async function checkAmendment(client, { folder, amendment, kind = 'amend'
 }
 
 // Resolves a spec pull request to its open implementation pull request and twin: an amendment (head
-// speckit-amend/<folder>, the implementation of the same folder) or a fix spec (head speckit-fix/<fix folder>, the
-// implementation named by its description's marker). `kind` is `amend` or `fix`; `folder` is the spec folder the pull
-// request changes.
+// speckit-amend/<folder>, the implementation of the same folder) or a prerequisite spec (head speckit-spec/<folder> or
+// legacy speckit-fix/<folder>, the implementation it was authored for). `kind` is `amend` or `fix`; `folder` is
+// the spec folder the pull request changes.
 export async function resolveAmendment(client, env, number) {
   const amendment = await client.getPullRequest(number);
   const head = String(amendment.head?.ref ?? '');
-  const kind = head.startsWith(AMEND_BRANCH_PREFIX) ? 'amend' : head.startsWith(FIX_BRANCH_PREFIX) ? 'fix' : null;
+  const kind = head.startsWith(AMEND_BRANCH_PREFIX) ? 'amend' : isPrerequisiteBranch(head) ? 'fix' : null;
   const folder = kind ? folderOfBranch(head) : null;
-  if (!folder || amendment.head?.repo?.full_name !== env.GITHUB_REPOSITORY) return { reason: 'this is not a Spec Kit amendment or fix spec pull request' };
+  if (!folder || amendment.head?.repo?.full_name !== env.GITHUB_REPOSITORY) return { reason: 'this is not a Spec Kit amendment or prerequisite spec pull request' };
   let listed;
   if (kind === 'fix') {
-    const target = parseFixFor(amendment.body)?.pull;
-    if (!target) return { reason: 'the fix spec pull request does not name the implementation it unblocks', amendment, folder, kind };
+    const { authoredFor } = await import('./speckit-fix.mjs');
+    const target = await authoredFor(client, amendment);
+    if (!target) return { reason: 'no open implementation pull request recorded this prerequisite spec', amendment, folder, kind };
     listed = await client.getPullRequest(target);
     if (listed.state !== 'open') return { reason: `the implementation pull request #${target} is not open`, amendment, folder, kind };
   } else {
@@ -158,7 +158,7 @@ async function requesterOf(client, twin) {
   }
 }
 
-// The owner of a spec pull request: for a fix spec the person who asked for it with `/speckit fix` on the
+// The owner of a spec pull request: for a prerequisite spec the person who asked for it with `/speckit fix` on the
 // implementation, for an amendment (and when no such request is recorded) the person who requested the implementation.
 export async function ownerOf(client, { kind = 'amend', implementation = null, twin }) {
   if (kind === 'fix' && implementation) {
@@ -219,7 +219,9 @@ export async function startAnalysis(client, env, context, { round, mode = 'loop'
       previous: previous.length > 0 ? encodeTracked(previous) : '',
       mode,
       check_run: String(check.id),
-      kind,
+      // The workflow checks out the spec pull request's branch by its kind: `spec` for speckit-spec/<folder>, `fix` for
+      // the legacy speckit-fix/<folder>.
+      kind: kind === 'fix' && String(current.head?.ref ?? '').startsWith(SPEC_BRANCH_PREFIX) ? 'spec' : kind,
     });
     await setAttention(client, amendment.number, false);
     return { started: true, check };
@@ -236,12 +238,13 @@ export async function startAnalysis(client, env, context, { round, mode = 'loop'
   }
 }
 
-// Starts a rework of the amendment or fix spec: `revise` with a person's feedback (`feedback`, from pendingFeedback,
-// handed to the rework as guidance), or `fix` with the findings of the consistency check. The pull request goes back to
-// draft until it is presented again. Amendments are reworked by Spec Kit diagnose, fix specs by Spec Kit fix.
+// Starts a rework of the amendment or prerequisite spec: `revise` with a person's feedback (`feedback`, from
+// pendingFeedback, handed to the rework as guidance), or `fix` with the findings of the consistency check. The pull
+// request goes back to draft until it is presented again. Amendments are reworked by Spec Kit diagnose, prerequisite
+// specs by Spec Kit fix.
 export async function startRework(client, env, context, { mode, round = 0, guidance = '', feedback = null, stalls = 0, findings = [], progress = null }) {
   const { amendment, folder, implementation, twin, kind = 'amend' } = context;
-  const noun = kind === 'fix' ? 'fix spec' : 'amendment';
+  const noun = kind === 'fix' ? 'prerequisite spec' : 'amendment';
   const current = await client.getPullRequest(amendment.number);
   if (!current.draft) await client.convertToDraft(current.node_id);
   await client.updatePullRequest(amendment.number, {
@@ -287,6 +290,8 @@ export async function startRework(client, env, context, { mode, round = 0, guida
       folder,
       guidance: clip(guidance, 20_000),
       ...(kind === 'fix' ? {} : { previous: '' }),
+      // The branch of a prerequisite spec; earlier pull requests on speckit-fix/<folder> are found without it.
+      ...(kind === 'fix' && String(current.head?.ref ?? '').startsWith(SPEC_BRANCH_PREFIX) ? { branch: current.head.ref } : {}),
       check_run: String(check.id),
       mode,
       amendment: String(amendment.number),
@@ -309,14 +314,14 @@ export async function startRework(client, env, context, { mode, round = 0, guida
   }
 }
 
-// The first steps for an amendment a diagnosis just created, or a fix spec `/speckit fix` just authored: assign its
-// owner, mark the start of the feedback window, describe the state, and start the consistency check.
+// The first steps for an amendment a diagnosis just created, or a prerequisite spec `/speckit fix` just authored:
+// assign its owner, mark the start of the feedback window, describe the state, and start the consistency check.
 export async function beginAmendment(client, env, context) {
   const { amendment, implementation, kind = 'amend' } = context;
   const requester = await ownerOf(client, context);
   if (requester) await assignOwner(client, amendment.number, requester);
   const origin = kind === 'fix'
-    ? `This fix spec was requested with \`/speckit fix\` on #${implementation.number}.`
+    ? `This prerequisite spec was requested with \`/speckit fix\` on #${implementation.number}.`
     : `This amendment comes from the diagnosis on #${implementation.number}.`;
   await client.createComment(amendment.number, [
     AMEND_REWORK_MARKER,
@@ -335,7 +340,7 @@ function howTo({ kind = 'amend', implementation, amendment }) {
 }
 
 export function renderSpecPullNextSteps({ amendment, implementation, kind = 'amend' }, { consistent = false } = {}) {
-  const noun = kind === 'fix' ? 'fix spec' : 'amendment';
+  const noun = kind === 'fix' ? 'prerequisite spec' : 'amendment';
   const link = amendment.html_url ? `[#${amendment.number}](${amendment.html_url})` : `#${amendment.number}`;
   if (consistent) {
     return [
@@ -343,7 +348,7 @@ export function renderSpecPullNextSteps({ amendment, implementation, kind = 'ame
       '',
       '- **Why**: The consistency check passed and no automatic correction round remains pending.',
       kind === 'fix'
-        ? `- **What it does**: Adds the fix spec to \`${amendment.base?.ref ?? 'the default branch'}\` and requests its implementation automatically. #${implementation.number} waits and retries by itself once the fix has landed.`
+        ? `- **What it does**: Adds the prerequisite spec to \`${amendment.base?.ref ?? 'the default branch'}\`, makes this spec depend on it, and requests its implementation automatically. #${implementation.number} waits and retries by itself once it is implemented.`
         : `- **What it does**: Applies the amendment to the implementation branch. #${implementation.number} then continues automatically from the next unchecked task with a fresh attempt count.`,
     ];
   }
@@ -490,8 +495,8 @@ function renderFindings(findings, rules = [], { ids = false } = {}) {
   ].join('\n');
 }
 
-// Hands the amendment or fix spec to its owner (ownerOf): ready for review when it is consistent (a draft otherwise),
-// assigned, review requested, status in the description, and a note on the implementation.
+// Hands the amendment or prerequisite spec to its owner (ownerOf): ready for review when it is consistent (a draft
+// otherwise), assigned, review requested, status in the description, and a note on the implementation.
 export async function presentAmendment(client, env, context, { consistent, analysis = null, rules = [], problem = null, since = null, corrected = false }) {
   const { amendment, folder, implementation, kind = 'amend' } = context;
   const current = await client.getPullRequest(amendment.number);
@@ -528,8 +533,8 @@ export async function presentAmendment(client, env, context, { consistent, analy
   const remaining = problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`;
   const implementationStatus = kind === 'fix'
     ? (consistent
-      ? `**Fix spec ${link} is ready for your review**: it is consistent. Merge it to add the fix spec to \`${current.base?.ref ?? 'the default branch'}\` (it is then implemented, and this implementation resumes by itself once the fix has landed), comment or request changes there to have it reworked, or close it to discard it.`
-      : `**Fix spec ${link} is not consistent** (${remaining}). Review its findings there: comment or request changes to have it reworked, or close it.`)
+      ? `**Prerequisite spec ${link} is ready for your review**: it is consistent. Merge it to add the prerequisite spec to \`${current.base?.ref ?? 'the default branch'}\` (it is then implemented, and this implementation resumes by itself once it is implemented), comment or request changes there to have it reworked, or close it to discard it.`
+      : `**Prerequisite spec ${link} is not consistent** (${remaining}). Review its findings there: comment or request changes to have it reworked, or close it.`)
     : (consistent
       ? `**Amendment ${link} is ready for your review**: it is consistent. Merge it to apply it (the implementation then continues), comment or request changes there to have it reworked, or close it to discard it.`
       : `**Amendment ${link} is not consistent** (${remaining}). Review its findings there: comment or request changes to have it reworked, or close it.`);
@@ -753,17 +758,17 @@ export async function settleClosedAmendment(client, env, { amendment, folder, im
 }
 
 // A spec pull request was closed by a person: an amendment merged (the implementation continues on the implementation
-// pull request) or discarded, or a fix spec merged (it is implemented next) or discarded.
+// pull request) or discarded, or a prerequisite spec merged (it is implemented next) or discarded.
 export async function runClosed({ client, env, log }) {
   const number = Number(env.SPECKIT_PULL);
   const amendment = await client.getPullRequest(number);
   const head = String(amendment.head?.ref ?? '');
-  if (head.startsWith(FIX_BRANCH_PREFIX)) {
+  if (isPrerequisiteBranch(head)) {
     const { settleClosedFix } = await import('./speckit-fix.mjs');
     const context = await resolveAmendment(client, env, number);
     if (!context.implementation) return { exitCode: 0, outcome: 'no implementation' };
     const result = await settleClosedFix(client, env, { ...context, actor: env.SPECKIT_ACTOR || null });
-    log(`Fix spec #${number}: ${result.outcome}.`);
+    log(`Prerequisite spec #${number}: ${result.outcome}.`);
     return { exitCode: 0, outcome: result.outcome };
   }
   const folder = head.startsWith(AMEND_BRANCH_PREFIX) ? folderOfBranch(head) : null;
@@ -804,11 +809,11 @@ export async function maintainAmendment(client, env, { folder, implementation, t
   return maintainOpenSpecPull(client, env, context, { now, report });
 }
 
-// An open amendment or fix spec pull request (scheduler side): closes a check that never finished, starts a rework for
-// feedback no event delivered, and checks a person's push no event reported.
+// An open amendment or prerequisite spec pull request (scheduler side): closes a check that never finished, starts a
+// rework for feedback no event delivered, and checks a person's push no event reported.
 export async function maintainOpenSpecPull(client, env, context, { now = Date.now(), report = () => {} } = {}) {
   const number = context.amendment.number;
-  const noun = context.kind === 'fix' ? 'fix spec' : 'amendment';
+  const noun = context.kind === 'fix' ? 'prerequisite spec' : 'amendment';
   const state = await reworkRunning(client, context, now);
   if (state.running) return { outcome: 'running' };
   if (state.stale) {

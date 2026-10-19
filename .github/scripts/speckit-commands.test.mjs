@@ -38,7 +38,7 @@ test('parses commands: the first word, the name, and the rest as flags and guida
   assert.equal(parseCommand('please /speckit retry'), null);
   assert.equal(parseCommand('/speckit-gha-diagnose'), null, 'a skill name is not a command');
   assert.match(renderHelp(), /`\/speckit <command> \[flags\] \[guidance\]`/);
-  assert.match(renderHelp(), /\| `\/speckit retry \[--force\] \[guidance\]` \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*fix spec pull request[\s\S]*skill `\/speckit-gha-diagnose`/);
+  assert.match(renderHelp(), /\| `\/speckit retry \[--force\] \[guidance\]` \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*prerequisite spec pull request \(`speckit-spec\/<folder>`[\s\S]*skill `\/speckit-gha-diagnose`/);
   assert.doesNotMatch(renderHelp(), /\/speckit resume/);
   assert.doesNotMatch(renderHelp(), /\/speckit diagnose/);
   assert.equal(parseCommand('/speckit retry Rerun as is').name, 'retry');
@@ -155,7 +155,20 @@ test('retry restarts what stopped with guidance, on the branch as it is', async 
   assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }]);
   const retried = github.comments.at(-1);
   assert.match(retried.body, /^<!-- speckit-implement:retry -->[\s\S]*Implementation retried by @dev; what stopped restarts with a fresh attempt count while preserving the current phase base\.[\s\S]*> Rerun the verification unchanged/);
+  assert.match(retried.body, /The guidance is added to the prompt of the first work that runs[^\n]* and ends after its first success or a person's push; it changes no check, limit, or verification\./);
   assert.equal(parseGuidance(retried.body), 'Rerun the verification unchanged');
+  await run(github, '/speckit retry');
+  assert.doesNotMatch(github.comments.at(-1).body, /The guidance/, 'no guidance, no note');
+});
+
+test('the sync reply says where its guidance goes, and when it cannot change the last stop', async () => {
+  const github = diagnosisRepo();
+  await run(github, '/speckit sync Keep both migrations');
+  assert.match(github.comments.at(-1).body, /The guidance reaches Copilot only if conflicts remain after the merge[^\n]*after a clean merge it goes to the first work that continues\./);
+  assert.doesNotMatch(github.comments.at(-1).body, /before any agent ran/);
+  await github.createComment(9, '**Implementation needs attention** @dev: conflicts in protected paths need a person: .specify/memory/constitution.md');
+  await run(github, '/speckit sync Keep both migrations');
+  assert.match(github.comments.at(-1).body, /The last stop came before any agent ran \(conflicts in protected paths need a person: \.specify\/memory\/constitution\.md\), so the guidance alone cannot change that outcome\./);
 });
 
 test('pending repair retries distinguish verification-only and guided work without claiming fresh attempts', async () => {
@@ -217,7 +230,7 @@ test('restarts that leave a stopped implementation unchanged are refused, unless
   assert.equal((await run(github, '/speckit retry')).outcome, 'retried');
 });
 
-test('fix starts the authoring of a fix spec once, and refuses while one is pending', async () => {
+test('fix starts the authoring of a prerequisite spec once, and refuses while one is pending', async () => {
   const github = diagnosisRepo();
   const started = await run(github, '/speckit fix Make UploadSessionExpiryTests independent of runner load');
   assert.equal(started.outcome, 'started');
@@ -227,12 +240,12 @@ test('fix starts the authoring of a fix spec once, and refuses while one is pend
   assert.equal(dispatched.workflow, 'speckit-fix.lock.yml');
   assert.deepEqual({ ...dispatched.inputs, stamp: 'x' }, { twin: '5', pull: '9', folder: 'f', guidance: 'Make UploadSessionExpiryTests independent of runner load', check_run: String(check.id), mode: 'author', amendment: '', round: '0', stalls: '0', findings: '', stamp: 'x' });
   assert.match(dispatched.inputs.stamp, /^\d{8}-\d{6}$/);
-  assert.match(github.comments.at(-1).body, /^<!-- speckit-fix:requested \{"by":"dev"[\s\S]*\*\*A fix spec is being authored\*\*, requested by @dev[\s\S]*> Make UploadSessionExpiryTests/);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-fix:requested \{"by":"dev"[\s\S]*\*\*A prerequisite spec is being authored\*\*, requested by @dev[\s\S]*> Make UploadSessionExpiryTests/);
   assert.equal(parseGuidance(github.comments.at(-1).body), 'Make UploadSessionExpiryTests independent of runner load');
 
   const again = await run(github, '/speckit fix');
   assert.equal(again.outcome, 'refused');
-  assert.match(github.comments.at(-1).body, /^`\/speckit fix` cannot start: a fix spec is already being authored\./);
+  assert.match(github.comments.at(-1).body, /^`\/speckit fix` cannot start: a prerequisite spec is already being authored\./);
 });
 test('commands need an open implementation pull request with a twin', async () => {
   const github = diagnosisRepo();
