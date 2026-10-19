@@ -9,7 +9,7 @@ using SocAlytics.Platform.Domain.AgentOrchestration;
 
 namespace SocAlytics.Platform.Application.AgentOrchestration.Execution;
 
-public sealed record AgentMonitorResult(int Expired, int Requeued, int Exhausted, int TokensDeleted);
+public sealed record AgentMonitorResult(int Expired, int Requeued, int Exhausted, int TokensDeleted, int ScopeLost = 0);
 
 public sealed class MonitorAgentAttemptsHandler(
     IUnitOfWork unitOfWork,
@@ -20,6 +20,7 @@ public sealed class MonitorAgentAttemptsHandler(
     IContractValidator validator,
     IQueueCredentialIssuer queue,
     IAuditTrail audit,
+    IInvocationScopeEvaluator scopes,
     IOptionsMonitor<AgentOrchestrationOptions> options,
     TimeProvider time)
 {
@@ -53,6 +54,8 @@ public sealed class MonitorAgentAttemptsHandler(
             }
         }
 
+        var scopeLost = await EnforceScopesAsync(cancellationToken);
+
         int deleted;
         await using (var scope = await unitOfWork.BeginAsync(cancellationToken))
         {
@@ -60,7 +63,44 @@ public sealed class MonitorAgentAttemptsHandler(
             await scope.CommitAsync(cancellationToken);
         }
 
-        return new AgentMonitorResult(expired, requeued, exhausted, deleted);
+        return new AgentMonitorResult(expired, requeued, exhausted, deleted, scopeLost);
+    }
+
+    // Fences every active attempt whose owner lost the execution scope, without any workload call.
+    private async Task<int> EnforceScopesAsync(CancellationToken cancellationToken)
+    {
+        IReadOnlyList<AgentActiveAttemptRef> active;
+        await using (var read = await unitOfWork.BeginAsync(cancellationToken))
+        {
+            active = await attempts.ListActiveForScopeCheckAsync(cancellationToken);
+        }
+
+        var lost = 0;
+        foreach (var item in active)
+        {
+            if (await scopes.HasExecutionScopeAsync(item.OwnerMemberId, item.TeamId, cancellationToken))
+            {
+                continue;
+            }
+
+            await using var scope = await unitOfWork.BeginAsync(cancellationToken);
+            var invocation = await invocations.LockAsync(item.InvocationId, cancellationToken);
+            var attempt = await attempts.LockAsync(item.AttemptId, cancellationToken);
+            if (invocation is null || attempt is null || attempt.State != AgentAttemptState.Active)
+            {
+                continue;
+            }
+
+            // Re-checked under the lock so a concurrent restoration of the role wins.
+            if (await AgentScopeLoss.EnforceAsync(
+                    scopes, invocations, attempts, audit, invocation, attempt, time.GetUtcNow(), cancellationToken))
+            {
+                await scope.CommitAsync(cancellationToken);
+                lost++;
+            }
+        }
+
+        return lost;
     }
 
     // Null when the attempt was no longer expired and active; otherwise true when the invocation was exhausted.

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.AgentOrchestration.Workloads;
+using SocAlytics.Platform.Domain.AgentOrchestration;
 
 namespace SocAlytics.Platform.Application.AgentOrchestration.Execution;
 
@@ -17,6 +18,8 @@ public sealed class RecordAgentCheckpointHandler(
     IAgentWorkloadOperationStore operations,
     IContractValidator validator,
     ICanonicalJson canonicalJson,
+    IAuditTrail audit,
+    IInvocationScopeEvaluator scopes,
     IOptionsMonitor<AgentOrchestrationOptions> options,
     TimeProvider time)
 {
@@ -80,6 +83,12 @@ public sealed class RecordAgentCheckpointHandler(
         if (AgentAttemptGuard.StaleDisposition(invocation, attempt, presentedToken, now) is { } disposition)
         {
             return AgentExecutionSupport.Stale(disposition);
+        }
+
+        if (await AgentScopeLoss.EnforceAsync(scopes, invocations, attempts, audit, invocation, attempt, now, cancellationToken))
+        {
+            await scope.CommitAsync(cancellationToken);
+            return AgentExecutionSupport.Stale(AgentStaleDisposition.ScopeLost);
         }
 
         var sequence = await invocations.AppendLineageAsync(

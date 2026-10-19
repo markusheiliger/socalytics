@@ -10,12 +10,14 @@ internal static class AgentAttemptGuard
     {
         if (AgentStateTransitions.IsTerminal(invocation.State))
         {
-            return AgentStaleDisposition.InvocationEnded;
+            return invocation.FailureReason == AgentFailureReason.ScopeLost
+                ? AgentStaleDisposition.ScopeLost
+                : AgentStaleDisposition.InvocationEnded;
         }
 
         if (attempt.State == AgentAttemptState.Fenced)
         {
-            return AgentStaleDisposition.AttemptFenced;
+            return attempt.EndReason == AgentScopeLoss.Reason ? AgentStaleDisposition.ScopeLost : AgentStaleDisposition.AttemptFenced;
         }
 
         if (attempt.State != AgentAttemptState.Active

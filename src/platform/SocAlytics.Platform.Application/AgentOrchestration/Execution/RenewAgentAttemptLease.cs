@@ -13,6 +13,8 @@ public sealed class RenewAgentAttemptLeaseHandler(
     IUnitOfWork unitOfWork,
     IAgentInvocationStore invocations,
     IAgentAttemptStore attempts,
+    IAuditTrail audit,
+    IInvocationScopeEvaluator scopes,
     IOptionsMonitor<AgentOrchestrationOptions> options,
     TimeProvider time)
 {
@@ -39,6 +41,12 @@ public sealed class RenewAgentAttemptLeaseHandler(
         if (AgentAttemptGuard.StaleDisposition(invocation, attempt, command.FencingToken, now) is { } disposition)
         {
             return AgentExecutionSupport.Stale(disposition);
+        }
+
+        if (await AgentScopeLoss.EnforceAsync(scopes, invocations, attempts, audit, invocation, attempt, now, cancellationToken))
+        {
+            await scope.CommitAsync(cancellationToken);
+            return AgentExecutionSupport.Stale(AgentStaleDisposition.ScopeLost);
         }
 
         var policy = AgentExecutionSupport.ResolvePolicy(invocation.ExecutionPolicyJson, options.CurrentValue);

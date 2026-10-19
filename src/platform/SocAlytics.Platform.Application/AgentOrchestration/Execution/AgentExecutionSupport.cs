@@ -12,6 +12,7 @@ public static class AgentExecutionCodes
     public const string ClaimObsolete = "claim-obsolete";
     public const string OperationIdReused = "operation-id-reused";
     public const string AttemptStale = "agent-attempt-stale";
+    public const string ScopeLost = "agent-scope-lost";
     public const string DispositionField = "disposition";
 }
 

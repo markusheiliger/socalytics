@@ -74,6 +74,11 @@ public static class AgentOrchestrationAuditEvents
     public static AuditEvent AttemptScopeLost(Guid attemptId, Guid invocationId, Guid teamId, int attemptNumber, string agentId, string disposition) =>
         Workload(AttemptScopeLostEvent, "fence-attempt", AuditOutcome.Refused, attemptId, invocationId, teamId, attemptNumber, agentId, null, disposition, disposition, SystemActor);
 
+    public static AuditEvent ClaimScopeLost(Guid invocationId, Guid teamId, string agentId, string clientId) =>
+        Build(AttemptScopeLostEvent, "refuse-claim", AuditOutcome.Refused, InvocationResourceType, invocationId, teamId, "scope-lost",
+            Pairs((InvocationIdDetail, invocationId.ToString()), (AgentIdDetail, agentId), (WorkloadClientIdDetail, clientId), (DispositionDetail, "scope-lost")),
+            WorkloadActor);
+
     public static AuditEvent WorkloadCredentialIssued(string clientId) =>
         Build(CredentialIssuedEvent, "issue-credential", AuditOutcome.Succeeded, WorkloadResourceType, clientId, null, null,
             [(WorkloadClientIdDetail, clientId)], WorkloadActor);

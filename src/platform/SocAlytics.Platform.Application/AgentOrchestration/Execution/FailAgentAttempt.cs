@@ -24,6 +24,7 @@ public sealed class FailAgentAttemptHandler(
     IOutbox outbox,
     IQueueCredentialIssuer queue,
     IAuditTrail audit,
+    IInvocationScopeEvaluator scopes,
     IOptionsMonitor<AgentOrchestrationOptions> options,
     TimeProvider time)
 {
@@ -79,11 +80,18 @@ public sealed class FailAgentAttemptHandler(
         }
 
         var now = time.GetUtcNow();
-        var stale = StaleDisposition(invocation, attempt, presentedToken, now);
+        var stale = AgentAttemptGuard.StaleDisposition(invocation, attempt, presentedToken, now);
         if (stale is { } disposition)
         {
             AgentOrchestrationMetrics.FailureRecorded("stale");
             return AgentExecutionSupport.Stale(disposition);
+        }
+
+        if (await AgentScopeLoss.EnforceAsync(scopes, invocations, attempts, audit, invocation, attempt, now, cancellationToken))
+        {
+            await scope.CommitAsync(cancellationToken);
+            AgentOrchestrationMetrics.FailureRecorded("scope-lost");
+            return AgentExecutionSupport.Stale(AgentStaleDisposition.ScopeLost);
         }
 
         var policy = AgentExecutionSupport.ResolvePolicy(invocation.ExecutionPolicyJson, options.CurrentValue);
@@ -185,33 +193,5 @@ public sealed class FailAgentAttemptHandler(
     {
         using var document = JsonDocument.Parse(outcome);
         return document.RootElement.GetProperty("invocationState").GetString()!;
-    }
-
-    private static AgentStaleDisposition? StaleDisposition(
-        AgentInvocationRecord invocation, AgentAttemptRecord attempt, string presentedToken, DateTimeOffset now)
-    {
-        if (AgentStateTransitions.IsTerminal(invocation.State))
-        {
-            return AgentStaleDisposition.InvocationEnded;
-        }
-
-        if (attempt.State == AgentAttemptState.Fenced)
-        {
-            return AgentStaleDisposition.AttemptFenced;
-        }
-
-        if (attempt.State != AgentAttemptState.Active
-            || invocation.State != AgentInvocationState.Running
-            || invocation.CurrentAttemptId != attempt.Id)
-        {
-            return AgentStaleDisposition.AttemptNotCurrent;
-        }
-
-        if (AgentExecutionSupport.FencingTokenText(attempt.FencingToken) != presentedToken)
-        {
-            return AgentStaleDisposition.AttemptFenced;
-        }
-
-        return attempt.LeaseExpiresAt <= now || attempt.DeadlineAt <= now ? AgentStaleDisposition.LeaseExpired : null;
     }
 }

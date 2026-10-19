@@ -20,6 +20,7 @@ public sealed class ClaimAgentInvocationHandler(
     IAgentWorkloadOperationStore operations,
     IContractValidator validator,
     IAuditTrail audit,
+    IInvocationScopeEvaluator scopes,
     IOptionsMonitor<AgentOrchestrationOptions> options,
     TimeProvider time)
 {
@@ -61,6 +62,13 @@ public sealed class ClaimAgentInvocationHandler(
             AgentOrchestrationMetrics.ClaimRecorded("refused");
             await scope.CommitAsync(cancellationToken);
             return OperationFailure.Conflict(AgentExecutionCodes.ClaimObsolete);
+        }
+
+        if (!await scopes.HasExecutionScopeAsync(invocation.OwnerMemberId, invocation.TeamId, cancellationToken))
+        {
+            await AgentScopeLoss.FailQueuedAsync(invocations, audit, invocation, command.WorkloadClientId, now, cancellationToken);
+            await scope.CommitAsync(cancellationToken);
+            return OperationFailure.Conflict(AgentExecutionCodes.ScopeLost);
         }
 
         var attemptNumber = invocation.AttemptsUsed + 1;
