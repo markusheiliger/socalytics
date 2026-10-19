@@ -55,6 +55,10 @@ type FactsOutcome =
   `listAnalysisRunFacts` and always sends `nodeKey` with the capability id,
   capability version, and schema version (FR-013); `pageSize` is not sent
   (platform default).
+- The page's `range` echoes the request: `fromMs` and `toMs` are `null` in the
+  platform's answer when the request did not set them and map to an absent
+  bound; only a bound that is present but not a finite number is
+  `incompatible`. The review never reads the page's `range` for display.
 - Problem translation, local to these adapters:
 
   | Platform answer | Outcome |
