@@ -369,12 +369,19 @@ public sealed partial class SelfServicePasswordRecoveryLimitsTests(PostgresConta
 	{
 		var ct = TestContext.Current.CancellationToken;
 		var telemetry = new StringBuilder();
+		ActivityTraceId testTrace = default;
+		using var testSource = new ActivitySource(TestSourceName);
 		using var activities = new ActivityListener
 		{
-			ShouldListenTo = _ => true,
+			ShouldListenTo = source => IsScopeOfHost(source.Name),
 			Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
 			ActivityStopped = activity =>
 			{
+				if (IsProcessWide(activity.Source.Name) && activity.TraceId != testTrace)
+				{
+					return;
+				}
+
 				lock (telemetry)
 				{
 					telemetry.Append(activity.DisplayName).Append(' ').Append(activity.OperationName).Append(' ');
@@ -401,13 +408,37 @@ public sealed partial class SelfServicePasswordRecoveryLimitsTests(PostgresConta
 		};
 		ActivitySource.AddActivityListener(activities);
 		using var meters = new MeterListener();
-		meters.InstrumentPublished = (instrument, listener) => listener.EnableMeasurementEvents(instrument);
-		meters.SetMeasurementEventCallback<long>((_, _, tags, _) => AppendTags(telemetry, tags));
-		meters.SetMeasurementEventCallback<int>((_, _, tags, _) => AppendTags(telemetry, tags));
-		meters.SetMeasurementEventCallback<double>((_, _, tags, _) => AppendTags(telemetry, tags));
+		meters.InstrumentPublished = (instrument, listener) =>
+		{
+			if (IsScopeOfHost(instrument.Meter.Name))
+			{
+				listener.EnableMeasurementEvents(instrument);
+			}
+		};
+		void Measured(Instrument instrument, ReadOnlySpan<KeyValuePair<string, object?>> tags)
+		{
+			if (IsProcessWide(instrument.Meter.Name) && Activity.Current?.TraceId != testTrace)
+			{
+				return;
+			}
+
+			AppendTags(telemetry, tags);
+		}
+
+		meters.SetMeasurementEventCallback<long>((instrument, _, tags, _) => Measured(instrument, tags));
+		meters.SetMeasurementEventCallback<int>((instrument, _, tags, _) => Measured(instrument, tags));
+		meters.SetMeasurementEventCallback<double>((instrument, _, tags, _) => Measured(instrument, tags));
 		meters.Start();
 
+		using var testActivity = testSource.StartActivity("secret-telemetry-test");
+		testTrace = testActivity!.TraceId;
+
 		await using var s = await StartAsync(ct, relaxedRequestLimit: true);
+		lock (telemetry)
+		{
+			telemetry.Clear();
+		}
+
 		var h = s.Harness;
 		var unknown = EmailApiHarness.NewAddress();
 		EmailAddress.TryCreate(s.Address, out var known, out _).ShouldBeTrue();
@@ -478,6 +509,20 @@ public sealed partial class SelfServicePasswordRecoveryLimitsTests(PostgresConta
 			}
 		}
 	}
+
+	private const string TestSourceName = "SocAlytics.Integration.Tests.SecretTelemetry";
+
+	private static readonly string[] HostScopes = ["Microsoft.AspNetCore", "System.Net.Http", "SocAlytics", "MailKit"];
+
+	private static readonly string[] ProcessWideScopes = ["Microsoft.AspNetCore", "System.Net.Http"];
+
+	private static bool IsScopeOfHost(string name) =>
+		!name.StartsWith("Npgsql", StringComparison.OrdinalIgnoreCase) &&
+		HostScopes.Any(scope => name.StartsWith(scope, StringComparison.Ordinal));
+
+	// Framework instrumentation is shared by every host in the test process, so only the test's own traces count.
+	private static bool IsProcessWide(string name) =>
+		ProcessWideScopes.Any(scope => name.StartsWith(scope, StringComparison.Ordinal));
 
 	private static void AppendTags(StringBuilder sink, ReadOnlySpan<KeyValuePair<string, object?>> tags)
 	{
