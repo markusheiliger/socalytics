@@ -122,6 +122,11 @@ feedback (`revise`). Locally it runs interactively and asks before it changes
 anything. Its report recommends exactly one command that fits its category and
 can be posted as it is, with the guidance written out; the agent checks it with
 `node .github/scripts/speckit-diagnose.mjs check-report <report.json>` first.
+What each command does comes from `PR_COMMANDS` in `speckit-implement-core.mjs`: every diagnosis' evidence carries
+a generated "Commands you can recommend" section (with what `/speckit retry` does while a repair is pending), and
+`node .github/scripts/speckit-diagnose.mjs commands` prints the same reference locally. The skill only says how to
+choose and word a command; the diagnose drift tests fail when it names an unknown command or misses a recommendable
+command or flag.
 Publication rejects inconsistent category/command recommendations instead of replacing them with a retry.
 When the required fix is already on the implementation pull request's base branch, the diagnosis uses `outside`
 and recommends `/speckit sync`: the existing Copilot conflict-resolution workflow must merge and verify the
