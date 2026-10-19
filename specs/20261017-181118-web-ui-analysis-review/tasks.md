@@ -150,7 +150,7 @@ description: "Task list for Web UI Connected Analysis Review"
 
 ### Validation
 
-- [ ] T028 Run the validation of `specs/20261017-181118-web-ui-analysis-review/quickstart.md` from `src/clients/web` (`npm ci`, `npm run build`, `npm test`, `npm run test:e2e -- --project simulated`, `npm run test:e2e -- --project platform`) and fix any failure in the files of this feature
+- [x] T028 Run the validation of `specs/20261017-181118-web-ui-analysis-review/quickstart.md` from `src/clients/web` (`npm ci`, `npm run build`, `npm test`, `npm run test:e2e -- --project simulated`, `npm run test:e2e -- --project platform`) and fix any failure in the files of this feature
 
 ---
 
