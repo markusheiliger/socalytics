@@ -99,6 +99,24 @@ describe('ConversationPage', () => {
     getConversation.mockResolvedValue({ kind: 'changed', value: conversation({ analysisRunIsCurrent: false }), etag: 'e1' });
     renderPage('Coach');
     expect(await screen.findByText(/no longer the match's current run/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'composer' })).toBeInTheDocument();
+    expect(screen.getByText('participants editable')).toBeInTheDocument();
+    expect(screen.queryByText(/only Club Admins and Coaches/i)).toBeNull();
+  });
+
+  it('shows no superseded-run notice while the bound run is current', async () => {
+    renderPage('Coach');
+    await screen.findByText('participants editable');
+    expect(screen.queryByText(/no longer the match's current run/i)).toBeNull();
+    expect(screen.queryByText(/only Club Admins and Coaches/i)).toBeNull();
+  });
+
+  it('shows both notes for a Viewer of a superseded conversation without any submit control', async () => {
+    getConversation.mockResolvedValue({ kind: 'changed', value: conversation({ analysisRunIsCurrent: false }), etag: 'e1' });
+    renderPage('Viewer');
+    expect(await screen.findByText(/no longer the match's current run/i)).toBeInTheDocument();
+    expect(screen.getByText(/only Club Admins and Coaches/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'composer' })).toBeNull();
   });
 
   it('shows a Viewer the conversation read-only without the composer', async () => {
