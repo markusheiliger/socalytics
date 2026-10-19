@@ -6,7 +6,7 @@ import ListItemText from '@mui/material/ListItemText';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TriageFailure, type AgentConversationAdapter } from '../../platform/adapters/agentConversationAdapter';
@@ -21,7 +21,7 @@ interface ParticipantsPanelProps {
   canEdit: boolean;
   /** Receives the conversation returned by a successful add, carrying the new `version`. */
   onAdded?: (conversation: TriageConversation, agentId: string) => void;
-  /** Called when the add was refused because the conversation changed; the owner reloads it. */
+  /** Called when the add was refused because the conversation or the agent list changed; the owner reloads the conversation. */
   onConflict?: (outcome: TriageOutcome) => void;
 }
 
@@ -30,6 +30,7 @@ export function ParticipantsPanel({ adapter, conversation, canEdit, onAdded, onC
   const { t } = useTranslation('triage');
   const [choice, setChoice] = useState('');
   const [announcement, setAnnouncement] = useState('');
+  const queryClient = useQueryClient();
   const [refusal, setRefusal] = useState<TriageOutcome | undefined>(undefined);
 
   const agents = useQuery({ queryKey: triageKeys.agents(), queryFn: () => adapter.listAgents() });
@@ -51,7 +52,12 @@ export function ParticipantsPanel({ adapter, conversation, canEdit, onAdded, onC
       const outcome: TriageOutcome =
         error instanceof TriageFailure ? error.outcome : { kind: 'platform', failureKind: 'unreachable' };
       setRefusal(outcome);
-      if (outcome.kind === 'staleVersion' || outcome.kind === 'participantExists') onConflict?.(outcome);
+      if (outcome.kind === 'agentNotAvailable') {
+        void queryClient.invalidateQueries({ queryKey: triageKeys.agents() });
+      }
+      if (outcome.kind === 'staleVersion' || outcome.kind === 'participantExists' || outcome.kind === 'agentNotAvailable') {
+        onConflict?.(outcome);
+      }
     },
   });
 

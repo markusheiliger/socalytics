@@ -31,7 +31,8 @@ function setup(options: { participants: string[]; canEdit: boolean; addParticipa
   const addParticipant =
     options.addParticipant ??
     vi.fn(async (): Promise<TriageConversation> => ({ ...conversation(['specialist-tactics'], 4), etag: 'e4' }));
-  const adapter = { listAgents: vi.fn(async () => agents), addParticipant } as unknown as AgentConversationAdapter;
+  const listAgents = vi.fn(async () => agents);
+  const adapter = { listAgents, addParticipant } as unknown as AgentConversationAdapter;
   const onAdded = vi.fn();
   const onConflict = vi.fn();
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -46,7 +47,7 @@ function setup(options: { participants: string[]; canEdit: boolean; addParticipa
       />
     </QueryClientProvider>,
   );
-  return { addParticipant, onAdded, onConflict };
+  return { addParticipant, onAdded, onConflict, listAgents };
 }
 
 describe('ParticipantsPanel', () => {
@@ -95,5 +96,35 @@ describe('ParticipantsPanel', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The conversation changed. It has been reloaded; choose again.');
     expect(onConflict).toHaveBeenCalledWith({ kind: 'staleVersion' });
+  });
+
+  it('reloads and asks to choose again when the participant already exists', async () => {
+    const addParticipant = vi.fn(async () => {
+      throw new TriageFailure({ kind: 'participantExists' }, new PlatformFailure('conflict'));
+    });
+    const { onConflict } = setup({ participants: ['specialist-tactics'], canEdit: true, addParticipant });
+    const select = await screen.findByLabelText('Agent to add');
+    await userEvent.selectOptions(select, 'specialist-fitness');
+    await userEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The conversation changed. It has been reloaded; choose again.');
+    expect(onConflict).toHaveBeenCalledWith({ kind: 'participantExists' });
+    expect(select).toHaveValue('');
+    expect(screen.getByRole('button', { name: 'Add agent' })).toBeDisabled();
+  });
+
+  it('reloads the agents and the conversation when the agent is no longer available', async () => {
+    const addParticipant = vi.fn(async () => {
+      throw new TriageFailure({ kind: 'agentNotAvailable' }, new PlatformFailure('conflict'));
+    });
+    const { onConflict, listAgents } = setup({ participants: ['specialist-tactics'], canEdit: true, addParticipant });
+    await userEvent.selectOptions(await screen.findByLabelText('Agent to add'), 'specialist-fitness');
+    expect(listAgents).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Add agent' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('This agent is no longer available on this platform.');
+    expect(onConflict).toHaveBeenCalledWith({ kind: 'agentNotAvailable' });
+    await waitFor(() => expect(listAgents).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText('Agent to add')).toHaveValue('');
   });
 });
