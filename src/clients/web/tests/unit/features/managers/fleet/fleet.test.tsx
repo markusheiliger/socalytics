@@ -143,6 +143,23 @@ describe('fleet page', () => {
     for (const mark of marks) expect(mark.closest('li')).not.toBeNull();
   });
 
+  it('shows no update notice for an ended registration even when it is below the minimum', async () => {
+    const minimum = { minimumManagerVersion: '2.0.0', belowMinimumVersion: true };
+    const rows = [dto(1, 'active', { ...minimum, connectivity: 'online' }), dto(4, 'revoked', minimum)];
+    vi.stubGlobal('fetch', vi.fn(async (input: unknown) => {
+      const state = new URL(urlOf(input)).searchParams.get('state');
+      return json(200, { items: rows.filter((i) => !state || i.state === state) });
+    }));
+    const user = userEvent.setup();
+    renderApp(as('ClubAdmin'), '/analyst-managers');
+    const current = await screen.findByRole('list', { name: 'Analyst Managers' });
+    expect(within(current).getAllByText(/Update required/)).toHaveLength(1);
+    await user.click(screen.getByRole('combobox', { name: 'Show' }));
+    await user.click(await screen.findByRole('option', { name: 'Ended' }));
+    await waitFor(() => expect(screen.getByRole('link', { name: 'host-4 – Revoked' })).toBeInTheDocument());
+    expect(screen.queryByText(/Update required/)).not.toBeInTheDocument();
+  });
+
   it('marks nothing without a minimum', async () => {
     serve();
     renderApp(as('ClubAdmin'), '/analyst-managers');

@@ -44,7 +44,7 @@ export function StatusLines({ r, showVersion = true }: { r: Registration; showVe
       {current && operating && <li>{t('fleet.operatingState', { value: operating })}</li>}
       {current && analysts && <li>{analysts}</li>}
       {showVersion && version && <li>{t('fleet.version', { value: version })}</li>}
-      {r.belowMinimumVersion && r.minimumManagerVersion && (
+      {current && r.belowMinimumVersion && r.minimumManagerVersion && (
         <li>
           <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
             <SvgIcon fontSize="small" sx={{ color: 'warning.dark' }} aria-hidden="true" focusable="false">
