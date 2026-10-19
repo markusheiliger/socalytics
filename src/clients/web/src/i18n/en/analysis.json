@@ -87,8 +87,6 @@
     "range": "Range",
     "kind": "Kind",
     "confidence": "Confidence",
-    "confidenceValue": "{{value}}%",
-    "payload": "Payload",
     "payloadSummary": "Summary",
     "showPayload": "Show full payload",
     "hidePayload": "Hide full payload",
@@ -103,8 +101,7 @@
     "incompleteNote": "These results are incomplete. Facts accepted so far are shown, and later results can change them.",
     "continuationRestart": "The platform no longer accepts the position in the list, so the list restarted at the first page.",
     "newResults": "New results are available for this stream.",
-    "reloadResults": "Reload the facts",
-    "none": "No facts to show."
+    "reloadResults": "Reload the facts"
   },
   "range": {
     "title": "Match-time range",
@@ -115,14 +112,11 @@
     "hint": "Use m:ss or m:ss.SSS, for example 12:30 or 12:30.500.",
     "invalidTime": "Enter a time as m:ss or m:ss.SSS.",
     "negative": "The time must not be negative.",
-    "notIncreasing": "The end must be after the start.",
-    "summary": "Facts from {{from}} to {{to}}"
+    "notIncreasing": "The end must be after the start."
   },
   "coverage": {
     "title": "Coverage",
     "listLabel": "Coverage windows",
-    "window": "Window",
-    "state": "State",
     "windowValue": "{{range}}: {{state}}",
     "empty": "The platform reports no coverage windows for this selection.",
     "stateName": {
@@ -156,7 +150,6 @@
     "invalidRange": "The match-time range is not valid. Use m:ss or m:ss.SSS with a start that is not negative and an end after the start.",
     "error": "The analysis could not be loaded.",
     "loading": "Loading facts…",
-    "facts": "Facts are available.",
     "noFactsInRange": "No facts overlap this range.",
     "inProgress": "The analysis is still in progress; no facts yet.",
     "incomplete": "The analysis is incomplete. Some windows are not accepted.",

@@ -145,7 +145,7 @@ description: "Task list for Web UI Connected Analysis Review"
 
 ### Translations and documentation
 
-- [ ] T026 [P] Reconcile `src/clients/web/src/i18n/en/analysis.json` with the keys the review's components use (no missing or unused keys) and make `src/clients/web/tests/unit/i18n/keys.test.ts` pass with no literal user-facing text in `src/clients/web/src/features/analysis/` (FR-019)
+- [x] T026 [P] Reconcile `src/clients/web/src/i18n/en/analysis.json` with the keys the review's components use (no missing or unused keys) and make `src/clients/web/tests/unit/i18n/keys.test.ts` pass with no literal user-facing text in `src/clients/web/src/features/analysis/` (FR-019)
 - [x] T027 [P] Make `docs/architecture/` describe the merged state as `plan.md` → Architecture Updates requires: re-read `docs/architecture/` and correct every narrative and status statement this feature affects, for example the connected analysis review paragraph and the "(analysis review and agent conversations are not implemented yet)" line in `docs/architecture/client-applications.md` → Web UI, the Web UI workflows, evidence list, and "the other Web UI client workflows (analysis review and agent conversations)" in `docs/architecture/platform-implementation.md` → Acceptance Evidence and Architecture Reassessment, and the member-read sentence in `docs/architecture/match-data-pipeline.md` → Segment And Match Analysis Scope; the listed rewrites are examples, not the whole job, and planned or future wording about the review must not remain; update `AGENTS.md` ("Current State"), `src/clients/README.md`, and the root `README.md` where they say analysis review is not implemented; run `node .github/scripts/check-markdown.mjs`
 
 ### Validation
