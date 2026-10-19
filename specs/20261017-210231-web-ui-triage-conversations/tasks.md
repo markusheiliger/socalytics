@@ -71,7 +71,7 @@ description: "Task list for Web UI Match Triage Conversations"
 
 ### History and pending turns
 
-- [ ] T014 [US1] Create `src/clients/web/src/features/triage/TurnList.tsx`: the first history page (`listTurns`) in submission order, accepted pending turns kept in memory until a history page contains their `invocationId`, one `useInvocationPolling` per unfinished turn, the turn presentation of `turnPresentation.ts`, `AdviceCard` for succeeded turns, and polite live-region announcements of state changes; add `src/clients/web/tests/unit/features/triage/TurnList.test.tsx` (FR-008, FR-010, FR-011, FR-014, FR-021)
+- [x] T014 [US1] Create `src/clients/web/src/features/triage/TurnList.tsx`: the first history page (`listTurns`) in submission order, accepted pending turns kept in memory until a history page contains their `invocationId`, one `useInvocationPolling` per unfinished turn, the turn presentation of `turnPresentation.ts`, `AdviceCard` for succeeded turns, and polite live-region announcements of state changes; add `src/clients/web/tests/unit/features/triage/TurnList.test.tsx` (FR-008, FR-010, FR-011, FR-014, FR-021)
 
 ### Entry points and route
 
