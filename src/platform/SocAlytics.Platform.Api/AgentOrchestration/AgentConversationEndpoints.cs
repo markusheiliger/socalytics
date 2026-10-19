@@ -51,6 +51,16 @@ internal sealed record AgentInvocationDto(
 	Guid InvocationId, Guid ConversationId, string AgentId, string Route, string State, int AttemptCount, string? FailureReason,
 	string? Advice, DateTimeOffset SubmittedAt, DateTimeOffset? EndedAt, int? RetryAfterSeconds);
 
+internal sealed record AgentLineageEntryDto(
+	int Sequence, string Kind, Guid? AttemptId, int? AttemptNumber, DateTimeOffset RecordedAt,
+	IReadOnlyDictionary<string, JsonElement> Details);
+
+internal sealed record AgentLineageAdviceDto(
+	Guid AttemptId, string Advice, JsonElement ExecutionReferences, DateTimeOffset AcceptedAt);
+
+internal sealed record AgentInvocationLineageDto(
+	Guid InvocationId, string PolicyVersion, IReadOnlyList<AgentLineageEntryDto> Entries, AgentLineageAdviceDto? Advice);
+
 internal static class AgentConversationEndpoints
 {
 	private static readonly JsonSerializerOptions BodyOptions = new(JsonSerializerDefaults.Web)
@@ -139,6 +149,12 @@ internal static class AgentConversationEndpoints
 			.WithName("getAgentInvocation")
 			.WithTags("Agent conversations")
 			.Produces<AgentInvocationDto>()
+			.Produces(StatusCodes.Status304NotModified)
+			.ProducesProblem(StatusCodes.Status404NotFound);
+		members.MapGet("/agent-invocations/{invocationId:guid}/lineage", GetInvocationLineageAsync)
+			.WithName("getAgentInvocationLineage")
+			.WithTags("Agent conversations")
+			.Produces<AgentInvocationLineageDto>()
 			.Produces(StatusCodes.Status304NotModified)
 			.ProducesProblem(StatusCodes.Status404NotFound);
 		return routes;
@@ -283,6 +299,26 @@ internal static class AgentConversationEndpoints
 		return Conditional(http, StrongEtag($"{i.ProgressVersion}:{i.Version}"), () => new AgentInvocationDto(
 			i.Id, i.ConversationId, i.AgentId, AgentPersistedNames.ToPersistedName(i.Route), AgentPersistedNames.ToWireName(i.State),
 			i.AttemptsUsed, FailureName(i.FailureReason), view.Advice?.Advice, i.SubmittedAt, i.EndedAt, view.RetryAfterSeconds));
+	}
+
+	private static async Task<IResult> GetInvocationLineageAsync(
+		Guid invocationId, HttpContext http, GetAgentInvocationLineageHandler handler, CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new GetAgentInvocationLineageQuery(invocationId), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		var view = result.Value;
+		// Lineage rows are append-only, so the entry count and the advice acceptance time identify its content.
+		var basis = $"{view.Invocation.Id:N}:{view.Entries.Count}:{view.Entries.Select(e => e.Sequence).DefaultIfEmpty().Max()}:{view.Advice?.AcceptedAt.UtcTicks}";
+		return Conditional(http, StrongEtag(basis), () => new AgentInvocationLineageDto(
+			view.Invocation.Id, view.Invocation.PolicyVersion,
+			[.. view.Entries.Select(e => new AgentLineageEntryDto(e.Sequence, e.Kind, e.AttemptId, e.AttemptNumber, e.RecordedAt, e.Details))],
+			view.Advice is { } a
+				? new AgentLineageAdviceDto(a.AttemptId, a.Advice, JsonDocument.Parse(a.ExecutionReferencesJson).RootElement.Clone(), a.AcceptedAt)
+				: null));
 	}
 
 	private static string? FailureName(AgentFailureReason? reason) =>

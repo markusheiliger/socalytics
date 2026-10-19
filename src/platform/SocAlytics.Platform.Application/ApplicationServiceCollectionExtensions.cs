@@ -151,6 +151,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.SubmitAgentInvocationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.GetAgentInvocationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.ListAgentConversationTurnsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.GetAgentInvocationLineageHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.ClaimAgentInvocationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.CompleteAgentAttemptHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.RenewAgentAttemptLeaseHandler>();

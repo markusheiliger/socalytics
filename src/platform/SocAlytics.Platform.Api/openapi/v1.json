@@ -254,6 +254,40 @@
         ],
         "type": "object"
       },
+      "AgentInvocationLineageDto": {
+        "properties": {
+          "advice": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentLineageAdviceDto"
+              }
+            ]
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/AgentLineageEntryDto"
+            },
+            "type": "array"
+          },
+          "invocationId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "policyVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "invocationId",
+          "policyVersion",
+          "entries",
+          "advice"
+        ],
+        "type": "object"
+      },
       "AgentLeaseRequestDto": {
         "properties": {
           "fencingToken": {
@@ -282,6 +316,78 @@
         "required": [
           "attemptId",
           "leaseExpiresAt"
+        ],
+        "type": "object"
+      },
+      "AgentLineageAdviceDto": {
+        "properties": {
+          "acceptedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "advice": {
+            "type": "string"
+          },
+          "attemptId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "executionReferences": {
+            "$ref": "#/components/schemas/JsonElement"
+          }
+        },
+        "required": [
+          "attemptId",
+          "advice",
+          "executionReferences",
+          "acceptedAt"
+        ],
+        "type": "object"
+      },
+      "AgentLineageEntryDto": {
+        "properties": {
+          "attemptId": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "attemptNumber": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ]
+          },
+          "details": {
+            "type": "object"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "recordedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "sequence": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "sequence",
+          "kind",
+          "attemptId",
+          "attemptNumber",
+          "recordedAt",
+          "details"
         ],
         "type": "object"
       },
@@ -3787,6 +3893,50 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AgentInvocationDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "304": {
+            "description": "Not Modified"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "tags": [
+          "Agent conversations"
+        ]
+      }
+    },
+    "/api/v1/agent-invocations/{invocationId}/lineage": {
+      "get": {
+        "operationId": "getAgentInvocationLineage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invocationId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentInvocationLineageDto"
                 }
               }
             },

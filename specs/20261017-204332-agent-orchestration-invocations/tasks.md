@@ -142,7 +142,7 @@ description: "Task list for Agent Orchestration Direct Invocations"
 
 ### Registration and endpoints for User Story 3
 
-- [ ] T042 [US3] Register `GetAgentInvocationLineage` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs` and add `getAgentInvocationLineage` with `ETag` and `304` to `src/platform/SocAlytics.Platform.Api/AgentOrchestration/AgentConversationEndpoints.cs`; refresh `src/platform/SocAlytics.Platform.Api/openapi/v1.json` as in T016 (FR-010, FR-012, FR-035)
+- [x] T042 [US3] Register `GetAgentInvocationLineage` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs` and add `getAgentInvocationLineage` with `ETag` and `304` to `src/platform/SocAlytics.Platform.Api/AgentOrchestration/AgentConversationEndpoints.cs`; refresh `src/platform/SocAlytics.Platform.Api/openapi/v1.json` as in T016 (FR-010, FR-012, FR-035)
 
 ### Tests for User Story 3
 
