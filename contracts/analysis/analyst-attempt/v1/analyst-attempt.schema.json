@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/analyst-attempt/v1/analyst-attempt.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analyst attempt context v1",
+  "description": "Identity of the Execution Attempt that an Analyst Manager hands to the Analyst it starts, as the attempt context of the Analyst SDK. It carries only the attempt identity and number; it never carries the fencing token, the lease, credentials, URLs, or broker connection details, because the Analyst has no authority to complete or fence an attempt.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "attemptId", "attemptNumber"],
+  "properties": {
+    "contractVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1" },
+    "attemptId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "attemptNumber": { "$ref": "../../../common/v1/common.schema.json#/$defs/attemptNumber" }
+  }
+}
