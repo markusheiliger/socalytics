@@ -1,5 +1,6 @@
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.Club;
 using SocAlytics.Platform.Application.Notifications;
 using SocAlytics.Platform.Domain.IdentityAccess;
 
@@ -9,17 +10,23 @@ public sealed record InvitationTeamRoleInput(Guid? TeamId, string? Role);
 
 public sealed record CreateInvitationCommand(string? Address, string? AccountName, IReadOnlyList<InvitationTeamRoleInput>? TeamRoles);
 
+public sealed record CreatedInvitationTeamRole(Guid TeamId, string TeamName, TeamRole Role);
+
+/// <summary>A just-created invitation with the team names and inviter shown to the Club Admin; its message is queued.</summary>
+public sealed record CreatedInvitation(MemberInvitation Invitation, IReadOnlyList<CreatedInvitationTeamRole> TeamRoles, string InvitedByAccountName);
+
 public sealed class CreateInvitationHandler(
     IUnitOfWork unitOfWork,
     IAccessAuthorizer authorizer,
     IRequestContext requestContext,
     IMemberInvitationStore invitations,
     IMemberAccountStore members,
+    IClubHierarchyStore clubs,
     IEmailOutbox outbox,
     IAuditTrail audit,
     TimeProvider time)
 {
-    public async Task<OperationResult<MemberInvitation>> HandleAsync(CreateInvitationCommand command, CancellationToken cancellationToken)
+    public async Task<OperationResult<CreatedInvitation>> HandleAsync(CreateInvitationCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
 
@@ -131,8 +138,16 @@ public sealed class CreateInvitationHandler(
             cancellationToken);
 
         var stored = await invitations.FindForUpdateAsync(id, cancellationToken);
+        var teamRoles = new List<CreatedInvitationTeamRole>();
+        foreach (var role in roles)
+        {
+            var team = await clubs.GetTeamAsync(role.TeamId, cancellationToken);
+            teamRoles.Add(new CreatedInvitationTeamRole(role.TeamId, team?.Team.Name.Value ?? string.Empty, role.Role));
+        }
+
+        var inviter = await members.GetProfileAsync(callerId, cancellationToken);
         await scope.CommitAsync(cancellationToken);
-        return stored!.Invitation;
+        return new CreatedInvitation(stored!.Invitation, teamRoles, inviter?.AccountName ?? string.Empty);
     }
 
     private async Task<string> ReasonOfConflictAsync(EmailAddress address, AccountName name, CancellationToken cancellationToken) =>
