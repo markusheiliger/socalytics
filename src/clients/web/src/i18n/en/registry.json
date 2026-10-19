@@ -326,7 +326,8 @@
   },
   "changed": {
     "title": "The record has changed",
-    "message": "The record has changed since you loaded it. It has been reloaded; review it and decide again."
+    "message": "The record has changed since you loaded it. It has been reloaded; review it and decide again.",
+    "currentState": "Current state: {{state}}"
   },
   "outcome": {
     "alreadyRegistered": "The image was already registered, nothing changed.",
@@ -335,6 +336,7 @@
   "selfApproval": "You created this profile version. You are approving your own work.",
   "confirm": {
     "cancel": "Cancel",
+    "close": "Close",
     "working": "Working…",
     "approve": {
       "title": "Approve profile version",
