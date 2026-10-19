@@ -162,7 +162,7 @@ rationale, and the alternatives considered.
   review. Offline, the existing connectivity state shows the
   connection-required message and the review renders no previously loaded
   analysis data.
-- **Rationale**: FR-018 and [Offline Mode](../../docs/architecture/client-applications.md#offline-mode).
+- **Rationale**: FR-018 and [Offline Mode](../../../docs/architecture/client-applications.md#offline-mode).
 - **Alternatives**: Caching analysis responses for faster reloads (forbidden
   before the offline replica exists).
 

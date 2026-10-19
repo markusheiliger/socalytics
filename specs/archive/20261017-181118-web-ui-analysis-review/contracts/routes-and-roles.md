@@ -1,9 +1,9 @@
 # Contract: Routes and Roles (additions)
 
 Extends the Web UI's route contracts of
-[Web UI Foundation](../../archive/20261012-150657-web-ui-foundation/contracts/routes-and-roles.md)
+[Web UI Foundation](../../20261012-150657-web-ui-foundation/contracts/routes-and-roles.md)
 and
-[Web UI Match Workflow and Recording Upload](../../archive/20261013-112844-web-ui-match-upload/contracts/routes-and-roles.md).
+[Web UI Match Workflow and Recording Upload](../../20261013-112844-web-ui-match-upload/contracts/routes-and-roles.md).
 "Reader" means a Club Admin, or a Coach or Viewer of the match's team.
 
 | Route | View | Allowed for | Platform operations |

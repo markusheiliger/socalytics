@@ -25,7 +25,7 @@ member sees.
 - The start action appears only when the run list contains a `Completed` or `PartiallyCompleted` run; otherwise the
   section says that a finished analysis is needed first. Its dialog preselects the newest eligible run.
 - No navigation item is added; the conversation is reached from the match view, and its back link returns to the match.
-- The run review view of [Web UI Connected Analysis Review](../../20261017-181118-web-ui-analysis-review/spec.md) is
+- The run review view of [Web UI Connected Analysis Review](../../archive/20261017-181118-web-ui-analysis-review/spec.md) is
   only linked to; it gains no triage control.
 - Leaving the conversation view with an unsent question or an unknown-outcome submission asks for confirmation
   (browser unload and in-app navigation).

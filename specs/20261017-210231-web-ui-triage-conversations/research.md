@@ -15,7 +15,7 @@ and the existing Web UI patterns in `src/clients/web/`. No `NEEDS CLARIFICATION`
   match, and the not-found view when the conversation read answers `404` or its `matchId` differs from the route.
 - **Rationale**: FR-001 to FR-004; the clarification keeps the start action on the match view only; nesting the route
   under the match keeps the existing match context, access checks, and back navigation, as the run review route
-  `/matches/:matchId/analysis-runs/:runId` of [Web UI Connected Analysis Review](../20261017-181118-web-ui-analysis-review/plan.md) does.
+  `/matches/:matchId/analysis-runs/:runId` of [Web UI Connected Analysis Review](../archive/20261017-181118-web-ui-analysis-review/plan.md) does.
 - **Alternatives considered**: A top-level `/agent-conversations/:id` route (rejected: loses the match context and adds
   a navigation entry outside the match view, which the spec excludes); a start action on the run review view (rejected
   by clarification).
