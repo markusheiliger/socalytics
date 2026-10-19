@@ -154,10 +154,10 @@ public sealed class WorkflowAvailabilityTests(
         definition.WorkflowId.ShouldBe("development-default");
         definition.WorkflowVersion.ShouldBe("1");
         definition.CompletionPolicy.ShouldBe("all-requested-capabilities");
-        definition.RequestedCapabilities.Count.ShouldBe(2);
+        definition.RequestedCapabilities.Count.ShouldBe(3);
         definition.SegmentationPolicy.Version.ShouldBe(1);
         definition.SegmentationPolicy.DurationSeconds.ShouldBe(300);
-        definition.Nodes.Count.ShouldBe(2);
+        definition.Nodes.Count.ShouldBe(3);
         var segment = definition.Nodes.Single(n => n.ExecutionScope == ExecutionScope.Segment);
         segment.Tier.ShouldBe(CapabilityTier.LowLevel);
         segment.MaxAttempts.ShouldBe(3);
@@ -165,12 +165,13 @@ public sealed class WorkflowAvailabilityTests(
         segment.StaleTimeoutSeconds.ShouldBe(90);
         segment.ExecutionTimeoutSeconds.ShouldBe(3600);
         segment.ModelDigest.ShouldBeNull();
-        var match = definition.Nodes.Single(n => n.ExecutionScope == ExecutionScope.Match);
+        var match = definition.Nodes.Single(n => n.NodeKey == "dev-match-node");
         match.Tier.ShouldBe(CapabilityTier.HighLevel);
         match.ModelDigest.ShouldNotBeNull();
         match.Resources.ShouldContainKey("cpu");
         match.PolicyVersions.ShouldContainKey("retention");
-        var edge = definition.Edges.ShouldHaveSingleItem();
+        definition.Edges.Count.ShouldBe(2);
+        var edge = definition.Edges.Single(e => e.DependentNodeKey == match.NodeKey);
         edge.Kind.ShouldBe("required");
         edge.UpstreamNodeKey.ShouldBe(segment.NodeKey);
         edge.DependentNodeKey.ShouldBe(match.NodeKey);

@@ -48,6 +48,35 @@ public static class AnalysisPersistedNames
 		}
 	}
 
+	public const string CoverageModeComplete = "complete";
+
+	public const string CoverageModePartial = "partial";
+
+	public const string UpstreamCoverageBelowMinimum = "upstream-coverage-below-minimum";
+
+	public static string ToPersistedName(CoverageMode mode) => mode switch
+	{
+		CoverageMode.Complete => CoverageModeComplete,
+		CoverageMode.Partial => CoverageModePartial,
+		_ => throw new ArgumentOutOfRangeException(nameof(mode)),
+	};
+
+	public static bool TryParseCoverageMode(string? value, out CoverageMode mode)
+	{
+		switch (value)
+		{
+			case CoverageModeComplete:
+				mode = CoverageMode.Complete;
+				return true;
+			case CoverageModePartial:
+				mode = CoverageMode.Partial;
+				return true;
+			default:
+				mode = default;
+				return false;
+		}
+	}
+
 	public static string ToPersistedName(DependencyKind kind) => kind switch
 	{
 		DependencyKind.Required => "required",

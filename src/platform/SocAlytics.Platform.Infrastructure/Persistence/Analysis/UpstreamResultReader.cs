@@ -41,7 +41,7 @@ internal sealed class UpstreamResultReader(IDbSession session) : IUpstreamResult
             return null;
         }
 
-        var (status, resultIds) = FindEntry(inputsJson, request.UpstreamNodeKey);
+        var (status, resultIds, mode, fraction, snapshotCoverage) = FindEntry(inputsJson, request.UpstreamNodeKey);
         if (status is null)
         {
             return null;
@@ -96,12 +96,15 @@ internal sealed class UpstreamResultReader(IDbSession session) : IUpstreamResult
             .ToList();
 
         var jobsWithResult = rows.Select(r => r.LogicalJobId).ToHashSet();
-        var coverage = CoverageBuilder.Build(
-            status,
-            targetJobs.Select(u => new CoverageTarget(
-                SegmentIdOf(u),
-                jobsWithResult.Contains(u.Id),
-                Enum.Parse<LogicalJobState>(u.State))));
+        var targetSegmentIds = targetJobs.Select(SegmentIdOf).ToHashSet(StringComparer.Ordinal);
+        var coverage = mode == CoverageMode.Partial && snapshotCoverage is not null
+            ? CoverageBuilder.FromSnapshot(snapshotCoverage.Where(c => !segmentScoped || targetSegmentIds.Contains(c.SegmentId)))
+            : CoverageBuilder.Build(
+                status,
+                targetJobs.Select(u => new CoverageTarget(
+                    SegmentIdOf(u),
+                    jobsWithResult.Contains(u.Id),
+                    Enum.Parse<LogicalJobState>(u.State))));
 
         var jobsById = upstreamJobs.ToDictionary(u => u.Id);
         var selected = new HashSet<Guid>(targetJobs.Select(u => u.Id));
@@ -122,23 +125,40 @@ internal sealed class UpstreamResultReader(IDbSession session) : IUpstreamResult
             next = WriteToken(new Position(last.WindowStartMs ?? 0, last.AcceptedResultId));
         }
 
-        return new UpstreamResultsPage(status, items, coverage, next);
+        return new UpstreamResultsPage(status, items, coverage, next, mode, mode == CoverageMode.Partial ? fraction : null);
     }
 
-    private static (string? Status, List<Guid> ResultIds) FindEntry(string inputsJson, string upstreamNodeKey)
+    private static (string? Status, List<Guid> ResultIds, CoverageMode Mode, decimal? Fraction, List<SegmentCoverage>? Coverage) FindEntry(
+        string inputsJson, string upstreamNodeKey)
     {
         using var doc = JsonDocument.Parse(inputsJson);
         foreach (var e in doc.RootElement.EnumerateArray())
         {
-            if (e.GetProperty("upstreamNodeKey").GetString() == upstreamNodeKey)
+            if (e.GetProperty("upstreamNodeKey").GetString() != upstreamNodeKey)
             {
-                return (
-                    e.GetProperty("status").GetString(),
-                    e.GetProperty("acceptedResultIds").EnumerateArray().Select(x => x.GetGuid()).ToList());
+                continue;
             }
+
+            // Snapshots written before partial barriers carry none of the coverage fields and read as complete.
+            var mode = CoverageMode.Complete;
+            if (e.TryGetProperty("coverageMode", out var m) && m.ValueKind == JsonValueKind.String)
+            {
+                AnalysisPersistedNames.TryParseCoverageMode(m.GetString(), out mode);
+            }
+
+            decimal? fraction = e.TryGetProperty("minimumAcceptedFraction", out var f) && f.ValueKind == JsonValueKind.Number ? f.GetDecimal() : null;
+            List<SegmentCoverage>? coverage = e.TryGetProperty("coverage", out var c) && c.ValueKind == JsonValueKind.Array
+                ? c.EnumerateArray().Select(x => new SegmentCoverage(x.GetProperty("segmentId").GetString()!, x.GetProperty("state").GetString()!)).ToList()
+                : null;
+            return (
+                e.GetProperty("status").GetString(),
+                e.GetProperty("acceptedResultIds").EnumerateArray().Select(x => x.GetGuid()).ToList(),
+                mode,
+                fraction,
+                coverage);
         }
 
-        return (null, []);
+        return (null, [], CoverageMode.Complete, null, null);
     }
 
     private static string? SegmentIdOf(UpstreamJobRow job) =>

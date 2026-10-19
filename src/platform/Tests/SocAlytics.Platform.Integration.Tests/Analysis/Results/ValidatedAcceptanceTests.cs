@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -7,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 using Shouldly;
 using SocAlytics.Platform.Application.Abstractions.ObjectStorage;
+using SocAlytics.Platform.Application.Telemetry;
 using SocAlytics.Platform.Integration.Tests.Analysis.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using SocAlytics.Platform.Integration.Tests.Recordings;
@@ -199,6 +201,120 @@ public sealed class ValidatedAcceptanceTests(PostgresContainerFixture postgres, 
         using var ok = await CompleteAsync(host, m, attempt2, Body(s, attempt2, token2, number2, "done-2", prepared2), ct);
         JsonDocument.Parse(await ok.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("outcome").GetString().ShouldBe("accepted");
         (await StateAsync(db, ct)).ShouldBe("Failed,Accepted/Completed/1/1/2");
+    }
+
+    private static async Task<Guid> SeedPartialBarrierAsync(IsolatedDatabase db, Seed s, CancellationToken ct)
+    {
+        Guid low = Guid.NewGuid(), segJob = Guid.NewGuid(), segOcc = Guid.NewGuid(), segAttempt = Guid.NewGuid(), accepted = Guid.NewGuid();
+        await using var c = new NpgsqlConnection(db.MigratorConnectionString);
+        await c.OpenAsync(ct);
+        await using var cmd = new NpgsqlCommand(
+            """
+            INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
+            VALUES (@low, @run, 'low', 'cap-low', '1.0.0', 'low-level', 'segment', 1, 'Active', now());
+            INSERT INTO socalytics.analysis_node_snapshots (node_id, run_id, snapshot)
+            VALUES (@low, @run, '{"analystProfileId":"profile","policyVersions":{},"schemaVersion":"1.0.0"}'::jsonb);
+            INSERT INTO socalytics.analysis_logical_jobs (id, run_id, node_id, execution_scope, recording_version_id, timeline_mapping_digest, segmentation_policy_digest, segment_number, state, updated_at)
+            VALUES (@segJob, @run, @low, 'segment', @g, 'sha-256:a', 'sha-256:b', 1, 'Completed', now());
+            INSERT INTO socalytics.analysis_logical_job_snapshots (logical_job_id, max_attempts, lease_seconds, stale_timeout_seconds, execution_timeout_seconds, analyst_profile_digest, image_digest, model_digest, resources, schema_version)
+            VALUES (@segJob, 2, 30, 90, 600, @d, @d, @d, '{}'::jsonb, '1.0.0');
+            INSERT INTO socalytics.analysis_readiness_occurrences (id, logical_job_id, sequence, cause, created_at) VALUES (@segOcc, @segJob, 1, 'initial', now());
+            INSERT INTO socalytics.analysis_execution_attempts (id, logical_job_id, readiness_occurrence_id, attempt_number, manager_id, fencing_token, state, claimed_at, lease_expires_at, last_heartbeat_at)
+            VALUES (@segAttempt, @segJob, @segOcc, 1, gen_random_uuid(), nextval('socalytics.analysis_fencing_token_seq'), 'Accepted', now(), now(), now());
+            INSERT INTO socalytics.analysis_accepted_results (id, logical_job_id, run_id, node_id, attempt_id, manifest_reference, manifest_checksum, capability_id, capability_version, schema_version, analyst_profile_digest, image_digest, model_digest, policy_versions, executed_runtime, upstream_result_ids, accepted_at)
+            VALUES (@accepted, @segJob, @run, @low, @segAttempt, 'results/x/manifest.json', @d, 'cap-low', '1.0.0', '1.0.0', @d, @d, NULL, '{}'::jsonb, '{}'::jsonb, '{}', now());
+            INSERT INTO socalytics.analysis_accepted_result_manifests (accepted_result_id, contract_version, output_type, validity_start_ms, validity_end_ms, fact_count, artifacts, upstream_lineage)
+            VALUES (@accepted, '1.0.0', 'foundational-facts', 0, 300000, 0, '[]'::jsonb, '[]'::jsonb);
+            INSERT INTO socalytics.analysis_logical_job_inputs (logical_job_id, inputs, recorded_at)
+            VALUES (@job, @inputs::jsonb, now());
+            """, c);
+        cmd.Parameters.AddWithValue("segJob", segJob);
+        cmd.Parameters.AddWithValue("segOcc", segOcc);
+        cmd.Parameters.AddWithValue("segAttempt", segAttempt);
+        cmd.Parameters.AddWithValue("accepted", accepted);
+        cmd.Parameters.AddWithValue("g", Guid.NewGuid());
+        cmd.Parameters.AddWithValue("d", Digest);
+        cmd.Parameters.AddWithValue("low", low);
+        cmd.Parameters.AddWithValue("run", s.Run);
+        cmd.Parameters.AddWithValue("job", s.Job);
+        cmd.Parameters.AddWithValue(
+            "inputs",
+            $$"""[{"upstreamNodeKey":"low","edgeKind":"required","status":"partial","acceptedResultIds":["{{accepted}}"],"coverageMode":"partial","minimumAcceptedFraction":0.5,"coverage":[{"segmentId":"seg-1","state":"accepted"},{"segmentId":"seg-2","state":"failed"}]}]""");
+        await cmd.ExecuteNonQueryAsync(ct);
+        return accepted;
+    }
+
+    private static void ReportCoverage(JsonObject manifest, string secondState)
+    {
+        manifest["contractVersion"] = "1.1.0";
+        manifest["inputCoverage"] = new JsonArray(new JsonObject
+        {
+            ["capability"] = new JsonObject { ["id"] = "cap-low", ["version"] = "1.0.0" },
+            ["schemaVersion"] = "1.0.0",
+            ["units"] = new JsonArray(
+                new JsonObject { ["segmentId"] = "seg-1", ["state"] = "accepted" },
+                new JsonObject { ["segmentId"] = "seg-2", ["state"] = secondState }),
+        });
+    }
+
+    [Fact]
+    public async Task RejectedCoverageReportEndsTheAttemptAsFailedCountsItAndTheRetryCanBeAccepted()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var measurements = new List<(string Name, long Value, string? Outcome)>();
+        using var listener = new MeterListener
+        {
+            InstrumentPublished = (i, l) =>
+            {
+                if (i.Meter.Name == AnalysisMetrics.MeterName && i.Name == "socalytics.analysis.completions_rejected")
+                {
+                    l.EnableMeasurementEvents(i);
+                }
+            },
+        };
+        listener.SetMeasurementEventCallback<long>((i, v, t, _) =>
+        {
+            var outcome = t.ToArray().FirstOrDefault(x => x.Key == "outcome").Value as string;
+            lock (measurements)
+            {
+                measurements.Add((i.Name, v, outcome));
+            }
+        });
+        listener.Start();
+
+        var (db, host) = await StartAsync(ct);
+        await using var _ = host;
+        var s = await SeedAsync(db, ct);
+        var upstream = await SeedPartialBarrierAsync(db, s, ct);
+        using var m = new TestManagerClient(host.Factory);
+        var (attempt, token, number) = await ClaimAsync(m, s, "c1", null, ct);
+        var prepared = await ResultObjectsHelper.PrepareAsync(db, rustFs, attempt, upstream: [upstream], mutate: x => ReportCoverage(x, "accepted"), ct: ct);
+        var badBody = Body(s, attempt, token, number, "bad-1", prepared);
+        badBody["acceptedUpstreamResultIds"] = new JsonArray(upstream);
+
+        using var r = await CompleteAsync(host, m, attempt, badBody, ct);
+        r.StatusCode.ShouldBe(HttpStatusCode.OK, await r.Content.ReadAsStringAsync(ct));
+        var first = JsonDocument.Parse(await r.Content.ReadAsStringAsync(ct)).RootElement;
+        first.GetProperty("outcome").GetString().ShouldBe("failed");
+        first.GetProperty("reason").GetString().ShouldBe("result-coverage-mismatch");
+        (await TextAsync(db, $"SELECT state FROM socalytics.analysis_logical_jobs WHERE id = '{s.Job}'", ct)).ShouldBe("Ready");
+        (await TextAsync(db, $"SELECT string_agg(state, ',') FROM socalytics.analysis_execution_attempts WHERE logical_job_id = '{s.Job}'", ct)).ShouldBe("Failed");
+        (await TextAsync(db, "SELECT reason_code FROM socalytics.security_audit_event WHERE event_type = 'analysis.result-rejected'", ct))
+            .ShouldBe("result-coverage-mismatch");
+        lock (measurements)
+        {
+            measurements.Count(x => x.Outcome == "result-coverage-mismatch").ShouldBe(1);
+        }
+
+        var occurrence = Guid.Parse(await TextAsync(db, $"SELECT current_readiness_occurrence_id FROM socalytics.analysis_logical_jobs WHERE id = '{s.Job}'", ct));
+        var (attempt2, token2, number2) = await ClaimAsync(m, s, "c2", occurrence, ct);
+        var prepared2 = await ResultObjectsHelper.PrepareAsync(db, rustFs, attempt2, upstream: [upstream], mutate: x => ReportCoverage(x, "failed"), ct: ct);
+        var okBody = Body(s, attempt2, token2, number2, "done-2", prepared2);
+        okBody["acceptedUpstreamResultIds"] = new JsonArray(upstream);
+        using var ok = await CompleteAsync(host, m, attempt2, okBody, ct);
+        JsonDocument.Parse(await ok.Content.ReadAsStringAsync(ct)).RootElement.GetProperty("outcome").GetString().ShouldBe("accepted");
+        (await TextAsync(db, $"SELECT state FROM socalytics.analysis_logical_jobs WHERE id = '{s.Job}'", ct)).ShouldBe("Completed");
+        (await TextAsync(db, $"SELECT count(*) FROM socalytics.analysis_accepted_results WHERE logical_job_id = '{s.Job}'", ct)).ShouldBe("1");
     }
 
     [Fact]

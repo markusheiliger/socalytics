@@ -12,7 +12,7 @@
 
 ### Session 2026-10-17
 
-- Q: Should this feature depend on Partial-Coverage Match Barriers, so the SDK writes the result manifest version with the input coverage report, instead of making coverage reporting conditional on what has merged? → A: Yes; `specs/20261017-212004-partial-coverage-barriers` MUST merge first, and the SDK supports result manifests 1.0.0 and 1.1.0 and writes 1.1.0.
+- Q: Should this feature depend on Partial-Coverage Match Barriers, so the SDK writes the result manifest version with the input coverage report, instead of making coverage reporting conditional on what has merged? → A: Yes; `specs/archive/20261017-212004-partial-coverage-barriers` MUST merge first, and the SDK supports result manifests 1.0.0 and 1.1.0 and writes 1.1.0.
 - Q: Which exit statuses should the entry point use? → A: 0 for a finalized result, 1 for a failure of the Analyst's own code or a refused fact or artifact, 2 for invalid, unsupported, or unverifiable inputs.
 - Q: What should the SDK write to the container's output besides the failure line? → A: One bounded summary line on success with the number of facts and artifacts; no telemetry export and no content.
 - Q: Should the SDK put all facts of a result into one fact artifact or let authors write several? → A: One fact artifact per result, named `facts.json`; supporting artifacts are separate.
@@ -306,7 +306,7 @@ missing from or extra to its schema fails a test.
   provides CPython, `uv`, and the locked verification of `src/analysts/sdk/`; it MUST merge before this feature.
 - [Accepted Fact Indexing and Capability-Scoped Fact Queries](../archive/20261017-175648-fact-indexing-queries/spec.md)
   (twin #144) provides the fact-artifact contract and media type; it MUST merge before this feature.
-- [Partial-Coverage Match Barriers](../20261017-212004-partial-coverage-barriers/spec.md) provides the result
+- [Partial-Coverage Match Barriers](../archive/20261017-212004-partial-coverage-barriers/spec.md) provides the result
   manifest 1.1.0 input coverage report and the partial-coverage statement in the staged coverage; it MUST merge
   before this feature.
 - [Durable Analysis Workflow](../archive/20261005-130703-durable-analysis-workflow/spec.md),

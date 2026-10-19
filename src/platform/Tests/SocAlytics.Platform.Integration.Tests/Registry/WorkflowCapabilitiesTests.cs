@@ -26,7 +26,7 @@ public sealed class WorkflowCapabilitiesTests(PostgresContainerFixture postgres)
         var body = JsonDocument.Parse(text).RootElement;
         body.GetProperty("workflow").GetProperty("id").GetString().ShouldBe("development-default");
         var capabilities = body.GetProperty("capabilities").EnumerateArray().ToList();
-        capabilities.Select(c => c.GetProperty("id").GetString()).ShouldBe(["dev-segment-capability", "dev-match-capability"], ignoreOrder: true);
+        capabilities.Select(c => c.GetProperty("id").GetString()).ShouldBe(["dev-segment-capability", "dev-match-capability", "dev-partial-match-capability"], ignoreOrder: true);
         foreach (var capability in capabilities)
         {
             capability.GetProperty("cpus").GetString().ShouldBe("1");

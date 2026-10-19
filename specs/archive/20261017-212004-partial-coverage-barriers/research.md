@@ -5,7 +5,7 @@
 - **Decision**: An optional `coverage` object on each `upstream` entry of the Analyst manifest
   (`analyst-manifest` 1.1.0): `{ "mode": "partial" }` with an optional `minimumAcceptedFraction` (`0 < f <= 1`).
   `mode` is the closed enum `["partial"]`; absence means complete coverage.
-- **Rationale**: The architecture's [Capability Declaration](../../docs/architecture/analysts-models-and-hardware.md#capability-declaration)
+- **Rationale**: The architecture's [Capability Declaration](../../../docs/architecture/analysts-models-and-hardware.md#capability-declaration)
   owns the required upstream capabilities, so the permission to use partial upstream input belongs to the same entry.
   Per dependency lets a capability tolerate gaps in one input but not another. An object instead of a boolean leaves
   room for later rules without another shape change.
