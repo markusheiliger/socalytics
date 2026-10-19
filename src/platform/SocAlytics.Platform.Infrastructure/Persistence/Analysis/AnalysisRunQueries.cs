@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Dapper;
 using SocAlytics.Platform.Application.Analysis.Queries;
 
@@ -20,6 +21,15 @@ internal sealed class AnalysisRunQueries(IDbSession session) : IAnalysisRunQueri
     private sealed record NodeRow(
         Guid NodeId, string NodeKey, string CapabilityId, string CapabilityVersion, string Tier, string ExecutionScope,
         string State, string? BlockedByNodeKey, int Waiting, int Ready, int Claimed, int Completed, int Failed, int Blocked);
+
+    private sealed record InputRow(Guid NodeId, string Inputs);
+
+    private sealed class CoverageCounts
+    {
+        public string Mode = "complete";
+        public decimal? Fraction;
+        public int Accepted, Failed, Blocked, Skipped, Missing;
+    }
 
     private static DateTimeOffset Utc(DateTime v) => new(DateTime.SpecifyKind(v, DateTimeKind.Utc));
 
@@ -64,6 +74,17 @@ internal sealed class AnalysisRunQueries(IDbSession session) : IAnalysisRunQueri
                 """,
                 new { runId }, session.Transaction, cancellationToken: cancellationToken))).ToList();
 
+        var inputRows = await connection.QueryAsync<InputRow>(
+            new CommandDefinition(
+                """
+                SELECT j.node_id AS NodeId, i.inputs::text AS Inputs
+                FROM socalytics.analysis_logical_job_inputs i
+                JOIN socalytics.analysis_logical_jobs j ON j.id = i.logical_job_id
+                WHERE j.run_id = @runId
+                """,
+                new { runId }, session.Transaction, cancellationToken: cancellationToken));
+        var coverageByNode = SumInputCoverage(inputRows);
+
         var basis = await connection.QuerySingleAsync<string>(
             new CommandDefinition(
                 """
@@ -79,8 +100,73 @@ internal sealed class AnalysisRunQueries(IDbSession session) : IAnalysisRunQueri
             capabilities,
             [.. nodes.Select(n => new AnalysisNodeStatusView(
                 n.NodeId, n.NodeKey, n.CapabilityId, n.CapabilityVersion, n.Tier, n.ExecutionScope, n.State, n.BlockedByNodeKey,
-                new AnalysisJobCountsView(n.Waiting, n.Ready, n.Claimed, n.Completed, n.Failed, n.Blocked)))],
+                new AnalysisJobCountsView(n.Waiting, n.Ready, n.Claimed, n.Completed, n.Failed, n.Blocked),
+                coverageByNode.GetValueOrDefault(n.NodeId)))],
             basis);
+    }
+
+    // Partial entries count their coverage units; other entries count by snapshot status.
+    private static Dictionary<Guid, IReadOnlyList<AnalysisNodeInputCoverageView>> SumInputCoverage(IEnumerable<InputRow> rows)
+    {
+        var perNode = new Dictionary<Guid, SortedDictionary<string, CoverageCounts>>();
+        foreach (var row in rows)
+        {
+            if (!perNode.TryGetValue(row.NodeId, out var edges))
+            {
+                perNode[row.NodeId] = edges = new SortedDictionary<string, CoverageCounts>(StringComparer.Ordinal);
+            }
+
+            using var doc = JsonDocument.Parse(row.Inputs);
+            foreach (var e in doc.RootElement.EnumerateArray())
+            {
+                var key = e.GetProperty("upstreamNodeKey").GetString()!;
+                if (!edges.TryGetValue(key, out var counts))
+                {
+                    edges[key] = counts = new CoverageCounts();
+                }
+
+                var partial = e.TryGetProperty("coverageMode", out var m) && m.ValueKind == JsonValueKind.String && m.GetString() == "partial";
+                if (partial)
+                {
+                    counts.Mode = "partial";
+                }
+
+                if (e.TryGetProperty("minimumAcceptedFraction", out var f) && f.ValueKind == JsonValueKind.Number)
+                {
+                    counts.Fraction = f.GetDecimal();
+                }
+
+                if (partial && e.TryGetProperty("coverage", out var c) && c.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var unit in c.EnumerateArray())
+                    {
+                        switch (unit.GetProperty("state").GetString())
+                        {
+                            case "accepted": counts.Accepted++; break;
+                            case "failed": counts.Failed++; break;
+                            default: counts.Blocked++; break;
+                        }
+                    }
+
+                    continue;
+                }
+
+                switch (e.GetProperty("status").GetString())
+                {
+                    case "accepted": counts.Accepted += Math.Max(1, e.GetProperty("acceptedResultIds").GetArrayLength()); break;
+                    case "not-applicable": counts.Skipped++; break;
+                    case "absent": counts.Missing++; break;
+                    case "failed": counts.Failed++; break;
+                }
+            }
+        }
+
+        return perNode
+            .Where(n => n.Value.Count > 0)
+            .ToDictionary(
+                n => n.Key,
+                n => (IReadOnlyList<AnalysisNodeInputCoverageView>)[.. n.Value.Select(kv => new AnalysisNodeInputCoverageView(
+                    kv.Key, kv.Value.Mode, kv.Value.Fraction, kv.Value.Accepted, kv.Value.Failed, kv.Value.Blocked, kv.Value.Skipped, kv.Value.Missing))]);
     }
 
     public async Task<AnalysisRunSummaryPageResult> ListForMatchAsync(

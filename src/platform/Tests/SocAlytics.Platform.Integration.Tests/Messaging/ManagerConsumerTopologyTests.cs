@@ -21,6 +21,7 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
     private const string Stream = "SOCALYTICS_ANALYSIS_JOBS";
     private const string SegmentCapability = "dev-segment-capability";
     private const string MatchCapability = "dev-match-capability";
+    private const string PartialMatchCapability = "dev-partial-match-capability";
 
     private ServiceProvider Provider()
     {
@@ -48,7 +49,7 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
 
         // The first run creates the stream; the deletion then removes consumers left by earlier tests.
         await topology.EnsureAsync(ct);
-        foreach (var capability in new[] { SegmentCapability, MatchCapability })
+        foreach (var capability in new[] { SegmentCapability, MatchCapability, PartialMatchCapability })
         {
             await js.DeleteConsumerAsync(Stream, "analyst-" + capability, ct);
         }
@@ -64,7 +65,7 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
         await using var provider = Provider();
         var js = await ProvisionAsync(provider, ct);
 
-        foreach (var capability in new[] { SegmentCapability, MatchCapability })
+        foreach (var capability in new[] { SegmentCapability, MatchCapability, PartialMatchCapability })
         {
             var consumer = await js.GetConsumerAsync(Stream, "analyst-" + capability, ct);
             var config = consumer.Info.Config;
@@ -105,6 +106,7 @@ public sealed class ManagerConsumerTopologyTests(NatsContainerFixture nats)
         published.ShouldBe(TransportPublishResult.Published);
 
         (await FetchAsync(js, SegmentCapability, payload, ct)).ShouldBeFalse();
+        (await FetchAsync(js, PartialMatchCapability, payload, ct)).ShouldBeFalse();
         (await FetchAsync(js, MatchCapability, payload, ct)).ShouldBeTrue();
     }
 

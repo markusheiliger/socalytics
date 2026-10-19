@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-212004-partial-coverage-barriers` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-212004-partial-coverage-barriers/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-212004-partial-coverage-barriers/spec.md`
 
 ## Summary
 
@@ -109,7 +109,7 @@ development workflow configuration, and tests across five test projects.
 
 | Principle | Status | Evidence |
 | --- | --- | --- |
-| I. Architecture is the design authority | Pass | Implements the partial-coverage sentence of [Readiness And Dependencies](../../docs/architecture/job-processing.md#readiness-and-dependencies), the declaration of [Capability Declaration](../../docs/architecture/analysts-models-and-hardware.md#capability-declaration) and coverage of [Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access), and follows [Versioning And Compatibility](../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility); the decided details are applied to those narratives now (see Architecture Updates). |
+| I. Architecture is the design authority | Pass | Implements the partial-coverage sentence of [Readiness And Dependencies](../../../docs/architecture/job-processing.md#readiness-and-dependencies), the declaration of [Capability Declaration](../../../docs/architecture/analysts-models-and-hardware.md#capability-declaration) and coverage of [Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access), and follows [Versioning And Compatibility](../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility); the decided details are applied to those narratives now (see Architecture Updates). |
 | II. Source-area ownership | Pass | Changes under `src/platform/` and `src/analysts/manager/`, contracts under `contracts/analysis/`; no new `src/` child. |
 | III. API-first control plane | Pass | The declaration travels in the contract-owned Analyst manifest; coverage reaches the Manager through the existing upstream read and members through the existing `/api/v1` run status read; no media passes the control plane. |
 | IV. Evidence over claims | Pass | Contract, integration, host, Manager, and end-to-end tests (FR-021); nothing claims production readiness. |
@@ -122,19 +122,19 @@ Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 
 **Narratives**:
 
-- [Job Processing → Readiness And Dependencies](../../docs/architecture/job-processing.md#readiness-and-dependencies):
+- [Job Processing → Readiness And Dependencies](../../../docs/architecture/job-processing.md#readiness-and-dependencies):
   partial-coverage barriers (readiness rule, minimum, blocking, snapshot).
-- [Job Processing → Run State And Recovery](../../docs/architecture/job-processing.md#run-state-and-recovery): run
+- [Job Processing → Run State And Recovery](../../../docs/architecture/job-processing.md#run-state-and-recovery): run
   outcome with a match-level result built from partial coverage.
-- [Analysts, Models, and Hardware → Capability Declaration](../../docs/architecture/analysts-models-and-hardware.md#capability-declaration):
+- [Analysts, Models, and Hardware → Capability Declaration](../../../docs/architecture/analysts-models-and-hardware.md#capability-declaration):
   the per-dependency partial-coverage declaration and minimum.
-- [Analysts, Models, and Hardware → Result Manifest And Lineage](../../docs/architecture/analysts-models-and-hardware.md#result-manifest-and-lineage):
+- [Analysts, Models, and Hardware → Result Manifest And Lineage](../../../docs/architecture/analysts-models-and-hardware.md#result-manifest-and-lineage):
   the reported input coverage and its acceptance check.
-- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access):
+- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access):
   snapshot-fixed coverage in the Manager's read and staging; members' input coverage in the run status read.
-- [Contracts And Compatibility → Versioning And Compatibility](../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility):
+- [Contracts And Compatibility → Versioning And Compatibility](../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility):
   followed unchanged for the three additive minor versions (no text change expected).
-- [Platform Implementation](../../docs/architecture/platform-implementation.md): its list of implemented analysis
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md): its list of implemented analysis
   evidence (development evidence summary).
 
 **Design updates** (applied now, worded as decided and not yet implemented; the documentation task turns them into
@@ -183,7 +183,7 @@ state, re-reading the documents at implementation time; the rewrites listed abov
 ### Documentation (this feature)
 
 ```text
-specs/20261017-212004-partial-coverage-barriers/
+specs/archive/20261017-212004-partial-coverage-barriers/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output

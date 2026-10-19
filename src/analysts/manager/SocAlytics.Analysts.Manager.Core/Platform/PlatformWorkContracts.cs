@@ -80,7 +80,11 @@ public sealed record AttemptCompletion(
     string ExecutedImageDigest, string? ExecutedModelDigest, IReadOnlyList<string> AcceptedUpstreamResultIds,
     DateTimeOffset CompletedAt, CompletionCorrelation Correlation);
 
-public sealed record UpstreamDescriptor(QueueCapability Capability, string SchemaVersion, string EdgeKind);
+/// <summary>Coverage policy of a dependency edge (upstream-results 1.1.0); absent on 1.0.0 pages, which mean complete.</summary>
+public sealed record UpstreamCoveragePolicy(string Mode, double? MinimumAcceptedFraction = null);
+
+public sealed record UpstreamDescriptor(
+    QueueCapability Capability, string SchemaVersion, string EdgeKind, UpstreamCoveragePolicy? Coverage = null);
 
 /// <summary>A presigned read grant; the URL is a credential and is never logged.</summary>
 public sealed record UpstreamGrant(string Name, string Url, DateTimeOffset ExpiresAt)
