@@ -116,7 +116,7 @@ claimed attempt on both runtimes
 
 ### Tests for User Story 2
 
-- [ ] T022 [P] [US2] Extend `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/ReadinessProgressionTests.cs`: published segment and match job messages validate against analyst-job 1.1.0, carry the run's workflow, and segment messages carry a `segmentWindow` whose id and window equal what `ResultManifestVerifier` and `UpstreamResultReader` use; match messages carry none (FR-006, FR-023)
+- [x] T022 [P] [US2] Extend `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/ReadinessProgressionTests.cs`: published segment and match job messages validate against analyst-job 1.1.0, carry the run's workflow, and segment messages carry a `segmentWindow` whose id and window equal what `ResultManifestVerifier` and `UpstreamResultReader` use; match messages carry none (FR-006, FR-023)
 - [ ] T023 [P] [US2] Extend `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Work/AttemptDirectoryTests.cs`, `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Runtime/Docker/DockerLaunchSpecTests.cs`, and `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Runtime/SimulatedRuntimeTests.cs`: `job.json` is byte-identical to the delivered message and valid against the job contract, `attempt.json` validates against `contracts/analysis/analyst-attempt/v1` and names the claimed (and, on retry, the new) attempt, the Docker bind is read-only, no environment variable is added, a job message of contract version 1.0.0 still runs with the attempt context, and the simulated runtime sees the same files (FR-007, FR-008, FR-009, FR-023; User Story 2 scenario 3; SC-005)
 
 **Checkpoint**: Real executions provide everything an SDK-built Analyst needs
