@@ -6,6 +6,7 @@ public enum AuditActorKind
     System,
     Anonymous,
     AnalystManager,
+    AgentWorkload,
 }
 
 public interface IRequestContext

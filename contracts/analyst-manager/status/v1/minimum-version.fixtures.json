@@ -1,0 +1,7 @@
+[
+  { "reported": "0.2.0", "minimum": "0.2.0", "below": false },
+  { "reported": "0.1.9", "minimum": "0.2.0", "below": true },
+  { "reported": "0.10.0", "minimum": "0.9.3", "below": false },
+  { "reported": "1.0", "minimum": "0.1.0", "below": true },
+  { "reported": "0.1.0", "minimum": null, "below": false }
+]

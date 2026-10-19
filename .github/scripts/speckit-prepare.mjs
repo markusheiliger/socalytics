@@ -26,7 +26,7 @@ import {
 } from './speckit-prepare-core.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 
-// The workflow token's user, which sets the implement flag on a fix spec for the person who asked for it.
+// The workflow token's user, which sets the implement flag on a prerequisite on behalf of a person.
 const BOT_LOGIN = 'github-actions[bot]';
 function readOptional(filePath) {
   return existsSync(filePath) ? readFileSync(filePath, 'utf8') : null;
@@ -145,12 +145,10 @@ function revocationComment(item) {
 async function applyPlan(client, plan, issues) {
   for (const label of LABELS) await client.ensureLabel(label);
   for (const item of plan.create) {
-    // A fix spec gets no dependency inference: the tooling links it to the spec it unblocks, and an inferred
-    // dependency on that spec would make each wait for the other.
     item.issue = await client.createIssue({
       title: item.title,
       body: item.body,
-      labels: [TWIN_LABEL, ...(item.fix ? [] : [PENDING_LABEL]), stageLabel(item.stage)],
+      labels: [TWIN_LABEL, PENDING_LABEL, stageLabel(item.stage)],
     });
     issues.push(item.issue);
   }
@@ -235,8 +233,9 @@ export function canWrite(permission) {
 }
 
 // Finds who most recently added the implement label, using the issue's event history rather than the
-// workflow trigger, so a flag counts only if its actual author has write access. A flag the workflow set for a fix
-// spec counts for the person it names in its own comment on the twin (renderFlaggedFor), who asked for the fix.
+// workflow trigger, so a flag counts only if its actual author has write access. A flag the workflow set for a
+// prerequisite counts for the person it names in its own comment on the twin (renderFlaggedFor), on whose behalf it was
+// requested.
 export async function resolveImplementRequester(client, issueNumber, fallbackLogin = null) {
   const implementLabel = stageLabel(IMPLEMENT_STAGE);
   const events = await client.listIssueEvents(issueNumber);

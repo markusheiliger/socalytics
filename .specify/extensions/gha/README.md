@@ -13,7 +13,7 @@ extension with the ID `github`.
 | `speckit.gha.route` | `/speckit-gha-route` | Mandatory `before_implement` hook: choose local implementation or a GitHub request |
 | `speckit.gha.request` | `/speckit-gha-request [folder]` | Request implementation on GitHub directly |
 | `speckit.gha.diagnose` | `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` | Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause |
-| `speckit.gha.fix` | `/speckit-gha-fix [pull request] [guidance]` | Author or rework a fix spec for the cause of a stopped implementation outside its spec; locally it explains `/speckit fix` and offers to post it |
+| `speckit.gha.fix` | `/speckit-gha-fix [pull request] [guidance]` | Author or rework a prerequisite spec (an ordinary spec the stopped spec depends on) for the cause of a stopped implementation outside its spec; locally it explains `/speckit fix` and offers to post it |
 | `speckit.gha.refine` | `/speckit-gha-refine [folder]` | Mandatory `after_tasks` hook: refine the `[P]` groups of the generated `tasks.md` so parallel tasks never change the same files |
 | `speckit.gha.archive` | `/speckit-gha-archive [folder]` | Optional `after_converge` hook: archive an implemented spec to `specs/archive/<folder>` and rewrite every reference to it before a local or manual merge |
 | `speckit.gha.architecture` | `/speckit-gha-architecture [folder]` | Mandatory `after_plan` hook: write the `## Architecture Updates` section of `plan.md` (narratives, design updates, status statements at merge) |
@@ -134,9 +134,10 @@ latest base before implementation can continue.
 
 `/speckit-gha-fix` is the method of the `Spec Kit fix` agentic workflow, which
 a person starts with `/speckit fix <what to fix>` when the cause lies outside
-the stopped spec. It authors a small fix spec against the default branch, which
-goes through the same consistency check and review as an amendment; once merged
-and implemented, the stopped implementation retries by itself.
+the stopped spec. It authors an ordinary spec against the default branch, which
+goes through the same consistency check and review as an amendment; once merged,
+the stopped spec depends on it like on any spec, and the stopped implementation
+retries by itself when it is implemented.
 
 `speckit.gha.route` and `speckit.gha.request` both run
 `node .github/scripts/speckit-orchestrate.mjs request`, which

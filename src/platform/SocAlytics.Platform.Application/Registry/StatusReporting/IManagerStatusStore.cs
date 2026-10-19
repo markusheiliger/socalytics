@@ -13,6 +13,8 @@ public interface IManagerStatusStore
 
     Task<StoredManagerStatus?> FindAsync(Guid registrationId, CancellationToken cancellationToken);
 
+    Task<string?> FindVersionAsync(Guid registrationId, CancellationToken cancellationToken);
+
     Task<IReadOnlyDictionary<Guid, StoredManagerStatus>> FindManyAsync(
         IReadOnlyCollection<Guid> registrationIds, CancellationToken cancellationToken);
 

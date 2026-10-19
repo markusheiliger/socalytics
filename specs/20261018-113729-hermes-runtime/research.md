@@ -1,7 +1,7 @@
 # Research: Hermes Agent Runtime
 
 All Technical Context items are resolved; no `NEEDS CLARIFICATION` remains. Each decision builds on the published
-[Agent Orchestration Direct Invocations](../20261017-204332-agent-orchestration-invocations/spec.md) and the batch
+[Agent Orchestration Direct Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md) and the batch
 siblings [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md),
 [Agent Evidence Tools API](../20261018-104924-agent-evidence-tools/spec.md),
 [MCP Server](../20261018-111804-mcp-server/spec.md),
@@ -60,7 +60,7 @@ siblings [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec
 
 - **Decision**: Hermes subscribes to the platform's agent work notifications as the durable pull consumer
   `agent-workload` of the JetStream stream `AGENT_WORK` (subject `agents.invocations.ready`), as
-  [Agent Orchestration research R3](../20261017-204332-agent-orchestration-invocations/research.md#r3---work-notifications-and-workload-queue-access)
+  [Agent Orchestration research R3](../archive/20261017-204332-agent-orchestration-invocations/research.md#r3---work-notifications-and-workload-queue-access)
   defines. When the platform's `issueAgentWorkloadQueueCredentials` answers with credentials, Hermes generates an
   in-memory NATS user NKey, sends its public key, and connects to the returned `queueUrl` with the returned user JWT,
   renewing it before `expiresAt`; when it answers `409 queue-credentials-unavailable` (authentication mode `None`,

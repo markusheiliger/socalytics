@@ -95,6 +95,9 @@ The status window shows:
 - each active job attempt and the time of its last successful heartbeat
 - the approximate stamp-local queue depth for this Manager's
   capabilities, together with the observation time
+- an update notice with the Manager version and the stamp's minimum version
+  while the Manager is below the minimum; the tray menu shows the same notice
+  as a status line
 - on the Docker Desktop profile, the offered capabilities with the reasons for
   those not offered, the image cache use against its budget, and the state of
   the last reconciliation
@@ -128,7 +131,9 @@ GPU servers without a desktop run the Core worker as a systemd user service.
 The enabled user unit replaces desktop autostart. Registration, pause, timed
 pause, resume, safe exit, unregister, and status use the local-control CLI;
 `register` asks for the host label and shows the pairing code and device
-fingerprint for the Registrar. Windows and macOS have no headless profile.
+fingerprint for the Registrar. `status` also shows the update notice (and an
+`update` object in its JSON output) while the Manager is below the stamp's
+minimum version. Windows and macOS have no headless profile.
 
 This profile deliberately departs, for Linux servers only, from the earlier
 rule that the Manager runs as a desktop application in the signed-in user's
@@ -221,8 +226,9 @@ it allows:
 - The stamp operator chooses the `stable` or `preview` channel for the stamp.
   The stamp offers the latest release of that channel by default, and the
   operator may pin a version.
-- The stamp declares a minimum Manager version. An older Manager admits no new
-  work and shows an update notice until it is updated.
+- The stamp declares a minimum Manager version, which is implemented through
+  deployment configuration (see below). An older Manager admits no new work and
+  shows an update notice until it is updated.
 - The Manager verifies package hashes, and signatures once releases are
   signed, rather than trusting the proxy.
 
@@ -232,8 +238,10 @@ host-local setting switches to manual updates through the tray or the CLI; the
 minimum version still applies. The stamp needs outbound access to GitHub for
 the feed.
 
-The minimum version is decided ahead of the update feed and not yet
-implemented: it is the stamp's deployment setting
+The minimum version is implemented ahead of the update feed; the feed,
+installers, channels, pinning, attestation checks, and self-update do not exist
+yet, so an operator updates a Manager by installing a newer build by hand. The
+minimum is the stamp's deployment setting
 `Registry:ManagerVersion:Minimum` (empty means no minimum; validated at start
 and applied on configuration reload). It reaches each Manager in the response
 of its periodic status report, and the Manager compares it with the build
@@ -243,8 +251,11 @@ credentials, and shows an update notice with both versions in its status
 window, tray menu, and CLI `status`. The platform independently refuses queue
 credentials and new claims from a Manager whose latest reported version (or,
 before its first report, the version claimed at pairing) is below the minimum,
-with the problem `analyst-manager-version-below-minimum`; operations on work
-already held continue. Production values for the minimum remain open.
+with the problem `analyst-manager-version-below-minimum` and count each refusal
+in the platform metric `socalytics.analysis.manager_version_refusals` by
+operation, without registration identifiers and without a security audit event;
+operations on work already held continue. Production values for the minimum
+remain open.
 
 ---
 
@@ -380,6 +391,13 @@ verification and the AM fails closed. It obtains short-lived, stamp- and
 subject-scoped NATS credentials through the authenticated API rather than
 storing a durable broker secret.
 
+Queue credentials and new claims are additionally refused with `403` and the
+problem `analyst-manager-version-below-minimum` while the registration's latest
+reported version (or, before its first report, the version claimed at pairing)
+is below the stamp's minimum version; heartbeats, result grants, and completion
+of attempts already held are unaffected, and the refusal does not change the
+registration state (see [Updates](#updates)).
+
 Every capability advertisement, queue query, dequeue, heartbeat, object-storage
 grant, and completion callback is validated against the registered stamp.
 Neither local configuration nor a job payload can override the binding.
@@ -471,9 +489,9 @@ the registration requests they submitted. Per Manager, the fleet view lists the
 host label, registration state, claimed profile and device-key protection,
 connectivity, local operating state (running, paused with its resume time,
 runtime unavailable with its reason, draining), active and maximum Analysts,
-Manager version, and the time of the last status report. Decided but not yet
-implemented: the view also marks every Manager, including pending requests,
-whose version is below the stamp's minimum, and names the minimum.
+Manager version, and the time of the last status report. The view also marks
+every Manager, including pending requests, whose version is below the stamp's
+minimum, and names the minimum.
 
 With its existing periodic registration check, every active Manager sends a
 small status report: operating state, the reason when the runtime is
@@ -496,7 +514,8 @@ registration list and detail operations; see
 [the platform README](../../src/platform/README.md) and the
 [Manager status contracts](../../specs/archive/20261012-153308-manager-fleet-status/contracts/self-status-api.md).
 
-The Web UI fleet, pairing, and decision views are implemented. They do not
+The Web UI fleet, pairing, and decision views are implemented, including the
+minimum-version marking. They do not
 show the claimed application profile and the claimed device-key protection,
 with "not reported" for registrations of Managers that did not claim a
 profile. Approving a request requires re-entering the last six

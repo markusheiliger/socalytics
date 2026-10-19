@@ -1,0 +1,5 @@
+{
+  "missing-fencing-token.json": "required",
+  "unknown-property.json": "additionalProperties",
+  "history-entry-missing-agent-id.json": "required"
+}

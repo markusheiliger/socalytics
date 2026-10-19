@@ -10,7 +10,7 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
         nameof(RegistrationState), nameof(Stamp), nameof(Club), nameof(PlatformEndpoint), nameof(Connectivity), nameof(OperatingState),
         nameof(Uptime), nameof(Preflight), nameof(Runtime), nameof(PauseRemaining), nameof(DrainDeadline), nameof(DeviceFingerprint),
         nameof(KeyProtection), nameof(Diagnostics), nameof(EffectiveConcurrency), nameof(ActiveAttempts),
-        nameof(WaitingWork), nameof(HostUtilization),
+        nameof(WaitingWork), nameof(HostUtilization), nameof(UpdateRequired), nameof(UpdateNotice),
     ];
 
     private readonly IManagerControl _control;
@@ -26,6 +26,10 @@ public sealed class StatusWindowViewModel : ObservableBase, IDisposable
 
     /// <summary>The same commands and enabled rules as the tray menu.</summary>
     public TrayMenuViewModel Commands { get; }
+
+    public bool UpdateRequired => _control.GetStatus().UpdateRequired is { Required: true };
+
+    public string UpdateNotice => _control.GetStatus().UpdateRequired is { Required: true } u ? u.Sentence : "";
 
     public string RegistrationState => _control.GetStatus().RegistrationState;
 

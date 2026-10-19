@@ -521,8 +521,8 @@ The complete workflow is defined in the
 The Analyst Manager token endpoint is a minimal endpoint in the API's
 Registry functional area that supports only this grant; the platform does not
 run a general-purpose authorization server for machine clients. Agent workload
-clients will use a second minimal endpoint of the same kind in the Agent
-Orchestration functional area (decided, not yet implemented; see
+clients use a second minimal endpoint of the same kind in the Agent
+Orchestration functional area (development evidence; see
 [Agent Runtime](#agent-runtime)).
 
 Until a dedicated stamp-operator role is defined, operational workflow
@@ -533,7 +533,7 @@ use them from the Web UI's Operations area (decided, not yet implemented; see
 
 ### Agent Runtime
 
-Agent Orchestration will use the same Dapper, PostgreSQL, DbUp, logical CQRS,
+Agent Orchestration uses the same Dapper, PostgreSQL, DbUp, logical CQRS,
 optimistic-concurrency, and transactional-outbox baseline as the rest of the
 platform. Its state remains in the stamp database; this profile introduces
 neither a second agent database nor a special extraction rule. NATS JetStream
@@ -541,10 +541,11 @@ carries only minimal, at-least-once work notifications. Consumers claim durable
 work through the Agent Orchestration application handlers and remain idempotent
 under duplicate delivery.
 
-The planned control-plane surface includes canonical asynchronous submission,
-private conditional status/result/lineage reads, workload claim, lease,
-checkpoint, consultation and completion operations, lifecycle suppression,
-migration readiness, and bounded recovery/reconciliation.
+The control-plane surface for direct invocations includes canonical
+asynchronous submission, private conditional status/result/lineage reads,
+workload claim, lease, checkpoint, completion, and failure operations, and
+bounded recovery/reconciliation (development evidence). Consultation
+operations, lifecycle suppression, and migration readiness remain planned.
 
 Hermes is a planned separate Python OCI deployment with no direct database
 access. It uses Microsoft Agent Framework behind local adapters, authenticates
@@ -558,7 +559,7 @@ and recovery contract is defined by
 MCP tools, prompt/profile resolution, model execution, and Web UI agent
 workflows remain future implementation work.
 
-The first slice is decided and not yet implemented: an `AgentOrchestration`
+The first slice is implemented as development evidence: an `AgentOrchestration`
 folder in each platform layer stores conversations, participants, invocations,
 attempts, append-only lineage, accepted advice, and workload operation records
 in the stamp database; publishes `agent-invocation-ready` notifications from
@@ -703,8 +704,13 @@ AppImage for both profiles, mounted through FUSE when available and otherwise
 started in extract-and-run mode. Signing follows once the publisher is
 decided. Each stamp serves the update feed to its Managers as a proxy for the
 Manager's GitHub Releases, after verifying their build-provenance attestation;
-it offers the releases of its chosen channel, may pin a version, and declares a
-minimum Manager version. The fleet view, implemented in the Web UI, rests on a Manager status report,
+it offers the releases of its chosen channel and may pin a version; the feed,
+channels, and pinning stay planned after the Velopack spike. The minimum
+Manager version is implemented through deployment configuration
+(`Registry:ManagerVersion:Minimum`, empty by default): the status report
+response carries it to each Manager, and the platform refuses queue credentials
+and new claims below it. The fleet view, implemented in the Web UI and marking
+Managers below the minimum, rests on a Manager status report,
 sent with the periodic registration check and stored as the latest snapshot
 only, and a fleet read operation for Club Admins.
 

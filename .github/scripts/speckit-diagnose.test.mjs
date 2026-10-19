@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { pendingFeedback, renderFeedback } from './speckit-amend.mjs';
-import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker, renderSyncComment, repeatedFailure } from './speckit-implement-core.mjs';
 import { CATEGORIES, CATEGORY_COMMANDS, MAX_RECOMMENDED_COMMAND, categoryCommands, checkReportFile, commandPatterns, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
@@ -249,7 +249,7 @@ test('records an unusable or missing report', async () => {
     }).report,
     baseBranch: 'main',
   });
-  assert.match(outside, /\*\*Recommended next step\*\*: Fix the flaky test outside this spec\.\n\n- \*\*Why\*\*: The test belongs to another feature\.\n- \*\*What it does\*\*: An agent authors a small fix spec[\s\S]*```text\n\/speckit fix Make the flaky test robust\n```/);
+  assert.match(outside, /\*\*Recommended next step\*\*: Fix the flaky test outside this spec\.\n\n- \*\*Why\*\*: The test belongs to another feature\.\n- \*\*What it does\*\*: An agent authors a small prerequisite spec[\s\S]*```text\n\/speckit fix Make the flaky test robust\n```/);
   assert.deepEqual(validateReport({ ...REPORT, category: 'outside', options: [{ title: 'Sync', why: 'x', command: '/speckit sync' }] }).reasons, []);
   assert.match(outside, /<summary>Other options<\/summary>[\s\S]*- \*\*Retry on a less loaded runner\. Unlikely to succeed\*\*\n/, 'alternatives are collapsed, without doubled punctuation');
   assert.match(validateReport({ ...REPORT, options: [{ title: 'Apply', why: 'x', command: '/speckit apply' }] }).reasons.join(), /option "Apply" has an invalid command/);
@@ -511,4 +511,30 @@ test('records a rework: replies to the feedback and checks the amendment again',
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a command that already failed the same way on the unchanged branch is not recommended again', () => {
+  const at = (minute) => `2026-10-18T10:${String(minute).padStart(2, '0')}:00Z`;
+  const bot = (minute, body) => ({ user: { login: 'github-actions[bot]' }, created_at: at(minute), body });
+  const stop = (minute, reason) => bot(minute, `<!-- speckit-implement:attempt {"outcome":"attention"} -->\n**Implementation needs attention** @dev: ${reason}\n\nSee the [run](https://x/runs/${minute}).`);
+  const protectedStop = 'conflicts in protected paths need a person: .specify/memory/constitution.md';
+  const comments = [stop(1, protectedStop), bot(2, renderSyncComment('Required sync', 'Verify', { head: 'h1', base: 'b1' })), stop(3, protectedStop)];
+  assert.deepEqual(repeatedFailure(comments, 'h1'), { verb: 'sync', reason: protectedStop });
+  assert.equal(repeatedFailure(comments, 'h2'), null, 'a push changed the branch');
+  assert.equal(repeatedFailure([stop(1, 'the build failed'), comments[1], stop(3, protectedStop)], 'h1'), null, 'a different stop');
+  assert.equal(repeatedFailure(comments.slice(0, 2), 'h1'), null, 'no stop after the command yet');
+
+  const report = validateReport({ ...REPORT, category: 'outside', artifacts: [], questions: [], options: [{ title: 'Sync again', why: 'x', command: '/speckit sync Verify the merge', recommended: true }] }).report;
+  const repeated = repeatedFailure(comments, 'h1');
+  const steps = recommendNextSteps(report, { repeated });
+  assert.deepEqual(steps.notes, [], 'the report stays usable');
+  assert.match(steps.adjusted[0], /`\/speckit sync` already stopped the same way on the unchanged branch/);
+  const pick = steps.options.find((option) => option.recommended);
+  assert.match(pick.command, /^\/speckit fix /);
+  assert.ok(steps.options.some((option) => option.command === '/speckit sync Verify the merge' && !option.recommended), 'still listed under the other options');
+  const retryReport = validateReport({ ...REPORT, category: 'retry', artifacts: [], questions: [], options: [{ title: 'Retry', why: 'x', command: '/speckit retry', recommended: true }] }).report;
+  assert.equal(recommendNextSteps(retryReport, { repeated }).options.find((option) => option.recommended).command, '/speckit retry', 'another command is not affected');
+  const comment = renderDiagnosisComment({ report, repeated });
+  assert.match(comment, /\*\*Recommended next step\*\*[\s\S]*\/speckit fix/);
+  assert.match(comment, /_Parts of the report were adjusted: the recommended `\/speckit sync` already stopped the same way/);
 });

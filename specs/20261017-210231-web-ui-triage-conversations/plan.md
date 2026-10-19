@@ -9,7 +9,7 @@
 ## Summary
 
 Add connected match triage conversations to the Web UI at `src/clients/web/` on top of the member operations of
-[Agent Orchestration Direct Invocations](../20261017-204332-agent-orchestration-invocations/spec.md).
+[Agent Orchestration Direct Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md).
 
 - **Entry**: the match view gains a triage section with the member's own conversations and, for Club Admins and Coaches
   of the team with a `Completed` or `PartiallyCompleted` run, a start dialog; conversations open at

@@ -7,6 +7,8 @@ namespace SocAlytics.Platform.Infrastructure.Messaging.Nats;
 /// <summary>Signs Manager user JWTs with the stamp account key; the JWT is never logged.</summary>
 internal sealed class NatsQueueCredentialIssuer(NatsTrust trust, IOptions<NatsOptions> options) : IQueueCredentialIssuer
 {
+    public bool CanIssue => trust.IsJwt;
+
     public string JobsStream => options.Value.JobsStream;
 
     public bool IsValidUserPublicKey(string userPublicKey)
@@ -40,5 +42,29 @@ internal sealed class NatsQueueCredentialIssuer(NatsTrust trust, IOptions<NatsOp
         }
 
         return trust.CreateUserJwt(userPublicKey, "analyst-manager", publish, [$"{inboxPrefix}.>"], expiresAt);
+    }
+
+    public string AgentWorkStream => options.Value.AgentWorkStream;
+
+    public string AgentWorkSubject => options.Value.AgentWorkSubject;
+
+    public string AgentWorkConsumer => options.Value.AgentWorkConsumer;
+
+    public string IssueAgentWorkload(string userPublicKey, string inboxPrefix, DateTimeOffset expiresAt)
+    {
+        if (!trust.IsJwt)
+        {
+            throw new InvalidOperationException("Queue credentials require Nats:Authentication:Mode Jwt.");
+        }
+
+        var stream = AgentWorkStream;
+        var consumer = AgentWorkConsumer;
+        string[] publish =
+        [
+            $"$JS.ACK.{stream}.>",
+            $"$JS.API.CONSUMER.MSG.NEXT.{stream}.{consumer}",
+            $"$JS.API.CONSUMER.INFO.{stream}.{consumer}",
+        ];
+        return trust.CreateUserJwt(userPublicKey, "agent-workload", publish, [$"{inboxPrefix}.>"], expiresAt);
     }
 }

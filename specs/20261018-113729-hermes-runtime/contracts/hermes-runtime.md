@@ -2,7 +2,7 @@
 
 Hermes' interfaces to the orchestrator (health), the platform and the MCP server (outbound calls), and the operator
 (configuration, logs, image). Platform semantics are those of
-[Agent Orchestration API](../../20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md),
+[Agent Orchestration API](../../archive/20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md),
 [Agent Catalog API](../../20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md), and the
 [MCP server interface](../../20261018-111804-mcp-server/contracts/mcp-server.md); this contract adds none except the
 completion change in [attempt-report-1.1.0.md](attempt-report-1.1.0.md). Values marked *profile* stay open in

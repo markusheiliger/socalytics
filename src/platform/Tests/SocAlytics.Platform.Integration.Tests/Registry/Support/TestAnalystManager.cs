@@ -13,6 +13,8 @@ internal sealed class TestAnalystManager : IDisposable
 
     public TestAnalystManager(string clientId = "manager-1") => ClientId = clientId;
 
+    public string PrivateKeyBase64 => Convert.ToBase64String(_key.ExportPkcs8PrivateKey());
+
     public string ClientId { get; }
 
     public string PublicJwk => JsonSerializer.Serialize(PublicJwkObject());

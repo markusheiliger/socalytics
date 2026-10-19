@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
+import { archiveSpec, defaultGit as archiveGit } from './speckit-archive.mjs';
 import { CHECK_ATTEMPT, CHECK_CONFLICT, CHECK_DONE, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, baseOwnedChanges, pointSpecLinks, renderBaseOwnedMarker, renderGuidanceMarker, renderRepairMarker, renderSyncComment, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 import {
   TaskInputError,
@@ -56,7 +57,7 @@ function write(dir, file, content) {
 
 // A bare "remote" with main and speckit/f plus two clones of speckit/f: one for the work job and one for the land
 // job. `branch` and `main` add a commit to that branch on top of the shared seed commit.
-function makeGitRepos(tasks = TASKS, { branch, main: mainChange } = {}) {
+function makeGitRepos(tasks = TASKS, { branch, main: mainChange, seed: seedChange } = {}) {
   const base = mkdtempSync(path.join(tmpdir(), 'speckit-task-'));
   const remoteRoot = path.join(base, 'remote');
   const bare = path.join(remoteRoot, 'octo', 'repo.git');
@@ -68,6 +69,7 @@ function makeGitRepos(tasks = TASKS, { branch, main: mainChange } = {}) {
   write(seed, 'specs/f/spec.md', '# Spec\n');
   write(seed, 'README.md', '# Repo\n');
   write(seed, 'docs/shared.md', '# Shared\n\nline\n');
+  seedChange?.(seed);
   git(seed, 'add', '-A');
   git(seed, 'commit', '-q', '-m', 'seed');
   git(seed, 'push', '-q', bare, 'HEAD:refs/heads/main', 'HEAD:refs/heads/speckit/f');
@@ -1016,8 +1018,8 @@ test('required sync rejects an unfinished work job or a replay that does not mat
 
 test('required sync does not downgrade protected conflicts to best effort or land work from an older request', async () => {
   await withRepos({
-    branch: (dir) => write(dir, 'specs/f/spec.md', '# Branch spec\n'),
-    main: (dir) => write(dir, 'specs/f/spec.md', '# Base spec\n'),
+    branch: (dir) => write(dir, '.specify/memory/constitution.md', '# Branch constitution\n'),
+    main: (dir) => write(dir, '.specify/memory/constitution.md', '# Base constitution\n'),
   }, async (repos) => {
     const github = fakeGitHub();
     await github.createComment(9, renderSyncComment('Required sync'));
@@ -1343,10 +1345,86 @@ test('package rejects agents that commit their changes', () => withRepos({ tasks
   assert.match(result.reasons.join(), /the agent created commits/);
 }));
 
+// Two specs that reference each other: the branch archives its own spec `f`, and main archives `g` meanwhile, so both
+// rewrite the same lines of each other's spec.md.
+const crossArchived = {
+  tasks: DONE_TASKS,
+  seed: (dir) => {
+    write(dir, 'specs/f/spec.md', '# Spec\n\nDepends on `specs/g`.\n');
+    write(dir, 'specs/g/spec.md', '# G\n\nUsed by `specs/f`.\n');
+    write(dir, 'specs/g/tasks.md', DONE_TASKS);
+    write(dir, 'specs/README.md', '| [f](f/spec.md) | [g](g/spec.md) |\n');
+  },
+  branch: (dir) => archiveSpec({ root: dir, folder: 'f', git: archiveGit(dir) }),
+  main: (dir) => archiveSpec({ root: dir, folder: 'g', git: archiveGit(dir) }),
+};
+
+test('resolve: archive reference conflicts under specs/ are resolved by the archive script, without an agent', () => withRepos(crossArchived, async (repos) => {
+  const { integrated, result, output } = work(repos, { inputs: RESOLVE_INPUTS, verify: { outcome: 'success', checks: 'Markdown check' } });
+  assert.deepEqual(integrated.result.conflicts, [], 'no conflict is left for an agent or a person');
+  assert.ok(integrated.result.specResolved.length > 0);
+  assert.match(output, /agent=false/);
+  assert.equal(integrated.result.attention, undefined);
+  assert.equal(result.verified, true, JSON.stringify(result));
+  const github = fakeGitHub();
+  const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+  assert.equal(landed.exitCode, 0, landed.reasons?.join('; '));
+  assert.equal(remoteShow(repos, 'speckit/f:specs/archive/f/spec.md'), '# Spec\n\nDepends on `specs/archive/g`.\n');
+  assert.equal(remoteShow(repos, 'speckit/f:specs/archive/g/spec.md'), '# G\n\nUsed by `specs/archive/f`.\n');
+  assert.equal(remoteShow(repos, 'speckit/f:specs/README.md'), '| [f](archive/f/spec.md) | [g](archive/g/spec.md) |\n');
+  assert.match(github.comments.at(-1).body, /- Archive reference conflicts resolved by the archive script, without an agent: /);
+}));
+
+test('resolve: conflicts in the spec\'s own artifacts go to the resolution, keep every task, and hold the merge for review', async () => {
+  await withRepos({
+    tasks: DONE_TASKS,
+    branch: (dir) => write(dir, 'specs/f/spec.md', '# Spec\n\nbranch\n'),
+    main: (dir) => write(dir, 'specs/f/spec.md', '# Spec\n\nmain\n'),
+  }, async (repos) => {
+    const { integrated, output } = work(repos, {
+      inputs: RESOLVE_INPUTS,
+      agent: (r) => write(r.work, 'specs/f/spec.md', '# Spec\n\nbranch\nmain\n'),
+      verify: { outcome: 'success', checks: 'Markdown check' },
+    });
+    assert.deepEqual([integrated.result.conflicts, integrated.result.attention], [['specs/f/spec.md'], undefined]);
+    assert.match(output, /agent=true/);
+    assert.match(output, /except conflicted files of `specs\/f` itself/);
+    const github = fakeGitHub();
+    const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+    assert.equal(landed.exitCode, 0, landed.reasons?.join('; '));
+    assert.deepEqual(baseOwnedChanges(github.comments), ['specs/f/spec.md'], 'the merge waits for a person');
+    assert.match(github.comments.at(-1).body, /Resolved conflicts in this spec's own artifacts[^\n]*`specs\/f\/spec\.md`/);
+  });
+  await withRepos({
+    tasks: TASKS,
+    branch: (dir) => write(dir, 'specs/f/tasks.md', TASKS.replace('- [ ] T001', '- [x] T001')),
+    main: (dir) => write(dir, 'specs/f/tasks.md', TASKS.replace('T001 Create docs/x.md', 'T001 Create docs/x.md with a title')),
+  }, async (repos) => {
+    work(repos, {
+      inputs: RESOLVE_INPUTS,
+      agent: (r) => write(r.work, 'specs/f/tasks.md', TASKS.replace('T001 Create docs/x.md', 'T001 Create docs/x.md with a title')),
+    });
+    const landed = await land(repos, fakeGitHub(), { inputs: RESOLVE_INPUTS });
+    assert.equal(landed.exitCode, 1);
+    assert.match(landed.reasons.join('; '), /the resolution of `specs\/f\/tasks\.md` unchecked tasks: T001/);
+  });
+});
+
+test('merge: changes under specs/ outside the own spec must be reference rewrites', async () => {
+  await withRepos({ ...crossArchived, main: undefined }, (repos) => {
+    const { integrated } = work(repos, { inputs: MERGE_INPUTS });
+    assert.deepEqual(integrated.result.reasons, [], 'the archive of the own spec rewrites references only');
+  });
+  await withRepos({ ...crossArchived, main: undefined, branch: (dir) => write(dir, 'specs/g/spec.md', '# G\n\nUsed by `specs/f`, and changed.\n') }, (repos) => {
+    const { integrated } = work(repos, { inputs: MERGE_INPUTS });
+    assert.match(integrated.result.reasons.join('; '), /changes under specs\/ outside specs\/f must be reference rewrites of the archive, but these differ: specs\/g\/spec\.md/);
+  });
+});
+
 test('resolve: conflicts in protected paths ask the requester', () => withRepos({
   tasks: DONE_TASKS,
-  branch: (dir) => write(dir, 'specs/f/spec.md', '# Spec\n\nbranch\n'),
-  main: (dir) => write(dir, 'specs/f/spec.md', '# Spec\n\nmain\n'),
+  branch: (dir) => write(dir, '.specify/memory/constitution.md', '# Constitution\n\nbranch\n'),
+  main: (dir) => write(dir, '.specify/memory/constitution.md', '# Constitution\n\nmain\n'),
 }, async (repos) => {
   const { integrated, output } = work(repos, { inputs: RESOLVE_INPUTS });
   assert.match(output, /agent=false/);
@@ -1354,7 +1432,7 @@ test('resolve: conflicts in protected paths ask the requester', () => withRepos(
   const github = fakeGitHub();
   const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
   assert.deepEqual([landed.exitCode, landed.check.external_id], [1, CHECK_LIMIT]);
-  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: conflicts in protected paths need a person: specs\/f\/spec\.md/);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:attempt [^\n]*"outcome":"attention"\} -->\n\*\*Implementation needs attention\*\* @dev: conflicts in protected paths need a person: \.specify\/memory\/constitution\.md/);
   assert.doesNotMatch(github.comments.at(-1).body, /Spec Kit orchestrate` workflow manually/);
   assert.match(github.comments.at(-1).body, /Wait for the diagnosis/);
 }));
@@ -1372,8 +1450,8 @@ test('resolve before a phase or the convergence: success continues the work, and
   });
   await withRepos({
     tasks: TASKS,
-    branch: (dir) => write(dir, 'specs/f/spec.md', '# Spec\n\nbranch\n'),
-    main: (dir) => write(dir, 'specs/f/spec.md', '# Spec\n\nmain\n'),
+    branch: (dir) => write(dir, '.specify/memory/constitution.md', '# Constitution\n\nbranch\n'),
+    main: (dir) => write(dir, '.specify/memory/constitution.md', '# Constitution\n\nmain\n'),
   }, async (repos) => {
     const { integrated } = work(repos, { inputs: RESOLVE_INPUTS });
     assert.equal(integrated.result.attention, true);
@@ -1547,7 +1625,7 @@ test('merge-land holds environment changes and uncovered files for review, whate
   await baseOwned.createComment(9, `${renderBaseOwnedMarker(['tests/Main.Tests/SettingsTests.cs'])}\n**Conflicts resolved** (attempt 1)`);
   await mergeLand(baseOwned, verifiedMerge);
   assert.equal(baseOwned.repo.merges.length, 0, 'changes to files only the base branch owns are held for review');
-  assert.match(baseOwned.comments.at(-1).body, /- a conflict resolution changed files of `main` that this implementation does not own \(`tests\/Main\.Tests\/SettingsTests\.cs`\)/);
+  assert.match(baseOwned.comments.at(-1).body, /- a conflict resolution changed files that a person must review \(`tests\/Main\.Tests\/SettingsTests\.cs`\): files of `main` this implementation does not own/);
 
   const forged = mergeableGitHub();
   forged.commentAuthor = 'someone';
@@ -1616,6 +1694,20 @@ test('archive: moves the spec on the branch merged with its base, rewrites refer
 
   const again = await archive(repos, github, { head });
   assert.deepEqual([again.exitCode, again.head, remoteSha(repos, 'speckit/f')], [0, head, head], 'an archived branch is left as it is');
+}));
+
+test('archive: reference conflicts with a base branch that archived another spec are resolved, and the spec is archived', () => withRepos({
+  ...crossArchived,
+  branch: (dir) => write(dir, 'specs/g/spec.md', '# G\n\nUsed by `specs/archive/f`.\n'),
+}, async (repos) => {
+  const github = fakeGitHub();
+  const before = remoteSha(repos, 'speckit/f');
+  const archived = await archive(repos, github);
+  assert.equal(archived.exitCode, 0);
+  assert.notEqual(remoteSha(repos, 'speckit/f'), before, 'archived instead of waiting for a person');
+  assert.equal(remoteShow(repos, 'speckit/f:specs/archive/g/spec.md'), '# G\n\nUsed by `specs/archive/f`.\n');
+  assert.equal(remoteShow(repos, 'speckit/f:specs/archive/f/spec.md'), '# Spec\n\nDepends on `specs/archive/g`.\n');
+  assert.throws(() => remoteShow(repos, 'speckit/f:specs/g/spec.md'), 'the base branch moved g to the archive');
 }));
 
 test('archive: changes nothing on conflicts with the base branch, and stops when the branch moved', async () => {

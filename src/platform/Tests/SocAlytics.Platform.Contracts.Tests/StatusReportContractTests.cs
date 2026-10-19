@@ -33,6 +33,8 @@ public class StatusReportContractTests
     [InlineData("valid/draining.request.json")]
     [InlineData("valid/accepted.response.json")]
     [InlineData("valid/rejected.response.json")]
+    [InlineData("valid/accepted-with-minimum.response.json")]
+    [InlineData("valid/accepted-without-minimum.response.json")]
     public void Valid_examples_validate(string file) => Validates(file).ShouldBeTrue(file);
 
     [Theory]
@@ -40,6 +42,7 @@ public class StatusReportContractTests
     [InlineData("invalid/unknown-state.request.json")]
     [InlineData("invalid/reason-without-runtime-unavailable.request.json")]
     [InlineData("invalid/rejected-without-violations.response.json")]
+    [InlineData("invalid/malformed-minimum.response.json")]
     public void Invalid_examples_are_refused(string file) => Validates(file).ShouldBeFalse(file);
 
     [Fact]
@@ -60,8 +63,18 @@ public class StatusReportContractTests
     }
 
     [Fact]
+    public void Status_contract_is_1_1_0_with_the_1_0_0_baseline_released()
+    {
+        ContractCatalog.Schemas.Single(s => s.RepositoryPath == SchemaPath).Document["x-socalytics-version"]!
+            .GetValue<string>().ShouldBe("1.1.0");
+        var baseline = ContractCatalog.Releases.Single(r => r.RepositoryPath == "contracts/analyst-manager/status/v1/releases/1.0.0.schema.json");
+        baseline.Version.ShouldBe("1.0.0");
+        baseline.SchemaRepositoryPath.ShouldBe(SchemaPath);
+    }
+
+    [Fact]
     public void Every_example_file_is_covered_by_a_test_case()
     {
-        Directory.EnumerateFiles(Folder, "*.json", SearchOption.AllDirectories).Count().ShouldBe(11);
+        Directory.EnumerateFiles(Folder, "*.json", SearchOption.AllDirectories).Count().ShouldBe(14);
     }
 }
