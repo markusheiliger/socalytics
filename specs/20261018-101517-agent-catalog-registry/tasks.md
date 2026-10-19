@@ -48,7 +48,7 @@ description: "Task list for Agent Catalog Registry"
 ### Stores and domain tests
 
 - [x] T010 [P] Add the Dapper stores for the four interfaces in `src/platform/SocAlytics.Platform.Infrastructure/Persistence/AgentOrchestration/Catalog/` (insert-once artifacts and agent versions returning the existing row on a `(kind, id, version)` conflict, version-checked lifecycle and enablement updates, enablement read with `FOR SHARE` for submission, pin insert and read), and add the catalog audit detail keys to the allow-list in `src/platform/SocAlytics.Platform.Infrastructure/Persistence/PostgresAuditTrail.cs` (FR-003, FR-004, FR-015–FR-017, FR-019, FR-025)
-- [ ] T011 [P] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/Catalog/Domain/AgentCatalogRulesTests.cs` and `CatalogBaselineTests.cs`: every rule and violation code of `AgentCatalogRules`, `SemanticVersion` parsing and ordering, `ProfileDistance` for the three provisional profiles ("Klopp–Guardiola 0.25, Klopp–Mourinho 0.25, Guardiola–Mourinho 0.31"), and equality of the domain baseline with `contracts/agent-catalog/catalog-baseline/v1/examples/valid/baseline-1.0.0.json` (FR-002, FR-006–FR-014, FR-028)
+- [x] T011 [P] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/Catalog/Domain/AgentCatalogRulesTests.cs` and `CatalogBaselineTests.cs`: every rule and violation code of `AgentCatalogRules`, `SemanticVersion` parsing and ordering, `ProfileDistance` for the three provisional profiles ("Klopp–Guardiola 0.25, Klopp–Mourinho 0.25, Guardiola–Mourinho 0.31"), and equality of the domain baseline with `contracts/agent-catalog/catalog-baseline/v1/examples/valid/baseline-1.0.0.json` (FR-002, FR-006–FR-014, FR-028)
 
 ### Registration of foundations
 
