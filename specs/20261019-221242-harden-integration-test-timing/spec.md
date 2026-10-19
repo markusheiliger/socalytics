@@ -18,7 +18,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 **Why this priority**: Four full verifications of #194 failed in different, unrelated tests of earlier features, and two bare retries left the branch unchanged. Any other implementation will stop the same way.
 
-**Independent Test**: Run each named test class repeatedly, alone and with the whole Integration suite, with CPU load applied; confirm every run passes. Then break the behavior each test checks (for example make sessions expire before the re-grant is no longer expected, or never publish ready work) and confirm the test still fails.
+**Independent Test**: Run each named test class repeatedly, alone and with the whole Integration suite, with CPU load applied; confirm every run passes. Then break the behavior each test checks (for example make the expiry sweep stop expiring sessions, or never publish ready work) and confirm the test still fails.
 
 **Acceptance Scenarios**:
 
@@ -39,7 +39,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 - **FR-001**: `SecretHygieneTests` MUST NOT depend on a real-time race between the upload `SessionLifetime` and the setup steps: the first session's lifetime MUST have ample margin (or be controlled by the factory's fake clock) and the second session MUST still be shown to expire through the sweep, keeping every secret and expiry assertion.
 - **FR-002**: The NATS publish, fetch, and request calls of `ManagerConsumerTopologyTests` and `TransportRecoveryTests` MUST tolerate load by using larger client timeouts or bounded retries of the call that timed out (the check itself unchanged), failing after a generous overall limit.
-- **FR-003**: Fixed short waits in `SimulatedAgentWorkloadBehaviorTests` and `PayloadConformanceTests` MUST become condition waits with a generous overall limit that return as soon as the condition holds.
+- **FR-003**: Fixed short waits in `SimulatedAgentWorkloadBehaviorTests` and `PayloadConformanceTests` MUST become condition waits with a generous overall limit that return as soon as the condition holds. The shared `RunToEndAsync` helper raises its limits for every test in its class; their assertions stay unchanged.
 - **FR-004**: No assertion, expected value, or secret list MUST be removed, loosened, or skipped; every limit only raises the time allowed for a correct outcome.
 - **FR-005**: The change MUST be limited to the five named test files and shared test support in the Integration test project when a helper is needed; no production code, product option default, or other test's assertion changes.
 
@@ -55,7 +55,7 @@ A maintainer running the Integration suite, or the verification of any implement
 - **SC-001**: Each of the five test classes passes in 100% of at least 10 consecutive runs alone, and the whole Integration suite passes in a run, with CPU load applied during at least one of them.
 - **SC-002**: A deliberate probe that breaks the behavior each hardened test checks (session expiry by the sweep, ready-work publication, attempt expiry) makes that test fail in 100% of probes (verified during implementation, probe removed afterward).
 - **SC-003** (post-merge evidence, observed when #194 retries and not verified by a task of this spec): The phase verification of #194 passes the Integration suite without a retry.
-- **SC-004**: No file outside the Integration test project and this spec folder changes, and no assertion is textually removed.
+- **SC-004**: No file outside the Integration test project, this spec folder, and its row in `specs/README.md` changes, and no assertion is textually removed.
 
 ## Assumptions
 
