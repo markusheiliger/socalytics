@@ -63,7 +63,7 @@
 
 ### Final Acceptance
 
-- [ ] T008 Execute the complete `quickstart.md` matrix against `.github/actions/environment-verify/` and `.github/actions/environment-setup/`: run both environment-local test files, the real-`uv` agents fixture where a real `uv` is available, the existing environment-feature self-verification, and `node .github/scripts/check-markdown.mjs`. Correct missing evidence only inside those two folders; confirm that the setup action's `action.yml`, scripts, toolchain declaration, cache keys, and tests are unchanged, that no product project or production claim was introduced, and that the environment change is held for a person's review before merge.
+- [x] T008 Execute the complete `quickstart.md` matrix against `.github/actions/environment-verify/` and `.github/actions/environment-setup/`: run both environment-local test files, the real-`uv` agents fixture where a real `uv` is available, the existing environment-feature self-verification, and `node .github/scripts/check-markdown.mjs`. Correct missing evidence only inside those two folders; confirm that the setup action's `action.yml`, scripts, toolchain declaration, cache keys, and tests are unchanged, that no product project or production claim was introduced, and that the environment change is held for a person's review before merge.
 
 ## Dependencies And Execution Order
 
