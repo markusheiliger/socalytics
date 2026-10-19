@@ -126,7 +126,8 @@ function toFactPage(dto: FactPageDto): FactPage {
   const { run, stream, range } = dto;
   if (
     !run?.runId || !run.matchId || !run.state || !stream?.nodeKey || !stream.capability?.id || !stream.schemaVersion ||
-    !stream.outputType || !stream.executionScope || !range || !isFiniteNumber(range.fromMs) || !isFiniteNumber(range.toMs)
+    !stream.outputType || !stream.executionScope || !range ||
+    (range.fromMs != null && !isFiniteNumber(range.fromMs)) || (range.toMs != null && !isFiniteNumber(range.toMs))
   ) {
     throw incompatible();
   }
@@ -140,7 +141,7 @@ function toFactPage(dto: FactPageDto): FactPage {
       executionScope: stream.executionScope,
       provenance: toProvenance(stream.provenance),
     },
-    range: { fromMs: range.fromMs, toMs: range.toMs },
+    range: { fromMs: range.fromMs ?? undefined, toMs: range.toMs ?? undefined },
     items: (dto.items ?? []).map(toFact),
     coverage: (dto.coverage ?? []).map(toCoverage),
     continuationToken: dto.continuationToken ?? undefined,

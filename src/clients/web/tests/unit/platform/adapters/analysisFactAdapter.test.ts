@@ -103,6 +103,15 @@ describe('analysisFactAdapter', () => {
     expect(outcome.page.items[0].payload).toEqual({ a: 1, b: [true, null, 'x'], c: { d: 'e' } });
   });
 
+  it('maps null or absent range bounds of an unranged page to absent bounds', async () => {
+    const nulls = setup(() => ok(200, { ...page, range: { fromMs: null, toMs: null } }));
+    const first = await createAnalysisFactAdapter(nulls.api).listFacts(request);
+    expect(first.kind === 'found' && first.page.range).toEqual({ fromMs: undefined, toMs: undefined });
+    const partial = setup(() => ok(200, { ...page, range: { fromMs: 5 } }));
+    const second = await createAnalysisFactAdapter(partial.api).listFacts(request);
+    expect(second.kind === 'found' && second.page.range).toEqual({ fromMs: 5, toMs: undefined });
+  });
+
   it('sends the range and the continuation token', async () => {
     const { api, calls } = setup(() => ok(200, { ...page, continuationToken: null }));
     const outcome = await createAnalysisFactAdapter(api).listFacts({ ...request, fromMs: 0, toMs: 5000, continuationToken: 'tok' });

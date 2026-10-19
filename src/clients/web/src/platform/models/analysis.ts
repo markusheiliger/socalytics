@@ -94,7 +94,7 @@ export interface FactPage {
     executionScope: string;
     provenance: Provenance;
   };
-  range: { fromMs: number; toMs: number };
+  range: { fromMs?: number; toMs?: number };
   items: Fact[];
   coverage: CoverageWindow[];
   continuationToken?: string;

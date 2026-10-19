@@ -518,7 +518,7 @@ export class SimulatedApi {
         executionScope: stream.executionScope,
         provenance: stream.provenance,
       },
-      range: { fromMs: rangeStart, toMs: rangeEnd },
+      range: { fromMs, toMs },
       items,
       coverage: stream.coverage
         .map((w) => ({ startMs: Math.max(w.startMs, rangeStart), endMs: Math.min(w.endMs, rangeEnd), state: w.state }))

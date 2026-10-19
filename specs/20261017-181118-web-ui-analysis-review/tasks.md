@@ -114,7 +114,7 @@ description: "Task list for Web UI Connected Analysis Review"
 
 ### Platform range fidelity
 
-- [ ] T029 [US3] Corrective task (research.md R14): in `src/clients/web/src/platform/adapters/analysisFactAdapter.ts`, make `toFactPage` accept `null` or absent `range.fromMs` and `range.toMs` (mapped to absent bounds, a present non-finite bound stays `incompatible`) and make `FactPage.range` in `src/clients/web/src/platform/models/analysis.ts` `{ fromMs?: number; toMs?: number }`; make the fact route of `src/clients/web/tests/e2e/support/simulatedApi.ts` echo `null` for a bound the request did not set instead of an effective range; extend `src/clients/web/tests/unit/platform/adapters/analysisFactAdapter.test.ts` with a page whose range bounds are `null` (FR-007, FR-017, FR-022)
+- [X] T029 [US3] Corrective task (research.md R14): in `src/clients/web/src/platform/adapters/analysisFactAdapter.ts`, make `toFactPage` accept `null` or absent `range.fromMs` and `range.toMs` (mapped to absent bounds, a present non-finite bound stays `incompatible`) and make `FactPage.range` in `src/clients/web/src/platform/models/analysis.ts` `{ fromMs?: number; toMs?: number }`; make the fact route of `src/clients/web/tests/e2e/support/simulatedApi.ts` echo `null` for a bound the request did not set instead of an effective range; extend `src/clients/web/tests/unit/platform/adapters/analysisFactAdapter.test.ts` with a page whose range bounds are `null` (FR-007, FR-017, FR-022)
 
 ### State browser evidence
 
