@@ -2,6 +2,7 @@ import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAdapter';
 import { createRecordingLineageAdapter } from '../../platform/adapters/recordingLineageAdapter';
 import { toPlatformFailure } from '../../platform/failure';
@@ -100,6 +101,8 @@ export function AnalysisRunStates({ matchId }: { matchId: string }) {
                         {run.runningAt && ` · ${t('runs.started', { time: formatKickoff(run.runningAt) })}`}
                         {run.terminatedAt && ` · ${t('runs.ended', { time: formatKickoff(run.terminatedAt) })}`}
                         {run.failureReason && ` · ${t('runs.failure', { reason: run.failureReason })}`}
+                        {' · '}
+                        <Link to={`/matches/${matchId}/analysis-runs/${run.runId}`}>{t('runs.openReview')}</Link>
                       </li>
                     ))}
                   </ul>
