@@ -76,6 +76,22 @@ describe('fetch routing', () => {
     expect(classifyRequest({ method: 'GET', mode: 'cors', url: 'http://other.test/assets/app.js' }, origin)).toBeUndefined();
   });
 
+  it('leaves the analysis run, fact stream, and fact reads unhandled for every method', () => {
+    const runId = '0b0c5f4e-6d3a-4a53-9a0e-6f3c2a1d9b11';
+    const urls = [
+      `/api/v1/analysis/runs/${runId}`,
+      `/api/v1/analysis/runs/${runId}/fact-streams`,
+      `/api/v1/analysis/runs/${runId}/facts`,
+      `/api/v1/analysis/runs/${runId}/facts?stream=lineups&limit=50`,
+    ];
+    for (const url of urls) {
+      for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
+        expect(classify(url, 'cors', method), `${method} ${url}`).toBeUndefined();
+        expect(classify(url, 'navigate', method), `${method} ${url} (navigate)`).toBeUndefined();
+      }
+    }
+  });
+
   it('serves navigations from the cached index.html and falls back to the network', async () => {
     const { caches } = fakeCaches();
     const match = vi.mocked(caches.match);
