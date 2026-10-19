@@ -30,21 +30,21 @@ test('sync command effects explicitly describe required verification and writer 
 });
 
 test('command acceptance and publication share a queued per-implementation lock without locking the parent chain', () => {
-  const command = readFileSync(new URL('../workflows/speckit-commands.yml', import.meta.url), 'utf8');
+  const command = readFileSync(new URL('../workflows/speckit-commands.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   assert.match(command, /group: speckit-publication-\$\{\{ needs\.target\.outputs\.pull \}\}\n\s+queue: max\n\s+cancel-in-progress: false/);
   assert.match(command, /SPECKIT_PUBLICATION_PULL: \$\{\{ needs\.target\.outputs\.pull \}\}/);
   for (const [workflow, jobs] of [
     ['task', ['land']], ['converge', ['land']], ['resolve', ['land']],
     ['repair', ['land', 'report']], ['merge', ['archive', 'land']], ['spec', ['sync']],
   ]) {
-    const text = readFileSync(new URL(`../workflows/speckit-implement-${workflow}.yml`, import.meta.url), 'utf8');
+    const text = readFileSync(new URL(`../workflows/speckit-implement-${workflow}.yml`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
     for (const job of jobs) {
       const block = text.match(new RegExp(`^  ${job}:\\n[\\s\\S]*?(?=^  [a-z_-]+:|$(?![\\s\\S]))`, 'm'))?.[0];
       assert.ok(block, `${workflow}/${job} exists`);
       assert.match(block, /group: speckit-publication-\$\{\{ inputs\.pull \}\}\n\s+queue: max\n\s+cancel-in-progress: false/);
     }
   }
-  const parent = readFileSync(new URL('../workflows/speckit-implement-spec.yml', import.meta.url), 'utf8');
+  const parent = readFileSync(new URL('../workflows/speckit-implement-spec.yml', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   assert.match(parent, /^concurrency:\n  group: speckit-implement-/m);
   assert.doesNotMatch(parent, /^  group: speckit-publication-/m, 'the chain must not hold the publication lock at workflow level while waiting for reusable jobs');
 });
@@ -786,6 +786,16 @@ test('the implementation workflows give task, group, repair, convergence, confli
   assert.match(phaseVerify, /- name: Verify the phase\n\s+if: [^\n]+\n\s+uses: \.\/tooling\/\.github\/actions\/environment-verify/, 'a failed phase verification fails the job');
   assert.match(phaseVerify, /BASE_BRANCH: \$\{\{ inputs\.base \}\}[\s\S]*git merge-base HEAD "origin\/\$BASE_BRANCH"/, 'the phase verification covers all changes of the branch');
   assert.match(job(group, 'verify'), /needs\.prepare\.outputs\.parallel == 'true'[\s\S]*- name: Verify the combined group[\s\S]*uses: \.\/tooling\/\.github\/actions\/environment-verify/);
+  // Parallel tasks are verified together only when a landing combined a sibling's edits, with the affected tests.
+  const groupVerify = job(group, 'verify');
+  assert.match(groupVerify, /- name: Find combined edits\n\s+id: combined\n[\s\S]*run: node tooling\/\.github\/scripts\/speckit-group\.mjs combined-edits/);
+  assert.match(groupVerify, /combined: \$\{\{ steps\.combined\.outputs\.combined \}\}/);
+  for (const step of ['Set up the solution environment', 'Verify the combined group']) {
+    assert.match(groupVerify, new RegExp(`- name: ${step}\\n\\s+if: steps\\.combined\\.outputs\\.combined == 'true' && `), step);
+  }
+  assert.match(groupVerify, /- name: Verify the combined group[\s\S]*mode: task\n/);
+  assert.doesNotMatch(groupVerify, /mode: phase/, 'the phase verification is the full safety net, not the group');
+  assert.match(job(group, 'report'), /SPECKIT_COMBINED: \$\{\{ needs\.verify\.outputs\.combined \|\| 'true' \}\}/);
   for (const [workflow, name] of [[task, 'work'], [merge, 'verify']]) {
     const text = job(workflow, name);
     assert.doesNotMatch(text, /verify-again|again\n/, name);

@@ -1,8 +1,10 @@
 name: Spec Kit implement group
 
 # One ordered phase unit, never started on its own: called serially by Spec Kit implement phase. A singleton delegates
-# directly to one task workflow. Consecutive `[P]` tasks fan out to task workflows and receive full combined
-# verification and reporting after every task has landed.
+# directly to one task workflow. Consecutive `[P]` tasks fan out to task workflows; after every task has landed, the
+# group is verified together only when a landing had to merge a sibling's edits to the same files (the affected tests
+# of the group's changes). Otherwise each task's own verification and the phase verification cover the group, and the
+# report only shows the next unit.
 on:
   workflow_call:
     inputs:
@@ -100,6 +102,7 @@ jobs:
       contents: read
     outputs:
       head: ${{ steps.head.outputs.head }}
+      combined: ${{ steps.combined.outputs.combined }}
     env:
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
@@ -132,18 +135,31 @@ jobs:
         working-directory: workspace
         run: echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      # Only a landing that merged a sibling's edits to the same files three-way adds a risk the tasks' own
+      # verifications did not cover; it records those files in its commit message.
+      - name: Find combined edits
+        id: combined
+        env:
+          SPECKIT_GROUP_START: ${{ needs.prepare.outputs.head }}
+        run: node tooling/.github/scripts/speckit-group.mjs combined-edits
+
       - name: Set up the solution environment
-        if: hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
+        if: steps.combined.outputs.combined == 'true' && hashFiles('tooling/.github/actions/environment-setup/action.yml') != ''
         uses: ./tooling/.github/actions/environment-setup
         with:
           workspace: workspace
 
       - name: Verify the combined group
-        if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
+        if: steps.combined.outputs.combined == 'true' && hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
         uses: ./tooling/.github/actions/environment-verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
-          mode: phase
+          mode: task
           changed-files: ${{ env.SPECKIT_RESULT_DIR }}/changed-files.txt
           log-file: ${{ env.SPECKIT_RESULT_DIR }}/verification.log
 
@@ -192,4 +208,5 @@ jobs:
           SPECKIT_HEAD: ${{ needs.verify.outputs.head }}
           SPECKIT_LAND_OK: "true"
           SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
+          SPECKIT_COMBINED: ${{ needs.verify.outputs.combined || 'true' }}
         run: node .github/scripts/speckit-group.mjs combined-verified
