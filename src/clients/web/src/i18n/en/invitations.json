@@ -51,5 +51,53 @@
       "unreachable": "The platform is not reachable. Try again in a moment.",
       "error": "Something went wrong. Try again later."
     }
+  },
+  "list": {
+    "title": "Invitations",
+    "filterLabel": "Show invitations",
+    "filter": {
+      "all": "All",
+      "pending": "Pending",
+      "expired": "Expired",
+      "accepted": "Accepted",
+      "revoked": "Revoked"
+    },
+    "empty": "There are no invitations.",
+    "listLabel": "Invitations",
+    "state": {
+      "pending": "Pending",
+      "expired": "Expired",
+      "accepted": "Accepted",
+      "revoked": "Revoked"
+    },
+    "delivery": {
+      "queued": "Message queued",
+      "sent": "Message sent",
+      "failed": "Message could not be delivered"
+    },
+    "deliveryLabel": "Delivery: {{value}}",
+    "stateLabel": "State: {{value}}",
+    "accountName": "Sign-in name: {{value}}",
+    "noRoles": "No team roles",
+    "teamRole": "{{team}}: {{role}}",
+    "rolesLabel": "Team roles: {{value}}",
+    "invitedBy": "Invited by {{name}}",
+    "created": "Created {{value}}",
+    "linkExpires": "Link valid until {{value}}",
+    "accepted": "Accepted {{value}}",
+    "revoked": "Revoked {{value}}",
+    "acceptedMember": "Open the member {{name}}",
+    "resend": "Resend invitation to {{address}}",
+    "revoke": "Revoke invitation to {{address}}",
+    "resent": "A new invitation was sent to {{address}}. The previous link no longer works.",
+    "revokedDone": "The invitation to {{address}} was revoked.",
+    "revokeTitle": "Revoke this invitation?",
+    "revokeText": "The link in the invitation to {{address}} stops working, and the sign-in name and email address become available again.",
+    "revokeConfirm": "Revoke invitation",
+    "cancel": "Cancel",
+    "notOpen": "This invitation was already accepted or revoked. The list was refreshed.",
+    "stale": "This invitation was changed in the meantime. The list was refreshed.",
+    "rateLimited": "Too many resends. Try again later.",
+    "rateLimitedWait": "Too many resends. Try again in {{seconds}} seconds."
   }
 }

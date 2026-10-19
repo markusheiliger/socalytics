@@ -1,4 +1,4 @@
-import type { RequestInformation } from '@microsoft/kiota-abstractions';
+import type { Guid, RequestInformation } from '@microsoft/kiota-abstractions';
 import { RetryHandlerOptions } from '@microsoft/kiota-http-fetchlibrary';
 import {
   createInvitationCheckDtoFromDiscriminatorValue,
@@ -7,15 +7,17 @@ import {
   type InvitationDto,
 } from '../../generated/platform-api/models';
 import { PlatformFailure, toPlatformFailure, type FieldError } from '../failure';
-import type { Invitation, InvitationCheck, InvitationTeamRole } from '../models/invitation';
+import type { Invitation, InvitationCheck, InvitationDetail, InvitationTeamRole } from '../models/invitation';
 import type { TeamRoleName } from '../models/session';
-import { errorMappings, withJson, type PlatformApi } from './kiota';
+import { errorMappings, withIfMatch, withJson, type PlatformApi } from './kiota';
 
 /** A refusal the dialog and the public page show to the person; every other failure stays a `PlatformFailure`. */
 export type InvitationRefusal =
   | { kind: 'invalid' }
   | { kind: 'emailAddressInUse' }
   | { kind: 'accountNameTaken' }
+  | { kind: 'notOpen' }
+  | { kind: 'stale' }
   | { kind: 'fieldErrors'; fieldErrors: FieldError[] }
   | { kind: 'rateLimited'; retryAfterSeconds?: number };
 
@@ -28,6 +30,11 @@ export interface InvitationAdapter {
   checkInvitation(token: string): Promise<InvitationResult<InvitationCheck>>;
   /** Anonymous; never establishes a session. */
   acceptInvitation(token: string, password: string): Promise<InvitationResult>;
+  /** Club Admins only; newest first, optionally of one state. */
+  listInvitations(state?: string): Promise<InvitationDetail[]>;
+  /** Issues a new link; the invitation version is sent as `If-Match`. */
+  resendInvitation(id: string, version: number): Promise<InvitationResult<InvitationDetail>>;
+  revokeInvitation(id: string, version: number): Promise<InvitationResult<InvitationDetail>>;
 }
 
 const INVALID_CODE = 'invitation-invalid';
@@ -42,7 +49,9 @@ function refusalOf(failure: PlatformFailure): InvitationRefusal | undefined {
   if (failure.status === 409) {
     if (failure.code === 'email-address-in-use') return { kind: 'emailAddressInUse' };
     if (failure.code === 'account-name-taken') return { kind: 'accountNameTaken' };
+    if (failure.code === 'invitation-not-open') return { kind: 'notOpen' };
   }
+  if (failure.status === 412) return { kind: 'stale' };
   if (failure.status === 400) {
     if (failure.code === INVALID_CODE) return { kind: 'invalid' };
     if (failure.fieldErrors.length > 0) return { kind: 'fieldErrors', fieldErrors: failure.fieldErrors };
@@ -67,6 +76,30 @@ export function toInvitation(dto: InvitationDto | undefined | null): Invitation 
   };
 }
 
+export function toInvitationDetail(dto: InvitationDto | undefined | null): InvitationDetail {
+  const base = toInvitation(dto);
+  if (!dto || !dto.createdAt || !dto.invitedBy?.id || typeof dto.invitedBy.accountName !== 'string') throw new PlatformFailure('incompatible');
+  return {
+    id: base.id,
+    state: base.state,
+    address: base.address,
+    accountName: base.accountName,
+    teamRoles: (dto.teamRoles ?? []).flatMap((r) => {
+      const role = toRole(r.role);
+      return r.teamId && role ? [{ teamId: r.teamId.toString(), teamName: r.teamName ?? '', role }] : [];
+    }),
+    invitedBy: { id: dto.invitedBy.id.toString(), accountName: dto.invitedBy.accountName },
+    createdAt: dto.createdAt,
+    linkExpiresAt: dto.linkExpiresAt ?? undefined,
+    deliveryState: dto.deliveryState ?? undefined,
+    resendCount: dto.resendCount ?? 0,
+    revokedAt: dto.revokedAt ?? undefined,
+    acceptedAt: dto.acceptedAt ?? undefined,
+    acceptedMemberId: dto.acceptedMemberId?.toString(),
+    version: base.version,
+  };
+}
+
 export function createInvitationAdapter(api: PlatformApi): InvitationAdapter {
   // A 429 must reach the person with its wait time instead of being retried silently.
   const noRetry = (info: RequestInformation) => {
@@ -87,7 +120,29 @@ export function createInvitationAdapter(api: PlatformApi): InvitationAdapter {
 
   const invitations = api.client.api.v1.invitations;
 
+  const operate = (id: string, version: number, operation: 'resend' | 'revoke') =>
+    attempt(async () => {
+      try {
+        const item = invitations.byInvitationId(id as Guid);
+        const info = operation === 'resend' ? item.resend.toPostRequestInformation() : item.revoke.toPostRequestInformation();
+        return toInvitationDetail(await api.adapter.send(noRetry(withIfMatch(info, version)), createInvitationDtoFromDiscriminatorValue, errorMappings));
+      } catch (error) {
+        throw toPlatformFailure(error);
+      }
+    });
+
   return {
+    listInvitations: async (state) => {
+      try {
+        const info = invitations.toGetRequestInformation(state ? { queryParameters: { state } } : undefined);
+        const items = await api.adapter.sendCollection(info, createInvitationDtoFromDiscriminatorValue, errorMappings);
+        return (items ?? []).map(toInvitationDetail);
+      } catch (error) {
+        throw toPlatformFailure(error);
+      }
+    },
+    resendInvitation: (id, version) => operate(id, version, 'resend'),
+    revokeInvitation: (id, version) => operate(id, version, 'revoke'),
     createInvitation: (address, accountName, teamRoles) =>
       attempt(async () => {
         try {

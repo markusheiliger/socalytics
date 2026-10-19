@@ -15,6 +15,7 @@ import type { CredentialCode } from '../../platform/models/member';
 import { useSession } from '../../session/sessionContext';
 import { FailureAlert, useFieldError } from '../shared/FailureAlert';
 import { CredentialDialog } from './CredentialDialog';
+import { INVITATIONS_KEY, InvitationsSection } from './InvitationsSection';
 import { InviteMemberDialog } from './InviteMemberDialog';
 import { MemberFailureAlert } from './MemberFailureAlert';
 
@@ -90,6 +91,7 @@ export function MembersPage() {
             ))}
           </Stack>
         ))}
+      <InvitationsSection />
       <Typography variant="h3" sx={{ mt: 3 }}>
         {t('members.createTitle')}
       </Typography>
@@ -137,6 +139,7 @@ export function MembersPage() {
         onInvited={(invitation) => {
           setInviting(false);
           setInvitedAddress(invitation.address);
+          void queryClient.invalidateQueries({ queryKey: INVITATIONS_KEY });
         }}
       />
       <CredentialDialog credential={created?.credential} accountName={created?.name ?? ''} onClose={() => setCreated(undefined)} />
