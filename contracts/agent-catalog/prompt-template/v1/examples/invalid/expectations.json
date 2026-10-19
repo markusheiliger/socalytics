@@ -1,0 +1,6 @@
+{
+  "coach-without-dimension-set-major.json": "required",
+  "unknown-slot.json": "enum",
+  "wrong-response-contract.json": "const",
+  "empty-text.json": "minLength"
+}

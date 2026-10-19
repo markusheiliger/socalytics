@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "prompt-template",
+  "id": "specialist-tactics-prompt",
+  "version": "1.0.0",
+  "group": "specialist",
+  "responseContract": "agent-response/1",
+  "text": "You are {{display_name}} ({{agent_id}}). Answer only from the evidence below and use only these tools: {{tool_policy}}.\n\nEvidence:\n{{evidence_context}}",
+  "slots": ["agent_id", "display_name", "tool_policy", "evidence_context"]
+}

@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "tool-policy",
+  "id": "full-allowlist",
+  "version": "1.0.0",
+  "tools": [
+    "get_match",
+    "get_player_stats",
+    "find_counter_attacks",
+    "find_turnovers",
+    "get_heatmap",
+    "find_ball_actions",
+    "find_set_plays",
+    "get_formations",
+    "find_pressing_phases",
+    "get_tactical_phases",
+    "get_video_clip"
+  ]
+}
