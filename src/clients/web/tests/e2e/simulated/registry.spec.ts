@@ -1,6 +1,6 @@
 import { expectNoAxeViolations } from '../support/axe';
 import { expect, test } from '../support/fixtures';
-import type { RegistryImage, RegistryProfile, RegistryWorkflow, SimulatedApi } from '../support/simulatedApi';
+import { problem, type RegistryImage, type RegistryProfile, type RegistryWorkflow, type SimulatedApi } from '../support/simulatedApi';
 
 const hex = (c: string) => `sha-256:${c.repeat(64)}`;
 const TRACKER_IMAGE = hex('a');
@@ -410,5 +410,189 @@ test.describe('Profiles', () => {
     await expect(dialog).toContainText('The record has changed');
     await expect(dialog).toContainText('Current state: Draft');
     expect(stored?.state).toBe('draft');
+  });
+});
+
+test.describe('Workflows', () => {
+  const SEGMENT_DIGEST = `sha256:${'8'.repeat(64)}`;
+  type Page = import('@playwright/test').Page;
+  const submit = (page: Page) => page.getByRole('button', { name: 'Define workflow version' }).click();
+  const fillSegmentation = async (page: Page) => {
+    await page.getByLabel('Segment duration (seconds)').fill('300');
+    await page.getByLabel('Digest', { exact: true }).fill(SEGMENT_DIGEST);
+  };
+  const versionPage = (id: string, version: string) => `/registry/workflows/${id}/versions/${version}`;
+  const alertWith = (page: Page) => page.getByRole('alert').filter({ hasText: 'The platform refused the' });
+
+  test('a version is defined from approved profiles only (acceptance 1, SC-002)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: false });
+    await page.goto('/registry/workflows');
+    await page.getByRole('link', { name: 'Define workflow version' }).click();
+    await expect(page).toHaveURL(/\/registry\/workflows\/new$/);
+    await page.getByRole('button', { name: 'Add node' }).click();
+    const choices = page.getByLabel('Approved profile version 1').locator('option');
+    await expect(choices).toHaveText(['Choose a profile version', 'tracker version 1']);
+    await page.getByLabel('Node key 1').fill('track');
+    await page.getByLabel('Approved profile version 1').selectOption({ label: 'tracker version 1' });
+    await expect(page.getByRole('checkbox', { name: 'ball-tracking' })).toBeChecked();
+    await expect(page.getByLabel('Completion policy')).toHaveValue('all-requested-capabilities');
+    await page.getByLabel('Workflow id').fill('match-analysis');
+    await page.getByLabel('Workflow version').fill('2.0.0');
+    await fillSegmentation(page);
+    await expectNoAxeViolations(page);
+    await submit(page);
+    await expect(page.getByText('Workflow version defined')).toBeVisible();
+    const stored = api.registryWorkflows.find((w) => w.workflowVersion === '2.0.0');
+    expect(stored?.definition.nodes.map((n) => n.nodeKey)).toEqual(['track']);
+    expect(stored?.definition.requestedCapabilities).toEqual(['ball-tracking']);
+    expect(stored?.definition.completionPolicy).toBe('all-requested-capabilities');
+  });
+
+  test('a version started from an existing one flags unapproved nodes until they are replaced (acceptance 2)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    await page.goto(`${versionPage('match-analysis', '1.0.0')}`);
+    await page.getByRole('link', { name: 'New version from this' }).click();
+    await expect(page.getByText('Started from match-analysis version 1.0.0.')).toBeVisible();
+    await expect(page.getByLabel('Workflow id')).toHaveValue('match-analysis');
+    await expect(page.getByLabel('Workflow version')).toHaveValue('');
+    await expect(page.getByText('The profile version of node poss is no longer approved. Choose an approved profile version.')).toBeVisible();
+    await expect(page.getByLabel('Node key 3')).toHaveValue('track');
+
+    const posts: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST') posts.push(request.url());
+    });
+    await page.getByLabel('Workflow version').fill('2.0.0');
+    await fillSegmentation(page);
+    await submit(page);
+    await expect(page.getByRole('alert').filter({ hasText: 'node poss is no longer approved' })).toBeVisible();
+    expect(posts).toEqual([]);
+    expect(api.registryWorkflows).toHaveLength(2);
+
+    await page.getByLabel('Approved profile version 1').selectOption({ label: 'tracker version 1' });
+    await submit(page);
+    await expect(page.getByText('Workflow version defined')).toBeVisible();
+    expect(api.registryWorkflows.map((w) => w.workflowVersion)).toContain('2.0.0');
+  });
+
+  test('each scripted violation is explained and the input is kept (acceptance 3, SC-003)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    api.on('POST', '/registry/workflows', (route) =>
+      route.fulfill({
+        status: 422,
+        contentType: 'application/problem+json',
+        body: JSON.stringify(
+          problem(422, 'Unprocessable', {
+            code: 'workflow-invalid',
+            errors: [
+              { field: 'nodes.track', code: 'profile-not-approved' },
+              { field: 'workflow', code: 'missing-upstream' },
+              { field: 'workflow', code: 'schema-incompatible' },
+              { field: 'workflow', code: 'cycle' },
+              { field: 'workflow', code: 'unknown-completion-policy' },
+              { field: 'workflow', code: 'invalid-segmentation-policy' },
+            ],
+          }),
+        ),
+      }),
+    );
+    await page.goto('/registry/workflows/new?fromId=match-analysis&fromVersion=1.0.0');
+    await page.getByLabel('Workflow version').fill('2.0.0');
+    await page.getByLabel('Approved profile version 1').selectOption({ label: 'tracker version 1' });
+    await fillSegmentation(page);
+    await submit(page);
+    const alert = alertWith(page);
+    for (const message of [
+      'Node track: the profile version is not approved.',
+      'A required upstream dependency is missing in the workflow.',
+      'An upstream output schema is not compatible with the dependent node.',
+      'The workflow edges form a cycle.',
+      'The completion policy is not known to the platform.',
+      'The segmentation policy is invalid.',
+    ]) {
+      await expect(alert).toContainText(message);
+    }
+    await expect(page.getByLabel('Workflow version')).toHaveValue('2.0.0');
+    await expect(page.getByLabel('Node key 3')).toHaveValue('track');
+    await expectNoAxeViolations(page);
+  });
+
+  test('an existing version identifier is explained (acceptance 3)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    await page.goto('/registry/workflows/new?fromId=match-analysis&fromVersion=1.0.0');
+    await page.getByLabel('Workflow version').fill('1.1.0');
+    await page.getByLabel('Approved profile version 1').selectOption({ label: 'tracker version 1' });
+    await fillSegmentation(page);
+    await submit(page);
+    await expect(alertWith(page)).toContainText('This workflow version already exists. Choose another version.');
+    expect(api.registryWorkflows).toHaveLength(2);
+  });
+
+  test('a stored version becomes the default after the confirmation states its consequence (acceptance 4, SC-006)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    await page.goto(versionPage('match-analysis', '1.1.0'));
+    await page.getByRole('button', { name: 'Make default', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Make workflow version the default' });
+    await expect(dialog).toContainText('The current default is match-analysis version 1.0.0.');
+    await expect(dialog).toContainText('Only analysis runs created afterwards use it; existing runs keep their snapshot.');
+    expect(api.registryDefault?.workflowVersion).toBe('1.0.0');
+    await expectNoAxeViolations(page);
+    await dialog.getByRole('button', { name: 'Make default' }).click();
+    await expect(dialog).toContainText('The workflow version is now the default.');
+    expect(api.registryDefault?.workflowVersion).toBe('1.1.0');
+    await dialog.getByRole('button', { name: 'Close' }).click();
+
+    await page.goto('/registry');
+    await expect(page.getByRole('link', { name: 'match-analysis version 1.1.0' })).toBeVisible();
+    await expect(page.getByText('Changed ', { exact: false })).toBeVisible();
+  });
+
+  test('a default can be set when none exists, without a loaded default (acceptance 7)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: false });
+    await page.goto(versionPage('match-analysis', '1.0.0'));
+    await page.getByRole('button', { name: 'Make default', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Make workflow version the default' });
+    await expect(dialog).toContainText('No default workflow exists yet. Once this version is the default, new analysis runs can be created.');
+    await dialog.getByRole('button', { name: 'Make default' }).click();
+    await expect(dialog).toContainText('The workflow version is now the default.');
+    expect(api.registryDefault?.workflowVersion).toBe('1.0.0');
+    const put = api.requests.filter((r) => r.method === 'PUT' && r.path === '/registry/default-workflow');
+    expect(put).toHaveLength(1);
+    expect(put[0].headers['if-match']).toBeUndefined();
+  });
+
+  test('a version the platform cannot resolve does not become the default (acceptance 5)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    await page.goto(versionPage('match-analysis', '1.1.0'));
+    await page.getByRole('button', { name: 'Make default', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Make workflow version the default' });
+    api.registryWorkflows.splice(
+      api.registryWorkflows.findIndex((w) => w.workflowVersion === '1.1.0'),
+      1,
+    );
+    await dialog.getByRole('button', { name: 'Make default' }).click();
+    await expect(dialog).toContainText('The workflow version cannot be resolved and cannot become the default.');
+    expect(api.registryDefault?.workflowVersion).toBe('1.0.0');
+  });
+
+  test('a default changed meanwhile shows the "has changed" message and the current default (acceptance 6, SC-006)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    await page.goto(versionPage('match-analysis', '1.1.0'));
+    await page.getByRole('button', { name: 'Make default', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Make workflow version the default' });
+    api.seedWorkflow({ ...api.registryWorkflows[0], workflowVersion: '1.2.0' });
+    api.seedDefault({ workflowId: 'match-analysis', workflowVersion: '1.2.0' }, 2);
+    await dialog.getByRole('button', { name: 'Make default' }).click();
+    await expect(dialog).toContainText('The record has changed');
+    await expect(dialog).toContainText('Current default: match-analysis version 1.2.0');
+    expect(api.registryDefault?.workflowVersion).toBe('1.2.0');
   });
 });
