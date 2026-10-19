@@ -63,6 +63,11 @@ public sealed class MonitorAgentAttemptsHandler(
             await scope.CommitAsync(cancellationToken);
         }
 
+        await using (var read = await unitOfWork.BeginAsync(cancellationToken))
+        {
+            AgentOrchestrationMetrics.SetQueuedInvocations(await invocations.CountQueuedAsync(cancellationToken));
+        }
+
         return new AgentMonitorResult(expired, requeued, exhausted, deleted, scopeLost);
     }
 

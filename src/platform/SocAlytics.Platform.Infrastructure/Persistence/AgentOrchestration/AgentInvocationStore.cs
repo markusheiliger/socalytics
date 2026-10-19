@@ -188,6 +188,14 @@ internal sealed class AgentInvocationStore(IDbSession session) : IAgentInvocatio
             new { ownerMemberId }, session.Transaction, cancellationToken: cancellationToken));
     }
 
+    public async Task<long> CountQueuedAsync(CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+            "SELECT count(*) FROM socalytics.agent_invocations WHERE state = 'queued'",
+            transaction: session.Transaction, cancellationToken: cancellationToken));
+    }
+
     public Task<VersionedWriteResult> TransitionAsync(
         Guid invocationId, AgentInvocationState expectedState, long expectedVersion, AgentInvocationState newState,
         AgentFailureReason? failureReason, DateTimeOffset? endedAt, CancellationToken cancellationToken)

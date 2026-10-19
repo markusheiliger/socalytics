@@ -108,6 +108,9 @@ public interface IAgentInvocationStore
     // Counts the owner's invocations where state IN ('queued','running').
     Task<int> CountUnfinishedAsync(Guid ownerMemberId, CancellationToken cancellationToken);
 
+    // Counts all invocations in state queued, for the queued gauge.
+    Task<long> CountQueuedAsync(CancellationToken cancellationToken);
+
     // Applies only while the invocation is in expectedState at expectedVersion; increments progress_version.
     // failureReason and endedAt are stored as given (null for a non-terminal state).
     Task<VersionedWriteResult> TransitionAsync(
