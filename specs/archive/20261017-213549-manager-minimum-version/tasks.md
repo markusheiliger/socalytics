@@ -5,7 +5,7 @@ description: "Task list for Analyst Manager Minimum Version"
 
 # Tasks: Analyst Manager Minimum Version
 
-**Input**: Design documents from `specs/20261017-213549-manager-minimum-version/`
+**Input**: Design documents from `specs/archive/20261017-213549-manager-minimum-version/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 
