@@ -113,8 +113,25 @@ internal sealed class MemberInvitationStore(IDbSession session) : IMemberInvitat
             ") x WHERE @displayState::text IS NULL OR x.DisplayState = @displayState::text ORDER BY x.CreatedAt DESC, x.Id DESC",
             new { now, displayState = displayState?.ToWireValue() }, session.Transaction, cancellationToken: cancellationToken));
 
-        return rows
-            .Select(r => new InvitationListItem(ToInvitation(r), r.TeamNames.Cast<string>().ToList(), r.InvitedByAccountName, r.DeliveryState))
+        var list = rows.ToList();
+        var ids = list.Select(r => r.Id).ToArray();
+        var roleRows = ids.Length == 0
+            ? []
+            : await connection.QueryAsync<(Guid InvitationId, Guid TeamId, string TeamName, string Role)>(new CommandDefinition(
+                "SELECT r.invitation_id AS InvitationId, r.team_id AS TeamId, t.name AS TeamName, r.role AS Role " +
+                "FROM socalytics.member_invitation_team_roles r JOIN socalytics.team t ON t.id = r.team_id " +
+                "WHERE r.invitation_id = ANY(@ids) ORDER BY t.name, t.id",
+                new { ids }, session.Transaction, cancellationToken: cancellationToken));
+        var rolesByInvitation = roleRows.ToLookup(r => r.InvitationId);
+        return list
+            .Select(r => new InvitationListItem(
+                ToInvitation(r),
+                r.TeamNames.Cast<string>().ToList(),
+                r.InvitedByAccountName,
+                r.DeliveryState,
+                [.. rolesByInvitation[r.Id].Select(x => TeamRoleRules.TryParse(x.Role, out var role)
+                    ? new InvitationListTeamRole(x.TeamId, x.TeamName, role)
+                    : throw new InvalidOperationException($"Unknown stored team role '{x.Role}'."))]))
             .ToList();
     }
 

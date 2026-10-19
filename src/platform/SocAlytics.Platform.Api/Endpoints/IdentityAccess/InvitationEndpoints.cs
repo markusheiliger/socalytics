@@ -1,5 +1,7 @@
+using System.Globalization;
 using SocAlytics.Platform.Api.Http;
 using SocAlytics.Platform.Api.Security;
+using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.IdentityAccess.Invitations;
 using SocAlytics.Platform.Domain.IdentityAccess;
 
@@ -53,6 +55,34 @@ internal static class InvitationEndpoints
 			.ProducesProblem(StatusCodes.Status403Forbidden)
 			.ProducesProblem(StatusCodes.Status409Conflict)
 			.ProducesProblem(StatusCodes.Status415UnsupportedMediaType);
+		invitations.MapGet("/invitations", ListAsync)
+			.WithName("listInvitations")
+			.WithTags(Tag)
+			.Produces<InvitationDto[]>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden);
+		invitations.MapPost("/invitations/{invitationId:guid}/resend", ResendAsync)
+			.WithName("resendInvitation")
+			.WithTags(Tag)
+			.Produces<InvitationDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired)
+			.ProducesProblem(StatusCodes.Status429TooManyRequests);
+		invitations.MapPost("/invitations/{invitationId:guid}/revoke", RevokeAsync)
+			.WithName("revokeInvitation")
+			.WithTags(Tag)
+			.Produces<InvitationDto>()
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 
 		var anonymous = routes.MapGroup(MemberApiRouteGroup.Prefix + "/invitations");
 		anonymous.MapPost("/checks", CheckAsync)
@@ -110,6 +140,112 @@ internal static class InvitationEndpoints
 			i.AcceptedAt,
 			i.AcceptedMemberId,
 			i.Version);
+	}
+
+	private static InvitationDto ToDto(InvitationListItem item, TimeProvider time)
+	{
+		var i = item.Invitation;
+		return new InvitationDto(
+			i.Id,
+			i.DisplayState(time.GetUtcNow()).ToWireValue(),
+			i.Address,
+			i.AccountName.Value,
+			[.. item.TeamRoles.Select(r => new InvitationTeamRoleDto(r.TeamId, r.TeamName, r.Role.ToWireValue()))],
+			new InvitationInviterDto(i.InvitedBy, item.InvitedByAccountName),
+			i.CreatedAt,
+			i.OpenLinkIssuedAt,
+			i.OpenLinkExpiresAt,
+			item.DeliveryState,
+			i.ResendCount,
+			i.RevokedAt,
+			i.AcceptedAt,
+			i.AcceptedMemberId,
+			i.Version);
+	}
+
+	private static async Task<IResult> ListAsync(
+		string? state,
+		ListInvitationsHandler handler,
+		TimeProvider time,
+		CancellationToken cancellationToken)
+	{
+		var result = await handler.HandleAsync(new ListInvitationsQuery(state), cancellationToken);
+		return result.IsSuccess
+			? Results.Ok(result.Value.Select(i => ToDto(i, time)).ToArray())
+			: ProblemResults.From(result.Failure);
+	}
+
+	private static async Task<IResult> ResendAsync(
+		Guid invitationId,
+		HttpContext http,
+		ResendInvitationHandler handler,
+		ListInvitationsHandler reader,
+		TimeProvider time,
+		CancellationToken cancellationToken)
+	{
+		var version = IfMatchHeader.Parse(http.Request);
+		if (!version.IsSuccess)
+		{
+			return ProblemResults.From(version.Failure);
+		}
+
+		var result = await handler.HandleAsync(new ResendInvitationCommand(invitationId, version.Value), cancellationToken);
+		if (!result.IsSuccess)
+		{
+			return ProblemResults.From(result.Failure);
+		}
+
+		if (result.Value.RetryAfter is { } wait)
+		{
+			http.Response.Headers.RetryAfter = Math.Max(1, (int)Math.Ceiling(wait.TotalSeconds)).ToString(CultureInfo.InvariantCulture);
+			return ProblemResults.Problem(StatusCodes.Status429TooManyRequests, "invitation-resend-rate-limited");
+		}
+
+		return await ReadOneAsync(invitationId, http, reader, time, cancellationToken);
+	}
+
+	private static async Task<IResult> RevokeAsync(
+		Guid invitationId,
+		HttpContext http,
+		RevokeInvitationHandler handler,
+		ListInvitationsHandler reader,
+		TimeProvider time,
+		CancellationToken cancellationToken)
+	{
+		var version = IfMatchHeader.Parse(http.Request);
+		if (!version.IsSuccess)
+		{
+			return ProblemResults.From(version.Failure);
+		}
+
+		var result = await handler.HandleAsync(new RevokeInvitationCommand(invitationId, version.Value), cancellationToken);
+		return result.IsSuccess
+			? await ReadOneAsync(invitationId, http, reader, time, cancellationToken)
+			: ProblemResults.From(result.Failure);
+	}
+
+	private static async Task<IResult> ReadOneAsync(
+		Guid invitationId,
+		HttpContext http,
+		ListInvitationsHandler reader,
+		TimeProvider time,
+		CancellationToken cancellationToken)
+	{
+		var listed = await reader.HandleAsync(new ListInvitationsQuery(null), cancellationToken);
+		if (!listed.IsSuccess)
+		{
+			return ProblemResults.From(listed.Failure);
+		}
+
+		var item = listed.Value.FirstOrDefault(i => i.Invitation.Id == invitationId);
+		if (item is null)
+		{
+			return ProblemResults.From(OperationFailure.NotFound());
+		}
+
+		var dto = ToDto(item, time);
+		http.Response.Headers.ETag = IfMatchHeader.Format(dto.Version);
+		return Results.Ok(dto);
 	}
 
 	private static async Task<IResult> CreateAsync(

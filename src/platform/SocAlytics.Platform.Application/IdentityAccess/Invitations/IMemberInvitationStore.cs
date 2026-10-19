@@ -22,12 +22,15 @@ public sealed record StoredMemberInvitation(
     string AddressHash,
     IReadOnlyList<InvitationTeamRoleRecord> TeamRoles);
 
+public sealed record InvitationListTeamRole(Guid TeamId, string TeamName, TeamRole Role);
+
 /// <summary>One row of the invitation list; <paramref name="DeliveryState"/> is <c>queued</c>, <c>sent</c>, or <c>failed</c>, or <c>null</c> without a message.</summary>
 public sealed record InvitationListItem(
     MemberInvitation Invitation,
     IReadOnlyList<string> TeamNames,
     string InvitedByAccountName,
-    string? DeliveryState);
+    string? DeliveryState,
+    IReadOnlyList<InvitationListTeamRole> TeamRoles);
 
 public sealed record StoredInvitationLink(
     Guid Id,
