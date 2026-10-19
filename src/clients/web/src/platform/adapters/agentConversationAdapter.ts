@@ -207,9 +207,10 @@ function detailText(value: unknown): string {
 }
 
 function toLineage(dto: AgentInvocationLineageDto, etag: string): InvocationLineage {
-  const advice = dto.advice
+  // An unfinished turn has `advice: null`, which Kiota deserializes into an empty object.
+  const advice = dto.advice?.advice
     ? {
-        text: required(dto.advice.advice),
+        text: dto.advice.advice,
         evidenceReferences: [],
         executionReferences: toExecutionReferences(dto.advice.executionReferences),
       }

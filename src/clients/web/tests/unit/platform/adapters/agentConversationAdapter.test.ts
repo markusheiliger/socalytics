@@ -160,6 +160,20 @@ describe('agentConversationAdapter', () => {
     expect(result.value.advice).toMatchObject({ evidenceReferences: [], executionReferences: { runtime: 'hermes', model: 'm1' } });
   });
 
+  it('maps the lineage of an unfinished turn whose advice is null', async () => {
+    const { api } = setup(() =>
+      withHeaders(
+        200,
+        { invocationId, policyVersion: 'p1', entries: [{ sequence: 1, kind: 'submitted', attemptId: null, attemptNumber: null, recordedAt: '2026-10-01T12:00:00Z', details: {} }], advice: null },
+        { ETag: '"l0"' },
+      ),
+    );
+    const result = await createAgentConversationAdapter(api).getLineage(invocationId);
+    if (result.kind !== 'changed') throw new Error('expected changed');
+    expect(result.value.entries).toHaveLength(1);
+    expect(result.value.advice).toBeUndefined();
+  });
+
   describe('refusals', () => {
     const submit = (api: ReturnType<typeof setup>['api']) =>
       createAgentConversationAdapter(api).submitQuestion(conversationId, 'specialist-tactics', 'Why?', 'k');
