@@ -10,13 +10,11 @@
     "runChoice": "Analysis run",
     "runOption": "{{state}}, created {{time}}",
     "cancel": "Cancel",
-    "item": "Conversation created {{time}}, bound to the analysis run created {{runTime}}",
     "createdAt": "Created {{time}}",
     "boundRun": "Analysis run created {{time}}",
     "boundRunId": "Analysis run {{id}}",
     "participants": "Participants: {{names}}",
     "noParticipants": "No agents take part yet.",
-    "open": "Open conversation",
     "notCurrentRun": "No longer current run",
     "retry": "Try again",
     "runNotEligible": "This analysis run cannot be used for triage. Choose another run.",
@@ -38,8 +36,7 @@
     "showMore": "Show more",
     "loadingMore": "Loading…",
     "retry": "Try again",
-    "loading": "Loading the conversation…",
-    "conversationChanged": "The conversation changed. It has been reloaded; choose again."
+    "loading": "Loading the conversation…"
   },
   "participants": {
     "title": "Participants",
@@ -74,7 +71,6 @@
     "questionRequired": "Enter a question.",
     "questionTooLong": "The question is too long. Shorten it to at most {{max}} characters.",
     "questionInvalid": "The question cannot be sent as written. Change it and try again.",
-    "agentRequired": "Choose an agent to ask.",
     "noParticipantAgents": "Add an agent to the conversation before asking a question."
   },
   "turn": {
@@ -82,12 +78,10 @@
     "question": "Question",
     "to": "To {{name}}",
     "submittedAt": "Submitted {{time}}",
-    "sending": "Sending…",
     "queued": "Waiting for the agent",
     "running": "The agent is working on it",
     "attempt": "Attempt {{count}}",
     "unknownState": "{{state}}",
-    "failedTitle": "No advice",
     "failed": {
       "attempts-exhausted": "No advice: the agent did not finish after several attempts.",
       "execution-failed": "No advice: the agent could not answer this question.",
@@ -114,7 +108,6 @@
     "empty": "No lineage entries were recorded.",
     "retry": "Try again",
     "policyVersion": "Policy version {{version}}",
-    "entry": "{{kind}}",
     "attempt": "Attempt {{number}}",
     "recordedAt": "{{time}}",
     "details": "Details",
@@ -163,8 +156,7 @@
     "turnRunning": "{{name}} is working on your question",
     "turnQueued": "Your question to {{name}} is waiting",
     "questionSent": "Your question to {{name}} was sent",
-    "participantAdded": "{{name}} was added to the conversation",
-    "conversationStarted": "The triage conversation was started"
+    "participantAdded": "{{name}} was added to the conversation"
   },
   "leave": {
     "title": "Leave this conversation?",
