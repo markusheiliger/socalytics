@@ -1,0 +1,6 @@
+{
+  "positional-weight-array.json": "type",
+  "weight-above-100.json": "maximum",
+  "no-football-domain-reviewer.json": "minItems",
+  "fractional-weight.json": "type"
+}

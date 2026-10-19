@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "philosophy-profile",
+  "id": "coach-jurgen-klopp",
+  "version": "1.0.0",
+  "dimensionSet": { "id": "coach-philosophy-dimensions", "version": "1.0.0" },
+  "weights": [20, 10, 10, 15, 20, 5, 15, 5],
+  "author": "SocAlytics architecture",
+  "reviewers": { "architecture": ["architecture-review"], "footballDomain": ["football-domain-review"] }
+}
