@@ -9,7 +9,7 @@ import textwrap
 from collections.abc import Callable
 from pathlib import Path
 
-from fixtures.mounts import Mount, validate_written_json
+from fixtures.mounts import MATCH_JOB_EXAMPLE, Mount, validate_written_json
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "minimal_analyst.py"
 
@@ -73,7 +73,8 @@ def test_minimal_analyst_example_writes_a_segment_result(segment_mount: Mount) -
     assert "facts.json" in {entry["name"] for entry in manifest["artifacts"]}
 
 
-def test_minimal_analyst_example_writes_a_match_result(match_mount: Mount) -> None:
+def test_minimal_analyst_example_writes_a_match_result(mount_factory: Callable[..., Mount]) -> None:
+    match_mount = mount_factory(job_example_name=MATCH_JOB_EXAMPLE, adjust_job=lambda job: job.update(inputs=[]))
     completed = run_script(EXAMPLE, match_mount)
 
     assert completed.returncode == 0, completed.stderr

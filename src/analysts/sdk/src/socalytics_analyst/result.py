@@ -78,9 +78,11 @@ class ResultWriter:
         attempt: AttemptContext,
         output_type: str,
         root: Path = DEFAULT_ROOT,
+        inputs: Any = (),
     ) -> None:
         if output_type not in _OUTPUT_TYPES:
             raise errors.ResultError(errors.RESULT_VALUE_INVALID, "the output type is not a supported output type.")
+        self._inputs = tuple(inputs or ())
         self._job = job
         self._attempt = attempt
         self._output_type = output_type
@@ -197,7 +199,36 @@ class ResultWriter:
         self._placed.clear()
         shutil.rmtree(self._staging, ignore_errors=True)
 
+    def _derived_window(self) -> tuple[int, int] | None:
+        """The smallest window containing the validity window of every staged upstream result."""
+        windows = [
+            (result.manifest.validity_window.start_ms, result.manifest.validity_window.end_ms)
+            for dependency in self._inputs
+            for result in dependency.results
+        ]
+        if not windows:
+            return None
+        return min(start for start, _ in windows), max(end for _, end in windows)
+
+    def _input_coverage(self) -> list[dict[str, Any]]:
+        """The staged coverage, unchanged, of each dependency whose staged coverage states mode partial."""
+        report: list[dict[str, Any]] = []
+        for dependency in self._inputs:
+            staged = dependency.coverage
+            if staged is None or staged.upstream.coverage is None or staged.upstream.coverage.mode != "partial":
+                continue
+            report.append(
+                {
+                    "capability": staged.upstream.capability.model_dump(by_alias=True),
+                    "schemaVersion": staged.upstream.schema_version,
+                    "units": [unit.model_dump(by_alias=True, exclude_none=True) for unit in staged.coverage],
+                }
+            )
+        return report
+
     def _finalize(self) -> None:
+        if self._window is None and self._job.execution_scope != "segment":
+            self._window = self._derived_window()
         if self._window is None:
             raise errors.ResultError(errors.VALIDITY_WINDOW_MISSING, "the match job has no validity window.")
         start, end = self._window
@@ -324,7 +355,7 @@ class ResultWriter:
             for result in entry.accepted_results
         ]
 
-        return {
+        manifest: dict[str, Any] = {
             "contractVersion": MANIFEST_CONTRACT_VERSION,
             "scope": scope,
             "provenance": provenance,
@@ -339,3 +370,7 @@ class ResultWriter:
             "confidence": confidence,
             "evidenceReferences": list(self._evidence),
         }
+        coverage = self._input_coverage()
+        if coverage:
+            manifest["inputCoverage"] = coverage
+        return manifest

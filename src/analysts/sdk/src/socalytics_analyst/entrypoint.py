@@ -9,6 +9,7 @@ from typing import NoReturn
 
 from . import context as context_module
 from . import errors
+from .inputs import load_inputs
 from .result import ResultWriter
 
 SUCCESS_EXIT_CODE = 0
@@ -34,8 +35,9 @@ def run(
     writer: ResultWriter | None = None
     try:
         job, attempt = context_module.load_documents(root)
-        writer = ResultWriter(job, attempt, output_type, root)
-        analyst(context_module.build_context(root, job, attempt, writer))
+        inputs = load_inputs(root, job)
+        writer = ResultWriter(job, attempt, output_type, root, inputs)
+        analyst(context_module.build_context(root, job, attempt, writer, inputs))
         writer.finalize()
         summary = f"socalytics-analyst: finalized facts={writer.fact_count} artifacts={writer.artifact_count}"
     except Exception as exc:

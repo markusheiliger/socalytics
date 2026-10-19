@@ -10,6 +10,7 @@ from typing import Any, TypeVar
 from pydantic import BaseModel, ValidationError
 
 from . import errors, schemas
+from .inputs import load_inputs
 from .models.attempt import AttemptContext
 from .models.job import LogicalJob
 
@@ -80,6 +81,8 @@ def scratch_path(root: Path = DEFAULT_ROOT) -> Path:
     return root / SCRATCH_DIRECTORY
 
 
-def build_context(root: Path, job: LogicalJob, attempt: AttemptContext, result: Any, inputs: Any = ()) -> AnalystContext:
-    """Assemble the context from loaded documents and the result writer."""
+def build_context(root: Path, job: LogicalJob, attempt: AttemptContext, result: Any, inputs: Any = None) -> AnalystContext:
+    """Assemble the context from loaded documents and the result writer; staged inputs load unless given."""
+    if inputs is None:
+        inputs = load_inputs(root, job)
     return AnalystContext(job=job, attempt=attempt, result=result, scratch=scratch_path(root), inputs=inputs)
