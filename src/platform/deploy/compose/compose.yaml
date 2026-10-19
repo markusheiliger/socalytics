@@ -100,8 +100,14 @@ services:
       WebUi__MinimumVersion: ${SOCALYTICS_RELEASE_VERSION:?SOCALYTICS_RELEASE_VERSION is required}
       Stamp__Id: ${SOCALYTICS_STAMP_ID:?SOCALYTICS_STAMP_ID is required}
       Stamp__PublicBaseUri: ${SOCALYTICS_PUBLIC_BASE_URI:?SOCALYTICS_PUBLIC_BASE_URI is required}
-      Notifications__WebUiBaseUri: http://localhost:${SOCALYTICS_WEB_PORT:?SOCALYTICS_WEB_PORT is required}
-      Registry__Pairing__VerificationBaseUri: http://localhost:${SOCALYTICS_WEB_PORT:?SOCALYTICS_WEB_PORT is required}
+      Notifications__WebUiBaseUri: ${SOCALYTICS_PUBLIC_BASE_URI:?SOCALYTICS_PUBLIC_BASE_URI is required}
+      Registry__Pairing__VerificationBaseUri: ${SOCALYTICS_PUBLIC_BASE_URI:?SOCALYTICS_PUBLIC_BASE_URI is required}
+      IdentityAccess__Session__IdleTimeout: "00:30:00"
+      IdentityAccess__Session__AbsoluteLifetime: "08:00:00"
+      IdentityAccess__Lockout__MaxFailedAccessAttempts: "5"
+      IdentityAccess__Lockout__LockoutDuration: "00:15:00"
+      IdentityAccess__Password__RequiredLength: "12"
+      IdentityAccess__OneTimeCredential__Lifetime: "1.00:00:00"
       ClubBootstrap__ClubDisplayName: ${SOCALYTICS_CLUB_DISPLAY_NAME:?SOCALYTICS_CLUB_DISPLAY_NAME is required}
       ClubBootstrap__FirstClubAdmin__AccountName: ${SOCALYTICS_FIRST_CLUB_ADMIN_ACCOUNT_NAME:?SOCALYTICS_FIRST_CLUB_ADMIN_ACCOUNT_NAME is required}
       ClubBootstrap__FirstClubAdmin__InitialPassword: ${SOCALYTICS_FIRST_CLUB_ADMIN_INITIAL_PASSWORD:?SOCALYTICS_FIRST_CLUB_ADMIN_INITIAL_PASSWORD is required}
