@@ -29,5 +29,27 @@
       "too-long": "This value is too long.",
       "other": "The platform refused this value."
     }
+  },
+  "accept": {
+    "title": "Accept your invitation",
+    "checking": "Checking your invitation…",
+    "intro": "You are invited to join {{clubName}}. Choose a password for your account.",
+    "accountName": "Sign-in name",
+    "password": "Password",
+    "confirmPassword": "Confirm password",
+    "submit": "Create account",
+    "submitting": "Saving…",
+    "invalid": "This invitation cannot be used. Contact your club for help.",
+    "done": "Your account is ready. Sign in with your sign-in name and your new password.",
+    "toSignIn": "Go to sign in",
+    "rateLimited": "Too many requests. Try again in {{seconds}} seconds.",
+    "rateLimitedUnknown": "Too many requests. Try again later.",
+    "problem": {
+      "mismatch": "The two passwords do not match.",
+      "policy": "This password does not meet the password requirements. Choose another one; your invitation is still valid.",
+      "refused": "The platform refused this password. Choose another one.",
+      "unreachable": "The platform is not reachable. Try again in a moment.",
+      "error": "Something went wrong. Try again later."
+    }
   }
 }
