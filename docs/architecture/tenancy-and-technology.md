@@ -77,7 +77,10 @@ Compose project namespace represents one deployment stamp and uses
 Compose-managed PostgreSQL, NATS JetStream, and S3-compatible storage on
 durable, stamp-dedicated logical volumes and networks. Physical hosts may be
 shared only when database, storage, messaging, credentials, configuration,
-network, volume, and resource isolation remain independently verifiable.
+network, volume, and resource isolation remain independently verifiable. A
+self-hosted evaluation composition implements one stamp per Compose project
+namespace on stamp-scoped volumes and networks as development evidence; it is
+not a production profile.
 
 .NET Aspire remains the local-development composition and is not the
 production orchestrator. The complete environment inventory, persistence,
