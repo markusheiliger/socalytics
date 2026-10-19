@@ -89,7 +89,7 @@ against the canonical schemas and equal to the job's values; failures exit 1 or 
 
 ### Test fixtures
 
-- [ ] T016 [US1] Add `src/analysts/sdk/tests/conftest.py` and `src/analysts/sdk/tests/fixtures/mounts.py`: builders that create a temporary mount root with `job.json` (from the analyst-job 1.1.0 valid examples, adjustable), `attempt.json`, `result/`, `scratch/`, and optionally staged inputs in the staged-inputs layout, plus a helper that validates a written document against the canonical schemas in the repository's `contracts/` (FR-022)
+- [x] T016 [US1] Add `src/analysts/sdk/tests/conftest.py` and `src/analysts/sdk/tests/fixtures/mounts.py`: builders that create a temporary mount root with `job.json` (from the analyst-job 1.1.0 valid examples, adjustable), `attempt.json`, `result/`, `scratch/`, and optionally staged inputs in the staged-inputs layout, plus a helper that validates a written document against the canonical schemas in the repository's `contracts/` (FR-022)
 
 ### Tests for User Story 1
 
