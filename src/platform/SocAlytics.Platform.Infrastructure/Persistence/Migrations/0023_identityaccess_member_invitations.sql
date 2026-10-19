@@ -66,6 +66,6 @@ CREATE INDEX ix_member_invitation_links_open ON socalytics.member_invitation_lin
 
 ALTER TABLE socalytics.email_messages
     ALTER COLUMN account_id DROP NOT NULL,
-    ADD COLUMN invitation_link_id uuid NULL REFERENCES socalytics.member_invitation_links (id),
+    ADD COLUMN invitation_ref uuid NULL REFERENCES socalytics.member_invitation_links (id),
     ADD CONSTRAINT ck_email_messages_invitation CHECK (
-        (notification_type = 'member-invitation') = (invitation_link_id IS NOT NULL AND account_id IS NULL));
+        (notification_type = 'member-invitation') = (invitation_ref IS NOT NULL AND account_id IS NULL));
