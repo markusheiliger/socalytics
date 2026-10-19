@@ -81,7 +81,7 @@ description: "Task list for Web UI Analyst Registry Administration"
 
 ### Browse browser evidence
 
-- [ ] T018 [US1] Create `src/clients/web/tests/e2e/simulated/registry.spec.ts` with a `Browse` block: a Club Admin reaches the overview in at most two navigation steps from home, sees the default workflow and the "no default" variant, filters images by capability id, opens an image and its manifest text, filters profiles by state, opens a profile version and a workflow version with its node and edge lists, sees raw values for an unknown tier and edge kind, and sees the not-found view for an unknown digest (US1 acceptance 1–7, SC-001)
+- [x] T018 [US1] Create `src/clients/web/tests/e2e/simulated/registry.spec.ts` with a `Browse` block: a Club Admin reaches the overview in at most two navigation steps from home, sees the default workflow and the "no default" variant, filters images by capability id, opens an image and its manifest text, filters profiles by state, opens a profile version and a workflow version with its node and edge lists, sees raw values for an unknown tier and edge kind, and sees the not-found view for an unknown digest (US1 acceptance 1–7, SC-001)
 
 **Checkpoint**: The read-only Registry area works and is testable on its own.
 
