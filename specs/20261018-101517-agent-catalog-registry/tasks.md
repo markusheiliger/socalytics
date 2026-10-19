@@ -52,7 +52,7 @@ description: "Task list for Agent Catalog Registry"
 
 ### Registration of foundations
 
-- [ ] T012 Register the stores, `AgentCatalogRecordValidator`, and `AgentCatalogMetrics` in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs` and `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`; run `dotnet build src/platform/SocAlytics.Platform.slnx` and the Integration tests of T011 (FR-003, FR-025a)
+- [x] T012 Register the stores, `AgentCatalogRecordValidator`, and `AgentCatalogMetrics` in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs` and `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`; run `dotnet build src/platform/SocAlytics.Platform.slnx` and the Integration tests of T011 (FR-003, FR-025a)
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 

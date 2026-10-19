@@ -86,6 +86,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IAgentAttemptStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentAttemptStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IAgentWorkloadOperationStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentWorkloadOperationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IAgentWorkloadTokenStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentWorkloadTokenStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentCatalogArtifactStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentCatalogArtifactStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentVersionStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentVersionStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentEnablementStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentEnablementStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.IAgentInvocationPinStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.Catalog.AgentInvocationPinStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisRunQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.IFactQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.FactQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisOperationalQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisOperationalQueries>();

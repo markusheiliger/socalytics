@@ -150,6 +150,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadTokenHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.AuthenticateAgentWorkloadRequestHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadQueueCredentialsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Catalog.AgentCatalogRecordValidator>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAvailableAgentsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.CreateAgentConversationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAgentConversationsHandler>();
