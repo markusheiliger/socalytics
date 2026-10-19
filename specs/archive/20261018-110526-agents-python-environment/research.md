@@ -32,7 +32,7 @@
 
 **Decision**: A change under any folder directly below `contracts/` whose name starts with `agent-`, or under `contracts/common/`, selects every existing agent project (clarification of 2026-10-18).
 
-**Rationale**: The agents consume `contracts/agent-catalog/` ([Agent Catalog Registry](../20261018-101517-agent-catalog-registry/plan.md)), `contracts/agent-tools/` ([Agent Evidence Tools](../20261018-104924-agent-evidence-tools/plan.md)), and `contracts/agent-orchestration/` ([Agent Orchestration Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md)); a later agent contract family should not need an environment change. The match is on the first folder name below `contracts/` (`agent-` prefix), so `contracts/agentic/` or a file named `contracts/agent-x.md` at the root of `contracts/` does not match. `contracts/analysis/` stays an Analyst trigger only.
+**Rationale**: The agents consume `contracts/agent-catalog/` ([Agent Catalog Registry](../../20261018-101517-agent-catalog-registry/plan.md)), `contracts/agent-tools/` ([Agent Evidence Tools](../../20261018-104924-agent-evidence-tools/plan.md)), and `contracts/agent-orchestration/` ([Agent Orchestration Invocations](../20261017-204332-agent-orchestration-invocations/spec.md)); a later agent contract family should not need an environment change. The match is on the first folder name below `contracts/` (`agent-` prefix), so `contracts/agentic/` or a file named `contracts/agent-x.md` at the root of `contracts/` does not match. `contracts/analysis/` stays an Analyst trigger only.
 
 **Alternatives considered**: An explicit folder list: every new agent contract family would need an environment spec. All of `contracts/`: needless agent runs for Analyst Manager and recording contracts.
 
@@ -40,7 +40,7 @@
 
 **Decision**: Agent projects may depend only on agent projects. The agents area fails when an agent project name repeats an Analyst project name; the Analyst area does not read agent manifests.
 
-**Rationale**: The architecture separates the Analyst runtime (Analyst SDK and capabilities in Analyst containers) from the intelligence plane, which consumes platform APIs and MCP ([Intelligence and Agents](../../docs/architecture/intelligence-and-agents.md)). No planned agent needs Analyst code. Unique names keep a project identity unambiguous in logs and diagnoses; reporting the collision only in the newer area keeps the Analyst check unchanged.
+**Rationale**: The architecture separates the Analyst runtime (Analyst SDK and capabilities in Analyst containers) from the intelligence plane, which consumes platform APIs and MCP ([Intelligence and Agents](../../../docs/architecture/intelligence-and-agents.md)). No planned agent needs Analyst code. Unique names keep a project identity unambiguous in logs and diagnoses; reporting the collision only in the newer area keeps the Analyst check unchanged.
 
 **Alternatives considered**: Allowing agents to depend on the Analyst SDK: no consumer needs it, and it would make Analyst SDK changes select agent projects. Reporting duplicates in both checks: changes the Analyst check's behavior because of agent files.
 

@@ -5,7 +5,7 @@ All Technical Context items are resolved; no `NEEDS CLARIFICATION` remains. Each
 siblings [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md),
 [Agent Evidence Tools API](../20261018-104924-agent-evidence-tools/spec.md),
 [MCP Server](../20261018-111804-mcp-server/spec.md),
-[Agents Python Verification Environment](../20261018-110526-agents-python-environment/spec.md), and
+[Agents Python Verification Environment](../archive/20261018-110526-agents-python-environment/spec.md), and
 [Cloud-Neutral OCI Images](../archive/20261018-092503-oci-images/spec.md), and on
 [Intelligence and Agents](../../docs/architecture/intelligence-and-agents.md).
 
@@ -14,7 +14,7 @@ siblings [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec
 - **Decision**: One independent uv project at `src/agents/hermes/` with the distribution name `socalytics-hermes`, the
   import package `socalytics_hermes` (src layout), `requires-python = ">=3.12,<3.13"`, the `hatchling` build backend and
   `pytest` in a locked `dev` dependency group, and a committed `uv.lock`, as the agent project convention of the
-  [environment interface](../20261018-110526-agents-python-environment/contracts/environment-interface.md) requires; no
+  [environment interface](../archive/20261018-110526-agents-python-environment/contracts/environment-interface.md) requires; no
   local path dependency (the MCP server is a separate deployable, not a library). Runtime dependencies, each declared
   directly where Hermes imports it: `agent-framework-core==1.22.0` (Microsoft Agent Framework: agents, chat clients,
   function tools, and its OpenAI chat client, which brings the `openai` SDK), `mcp==2.3.0` (official MCP Python SDK,
@@ -267,7 +267,7 @@ siblings [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec
 
 - **Decision**: No tool beyond the environment: CPython 3.12.15 and uv 0.13.1 from the merged Analyst and Media
   Verification Environment; verification of `src/agents/<name>/` from
-  [Agents Python Verification Environment](../20261018-110526-agents-python-environment/spec.md) (must merge first);
+  [Agents Python Verification Environment](../archive/20261018-110526-agents-python-environment/spec.md) (must merge first);
   .NET 10, Docker, and Testcontainers for the platform, contract, and image tests from the platform verification. The
   Web UI's generated client is regenerated from the refreshed OpenAPI snapshot by its existing build.
 - **Rationale**: Constitution, Technology and Tooling Constraints.

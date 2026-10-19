@@ -61,7 +61,7 @@ image; one image test class.
 | III. API-First Control Plane | The server reaches evidence only through `/api/v1` operations in the OpenAPI document and never touches databases, object storage, or transport; its tool schemas come from the authoritative allowlist contract and OpenAPI description; it relays links, never media bytes. | Pass |
 | IV. Evidence Over Claims | Project tests and image tests cover FR-020; the deferred cross-process test is recorded as open evidence (research R10), and passing tests are not presented as Hermes support or production readiness. | Pass |
 | V. Focused, Minimal Changes | One project whose runtime dependencies are the SDK and libraries the SDK already brings; no new platform code, operation, or contract; one test class in an existing test project. | Pass |
-| Technology and Tooling | CPython 3.12.15 and uv 0.13.1 come from the merged Analyst and Media Verification Environment; verification of `src/agents/<name>/` projects comes from [Agents Python Verification Environment](../20261018-110526-agents-python-environment/spec.md), named as a dependency that must merge first; the image test needs .NET 10 and Docker, which the platform verification provides. | Pass |
+| Technology and Tooling | CPython 3.12.15 and uv 0.13.1 come from the merged Analyst and Media Verification Environment; verification of `src/agents/<name>/` projects comes from [Agents Python Verification Environment](../archive/20261018-110526-agents-python-environment/spec.md), named as a dependency that must merge first; the image test needs .NET 10 and Docker, which the platform verification provides. | Pass |
 
 Post-design re-check: unchanged, all gates pass. No Complexity Tracking entries.
 

@@ -301,7 +301,7 @@ the spec's clarifications.
   `specialist-tactics` with the consultation section calls `find_pressing_phases` and answers. The test asserts, within
   120 seconds, the succeeded parent, the answered consultation with the child's tool call, the influence declaration,
   and the child absent from the turns. No new framework, SDK, or tool is needed: Python projects under `src/agents/`
-  are verified by [Agents Python Verification Environment](../20261018-110526-agents-python-environment/spec.md), and
+  are verified by [Agents Python Verification Environment](../archive/20261018-110526-agents-python-environment/spec.md), and
   the platform, Web UI, Docker, and image tests use the existing verification.
 - **Rationale**: FR-039 and SC-001; constitution Technology and Tooling.
 - **Alternatives considered**: A separate stack test class (duplicates the stack fixture).

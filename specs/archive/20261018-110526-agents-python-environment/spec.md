@@ -87,7 +87,7 @@ A maintainer reviews a verification result before deciding whether a pull reques
 ### Functional Requirements
 
 - **FR-001**: Implementation changes MUST be confined to the existing `.github/actions/environment-setup/` and `.github/actions/environment-verify/` folders, apart from this feature's task completion markers. Tests, fixtures, and environment-local documentation added by implementation MUST stay inside those folders.
-- **FR-002**: Agent projects MUST be verified with the already provisioned and verified Analyst Python toolchain, the pinned interpreter and dependency tool of the merged [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md). This feature MUST NOT add a tool download, change a pin, or change the setup action's inputs, outputs, cache behavior, or tools-disabled mode, unless the plan proves a need and states it.
+- **FR-002**: Agent projects MUST be verified with the already provisioned and verified Analyst Python toolchain, the pinned interpreter and dependency tool of the merged [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md). This feature MUST NOT add a tool download, change a pin, or change the setup action's inputs, outputs, cache behavior, or tools-disabled mode, unless the plan proves a need and states it.
 - **FR-003**: Verification MUST recognize as agent projects only independent Python projects whose manifest lies directly in an immediate, non-hidden folder of the agents source area, excluding dependency environments, generated output, caches, and symbolic links. It MUST NOT create a project, grant blanket coverage to the agents area, or recognize a manifest at the area root or nested below a project.
 - **FR-004**: An agents-area Python manifest outside the recognized locations MUST fail discovery as an unsupported layout that names the manifest, and its source MUST stay uncovered.
 - **FR-005**: Each recognized agent project MUST satisfy the same project convention as an Analyst Python project: a unique normalized static project name, a runtime declaration that admits the provisioned interpreter, its own committed consistent lockfile, a package build definition whose required backends are locked in its development dependencies, locked pytest, and at least one collectable test. Violations MUST fail discovery or the responsible stage.
@@ -124,15 +124,15 @@ A maintainer reviews a verification result before deciding whether a pull reques
 
 ### Dependencies
 
-- [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) provides the pinned interpreter and dependency tool, the locked command sequence, the project convention, and the Analyst Python check that this feature reuses and preserves; it is implemented.
-- [Environment Verification Coverage](../archive/20261007-115855-environment-verification-coverage/spec.md) provides the setup and verification extension points; it is implemented.
+- [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) provides the pinned interpreter and dependency tool, the locked command sequence, the project convention, and the Analyst Python check that this feature reuses and preserves; it is implemented.
+- [Environment Verification Coverage](../20261007-115855-environment-verification-coverage/spec.md) provides the setup and verification extension points; it is implemented.
 - The MCP Server and the Hermes agent runtime specs of this batch are downstream consumers, not prerequisites. This feature MUST merge before their implementation adds agent projects.
-- The shared agent contracts are added by [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md) and [Agent Evidence Tools](../20261018-104924-agent-evidence-tools/spec.md) of this batch and by [Agent Orchestration Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md), which is published and being implemented; the trigger rule applies whether or not those folders exist yet.
+- The shared agent contracts are added by [Agent Catalog Registry](../../20261018-101517-agent-catalog-registry/spec.md) and [Agent Evidence Tools](../../20261018-104924-agent-evidence-tools/spec.md) of this batch and by [Agent Orchestration Invocations](../20261017-204332-agent-orchestration-invocations/spec.md), which is published and being implemented; the trigger rule applies whether or not those folders exist yet.
 
 ### Architecture Alignment
 
-- [Source and Runtime Baseline](../../docs/architecture/platform-implementation.md#source-and-runtime-baseline) assigns future intelligence-agent runtimes to `src/agents`, and [Intelligence and Agents](../../docs/architecture/intelligence-and-agents.md) describes Hermes as a separate Python service and the MCP server as future work.
-- [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md) governs shared schema authority and independent consumer validation.
+- [Source and Runtime Baseline](../../../docs/architecture/platform-implementation.md#source-and-runtime-baseline) assigns future intelligence-agent runtimes to `src/agents`, and [Intelligence and Agents](../../../docs/architecture/intelligence-and-agents.md) describes Hermes as a separate Python service and the MCP server as future work.
+- [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md) governs shared schema authority and independent consumer validation.
 - No product component, topology, model provider, or production behavior is decided by this environment change; the agents source area stays non-executable until a product feature adds its first project.
 
 ### Scope Boundaries

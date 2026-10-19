@@ -2,7 +2,7 @@
 
 **Branch**: `main` (authoring) | **Date**: 2026-10-18 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261018-110526-agents-python-environment/spec.md`
+**Input**: Feature specification from `specs/archive/20261018-110526-agents-python-environment/spec.md`
 
 ## Summary
 
@@ -14,7 +14,7 @@ No agent project, workflow, contract, credential, or product behavior is introdu
 
 **Language/Version**: Existing composite-action YAML and Bash; the existing standard-library Python helper `analyst-projects.py`, run with the installed CPython 3.12.15 (`SOCALYTICS_PYTHON`); Node.js 24 built-in tests, supplied by the caller.
 
-**Primary Dependencies**: The pinned CPython 3.12.15 and uv 0.13.1 from [the merged environment feature](../archive/20261017-163801-analyst-media-environment/research.md), unchanged. No new tool, package, or archive.
+**Primary Dependencies**: The pinned CPython 3.12.15 and uv 0.13.1 from [the merged environment feature](../20261017-163801-analyst-media-environment/research.md), unchanged. No new tool, package, or archive.
 
 **Storage**: Runner-local project dependency environments and build output only, as for Analyst projects. No database, contract, or cache.
 
@@ -47,7 +47,7 @@ No gate exception is needed.
 
 None: this standalone environment feature changes only the two environment action folders. Recognizing `src/agents/<name>/` Python projects in verification is environment-local executable guidance; it introduces no product component, topology, protocol, canonical contract, model provider, or production profile.
 
-The architecture review checked [Source and Runtime Baseline](../../docs/architecture/platform-implementation.md#source-and-runtime-baseline), [Intelligence and Agents](../../docs/architecture/intelligence-and-agents.md) (Hermes as a separate Python OCI service; the MCP server process as future work), [Analytics](../../docs/architecture/tenancy-and-technology.md#analytics), and [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md). The statements that `src/agents` owns future intelligence-agent runtimes, that the MCP server process is future work, and that Hermes is planned remain true when tooling alone merges; [src/agents/README.md](../../src/agents/README.md) stays accurate because the area remains non-executable. The Engineering Baseline line of [Tenancy and Technology](../../docs/architecture/tenancy-and-technology.md#engineering-baseline) that names `uv` workspaces predates this feature and is not made false by it: like the merged Analyst convention, agent projects stay independently locked, and no status statement changes.
+The architecture review checked [Source and Runtime Baseline](../../../docs/architecture/platform-implementation.md#source-and-runtime-baseline), [Intelligence and Agents](../../../docs/architecture/intelligence-and-agents.md) (Hermes as a separate Python OCI service; the MCP server process as future work), [Analytics](../../../docs/architecture/tenancy-and-technology.md#analytics), and [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md). The statements that `src/agents` owns future intelligence-agent runtimes, that the MCP server process is future work, and that Hermes is planned remain true when tooling alone merges; [src/agents/README.md](../../../src/agents/README.md) stays accurate because the area remains non-executable. The Engineering Baseline line of [Tenancy and Technology](../../../docs/architecture/tenancy-and-technology.md#engineering-baseline) that names `uv` workspaces predates this feature and is not made false by it: like the merged Analyst convention, agent projects stay independently locked, and no status statement changes.
 
 No architecture file changes and no `docs/architecture/` documentation task are required. The MCP Server and Hermes Agent Runtime features correct their own status statements and the agents README when they add the first projects.
 
@@ -56,7 +56,7 @@ No architecture file changes and no `docs/architecture/` documentation task are 
 ### Documentation (this feature)
 
 ```text
-specs/20261018-110526-agents-python-environment/
+specs/archive/20261018-110526-agents-python-environment/
 ├── spec.md
 ├── plan.md
 ├── research.md
@@ -111,7 +111,7 @@ Extend `analyst-projects.test.mjs` with agents-area cases for discovery, validat
 
 ## Dependencies And Downstream Handoff
 
-- [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) is implemented and provides everything this feature uses.
+- [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) is implemented and provides everything this feature uses.
 - The MCP Server and Hermes Agent Runtime features of this batch must depend on this feature and follow its agent project convention or amend this environment through a new environment spec.
 - [Research](research.md) recorded that the planned agent frameworks admit the installed interpreter; their full locked dependency trees and wheel availability remain evidence the consuming features must produce.
 
