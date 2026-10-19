@@ -353,7 +353,7 @@ test('renders the next steps a person can take', () => {
   }
   const howTo = renderAmendmentHowTo(49).join('\n');
   assert.match(howTo, /\*\*Merge\*\* this pull request[\s\S]*continues on #49[\s\S]*\*Request changes\*[\s\S]*\*\*Close\*\*/);
-  assert.match(renderFixHowTo(75, 'main').join('\n'), /\*\*Merge\*\* this pull request to add the fix spec to `main`[\s\S]*#75 waits for it and retries by itself[\s\S]*\*\*Close\*\*/);
+  assert.match(renderFixHowTo(75, 'main').join('\n'), /\*\*Merge\*\* this pull request to add the prerequisite spec to `main`[\s\S]*#75 waits for it and retries by itself[\s\S]*\*\*Close\*\*/);
   const status = setAmendmentStatus('Body from the agent.', ['⏳ checking']);
   assert.equal(status, '<!-- speckit-amend:status -->\n⏳ checking\n<!-- /speckit-amend:status -->\n\nBody from the agent.');
   assert.equal(setAmendmentStatus(status, ['✅ done']), '<!-- speckit-amend:status -->\n✅ done\n<!-- /speckit-amend:status -->\n\nBody from the agent.');
@@ -376,7 +376,7 @@ test('describes what each command does and what a restart continues with', () =>
   assert.equal(parseNextCommand('please /speckit retry'), null);
   assert.match(describeCommandEffect('/speckit retry', { baseBranch: 'main', continuation: 'continues with the convergence' }), /^Does not merge `main`: the implementation continues with the convergence on the branch as it is[\s\S]*Text you add after the command/);
   assert.equal(describeCommandEffect('/speckit resume Use x', { baseBranch: 'main' }), null);
-  assert.match(describeCommandEffect('/speckit fix Make it robust', { baseBranch: 'main' }), /authors a small fix spec for the cause, guided by the text after the command, and opens it as a pull request against `main`[\s\S]*retries by itself on its current phase base/);
+  assert.match(describeCommandEffect('/speckit fix Make it robust', { baseBranch: 'main' }), /authors a small prerequisite spec for the cause, guided by the text after the command, and opens it as a pull request against `main`[\s\S]*retries by itself on its current phase base/);
   assert.equal(describeCommandEffect('/speckit help'), null);
   for (const verb of ['artifacts', 'retry', 'outside', 'decision', 'unknown']) assert.ok(CATEGORY_MEANING[verb]);
 

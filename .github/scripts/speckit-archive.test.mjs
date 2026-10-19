@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { archiveBlockers, archiveSpec, main, refreshArchivedReferences, renderArchiveReport } from './speckit-archive.mjs';
+import { archiveBlockers, archiveRewrite, archiveSpec, archivedFolders, defaultGit, main, refreshArchivedReferences, renderArchiveReport } from './speckit-archive.mjs';
 
 const A = '20260101-000000-alpha';
 const B = '20260101-000001-beta';
@@ -134,4 +134,19 @@ test('workflow files are never edited, and other archived specs get their outdat
   assert.equal(read(root, '.github/workflows/ci.yml'), `# builds specs/${A}\n`);
   assert.equal(read(root, 'docs/gamma.md'), `[gamma](../specs/archive/${B}x/spec.md)\n`);
   assert.deepEqual(refreshArchivedReferences({ root, except: A }), [], 'nothing left to refresh');
+}));
+test('archiveRewrite gives each file exactly what archiveSpec writes, and changes nothing a second time', () => withRepo((root) => {
+  write(root, `specs/${B}/tasks.md`, '- [x] T001 Done\n');
+  const files = ['README.md', 'specs/README.md', `specs/${A}/plan.md`, `specs/${B}/plan.md`, 'docs/x.md', 'src/Test.cs'];
+  const before = Object.fromEntries(files.map((file) => [file, read(root, file)]));
+  assert.equal(archiveSpec({ root, folder: A }).exitCode, 0);
+  assert.equal(archiveSpec({ root, folder: B }).exitCode, 0);
+  for (const file of files) {
+    const rewritten = archiveRewrite(before[file], { file, folders: [A, B] });
+    assert.equal(rewritten.text, read(root, rewritten.file), file);
+    assert.equal(archiveRewrite(rewritten.text, { file: rewritten.file, folders: [B, A] }).text, rewritten.text, `${file} is stable`);
+  }
+  assert.equal(archiveRewrite('x', { file: `specs/${A}/plan.md`, folders: [A] }).file, `specs/archive/${A}/plan.md`);
+  git(root, 'add', '-A');
+  assert.deepEqual(archivedFolders(defaultGit(root)), [A, B].sort());
 }));

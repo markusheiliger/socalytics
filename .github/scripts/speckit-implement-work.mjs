@@ -3,7 +3,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, s
 import path from 'node:path';
 
 import { specDir, stageLabelChange } from './speckit-prepare-core.mjs';
-import { archiveSpec, refreshArchivedReferences } from './speckit-archive.mjs';
+import { archiveSpec, referenceOnlySpecChanges, refreshArchivedReferences, resolveSpecConflicts } from './speckit-archive.mjs';
 import { resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import {
@@ -257,6 +257,8 @@ function checkStagedRepair({ git, workspace, folder, patchBytes, allowEnvironmen
 }
 
 const isProtected = isProtectedPath;
+// A file of the implemented spec's own folder (active or archived).
+const isOwnSpecPath = (file, folder) => [specDir(folder), specDir(folder, { archived: true })].some((dir) => file.startsWith(`${dir}/`));
 
 // Spec Kit implement conflict resolution and Spec Kit implement merge, job "verify": merges the base branch
 // (SPECKIT_BASE_BRANCH) into the checked-out implementation branch without committing, records the base branch SHA and
@@ -270,8 +272,11 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   const head = gitOrThrow(git, ['rev-parse', 'HEAD']).trim();
   const forkPoint = git(['merge-base', 'HEAD', baseSha]);
   const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', baseSha]);
+  const root = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
+  const specs = resolveSpecConflicts({ git, root, folder });
   const conflicts = unmergedPaths(git);
   const result = { kind: inputs.kind, baseSha, head, conflicts, reasons: [], checks: [], verified: false };
+  if (specs.resolved.length > 0) result.specResolved = specs.resolved;
   if (env.SPECKIT_REQUIRED_SYNC) result.requiredSync = env.SPECKIT_REQUIRED_SYNC;
   if (env.SPECKIT_REQUIRED_SYNC && env.SPECKIT_SYNC_REPAIR) {
     const repair = parseJsonInput(env.SPECKIT_SYNC_REPAIR, 'SPECKIT_SYNC_REPAIR');
@@ -284,11 +289,14 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
     };
   }
   if (conflicts.length > 0) writeFileSync(path.join(resultDir, 'merge-index.json'), `${JSON.stringify(Object.fromEntries(indexEntries(git)))}\n`);
-  if (merge.status !== 0 && conflicts.length === 0) result.reasons.push(`merging ${baseBranch} failed: ${merge.stderr.trim() || merge.stdout.trim()}`);
-  const protectedConflicts = conflicts.filter(isProtected);
+  if (merge.status !== 0 && conflicts.length === 0 && specs.resolved.length === 0) result.reasons.push(`merging ${baseBranch} failed: ${merge.stderr.trim() || merge.stdout.trim()}`);
+  const protectedConflicts = conflicts.filter((file) => isProtected(file) && !isOwnSpecPath(file, folder));
   if (protectedConflicts.length > 0) {
     result.reasons.push(`conflicts in protected paths need a person: ${protectedConflicts.join(', ')}`);
     result.attention = true;
+  }
+  if (inputs.kind === 'merge' && conflicts.length === 0 && result.reasons.length === 0) {
+    result.reasons.push(...referenceOnlySpecChanges({ git, baseSha, folder }));
   }
   const paths = conflicts.length === 0 && result.reasons.length === 0
     ? splitZ(gitOrThrow(git, ['diff', '--cached', '--name-only', '--no-renames', '-z', baseSha]))
@@ -307,7 +315,7 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
     files: conflicts,
     base: baseBranch,
     forkPoint: forkPoint.status === 0 ? forkPoint.stdout.trim() : null,
-    archived: isArchivedIn(gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim(), folder),
+    archived: isArchivedIn(root, folder),
     guidance: env.SPECKIT_GUIDANCE,
   }) : '');
   log(conflicts.length > 0 ? `Conflicts with ${baseBranch} (${baseSha}): ${conflicts.join(', ')}` : `Merged ${baseBranch} (${baseSha}) cleanly.`);
@@ -792,10 +800,12 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
     }
   }
   let baseOwned = [];
+  let ownSpec = [];
   if (reasons.length === 0 && inputs.kind === 'resolve') {
-    const replayed = replayResolution({ git, env, result, resultDir });
+    const replayed = replayResolution({ git, env, result, resultDir, folder });
     reasons.push(...replayed.reasons);
     baseOwned = replayed.baseOwned;
+    ownSpec = replayed.ownSpec;
   }
   if (reasons.length === 0 && barrier && result.tree !== gitOrThrow(git, ['write-tree']).trim()) {
     reasons.push('the replayed synchronization tree differs from the verified tree');
@@ -885,25 +895,30 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   } else {
     const files = result.conflicts ?? [];
     const owned = new Set(baseOwned);
+    const held = [...baseOwned, ...ownSpec];
     const extra = (Array.isArray(result.changes) ? result.changes : []).map((change) => String(change.path)).filter((file) => !owned.has(file));
     message = [
       `Merge ${baseBranchOf(pull)} into ${implementationBranch(folder)}`,
       files.length > 0 ? `Conflicts in ${files.join(', ')} resolved by Copilot (attempt ${inputs.attempt}).` : 'No conflicts remained.',
+      ...((result.specResolved ?? []).length > 0 ? [`Archive reference conflicts in ${result.specResolved.join(', ')} resolved by the archive script.`] : []),
       ...(extra.length > 0 ? [`Also adapted this implementation's own files: ${extra.join(', ')}.`] : []),
       ...(baseOwned.length > 0 ? [`Also adapted files of ${baseBranchOf(pull)} for the merged result (held for review): ${baseOwned.join(', ')}.`] : []),
+      ...(ownSpec.length > 0 ? [`Resolved conflicts in this spec's own artifacts (held for review): ${ownSpec.join(', ')}.`] : []),
     ];
     checkTitle = files.length > 0 ? 'Merge conflicts resolved' : 'Base branch merged';
     const checks = (result.checks ?? []).map((check) => `${check.name} passed`);
     comment = [
-      ...(baseOwned.length > 0 ? [renderBaseOwnedMarker(baseOwned)] : []),
+      ...(held.length > 0 ? [renderBaseOwnedMarker(held)] : []),
       `**${barrier ? 'Base synchronized and verified' : 'Conflicts resolved'}** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
       '',
+      ...((result.specResolved ?? []).length > 0 ? [`- Archive reference conflicts resolved by the archive script, without an agent: ${result.specResolved.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
       ...(extra.length > 0 ? [`- Also adapted this implementation's own files: ${extra.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
       ...(baseOwned.length > 0 ? [`- Also adapted files of \`${baseBranchOf(pull)}\` that the merged result needed: ${baseOwned.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}. The final merge waits for a person's review of these changes.`] : []),
+      ...(ownSpec.length > 0 ? [`- Resolved conflicts in this spec's own artifacts that \`${baseBranchOf(pull)}\` changed too: ${ownSpec.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}. Every task and every checked box was kept; the final merge waits for a person's review of these changes.`] : []),
       `- Verification: ${result.verification === 'not-configured' ? 'no verification configured (no environment-verify action)' : checks.join(', ') || 'no checks'}`,
       barrier ? '- Next: recheck the latest base before releasing the required synchronization barrier.'
         : bestEffort ? '- Next: the work continues on the merged branch.' : `- Next: merge into the base branch \`${baseBranchOf(pull)}\`.`,
-      ...baseOwnedDiff(git, result.baseSha, baseOwned, baseBranchOf(pull)),
+      ...baseOwnedDiff(git, result.baseSha, held, baseBranchOf(pull)),
     ];
   }
   const noOpSync = barrier && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0;
@@ -1218,8 +1233,8 @@ function applyPatch({ git, resultDir, check, allowEmpty = false }) {
 // changes besides them (replayResolutionChanges). The merged
 // commit must be on the base branch, because the work result that names it is not trusted. Returns the reasons to
 // refuse the resolution and the files only the base branch owns that it changed (`baseOwned`).
-function replayResolution({ git, env, result, resultDir }) {
-  const refuse = (reasons) => ({ reasons, baseOwned: [] });
+function replayResolution({ git, env, result, resultDir, folder }) {
+  const refuse = (reasons) => ({ reasons, baseOwned: [], ownSpec: [] });
   if (!/^[0-9a-f]{40}$/.test(String(result.baseSha ?? ''))) return refuse(['the base branch SHA is missing']);
   if (git(['cat-file', '-e', `${result.baseSha}^{commit}`]).status !== 0) return refuse([`commit ${result.baseSha} is not available`]);
   const baseBranch = baseBranchFromEnv(env);
@@ -1227,13 +1242,17 @@ function replayResolution({ git, env, result, resultDir }) {
     return refuse([`commit ${result.baseSha} is not on the base branch ${baseBranch}`]);
   }
   git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', result.baseSha]);
+  const root = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
+  resolveSpecConflicts({ git, root, folder });
   const conflicts = unmergedPaths(git);
   const expected = [...(result.conflicts ?? [])].sort();
   if (conflicts.join('\0') !== expected.join('\0')) return refuse([`the merge conflicts changed: expected ${expected.join(', ') || 'none'}, found ${conflicts.join(', ') || 'none'}`]);
   const reasons = [];
+  const ownSpec = [];
   const resolutions = new Map((result.resolutions ?? []).map((item) => [item.path, item]));
   for (const file of conflicts) {
-    if (isProtected(file)) {
+    const own = isOwnSpecPath(file, folder);
+    if (isProtected(file) && !own) {
       reasons.push(`conflicts in protected paths need a person: ${file}`);
       continue;
     }
@@ -1241,6 +1260,10 @@ function replayResolution({ git, env, result, resultDir }) {
     if (!resolution) {
       reasons.push(`no resolution for \`${file}\``);
     } else if (resolution.deleted) {
+      if (own) {
+        reasons.push(`the resolution deleted \`${file}\` of this spec`);
+        continue;
+      }
       gitOrThrow(git, ['rm', '--quiet', '--', file]);
     } else {
       const source = path.join(resultDir, 'resolved', path.basename(String(resolution.blob)));
@@ -1250,9 +1273,10 @@ function replayResolution({ git, env, result, resultDir }) {
       }
       const content = readFileSync(source);
       if (hasConflictMarkers(content.toString('utf8'))) reasons.push(`\`${file}\` still contains conflict markers`);
-      const target = gitOrThrow(git, ['rev-parse', '--show-toplevel']).trim();
-      writeFileSync(path.join(target, file), content);
+      if (own && path.posix.basename(file) === 'tasks.md') reasons.push(...keptTasks(git, file, content.toString('utf8')));
+      writeFileSync(path.join(root, file), content);
       gitOrThrow(git, ['add', '--', file]);
+      if (own) ownSpec.push(file);
     }
   }
   if (reasons.length === 0 && unmergedPaths(git).length > 0) reasons.push('unresolved conflicts remain');
@@ -1264,7 +1288,26 @@ function replayResolution({ git, env, result, resultDir }) {
   }
   if (reasons.length === 0 && git(['rev-parse', '-q', '--verify', 'MERGE_HEAD']).status !== 0 &&
       !env.SPECKIT_REQUIRED_SYNC) reasons.push('there is nothing to merge from the base branch');
-  return { reasons, baseOwned };
+  return { reasons, baseOwned, ownSpec };
+}
+
+// A resolved tasks.md of the spec's own folder keeps every task of the implementation branch, and every checked one
+// stays checked.
+function keptTasks(git, file, resolved) {
+  const shown = git(['cat-file', '-p', `HEAD:${file}`]);
+  if (shown.status !== 0) return [];
+  const after = new Map(listTasks(resolved).map((task) => [task.id, task]));
+  const missing = [];
+  const unchecked = [];
+  for (const task of listTasks(shown.stdout)) {
+    const kept = after.get(task.id);
+    if (!kept) missing.push(task.id);
+    else if (task.done && !kept.done) unchecked.push(task.id);
+  }
+  return [
+    ...(missing.length > 0 ? [`the resolution of \`${file}\` removed or renamed tasks: ${missing.join(', ')}`] : []),
+    ...(unchecked.length > 0 ? [`the resolution of \`${file}\` unchecked tasks: ${unchecked.join(', ')}`] : []),
+  ];
 }
 
 // The nearest existing directory of a path, resolved through symbolic links.
@@ -1417,7 +1460,7 @@ export async function runMergeLand({ client, env, inputs, resultDir, workResult,
   const reviewReasons = [
     ...(String(env.SPECKIT_AUTO_MERGE ?? 'true').toLowerCase() === 'false' ? ['automatic merging is off (`SPECKIT_AUTO_MERGE=false`)'] : []),
     ...(environmentFiles.length > 0 ? [`it changes the environment actions (${environmentFiles.map((file) => `\`${file}\``).join(', ')}), which every later implementation is verified with, so a person reviews it`] : []),
-    ...(baseOwned.length > 0 ? [`a conflict resolution changed files of \`${baseBranch}\` that this implementation does not own (${baseOwned.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}) so the merged result passes; review those changes (see the conflict resolution comments)`] : []),
+    ...(baseOwned.length > 0 ? [`a conflict resolution changed files that a person must review (${baseOwned.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}): files of \`${baseBranch}\` this implementation does not own, or this spec's own artifacts that \`${baseBranch}\` changed too; review those changes (see the conflict resolution comments)`] : []),
     ...(pullFiles.length >= MAX_PULL_FILES ? [`it changes ${MAX_PULL_FILES} or more files, more than GitHub lists for a pull request`] : []),
     ...((result.uncovered ?? []).length > 0 ? [`no check covers ${result.uncovered.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}; extend the environment actions with a standalone environment spec`] : []),
   ];
@@ -1597,11 +1640,13 @@ export async function runArchive({ client, git, env, folder, log }) {
     git(['clean', '-fdq']);
   };
   const merge = git([...GIT_IDENTITY, 'merge', '--no-ff', '--no-commit', `refs/remotes/origin/${baseBranch}`]);
+  // Conflicts that only the archive's reference rewrites cause are resolved by the archive script itself.
+  const specResolved = unmergedPaths(git).length > 0 ? resolveSpecConflicts({ git, root: workspace, folder }).resolved : [];
   if (unmergedPaths(git).length > 0) {
     undo();
     return finish(0, head, checkRun, `\`${baseBranch}\` conflicts with the implementation branch; the spec is archived once the conflicts are resolved.`);
   }
-  if (merge.status !== 0) {
+  if (merge.status !== 0 && specResolved.length === 0) {
     undo();
     return finish(1, head, checkRun, `Merging \`${baseBranch}\` failed: ${merge.stderr.trim() || merge.stdout.trim()}`);
   }

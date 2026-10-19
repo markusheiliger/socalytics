@@ -140,7 +140,7 @@ test('select tracks the pull request lifecycle: in progress, fallback, and a fre
 
     flag(github, issue);
     const restart = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.deepEqual(restart.ready, [{ number: twin.number, folder: 'a', requester: 'dev', reset: true, fix: false }]);
+    assert.deepEqual(restart.ready, [{ number: twin.number, folder: 'a', requester: 'dev', reset: true, prerequisite: false }]);
     const staleHead = github.repo.branches['speckit/a'];
     await start(github, root, twin, { reset: true });
     assert.equal(github.repo.pulls.length, 2);
@@ -320,13 +320,13 @@ test('select reports ready, blocked, and inconsistent flagged twins', async () =
     flag(github, e, 'outsider');
     github.edges.push([b.number, github.issues[3].number]);
     const result = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
-    assert.deepEqual(result.ready, [{ number: a.number, folder: 'a', requester: 'dev', reset: false, fix: false }]);
+    assert.deepEqual(result.ready, [{ number: a.number, folder: 'a', requester: 'dev', reset: false, prerequisite: false }]);
     assert.deepEqual(result.blocked.map((twin) => [twin.folder, twin.blockers.map((blocker) => blocker.number)]), [['b', [github.issues[3].number]]]);
     assert.deepEqual(result.inconsistent.map((twin) => twin.folder), ['c', 'e']);
     assert.match(result.inconsistent[1].reasons[0], /@outsider needs at least write access/);
     const output = readFileSync(path.join(root, 'output.txt'), 'utf8');
     assert.match(output, /count=1/);
-    assert.match(output, new RegExp(`matrix=\\{"include":\\[\\{"number":${a.number},"folder":"a","requester":"dev","reset":false,"fix":false\\}\\]\\}`));
+    assert.match(output, new RegExp(`matrix=\\{"include":\\[\\{"number":${a.number},"folder":"a","requester":"dev","reset":false,"prerequisite":false\\}\\]\\}`));
 
     github.find(github.issues[3].number).state = 'closed';
     const unblocked = await runSelect({ client: github, rootDir: root, env: envFor(root), log: silent });
@@ -497,7 +497,7 @@ test('orchestrate starts the implementation chain and continues it only when no 
   }
 });
 
-test('orchestrate does not continue an implementation that is blocked by its fix spec', async () => {
+test('orchestrate does not continue an implementation that is blocked by its prerequisite spec', async () => {
   const { root, github } = await flaggedRepo();
   try {
     await orchestrate(github, root);
@@ -509,10 +509,10 @@ test('orchestrate does not continue an implementation that is blocked by its fix
     await github.createComment(pull.number, renderFixEvent('created', { pull: 99, folder: fixFolder }));
     await github.createComment(pull.number, renderFixEvent('merged', { pull: 99, folder: fixFolder }));
     const blocked = await orchestrate(github, root);
-    assert.equal(chainRuns(github).length, 1, 'neither a diagnosis nor a retry starts while the fix is pending');
-    assert.match(blocked.text, /blocked; it waits for its fix spec/);
+    assert.equal(chainRuns(github).length, 1, 'neither a diagnosis nor a retry starts while the prerequisite is pending');
+    assert.match(blocked.text, /blocked; it waits for its prerequisite spec/);
     assert.ok(github.repo.pulls[0].labels.some((label) => label.name === BLOCKED_LABEL));
-    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"pull":99,"stage":"implement"\} -->\n\*\*Blocked\*\* by fix spec #99/);
+    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"pull":99,"stage":"implement"\} -->\n\*\*Blocked\*\* by prerequisite spec #99/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -536,7 +536,7 @@ async function blockedByLinkedFix() {
   return { root, github, twin, pull };
 }
 
-test('orchestrate lifts the block and retries the implementation in the run after its fix landed', async () => {
+test('orchestrate lifts the block and retries the implementation in the run after its legacy fix spec landed', async () => {
   const { root, github, pull } = await blockedByLinkedFix();
   try {
     const before = chainRuns(github).length;
@@ -544,7 +544,7 @@ test('orchestrate lifts the block and retries the implementation in the run afte
     const result = await orchestrate(github, root);
     assert.equal(pull.labels.some((label) => label.name === BLOCKED_LABEL), false);
     assert.equal(chainRuns(github).length, before + 1, 'the implementation is retried once');
-    assert.match(result.text, /The fix of #\d+ landed \(twin #77\); retried it\./);
+    assert.match(result.text, /The prerequisites of #\d+ are implemented \(#77\); lifted its block and retried it\./);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -588,7 +588,68 @@ test('orchestrate starts no more than SPECKIT_MAX_ACTIVE_SPECS implementations',
   }
 });
 
-test('a fix spec gets no dependency inference and starts first, even at SPECKIT_MAX_ACTIVE_SPECS', async () => {
+// A running implementation of twin "a" whose twin a person made depend on the open issue #77.
+async function blockedByHand() {
+  const { root, github, twin } = await flaggedRepo();
+  await orchestrate(github, root);
+  const pull = github.repo.pulls[0];
+  github.completeRun(github.repo.runs.at(-1).id, 'success');
+  github.issues.push({ number: 77, id: 77000, node_id: 'I_77', state: 'open', state_reason: null, title: 'Other', body: '', labels: [] });
+  github.edges.push([twin.number, 77]);
+  return { root, github, twin, pull };
+}
+
+test('a running implementation with a hand-added open blocker is blocked, not continued, and retries once it is implemented', async () => {
+  const { root, github, twin, pull } = await blockedByHand();
+  try {
+    const blocked = await orchestrate(github, root);
+    assert.equal(chainRuns(github).length, 1, 'a blocked implementation is not continued');
+    assert.ok(pull.labels.some((label) => label.name === BLOCKED_LABEL));
+    assert.match(blocked.text, /blocked; it waits for its prerequisites #77/);
+    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"blockers":\[77\]\} -->\n\*\*Blocked\*\* by prerequisite #77: [\s\S]*Nothing is needed on this pull request\.[\s\S]*- \*\*Unblocks by itself\*\* once #77 is implemented/);
+    const explained = github.comments.length;
+    await orchestrate(github, root);
+    assert.equal(github.comments.length, explained, 'the block is explained once');
+    assert.equal((await decide(github, root, twin)).outputs.action, 'none', 'the chain itself stops before its next work');
+    assert.equal(github.comments.length, explained);
+
+    Object.assign(github.find(77), { state: 'closed', state_reason: 'completed' });
+    const lifted = await orchestrate(github, root);
+    assert.equal(pull.labels.some((label) => label.name === BLOCKED_LABEL), false);
+    assert.equal(chainRuns(github).length, 2, 'the implementation is retried');
+    assert.match(lifted.text, /The prerequisites of #\d+ are implemented \(#77\); lifted its block and retried it\./);
+    const retry = github.comments.filter((comment) => comment.number === pull.number).at(-1);
+    assert.ok(retry.body.startsWith(RETRY_COMMENT_MARKER), 'a fresh attempt count on the current phase base');
+    assert.match(retry.body, /<!-- speckit-implement:unblocked -->\n\*\*The block is lifted\*\*: prerequisite #77 is implemented/);
+    assert.match(parseGuidance(retry.body), /prerequisite spec twin\(s\) #77/);
+    const retries = () => github.comments.filter((comment) => comment.body.includes('<!-- speckit-implement:unblocked -->')).length;
+    await orchestrate(github, root);
+    github.completeRun(github.repo.runs.at(-1).id, 'success');
+    await github.addLabels(pull.number, [BLOCKED_LABEL]);
+    await orchestrate(github, root);
+    assert.equal(retries(), 1, 'retried only once, even when a stale label remains');
+    assert.equal(pull.labels.some((label) => label.name === BLOCKED_LABEL), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a blocker closed as not planned lifts the block and asks for a person instead of retrying', async () => {
+  const { root, github, pull } = await blockedByHand();
+  try {
+    await orchestrate(github, root);
+    assert.ok(pull.labels.some((label) => label.name === BLOCKED_LABEL));
+    Object.assign(github.find(77), { state: 'closed', state_reason: 'not_planned' });
+    await orchestrate(github, root);
+    assert.equal(chainRuns(github).length, 1, 'no retry');
+    assert.deepEqual(pull.labels.map((label) => label.name), [ATTENTION_LABEL]);
+    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:unblocked -->\n\*\*A prerequisite was not implemented\*\*: #77 was closed without being implemented\. The block is lifted[\s\S]*\*\*Recommended next step\*\*/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('an open blocker of a running implementation is requested on behalf of its requester and starts at SPECKIT_MAX_ACTIVE_SPECS', async () => {
   const tasks = '## Phase 1\n\n- [ ] T001 one\n';
   const root = makeRepo([{ folder: 'a', plan: true, tasks }, { folder: 'b', plan: true, tasks }]);
   try {
@@ -596,15 +657,26 @@ test('a fix spec gets no dependency inference and starts first, even at SPECKIT_
     const github = new FakeGitHub();
     await runSync({ client: github, rootDir: root, env: envFor(root), dryRun: false, promptFile: path.join(root, 'prompt.txt'), log: silent });
     const [a, b] = github.issues;
-    assert.ok(a.labels.some((label) => label.name === 'speckit:deps-pending'));
-    assert.ok(!b.labels.some((label) => label.name === 'speckit:deps-pending'), 'inference could make the fix wait for the spec it unblocks');
+    assert.ok(b.labels.some((label) => label.name === 'speckit:deps-pending'), 'a prerequisite spec gets dependency inference like any spec, even with an earlier Fix for line');
+    b.labels = b.labels.filter((label) => label.name !== 'speckit:deps-pending');
     github.permissions.dev = 'write';
-    for (const issue of github.issues) flag(github, issue);
-    const first = await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
-    assert.deepEqual(chainRuns(github).map((run) => run.display_title), [`Spec Kit implement spec #${b.number} · b title`], 'the fix spec goes first');
-    assert.match(first.text, new RegExp(`Waiting: #${a.number} \`a\``));
+    flag(github, a);
     await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
-    assert.equal(chainRuns(github).length, 1, 'the running fix spec holds the slot, and is not started twice');
+    assert.equal(chainRuns(github).length, 1);
+    github.edges.push([a.number, b.number]);
+
+    const requested = await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    assert.match(requested.text, new RegExp(`Requested prerequisite #${b.number} on behalf of @dev; #${a.number} waits for it`));
+    assert.deepEqual(stagesOf(github.find(b.number)), [IMPLEMENT]);
+    assert.match(github.comments.find((comment) => comment.number === b.number).body, /^<!-- speckit:flagged-for dev -->\nImplementation requested on behalf of @dev/);
+    assert.equal(github.repo.runs.at(-1).workflow, 'speckit-orchestrate.yml', 'the scheduler starts it right away');
+    // The workflow token set the flag; it counts for the requester of the waiting implementation.
+    github.events.push({ issue: b.number, event: 'labeled', label: { name: IMPLEMENT }, actor: { login: 'github-actions[bot]' }, created_at: github.tick() });
+
+    const started = await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    assert.equal(chainRuns(github).at(-1).display_title, `Spec Kit implement spec #${b.number} · b title`, 'the prerequisite starts although the limit is reached');
+    assert.match(started.text, new RegExp(`Started the implementation of #${b.number}`));
+    assert.equal(github.comments.filter((comment) => comment.number === b.number && comment.body.includes('speckit:flagged-for')).length, 1, 'requested once');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

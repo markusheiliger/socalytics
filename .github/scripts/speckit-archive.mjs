@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -155,6 +156,154 @@ export function refreshArchivedReferences({ root, git = defaultGit(root), check 
     for (const change of result.changes) if (change.edited) files.add(change.file);
   }
   return [...files].sort();
+}
+
+// Applies the archive of every folder in `folders` to one file that lived at `file` before those archives, exactly as
+// archiveSpec would for each of them in turn. Returns the rewritten text and the file's path afterwards. Running it
+// again changes nothing, so it can normalize text that is already partly rewritten.
+export function archiveRewrite(text, { file, folders }) {
+  let current = file;
+  let result = String(text);
+  for (const folder of folders) {
+    const next = archivedPath(current, folder);
+    if (isMarkdown(current)) result = rewriteLinks(result, { oldFile: current, newFile: next, folder });
+    result = rewriteMentions(result, folder);
+    current = next;
+  }
+  return { text: result, file: current };
+}
+
+// The spec folders archived in a commit (`ref`) or, without one, in the index.
+export function archivedFolders(git, ref = null) {
+  const listed = ref
+    ? git(['ls-tree', '-d', '--name-only', '-z', ref, '--', `${ARCHIVE_DIR}/`])
+    : git(['ls-files', '-z', '--', `${ARCHIVE_DIR}/`]);
+  if (listed.status !== 0) return [];
+  const prefix = `${ARCHIVE_DIR}/`;
+  return [...new Set(listed.stdout.split('\0').filter((entry) => entry.startsWith(prefix))
+    .map((entry) => entry.slice(prefix.length).split('/')[0])
+    .filter((name) => isValidFolderName(name)))].sort();
+}
+
+const showBlob = (git, spec) => {
+  const shown = git(['cat-file', '-p', spec]);
+  return shown.status === 0 ? shown.stdout : null;
+};
+const unmergedFiles = (git) => [...new Set(git(['diff', '--name-only', '--diff-filter=U', '-z']).stdout.split('\0').filter(Boolean))].sort();
+const insideSpec = (file, folder) => [specDir(folder), specDir(folder, { archived: true })].some((dir) => file === dir || file.startsWith(`${dir}/`));
+
+// Resolves the merge conflicts under specs/ that the archive's reference rewrites cause, during an uncommitted merge of
+// the base branch (MERGE_HEAD) into the implementation branch of `folder`, without an agent:
+// - outside the spec's own folder the branch may only rewrite references (referenceOnlySpecChanges), so the base
+//   branch's version with every archive applied is the result, and a file the base branch removed stays removed;
+// - in the spec's own folder both sides and their merge base are normalized with every archive and merged three-way;
+//   a clean merge is the result, anything else stays a conflict for the conflict resolution.
+// Afterwards references in the other files point to every archived spec. Returns the resolved and remaining conflicts.
+export function resolveSpecConflicts({ git, root, folder }) {
+  const conflicts = unmergedFiles(git);
+  const specConflicts = conflicts.filter((file) => file.startsWith(`${SPECS_DIR}/`));
+  if (specConflicts.length === 0) return { resolved: [], remaining: conflicts };
+  const folders = [...new Set([...archivedFolders(git, 'HEAD'), ...archivedFolders(git, 'MERGE_HEAD')])].sort();
+  const mergeBase = git(['merge-base', 'HEAD', 'MERGE_HEAD']).stdout.trim();
+  const resolved = new Set();
+  const drop = (file) => {
+    git(['rm', '-q', '--cached', '--ignore-unmatch', '--', file]);
+    rmSync(path.join(root, file), { force: true });
+  };
+  const write = (file, text) => {
+    mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+    writeFileSync(path.join(root, file), text);
+    git(['add', '--', file]);
+  };
+  for (const file of specConflicts) {
+    if (resolved.has(file)) continue;
+    if (!insideSpec(file, folder)) {
+      const theirs = showBlob(git, `MERGE_HEAD:${file}`);
+      if (theirs === null) {
+        drop(file);
+      } else {
+        const rewritten = archiveRewrite(theirs, { file, folders });
+        if (rewritten.file !== file) drop(file);
+        write(rewritten.file, rewritten.text);
+        resolved.add(rewritten.file);
+      }
+      resolved.add(file);
+      continue;
+    }
+    const relative = file.startsWith(`${specDir(folder, { archived: true })}/`)
+      ? file.slice(specDir(folder, { archived: true }).length)
+      : file.slice(specDir(folder).length);
+    const active = `${specDir(folder)}${relative}`;
+    const archived = `${specDir(folder, { archived: true })}${relative}`;
+    const oursPath = showBlob(git, `HEAD:${archived}`) !== null ? archived : active;
+    const ours = showBlob(git, `HEAD:${oursPath}`);
+    const theirsPath = showBlob(git, `MERGE_HEAD:${archived}`) !== null ? archived : active;
+    const theirs = showBlob(git, `MERGE_HEAD:${theirsPath}`);
+    const base = mergeBase ? (showBlob(git, `${mergeBase}:${active}`) ?? showBlob(git, `${mergeBase}:${archived}`) ?? '') : '';
+    if (ours === null || theirs === null) continue;
+    const normalize = (text, from) => archiveRewrite(text, { file: from, folders }).text;
+    const scratch = mkdtempSync(path.join(tmpdir(), 'speckit-spec-merge-'));
+    try {
+      const sides = { ours: normalize(ours, oursPath), base: normalize(base, active), theirs: normalize(theirs, theirsPath) };
+      for (const [name, text] of Object.entries(sides)) writeFileSync(path.join(scratch, name), text);
+      const merged = git(['merge-file', '-p', path.join(scratch, 'ours'), path.join(scratch, 'base'), path.join(scratch, 'theirs')]);
+      if (merged.status !== 0) continue;
+      for (const stale of new Set([file, active, archived])) if (stale !== oursPath && unmergedFiles(git).includes(stale)) drop(stale);
+      write(oursPath, merged.stdout);
+      for (const done of [file, active, archived]) resolved.add(done);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  }
+  const remaining = unmergedFiles(git);
+  refreshReferences({ root, git, folders: archivedFolders(git), skip: new Set(remaining) });
+  return { resolved: specConflicts.filter((file) => resolved.has(file) && !remaining.includes(file)), remaining };
+}
+
+// Points every reference in the tracked text files (except `skip`) to the archive of each folder in `folders` and
+// stages the files it changed. Files inside an active folder of an archived spec are left alone.
+export function refreshReferences({ root, git, folders, skip = new Set() }) {
+  const changed = [];
+  if (folders.length === 0) return changed;
+  for (const file of [...new Set(git(['ls-files', '-z', '--cached']).stdout.split('\0').filter(Boolean))]) {
+    if (skip.has(file) || isUntouchable(file) || folders.some((folder) => file.startsWith(`${specDir(folder)}/`))) continue;
+    const absolute = path.join(root, file);
+    if (!existsSync(absolute)) continue;
+    const buffer = readFileSync(absolute);
+    if (isBinary(buffer)) continue;
+    const original = buffer.toString('utf8');
+    const { text } = archiveRewrite(original, { file, folders });
+    if (text === original) continue;
+    writeFileSync(absolute, text);
+    git(['add', '--', file]);
+    changed.push(file);
+  }
+  return changed;
+}
+
+// Changes under specs/ outside the spec's own folder that are not reference rewrites, comparing the staged tree (the
+// prospective merge result) with the base branch commit `baseSha`: such a file must equal the base branch's version
+// with every archive of the staged tree applied; adding or removing a file there is never a reference change.
+export function referenceOnlySpecChanges({ git, baseSha, folder }) {
+  const listed = git(['diff', '--cached', '--name-status', '--no-renames', '-z', baseSha, '--', `${SPECS_DIR}/`]);
+  if (listed.status !== 0) return [`the changes under ${SPECS_DIR}/ could not be listed: ${listed.stderr.trim()}`];
+  const parts = listed.stdout.split('\0').filter(Boolean);
+  const folders = archivedFolders(git);
+  const violations = [];
+  for (let index = 0; index + 1 < parts.length; index += 2) {
+    const [status, file] = [parts[index], parts[index + 1]];
+    if (insideSpec(file, folder)) continue;
+    if (status !== 'M') {
+      violations.push(file);
+      continue;
+    }
+    const base = showBlob(git, `${baseSha}:${file}`);
+    const staged = showBlob(git, `:${file}`);
+    if (base === null || staged === null || archiveRewrite(base, { file, folders }).text !== staged) violations.push(file);
+  }
+  return violations.length > 0
+    ? [`changes under ${SPECS_DIR}/ outside ${specDir(folder)} must be reference rewrites of the archive, but these differ: ${violations.join(', ')}`]
+    : [];
 }
 
 export function renderArchiveReport(folder, result, { check = false } = {}) {
