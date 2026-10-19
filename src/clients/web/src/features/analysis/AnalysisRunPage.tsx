@@ -1,12 +1,13 @@
 import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
-import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams, useSearchParams } from 'react-router';
 import { createAnalysisFactAdapter } from '../../platform/adapters/analysisFactAdapter';
 import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAdapter';
+import type { FactStreamSummary } from '../../platform/models/analysis';
 import { toPlatformFailure } from '../../platform/failure';
 import { useSession } from '../../session/sessionContext';
 import { NotFoundPage } from '../../shell/NotFoundPage';
@@ -22,6 +23,13 @@ import { validateRange } from './matchClock';
 import { RunStatusSection } from './RunStatusSection';
 
 const WHOLE_NUMBER = /^\d+$/;
+
+const COVERAGE_STATES = ['accepted', 'missing', 'failed', 'blocked', 'skipped'] as const;
+
+/** True when the refreshed summary reports another fact count or other coverage counts than the loaded one (research R6). */
+function hasNewResults(loaded: FactStreamSummary, current: FactStreamSummary): boolean {
+  return loaded.factCount !== current.factCount || COVERAGE_STATES.some((state) => loaded.coverage[state] !== current.coverage[state]);
+}
 
 /** Reads `fromMs` and `toMs` from the address; a malformed or inconsistent range is invalid (FR-010). */
 function readRange(params: URLSearchParams): { range: FactRange; valid: boolean } {
@@ -46,6 +54,9 @@ export function AnalysisRunPage() {
   const adapter = useMemo(() => createAnalysisRunAdapter(platform), [platform]);
   const factAdapter = useMemo(() => createAnalysisFactAdapter(platform), [platform]);
   const [searchParams, setSearchParams] = useSearchParams();
+  const queryClient = useQueryClient();
+  const [reloads, setReloads] = useState(0);
+  const [loaded, setLoaded] = useState<{ id: string; stream: FactStreamSummary }>();
   const { match, team, permitted } = useMatchContext(matchId);
   const run = useQuery({
     queryKey: analysisRunKey(runId),
@@ -87,6 +98,14 @@ export function AnalysisRunPage() {
   const streamList = streams.data?.kind === 'found' ? streams.data.streams : undefined;
   const selectedStream = streamList?.find((stream) => stream.nodeKey === streamKey);
 
+  const selectionId = `${streamKey}|${searchParams.get('fromMs')}|${searchParams.get('toMs')}|${reloads}`;
+  if (selectedStream && loaded?.id !== selectionId) setLoaded({ id: selectionId, stream: selectedStream });
+  const newResults = Boolean(selectedStream && loaded?.id === selectionId && hasNewResults(loaded.stream, selectedStream));
+  const reloadFacts = () => {
+    queryClient.removeQueries({ queryKey: ['analysis', 'facts', runId, selectedStream?.nodeKey] });
+    setReloads((count) => count + 1);
+  };
+
   const selectStream = (nodeKey: string) => setSearchParams({ stream: nodeKey });
   const changeRange = (next: FactRange) => {
     const params: Record<string, string> = { stream: streamKey ?? '' };
@@ -115,8 +134,18 @@ export function AnalysisRunPage() {
           <FactRangeForm range={{}} onChange={changeRange} />
         </>
       )}
+      {selectedStream && (
+        <div role="status" aria-live="polite">
+          {newResults && <Typography>{t('facts.newResults')}</Typography>}
+        </div>
+      )}
+      {newResults && (
+        <Button variant="outlined" size="small" onClick={reloadFacts}>
+          {t('facts.reloadResults')}
+        </Button>
+      )}
       {selectedStream && rangeValid && (
-        <FactBrowser adapter={factAdapter} selection={{ runId, stream: selectedStream, range }} onRangeChange={changeRange} />
+        <FactBrowser key={reloads} adapter={factAdapter} selection={{ runId, stream: selectedStream, range }} onRangeChange={changeRange} />
       )}
       <Button component={Link} to={`/matches/${matchId}`} variant="outlined" sx={{ mt: 2 }}>
         {t('page.back')}

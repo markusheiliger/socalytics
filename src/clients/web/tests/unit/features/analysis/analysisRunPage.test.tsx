@@ -214,4 +214,40 @@ describe('analysis run page', () => {
     expect(await screen.findByText(/range is not valid/)).toBeInTheDocument();
     expect(factUrls).toHaveLength(0);
   });
+
+  it('offers new results of a running run and restarts at the first page on reload', async () => {
+    let count = 1;
+    let factCalls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (url.includes('/fact-streams')) return json(200, { items: [{ ...streamsDto.items[0], factCount: count }] });
+        if (url.includes('/facts')) {
+          factCalls += 1;
+          return json(200, factsDto);
+        }
+        if (url.includes('/analysis/runs/')) return json(200, runDto({ state: 'Running' }));
+        if (url.includes('/matches/')) return json(200, matchDto);
+        return json(200, team);
+      }),
+    );
+    renderApp(asRole('Coach'), `${path()}?stream=detect-1`);
+    expect(await screen.findByText('pass')).toBeInTheDocument();
+    expect(screen.queryByText('New results are available for this stream.')).toBeNull();
+    const before = factCalls;
+    count = 2;
+    expect(await screen.findByText('New results are available for this stream.')).toBeInTheDocument();
+    expect(screen.getByText('pass')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Reload the facts' }));
+    await waitFor(() => expect(factCalls).toBeGreaterThan(before));
+    await waitFor(() => expect(screen.queryByText('New results are available for this stream.')).toBeNull());
+    expect(await screen.findByText('pass')).toBeInTheDocument();
+  });
+
+  it('shows the stream list for a stream that is not in the run', async () => {
+    stub(() => json(200, runDto()));
+    renderApp(asRole('Coach'), `${path()}?stream=gone`);
+    expect(await screen.findByText(/not part of this run/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show facts of detect-1' })).toBeInTheDocument();
+  });
 });
