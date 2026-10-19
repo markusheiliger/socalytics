@@ -295,3 +295,120 @@ test.describe('Register image', () => {
     await expect(page.getByText('The image was already registered, nothing changed.')).toBeVisible();
   });
 });
+
+test.describe('Profiles', () => {
+  const fillContent = async (page: import('@playwright/test').Page, cpu: string) => {
+    await page.getByLabel('Runtime constraints').fill('linux/amd64');
+    await page.getByLabel('Resources').fill(`cpu=${cpu}`);
+    await page.getByLabel('Maximum attempts').fill('3');
+    await page.getByLabel('Lease (seconds)').fill('120');
+    await page.getByLabel('Stale timeout (seconds)').fill('240');
+    await page.getByLabel('Execution timeout (seconds)').fill('900');
+  };
+  const openForm = async (page: import('@playwright/test').Page) => {
+    await page.goto(`/registry/images/${encodeURIComponent(TRACKER_IMAGE)}`);
+    await page.getByRole('link', { name: 'New profile version' }).click();
+    await expect(page).toHaveURL(/\/registry\/profiles\/new\?image=/);
+    await expect(page.getByLabel('Profile id')).toHaveValue('tracker');
+  };
+  const submit = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Create profile version' }).click();
+
+  test('a draft is created from an image and identical content says it already existed (acceptance 1, 2, SC-003)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    await openForm(page);
+    await fillContent(page, '4');
+    await submit(page);
+    await expect(page.getByText('Profile version created')).toBeVisible();
+    expect(api.registryProfiles.filter((p) => p.profileId === 'tracker')).toHaveLength(3);
+    await expectNoAxeViolations(page);
+
+    await submit(page);
+    await expect(page.getByText('This already existed, no new version was created.')).toBeVisible();
+    expect(api.registryProfiles.filter((p) => p.profileId === 'tracker')).toHaveLength(3);
+  });
+
+  test('contradictions with the declaration are shown and the input is kept (acceptance 3)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    await openForm(page);
+    await fillContent(page, '4');
+    api.registryImages[0].capability.version = '9.9.9';
+    await submit(page);
+    const alert = page.getByRole('alert').filter({ hasText: 'The platform refused the' });
+    await expect(alert).toContainText("The profile content contradicts the image's capability declaration.");
+    await expect(alert).toContainText('capabilityVersion: differs');
+    await expect(page.getByLabel('Resources')).toHaveValue('cpu=4');
+    expect(api.registryProfiles).toHaveLength(3);
+  });
+
+  test('approving a draft the member created adds the self-approval note (acceptance 4, 5)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    await openForm(page);
+    await fillContent(page, '4');
+    await submit(page);
+    await page.getByRole('link', { name: 'Show the profile version' }).click();
+    await expect(page).toHaveURL(/\/registry\/profiles\/tracker\/versions\/3$/);
+    await page.getByRole('button', { name: 'Approve', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Approve profile version' });
+    await expect(dialog).toContainText('tracker version 3');
+    await expect(dialog).toContainText(TRACKER_IMAGE);
+    await expect(dialog).toContainText(MODEL);
+    await expect(dialog).toContainText('You created this profile version. You are approving your own work.');
+    await expectNoAxeViolations(page);
+    await dialog.getByRole('button', { name: 'Approve version' }).click();
+    await expect(dialog).toContainText('Profile version approved.');
+    expect(api.registryProfiles.find((p) => p.profileId === 'tracker' && p.version === 3)?.state).toBe('approved');
+  });
+
+  test('cancelling a confirmation sends no request (acceptance 4)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    const posts: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST') posts.push(request.url());
+    });
+    await page.goto('/registry/profiles/tracker/versions/2');
+    await page.getByRole('button', { name: 'Approve', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Approve profile version' });
+    await expect(dialog).not.toContainText('You are approving your own work.');
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toBeHidden();
+    expect(posts).toEqual([]);
+    expect(api.registryProfiles.find((p) => p.profileId === 'tracker' && p.version === 2)?.state).toBe('draft');
+  });
+
+  test('a version used by the default workflow cannot be retired, an unused one can (acceptance 6)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    await page.goto('/registry/profiles/tracker/versions/1');
+    await page.getByRole('button', { name: 'Retire', exact: true }).click();
+    let dialog = page.getByRole('dialog', { name: 'Retire profile version' });
+    await dialog.getByRole('button', { name: 'Retire version' }).click();
+    await expect(dialog).toContainText('The profile version is used by the default workflow and cannot be retired.');
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    expect(api.registryProfiles.find((p) => p.profileId === 'tracker' && p.version === 1)?.state).toBe('approved');
+
+    await page.goto('/registry/profiles/tracker/versions/2');
+    await page.getByRole('button', { name: 'Retire', exact: true }).click();
+    dialog = page.getByRole('dialog', { name: 'Retire profile version' });
+    await dialog.getByRole('button', { name: 'Retire version' }).click();
+    await expect(dialog).toContainText('Profile version retired.');
+    expect(api.registryProfiles.find((p) => p.profileId === 'tracker' && p.version === 2)?.state).toBe('retired');
+  });
+
+  test('a stale approval shows the "has changed" message (acceptance 7)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    seed(api, { withDefault: true });
+    await page.goto('/registry/profiles/tracker/versions/2');
+    await page.getByRole('button', { name: 'Approve', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Approve profile version' });
+    const stored = api.registryProfiles.find((p) => p.profileId === 'tracker' && p.version === 2);
+    if (stored) stored.rowVersion += 1;
+    await dialog.getByRole('button', { name: 'Approve version' }).click();
+    await expect(dialog).toContainText('The record has changed');
+    await expect(dialog).toContainText('Current state: Draft');
+    expect(stored?.state).toBe('draft');
+  });
+});

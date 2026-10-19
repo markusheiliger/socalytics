@@ -116,7 +116,7 @@ function ProfileVersionView({ profileId, version }: { profileId: string; version
               <Button variant="outlined" color="error" onClick={() => setDialog('retire')}>{t('profileVersion.retire')}</Button>
             </Stack>
           )}
-          {canTransition && (
+          {p.rowVersion !== undefined && (
             <>
               <ApproveProfileDialog profile={p} open={dialog === 'approve'} onClose={() => setDialog(undefined)} />
               <RetireProfileDialog profile={p} open={dialog === 'retire'} onClose={() => setDialog(undefined)} />
