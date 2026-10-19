@@ -39,7 +39,7 @@ defines for the same email channel. No new framework, SDK, or tool is needed.
 
 - **Decision**: A new unversioned table `member_invitation_links`, modelled on `email_confirmations`: creation and
   every resend create a `pending` link and mark the invitation's open links `superseded`. The invitation message is an
-  `email_messages` row of the new type `member-invitation` with a new nullable column `invitation_link_id`;
+  `email_messages` row of the new type `member-invitation` with a new nullable column `invitation_ref`;
   `account_id` becomes nullable with a check that exactly the invitation type has no account and a link.
   `EmailDeliveryProcessor` handles the type like confirmations: it re-checks that the link is still `pending` or
   `issued`, that its invitation is still `pending`, and that the address hash matches, then generates a token with
