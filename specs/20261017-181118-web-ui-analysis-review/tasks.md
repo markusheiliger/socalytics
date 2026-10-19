@@ -95,7 +95,7 @@ description: "Task list for Web UI Connected Analysis Review"
 
 ### Fact browsing browser evidence
 
-- [ ] T020 [US2] Add a `Fact browsing` block to `src/clients/web/tests/e2e/simulated/analysis-review.spec.ts`: reach the first fact page of a stream from the match view in at most 3 navigation steps (SC-001), list streams with counts and coverage, open a stream with at least three pages, page forward and back and assert every fact exactly once in order, apply a range and see only overlapping facts and clipped coverage, see an invalid range explained without a request, clear the range, reload with the stream and range kept, open a full payload, and see provenance with and without a model digest (US2 acceptance 1–6, SC-002)
+- [x] T020 [US2] Add a `Fact browsing` block to `src/clients/web/tests/e2e/simulated/analysis-review.spec.ts`: reach the first fact page of a stream from the match view in at most 3 navigation steps (SC-001), list streams with counts and coverage, open a stream with at least three pages, page forward and back and assert every fact exactly once in order, apply a range and see only overlapping facts and clipped coverage, see an invalid range explained without a request, clear the range, reload with the stream and range kept, open a full payload, and see provenance with and without a model digest (US2 acceptance 1–6, SC-002)
 
 **Checkpoint**: Fact browsing with paging, ranges, coverage, and provenance works on its own.
 
