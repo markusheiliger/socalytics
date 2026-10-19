@@ -62,7 +62,7 @@ public sealed class ReadinessRecoveryTests(NatsContainerFixture nats, PostgresCo
 		await using var uow = await sp.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
 		var runId = await sp.GetRequiredService<IAnalysisRunStore>().InsertAsync(new NewAnalysisRun(
 			Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "wf", "1.0.0", Nodes.Select(n => "cap-" + n.Key).ToList(), "all-requested-capabilities",
-			AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord("{}", Digest), records, edges), ct);
+			AnalysisRunState.Requested, null, new AnalysisRunSnapshotRecord("""{"segmentationPolicy":{"durationSeconds":300}}""", Digest), records, edges), ct);
 		var jobs = new List<NewLogicalJob>();
 		foreach (var record in records)
 		{
