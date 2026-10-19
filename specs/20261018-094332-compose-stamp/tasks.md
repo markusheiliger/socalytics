@@ -131,7 +131,7 @@ every open profile value is a placeholder, and the non-production statement is p
 
 ### Final validation
 
-- [ ] T014 Run the validation of `specs/20261018-094332-compose-stamp/quickstart.md`: build the three images with the commands of `specs/archive/20261018-092503-oci-images/quickstart.md`, run the setup console and the `docker compose` commands for one stamp and a second stamp and tear both down, run `dotnet build src/platform/SocAlytics.Platform.slnx` and `dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests`, and run `node .github/scripts/check-markdown.mjs`; fix any failure in the files of the task that introduced it
+- [x] T014 Run the validation of `specs/20261018-094332-compose-stamp/quickstart.md`: build the three images with the commands of `specs/archive/20261018-092503-oci-images/quickstart.md`, run the setup console and the `docker compose` commands for one stamp and a second stamp and tear both down, run `dotnet build src/platform/SocAlytics.Platform.slnx` and `dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests`, and run `node .github/scripts/check-markdown.mjs`; fix any failure in the files of the task that introduced it
 
 ---
 
