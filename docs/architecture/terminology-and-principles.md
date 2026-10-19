@@ -13,6 +13,8 @@ the [architecture overview](overview.md) for the system topology.
   infrastructure may be shared between stamps.
 - **Club:** the organizational root represented by a stamp. Club administrators
   manage club settings, users, seasons, teams, grants, and all stamp content.
+  They add club users directly or, once implemented, by email invitation (see
+  [Member Invitations](email-notifications.md#member-invitations)).
 - **Registrar:** a club-level role that may initiate Analyst Manager
   registration. Club administrators inherit this capability. Activation still
   requires a separate, explicit Club Admin approval operation.
@@ -95,7 +97,8 @@ the [architecture overview](overview.md) for the system topology.
 
 Both Analyst tiers use the same OCI packaging and Analyst Manager execution
 model. Neither tier receives database credentials. High-level ACs obtain facts
-through match-scoped API queries and obtain video only through short-lived
+through match-scoped API queries performed on their behalf by the Analyst
+Manager, which stages accepted upstream results, and obtain video only through short-lived
 presigned object-storage references.
 
 Coach and Specialist Agents may use general football methods for interpretation,
@@ -166,19 +169,24 @@ flowchart LR
 
 The control plane only handles metadata.
 
-Video traffic flows between clients, the Segment Service, Analysts, and object
-storage. The API issues presigned access but does not proxy video bytes.
+Video traffic flows between clients, the Segment Service, Analyst Managers
+(which stage segment media and store results on behalf of Analysts), and
+object storage; Analysts read staged media from their mounts and have no
+network access. The API issues presigned access but does not proxy video bytes.
+Browsers are decided, but not yet implemented, to also read evidence media
+from object storage through short-lived links the API issues (see
+[Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access)).
 
 ```mermaid
 flowchart LR
 
-    Client -->|Video bytes| S3[(Object Storage)]
+    Client <-->|Video bytes| S3[(Object Storage)]
     SegmentService[Segment Service] <-->|Source and segment bytes| S3
-    Analyst <-->|Segment and result bytes| S3
-    Manager[Analyst Manager]
+    Manager[Analyst Manager] <-->|Staged segment and result bytes| S3
+    Analyst -.->|Mounts only| Manager
     API[Control Plane] -.->|Presigned access and metadata| Client
     API -.->|Metadata| SegmentService
-    Analyst -.->|Execution outcome| Manager
+    API -.->|Per-object grants| Manager
     Manager -.->|Completion callback| API
 ```
 

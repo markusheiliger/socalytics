@@ -6,13 +6,31 @@ public static class SnapshotStatus
 	public const string Absent = "absent";
 	public const string Failed = "failed";
 	public const string NotApplicable = "not-applicable";
+	public const string Partial = "partial";
 }
 
-public sealed record InputSnapshotEntry(string UpstreamNodeKey, DependencyKind EdgeKind, string Status, IReadOnlyList<Guid> AcceptedResultIds);
+public static class SegmentCoverageState
+{
+	public const string Accepted = "accepted";
+	public const string Failed = "failed";
+	public const string Blocked = "blocked";
+}
+
+public sealed record SegmentCoverage(string SegmentId, string State);
+
+// Coverage is set only for partial barriers; its entries are ordered by segment.
+public sealed record InputSnapshotEntry(
+	string UpstreamNodeKey,
+	DependencyKind EdgeKind,
+	string Status,
+	IReadOnlyList<Guid> AcceptedResultIds,
+	CoverageMode CoverageMode = CoverageMode.Complete,
+	decimal? MinimumAcceptedFraction = null,
+	IReadOnlyList<SegmentCoverage>? Coverage = null);
 
 public sealed record ReadyJob(Guid JobId, IReadOnlyList<InputSnapshotEntry>? Snapshot);
 
-public sealed record BlockedJob(Guid JobId, string BlockingNodeKey);
+public sealed record BlockedJob(Guid JobId, string BlockingNodeKey, bool BelowMinimumCoverage = false);
 
 public sealed record NodeTransition(string NodeKey, WorkflowNodeState From, WorkflowNodeState To, string? BlockingNodeKey = null);
 
@@ -49,7 +67,7 @@ public static class ReadinessEvaluator
 					continue;
 				}
 
-				var blocker = BlockingUpstream(node.NodeKey, state, nodes, requested);
+				var blocker = BlockingUpstream(node.NodeKey, state, nodes, jobs, requested);
 				if (blocker is null)
 				{
 					continue;
@@ -70,12 +88,13 @@ public static class ReadinessEvaluator
 
 				if (nodes[job.NodeKey].State == WorkflowNodeState.Blocked)
 				{
-					var blocker = state.Edges
-						.Where(e => e.DependentNodeKey == job.NodeKey && IsRequired(e, nodes, requested) && nodes[e.UpstreamNodeKey].State is WorkflowNodeState.Failed or WorkflowNodeState.Blocked)
-						.Select(e => e.UpstreamNodeKey)
-						.OrderBy(k => k, StringComparer.Ordinal)
-						.FirstOrDefault() ?? job.NodeKey;
-					blockedJobs.Add(new BlockedJob(job.JobId, blocker));
+					var blockingEdge = BlockingEdges(job.NodeKey, state, nodes, jobs, requested)
+						.OrderBy(e => e.UpstreamNodeKey, StringComparer.Ordinal)
+						.FirstOrDefault();
+					blockedJobs.Add(new BlockedJob(
+						job.JobId,
+						blockingEdge?.UpstreamNodeKey ?? job.NodeKey,
+						blockingEdge is not null && IsPartialBarrier(blockingEdge, nodes)));
 					jobs[i] = job with { State = LogicalJobState.Blocked };
 					changed = true;
 					continue;
@@ -166,9 +185,33 @@ public static class ReadinessEvaluator
 		}
 	}
 
-	private static string? BlockingUpstream(string nodeKey, RunGraphState state, Dictionary<string, RunNodeState> nodes, IReadOnlyCollection<string> requested) =>
-		state.Edges
-			.Where(e => e.DependentNodeKey == nodeKey && IsRequired(e, nodes, requested) && nodes[e.UpstreamNodeKey].State is WorkflowNodeState.Failed or WorkflowNodeState.Blocked)
+	// A partial policy is effective only from a segment-scoped upstream node to a match-scoped dependent node.
+	private static bool IsPartialBarrier(RunEdgeState edge, Dictionary<string, RunNodeState> nodes) =>
+		edge.CoveragePolicy.Mode == CoverageMode.Partial
+		&& nodes[edge.UpstreamNodeKey].Scope == ExecutionScope.Segment
+		&& nodes[edge.DependentNodeKey].Scope == ExecutionScope.Match;
+
+	private static bool IsFinal(RunJobState job) =>
+		job.State is LogicalJobState.Completed or LogicalJobState.Failed or LogicalJobState.Blocked;
+
+	private static int AcceptedCount(List<RunJobState> relevant) =>
+		relevant.Count(j => j.State == LogicalJobState.Completed);
+
+	private static bool MinimumMet(RunEdgeState edge, List<RunJobState> relevant) =>
+		relevant.Count > 0 && AcceptedCount(relevant) >= edge.CoveragePolicy.RequiredAccepted(relevant.Count);
+
+	private static IEnumerable<RunEdgeState> BlockingEdges(string nodeKey, RunGraphState state, Dictionary<string, RunNodeState> nodes, List<RunJobState> jobs, IReadOnlyCollection<string> requested) =>
+		state.Edges.Where(e => e.DependentNodeKey == nodeKey && IsRequired(e, nodes, requested)
+			&& (IsPartialBarrier(e, nodes)
+				? BelowMinimum(e, jobs.Where(j => j.NodeKey == e.UpstreamNodeKey).ToList())
+				: nodes[e.UpstreamNodeKey].State is WorkflowNodeState.Failed or WorkflowNodeState.Blocked));
+
+	// Final with too few accepted units; an upstream node without jobs never blocks here.
+	private static bool BelowMinimum(RunEdgeState edge, List<RunJobState> relevant) =>
+		relevant.Count > 0 && relevant.All(IsFinal) && !MinimumMet(edge, relevant);
+
+	private static string? BlockingUpstream(string nodeKey, RunGraphState state, Dictionary<string, RunNodeState> nodes, List<RunJobState> jobs, IReadOnlyCollection<string> requested) =>
+		BlockingEdges(nodeKey, state, nodes, jobs, requested)
 			.Select(e => e.UpstreamNodeKey)
 			.OrderBy(k => k, StringComparer.Ordinal)
 			.FirstOrDefault();
@@ -190,13 +233,21 @@ public static class ReadinessEvaluator
 	private static bool RequiredSatisfied(RunJobState job, RunGraphState state, Dictionary<string, RunNodeState> nodes, List<RunJobState> jobs, IReadOnlyCollection<string> requested) =>
 		state.Edges
 			.Where(e => e.DependentNodeKey == job.NodeKey && IsRequired(e, nodes, requested))
-			.All(e => AllAccepted(Relevant(job, e, nodes, jobs)));
+			.All(e =>
+			{
+				var relevant = Relevant(job, e, nodes, jobs);
+				return IsPartialBarrier(e, nodes)
+					? relevant.Count > 0 && relevant.All(IsFinal) && MinimumMet(e, relevant)
+					: AllAccepted(relevant);
+			});
 
 	private static bool Satisfiable(RunJobState job, RunGraphState state, Dictionary<string, RunNodeState> nodes, List<RunJobState> jobs, IReadOnlyCollection<string> requested) =>
 		state.Edges
 			.Where(e => e.DependentNodeKey == job.NodeKey && IsRequired(e, nodes, requested))
-			.All(e => nodes[e.UpstreamNodeKey].State is not (WorkflowNodeState.Failed or WorkflowNodeState.Blocked)
-				&& (nodes[e.UpstreamNodeKey].State != WorkflowNodeState.Completed || AllAccepted(Relevant(job, e, nodes, jobs))));
+			.All(e => IsPartialBarrier(e, nodes)
+				? !BelowMinimum(e, Relevant(job, e, nodes, jobs))
+				: nodes[e.UpstreamNodeKey].State is not (WorkflowNodeState.Failed or WorkflowNodeState.Blocked)
+					&& (nodes[e.UpstreamNodeKey].State != WorkflowNodeState.Completed || AllAccepted(Relevant(job, e, nodes, jobs))));
 
 	private static List<InputSnapshotEntry> BuildSnapshot(RunJobState job, RunGraphState state, Dictionary<string, RunNodeState> nodes, List<RunJobState> jobs, IReadOnlyCollection<string> requested)
 	{
@@ -210,6 +261,27 @@ public static class ReadinessEvaluator
 			}
 
 			var relevant = Relevant(job, edge, nodes, jobs);
+			if (IsPartialBarrier(edge, nodes))
+			{
+				var acceptedIds = relevant.SelectMany(j => j.AcceptedResultIds).Order().ToList();
+				var coverage = relevant
+					.OrderBy(j => j.Segment?.RecordingVersionId ?? Guid.Empty)
+					.ThenBy(j => j.Segment?.SegmentNumber ?? 0)
+					.ThenBy(j => j.JobId)
+					.Select(j => new SegmentCoverage(
+						j.Segment is { } s ? $"{s.RecordingVersionId}-{s.SegmentNumber}" : j.JobId.ToString(),
+						j.State switch
+						{
+							LogicalJobState.Completed => SegmentCoverageState.Accepted,
+							LogicalJobState.Blocked => SegmentCoverageState.Blocked,
+							_ => SegmentCoverageState.Failed,
+						}))
+					.ToList();
+				var status = AllAccepted(relevant) ? SnapshotStatus.Accepted : SnapshotStatus.Partial;
+				entries.Add(new InputSnapshotEntry(edge.UpstreamNodeKey, edge.Kind, status, acceptedIds, CoverageMode.Partial, edge.CoveragePolicy.MinimumAcceptedFraction, coverage));
+				continue;
+			}
+
 			if (AllAccepted(relevant))
 			{
 				var ids = relevant.SelectMany(j => j.AcceptedResultIds).Order().ToList();

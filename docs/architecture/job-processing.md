@@ -180,7 +180,15 @@ and evolve additively within their major version.
 
 For each analysis run, the Scheduler:
 
-1. Materializes required logical segments on demand.
+1. Materializes required logical segments on demand. Decided, not yet
+    implemented: at run creation the Scheduler requests the materialized
+    identity of every segment-scoped job whose run-pinned Analyst profile's
+    video policy is `required` or `optional`, never for `forbidden`. Such a job
+    stays waiting until its segment is `available`, and its input snapshot and
+    job message then pin the segment association (the segment manifest's
+    checksum). When the segment ends `failed`, a `required` job fails with
+    `segment-unavailable` and the normal dependency and coverage rules apply,
+    while an `optional` job becomes ready without media.
 2. Creates one logical job per segment for each segment-scoped capability and
     one logical job per match for each match-scoped capability. Every job for a
     capability copies the same run-pinned Analyst-profile, OCI image, and model
@@ -189,7 +197,10 @@ For each analysis run, the Scheduler:
     capabilities may depend on other foundational capabilities, such as
     tracking depending on detections.
 4. Waits until accepted, API-indexed foundational results exist at the declared
-     versions for all required match segments. Match-consistent continuity work,
+     versions for all required match segments, except through a dependency that
+     declares partial coverage, which waits only until every expected segment
+     job is final and the accepted segments meet the declared minimum (see
+     the partial-coverage paragraph below). Match-consistent continuity work,
      such as track and identity reconciliation, is part of this barrier when a
      downstream capability declares it.
 5. Publishes a match-level high-level job only after every declared upstream
@@ -214,10 +225,28 @@ run are serialized so that concurrent completions cannot hide each other's
 accepted results.
 
 Match-scoped foundational jobs wait for the required segment results declared
-by their capability. When a capability permits partial coverage, its job
-snapshot records the accepted, failed, missing, and skipped segments and the
-result reports that coverage explicitly; partial input is never mistaken for a
-complete match barrier.
+by their capability. When a capability permits partial coverage, its input
+snapshot records each expected upstream segment as `accepted`, `failed`, or
+`blocked`, and the result reports the same coverage explicitly; partial input
+is never mistaken for a complete match barrier.
+
+Partial-coverage barriers are implemented as development evidence against the
+simulated Analyst. A match-scoped capability declares partial coverage per required or conditional
+dependency in its Analyst manifest, with a minimum of at least one accepted
+segment and an optional minimum accepted fraction of the expected segments;
+segment-scoped capabilities and optional dependencies cannot declare it. The
+declaration is copied into the run snapshot. Through such a dependency on a
+segment-scoped upstream, a failed or blocked upstream node does not block the
+match-scoped job by itself: the job waits until every expected upstream segment
+job is final (accepted, failed, or blocked) and becomes ready when the accepted
+segments meet the minimum, or blocked by that upstream when they do not. Its
+immutable input snapshot records each expected segment's state, the Manager's
+upstream read and staged inputs report exactly that coverage, and the result
+must report the same coverage to be accepted. Dependencies without the
+declaration, and all dependencies between segment-scoped capabilities, keep
+complete-coverage barriers and node-level blocking. A run whose failed or
+blocked segments were bridged this way still ends `PartiallyCompleted`, never
+`Completed`.
 
 Detection, tracking, counter-attack detection, and formation analysis are
 capability names, not execution components. New capabilities extend a versioned
@@ -236,7 +265,9 @@ An analysis run can be `Requested`, `Running`, `PartiallyCompleted`,
 `Blocked` when a required dependency fails, and `Cancelled` when its run is
 cancelled (decided, not yet implemented). Node and logical-job state
 is sufficient to reconstruct dependency readiness after a Scheduler or control-
-plane restart.
+plane restart. A match-scoped result built from partial coverage keeps its run
+from ending `Completed`: failed or blocked segment nodes bridged through a
+partial-coverage dependency still end the run `PartiallyCompleted`.
 
 Retrying an execution attempt does not restart its analysis run. Accepted
 upstream outputs are reused, duplicate or stale completions are rejected by the

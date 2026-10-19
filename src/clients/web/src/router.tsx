@@ -27,6 +27,8 @@ import { MemberPage } from './features/members/MemberPage';
 import { MembersPage } from './features/members/MembersPage';
 import { SeasonPage } from './features/seasons/SeasonPage';
 import { SeasonsPage } from './features/seasons/SeasonsPage';
+import { PasswordRecoveryCompletePage } from './features/password-recovery/PasswordRecoveryCompletePage';
+import { PasswordRecoveryRequestPage } from './features/password-recovery/PasswordRecoveryRequestPage';
 import { SignInPage } from './features/sign-in/SignInPage';
 import { TeamPage } from './features/teams/TeamPage';
 import { TeamsPage } from './features/teams/TeamsPage';
@@ -57,7 +59,14 @@ const clubAdminOnly = (element: React.ReactNode) => <RequireRole allow={isClubAd
 
 /** Routes of contracts/routes-and-roles.md; every view is implemented. */
 export const appRoutes: RouteObject[] = [
-  { element: <RequireSignedOut routes={() => appRoutes} />, children: [{ path: '/sign-in', element: <SignInPage /> }] },
+  {
+    element: <RequireSignedOut routes={() => appRoutes} />,
+    children: [
+      { path: '/sign-in', element: <SignInPage /> },
+      { path: '/password-recovery', element: <PasswordRecoveryRequestPage /> },
+    ],
+  },
+  { path: '/password-recovery/complete', element: <PasswordRecoveryCompletePage /> },
   { path: '/set-password', element: <SetPasswordPage /> },
   { path: '/link-account', element: <LinkAccountPage /> },
   { path: '/email/confirm', element: <EmailConfirmPage /> },

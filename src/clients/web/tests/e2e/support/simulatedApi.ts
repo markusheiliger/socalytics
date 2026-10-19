@@ -296,6 +296,13 @@ export class SimulatedApi {
     this.overrides.set(`${method.toUpperCase()} ${path}`, handler);
   }
 
+  /** Usable recovery tokens mapped to their account name; a completion uses its token up. */
+  readonly recoveryTokens = new Map<string, string>();
+  /** Addresses of the recovery requests the simulated platform accepted, in order. */
+  readonly recoveryRequests: string[] = [];
+  /** Completed recoveries, in order. */
+  readonly recoveryCompletions: { accountName: string; newPassword: string }[] = [];
+
   /** Identity providers the simulated platform lists; empty means none is configured. */
   providers: { id: string; displayName: string }[] = [];
   /** When true, starting an external sign-in answers 503 `provider-unavailable`. */
@@ -795,6 +802,28 @@ export class SimulatedApi {
       return json(200, { authorizationUrl: `${SIMULATED_PROVIDER_ORIGIN}/authorize?state=simulated` });
     }
     if (method === 'POST' && path === '/credentials/redeem') {
+      return route.fulfill({ status: 204 });
+    }
+    if (method === 'POST' && path === '/password-recovery/requests') {
+      const address = String((request.postDataJSON() as { address?: unknown } | null)?.address ?? '').trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) {
+        return json(400, problem(400, 'Validation failed', { errors: [{ field: 'address', code: address ? 'invalid' : 'required' }] }));
+      }
+      this.recoveryRequests.push(address);
+      return route.fulfill({ status: 202, headers: { 'Cache-Control': 'no-store' } });
+    }
+    if (method === 'POST' && (path === '/password-recovery/checks' || path === '/password-recovery/completions')) {
+      const sent = (request.postDataJSON() ?? {}) as { token?: string; newPassword?: string };
+      const accountName = sent.token ? this.recoveryTokens.get(sent.token) : undefined;
+      if (!accountName) {
+        return json(400, problem(400, 'Password recovery invalid', { code: 'password-recovery-invalid' }));
+      }
+      if (path === '/password-recovery/checks') return json(200, { accountName });
+      if (!sent.newPassword) {
+        return json(400, problem(400, 'Validation failed', { errors: [{ field: 'newPassword', code: 'required' }] }));
+      }
+      this.recoveryTokens.delete(sent.token as string);
+      this.recoveryCompletions.push({ accountName, newPassword: sent.newPassword });
       return route.fulfill({ status: 204 });
     }
     if (!this.current) {

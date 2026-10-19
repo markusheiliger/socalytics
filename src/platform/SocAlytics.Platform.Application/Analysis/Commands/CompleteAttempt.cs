@@ -24,6 +24,7 @@ public sealed class CompleteAttemptHandler(
     IAcceptedResultStore results,
     ICompletionOutcomeStore outcomes,
     IAcceptedResultManifestStore manifests,
+    IIndexedFactStore facts,
     ResultManifestVerifier verifier,
     IAuditTrail audit,
     RunReadinessCoordinator coordinator,
@@ -155,9 +156,13 @@ public sealed class CompleteAttemptHandler(
             {
                 var upstream = (await results.ListByRunAsync(run.Id, cancellationToken)).Where(r => recordedUpstream.Contains(r.Id)).ToList();
                 var result = body.GetProperty("result");
+                var inputSnapshot = await jobs.LoadInputSnapshotAsync(job.Id, cancellationToken);
+                var inputDependencies = ExpectedInputDependency.Build(
+                    inputSnapshot, hierarchy.Nodes, await jobs.LoadByRunAsync(run.Id, cancellationToken), upstream);
                 pending.Request = new ResultVerificationRequest(
                     run, hierarchy.Snapshot.SnapshotJson, node, job, snapshot, attempt.Id, attempt.AttemptNumber,
-                    result.GetProperty("manifestReference").GetString()!, result.GetProperty("manifestChecksum").GetString()!, upstream);
+                    result.GetProperty("manifestReference").GetString()!, result.GetProperty("manifestChecksum").GetString()!, upstream,
+                    inputDependencies);
                 return null;
             }
 
@@ -196,6 +201,15 @@ public sealed class CompleteAttemptHandler(
                         acceptedId.Value, validated.ContractVersion, validated.OutputType, validated.ValidityStartMs, validated.ValidityEndMs,
                         validated.FactCount, validated.ArtifactsJson, validated.UpstreamLineageJson),
                     cancellationToken);
+                if (validated.Facts.Count > 0)
+                {
+                    await facts.InsertAsync(
+                        validated.Facts.Select((f, i) => new IndexedFactRecord(
+                            acceptedId.Value, i, run.Id, node.Id, run.TeamId, run.MatchId, node.CapabilityId, node.CapabilityVersion,
+                            snapshot.SchemaVersion, validated.OutputType, f.Kind, f.StartMs, f.EndMs, f.Confidence, f.PayloadJson)).ToList(),
+                        cancellationToken);
+                }
+
                 if (!await jobs.TryTransitionAsync(job.Id, LogicalJobState.Claimed, LogicalJobState.Completed, null, null, cancellationToken))
                 {
                     throw new InvalidOperationException("The logical job changed state concurrently.");

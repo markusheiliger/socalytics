@@ -265,6 +265,94 @@ public sealed class AnalystImageImportTests(PostgresContainerFixture postgres, O
         (await CountAsync(db, "SELECT count(*) FROM socalytics.security_audit_event WHERE event_type = 'registry.analyst-image.refused' AND outcome = 'refused' AND reason_code IS NOT NULL", ct)).ShouldBe(15);
     }
 
+    private static JsonObject CoverageManifest(string version, JsonObject? coverage, string scope = "match", string kind = "required") =>
+        Manifest(m =>
+        {
+            m["manifestVersion"] = version;
+            m["capability"]!["id"] = "pressing-analysis";
+            m["capability"]!["executionScope"] = scope;
+            var entry = new JsonObject
+            {
+                ["capabilityId"] = "player-detection", ["capabilityVersion"] = "1.2.0", ["schemaVersion"] = "1.0.0", ["kind"] = kind,
+            };
+            if (coverage is not null)
+            {
+                entry["coverage"] = coverage;
+            }
+
+            m["upstream"] = new JsonArray(entry);
+        });
+
+    private static Func<byte[], Dictionary<string, string>> VersionedLabels(string version) => file =>
+    {
+        var labels = LabelsFor(file, capabilityId: "pressing-analysis");
+        labels["io.socalytics.analyst-manifest.version"] = version;
+        return labels;
+    };
+
+    private static JsonObject Partial(decimal? fraction) =>
+        fraction is null
+            ? new JsonObject { ["mode"] = "partial" }
+            : new JsonObject { ["mode"] = "partial", ["minimumAcceptedFraction"] = fraction };
+
+    [Fact]
+    public async Task Stores_partial_coverage_declarations_of_1_1_0_manifests_and_complete_coverage_for_1_0_0()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, factory) = await StartAsync(registry.RegistryHost, ct);
+        await using var _ = db;
+        await using var __ = factory;
+        using var admin = await ApiSession.SignInAsync(factory, "admin-1", TestMembers.DefaultPassword, ct);
+
+        var (partial, _) = await PublishAsync(CoverageManifest("1.1.0", Partial(null)), VersionedLabels("1.1.0"));
+        var (fraction, _) = await PublishAsync(CoverageManifest("1.1.0", Partial(0.8m)), VersionedLabels("1.1.0"));
+        var (complete, _) = await PublishAsync(CoverageManifest("1.0.0", null), VersionedLabels("1.0.0"));
+
+        var coverages = new List<JsonElement?>();
+        foreach (var reference in new[] { partial, fraction, complete })
+        {
+            using var response = await admin.SendAsync(HttpMethod.Post, Path, new { reference }, ct);
+            response.StatusCode.ShouldBe(HttpStatusCode.Created, await response.Content.ReadAsStringAsync(ct));
+            var entry = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct)).RootElement
+                .GetProperty("manifest").GetProperty("upstream")[0].Clone();
+            coverages.Add(entry.TryGetProperty("coverage", out var coverage) ? coverage : null);
+        }
+
+        coverages[0]!.Value.GetProperty("mode").GetString().ShouldBe("partial");
+        coverages[0]!.Value.TryGetProperty("minimumAcceptedFraction", out var absent).ShouldBeFalse();
+        coverages[1]!.Value.GetProperty("mode").GetString().ShouldBe("partial");
+        coverages[1]!.Value.GetProperty("minimumAcceptedFraction").GetDecimal().ShouldBe(0.8m);
+        coverages[2].ShouldBeNull();
+        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration WHERE manifest #> '{upstream,0,coverage}' IS NOT NULL", ct)).ShouldBe(2);
+        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration WHERE manifest #> '{upstream,0,coverage}' IS NULL", ct)).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task Refuses_invalid_partial_coverage_declarations_and_stores_nothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, factory) = await StartAsync(registry.RegistryHost, ct);
+        await using var _ = db;
+        await using var __ = factory;
+        using var admin = await ApiSession.SignInAsync(factory, "admin-1", TestMembers.DefaultPassword, ct);
+
+        var invalid = new[]
+        {
+            CoverageManifest("1.1.0", Partial(null), scope: "segment"),
+            CoverageManifest("1.1.0", Partial(null), kind: "optional"),
+            CoverageManifest("1.1.0", Partial(0m)),
+            CoverageManifest("1.1.0", Partial(1.5m)),
+        };
+        foreach (var manifest in invalid)
+        {
+            var (reference, _) = await PublishAsync(manifest, VersionedLabels("1.1.0"));
+            (await RefusalAsync(admin, reference, HttpStatusCode.UnprocessableEntity, ct)).ShouldBe("manifest-invalid");
+        }
+
+        (await CountAsync(db, "SELECT count(*) FROM socalytics.analyst_capability_declaration", ct)).ShouldBe(0);
+        (await CountAsync(db, "SELECT count(*) FROM socalytics.security_audit_event WHERE event_type = 'registry.analyst-image.refused' AND reason_code = 'manifest-invalid'", ct)).ShouldBe(4);
+    }
+
     [Fact]
     public async Task Registry_failure_is_retryable_and_stores_nothing()
     {

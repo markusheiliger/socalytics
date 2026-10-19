@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://socalytics.invalid/contracts/analysis/result-manifest/v1/result-manifest.schema.json",
-  "x-socalytics-version": "1.0.0",
+  "x-socalytics-version": "1.1.0",
   "title": "Analysis result manifest v1",
   "description": "Manifest an Analyst Manager stores as manifest.json in the attempt's result location. It describes the result of one Execution Attempt and references its artifacts by name, digest, and size. The platform validates it independently of the Manager before accepting a result. The manifest contains no credentials, URLs, inline media, or unrestricted logs.",
   "type": "object",
@@ -153,6 +153,38 @@
       "description": "Identifiers of evidence only; never URLs.",
       "type": "array",
       "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" }
+    },
+    "inputCoverage": {
+      "description": "Per upstream dependency, the state of every unit of the upstream scope the attempt saw. Required by the platform for dependencies behind a partial barrier.",
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["capability", "schemaVersion", "units"],
+        "properties": {
+          "capability": { "$ref": "../../../common/v1/common.schema.json#/$defs/capabilityRef" },
+          "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+          "units": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["state"],
+              "properties": {
+                "segmentId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+                "match": { "const": true },
+                "state": { "enum": ["accepted", "missing", "failed", "blocked", "skipped"] }
+              },
+              "oneOf": [
+                { "required": ["segmentId"] },
+                { "required": ["match"] }
+              ]
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

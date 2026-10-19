@@ -142,14 +142,17 @@ the failed head. Missing or empty original scope falls back to full (`finalize`)
 readable by the repair agent inside its workspace at the locally ignored `.speckit-repair-evidence/`; unavailable
 artifacts do not weaken verification. The verification action must actually succeed, and the verified commit must still
 be the pull request head, before the marker can resolve; verification-only work uses the decision's pinned head.
-Writer-supplied text after `/speckit retry`, `/speckit sync`, or `/speckit fix` is consistently called
+Every comment command has the form `/speckit <command> [flags] [guidance]`. Flags start with `--`, directly follow
+the command, and are declared per command in `PR_COMMANDS`; case and trailing punctuation (`--force;`) are tolerated,
+a bare `--` ends the flags, and a flag the command does not support refuses the command instead of becoming guidance.
+Writer-supplied text after `/speckit retry`, `/speckit sync`, or `/speckit fix` and their flags is consistently called
 **guidance**. Retry and sync guidance is stored in a bot-authored pull request marker so a replaced dispatch or
 scheduled continuation cannot lose it. Copilot-bound guidance is whitespace-normalized, capped at 4,000 characters, and
 added to every task in the first retried group, or to the first convergence, repair, or conflict-resolution prompt.
 Later units do not inherit it. Each restart comment also records the implementation branch head and the base branch
 head. While the implementation is stopped (`help wanted`), `Spec Kit commands` refuses a `retry` after
 `MAX_UNCHANGED_RESTARTS` (2) restarts in a row on the same implementation branch head, because it would most likely
-stop the same way again; `--force` as the first word of the guidance insists. The refusal points to a push,
+stop the same way again; the flag `--force` (`/speckit retry --force [guidance]`) insists. The refusal points to a push,
 retry guidance based on the diagnosis, or `/speckit fix`. A clean merge and a verification-only repair restart invoke no agent, so they consume
 no prompt guidance. The chain keeps its branch current with the base branch by pulling: every run starts with
 the job `sync` ("Merge the base branch"), which merges the base branch into the implementation branch through the

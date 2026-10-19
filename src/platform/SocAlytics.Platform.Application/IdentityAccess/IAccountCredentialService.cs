@@ -60,6 +60,13 @@ public interface IAccountCredentialService
     /// <summary>Must run inside a unit of work; a policy violation is reported before the credential is examined, every other mismatch is <see cref="CredentialRedemptionOutcome.Invalid"/>.</summary>
     Task<CredentialRedemptionResult> RedeemCredentialAsync(AccountName name, string rawCredential, string newPassword, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Must run inside a unit of work; validates the policy (<see cref="CredentialRedemptionOutcome.PolicyViolation"/> changes nothing),
+    /// replaces the password, clears <c>password_change_required</c>, keeps the failed-attempt count and lockout end, and ends every live
+    /// session as <c>password-reset</c>; <see cref="CredentialRedemptionOutcome.Invalid"/> when the account does not exist.
+    /// </summary>
+    Task<CredentialRedemptionOutcome> ResetPasswordByRecoveryAsync(Guid accountId, string newPassword, CancellationToken cancellationToken);
+
     /// <summary>Must run inside a unit of work; the caller records one <c>credential.revoked</c> event per returned credential.</summary>
     Task<IReadOnlyList<RevokedCredential>> RevokeOpenCredentialsIssuedByAsync(Guid issuerId, string reason, CancellationToken cancellationToken);
 

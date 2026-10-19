@@ -51,7 +51,9 @@ provider (providers under `IdentityAccess:ExternalProviders:<id>` with
 `TokenEndpointAuthMethod`, plus `IdentityAccess:ExternalSignIn:WebUiBaseUrl`
 and `PendingLifetime`); members are linked only through Club Admin link
 credentials, and SocAlytics offers no MFA for local accounts (a club that needs
-MFA uses a provider that enforces it). Self-service recovery, clients, Analyst Manager identity,
+MFA uses a provider that enforces it). Self-service password recovery by
+email is implemented as development evidence against the Mailpit mail catcher.
+Invitations, clients, Analyst Manager identity,
 production values for POL-001, POL-002, and POL-009, deployment, and
 production readiness remain deferred.
 
@@ -216,6 +218,19 @@ without disclosure (`analysis.upstream-read-refused` audit events). Options
 (100) are development values. Contract:
 `contracts/analysis/upstream-results/v1/`.
 
+Partial-coverage match barriers are implemented as development evidence
+against the simulated Analyst. A match-scoped capability declares partial
+coverage per required or conditional dependency on a segment-scoped upstream in
+its Analyst manifest (`upstream[].coverage`, with a minimum of at least one
+accepted segment and an optional minimum accepted fraction). The job becomes
+ready once every expected upstream segment job is final and the accepted
+segments meet the minimum, and is blocked otherwise. Its input snapshot fixes
+each segment's state, the upstream read reports that coverage, result
+acceptance rejects a manifest whose `inputCoverage` differs
+(`result-coverage-mismatch`), and the run status read reports input coverage
+counts per node. A run that bridged failed or blocked segments ends
+`PartiallyCompleted`.
+
 Real Analyst execution is implemented on the Manager's `docker-desktop`
 profile and verified against a Linux engine; Docker Desktop on Windows awaits
 manual evidence. Production transport values and production readiness remain
@@ -321,6 +336,35 @@ Local database credentials are generated development-only values kept in the
 AppHost user secrets. To reset local data, stop the AppHost and run
 `docker volume rm socalytics-postgres-data`. This removes development data
 only.
+
+## Container Images
+
+The API and the Migrator each have a Dockerfile that builds a cloud-neutral OCI image from the repository root. Both
+builds require the arguments `SOCALYTICS_REVISION` and `SOCALYTICS_VERSION` (see the root
+[README](../../README.md#container-images) for the three build commands):
+
+```powershell
+docker build -f src/platform/SocAlytics.Platform.Api/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-api:local .
+docker build -f src/platform/SocAlytics.Platform.Migrator/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-migrator:local .
+```
+
+| Property | API image | Migrator image |
+| --- | --- | --- |
+| User | numeric `1654` (non-root; any non-root UID works) | numeric `1654` |
+| Port | `8080` (HTTP; TLS terminates outside the image) | none |
+| Hosting environment | `Production` | `Production` |
+| Writable location | tmpfs at `/tmp` (root filesystem can be read-only) | tmpfs at `/tmp` |
+| Health probe | none (`/alive` and `/health` are probed by the orchestrator) | none |
+| Lifetime | long-running | one run, then exit; do not restart after success |
+
+Configuration is read only from environment variables. The API takes its existing options, for example
+`ConnectionStrings__socalytics`, `ConnectionStrings__nats`, `Nats__Authentication__*`, `ObjectStorage__*`,
+`Email__*`, `Stamp__*`, `ClubBootstrap__*`, `IdentityAccess__*`, `WebUi__MinimumVersion`, and
+`ASPNETCORE_FORWARDEDHEADERS_ENABLED`; invalid options stop the host at start. The Migrator takes
+`ConnectionStrings__socalytics-migrator` and the optional `Migrator__*` timeouts and exits with the codes of the
+Migrator Contract. The API image contains no Migrator or DbUp, and neither image contains secret or development
+values. The images are not deployment support or production readiness; `dotnet test
+src/platform/Tests/SocAlytics.Platform.Images.Tests` (Docker required) is their evidence.
 
 ## Migrator Contract
 

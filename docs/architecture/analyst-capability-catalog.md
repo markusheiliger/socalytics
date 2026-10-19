@@ -45,6 +45,13 @@ OCI image digest and one model digest plus compatible runtime, hardware, and
 resource requirements. Analysis-run creation resolves that binding once for
 every recording, segment, and retry in the match.
 
+Development reference capabilities are not part of this catalog. The first one,
+`reference-media-probe` (decided, not yet implemented; see
+[Image Metadata And Packaging](analysts-models-and-hardware.md#image-metadata-and-packaging)),
+proves the Analyst SDK, segment media staging, and fact indexing with a real
+container; it passes none of the gates below and never enters a production
+workflow.
+
 ## Container-Owned Preprocessing And Spatial Tiling
 
 Spatial frame tiling is model-specific preprocessing inside a detector AC. It
@@ -133,7 +140,10 @@ must still support team-level analysis.
 
 There is no `evidence-clips` AC. Every concept carries evidence time ranges and
 segment identifiers. The API and MCP `get_video_clip()` operation resolve those
-references to short-lived, team-authorized match media access.
+references to short-lived, team-authorized match media access. The API side is
+decided, but not yet implemented, as the member evidence-media operation of
+[Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access);
+the MCP tool remains future work.
 
 Video access is capability-specific, not a general high-level entitlement. In
 the initial catalog, only `ball-action-analysis` may request authorized lineage

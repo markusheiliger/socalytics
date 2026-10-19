@@ -22,6 +22,11 @@ public static class ResultRejectionReasons
     public const string LineageMismatch = "result-lineage-mismatch";
     public const string ArtifactInvalid = "result-artifact-invalid";
     public const string ValidityInvalid = "result-validity-invalid";
+    public const string CoverageMismatch = "result-coverage-mismatch";
+    public const string FactsInvalid = "result-facts-invalid";
+    public const string FactsOutOfWindow = "result-facts-out-of-window";
+    public const string FactsCountMismatch = "result-facts-count-mismatch";
+    public const string FactsTooLarge = "result-facts-too-large";
 }
 
 public enum ResultVerificationStatus
@@ -31,6 +36,9 @@ public enum ResultVerificationStatus
     StorageUnavailable,
 }
 
+/// <summary>One verified fact of a fact artifact; the payload is the raw JSON object, not interpreted.</summary>
+public sealed record ParsedFact(string Kind, long StartMs, long EndMs, double Confidence, string PayloadJson);
+
 public sealed record ValidatedResultManifest(
     string ContractVersion,
     string OutputType,
@@ -38,7 +46,8 @@ public sealed record ValidatedResultManifest(
     long ValidityEndMs,
     int FactCount,
     string ArtifactsJson,
-    string UpstreamLineageJson);
+    string UpstreamLineageJson,
+    IReadOnlyList<ParsedFact> Facts);
 
 public sealed record ResultVerificationOutcome(ResultVerificationStatus Status, string? Reason, ValidatedResultManifest? Manifest)
 {
@@ -60,7 +69,8 @@ public sealed record ResultVerificationRequest(
     int AttemptNumber,
     string ManifestReference,
     string ManifestChecksum,
-    IReadOnlyList<AcceptedResultRecord> Upstream);
+    IReadOnlyList<AcceptedResultRecord> Upstream,
+    IReadOnlyList<ExpectedInputDependency>? InputDependencies = null);
 
 /// <summary>Performs the ordered manifest checks of the result-acceptance contract; reads storage but never the database transaction.</summary>
 public sealed class ResultManifestVerifier(
@@ -69,7 +79,12 @@ public sealed class ResultManifestVerifier(
     IResultDeclarationStore declarations,
     IOptions<AnalysisResultOptions> options)
 {
-    public const string SupportedContractVersion = "1.0.0";
+    public const string SupportedContractVersion = "1.1.0";
+    public const string FactContractVersion = "1.0.0";
+
+    private static readonly string[] AcceptedContractVersions = ["1.0.0", SupportedContractVersion];
+
+    public const string FactMediaType = "application/vnd.socalytics.facts+json";
 
     public async Task<ResultVerificationOutcome> VerifyAsync(ResultVerificationRequest request, CancellationToken cancellationToken)
     {
@@ -141,7 +156,7 @@ public sealed class ResultManifestVerifier(
             if (root.ValueKind == JsonValueKind.Object
                 && root.TryGetProperty("contractVersion", out var declaredVersion)
                 && declaredVersion.ValueKind == JsonValueKind.String
-                && !string.Equals(declaredVersion.GetString(), SupportedContractVersion, StringComparison.Ordinal)
+                && !AcceptedContractVersions.Contains(declaredVersion.GetString(), StringComparer.Ordinal)
                 && System.Text.RegularExpressions.Regex.IsMatch(declaredVersion.GetString()!, @"^1\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$"))
             {
                 return Reject(ResultRejectionReasons.ManifestVersionUnsupported);
@@ -171,6 +186,12 @@ public sealed class ResultManifestVerifier(
                 return Reject(ResultRejectionReasons.LineageMismatch);
             }
 
+            // 9b: input coverage
+            if (!CoverageMatches(request, root))
+            {
+                return Reject(ResultRejectionReasons.CoverageMismatch);
+            }
+
             // 10: artifacts
             var artifacts = root.GetProperty("artifacts");
             if (!await ArtifactsValidAsync(artifacts, declared, location, ct))
@@ -191,15 +212,132 @@ public sealed class ResultManifestVerifier(
                 return Reject(ResultRejectionReasons.ValidityInvalid);
             }
 
+            // 12: fact artifacts
+            var facts = new List<ParsedFact>();
+            var factsRejection = await ReadFactsAsync(request, root, artifacts, location, startMs, endMs, facts, ct);
+            if (factsRejection is not null)
+            {
+                return Reject(factsRejection);
+            }
+
+            if (facts.Count != factCount)
+            {
+                return Reject(ResultRejectionReasons.FactsCountMismatch);
+            }
+
             return ResultVerificationOutcome.Accepted(new ValidatedResultManifest(
-                SupportedContractVersion,
+                root.GetProperty("contractVersion").GetString()!,
                 root.GetProperty("outputType").GetString()!,
                 startMs,
                 endMs,
                 factCount,
                 artifacts.GetRawText(),
-                root.GetProperty("upstreamLineage").GetRawText()));
+                root.GetProperty("upstreamLineage").GetRawText(),
+                facts));
         }
+    }
+
+    // Returns the rejection reason, or null when every fact artifact is valid; facts are appended in artifact, then fact order.
+    private async Task<string?> ReadFactsAsync(
+        ResultVerificationRequest request, JsonElement root, JsonElement artifacts, string location, long windowStartMs, long windowEndMs,
+        List<ParsedFact> facts, CancellationToken ct)
+    {
+        var limits = options.Value;
+        FactRange.TryCreate(windowStartMs, windowEndMs, out var window);
+        var hasWindow = windowEndMs > windowStartMs;
+        var outputType = root.GetProperty("outputType").GetString();
+
+        foreach (var artifact in artifacts.EnumerateArray())
+        {
+            if (!artifact.TryGetProperty("mediaType", out var mediaType)
+                || !string.Equals(mediaType.GetString(), FactMediaType, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (artifact.GetProperty("sizeBytes").GetInt64() > limits.MaxFactArtifactBytes)
+            {
+                return ResultRejectionReasons.FactsTooLarge;
+            }
+
+            var read = await storage.ReadObjectAsync(location + artifact.GetProperty("name").GetString(), limits.MaxFactArtifactBytes, ct);
+            if (read is null)
+            {
+                return ResultRejectionReasons.ArtifactInvalid;
+            }
+
+            if (read.TooLarge)
+            {
+                return ResultRejectionReasons.FactsTooLarge;
+            }
+
+            if (!Sha256Digest.TryParse(artifact.GetProperty("digest").GetString(), out var expected)
+                || !Sha256Digest.FromBytes(SHA256.HashData(read.Content!)).Equals(expected))
+            {
+                return ResultRejectionReasons.ArtifactInvalid;
+            }
+
+            JsonDocument document;
+            try
+            {
+                document = JsonDocument.Parse(read.Content!);
+            }
+            catch (JsonException)
+            {
+                return ResultRejectionReasons.FactsInvalid;
+            }
+
+            using (document)
+            {
+                var factRoot = document.RootElement;
+                if (!validator.Validate(ContractSchemaIds.FactArtifactV1, factRoot).IsValid
+                    || !FactHeaderMatches(request, factRoot, outputType))
+                {
+                    return ResultRejectionReasons.FactsInvalid;
+                }
+
+                var items = factRoot.GetProperty("facts");
+                var parsed = new List<ParsedFact>();
+                foreach (var item in items.EnumerateArray())
+                {
+                    if (!item.GetProperty("startMs").TryGetInt64(out var start)
+                        || !item.GetProperty("endMs").TryGetInt64(out var end)
+                        || !FactRange.TryCreate(start, end, out _))
+                    {
+                        return ResultRejectionReasons.FactsInvalid;
+                    }
+
+                    var payload = item.GetProperty("payload");
+                    if (System.Text.Encoding.UTF8.GetByteCount(payload.GetRawText()) > limits.MaxFactPayloadBytes
+                        || facts.Count + parsed.Count + 1 > limits.MaxFactsPerResult)
+                    {
+                        return ResultRejectionReasons.FactsTooLarge;
+                    }
+
+                    parsed.Add(new ParsedFact(
+                        item.GetProperty("kind").GetString()!, start, end, item.GetProperty("confidence").GetDouble(), payload.GetRawText()));
+                }
+
+                if (parsed.Any(f => !hasWindow || !new FactRange(f.StartMs, f.EndMs).IsWithin(window)))
+                {
+                    return ResultRejectionReasons.FactsOutOfWindow;
+                }
+
+                facts.AddRange(parsed);
+            }
+        }
+
+        return null;
+    }
+
+    private static bool FactHeaderMatches(ResultVerificationRequest request, JsonElement factRoot, string? manifestOutputType)
+    {
+        var capability = factRoot.GetProperty("capability");
+        return Pad(factRoot.GetProperty("contractVersion").GetString()) == Pad(FactContractVersion)
+            && capability.GetProperty("id").GetString() == request.Node.CapabilityId
+            && Pad(capability.GetProperty("version").GetString()) == Pad(request.Node.CapabilityVersion)
+            && Pad(factRoot.GetProperty("schemaVersion").GetString()) == Pad(request.Snapshot.SchemaVersion)
+            && factRoot.GetProperty("outputType").GetString() == manifestOutputType;
     }
 
     private static ResultVerificationOutcome Reject(string reason) => ResultVerificationOutcome.Rejected(reason);
@@ -310,6 +448,60 @@ public sealed class ResultManifestVerifier(
                 Checksum: e.GetProperty("manifestChecksum").GetString()!))
             .Order().ToList();
         return expected.SequenceEqual(reported);
+    }
+
+    private static bool CoverageMatches(ResultVerificationRequest request, JsonElement root)
+    {
+        var expected = request.InputDependencies ?? [];
+        var reports = root.TryGetProperty("inputCoverage", out var array) && array.ValueKind == JsonValueKind.Array
+            ? array.EnumerateArray().ToList()
+            : [];
+
+        var reported = new HashSet<ExpectedInputDependency>();
+        foreach (var report in reports)
+        {
+            var capability = report.GetProperty("capability");
+            var dependency = expected.FirstOrDefault(d =>
+                d.CapabilityId == capability.GetProperty("id").GetString()
+                && Pad(d.CapabilityVersion) == Pad(capability.GetProperty("version").GetString())
+                && Pad(d.SchemaVersion) == Pad(report.GetProperty("schemaVersion").GetString()));
+            if (dependency is null || !reported.Add(dependency))
+            {
+                return false;
+            }
+
+            var units = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var unit in report.GetProperty("units").EnumerateArray())
+            {
+                var key = unit.TryGetProperty("segmentId", out var segment)
+                    ? ExpectedInputDependency.SegmentUnit(segment.GetString()!)
+                    : ExpectedInputDependency.MatchUnit;
+                if (!units.TryAdd(key, unit.GetProperty("state").GetString()!))
+                {
+                    return false;
+                }
+            }
+
+            if (dependency.Coverage is { } coverage)
+            {
+                var snapshotUnits = coverage.ToDictionary(c => ExpectedInputDependency.SegmentUnit(c.SegmentId), c => c.State, StringComparer.Ordinal);
+                if (units.Count != snapshotUnits.Count || units.Any(u => !snapshotUnits.TryGetValue(u.Key, out var state) || state != u.Value))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                var acceptedUnits = units.Where(u => u.Value == "accepted").Select(u => u.Key).ToHashSet(StringComparer.Ordinal);
+                if (!acceptedUnits.SetEquals(dependency.AcceptedUnits))
+                {
+                    return false;
+                }
+            }
+        }
+
+        // A partial barrier must always be reported.
+        return expected.Where(d => d.Coverage is not null).All(reported.Contains);
     }
 
     private async Task<bool> ArtifactsValidAsync(

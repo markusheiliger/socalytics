@@ -25,7 +25,7 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
         Guid Id, string NodeKey, string CapabilityId, string CapabilityVersion, string Tier, string ExecutionScope,
         int Ordinal, string State, Guid? BlockedByNodeId, DateTime UpdatedAt, string Snapshot);
 
-    private sealed record EdgeRow(Guid UpstreamNodeId, Guid DependentNodeId, string Kind, string? Predicate);
+    private sealed record EdgeRow(Guid UpstreamNodeId, Guid DependentNodeId, string Kind, string? Predicate, string CoverageMode, decimal? MinimumAcceptedFraction);
 
     private sealed record SnapshotRow(string Snapshot, string SnapshotDigest);
 
@@ -116,8 +116,8 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
         {
             await connection.ExecuteAsync(new CommandDefinition(
                 """
-                INSERT INTO socalytics.analysis_dependency_edges (run_id, upstream_node_id, dependent_node_id, kind, predicate)
-                VALUES (@id, @upstream, @dependent, @kind, @predicate::jsonb)
+                INSERT INTO socalytics.analysis_dependency_edges (run_id, upstream_node_id, dependent_node_id, kind, predicate, coverage_mode, minimum_accepted_fraction)
+                VALUES (@id, @upstream, @dependent, @kind, @predicate::jsonb, @coverageMode, @minimumAcceptedFraction)
                 """,
                 new
                 {
@@ -126,6 +126,8 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
                     dependent = edge.DependentNodeId,
                     kind = AnalysisPersistedNames.ToPersistedName(edge.Kind),
                     predicate = edge.PredicateJson,
+                    coverageMode = AnalysisPersistedNames.ToPersistedName(edge.CoveragePolicy.Mode),
+                    minimumAcceptedFraction = edge.CoveragePolicy.MinimumAcceptedFraction,
                 },
                 transaction,
                 cancellationToken: cancellationToken));
@@ -223,7 +225,8 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
             new { runId }, session.Transaction, cancellationToken: cancellationToken));
         var edges = await connection.QueryAsync<EdgeRow>(new CommandDefinition(
             """
-            SELECT upstream_node_id AS UpstreamNodeId, dependent_node_id AS DependentNodeId, kind AS Kind, predicate::text AS Predicate
+            SELECT upstream_node_id AS UpstreamNodeId, dependent_node_id AS DependentNodeId, kind AS Kind, predicate::text AS Predicate,
+                   coverage_mode AS CoverageMode, minimum_accepted_fraction AS MinimumAcceptedFraction
             FROM socalytics.analysis_dependency_edges WHERE run_id = @runId ORDER BY upstream_node_id, dependent_node_id
             """,
             new { runId }, session.Transaction, cancellationToken: cancellationToken));
@@ -236,8 +239,16 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
                 ParseTier(n.Tier), ParseScope(n.ExecutionScope), n.Ordinal,
                 Enum.Parse<WorkflowNodeState>(n.State), n.BlockedByNodeId, Utc(n.UpdatedAt), n.Snapshot)).ToList(),
             edges.Select(e => new DependencyEdgeRecord(
-                e.UpstreamNodeId, e.DependentNodeId, ParseKind(e.Kind), e.Predicate)).ToList());
+                e.UpstreamNodeId, e.DependentNodeId, ParseKind(e.Kind), e.Predicate)
+            {
+                CoveragePolicy = ParseCoverage(e.CoverageMode, e.MinimumAcceptedFraction),
+            }).ToList());
     }
+
+    private static CoveragePolicy ParseCoverage(string mode, decimal? fraction) =>
+        !AnalysisPersistedNames.TryParseCoverageMode(mode, out var m)
+            ? throw new InvalidOperationException($"Unknown coverage mode '{mode}'.")
+            : m == CoverageMode.Partial ? CoveragePolicy.Partial(fraction) : CoveragePolicy.Complete;
 
     private static CapabilityTier ParseTier(string v) =>
         AnalysisPersistedNames.TryParseCapabilityTier(v, out var t) ? t : throw new InvalidOperationException($"Unknown tier '{v}'.");

@@ -28,6 +28,12 @@ All nine agents are part of the initial post-analysis triage catalog. Each
 requires versioned prompt, tool-policy, safety-policy, model/deployment, and
 evaluation artifacts before implementation can make it selectable.
 
+The platform's agent catalog registry is decided as follows and not yet
+implemented. Approving an agent version in the registry records an accountable
+decision only. The evaluation artifacts and promotion gates below remain
+required before an agent version is selectable in production and are not yet
+enforced; Development and Test may enable approved versions without them.
+
 Supported interaction paths are:
 
 - `User -> CA`
@@ -59,6 +65,32 @@ authorization, recovery, and replay contract are owned by
 [Intelligence and Agents](intelligence-and-agents.md#agent-orchestration-authority).
 Historical lineage retains the exact rendered profile and modifier snapshot for
 every successful or failed attempt.
+
+The agent catalog registry is decided and not yet implemented: the platform's
+Agent Orchestration functional area becomes the authority for immutable,
+content-addressed agent versions and their prompt-template, model-selection,
+tool-policy, safety-policy, dimension-set, philosophy-profile, and
+modifier-policy artifacts. Their formats are JSON Schema contracts in
+`contracts/agent-catalog/`, together with a catalog baseline of the nine agent
+identifiers, their permitted-tool baselines from the
+[MCP Tool Policy](#mcp-tool-policy), and the tool allowlist; a tool policy may
+grant only tools within its agent's baseline, and model selections cannot hold
+provider secrets. Until a stamp-operator role exists, Club Admins register,
+approve, retire, and enable versions; a stamp enables at most one approved
+version per agent identifier, Coach Agents only once their conversations are
+implemented (direct Coach Agent conversations, which enable approved Coach
+Agent versions like Specialist Agent versions and also pin the profile's
+dimension set, are decided and not yet implemented; see
+`specs/20261018-115720-coach-agent-conversations`). A Coach Agent version may
+also reference a consultation-policy artifact that governs its delegated
+consultations (decided, not yet implemented; see
+`specs/20261018-121958-agent-consultations`). A submission pins the
+enabled agent version and every artifact
+digest into its invocation, so later catalog changes never alter running or
+historical invocations. Club Admins will operate the catalog from the Web UI's
+Agent Catalog area (decided, not yet implemented; see
+[Client Applications → Web UI](client-applications.md#web-ui)). See
+`specs/20261018-101517-agent-catalog-registry`.
 
 Prompt text describes expected conduct but is not an authorization boundary.
 Hermes restricts interaction paths; MCP and the API enforce tool, team, match, and
@@ -184,6 +216,18 @@ context-policy version, and before/after values. Unknown or insufficient context
 produces no modifier. Missing dimension evidence is `unavailable`, not zero, and
 does not cause weight redistribution.
 
+How modifiers arise is decided and not yet implemented: in a Coach Agent
+attempt, after consulting evidence, the model may propose one set of
+modifiers through a Hermes-local function that is not an MCP tool. Each
+modifier names a permitted context category, integer deltas, a reason of at
+most 300 characters, and the identifiers of tool calls of the same attempt
+that answered from accepted evidence. Hermes applies the set only when every
+rule above and the pinned modifier policy hold, otherwise omits it entirely
+and records the violated rule; an "analysis unavailable" answer never backs a
+modifier. Agent Orchestration re-checks the same rules against the pins and
+the attempt's recorded tool calls. See
+`specs/20261018-115720-coach-agent-conversations`.
+
 Historical z-scores, team baselines, opponent-adjusted norms, confidence
 intervals, and longitudinal scoring are outside the initial architecture because
 the current MCP surface provides no governed historical baseline. There is no
@@ -256,6 +300,27 @@ is missing, has an invalid digest, omits a required dimension, violates the
 version. Context modifiers are omitted unless their complete evidence-backed
 lineage is available.
 
+The first rendering is decided and not yet implemented: Hermes replaces the
+prompt's single `philosophy_profile` slot with a versioned plain-text profile
+block (`hermes-profile-block/1`) containing the elements above, followed by a
+Coach Agent runtime section that states the agent version's disclosure
+statement, the non-impersonation and non-fabrication rules, and that no other
+agent may be consulted. Hermes records every rendered applied profile (base
+vector, applied modifiers, applied vector, and the dimension-set, profile, and
+modifier-policy references) as a profile checkpoint before the first model
+call and after applied modifiers, and repeats the last one in the completion
+(`attempt-report` release 1.2.0); Agent Orchestration validates both against
+the pins and retains them in the lineage and accepted advice, and attaches
+the pinned agent version's disclosure statement to every Coach Agent advice
+it returns. The Development and Test seed's Coach Agent prompts are the drafts
+below with the weight table replaced by the slot and the consultation
+paragraph replaced by suggestions for the human coach until consultations
+exist. Consulting seed versions, which restore the drafts' consultation
+paragraph and use a Coach Agent runtime section that permits consulting the
+allowed Specialists, are decided and not yet implemented (see
+`specs/20261018-121958-agent-consultations`). See
+`specs/20261018-115720-coach-agent-conversations`.
+
 ## Specialist Agent Catalog
 
 <!-- markdownlint-disable MD013 -->
@@ -276,7 +341,13 @@ lineage is available.
 The table is a least-privilege architecture baseline. A permitted tool remains
 subject to team authorization, resource availability, and the invocation's
 tool-policy version. Agents should request only the evidence needed for the
-question rather than exhaustively calling every permitted tool.
+question rather than exhaustively calling every permitted tool. The platform
+enforces the pinned tool policy on every tool call and refuses tools outside it
+without fencing the attempt (decided, not yet implemented; see
+[Intelligence and Agents → MCP Tools](intelligence-and-agents.md#mcp-tools)).
+The MCP server lists and forwards only the pinned policy's tools (decided, not
+yet implemented; see
+[Intelligence and Agents → MCP Layer](intelligence-and-agents.md#mcp-layer)).
 
 <!-- markdownlint-disable MD013 -->
 
@@ -324,6 +395,19 @@ evidence, and desired decision support. Hermes may fan out to multiple SAs, but
 each consultation remains independently attributable. The CA reconciles
 conflicts and preserves dissent or uncertainty rather than presenting a false
 consensus.
+
+The first consultation implementation is decided and not yet implemented:
+the Coach Agent version's pinned consultation policy names the Specialists it
+may consult, the maximum consultations per parent invocation, and whether an
+unavailable consultation lets the parent continue or fails it. The CA requests
+each consultation through a Hermes-local function with the specialist, a
+bounded question, references to evidence its attempt already obtained, and
+the decision support it wants; several requests in one turn fan out within the
+bound. Before completing, the CA declares for every consultation whether it
+adopted, partially adopted, or did not adopt the response (or that it was
+unavailable), whether it agrees or conflicts, and a short note; the lineage
+and the member's views keep the response and any conflict next to the
+synthesis. See `specs/20261018-121958-agent-consultations`.
 
 ```mermaid
 sequenceDiagram
@@ -700,18 +784,32 @@ recommendation specific enough for staff to review and adapt with the player.
 
 1. **Wave 0 - governance and evaluation:** define prompt, model, tool-policy,
    and safety-policy artifact formats; establish disclosure, grounding, safety,
-   privacy, consultation, latency, and cost test suites.
+   privacy, consultation, latency, and cost test suites. The artifact formats
+   are decided as the `contracts/agent-catalog/` contracts of the agent
+   catalog registry and not yet implemented; the test suites remain open.
 2. **Wave 1 - direct specialists:** evaluate direct user conversations with the
    tactics and video-analysis SAs against accepted evidence and unavailable-data
-   scenarios.
+   scenarios. The Hermes runtime that executes these direct conversations is
+   decided and not yet implemented (see
+   [Intelligence and Agents → Agent Orchestration Authority](intelligence-and-agents.md#agent-orchestration-authority));
+   the evaluation suites remain open.
 3. **Wave 2 - remaining specialists:** add fitness, goalkeeping, scouting, and
    player-development SAs after their domain safety and escalation tests pass.
 4. **Wave 3 - direct Coach Agents:** evaluate the three CA perspectives on the
    same evidence corpus for factual consistency, useful differentiation,
-   disclosure, and non-impersonation.
+   disclosure, and non-impersonation. Direct Coach Agent conversations
+   (enablement, the `User -> CA` route, profile rendering, evidence-backed
+   modifiers, applied-profile lineage, disclosure, and a Development and Test
+   seed of the three Coach Agents) are decided and not yet implemented (see
+   `specs/20261018-115720-coach-agent-conversations`); the evaluation suites
+   remain open.
 5. **Wave 4 - delegated consultation:** enable Hermes-orchestrated CA-to-SA
    consultation after context inheritance, attribution, conflict preservation,
-   loop prevention, latency, and cost gates pass.
+   loop prevention, latency, and cost gates pass. Delegated consultations
+   (consultation policies, the request operation, child invocations, waiting
+   and synthesizing parents, unavailable consultations, influence declarations,
+   and their lineage and views) are decided and not yet implemented (see
+   `specs/20261018-121958-agent-consultations`); the gates remain open.
 
 ## Validation And Promotion Gates
 

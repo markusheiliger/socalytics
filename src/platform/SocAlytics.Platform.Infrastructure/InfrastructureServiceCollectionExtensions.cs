@@ -47,6 +47,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.ICompletionOutcomeStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.CompletionOutcomeStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.IResultDeclarationStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.ResultDeclarationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.IAcceptedResultManifestStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AcceptedResultManifestStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IIndexedFactStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.IndexedFactStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Results.IUpstreamResultReader, SocAlytics.Platform.Infrastructure.Persistence.Analysis.UpstreamResultReader>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.INotificationReceiptStore, SocAlytics.Platform.Infrastructure.Persistence.Analysis.NotificationReceiptStore>();
         services.TryAddSingleton<SocAlytics.Platform.Application.Registry.Abstractions.IRegistrySecretGenerator, SocAlytics.Platform.Infrastructure.Registry.RegistrySecretGenerator>();
@@ -79,6 +80,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
         services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.Analysis.AnalysisRunScopeSource>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisRunQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunQueries>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.IFactQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.FactQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisOperationalQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisOperationalQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Messaging.IOutboxMessageQueries, SocAlytics.Platform.Infrastructure.Persistence.Messaging.OutboxMessageQueries>();
 
@@ -159,6 +161,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.IMemberEmailAddressStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.MemberEmailAddressStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.IEmailConfirmationStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.EmailConfirmationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.INotificationPreferenceStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.NotificationPreferenceStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.IPasswordRecoveryStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.PasswordRecoveryStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.IEmailMessageStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.EmailMessageStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.INotificationRecipientStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.NotificationRecipientStore>();
         services.AddOptions<SocAlytics.Platform.Infrastructure.Email.EmailOptions>()

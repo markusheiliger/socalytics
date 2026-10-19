@@ -62,6 +62,33 @@ public sealed class SimulatedResultModeTests : IDisposable
         ((string)manifest["provenance"]!["imageDigest"]!).ShouldBe(job.Pinned.ImageDigest);
         ((string)manifest["upstreamLineage"]![0]!["manifestChecksum"]!).ShouldBe(UpstreamChecksum);
         manifest["artifacts"]!.AsArray().Count.ShouldBe(1);
+        ((string)manifest["artifacts"]![0]!["mediaType"]!).ShouldBe("application/vnd.socalytics.facts+json");
+        ((int)manifest["factCount"]!).ShouldBe(3);
+
+        var facts = ReadFacts()["facts"]!.AsArray();
+        facts.Count.ShouldBe(3);
+        var start = (long)manifest["validityWindow"]!["startMs"]!;
+        var end = (long)manifest["validityWindow"]!["endMs"]!;
+        foreach (var fact in facts)
+        {
+            ((string)fact!["kind"]!).ShouldBe("simulated-concept");
+            ((double)fact["confidence"]!).ShouldBe(0.9);
+            ((long)fact["startMs"]!).ShouldBeGreaterThanOrEqualTo(start);
+            ((long)fact["endMs"]!).ShouldBeLessThanOrEqualTo(end);
+            ((long)fact["endMs"]!).ShouldBeGreaterThan((long)fact["startMs"]!);
+        }
+    }
+
+    private JsonNode ReadFacts() => JsonNode.Parse(File.ReadAllText(Path.Combine(_directory, "facts.json")))!;
+
+    [Fact]
+    public void Invalid_facts_writes_one_fact_outside_the_window()
+    {
+        var manifest = Write(SimulatedResultModes.InvalidFacts, out _);
+
+        IsSchemaValid().ShouldBeTrue();
+        var end = (long)manifest["validityWindow"]!["endMs"]!;
+        ReadFacts()["facts"]!.AsArray().Count(f => (long)f!["endMs"]! > end).ShouldBe(1);
     }
 
     [Fact]
@@ -152,10 +179,85 @@ public sealed class SimulatedResultModeTests : IDisposable
             ((string)lineage[0]!["manifestChecksum"]!).ShouldBe(
                 ResultPublisher.Digest(File.ReadAllBytes(Path.Combine(inputs, "player-detection", "staged-res-1", "manifest.json"))));
 
-            var artifact = JsonNode.Parse(File.ReadAllText(Path.Combine(_directory, "facts.json")))!;
+            var artifact = JsonNode.Parse(File.ReadAllText(Path.Combine(_directory, "inputs.json")))!;
             var coverage = artifact["consumedCoverage"]!["player-detection"]!.AsArray();
             coverage.Count.ShouldBe(2);
             ((string)coverage[1]!["state"]!).ShouldBe("missing");
+            var artifacts = manifest["artifacts"]!.AsArray();
+            artifacts.Select(a => (string)a!["name"]!).ShouldBe(["facts.json", "inputs.json"]);
+            ((string)artifacts[1]!["mediaType"]!).ShouldBe("application/json");
+        }
+        finally
+        {
+            Directory.Delete(inputs, true);
+        }
+    }
+
+    private const string PartialCoverage =
+        """{"upstream":{"capability":{"id":"player-detection","version":"1.0.0"},"schemaVersion":"1.0.0","edgeKind":"required"},"mode":"partial","coverage":[{"segmentId":"s-1","state":"failed"},{"segmentId":"s-2","state":"accepted"}]}""";
+
+    [Fact]
+    public void Valid_mode_writes_a_1_1_0_manifest_with_input_coverage_from_every_staged_coverage_file()
+    {
+        var inputs = StageUpstream("staged-res-1", "a", PartialCoverage);
+        try
+        {
+            var manifest = Write(null, out _, inputs);
+
+            IsSchemaValid().ShouldBeTrue();
+            ((string)manifest["contractVersion"]!).ShouldBe("1.1.0");
+            var report = manifest["inputCoverage"]!.AsArray().Single()!;
+            ((string)report["capability"]!["id"]!).ShouldBe("player-detection");
+            ((string)report["schemaVersion"]!).ShouldBe("1.0.0");
+            var units = report["units"]!.AsArray();
+            units.Count.ShouldBe(2);
+            ((string)units[0]!["segmentId"]!).ShouldBe("s-1");
+            ((string)units[0]!["state"]!).ShouldBe("failed");
+            ((string)units[1]!["state"]!).ShouldBe("accepted");
+        }
+        finally
+        {
+            Directory.Delete(inputs, true);
+        }
+    }
+
+    [Fact]
+    public void Without_staged_inputs_no_input_coverage_is_reported()
+    {
+        var manifest = Write(null, out _);
+
+        manifest["inputCoverage"].ShouldBeNull();
+    }
+
+    [Fact]
+    public void Coverage_mismatch_flips_one_unit_state()
+    {
+        var inputs = StageUpstream("staged-res-1", "a", PartialCoverage);
+        try
+        {
+            var manifest = Write(SimulatedResultModes.CoverageMismatch, out _, inputs);
+
+            IsSchemaValid().ShouldBeTrue();
+            var units = manifest["inputCoverage"]![0]!["units"]!.AsArray();
+            ((string)units[0]!["state"]!).ShouldBe("accepted");
+            ((string)units[1]!["state"]!).ShouldBe("accepted");
+        }
+        finally
+        {
+            Directory.Delete(inputs, true);
+        }
+    }
+
+    [Fact]
+    public void Coverage_omitted_drops_the_input_coverage()
+    {
+        var inputs = StageUpstream("staged-res-1", "a", PartialCoverage);
+        try
+        {
+            var manifest = Write(SimulatedResultModes.CoverageOmitted, out _, inputs);
+
+            IsSchemaValid().ShouldBeTrue();
+            manifest["inputCoverage"].ShouldBeNull();
         }
         finally
         {

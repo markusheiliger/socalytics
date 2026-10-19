@@ -23,6 +23,23 @@ flowchart LR
 
 Agents never directly access databases.
 
+The MCP server is decided and not yet implemented: a separate Python OCI
+service in `src/agents/mcp-server`, built on the official MCP Python SDK,
+serves MCP over Streamable HTTP only to the stamp's agent runtime, which
+authenticates with a configured shared secret. Each session is bound when it
+is opened to exactly one attempt by its attempt identifier and current fencing
+token; the server confirms the binding through the attempt-scoped
+pinned-artifact read and takes the session's tool policy from the pinned tool
+policy, never from the runtime. It authenticates to the API as its own
+stamp-local workload client with DPoP-bound tokens, never with member
+credentials, and calls only the workload token operation, the pinned-artifact
+read, and the agent tool operations. Every permitted tool call becomes exactly
+one API request with a server-generated call identifier, and the API's answer,
+refusal, stale disposition, or "analysis unavailable" outcome is returned
+unchanged; the server derives, caches, persists, and logs no evidence, links,
+or tokens. It exposes `/alive` and `/health` (ready while it can obtain a
+workload token) and carries no agent-to-agent messages.
+
 ---
 
 ### MCP Tools
@@ -51,7 +68,9 @@ Representative tools resolve as follows:
 - `get_tactical_phases()` queries accepted `tactical-phase-aggregation`
     summaries.
 - `get_video_clip()` resolves accepted evidence time ranges to short-lived
-    presigned media access.
+    presigned media access (its API side, the member evidence-media operation
+    of [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access),
+    is decided, not yet implemented; the MCP tool is future work).
 
 When required analysis is unavailable or incomplete, MCP reports that state. It
 does not infer missing concepts from bounding boxes, silently trigger ad hoc LLM
@@ -59,6 +78,33 @@ derivation, or access raw metadata tables.
 
 The [Analyst Capability Catalog](analyst-capability-catalog.md) defines the
 canonical producers and dependencies for these accepted concepts.
+
+The platform side of the tools is decided and not yet implemented. A dedicated
+`/api/v1/agent-tools` route group contains exactly one read-only operation per
+allowlisted tool, with stable operation identifiers (`agentToolGetMatch`,
+`agentToolGetVideoClip`, `agentToolFindCounterAttacks`, and so on); the
+versioned allowlist that maps each tool identifier to its operation and says
+whether it answers from accepted evidence is the machine-readable contract
+`contracts/agent-tools/tool-allowlist/v1`, and its tool identifiers equal the
+catalog baseline's. Only an authenticated agent workload may call the
+operations, and only for its current attempt with the current fencing token
+and only for tools in the invocation's pinned tool policy. Arguments never name
+a team, match, or run: every call reads the invocation's match and the
+conversation's bound run. `get_match()` returns the match, the bound run and
+whether it is still current, and the run's fact streams, and with a fact
+selection returns accepted facts with the coverage and limits of the member fact
+read; `get_video_clip()` uses the member evidence-media resolution, and its
+links are returned to the caller only. Until a producing capability is accepted,
+`get_player_stats()` and the concept tools answer an explicit "analysis
+unavailable" outcome naming the producing capability and read no facts. Each
+attempt has configured limits on tool calls and clip resolutions, and every call
+that passes the attempt binding is recorded in the invocation's lineage with
+its call identifier, tool, argument and result digests, evidence references,
+and outcome, never evidence content. The MCP server's tools are decided and not
+yet implemented: they are generated from that allowlist contract and the API's
+OpenAPI description, so each mirrors its operation one-to-one with the same
+identifier, argument schema, and result shape, and a session lists only the
+tools of its invocation's pinned tool policy.
 
 ---
 
@@ -170,6 +216,15 @@ claim, lease, checkpoint, consultation, completion, and lifecycle operations.
 Agent Orchestration will use PostgreSQL, optimistic concurrency, idempotency,
 fencing, a transactional outbox, bounded recovery, and tombstone reapplication.
 
+The first implementation is decided and not yet implemented: it covers direct
+`User -> SA` triage conversations for the Specialist Agents the stamp enables
+(the first catalog wave), with conversation creation, participants, submission,
+private conditional reads, and the workload claim, lease, checkpoint,
+completion, and failure operations, executed in Development and Test by a
+simulated agent workload that stands in for Hermes. Consultations, Coach Agents,
+lifecycle operations, and tombstones remain later work. See
+`specs/20261017-204332-agent-orchestration-invocations`.
+
 Hermes is a separate Python OCI service using Microsoft Agent Framework for
 agent execution and CA-to-SA orchestration. Framework-specific types remain
 behind Hermes adapters, and framework persistence or checkpoint features must
@@ -188,6 +243,81 @@ provider and deployment; Hermes performs no silent fallback. A provider-neutral
 adapter isolates catalog and orchestration logic from provider SDK details, and
 lineage records the provider, model, deployment or configuration, and resolved
 parameters for every invocation.
+
+The first Hermes slice is decided and not yet implemented: an independent
+Python project `src/agents/hermes` on Microsoft Agent Framework that executes
+direct `User -> SA` invocations only. It is its own stamp-local workload
+client (not the MCP server's), pulls the agent work notifications, claims
+each notified invocation, reads the pinned artifacts through the
+attempt-scoped read and verifies their contracts, digests, group, route, and
+prompt slots, and renders the pinned prompt template with a versioned runtime
+section that states the safety policy's boundaries and the shared response
+contract. It opens one MCP session per attempt and offers the model only that
+session's tools, renews the lease, records content-free checkpoints, and
+completes with advice that contains the response contract's five sections.
+Configuration selects exactly one of the OpenAI API, GitHub Models, or, in
+Development and Test only, a deterministic scripted provider that serves the
+catalog's simulated provider; a pinned model selection naming another provider
+fails the attempt. Every completion declares the pinned model-selection
+reference and the parameters sent, and Agent Orchestration refuses a
+completion whose provider, model, deployment, model-selection reference, or
+parameters differ from the pinned model selection. Failures end the attempt
+with a bounded reason and retryability, stale dispositions stop the work
+without a report, and on shutdown Hermes fails its active attempts as
+retryable. Hermes logs identifiers and outcomes only and exposes `/alive` and
+`/health`. Coach Agents, philosophy rendering, and consultations remain later
+work. See `specs/20261018-113729-hermes-runtime`.
+
+Direct Coach Agent conversations are decided and not yet implemented. Club
+Admins enable approved Coach Agent versions like Specialist Agent versions,
+the available-agents read lists them with their simulation disclosure
+statement, and owners add them as participants. A submission to a Coach Agent
+creates a `User -> CA` invocation (wire value `user-to-coach`, carried by
+`work-notification` 1.1.0 and `execution-envelope` 1.2.0) that also pins the
+dimension set of its profile. Hermes executes it with the same intake, MCP,
+provider, and failure rules, validates the pinned dimension set, profile, and
+modifier policy (failing with `invalid-artifact` or `incompatible-artifact`
+and never falling back), renders the profile block of the
+[Rendered CA Prompt Context](intelligence-agent-catalog.md#rendered-ca-prompt-context),
+applies only evidence-backed modifiers within the pinned policy, offers no
+consultation, and records the applied profile in profile checkpoints and the
+completion, which Agent Orchestration validates and retains. A simulated
+agent workload executes Coach Agent invocations in Development and Test as
+well. Consultations remain later work. See
+`specs/20261018-115720-coach-agent-conversations`.
+
+Delegated `CA -> SA` consultations are decided and not yet implemented. A
+Coach Agent version may reference a consultation policy, a catalog artifact
+pinned with the version that lists the Specialist Agents it may consult, the
+maximum number of consultations per parent invocation, question and
+decision-support length limits, and whether the parent continues or fails
+when a consultation is unavailable. Hermes offers such a Coach Agent a
+Hermes-local consultation function; each call becomes a fenced, idempotent
+`requestAgentConsultation` workload operation of the parent's current
+attempt. Agent Orchestration refuses, creating nothing, requests from any
+other route (including children, so consultations never nest), to anything
+but an allowed, enabled Specialist whose safety policy permits the
+`coach-to-specialist` route and whose tool policy stays within the parent's,
+or beyond the bound, and re-evaluates the initiating user's authority. A
+valid request commits the consultation (its pending row is the parent's
+waiting edge), the child invocation with the parent's owner, team, match,
+run, conversation, correlation, and tool-policy reference and the
+Specialist's enabled version pinned, the parent's move to
+`waiting-for-consultations`, and the child's outbox notification. Children
+run as ordinary invocations under their own execution policy; an accepted
+child response resolves the consultation and moves the parent to
+`synthesizing`, or queues it again when its attempt ended while waiting; a
+child that exhausts its attempts or fails non-retryably becomes an
+attributed unavailable consultation and the pinned policy continues or fails
+the parent. A parent that fails ends its unresolved children, and scope loss
+fails the parent and its children. The parent's completion declares, for
+every consultation, adoption, agreement or conflict, and a note, which the
+lineage retains; owners see each consultation's Specialist, question, and
+state at once and its response and evidence once the parent ended. Hermes
+waits for consultations outside its execution slots and resumes the Coach
+Agent with the attributed results, and the simulated agent workload executes
+children in Development and Test. See
+`specs/20261018-121958-agent-consultations`.
 
 The durable identity model is:
 
@@ -292,6 +422,22 @@ checkpoint, consultation, and completion replay idempotent. Only the current
 attempt and fencing token can mutate active state; an expired, duplicate, or
 late operation receives an explicit stale disposition.
 
+The workload identity is decided and not yet implemented: each agent runtime is
+a workload client configured in the stamp's protected deployment configuration
+with an ECDSA public key, not paired by members. It obtains short-lived access
+tokens from a minimal Agent Orchestration token endpoint with the OAuth 2.0
+client credentials grant, a `private_key_jwt` assertion, and a DPoP proof, the
+same proof rules as Analyst Manager machine access, and calls the workload
+operations with DPoP-bound tokens; disabling a client stops its tokens at once.
+With NATS JWT authentication it obtains short-lived queue credentials limited to
+pulling and acknowledging agent work notifications. Each invocation stores the
+versioned execution policy (`direct-invocation/1`: attempt limit, lease and
+maximum attempt duration, envelope history bound, and length limits) that
+governs its retries, and each owner may have a configured number of unfinished
+invocations. Every workload operation carries an operation identifier recorded
+with a hash of its request, so a replay returns the recorded outcome and a
+conflicting reuse is refused.
+
 If Hermes stops or a lease expires, Agent Orchestration retains partial lineage, expires
 and fences the attempt, and creates a new attempt for the same logical
 invocation within versioned retry limits. Parent waiting edges and accepted
@@ -310,6 +456,16 @@ implicit fallback. Advice lineage retains those versions, the invoking actor
 and context, consulted agents, MCP calls, evidence references, and any applied
 philosophy modifiers. The catalog defines the required lineage fields; the
 Agent Orchestration functional area owns their durable representation.
+
+Decided and not yet implemented: Hermes does not choose agent or artifact
+versions. Agent Orchestration pins the enabled agent version and every artifact
+digest from the platform's agent catalog into the invocation at submission
+([Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance)),
+the claim's execution envelope carries those references, and the workload reads
+the pinned artifacts through an attempt-scoped operation that requires the
+current attempt and fencing token and accepts no caller-chosen digest. A
+completion whose declared prompt, tool-policy, or safety-policy references
+differ from the pins is refused.
 
 ### Authorization, Lineage, And Lifecycle
 
@@ -332,6 +488,26 @@ administrator, or security administrator receives no implicit ordinary read
 access. Exceptional governance review uses a separate purpose-limited
 operation and audits its actor, purpose, scope, affected resources, and outcome
 under Security and Data Governance.
+
+The role rules are decided and not yet implemented: Club Admins and Coaches of
+the owning team may create conversations and submit; Viewers may not. Ordinary
+reads are granted to the initiating user while active and holding Club Admin or
+a Coach or Viewer role on the owning team. Execution authority requires the
+initiating user to remain active and Club Admin or Coach of the team; Agent
+Orchestration re-evaluates it at claim, lease renewal, checkpoint, completion,
+and failure, and in a periodic check of active attempts, and a scope-lost
+invocation fails and is never retried. Supersession of the conversation's run
+is not scope loss: the conversation stays bound to its run and usable, and its
+read shows that the run is no longer the match's current run.
+
+Evidence tool calls follow the same rule (decided and not yet implemented):
+each call re-evaluates the initiating user's execution authority before reading
+evidence; scope loss denies the call, fences the attempt, and fails the
+invocation in the same transaction, and every later tool call of the attempt
+receives a stale disposition. A tool outside the pinned tool policy is refused
+without fencing the attempt. The MCP server also refuses such a tool before
+forwarding it, as defense in depth (decided, not yet implemented); the API
+remains authoritative.
 
 Accepted advice has one append-oriented, ordered, idempotent lineage across its
 parent, consultations, and attempts. It retains the initiating actor and

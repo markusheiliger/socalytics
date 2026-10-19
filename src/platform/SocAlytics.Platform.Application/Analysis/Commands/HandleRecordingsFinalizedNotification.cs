@@ -180,7 +180,10 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
         var edges = definition.Edges.Select(e => new DependencyEdgeRecord(
             byKey[e.UpstreamNodeKey].Id, byKey[e.DependentNodeKey].Id,
             AnalysisPersistedNames.TryParseDependencyKind(e.Kind, out var kind) ? kind : throw new InvalidOperationException("Undeclared dependency kind."),
-            e.Predicate is null ? null : PredicateJson(e.Predicate))).ToList();
+            e.Predicate is null ? null : PredicateJson(e.Predicate))
+        {
+            CoveragePolicy = e.CoveragePolicy,
+        }).ToList();
 
         runId = await runs.InsertAsync(new NewAnalysisRun(
             lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, definition.WorkflowId, definition.WorkflowVersion,

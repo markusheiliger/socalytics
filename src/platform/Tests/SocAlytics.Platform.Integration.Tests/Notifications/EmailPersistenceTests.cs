@@ -212,6 +212,46 @@ public sealed class EmailPersistenceTests(PostgresContainerFixture postgres)
     }
 
     [Fact]
+    public async Task MessagesRoundTripThePasswordRecoveryId()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await using var db = await MigratedAsync(ct);
+        var accountId = await TestMembers.SeedAsync(db, "recovery.member", cancellationToken: ct);
+        var recoveryId = Guid.NewGuid();
+        await using (var connection = new NpgsqlConnection(db.AppConnectionString))
+        {
+            await connection.OpenAsync(ct);
+            await using var insert = new NpgsqlCommand(
+                "INSERT INTO socalytics.password_recoveries (id, account_id, address_hash, security_stamp, state, requested_at) " +
+                "VALUES (@id, @accountId, 'h', 's', 'pending', now())",
+                connection);
+            insert.Parameters.AddWithValue("id", recoveryId);
+            insert.Parameters.AddWithValue("accountId", accountId);
+            await insert.ExecuteNonQueryAsync(ct);
+        }
+
+        await using var provider = PlatformServices.Build(db);
+        await using var scope = provider.CreateAsyncScope();
+        var store = new EmailMessageStore(scope.ServiceProvider.GetRequiredService<IDbSession>());
+        await using var uow = await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
+
+        var recovery = Guid.NewGuid();
+        var plain = Guid.NewGuid();
+        await store.QueueAsync(new NewEmailMessage(recovery, "password-recovery", accountId, "h", null, Now, Now, recoveryId), ct);
+        await store.QueueAsync(new NewEmailMessage(plain, "registration-pending", accountId, "h", null, Now, Now), ct);
+
+        (await store.FindAsync(recovery, ct))!.PasswordRecoveryId.ShouldBe(recoveryId);
+        (await store.FindAsync(plain, ct))!.PasswordRecoveryId.ShouldBeNull();
+
+        var claimed = await store.ClaimDueAsync(Now, Now.AddMinutes(2), 10, ct);
+        claimed.Single(m => m.Id == recovery).PasswordRecoveryId.ShouldBe(recoveryId);
+        claimed.Single(m => m.Id == plain).PasswordRecoveryId.ShouldBeNull();
+
+        await Should.ThrowAsync<PostgresException>(() => store.QueueAsync(
+            new NewEmailMessage(Guid.NewGuid(), "password-recovery", accountId, "h", null, Now, Now, Guid.NewGuid()), ct));
+    }
+
+    [Fact]
     public async Task EmailMessagesStoreNoAddressBodyOrTokenColumns()
     {
         var ct = TestContext.Current.CancellationToken;
