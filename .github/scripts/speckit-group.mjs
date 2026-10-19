@@ -2,7 +2,7 @@ import { pathToFileURL } from 'node:url';
 
 import { TaskInputError, runTypedCommand } from './speckit-implement-work.mjs';
 
-const COMMANDS = ['combined-verified'];
+const COMMANDS = ['combined-edits', 'combined-verified'];
 
 export function main(argv, options = {}) {
   return runTypedCommand('group', COMMANDS, argv, options);
