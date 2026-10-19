@@ -69,9 +69,9 @@ composition method and keep their implementation types internal.
 The persistence foundation adds a second host next to the API:
 `SocAlytics.Platform.Migrator`, a console application that depends on
 Infrastructure, applies pending migrations once, and exits with a success or
-failure outcome. It will ship as its own OCI image and will be the only
-component that ever receives database access able to create or alter data
-structures; the API image will contain no migration execution path.
+failure outcome. It ships as its own OCI image and is the only
+component that is meant to receive database access able to create or alter data
+structures; the API image contains no migration execution path.
 
 Executable components use or will use the native workspace and dependency tools
 of each ecosystem:
@@ -92,14 +92,18 @@ of each ecosystem:
 The platform API and control-plane baseline is ASP.NET Core on .NET 10 LTS; the
 initial host implements that runtime choice. The Python ecosystem tooling is
 future until its owning source area gains executable projects.
-Future deployables will use cloud-neutral OCI images. .NET Aspire owns local
+The platform API, the Migrator, and the Web UI are cloud-neutral OCI images;
+the Analyst images and Hermes keep their own status and are not yet built.
+.NET Aspire owns local
 development composition, service discovery, health checks, OpenTelemetry
 defaults, and developer dependencies. Aspire is not the production
 orchestrator.
 
-The images of the platform API, the Migrator, and the Web UI are decided but
-not implemented yet (see the
-[container-image contract](../../specs/20261018-092503-oci-images/contracts/container-images.md)).
+The images of the platform API, the Migrator, and the Web UI are implemented and
+verified by Docker-backed tests in `SocAlytics.Platform.Images.Tests`; they are
+neither deployment support nor production readiness, and no registry,
+publication, or production profile value is decided (see the
+[container-image contract](../../specs/archive/20261018-092503-oci-images/contracts/container-images.md)).
 Each has one Dockerfile next to the project it packages
 (`SocAlytics.Platform.Api`, `SocAlytics.Platform.Migrator`, and
 `src/clients/web`) with a Dockerfile-specific allow-list ignore file, and is
@@ -118,9 +122,10 @@ forwards `/api` and `/alive` to the API container, so every profile gets one
 origin from the two images.
 
 Docker Compose is the initial deployment mechanism. It will compose the
-platform API and Web UI as separate OCI containers: the API container will be
-built from the platform source area, while the Web UI container will be built
-from the client source area and release-coupled to the platform API. Future
+platform API and Web UI as separate OCI containers: the API image is built from
+the platform source area, while the Web UI image is built from the client source
+area and release-coupled to the platform API; only the Compose composition
+itself is not implemented. Future
 Compose deployments will also include PostgreSQL, NATS JetStream, and
 S3-compatible storage on durable stamp-dedicated logical resources, plus the
 Migrator as a one-shot service that every API service depends on with
@@ -645,7 +650,7 @@ React Router handles navigation, TanStack Query manages remote server state, and
 MUI supplies accessible components under a SocAlytics theme. A hand-written
 service worker precaches the integrity-verified application shell of one
 release, holds no user data, and is versioned with each release. The Web UI
-release is coordinated with the platform API and remains a separately
+release is coordinated with the platform API and is a separately
 containerized deployment unit built from `src/clients`, served from one origin.
 There is no second client application. See
 [Client Applications](client-applications.md).
@@ -663,8 +668,10 @@ keeps `style-src 'unsafe-inline'`, an accepted and recorded trade-off because
 MUI's Emotion runtime injects `<style>` elements and a nonce is not possible
 for statically hosted pages; scripts stay locked down. See
 [Security And Data Governance](security-and-data-governance.md). The service
-worker is implemented as development evidence; offline mode, the container
-image, and production server configuration are not implemented.
+worker is implemented as development evidence. The Web UI container image and
+its production server configuration, which applies the same policy through one
+policy module, are implemented; the production storage origin stays unresolved,
+and offline mode is not implemented.
 
 Future offline-mode implementation follows the decisions in
 [Client Applications](client-applications.md): an encrypted replica owned by a
@@ -860,7 +867,9 @@ choice or reveals a material operational tradeoff:
 - **Prototype, measurement, or implementation evidence supports the choice —
   partially met.** The .NET 10 host, Aspire local composition, operational
   API surface, layer composition methods, structural tests, the persistence
-  foundation (migrations, Migrator, units of work, version triggers), domain
+  foundation (migrations, Migrator, units of work, version triggers), the
+  platform API, Migrator, and Web UI OCI images with their Docker-backed
+  container tests (not deployment support or production readiness), domain
   persistence, outbox publication to NATS JetStream, local-account BFF
   sessions, S3-compatible upload, Analyst Manager registration, member email addresses with verified, outbox-backed transactional delivery to the Mailpit mail catcher, and result
   write grants with validated result acceptance against a simulated Analyst and a real Analyst container on the Docker Desktop profile (Linux engine), and the Manager-mediated

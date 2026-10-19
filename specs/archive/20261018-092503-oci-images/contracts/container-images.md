@@ -2,7 +2,7 @@
 
 This contract is the interface the three images offer to every deployment profile (the Compose stamp and the Azure
 Container Apps target profile). Values marked *profile* are deployment configuration and stay **Open / Blocking** in
-[Production Deployment and Operations](../../../docs/architecture/production-operations.md#versioned-production-profile).
+[Production Deployment and Operations](../../../../docs/architecture/production-operations.md#versioned-production-profile).
 
 ## 1. Build
 
@@ -92,8 +92,8 @@ Files are served byte for byte as built, so every file in `/shell-manifest.json`
 ### 6.3 Security headers (responses the Web UI server produces)
 
 - `Content-Security-Policy`: the production policy of `src/clients/web/build/securityHeaders.ts` (the
-  [security-header contract](../../archive/20261012-150657-web-ui-foundation/contracts/security-headers.md) as extended
-  by the [PWA contract](../../archive/20261015-194113-web-ui-pwa-updates/contracts/web-ui-pwa.md)), with
+  [security-header contract](../../20261012-150657-web-ui-foundation/contracts/security-headers.md) as extended
+  by the [PWA contract](../../20261015-194113-web-ui-pwa-updates/contracts/web-ui-pwa.md)), with
   `connect-src 'self'` plus `SOCALYTICS_OBJECT_STORAGE_ORIGIN` when set.
 - `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
   `Permissions-Policy: camera=(), microphone=(), geolocation=()`.

@@ -155,8 +155,9 @@ The Web UI under `src/clients/web/` is a React and TypeScript single-page
 application built with Vite, developed as development evidence: an installable PWA whose service worker
 precaches only the application shell and updates with each release (the platform
 option `WebUi:MinimumVersion` sets the minimum Web UI version sent in the
-`SocAlytics-Minimum-Web-Version` response header), with no offline mode, container
-image, or deployment configuration. It
+`SocAlytics-Minimum-Web-Version` response header), with no offline mode or
+deployment configuration (its container image is described under
+[Container images](#container-images)). It
 needs Node.js 24, the Kiota 1.36.0 CLI on `PATH`
 (`dotnet tool install --global Microsoft.OpenApi.Kiota --version 1.36.0`), and
 for browser tests the Playwright Chromium browser
@@ -181,6 +182,34 @@ $env:SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT='1'; dotnet test src/platform/Tests/SocA
 ```
 
 Then run the test again without the variable.
+
+### Container images
+
+Three cloud-neutral OCI images are built from the repository root (build context `.`): the platform API, the
+Migrator, and the Web UI. Every build requires `SOCALYTICS_REVISION` (the full source commit hash) and
+`SOCALYTICS_VERSION` (shape `YYYY.MMDD.HHMMSS`, the same value for the three images of one release); a missing or
+malformed argument fails the build and names it. A running Docker-compatible container runtime with BuildKit is
+required.
+
+```powershell
+$revision = git rev-parse HEAD
+$version = (Get-Date).ToUniversalTime().ToString('yyyy.MMdd.HHmmss')
+docker build -f src/platform/SocAlytics.Platform.Api/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-api:local .
+docker build -f src/platform/SocAlytics.Platform.Migrator/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-migrator:local .
+docker build -f src/clients/web/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-web:local .
+```
+
+The evidence is the Docker-backed image test project, which builds the three images and verifies their runtime
+contract:
+
+```powershell
+dotnet test src/platform/Tests/SocAlytics.Platform.Images.Tests
+```
+
+The images are not deployment support or production readiness: registries, publication, the composed stamp, and the
+production profile values remain unresolved. Their runtime contract is described in
+[`src/platform/README.md`](src/platform/README.md#container-images) and
+[`src/clients/README.md`](src/clients/README.md#container-image).
 
 ### Analyst Manager
 

@@ -13,7 +13,7 @@ description: "Task list for Compose Stamp Composition for Self-Hosted Evaluation
 behavior has test tasks. Test tasks follow the files they exercise so that each landed task keeps the build and test
 suites green.
 
-**Organization**: Tasks are grouped by user story. The batch sibling `specs/20261018-092503-oci-images` must be merged
+**Organization**: Tasks are grouped by user story. The batch sibling `specs/archive/20261018-092503-oci-images` must be merged
 first: the evidence reuses its image build fixture and workflow arrangement under
 `src/platform/Tests/SocAlytics.Platform.Images.Tests/Support/`.
 
@@ -114,7 +114,7 @@ every open profile value is a placeholder, and the non-production statement is p
 
 ### Composition documentation
 
-- [ ] T011 [US4] Add `src/platform/deploy/compose/README.md`: prerequisites (Docker Engine with the Compose v2 plugin, the .NET SDK or the pinned SDK container for the setup console, the images built with the `docker build` commands that `specs/20261018-092503-oci-images` documents in `README.md`); the setup step with an output directory outside the repository; filling the operator values of `stamp.env`; the start, `ps`, `logs`, `stop`, `start`, and `down --volumes --remove-orphans` commands of contracts/compose-stamp.md §2; signing in at `http://localhost:<port>` with the bootstrap account and the required password change; running a second stamp under another project name, port, and stamp directory; the service, network, and volume overview; and a limitations section stating that the composition is for self-hosted evaluation, is not a production profile, passes no production preflight, does not replace the Aspire AppHost, publishes the Web UI only on loopback over plain HTTP without TLS, offers no browser recording uploads, lets no Analyst Manager connect, delivers no mail with the placeholder relay, reports `/health` healthy only once the Registry holds a resolvable default analysis workflow, and leaves host, ports, DNS, certificates, secret source, volume paths, replicas, and resource sizes Open / Blocking as `docs/architecture/production-operations.md` defines (FR-016, FR-018, FR-019; spec US4 scenario 2)
+- [ ] T011 [US4] Add `src/platform/deploy/compose/README.md`: prerequisites (Docker Engine with the Compose v2 plugin, the .NET SDK or the pinned SDK container for the setup console, the images built with the `docker build` commands that `specs/archive/20261018-092503-oci-images` documents in `README.md`); the setup step with an output directory outside the repository; filling the operator values of `stamp.env`; the start, `ps`, `logs`, `stop`, `start`, and `down --volumes --remove-orphans` commands of contracts/compose-stamp.md §2; signing in at `http://localhost:<port>` with the bootstrap account and the required password change; running a second stamp under another project name, port, and stamp directory; the service, network, and volume overview; and a limitations section stating that the composition is for self-hosted evaluation, is not a production profile, passes no production preflight, does not replace the Aspire AppHost, publishes the Web UI only on loopback over plain HTTP without TLS, offers no browser recording uploads, lets no Analyst Manager connect, delivers no mail with the placeholder relay, reports `/health` healthy only once the Registry holds a resolvable default analysis workflow, and leaves host, ports, DNS, certificates, secret source, volume paths, replicas, and resource sizes Open / Blocking as `docs/architecture/production-operations.md` defines (FR-016, FR-018, FR-019; spec US4 scenario 2)
 
 **Checkpoint**: Operators know how to run the stamp and what it does not provide
 
@@ -131,7 +131,7 @@ every open profile value is a placeholder, and the non-production statement is p
 
 ### Final validation
 
-- [ ] T014 Run the validation of `specs/20261018-094332-compose-stamp/quickstart.md`: build the three images with the commands of `specs/20261018-092503-oci-images/quickstart.md`, run the setup console and the `docker compose` commands for one stamp and a second stamp and tear both down, run `dotnet build src/platform/SocAlytics.Platform.slnx` and `dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests`, and run `node .github/scripts/check-markdown.mjs`; fix any failure in the files of the task that introduced it
+- [ ] T014 Run the validation of `specs/20261018-094332-compose-stamp/quickstart.md`: build the three images with the commands of `specs/archive/20261018-092503-oci-images/quickstart.md`, run the setup console and the `docker compose` commands for one stamp and a second stamp and tear both down, run `dotnet build src/platform/SocAlytics.Platform.slnx` and `dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests`, and run `node .github/scripts/check-markdown.mjs`; fix any failure in the files of the task that introduced it
 
 ---
 
@@ -139,7 +139,7 @@ every open profile value is a placeholder, and the non-production statement is p
 
 ### Phase Dependencies
 
-- **Prerequisite**: `specs/20261018-092503-oci-images` is merged (images, `ImageBuildFixture`, `StampDependenciesFixture`)
+- **Prerequisite**: `specs/archive/20261018-092503-oci-images` is merged (images, `ImageBuildFixture`, `StampDependenciesFixture`)
 - **Foundational (Phase 1)**: No dependency inside this feature; blocks all stories
 - **US1 Stamp (Phase 2)**: Depends on Phase 1
 - **US2 Sign-in (Phase 3)**: Depends on Phase 2 (needs the definition)

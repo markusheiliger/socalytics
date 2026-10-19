@@ -10,7 +10,7 @@ The boundary is the React Web UI, a Progressive Web App on a single origin. It s
 
 ## Exclusions
 
-Platform API implementation, server runtime composition, agent runtimes, and Analyst execution software do not belong here. No offline mode with local data, container image, or deployment configuration exists yet.
+Platform API implementation, server runtime composition, agent runtimes, and Analyst execution software do not belong here. No offline mode with local data or deployment configuration exists yet; the only container image is the Web UI image described below.
 
 ## Current Status
 
@@ -35,6 +35,23 @@ Browser-test projects:
 - `platform` runs one spec after another through chained projects against the real platform, which the Playwright web server starts through the AppHost in e2e mode (`npm run test:e2e -- --project platform`). The `manager-fleet` spec there drives a scripted Manager (`tests/e2e/support/scriptedManager.ts`) through pairing, activation, status reports, and revocation; the `matches` and `upload-flow` specs use the real platform with RustFS (the AppHost allows the Web UI origin in its development CORS configuration).
 
 The AppHost (`dotnet run --project src/platform/SocAlytics.Platform.AppHost`) also starts the Web UI on one origin with the API. After API changes, refresh the OpenAPI snapshot as described in the root [README](../../README.md#web-ui).
+
+## Container Image
+
+`web/Dockerfile` builds the cloud-neutral Web UI image from the repository root; it needs the arguments `SOCALYTICS_REVISION` and `SOCALYTICS_VERSION` (the same release values as the platform images):
+
+```powershell
+docker build -f src/clients/web/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-web:local .
+```
+
+The image serves the built files byte for byte (so every file matches the integrity in `shell-manifest.json`) as the non-root numeric user `101` on port `8080` (TLS terminates outside the image), with a read-only root filesystem and a writable tmpfs at `/tmp`. Configuration is read from environment variables only:
+
+| Variable | Required | Meaning |
+| --- | --- | --- |
+| `SOCALYTICS_API_UPSTREAM` | yes | Base URL of the platform API container, for example `http://api:8080` |
+| `SOCALYTICS_OBJECT_STORAGE_ORIGIN` | no | Origin added to the `connect-src` of the Content Security Policy for direct uploads |
+
+The image serves the Web UI and the platform API on one origin: `/api`, `/api/**`, and `/alive` are forwarded to `SOCALYTICS_API_UPSTREAM` with method, path, query, headers (including `SocAlytics-Minimum-Web-Version` in responses), and body unchanged, streamed without buffering, and answered with `502` when the API is unreachable while static files and client routes keep working. The image is not deployment support or production readiness; its evidence is `dotnet test src/platform/Tests/SocAlytics.Platform.Images.Tests` (Docker required).
 
 ## Authoritative Architecture
 
