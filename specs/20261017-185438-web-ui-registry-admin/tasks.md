@@ -147,7 +147,7 @@ description: "Task list for Web UI Analyst Registry Administration"
 **Independent Test**: Keyboard reachability, axe checks on every view, dialog, and state, offline behavior, and no Registry data in caches or storage.
 
 - [ ] T029 [P] [US5] Create `src/clients/web/tests/e2e/simulated/registry-access.spec.ts`: a Coach and a Viewer see no `Analyst Registry` entry and the not-permitted view on every Registry route; a Club Admin whose role is removed gets the not-permitted view at the next request; axe (`tests/e2e/support/axe.ts`) reports no violations on every view, form, dialog, refusal, empty, and error state; every action is reachable by keyboard (`tests/e2e/support/keyboard.ts`); an offline browser shows the connection-required state and queues nothing; after a session no Registry response is in Cache Storage, IndexedDB, local storage, or session storage (US5 acceptance 1–4, FR-001, FR-020, FR-021, SC-004, SC-005, SC-007)
-- [ ] T030 [P] [US5] Extend `src/clients/web/tests/unit/serviceWorker/shellWorker.test.ts` so requests to `/api/v1/registry/analyst-images`, `/api/v1/registry/analyst-profiles/…`, `/api/v1/registry/workflows/…`, and `/api/v1/registry/default-workflow` are passed to the network and never cached (FR-020)
+- [x] T030 [P] [US5] Extend `src/clients/web/tests/unit/serviceWorker/shellWorker.test.ts` so requests to `/api/v1/registry/analyst-images`, `/api/v1/registry/analyst-profiles/…`, `/api/v1/registry/workflows/…`, and `/api/v1/registry/default-workflow` are passed to the network and never cached (FR-020)
 
 **Checkpoint**: Every user story is complete and verified in the simulated project.
 

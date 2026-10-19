@@ -76,6 +76,20 @@ describe('fetch routing', () => {
     expect(classifyRequest({ method: 'GET', mode: 'cors', url: 'http://other.test/assets/app.js' }, origin)).toBeUndefined();
   });
 
+  it('passes registry API requests to the network and never caches them', () => {
+    const registryPaths = [
+      '/api/v1/registry/analyst-images',
+      '/api/v1/registry/analyst-images?pageSize=20',
+      '/api/v1/registry/analyst-profiles/2f6c1c52-0d0b-4a53-9a3f-5c1f3c1c8e11',
+      '/api/v1/registry/workflows/2f6c1c52-0d0b-4a53-9a3f-5c1f3c1c8e11',
+      '/api/v1/registry/default-workflow',
+    ];
+    for (const path of registryPaths) {
+      expect(classify(path)).toBeUndefined();
+      expect(classify(path, 'navigate')).toBeUndefined();
+    }
+  });
+
   it('serves navigations from the cached index.html and falls back to the network', async () => {
     const { caches } = fakeCaches();
     const match = vi.mocked(caches.match);
