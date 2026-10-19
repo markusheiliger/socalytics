@@ -6,7 +6,7 @@ adapter: [contracts/agent-conversation-adapter.md](contracts/agent-conversation-
 
 ## Prerequisites
 
-- The platform side of [Agent Orchestration Direct Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md)
+- The platform side of [Agent Orchestration Direct Invocations](../20261017-204332-agent-orchestration-invocations/spec.md)
   is merged, so the committed OpenAPI snapshot contains the agent operations.
 - Node.js 24, Kiota 1.36.0 on `PATH`, Playwright 1.63.0 Chromium; Docker and the .NET SDK for the platform project.
 

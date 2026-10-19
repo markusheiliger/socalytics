@@ -174,6 +174,110 @@ export function problem(status: number, title: string, extra: Record<string, unk
 
 type Handler = (route: Route, body: unknown) => Promise<void> | void;
 
+export type AgentOperation =
+  | 'listAgents'
+  | 'listConversations'
+  | 'createConversation'
+  | 'getConversation'
+  | 'addParticipant'
+  | 'submit'
+  | 'listTurns'
+  | 'getInvocation'
+  | 'getLineage';
+
+/** A refusal the simulated platform answers with; `errors` become the problem's field errors. */
+export interface AgentRefusal {
+  status: number;
+  code?: string;
+  errors?: { field: string; code: string }[];
+  retryAfterSeconds?: number;
+}
+
+/** Test controls for `refuseNext`: one entry per refusal of the sibling's API contract. */
+export const agentRefusals = {
+  tooManyUnfinished: { status: 429, code: 'too-many-unfinished-invocations', retryAfterSeconds: 5 },
+  agentNotAvailable: { status: 409, code: 'agent-not-available' },
+  agentNotParticipant: { status: 409, code: 'agent-not-participant' },
+  participantExists: { status: 409, code: 'participant-exists' },
+  runNotEligible: { status: 409, code: 'analysis-run-not-eligible' },
+  keyReused: { status: 409, code: 'idempotency-key-reused' },
+  keyMissing: { status: 400, code: 'idempotency-key-missing' },
+  invalidQuestion: { status: 400, errors: [{ field: 'question', code: 'required' }] },
+  questionTooLong: { status: 400, errors: [{ field: 'question', code: 'too-long' }] },
+  forbidden: { status: 403 },
+  notFound: { status: 404 },
+  staleVersion: { status: 412 },
+  preconditionRequired: { status: 428 },
+} satisfies Record<string, AgentRefusal>;
+
+export interface SimulatedAgent {
+  agentId: string;
+  group: string;
+  domain: string;
+}
+
+/**
+ * One state an invocation shows. A status read sees the state `holdReads` times (default 1) before the next step;
+ * the last step stays.
+ */
+export interface AgentStep {
+  state: string;
+  failureReason?: string;
+  attemptCount?: number;
+  holdReads?: number;
+}
+
+export interface AgentLineageEntry {
+  sequence: number;
+  kind: string;
+  attemptId: string | null;
+  attemptNumber: number | null;
+  recordedAt: string;
+  details: Record<string, unknown>;
+}
+
+export interface SimulatedConversation {
+  conversationId: string;
+  matchId: string;
+  analysisRunId: string;
+  analysisRunIsCurrent: boolean;
+  teamId: string;
+  state: string;
+  participants: { agentId: string; addedAt: string }[];
+  createdAt: string;
+  version: number;
+  ownerId: string;
+}
+
+export interface SimulatedInvocation {
+  invocationId: string;
+  conversationId: string;
+  agentId: string;
+  question: string;
+  submittedAt: string;
+  attemptId: string;
+  script: AgentStep[];
+  stepIndex: number;
+  readsInStep: number;
+  advice: string;
+  lineage?: AgentLineageEntry[];
+}
+
+const MAX_QUESTION_LENGTH = 4000;
+const TERMINAL_AGENT_STATES = new Set(['succeeded', 'failed']);
+
+const AGENT_ROUTES: [AgentOperation, string, RegExp][] = [
+  ['listAgents', 'GET', /^\/agent-catalog\/agents$/],
+  ['listConversations', 'GET', /^\/matches\/([^/]+)\/agent-conversations$/],
+  ['createConversation', 'POST', /^\/matches\/([^/]+)\/agent-conversations$/],
+  ['getConversation', 'GET', /^\/agent-conversations\/([^/]+)$/],
+  ['addParticipant', 'POST', /^\/agent-conversations\/([^/]+)\/participants$/],
+  ['submit', 'POST', /^\/agent-conversations\/([^/]+)\/invocations$/],
+  ['listTurns', 'GET', /^\/agent-conversations\/([^/]+)\/turns$/],
+  ['getInvocation', 'GET', /^\/agent-invocations\/([^/]+)$/],
+  ['getLineage', 'GET', /^\/agent-invocations\/([^/]+)\/lineage$/],
+];
+
 /** Answers `/api/v1/**` with typed fixtures. Tests may override any route with `on`. */
 export class SimulatedApi {
   private current: { role: SimulatedRole; passwordChangeRequired: boolean } | null = null;
@@ -393,6 +497,380 @@ export class SimulatedApi {
     return entity(target);
   }
 
+  /** Agents the catalog lists as enabled; tests may replace them. */
+  agents: SimulatedAgent[] = [
+    ['specialist-fitness', 'Fitness'],
+    ['specialist-goalkeeping', 'Goalkeeping'],
+    ['specialist-tactics', 'Tactics'],
+    ['specialist-video-analysis', 'Video analysis'],
+    ['specialist-scouting', 'Scouting'],
+    ['specialist-player-development', 'Player development'],
+  ].map(([agentId, domain]) => ({ agentId, group: 'specialist', domain }));
+  readonly agentConversations: SimulatedConversation[] = [];
+  readonly agentInvocations = new Map<string, SimulatedInvocation>();
+  /** Idempotency keys recorded per member, with the request fingerprint and the resource the first request created. */
+  readonly idempotencyRecords = new Map<string, { fingerprint: string; resourceId: string }>();
+  /** The states a newly submitted invocation advances through. */
+  agentScript: AgentStep[] = [{ state: 'accepted' }, { state: 'running' }, { state: 'succeeded' }];
+  /** Suggested polling interval, in seconds, sent as `Retry-After` and `retryAfterSeconds` while unfinished. */
+  statusRetryAfterSeconds = 1;
+  /** Unfinished invocations of one member from which a submission answers 429. */
+  maxUnfinishedInvocations = 3;
+  /** Analysis run states that allow a conversation. */
+  eligibleRunStates = new Set(['Completed']);
+  private readonly agentRefusalQueue = new Map<AgentOperation, AgentRefusal[]>();
+  private readonly droppedResponses = new Set<AgentOperation>();
+
+  /** The next `count` requests of the operation are refused before any state change. */
+  refuseNext(operation: AgentOperation, refusal: AgentRefusal, count = 1): void {
+    const queue = this.agentRefusalQueue.get(operation) ?? [];
+    for (let i = 0; i < count; i++) queue.push(refusal);
+    this.agentRefusalQueue.set(operation, queue);
+  }
+
+  /** The next create or submit is accepted and recorded, but the browser sees a network failure instead of the answer. */
+  dropNextResponse(operation: 'createConversation' | 'submit'): void {
+    this.droppedResponses.add(operation);
+  }
+
+  /** Adds an analysis run of the match in an eligible state that conversations may bind to. */
+  seedEligibleRun(matchId: string = String(match.id)): AnalysisRunSummaryDto {
+    const run = { ...analysisRun, runId: newId(), matchId, recordingSetVersionId: newId(), state: [...this.eligibleRunStates][0] ?? 'Completed' };
+    this.analysisRuns.push(run);
+    return run;
+  }
+
+  /** Adds a conversation owned by the member of `ownerRole` (default Coach). */
+  seedAgentConversation(
+    options: {
+      ownerRole?: SimulatedRole;
+      matchId?: string;
+      analysisRunId?: string;
+      participants?: string[];
+      analysisRunIsCurrent?: boolean;
+    } = {},
+  ): SimulatedConversation {
+    const matchId = options.matchId ?? String(match.id);
+    const analysisRunId = options.analysisRunId ?? String(this.seedEligibleRun(matchId).runId);
+    const conversation: SimulatedConversation = {
+      conversationId: newId(),
+      matchId,
+      analysisRunId,
+      analysisRunIsCurrent: options.analysisRunIsCurrent ?? true,
+      teamId: ids.team,
+      state: 'active',
+      participants: (options.participants ?? []).map((agentId) => ({ agentId, addedAt: now.toISOString() })),
+      createdAt: now.toISOString(),
+      version: 1,
+      ownerId: String(members[options.ownerRole ?? 'Coach'].id),
+    };
+    this.agentConversations.push(conversation);
+    return conversation;
+  }
+
+  /** The conversation's run is no longer the match's current run. */
+  supersedeRun(conversationId: string): void {
+    const found = this.agentConversations.find((c) => c.conversationId === conversationId);
+    if (found) found.analysisRunIsCurrent = false;
+  }
+
+  /** Adds an invocation (and its turn) to a conversation; the agent becomes a participant. */
+  seedAgentTurn(
+    conversationId: string,
+    options: { agentId?: string; question?: string; script?: AgentStep[]; advice?: string; lineage?: AgentLineageEntry[] } = {},
+  ): SimulatedInvocation {
+    const conversation = this.agentConversations.find((c) => c.conversationId === conversationId);
+    if (!conversation) throw new Error(`Unknown conversation ${conversationId}`);
+    const agentId = options.agentId ?? 'specialist-tactics';
+    if (!conversation.participants.some((p) => p.agentId === agentId)) {
+      conversation.participants.push({ agentId, addedAt: now.toISOString() });
+      conversation.version += 1;
+    }
+    const question = options.question ?? 'How did we press?';
+    const invocation: SimulatedInvocation = {
+      invocationId: newId(),
+      conversationId,
+      agentId,
+      question,
+      submittedAt: new Date(now.getTime() + this.agentInvocations.size * 1000).toISOString(),
+      attemptId: newId(),
+      script: (options.script ?? this.agentScript).map((step) => ({ ...step })),
+      stepIndex: 0,
+      readsInStep: 0,
+      advice: options.advice ?? `Simulated advice for: ${question}`,
+      lineage: options.lineage,
+    };
+    this.agentInvocations.set(invocation.invocationId, invocation);
+    return invocation;
+  }
+
+  private agentStep(invocation: SimulatedInvocation): AgentStep {
+    return invocation.script[invocation.stepIndex] ?? { state: 'succeeded' };
+  }
+
+  private agentTurn(invocation: SimulatedInvocation) {
+    const step = this.agentStep(invocation);
+    const terminal = TERMINAL_AGENT_STATES.has(step.state);
+    return {
+      invocationId: invocation.invocationId,
+      agentId: invocation.agentId,
+      question: invocation.question,
+      state: step.state,
+      submittedAt: invocation.submittedAt,
+      endedAt: terminal ? new Date(Date.parse(invocation.submittedAt) + 60_000).toISOString() : null,
+      failureReason: step.state === 'failed' ? (step.failureReason ?? 'execution-failed') : null,
+      advice: step.state === 'succeeded' ? invocation.advice : null,
+    };
+  }
+
+  private agentLineage(invocation: SimulatedInvocation) {
+    const step = this.agentStep(invocation);
+    const kindOf = (s: AgentStep, index: number) => {
+      if (s.state === 'succeeded') return 'completed';
+      if (s.state === 'failed') {
+        if (s.failureReason === 'scope-lost') return 'scope-lost';
+        return s.failureReason === 'attempts-exhausted' ? 'exhausted' : 'failed';
+      }
+      return index === 0 ? 'submitted' : 'claimed';
+    };
+    const entries: AgentLineageEntry[] =
+      invocation.lineage ??
+      invocation.script.slice(0, invocation.stepIndex + 1).map((s, index) => {
+        const kind = kindOf(s, index);
+        return {
+          sequence: index + 1,
+          kind,
+          attemptId: kind === 'submitted' ? null : invocation.attemptId,
+          attemptNumber: kind === 'submitted' ? null : 1,
+          recordedAt: new Date(Date.parse(invocation.submittedAt) + index * 1000).toISOString(),
+          details: kind === 'failed' ? { reasonCode: s.failureReason ?? 'execution-failed' } : {},
+        };
+      });
+    return {
+      invocationId: invocation.invocationId,
+      policyVersion: '1',
+      entries,
+      advice:
+        step.state === 'succeeded'
+          ? {
+              attemptId: invocation.attemptId,
+              advice: invocation.advice,
+              acceptedAt: new Date(Date.parse(invocation.submittedAt) + 60_000).toISOString(),
+              executionReferences: {
+                runtime: 'simulated-runtime',
+                modelProvider: 'simulated-provider',
+                model: 'simulated-model',
+                deployment: 'simulated-deployment',
+                promptRef: 'prompt/1',
+                toolPolicyRef: 'tool-policy/1',
+                safetyPolicyRef: 'safety-policy/1',
+              },
+            }
+          : null,
+    };
+  }
+
+  private publicConversation(conversation: SimulatedConversation) {
+    const { ownerId: _owner, ...rest } = conversation;
+    return rest;
+  }
+
+  private async handleAgents(route: Route, method: string, path: string, role: SimulatedRole): Promise<void> {
+    const request = route.request();
+    const found = AGENT_ROUTES.map(([operation, verb, pattern]) => ({ operation, verb, hit: pattern.exec(path) })).find(
+      (candidate) => candidate.verb === method && candidate.hit,
+    );
+    if (!found?.hit) return route.fulfill({ status: 404, contentType: 'application/problem+json', body: JSON.stringify(problem(404, 'Not found')) });
+    const { operation } = found;
+    const id = found.hit[1] ?? '';
+    const memberId = String(members[role].id);
+    const headers = request.headers();
+    const url = new URL(request.url());
+
+    const reply = (status: number, body: unknown, extra: Record<string, string> = {}) =>
+      route.fulfill({
+        status,
+        contentType: status >= 400 ? 'application/problem+json' : 'application/json',
+        headers: extra,
+        body: JSON.stringify(body),
+      });
+    const refuse = (refusal: AgentRefusal) =>
+      reply(
+        refusal.status,
+        problem(refusal.status, refusal.code ?? `Refused ${refusal.status}`, {
+          ...(refusal.code ? { code: refusal.code } : {}),
+          ...(refusal.errors ? { errors: refusal.errors } : {}),
+        }),
+        refusal.retryAfterSeconds === undefined ? {} : { 'Retry-After': String(refusal.retryAfterSeconds) },
+      );
+    const conditional = (etag: string, payload: unknown, extra: Record<string, string> = {}) =>
+      headers['if-none-match'] === etag
+        ? route.fulfill({ status: 304, headers: { ETag: etag, ...extra } })
+        : reply(200, payload, { ETag: etag, ...extra });
+
+    const scripted = this.agentRefusalQueue.get(operation)?.shift();
+    if (scripted) return refuse(scripted);
+    if (role === 'Registrar') return refuse(agentRefusals.forbidden);
+    const canWrite = role !== 'Viewer';
+
+    let body: Record<string, unknown> = {};
+    try {
+      body = (request.postDataJSON() ?? {}) as Record<string, unknown>;
+    } catch {
+      body = {};
+    }
+    const own = (conversationId: string) =>
+      this.agentConversations.find((c) => c.conversationId === conversationId && c.ownerId === memberId);
+    const ownInvocation = (invocationId: string) => {
+      const invocation = this.agentInvocations.get(invocationId);
+      return invocation && own(invocation.conversationId) ? invocation : undefined;
+    };
+    const conversationEtag = (c: SimulatedConversation) => `"${c.version}-${c.analysisRunIsCurrent ? 1 : 0}"`;
+    const conversationHeaders = (c: SimulatedConversation) => ({
+      ETag: conversationEtag(c),
+      Location: `/api/v1/agent-conversations/${c.conversationId}`,
+    });
+    const unfinished = (invocation: SimulatedInvocation) => !TERMINAL_AGENT_STATES.has(this.agentStep(invocation).state);
+
+    switch (operation) {
+      case 'listAgents':
+        return reply(200, { agents: this.agents });
+      case 'listConversations': {
+        if (!this.matches.some((m) => m.id === id)) return refuse(agentRefusals.notFound);
+        const items = this.agentConversations.filter((c) => c.matchId === id && c.ownerId === memberId).reverse();
+        return reply(200, { conversations: items.map((c) => this.publicConversation(c)) });
+      }
+      case 'createConversation': {
+        if (!this.matches.some((m) => m.id === id)) return refuse(agentRefusals.notFound);
+        if (!canWrite) return refuse(agentRefusals.forbidden);
+        const key = headers['idempotency-key'];
+        if (!key) return refuse(agentRefusals.keyMissing);
+        const analysisRunId = String(body.analysisRunId ?? '');
+        const fingerprint = JSON.stringify(['create', id, analysisRunId]);
+        const prior = this.idempotencyRecords.get(`${memberId}:${key}`);
+        if (prior) {
+          if (prior.fingerprint !== fingerprint) return refuse(agentRefusals.keyReused);
+          const replayed = own(prior.resourceId);
+          if (replayed) return reply(200, this.publicConversation(replayed), conversationHeaders(replayed));
+        }
+        if (!analysisRunId) return refuse({ status: 400, errors: [{ field: 'analysisRunId', code: 'required' }] });
+        const run = this.analysisRuns.find((r) => String(r.runId) === analysisRunId && r.matchId === id);
+        if (!run || !this.eligibleRunStates.has(String(run.state))) return refuse(agentRefusals.runNotEligible);
+        const created = this.seedAgentConversation({ matchId: id, analysisRunId, ownerRole: role });
+        this.idempotencyRecords.set(`${memberId}:${key}`, { fingerprint, resourceId: created.conversationId });
+        if (this.droppedResponses.delete('createConversation')) return route.abort('connectionfailed');
+        return reply(201, this.publicConversation(created), conversationHeaders(created));
+      }
+      case 'getConversation': {
+        const conversation = own(id);
+        if (!conversation) return refuse(agentRefusals.notFound);
+        return conditional(conversationEtag(conversation), this.publicConversation(conversation));
+      }
+      case 'addParticipant': {
+        const conversation = own(id);
+        if (!conversation) return refuse(agentRefusals.notFound);
+        if (!canWrite) return refuse(agentRefusals.forbidden);
+        const ifMatch = headers['if-match'];
+        if (!ifMatch) return refuse(agentRefusals.preconditionRequired);
+        if (ifMatch !== `"${conversation.version}"`) return refuse(agentRefusals.staleVersion);
+        const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+        if (!agentId) return refuse({ status: 400, errors: [{ field: 'agentId', code: 'required' }] });
+        if (!this.agents.some((a) => a.agentId === agentId)) return refuse(agentRefusals.agentNotAvailable);
+        if (conversation.participants.some((p) => p.agentId === agentId)) return refuse(agentRefusals.participantExists);
+        conversation.participants.push({ agentId, addedAt: new Date().toISOString() });
+        conversation.version += 1;
+        return reply(200, this.publicConversation(conversation), { ETag: conversationEtag(conversation) });
+      }
+      case 'submit': {
+        const conversation = own(id);
+        if (!conversation) return refuse(agentRefusals.notFound);
+        if (!canWrite) return refuse(agentRefusals.forbidden);
+        const key = headers['idempotency-key'];
+        if (!key) return refuse(agentRefusals.keyMissing);
+        const agentId = String(body.agentId ?? '');
+        const question = String(body.question ?? '');
+        const accepted = (invocation: SimulatedInvocation) =>
+          reply(
+            202,
+            {
+              conversationId: id,
+              invocationId: invocation.invocationId,
+              statusLocation: `/api/v1/agent-invocations/${invocation.invocationId}`,
+              retryAfterSeconds: this.statusRetryAfterSeconds,
+            },
+            {
+              Location: `/api/v1/agent-invocations/${invocation.invocationId}`,
+              'Retry-After': String(this.statusRetryAfterSeconds),
+            },
+          );
+        const fingerprint = JSON.stringify(['submit', id, agentId, question]);
+        const prior = this.idempotencyRecords.get(`${memberId}:${key}`);
+        if (prior) {
+          if (prior.fingerprint !== fingerprint) return refuse(agentRefusals.keyReused);
+          const replayed = this.agentInvocations.get(prior.resourceId);
+          if (replayed) return accepted(replayed);
+        }
+        if (!question.trim()) return refuse(agentRefusals.invalidQuestion);
+        if (question.length > MAX_QUESTION_LENGTH) return refuse(agentRefusals.questionTooLong);
+        if (!this.agents.some((a) => a.agentId === agentId)) return refuse(agentRefusals.agentNotAvailable);
+        if (!conversation.participants.some((p) => p.agentId === agentId)) return refuse(agentRefusals.agentNotParticipant);
+        const open = [...this.agentInvocations.values()].filter((i) => own(i.conversationId) && unfinished(i)).length;
+        if (open >= this.maxUnfinishedInvocations) return refuse(agentRefusals.tooManyUnfinished);
+        const invocation = this.seedAgentTurn(id, { agentId, question });
+        this.idempotencyRecords.set(`${memberId}:${key}`, { fingerprint, resourceId: invocation.invocationId });
+        if (this.droppedResponses.delete('submit')) return route.abort('connectionfailed');
+        return accepted(invocation);
+      }
+      case 'listTurns': {
+        const conversation = own(id);
+        if (!conversation) return refuse(agentRefusals.notFound);
+        const offset = Math.max(0, Number.parseInt(url.searchParams.get('cursor') ?? '0', 10) || 0);
+        const limit = Math.min(100, Math.max(1, Number.parseInt(url.searchParams.get('limit') ?? '20', 10) || 20));
+        const all = [...this.agentInvocations.values()].filter((i) => i.conversationId === id);
+        const page = all.slice(offset, offset + limit);
+        const digest = createHash('sha256')
+          .update(page.map((i) => `${i.invocationId}:${i.stepIndex}`).join('|'))
+          .digest('hex')
+          .slice(0, 16);
+        return conditional(`"turns-${offset}-${limit}-${all.length}-${digest}"`, {
+          turns: page.map((i) => this.agentTurn(i)),
+          nextCursor: offset + limit < all.length ? String(offset + limit) : null,
+        });
+      }
+      case 'getInvocation': {
+        const invocation = ownInvocation(id);
+        if (!invocation) return refuse(agentRefusals.notFound);
+        const hold = Math.max(1, this.agentStep(invocation).holdReads ?? 1);
+        if (invocation.readsInStep >= hold && invocation.stepIndex < invocation.script.length - 1) {
+          invocation.stepIndex += 1;
+          invocation.readsInStep = 0;
+        }
+        invocation.readsInStep += 1;
+        const step = this.agentStep(invocation);
+        const open = unfinished(invocation);
+        return conditional(
+          `"inv-${invocation.invocationId}-${invocation.stepIndex}"`,
+          {
+            ...this.agentTurn(invocation),
+            conversationId: invocation.conversationId,
+            route: 'specialist',
+            attemptCount: step.attemptCount ?? (step.state === 'accepted' ? 0 : 1),
+            retryAfterSeconds: open ? this.statusRetryAfterSeconds : null,
+          },
+          open ? { 'Retry-After': String(this.statusRetryAfterSeconds) } : {},
+        );
+      }
+      case 'getLineage': {
+        const invocation = ownInvocation(id);
+        if (!invocation) return refuse(agentRefusals.notFound);
+        return conditional(
+          `"lin-${invocation.invocationId}-${invocation.stepIndex}-${invocation.lineage?.length ?? 0}"`,
+          this.agentLineage(invocation),
+        );
+      }
+    }
+  }
+
   /** When set, every simulated API response carries `SocAlytics-Minimum-Web-Version` with this value. */
   minimumWebVersion: string | null = null;
 
@@ -497,6 +975,9 @@ export class SimulatedApi {
     }
     if (passwordChangeRequired) {
       return json(403, problem(403, 'Password change required', { code: 'password_change_required' }));
+    }
+    if (AGENT_ROUTES.some(([, verb, pattern]) => verb === method && pattern.test(path))) {
+      return this.handleAgents(route, method, path, role);
     }
     if (path.startsWith('/analyst-manager-registrations')) {
       return this.handleRegistrations(route, method, path, role, json);

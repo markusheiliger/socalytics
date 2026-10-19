@@ -1,7 +1,7 @@
 # Research: Web UI Match Triage Conversations
 
 All decisions build on the member operations of
-[Agent Orchestration Direct Invocations](../archive/20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md)
+[Agent Orchestration Direct Invocations](../20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md)
 and the existing Web UI patterns in `src/clients/web/`. No `NEEDS CLARIFICATION` remains.
 
 ## R1 - Routes and entry points
@@ -15,7 +15,7 @@ and the existing Web UI patterns in `src/clients/web/`. No `NEEDS CLARIFICATION`
   match, and the not-found view when the conversation read answers `404` or its `matchId` differs from the route.
 - **Rationale**: FR-001 to FR-004; the clarification keeps the start action on the match view only; nesting the route
   under the match keeps the existing match context, access checks, and back navigation, as the run review route
-  `/matches/:matchId/analysis-runs/:runId` of [Web UI Connected Analysis Review](../20261017-181118-web-ui-analysis-review/plan.md) does.
+  `/matches/:matchId/analysis-runs/:runId` of [Web UI Connected Analysis Review](../../20261017-181118-web-ui-analysis-review/plan.md) does.
 - **Alternatives considered**: A top-level `/agent-conversations/:id` route (rejected: loses the match context and adds
   a navigation entry outside the match view, which the spec excludes); a start action on the run review view (rejected
   by clarification).
@@ -45,7 +45,7 @@ and the existing Web UI patterns in `src/clients/web/`. No `NEEDS CLARIFICATION`
 - **Rationale**: Kiota treats every non-2xx status, including `304`, as an error and the existing adapters never read
   response headers; the conditional handler keeps the generated request builders, middleware (connectivity, session
   outcome, minimum version, anti-forgery), and models while making the protocol's unchanged answer and retry guidance
-  visible (FR-010, [Client, Transport, And Runtime Protocol](../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)).
+  visible (FR-010, [Client, Transport, And Runtime Protocol](../../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)).
 - **Alternatives considered**: Unconditional polling (rejected: the architecture requires conditional polling);
   mapping the `304` error after the fact (rejected: loses the headers and abuses the failure path).
 
@@ -94,7 +94,7 @@ and the existing Web UI patterns in `src/clients/web/`. No `NEEDS CLARIFICATION`
   the adapter models an empty `evidenceReferences` list so a later platform field needs only an adapter change. The
   advice's own assessment, evidence, uncertainty, and recommendation parts stay in the agent's text and order.
 - **Rationale**: FR-012, FR-013, FR-022, and
-  [Prompt And Advice Governance](../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance);
+  [Prompt And Advice Governance](../../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance);
   the first catalog wave has only Specialist Agents, so the named-Coach-Agent simulation disclosure is not needed yet.
 - **Alternatives considered**: Rendering Markdown in advice (rejected: FR-022 and the Trusted Types baseline); parsing
   the response contract's parts out of the text (rejected: the text is not structured and FR-012 requires it unaltered).
@@ -131,7 +131,7 @@ and the existing Web UI patterns in `src/clients/web/`. No `NEEDS CLARIFICATION`
   connection-required state and disable submission while offline. The existing `useLeaveGuard` hook
     (`src/uploads/useLeaveGuard.ts`) guards browser unload, and a React Router `useBlocker`
   confirmation guards in-app navigation while an unsent draft or an unknown-outcome submission exists.
-- **Rationale**: FR-019, FR-019a, and [Offline Mode In A PWA](../../docs/architecture/client-applications.md#offline-mode-in-a-pwa)
+- **Rationale**: FR-019, FR-019a, and [Offline Mode In A PWA](../../../docs/architecture/client-applications.md#offline-mode-in-a-pwa)
   (agent submission and refresh stay connected-only).
   - **Alternatives considered**: Moving the hook to a shared folder (rejected: unrelated churn in the upload feature).
 
