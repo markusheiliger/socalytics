@@ -266,7 +266,7 @@ README.md, AGENTS.md                             # commands and Current State
 **Structure Decision**: One independent agent project as the environment convention defines it, with a src layout so
 tests import the installed package. Contract copies are package data because the image contains no repository files.
 The platform change lives in the Agent Orchestration folders that own completions. Docker-backed evidence joins the
-image test project of [Cloud-Neutral OCI Images](../20261018-092503-oci-images/plan.md), which already builds images
+image test project of [Cloud-Neutral OCI Images](../archive/20261018-092503-oci-images/plan.md), which already builds images
 and starts the API image with its dependencies, so the agent project's default test run stays free of Docker and
 network services. This feature is implemented after the agents Python environment, Agent Orchestration Direct
 Invocations, the Agent Catalog Registry, the Agent Evidence Tools API, the MCP Server, and the OCI images feature have

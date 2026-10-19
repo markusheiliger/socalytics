@@ -177,9 +177,9 @@
     presence of hashes, the labels, the user, the port, the absence of `HEALTHCHECK`, `ENV` secrets, and `COPY` of tests
     or caches, and that the ignore file admits only the project's sources, lockfile, and `docker/` files. Runtime evidence (build, read-only start with `/tmp` tmpfs, `/alive`, `/health`
     not ready without a platform, UID, labels, and a layer scan for secrets) is added to
-    `src/platform/Tests/SocAlytics.Platform.Images.Tests` of [Cloud-Neutral OCI Images](../20261018-092503-oci-images/plan.md)
+    `src/platform/Tests/SocAlytics.Platform.Images.Tests` of [Cloud-Neutral OCI Images](../archive/20261018-092503-oci-images/plan.md)
     as `McpServerImageTests.cs`.
-  - **Rationale**: FR-018 and the [image contract](../20261018-092503-oci-images/contracts/container-images.md) (base
+  - **Rationale**: FR-018 and the [image contract](../archive/20261018-092503-oci-images/contracts/container-images.md) (base
     pinned by digest, every downloaded tool verified, no CPU architecture in the definition); reuses the uv version the
     environment verifies. The agent project's default test run stays free of Docker and network services; the
     Docker-backed evidence lives where the repository already builds images.

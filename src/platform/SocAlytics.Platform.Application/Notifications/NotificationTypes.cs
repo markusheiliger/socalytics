@@ -19,6 +19,7 @@ public static class NotificationTypes
 {
     public const string EmailConfirmationCode = "email-confirmation";
     public const string RegistrationPendingCode = "registration-pending";
+    public const string PasswordRecoveryCode = "password-recovery";
 
     public static NotificationType EmailConfirmation { get; } = new(
         EmailConfirmationCode, NotificationAudience.AddressOwner, AccountMessage: true, DefaultEnabled: true, "/email/confirm");
@@ -26,7 +27,10 @@ public static class NotificationTypes
     public static NotificationType RegistrationPending { get; } = new(
         RegistrationPendingCode, NotificationAudience.ClubAdmins, AccountMessage: false, DefaultEnabled: true, "/analyst-managers");
 
-    public static IReadOnlyList<NotificationType> All { get; } = [EmailConfirmation, RegistrationPending];
+    public static NotificationType PasswordRecovery { get; } = new(
+        PasswordRecoveryCode, NotificationAudience.AddressOwner, AccountMessage: true, DefaultEnabled: true, "/password-recovery/complete");
+
+    public static IReadOnlyList<NotificationType> All { get; } = [EmailConfirmation, RegistrationPending, PasswordRecovery];
 
     public static NotificationType? Find(string? code) => All.FirstOrDefault(t => t.Code == code);
 }

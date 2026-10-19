@@ -89,9 +89,17 @@ export default defineConfig({
     {
       name: 'platform-recovery',
       testDir: './tests/e2e/platform',
-      testMatch: /recovery\.spec\.ts$/,
+      testMatch: /[\\/]recovery\.spec\.ts$/,
       fullyParallel: false,
       dependencies: ['platform-upload'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
+      name: 'platform-password-recovery',
+      testDir: './tests/e2e/platform',
+      testMatch: /password-recovery\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-recovery'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
@@ -99,7 +107,7 @@ export default defineConfig({
       testDir: './tests/e2e/platform',
       testMatch: /external-sign-in\.spec\.ts$/,
       fullyParallel: false,
-      dependencies: ['platform-recovery'],
+      dependencies: ['platform-password-recovery'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {

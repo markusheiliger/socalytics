@@ -66,7 +66,8 @@ public sealed record NewEmailMessage(
     string AddressHash,
     Guid? ConfirmationId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset NextAttemptAt);
+    DateTimeOffset NextAttemptAt,
+    Guid? PasswordRecoveryId = null);
 
 public sealed record StoredEmailMessage(
     Guid Id,
@@ -80,7 +81,8 @@ public sealed record StoredEmailMessage(
     DateTimeOffset? LeaseUntil,
     string? LastErrorCategory,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? SentAt);
+    DateTimeOffset? SentAt,
+    Guid? PasswordRecoveryId = null);
 
 public interface IMemberEmailAddressStore
 {

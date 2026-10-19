@@ -30,7 +30,7 @@ storage, and probes the existing liveness (`/alive`) and readiness (`/health`) e
 ready. The image runs as an unprivileged user on a read-only root filesystem and cannot change the database structure.
 
 **Why this priority**: The API is the core deployable; every deployment profile in
-[Production Deployment and Operations](../../docs/architecture/production-operations.md#azure-container-apps-target-profile-provisional)
+[Production Deployment and Operations](../../../docs/architecture/production-operations.md#azure-container-apps-target-profile-provisional)
 runs it, and the Compose stamp composition that follows this feature cannot exist without it.
 
 **Independent Test**: Build the API image, start it against disposable dependencies whose schema was prepared without
@@ -286,14 +286,14 @@ or test asset.
 ## Assumptions
 
 - Dependencies: Platform Persistence Foundation
-  ([archived](../archive/20261005-130700-platform-persistence-foundation/spec.md)), Web UI Foundation
-  ([archived](../archive/20261012-150657-web-ui-foundation/spec.md)), and Installable Web UI with Service Worker
-  Updates ([archived](../archive/20261015-194113-web-ui-pwa-updates/spec.md)) are merged and provide the Migrator, the
+  ([archived](../20261005-130700-platform-persistence-foundation/spec.md)), Web UI Foundation
+  ([archived](../20261012-150657-web-ui-foundation/spec.md)), and Installable Web UI with Service Worker
+  Updates ([archived](../20261015-194113-web-ui-pwa-updates/spec.md)) are merged and provide the Migrator, the
   API host, the readiness contract, the Web UI build, and the shell integrity rules this feature packages.
 - The Compose stamp composition, registries, publishing, signing, SBOM and attestation publication, release workflows,
   Azure Container Apps, production configuration values, TLS termination, Analyst images, and the Analyst Manager are
   out of scope; production profile values stay **Open / Blocking** as
-  [Production Deployment and Operations](../../docs/architecture/production-operations.md#versioned-production-profile)
+  [Production Deployment and Operations](../../../docs/architecture/production-operations.md#versioned-production-profile)
   defines.
 - "Reproducible" means pinned inputs (base image digests, lockfiles, pinned tool versions) so that one revision selects
   the same dependencies; bit-for-bit identical image digests across builds are not required.

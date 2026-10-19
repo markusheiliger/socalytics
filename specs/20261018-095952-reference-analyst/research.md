@@ -160,7 +160,7 @@ relative paths from the repository checkout and builds it with Testcontainers' D
 the test registry exactly as `TestAnalystImage` does.
 
 **Rationale**: Matches the repository-root build context of the platform images
-([container-image contract](../20261018-092503-oci-images/contracts/container-images.md)) while staying compatible with
+([container-image contract](../archive/20261018-092503-oci-images/contracts/container-images.md)) while staying compatible with
 a builder that ignores Dockerfile-specific ignore files.
 
 **Alternatives considered**: Context `src/analysts/` (rejected: contains the Manager's build outputs); vendoring the SDK
