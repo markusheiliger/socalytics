@@ -80,6 +80,12 @@ public static class HostUtilizationText
         [Cpu(sample?.CpuPercent), Memory(sample?.MemoryUsedBytes, sample?.MemoryTotalBytes)];
 }
 
+/// <summary>The update notice; the minimum is the value as received, raw when unparsable.</summary>
+public sealed record UpdateRequiredStatus(bool Required, string ManagerVersion, string MinimumVersion)
+{
+    public string Sentence => $"Update required: Manager {ManagerVersion} is below the stamp minimum {MinimumVersion}.";
+}
+
 /// <summary>Mirrors local-control.schema.json statusReport; never carries the pairing code or any secret.</summary>
 public sealed record ManagerStatusSnapshot(
     string RegistrationState,
@@ -105,7 +111,8 @@ public sealed record ManagerStatusSnapshot(
     Work.ConcurrencySnapshot Concurrency,
     IReadOnlyList<ActiveAttemptStatus> ActiveAttempts,
     QueueDepthView QueueDepth,
+    string ManagerVersion,
     HostUtilizationSample? HostUtilization = null,
     string ApplicationProfile = "tray",
     string? Lingering = null,
-    string ManagerVersion = "0.1.0");
+    UpdateRequiredStatus? UpdateRequired = null);

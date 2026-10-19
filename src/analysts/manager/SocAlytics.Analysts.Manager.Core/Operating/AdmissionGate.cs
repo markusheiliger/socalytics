@@ -4,7 +4,7 @@ namespace SocAlytics.Analysts.Manager.Operating;
 /// Admits work only in <see cref="OperatingStateKind.Running"/> and only after Active was confirmed
 /// in this process: the gate is closed until a state machine is attached. Nothing is persisted.
 /// </summary>
-public sealed class AdmissionGate
+public sealed class AdmissionGate(Registration.MinimumVersionState? minimumVersion = null)
 {
     private readonly object gate = new();
     private OperatingStateMachine? machine;
@@ -40,6 +40,6 @@ public sealed class AdmissionGate
         OperatingStateMachine? current;
         bool held;
         lock (gate) { current = machine; held = unregisterHold; }
-        return !held && current is { IsRevoked: false } && current.State.Kind == OperatingStateKind.Running;
+        return !held && minimumVersion is not { IsBelow: true } && current is { IsRevoked: false } && current.State.Kind == OperatingStateKind.Running;
     }
 }

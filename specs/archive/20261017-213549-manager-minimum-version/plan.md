@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-213549-manager-minimum-version` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-213549-manager-minimum-version/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-213549-manager-minimum-version/spec.md`
 
 ## Summary
 
@@ -48,7 +48,7 @@ three Manager status surfaces
 
 | Principle | Status | Evidence |
 | --- | --- | --- |
-| I. Architecture is the design authority | Pass | Implements [Updates](../../docs/architecture/analyst-manager.md#updates) (minimum version only) and [Fleet Visibility In The Web UI](../../docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui); `## Architecture Updates` lists narratives, design updates, and status statements |
+| I. Architecture is the design authority | Pass | Implements [Updates](../../../docs/architecture/analyst-manager.md#updates) (minimum version only) and [Fleet Visibility In The Web UI](../../../docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui); `## Architecture Updates` lists narratives, design updates, and status statements |
 | II. Source-area ownership | Pass | Platform code in `src/platform/`, Manager code in `src/analysts/manager/`, Web UI in `src/clients/web/`, contracts in `contracts/`; no new first-level area |
 | III. API-first control plane | Pass | The minimum reaches Managers and the Web UI only through `/api/v1` operations; the platform enforces it server-side; contracts stay authoritative (status schema `1.1.0`, OpenAPI snapshot) |
 | IV. Evidence over claims | Pass | Host, Integration, Contracts, EndToEnd, Manager, Vitest, and Playwright tests cover every requirement; no production-readiness claim |
@@ -61,21 +61,21 @@ Post-design re-check: unchanged, all gates pass.
 
 ### Narratives
 
-- [Analyst Manager → Updates](../../docs/architecture/analyst-manager.md#updates): the minimum-version bullet and the
+- [Analyst Manager → Updates](../../../docs/architecture/analyst-manager.md#updates): the minimum-version bullet and the
   manual-updates sentence ("the minimum version still applies") become implemented; the feed, channels, pinning,
   attestation, and self-update stay planned.
-- [Analyst Manager → Tray Profile](../../docs/architecture/analyst-manager.md#tray-profile) and
-  [Headless Server Profile](../../docs/architecture/analyst-manager.md#headless-server-profile): the status window, the
+- [Analyst Manager → Tray Profile](../../../docs/architecture/analyst-manager.md#tray-profile) and
+  [Headless Server Profile](../../../docs/architecture/analyst-manager.md#headless-server-profile): the status window, the
   tray menu, and the CLI `status` show the update notice.
-- [Analyst Manager → Fleet Visibility In The Web UI](../../docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui):
+- [Analyst Manager → Fleet Visibility In The Web UI](../../../docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui):
   the fleet view marks Managers below the minimum.
-- [Analyst Manager → Machine Authentication](../../docs/architecture/analyst-manager.md#machine-authentication): queue
+- [Analyst Manager → Machine Authentication](../../../docs/architecture/analyst-manager.md#machine-authentication): queue
   credentials and claims are additionally refused below the minimum.
-- [Platform Implementation → Analyst Technology](../../docs/architecture/platform-implementation.md#analyst-technology):
+- [Platform Implementation → Analyst Technology](../../../docs/architecture/platform-implementation.md#analyst-technology):
   the paragraph on installers, updates, and the fleet view.
-- [Analysts, Models, and Hardware → Implementation Validation](../../docs/architecture/analysts-models-and-hardware.md#implementation-validation):
+- [Analysts, Models, and Hardware → Implementation Validation](../../../docs/architecture/analysts-models-and-hardware.md#implementation-validation):
   the Velopack spike list names the minimum version.
-- [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility) is
+- [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility) is
   followed (additive v1 changes) but not changed.
 
 ### Design updates applied now
@@ -119,7 +119,7 @@ schema `1.1.0`).
 ### Documentation (this feature)
 
 ```text
-specs/20261017-213549-manager-minimum-version/
+specs/archive/20261017-213549-manager-minimum-version/
 ├── plan.md
 ├── research.md
 ├── data-model.md

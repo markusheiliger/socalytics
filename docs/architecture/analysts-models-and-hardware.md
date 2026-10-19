@@ -413,8 +413,9 @@ adapter ships (the Docker Desktop adapter reaches a Linux engine only in
 Development and Test). The Velopack spike proves, unsigned first, per-user install, delta
 updates, forward-fix, uninstall that leaves the OCI runtime untouched, the FUSE
 and extract-and-run start modes on minimal server images, self-update in both,
-and the stamp-served update feed with attestation checks, minimum version, and
-drain before applying; a second round after the publisher decision proves
+and the stamp-served update feed with attestation checks and drain before
+applying (the minimum version is already enforced by the platform and the
+Manager); a second round after the publisher decision proves
 signing, macOS notarization, SmartScreen, and Gatekeeper. Implementation must
 also validate
 registration bootstrap, protected credential storage, rotation, and revocation; and measure concurrency control, queue-depth

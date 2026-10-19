@@ -246,6 +246,22 @@ deferred.
   `0016_registry_queue_credentials.sql`) and pushes account revocations through
   the system account, with a retrying revocation worker. Production key custody
   and lifetimes are unresolved under `GOV-CRED-004`.
+- `Registry:ManagerVersion:Minimum` (default empty, meaning no minimum): the
+  minimum Analyst Manager version, shaped `MAJOR.MINOR.PATCH`, validated on
+  start and applied on configuration reload. The status report response
+  carries it as `minimumManagerVersion` (`null` without a minimum) and the
+  registration list and detail read by Club Admins carry it with
+  `belowMinimumVersion`. While a registration's latest reported version (before
+  its first report, the version claimed at pairing) is below it, queue
+  credentials and new claims are refused with `403` and the problem
+  `urn:socalytics:problem:analyst-manager-version-below-minimum` (extension
+  member `minimumManagerVersion`); heartbeats, result grants, and completion of
+  attempts already held continue. Each refusal increments the counter
+  `socalytics.analysis.manager_version_refusals` (tag `operation`:
+  `queue-credentials` or `claim`; no registration identifiers, no audit event).
+  The update feed, installers, and self-update do not exist yet; a Manager is
+  updated by installing a newer build by hand. The status contract is
+  `contracts/analyst-manager/status/v1` (`1.1.0`).
 - `WebUi:MinimumVersion` (default empty): the minimum Web UI release version,
   shaped `YYYY.MMDD.HHMMSS`, validated on start. When set, every `/api/**`
   response carries it in the `SocAlytics-Minimum-Web-Version` header so an older

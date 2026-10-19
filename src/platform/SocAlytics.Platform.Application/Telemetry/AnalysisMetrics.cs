@@ -25,6 +25,10 @@ public static class AnalysisMetrics
 
     public static void PartialBarrierBlocked() => PartialBarriersBlockedCounter.Add(1);
 
+    private static readonly Counter<long> ManagerVersionRefusals = Meter.CreateCounter<long>("socalytics.analysis.manager_version_refusals");
+
+    public static void ManagerVersionRefused(string operation) => ManagerVersionRefusals.Add(1, Tag("operation", operation));
+
     public static void ResultGrantsIssued(int count) => IssuedResultGrants.Add(count);
 
     public static void ReadGrantsIssued(int count) => IssuedReadGrants.Add(count);

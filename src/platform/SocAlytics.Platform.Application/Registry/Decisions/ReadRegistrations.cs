@@ -3,13 +3,15 @@ using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.IdentityAccess;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Registry.Abstractions;
+using SocAlytics.Platform.Application.Registry.ManagerVersions;
 using SocAlytics.Platform.Application.Registry.StatusReporting;
 using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Application.Registry.Decisions;
 
 public sealed record FleetEntry(
-    AnalystManagerRegistration Registration, StoredManagerStatus? Status, ManagerConnectivity Connectivity, bool IncludesOperations = true)
+    AnalystManagerRegistration Registration, StoredManagerStatus? Status, ManagerConnectivity Connectivity, bool IncludesOperations = true,
+    string? MinimumManagerVersion = null, bool BelowMinimumVersion = false)
 {
     public static FleetEntry Submitted(AnalystManagerRegistration registration) =>
         new(registration, null, ManagerConnectivity.NotApplicable, false);
@@ -21,7 +23,7 @@ internal static class FleetEntries
 {
     public static async Task<IReadOnlyList<FleetEntry>> BuildAsync(
         IReadOnlyList<AnalystManagerRegistration> registrations, IManagerStatusStore statuses,
-        TimeProvider time, StatusReportingOptions options, CancellationToken cancellationToken)
+        TimeProvider time, StatusReportingOptions options, ManagerVersion? minimum, CancellationToken cancellationToken)
     {
         var reporting = registrations
             .Where(r => r.State is RegistrationState.Active or RegistrationState.Unregistering)
@@ -34,7 +36,10 @@ internal static class FleetEntries
         return [.. registrations.Select(r =>
         {
             var status = stored.GetValueOrDefault(r.Id);
-            return new FleetEntry(r, status, Connectivity.Derive(r.State, status, now, options.MissedIntervalsBeforeOffline));
+            var effective = status?.Report.ManagerVersion ?? r.DeviceMetadata.ManagerVersion;
+            return new FleetEntry(
+                r, status, Connectivity.Derive(r.State, status, now, options.MissedIntervalsBeforeOffline), true,
+                minimum?.Value, ManagerVersion.IsBelow(effective, minimum));
         })];
     }
 }
@@ -62,7 +67,8 @@ internal sealed record FleetViewer(Guid? SubmittedBy)
 
 public sealed class GetRegistrationHandler(
     IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IRegistrationStore store, IManagerStatusStore statuses,
-    IRequestContext context, TimeProvider time, IOptions<StatusReportingOptions> statusReporting)
+    IRequestContext context, TimeProvider time, IOptions<StatusReportingOptions> statusReporting,
+    MinimumManagerVersionProvider minimumVersion)
 {
     public async Task<OperationResult<FleetEntry>> HandleAsync(Guid registrationId, CancellationToken cancellationToken)
     {
@@ -85,14 +91,16 @@ public sealed class GetRegistrationHandler(
             return registration.SubmittedBy == submitter ? FleetEntry.Submitted(registration) : OperationFailure.NotFound();
         }
 
-        var entries = await FleetEntries.BuildAsync([registration], statuses, time, statusReporting.Value, cancellationToken);
+        var entries = await FleetEntries.BuildAsync(
+            [registration], statuses, time, statusReporting.Value, minimumVersion.Current, cancellationToken);
         return entries[0];
     }
 }
 
 public sealed class ListRegistrationsHandler(
     IUnitOfWork unitOfWork, IAccessAuthorizer authorizer, IRegistrationStore store, IManagerStatusStore statuses,
-    IRequestContext context, TimeProvider time, IOptions<StatusReportingOptions> statusReporting)
+    IRequestContext context, TimeProvider time, IOptions<StatusReportingOptions> statusReporting,
+    MinimumManagerVersionProvider minimumVersion)
 {
     public const int PageSize = 50;
 
@@ -126,7 +134,8 @@ public sealed class ListRegistrationsHandler(
                 return new FleetPage([.. page.Items.Select(FleetEntry.Submitted)], page.ContinuationToken);
             }
 
-            var entries = await FleetEntries.BuildAsync(page.Items, statuses, time, statusReporting.Value, cancellationToken);
+            var entries = await FleetEntries.BuildAsync(
+                page.Items, statuses, time, statusReporting.Value, minimumVersion.Current, cancellationToken);
             return new FleetPage(entries, page.ContinuationToken);
         }
         catch (ArgumentException)

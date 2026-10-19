@@ -3,6 +3,7 @@ using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Club;
 using SocAlytics.Platform.Application.Registry.Abstractions;
+using SocAlytics.Platform.Application.Registry.ManagerVersions;
 using SocAlytics.Platform.Application.Registry.StatusReporting;
 using SocAlytics.Platform.Domain.Registry;
 
@@ -14,11 +15,12 @@ public sealed record ReportStatusCommand(
 
 public sealed record ReportStatusResult(
     string ManagerId, string StampId, string State, string ClubName, string KeyThumbprint, DateTimeOffset ActivatedAt,
-    int StatusCheckIntervalSeconds, bool ReportAccepted, IReadOnlyList<FieldViolation> ReportViolations);
+    int StatusCheckIntervalSeconds, bool ReportAccepted, IReadOnlyList<FieldViolation> ReportViolations,
+    string? MinimumManagerVersion);
 
 public sealed class ReportStatusHandler(
     IUnitOfWork unitOfWork, IRegistrationStore registrations, IClubHierarchyStore clubs, IManagerStatusStore statuses,
-    TimeProvider time, IOptions<StatusReportingOptions> statusReporting)
+    TimeProvider time, IOptions<StatusReportingOptions> statusReporting, MinimumManagerVersionProvider minimumVersion)
 {
     public async Task<OperationResult<ReportStatusResult>> HandleAsync(
         Guid registrationId, ReportStatusCommand command, CancellationToken cancellationToken)
@@ -47,6 +49,7 @@ public sealed class ReportStatusHandler(
             registration.State == RegistrationState.Active ? "active" : "unregistering",
             club.DisplayName.Value, registration.KeyThumbprint, registration.ActivatedAt.Value,
             intervalSeconds, accepted,
-            violations.Select(v => new FieldViolation(v.Field, "invalid")).ToList());
+            violations.Select(v => new FieldViolation(v.Field, "invalid")).ToList(),
+            minimumVersion.Current?.Value);
     }
 }
