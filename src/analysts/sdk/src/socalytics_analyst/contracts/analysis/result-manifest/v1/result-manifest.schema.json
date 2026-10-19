@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/result-manifest/v1/result-manifest.schema.json",
+  "x-socalytics-version": "1.1.0",
+  "title": "Analysis result manifest v1",
+  "description": "Manifest an Analyst Manager stores as manifest.json in the attempt's result location. It describes the result of one Execution Attempt and references its artifacts by name, digest, and size. The platform validates it independently of the Manager before accepting a result. The manifest contains no credentials, URLs, inline media, or unrestricted logs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contractVersion",
+    "scope",
+    "provenance",
+    "attempt",
+    "artifacts",
+    "validityWindow",
+    "factCount",
+    "upstreamLineage",
+    "outputType",
+    "confidence",
+    "evidenceReferences"
+  ],
+  "properties": {
+    "contractVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1" },
+    "scope": {
+      "description": "Run and Logical Job identity plus exactly one of segment or match.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["teamId", "matchId", "recordingSetVersionId", "runId", "nodeId", "logicalJobId"],
+      "properties": {
+        "teamId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "matchId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "recordingSetVersionId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "runId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "nodeId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "logicalJobId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "segment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["segmentId", "windowStartMs", "windowEndMs"],
+          "properties": {
+            "segmentId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+            "windowStartMs": { "$ref": "#/$defs/milliseconds" },
+            "windowEndMs": { "$ref": "#/$defs/milliseconds" }
+          }
+        },
+        "match": { "const": true }
+      },
+      "oneOf": [
+        { "required": ["segment"] },
+        { "required": ["match"] }
+      ]
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "schemaVersion", "analystProfile", "imageDigest", "policyVersions", "workflow"],
+      "properties": {
+        "capability": { "$ref": "../../../common/v1/common.schema.json#/$defs/capabilityRef" },
+        "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+        "analystProfile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "digest"],
+          "properties": {
+            "id": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+            "digest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" }
+          }
+        },
+        "imageDigest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+        "modelDigest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+        "policyVersions": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "version"],
+            "properties": {
+              "id": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+              "version": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" }
+            }
+          }
+        },
+        "workflow": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "version"],
+          "properties": {
+            "id": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+            "version": { "$ref": "../../../common/v1/common.schema.json#/$defs/safeLabel" }
+          }
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attemptId", "attemptNumber"],
+      "properties": {
+        "attemptId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "attemptNumber": { "$ref": "../../../common/v1/common.schema.json#/$defs/attemptNumber" }
+      }
+    },
+    "artifacts": {
+      "description": "Result objects in the attempt's result location, named exactly as in the result-grants request.",
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "digest", "sizeBytes", "mediaType"],
+        "properties": {
+          "name": { "$ref": "#/$defs/objectName" },
+          "digest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+          "sizeBytes": { "type": "integer", "minimum": 1 },
+          "mediaType": {
+            "type": "string",
+            "maxLength": 100,
+            "pattern": "^[a-z0-9][a-z0-9.+\\-]*/[a-z0-9][a-z0-9.+\\-]*$"
+          }
+        }
+      }
+    },
+    "validityWindow": {
+      "description": "Half-open window [startMs, endMs) in match time.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["startMs", "endMs"],
+      "properties": {
+        "startMs": { "$ref": "#/$defs/milliseconds" },
+        "endMs": { "$ref": "#/$defs/milliseconds" }
+      }
+    },
+    "factCount": { "type": "integer", "minimum": 0 },
+    "upstreamLineage": {
+      "description": "Accepted upstream results the attempt consumed.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["acceptedResultId", "capability", "schemaVersion", "manifestChecksum"],
+        "properties": {
+          "acceptedResultId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+          "capability": { "$ref": "../../../common/v1/common.schema.json#/$defs/capabilityRef" },
+          "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+          "manifestChecksum": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" }
+        }
+      }
+    },
+    "outputType": { "enum": ["foundational-facts", "soccer-concepts"] },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "evidenceReferences": {
+      "description": "Identifiers of evidence only; never URLs.",
+      "type": "array",
+      "items": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" }
+    },
+    "inputCoverage": {
+      "description": "Per upstream dependency, the state of every unit of the upstream scope the attempt saw. Required by the platform for dependencies behind a partial barrier.",
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["capability", "schemaVersion", "units"],
+        "properties": {
+          "capability": { "$ref": "../../../common/v1/common.schema.json#/$defs/capabilityRef" },
+          "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+          "units": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["state"],
+              "properties": {
+                "segmentId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+                "match": { "const": true },
+                "state": { "enum": ["accepted", "missing", "failed", "blocked", "skipped"] }
+              },
+              "oneOf": [
+                { "required": ["segmentId"] },
+                { "required": ["match"] }
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "milliseconds": { "type": "integer", "minimum": 0 },
+    "objectName": {
+      "description": "Relative object name in the attempt's result location. Never a URL or path.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._\\-]{0,127}$"
+    }
+  }
+}
