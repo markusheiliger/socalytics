@@ -55,7 +55,7 @@ models every story uses.
 
 ### Typed models
 
-- [ ] T007 Add `src/analysts/sdk/src/socalytics_analyst/models/common.py`: a frozen base model with `extra="forbid"`, `populate_by_name=True`, and camelCase aliases; `Annotated` types mirroring the common definitions verbatim (`identifier` "`^[A-Za-z0-9][A-Za-z0-9._\-]*$`, 1–128", `key` "`^[a-z0-9][a-z0-9._\-]*$`, 1–100", `semanticVersion`, `contractVersionV1` "`^1\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`", `timestamp` with `Z`, `digest` "`^sha-256:[0-9a-f]{64}$`", `safeLabel`, `attemptNumber` "≥ 1", milliseconds "integer ≥ 0", result `objectName` "`^[a-z0-9][a-z0-9._\-]{0,127}$`"), `CapabilityRef`, `Correlation`, `AnalysisSegmentReference`, `AcceptedResultLineage`, and `CoverageEntry` (exactly one of `segmentId` or `match: true`; `state` in `accepted`, `missing`, `failed`, `blocked`, `skipped`) (research R4; FR-002)
+- [x] T007 Add `src/analysts/sdk/src/socalytics_analyst/models/common.py`: a frozen base model with `extra="forbid"`, `populate_by_name=True`, and camelCase aliases; `Annotated` types mirroring the common definitions verbatim (`identifier` "`^[A-Za-z0-9][A-Za-z0-9._\-]*$`, 1–128", `key` "`^[a-z0-9][a-z0-9._\-]*$`, 1–100", `semanticVersion`, `contractVersionV1` "`^1\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`", `timestamp` with `Z`, `digest` "`^sha-256:[0-9a-f]{64}$`", `safeLabel`, `attemptNumber` "≥ 1", milliseconds "integer ≥ 0", result `objectName` "`^[a-z0-9][a-z0-9._\-]{0,127}$`"), `CapabilityRef`, `Correlation`, `AnalysisSegmentReference`, `AcceptedResultLineage`, and `CoverageEntry` (exactly one of `segmentId` or `match: true`; `state` in `accepted`, `missing`, `failed`, `blocked`, `skipped`) (research R4; FR-002)
 
 ### Contract models
 
