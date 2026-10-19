@@ -118,7 +118,7 @@ description: "Task list for Web UI Connected Analysis Review"
 
 ### State browser evidence
 
-- [ ] T023 [US3] Add an `Explicit states` block to `src/clients/web/tests/e2e/simulated/analysis-review.spec.ts`: running run without facts (`inProgress`), partially completed run with failed and blocked windows (`incomplete` and facts with the incomplete note), complete coverage without facts (`completeWithoutFacts`), a range without facts (`noFactsInRange`), an outdated stream address (`capabilityNotInRun`), a rejected continuation (restart note), a platform error with reload, and a running run whose counts and coverage change after a poll with the notice offered instead of the page changing (US3 acceptance 1–6); extend `src/clients/web/tests/e2e/platform/analysis-review.spec.ts` to open the run's first stream and see zero facts with the in-progress or incomplete message (FR-022)
+- [x] T023 [US3] Add an `Explicit states` block to `src/clients/web/tests/e2e/simulated/analysis-review.spec.ts`: running run without facts (`inProgress`), partially completed run with failed and blocked windows (`incomplete` and facts with the incomplete note), complete coverage without facts (`completeWithoutFacts`), a range without facts (`noFactsInRange`), an outdated stream address (`capabilityNotInRun`), a rejected continuation (restart note), a platform error with reload, and a running run whose counts and coverage change after a poll with the notice offered instead of the page changing (US3 acceptance 1–6); extend `src/clients/web/tests/e2e/platform/analysis-review.spec.ts` to open the run's first stream and see zero facts with the in-progress or incomplete message (FR-022)
 
 **Checkpoint**: The review never shows an unexplained empty list.
 

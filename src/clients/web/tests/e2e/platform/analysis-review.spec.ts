@@ -53,6 +53,15 @@ test('reviews the run the upload flow created: run and node status, and the not-
   await expect(first).toContainText(/(Waiting|Active|Completed|Failed|Blocked)/);
   await expect(first.getByRole('list', { name: 'Jobs' })).toContainText('Waiting:');
 
+  // No Manager executes jobs in this project, so the first stream has no facts and says why.
+  const streams = page.getByRole('list', { name: 'Fact streams of the run' });
+  await expect(streams).toBeVisible({ timeout: 15_000 });
+  await streams.getByRole('button', { name: /^Show facts of / }).first().click();
+  await expect(
+    page.getByText(/The analysis is still in progress; no facts yet\.|The analysis is incomplete\. Some windows are not accepted\./),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('list', { name: 'Facts of the selected stream' })).toHaveCount(0);
+
   await page.goto(`/matches/${matchId}/analysis-runs/00000000-0000-4000-8000-000000000000`);
   await expect(page.getByText('This page does not exist.')).toBeVisible({ timeout: 15_000 });
 });
