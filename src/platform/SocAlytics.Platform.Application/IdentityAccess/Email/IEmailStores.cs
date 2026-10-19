@@ -62,17 +62,18 @@ public sealed record StoredNotificationPreference(
 public sealed record NewEmailMessage(
     Guid Id,
     string NotificationType,
-    Guid AccountId,
+    Guid? AccountId,
     string AddressHash,
     Guid? ConfirmationId,
     DateTimeOffset CreatedAt,
     DateTimeOffset NextAttemptAt,
-    Guid? PasswordRecoveryId = null);
+    Guid? PasswordRecoveryId = null,
+    Guid? InvitationRef = null);
 
 public sealed record StoredEmailMessage(
     Guid Id,
     string NotificationType,
-    Guid AccountId,
+    Guid? AccountId,
     string AddressHash,
     Guid? ConfirmationId,
     string State,
@@ -82,7 +83,8 @@ public sealed record StoredEmailMessage(
     string? LastErrorCategory,
     DateTimeOffset CreatedAt,
     DateTimeOffset? SentAt,
-    Guid? PasswordRecoveryId = null);
+    Guid? PasswordRecoveryId = null,
+    Guid? InvitationRef = null);
 
 public interface IMemberEmailAddressStore
 {

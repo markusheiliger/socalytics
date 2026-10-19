@@ -81,9 +81,16 @@ internal sealed class EmailDeliveryProcessor(
 
     private async Task<OutboundEmail?> PrepareAsync(StoredEmailMessage message, DateTimeOffset now, EmailOptions settings, CancellationToken cancellationToken)
     {
+        // Messages without an account (member invitations) are not delivered yet.
+        if (message.AccountId is not { } accountId)
+        {
+            await DiscardAsync(message, cancellationToken);
+            return null;
+        }
+
         var type = NotificationTypes.Find(message.NotificationType);
-        var snapshot = await accounts.GetAccessSnapshotAsync(message.AccountId, cancellationToken);
-        var stored = await addresses.FindAsync(message.AccountId, cancellationToken);
+        var snapshot = await accounts.GetAccessSnapshotAsync(accountId, cancellationToken);
+        var stored = await addresses.FindAsync(accountId, cancellationToken);
 
         var eligible = type is not null
             && snapshot is { Status: MembershipStatus.Active }
@@ -101,7 +108,7 @@ internal sealed class EmailDeliveryProcessor(
             };
             if (eligible)
             {
-                var preference = await preferences.FindAsync(message.AccountId, type.Code, cancellationToken);
+                var preference = await preferences.FindAsync(accountId, type.Code, cancellationToken);
                 eligible = preference?.Enabled ?? type.DefaultEnabled;
             }
         }
@@ -158,10 +165,10 @@ internal sealed class EmailDeliveryProcessor(
                 return null;
             }
 
-            var current = recovery.AccountId == message.AccountId
+            var current = recovery.AccountId == accountId
                 && recovery.State is PendingState or IssuedState
                 && recovery.AddressHash == message.AddressHash
-                && await HasLocalPasswordAsync(message.AccountId, recoveryAddress.Normalized, cancellationToken);
+                && await HasLocalPasswordAsync(accountId, recoveryAddress.Normalized, cancellationToken);
             if (!current)
             {
                 if (recovery.State is PendingState or IssuedState)
@@ -189,7 +196,7 @@ internal sealed class EmailDeliveryProcessor(
                     EventType = PasswordRecoveryIssuedEventType,
                     Action = "issue-password-recovery",
                     Outcome = AuditOutcome.Succeeded,
-                    Resource = new AuditResource("member", message.AccountId.ToString()),
+                    Resource = new AuditResource("member", accountId.ToString()),
                     Details = new Dictionary<string, string> { ["maskedAddress"] = recoveryAddress.Masked },
                     ActorOverride = new AuditActorOverride(AuditActorKind.System, null),
                 },
