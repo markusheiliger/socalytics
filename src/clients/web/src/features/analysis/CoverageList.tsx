@@ -5,16 +5,18 @@ import { formatMatchRange } from './matchClock';
 
 interface CoverageListProps {
   windows: CoverageWindow[];
+  /** Replaces the default heading, for example when only some windows are listed. */
+  title?: string;
 }
 
 /** Coverage windows with translated states; a state the platform adds later shows its raw value (FR-011, FR-016). */
-export function CoverageList({ windows }: CoverageListProps) {
+export function CoverageList({ windows, title }: CoverageListProps) {
   const { t } = useTranslation('analysis');
 
   return (
-    <section aria-label={t('coverage.title')}>
+    <section aria-label={title ?? t('coverage.title')}>
       <Typography variant="h4" component="h4" sx={{ mt: 2 }}>
-        {t('coverage.title')}
+        {title ?? t('coverage.title')}
       </Typography>
       {windows.length === 0 ? (
         <Typography>{t('coverage.empty')}</Typography>

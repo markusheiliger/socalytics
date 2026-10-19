@@ -108,7 +108,7 @@ describe('FactBrowser', () => {
   it('shows the empty message and the failure message', async () => {
     const empty = { ...pageOf(0), items: [] };
     renderBrowser(async () => ({ kind: 'found', page: empty }));
-    expect(await screen.findByText('No facts to show.')).toBeInTheDocument();
+    expect(await screen.findByText('The analysis is complete and produced no facts.')).toBeInTheDocument();
   });
 
   it('shows a failure without facts', async () => {

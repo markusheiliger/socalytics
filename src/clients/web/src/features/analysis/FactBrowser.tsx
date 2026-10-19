@@ -1,15 +1,18 @@
 import Button from '@mui/material/Button';
+import CircularProgress from '@mui/material/CircularProgress';
 import Typography from '@mui/material/Typography';
 import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useConnectivity } from '../../connectivity/useConnectivity';
 import type { AnalysisFactAdapter } from '../../platform/adapters/analysisFactAdapter';
-import type { Fact, FactSelection } from '../../platform/models/analysis';
+import type { AnalysisRunStatus, Fact, FactSelection } from '../../platform/models/analysis';
 import { CoverageList } from './CoverageList';
 import { FactRangeForm } from './FactRangeForm';
 import type { FactRange } from './FactRangeForm';
 import { formatMatchRange } from './matchClock';
 import { fullPayloadText, summarizePayload } from './payloadSummary';
 import { ProvenanceDetails } from './ProvenanceDetails';
+import { deriveFactViewState } from './reviewState';
 import { useFactPages } from './useFactPages';
 
 const percent = new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 0 });
@@ -58,11 +61,28 @@ interface FactBrowserProps {
   onRangeChange: (range: FactRange) => void;
 }
 
-/** Facts of the selected stream with range, paging, provenance, and coverage; all platform text renders as text (FR-008, FR-009, FR-011, FR-012, FR-020). */
+/** Facts of the selected stream with range, paging, provenance, and coverage; exactly one state of `contracts/review-states.md` shows at a time and all platform text renders as text (FR-008, FR-009, FR-011, FR-012, FR-014, FR-015, FR-020). */
 export function FactBrowser({ adapter, selection, onRangeChange }: FactBrowserProps) {
   const { t } = useTranslation('analysis');
+  const { isUnreachable } = useConnectivity();
   const paging = useFactPages(adapter, selection);
-  const { page } = paging;
+  const { page, outcome } = paging;
+
+  const view = deriveFactViewState({
+    online: !isUnreachable,
+    routeMatchId: page?.run.matchId ?? '',
+    hasTeamRole: true,
+    factsOutcome: outcome,
+    failure: paging.error,
+    rangeValid: true,
+    rangeSet: selection.range.fromMs !== undefined || selection.range.toMs !== undefined,
+    pending: paging.isLoading,
+    page,
+    stream: selection.stream,
+    runOutcome: page ? { kind: 'found', run: { state: page.run.state, matchId: page.run.matchId } as AnalysisRunStatus } : undefined,
+  });
+  const showsData = Boolean(page) && view.state !== 'connectionRequired';
+  const nonAccepted = page?.coverage.filter((window) => window.state.toLowerCase() !== 'accepted') ?? [];
 
   return (
     <section aria-label={t('facts.title')}>
@@ -75,35 +95,69 @@ export function FactBrowser({ adapter, selection, onRangeChange }: FactBrowserPr
           {t('facts.continuationRestart')}
         </div>
       )}
-      {paging.isLoading && <Typography>{t('states.loading')}</Typography>}
-      {paging.error && <Typography role="alert">{t('states.error')}</Typography>}
-      {page && (
+      {view.state === 'loading' && (
+        <div role="status" aria-live="polite">
+          <CircularProgress size={20} aria-hidden="true" />
+          <Typography component="span" sx={{ ml: 1 }}>
+            {t('states.loading')}
+          </Typography>
+        </div>
+      )}
+      {view.state === 'error' && (
         <>
-          {page.items.length === 0 ? (
-            <Typography>{t('facts.none')}</Typography>
-          ) : (
-            <ul aria-label={t('facts.listLabel')}>
-              {page.items.map((fact) => (
-                <FactItem key={`${fact.acceptedResultId}-${fact.ordinal}`} fact={fact} />
-              ))}
-            </ul>
+          <Typography role="alert">{t('states.error')}</Typography>
+          <Button size="small" variant="outlined" onClick={paging.reload}>
+            {t('page.reload')}
+          </Button>
+        </>
+      )}
+      {(view.state === 'connectionRequired' ||
+        view.state === 'notFound' ||
+        view.state === 'notPermitted' ||
+        view.state === 'capabilityNotInRun' ||
+        view.state === 'invalidRange') && <Typography role="alert">{t(`states.${view.state}`)}</Typography>}
+      {showsData && page && (
+        <>
+          {view.state === 'facts' && (
+            <>
+              {view.incomplete && <Typography>{t('facts.incompleteNote')}</Typography>}
+              <ul aria-label={t('facts.listLabel')}>
+                {page.items.map((fact) => (
+                  <FactItem key={`${fact.acceptedResultId}-${fact.ordinal}`} fact={fact} />
+                ))}
+              </ul>
+              <nav aria-label={t('facts.pageLabel')}>
+                <Button size="small" variant="outlined" disabled={!paging.hasPrevious} onClick={paging.previous}>
+                  {t('facts.previous')}
+                </Button>
+                <Button size="small" variant="outlined" sx={{ ml: 1 }} disabled={!paging.hasNext} onClick={paging.next}>
+                  {t('facts.next')}
+                </Button>
+                <Typography component="span" sx={{ ml: 1 }}>
+                  {t('facts.page', { page: paging.pageNumber })}
+                </Typography>
+                <Typography component="span" sx={{ ml: 1 }}>
+                  {[!paging.hasPrevious && t('facts.firstPage'), paging.hasNext ? t('facts.moreFacts') : t('facts.lastPage')].filter(Boolean).join(' ')}
+                </Typography>
+              </nav>
+            </>
           )}
-          <nav aria-label={t('facts.pageLabel')}>
-            <Button size="small" variant="outlined" disabled={!paging.hasPrevious} onClick={paging.previous}>
-              {t('facts.previous')}
-            </Button>
-            <Button size="small" variant="outlined" sx={{ ml: 1 }} disabled={!paging.hasNext} onClick={paging.next}>
-              {t('facts.next')}
-            </Button>
-            <Typography component="span" sx={{ ml: 1 }}>
-              {t('facts.page', { page: paging.pageNumber })}
-            </Typography>
-            <Typography component="span" sx={{ ml: 1 }}>
-              {[!paging.hasPrevious && t('facts.firstPage'), paging.hasNext ? t('facts.moreFacts') : t('facts.lastPage')].filter(Boolean).join(' ')}
-            </Typography>
-          </nav>
-          <ProvenanceDetails provenance={page.stream.provenance} />
-          <CoverageList windows={page.coverage} />
+          {(view.state === 'noFactsInRange' || view.state === 'inProgress' || view.state === 'incomplete' || view.state === 'completeWithoutFacts') && (
+            <Typography>{t(`states.${view.state}`)}</Typography>
+          )}
+          {view.state === 'facts' || view.state === 'noFactsInRange' || view.state === 'inProgress' || view.state === 'completeWithoutFacts' ? (
+            <>
+              <ProvenanceDetails provenance={page.stream.provenance} />
+              <CoverageList windows={page.coverage} />
+            </>
+          ) : (
+            view.state === 'incomplete' && (
+              <>
+                <ProvenanceDetails provenance={page.stream.provenance} />
+                <CoverageList windows={nonAccepted} title={t('states.nonAcceptedWindows')} />
+              </>
+            )
+          )}
         </>
       )}
     </section>
