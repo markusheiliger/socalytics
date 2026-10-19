@@ -1,7 +1,7 @@
 # Analysis Contract Changes
 
 All changes are additive minor versions in the existing `v1` directories, following
-[Versioning And Compatibility](../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility):
+[Versioning And Compatibility](../../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility):
 the `1.0.0` baselines under `releases/` stay unchanged, a `releases/1.1.0.schema.json` copy is added for each schema,
 `x-socalytics-version` becomes `1.1.0`, and `contracts/README.md` lists the new versions.
 

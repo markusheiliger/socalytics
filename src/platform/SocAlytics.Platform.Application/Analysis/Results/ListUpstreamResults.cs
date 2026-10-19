@@ -45,7 +45,9 @@ public sealed record ListUpstreamResultsResult(
     string EdgeKind,
     IReadOnlyList<UpstreamResultView> Results,
     IReadOnlyList<CoverageEntry> Coverage,
-    string? ContinuationToken);
+    string? ContinuationToken,
+    CoverageMode CoverageMode = CoverageMode.Complete,
+    decimal? MinimumAcceptedFraction = null);
 
 public sealed class ListUpstreamResultsHandler(
     IUnitOfWork unitOfWork,
@@ -191,7 +193,8 @@ public sealed class ListUpstreamResultsHandler(
         AnalysisMetrics.ReadGrantsIssued(grantCount);
         return new ListUpstreamResultsResult(
             scoped.RunId, scoped.JobId, scoped.CapabilityId, scoped.CapabilityVersion, scoped.SchemaVersion, scoped.EdgeKind,
-            results, scoped.Page.Coverage, scoped.Page.ContinuationToken);
+            results, scoped.Page.Coverage, scoped.Page.ContinuationToken,
+            scoped.Page.CoverageMode, scoped.Page.MinimumAcceptedFraction);
     }
 
     private async Task<(JsonElement Manifest, List<UpstreamReadGrant> Grants)> ReadAndGrantAsync(

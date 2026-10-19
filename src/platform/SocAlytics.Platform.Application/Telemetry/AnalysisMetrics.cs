@@ -17,6 +17,13 @@ public static class AnalysisMetrics
     private static readonly Counter<long> IssuedResultGrants = Meter.CreateCounter<long>("socalytics.analysis.result_grants_issued");
     private static readonly Counter<long> IssuedReadGrants = Meter.CreateCounter<long>("socalytics.analysis.read_grants_issued");
     private static readonly Counter<long> BlockedRuns = Meter.CreateCounter<long>("socalytics.analysis.runs_blocked");
+    private static readonly Counter<long> PartialBarriersReadyCounter = Meter.CreateCounter<long>("socalytics.analysis.partial_barriers_ready");
+    private static readonly Counter<long> PartialBarriersBlockedCounter = Meter.CreateCounter<long>("socalytics.analysis.partial_barriers_blocked");
+
+    /// <summary>coverage is "complete" when every unit was accepted, otherwise "partial".</summary>
+    public static void PartialBarrierReady(string coverage) => PartialBarriersReadyCounter.Add(1, Tag("coverage", coverage));
+
+    public static void PartialBarrierBlocked() => PartialBarriersBlockedCounter.Add(1);
 
     private static readonly Counter<long> ManagerVersionRefusals = Meter.CreateCounter<long>("socalytics.analysis.manager_version_refusals");
 

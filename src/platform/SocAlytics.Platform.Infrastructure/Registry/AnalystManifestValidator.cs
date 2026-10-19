@@ -7,7 +7,7 @@ using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Infrastructure.Registry;
 
-/// <summary>Validates manifests with the contract validator against the analyst manifest schema (identical to its 1.0.0 release).</summary>
+/// <summary>Validates manifests with the contract validator against the analyst manifest schema (the 1.0.0 and 1.1.0 releases; 1.1.0 adds the partial upstream coverage declaration).</summary>
 internal sealed class AnalystManifestValidator(IContractValidator contracts) : IAnalystManifestValidator
 {
     public const string SchemaId = "https://socalytics.invalid/contracts/analysis/analyst-manifest/v1/analyst-manifest.schema.json";
@@ -44,16 +44,32 @@ internal sealed class AnalystManifestValidator(IContractValidator contracts) : I
         var runtime = root["runtime"]!.AsObject();
         var requirements = root["requirements"]!.AsObject();
         var upstream = new List<DeclaredUpstream>();
-        foreach (var item in root["upstream"]!.AsArray())
+        var upstreamArray = root["upstream"]!.AsArray();
+        for (var i = 0; i < upstreamArray.Count; i++)
         {
-            if (!AnalysisPersistedNames.TryParseDependencyKind(item!["kind"]!.GetValue<string>(), out var kind))
+            var item = upstreamArray[i]!;
+            if (!AnalysisPersistedNames.TryParseDependencyKind(item["kind"]!.GetValue<string>(), out var kind))
             {
                 return Invalid(new ContractValidationError("/upstream", "enum"));
             }
 
+            var coverage = CoveragePolicy.Complete;
+            if (item["coverage"] is JsonObject coverageNode)
+            {
+                if (scope == ExecutionScope.Segment || kind == DependencyKind.Optional)
+                {
+                    return Invalid(new ContractValidationError($"/upstream/{i}/coverage", "partial-coverage"));
+                }
+
+                coverage = CoveragePolicy.Partial(coverageNode["minimumAcceptedFraction"]?.GetValue<decimal>());
+            }
+
             upstream.Add(new DeclaredUpstream(
                 item["capabilityId"]!.GetValue<string>(), item["capabilityVersion"]!.GetValue<string>(),
-                item["schemaVersion"]!.GetValue<string>(), kind));
+                item["schemaVersion"]!.GetValue<string>(), kind)
+            {
+                CoveragePolicy = coverage,
+            });
         }
 
         // The capability must not list itself or the same upstream capability twice.

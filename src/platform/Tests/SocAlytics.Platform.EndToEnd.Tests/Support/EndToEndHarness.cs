@@ -28,6 +28,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
 {
     public const string SegmentCapability = "dev-segment-capability";
     public const string MatchCapability = "dev-match-capability";
+    public const string PartialMatchCapability = "dev-partial-match-capability";
     public static readonly TimeSpan RunDuration = TimeSpan.FromSeconds(3);
 
     private readonly PostgresContainerFixture _postgres;
@@ -159,7 +160,7 @@ internal sealed class EndToEndHarness : IAsyncDisposable
         };
         if (dockerCompatibilityListPath is null)
         {
-            foreach (var capability in new[] { SegmentCapability, MatchCapability })
+            foreach (var capability in new[] { SegmentCapability, MatchCapability, PartialMatchCapability })
             {
                 configuration[$"Runtime:Simulated:Capabilities:{capability}:Version"] = "1.0.0";
                 configuration[$"Runtime:Simulated:Capabilities:{capability}:RunDuration"] = (runDuration ?? RunDuration).ToString();

@@ -8,6 +8,7 @@ using Shouldly;
 using Xunit;
 using SocAlytics.Analysts.Manager.Platform;
 using SocAlytics.Analysts.Manager.Queue;
+using SocAlytics.Analysts.Manager.Runtime;
 using SocAlytics.Analysts.Manager.Runtime.Simulated;
 using SocAlytics.Analysts.Manager.Tests.Support;
 using SocAlytics.Analysts.Manager.Work;
@@ -290,6 +291,95 @@ public class AttemptRunnerTests
         var simulated = _runtime.Attempts.Single();
         simulated.Stopped.ShouldBeTrue();
         simulated.CleanedUp.ShouldBeTrue();
+    }
+
+    private const string CoverageManifest = """
+        {
+          "contractVersion": "1.1.0",
+          "scope": { "teamId": "team-1", "matchId": "match-1", "recordingSetVersionId": "rsv-1", "runId": "run-1", "nodeId": "node-1", "logicalJobId": "job-2", "match": true },
+          "provenance": {
+            "capability": { "id": "pass-concepts", "version": "1.2.0" },
+            "schemaVersion": "1.0.0",
+            "analystProfile": { "id": "profile-2", "digest": "sha-256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "imageDigest": "sha-256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "policyVersions": [],
+            "workflow": { "id": "default-workflow", "version": "1" }
+          },
+          "attempt": { "attemptId": "attempt-2", "attemptNumber": 1 },
+          "artifacts": [],
+          "validityWindow": { "startMs": 0, "endMs": 5400000 },
+          "factCount": 0,
+          "upstreamLineage": [],
+          "outputType": "soccer-concepts",
+          "confidence": 1,
+          "evidenceReferences": [],
+          "inputCoverage": [
+            {
+              "capability": { "id": "player-detection", "version": "1.0.0" },
+              "schemaVersion": "1.0.0",
+              "units": [ { "segmentId": "segment-1", "state": "STATE" }, { "segmentId": "segment-2", "state": "accepted" } ]
+            }
+          ]
+        }
+        """;
+
+    private async Task<(AttemptRunEnd End, FakeStorage Storage)> RunWithManifest(string manifest)
+    {
+        var storage = new FakeStorage();
+        var client = new PlatformClient(new HttpClient(_platform), new ProofFactory(_time));
+        var factory = LoggerFactory.Create(b => b.AddProvider(new FakeLoggerProvider(_logs)));
+        var publisher = new ResultPublisher(client, new HttpClient(storage), _time, false, factory.CreateLogger<ResultPublisher>());
+        var runner = new AttemptRunner(client, new ManifestWritingRuntime(manifest), _time, publisher: publisher);
+        var task = runner.RunAsync(Delivery(_platform), () => _session, null, CancellationToken.None);
+        return (await Drive(task), storage);
+    }
+
+    [Fact]
+    public async Task Manifest_with_input_coverage_passes_the_manager_contract_check_and_is_uploaded()
+    {
+        var (end, storage) = await RunWithManifest(CoverageManifest.Replace("STATE", "failed", StringComparison.Ordinal));
+
+        end.ShouldBe(AttemptRunEnd.Completed);
+        storage.Puts.Select(p => p.Uri.AbsolutePath).ShouldContain("/results/manifest.json");
+        var body = JsonNode.Parse(_platform.Requests.Last(r => r.Uri.AbsolutePath.EndsWith("/completion", StringComparison.Ordinal)).Body)!;
+        ((string)body["outcome"]!).ShouldBe("succeeded");
+    }
+
+    [Fact]
+    public async Task Manifest_with_an_unknown_coverage_state_is_rejected_as_schema_invalid_and_not_uploaded()
+    {
+        var (end, storage) = await RunWithManifest(CoverageManifest.Replace("STATE", "exploded", StringComparison.Ordinal));
+
+        end.ShouldBe(AttemptRunEnd.Completed);
+        storage.Puts.ShouldBeEmpty();
+        _platform.Requests.ShouldNotContain(r => r.Uri.AbsolutePath.EndsWith("/result-grants", StringComparison.Ordinal));
+        var body = JsonNode.Parse(_platform.Requests.Last(r => r.Uri.AbsolutePath.EndsWith("/completion", StringComparison.Ordinal)).Body)!;
+        ((string)body["outcome"]!).ShouldBe("failed");
+        ((string)body["failure"]!["category"]!).ShouldBe("analyst-error");
+        Messages.ShouldContain(m => m.Contains("result-manifest-schema-invalid", StringComparison.Ordinal));
+    }
+
+    private sealed class ManifestWritingRuntime(string manifest) : IContainerRuntimeAdapter
+    {
+        public string Profile => "simulated";
+
+        public Task<RuntimeProbe> ProbeAsync(RuntimeProbeRequest request, CancellationToken cancellationToken) =>
+            throw new NotSupportedException();
+
+        public async Task<IAttemptExecution> StartAttemptAsync(AttemptLaunch launch, CancellationToken cancellationToken)
+        {
+            await File.WriteAllTextAsync(Path.Combine(launch.ResultDirectory!, "manifest.json"), manifest, cancellationToken);
+            return new DoneExecution();
+        }
+    }
+
+    private sealed class DoneExecution : IAttemptExecution
+    {
+        public Task<AttemptOutcome> Outcome { get; } = Task.FromResult(AttemptOutcome.Success("ref", "sha-256:" + new string('a', 64)));
+
+        public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public Task CleanUpAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 
     [Fact]

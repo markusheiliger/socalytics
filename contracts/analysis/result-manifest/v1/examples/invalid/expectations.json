@@ -6,5 +6,6 @@
   "carries-credential-field.json": "additionalProperties",
   "carries-inline-media.json": "additionalProperties",
   "negative-fact-count.json": "minimum",
-  "confidence-above-one.json": "maximum"
+  "confidence-above-one.json": "maximum",
+  "coverage-unknown-state.json": "enum"
 }
