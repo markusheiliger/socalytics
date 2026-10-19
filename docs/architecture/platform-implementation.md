@@ -703,8 +703,13 @@ AppImage for both profiles, mounted through FUSE when available and otherwise
 started in extract-and-run mode. Signing follows once the publisher is
 decided. Each stamp serves the update feed to its Managers as a proxy for the
 Manager's GitHub Releases, after verifying their build-provenance attestation;
-it offers the releases of its chosen channel, may pin a version, and declares a
-minimum Manager version. The fleet view, implemented in the Web UI, rests on a Manager status report,
+it offers the releases of its chosen channel and may pin a version; the feed,
+channels, and pinning stay planned after the Velopack spike. The minimum
+Manager version is implemented through deployment configuration
+(`Registry:ManagerVersion:Minimum`, empty by default): the status report
+response carries it to each Manager, and the platform refuses queue credentials
+and new claims below it. The fleet view, implemented in the Web UI and marking
+Managers below the minimum, rests on a Manager status report,
 sent with the periodic registration check and stored as the latest snapshot
 only, and a fleet read operation for Club Admins.
 

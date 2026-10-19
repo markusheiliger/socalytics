@@ -1,7 +1,7 @@
 # Contracts: Analyst Manager Minimum Version
 
 All changes are additive within `/api/v1` and the existing v1 schema families
-([Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility)).
+([Contracts and Compatibility](../../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility)).
 
 ## 1. Status report response — `POST /api/v1/analyst-managers/self/status`
 

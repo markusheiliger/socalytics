@@ -185,6 +185,12 @@ public static class ApplicationServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StatusReporting.StatusReportingOptions.SectionName)
             .Validate(static o => o.Interval > TimeSpan.Zero, "Registry:StatusReporting:Interval must be positive.")
             .Validate(static o => o.MissedIntervalsBeforeOffline >= 1, "Registry:StatusReporting:MissedIntervalsBeforeOffline must be at least 1.");
+        services.AddOptions<SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.SectionName)
+            .Validate(SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.IsValid, SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.InvalidMessage)
+            .ValidateOnStart();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.ManagerVersions.MinimumManagerVersionProvider>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionGate>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StampOptions.SectionName);
 

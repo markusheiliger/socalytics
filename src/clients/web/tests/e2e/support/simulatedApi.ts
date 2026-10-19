@@ -244,6 +244,25 @@ export class SimulatedApi {
   /** When set, every code submission answers 429 with this `Retry-After` in seconds. */
   rateLimitSubmissionsFor: number | null = null;
 
+  /**
+   * The minimum Manager version the simulated platform reports to Club Admins. A registration that does not set
+   * `belowMinimumVersion` itself is flagged when its effective version (status report, else device metadata) is lower.
+   */
+  minimumManagerVersion: string | null = null;
+
+  private isBelowMinimum(r: AnalystManagerRegistrationDto, minimum: string): boolean {
+    const effective = r.status?.managerVersion ?? r.deviceMetadata?.managerVersion;
+    if (!effective) return false;
+    const parts = (v: string) => v.split('.').map((p) => Number.parseInt(p, 10) || 0);
+    const a = parts(String(effective));
+    const b = parts(minimum);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+      const d = (a[i] ?? 0) - (b[i] ?? 0);
+      if (d !== 0) return d < 0;
+    }
+    return false;
+  }
+
   /** Adds a registration, and optionally a pairing code that submits it. */
   addRegistration(registration: AnalystManagerRegistrationDto, pairingCode?: string): AnalystManagerRegistrationDto {
     this.registrations.push(registration);
@@ -263,10 +282,21 @@ export class SimulatedApi {
     if (!isAdmin && role !== 'Registrar') return json(403, problem(403, 'Forbidden'));
     const self = String(members[role].id);
     const visible = (r: AnalystManagerRegistrationDto) => isAdmin || String(r.submittedBy) === self;
-    // Status and connectivity belong to the Club Admin fleet view only.
+    // Status, connectivity, and the minimum version marking belong to the Club Admin fleet view only.
     const shape = (r: AnalystManagerRegistrationDto): AnalystManagerRegistrationDto => {
-      if (isAdmin) return r;
-      const { status: _status, connectivity: _connectivity, ...rest } = r;
+      if (isAdmin) {
+        const minimum = r.minimumManagerVersion ?? this.minimumManagerVersion ?? undefined;
+        const below = r.belowMinimumVersion ?? (minimum !== undefined && this.isBelowMinimum(r, minimum));
+        if (minimum === undefined && !below) return r;
+        return { ...r, minimumManagerVersion: minimum, belowMinimumVersion: below } as AnalystManagerRegistrationDto;
+      }
+      const {
+        status: _status,
+        connectivity: _connectivity,
+        minimumManagerVersion: _minimum,
+        belowMinimumVersion: _below,
+        ...rest
+      } = r;
       return rest as AnalystManagerRegistrationDto;
     };
     const entity = (r: AnalystManagerRegistrationDto, status = 200) =>

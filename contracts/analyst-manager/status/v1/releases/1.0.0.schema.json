@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analyst-manager/status/v1/status.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analyst Manager status report",
+  "description": "Request and response of POST /api/v1/analyst-managers/self/status. The cross-field rule activeAnalysts <= maxAnalysts cannot be expressed in JSON Schema; the platform returns it as a field violation and the fixture tests check it. The socalytics.invalid domain is reserved and never dereferenced.",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" }
+  ],
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operatingState", "activeAnalysts", "maxAnalysts", "managerVersion"],
+      "properties": {
+        "operatingState": { "enum": ["running", "paused", "runtime-unavailable", "draining"] },
+        "pausedUntil": { "type": ["string", "null"], "format": "date-time" },
+        "runtimeUnavailableReason": { "type": ["string", "null"], "maxLength": 128 },
+        "activeAnalysts": { "type": "integer", "minimum": 0, "maximum": 1024 },
+        "maxAnalysts": { "type": "integer", "minimum": 0, "maximum": 1024 },
+        "managerVersion": { "type": "string", "maxLength": 64 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operatingState": { "const": "paused" } }, "required": ["operatingState"] },
+          "else": { "properties": { "pausedUntil": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "operatingState": { "const": "runtime-unavailable" } }, "required": ["operatingState"] },
+          "else": { "properties": { "runtimeUnavailableReason": { "type": "null" } } }
+        }
+      ]
+    },
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["managerId", "stampId", "state", "clubName", "keyThumbprint", "activatedAt", "statusCheckIntervalSeconds", "reportAccepted", "reportViolations"],
+      "properties": {
+        "managerId": { "type": "string", "minLength": 1 },
+        "stampId": { "type": "string", "minLength": 1 },
+        "state": { "type": "string", "minLength": 1 },
+        "clubName": { "type": "string", "minLength": 1 },
+        "keyThumbprint": { "type": "string", "minLength": 1 },
+        "activatedAt": { "type": "string", "format": "date-time" },
+        "statusCheckIntervalSeconds": { "type": "integer", "minimum": 1 },
+        "reportAccepted": { "type": "boolean" },
+        "reportViolations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["field", "code"],
+            "properties": {
+              "field": { "type": "string", "minLength": 1 },
+              "code": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      },
+      "if": { "properties": { "reportAccepted": { "const": false } }, "required": ["reportAccepted"] },
+      "then": { "properties": { "reportViolations": { "minItems": 1 } } },
+      "else": { "properties": { "reportViolations": { "maxItems": 0 } } }
+    }
+  },
+  "examples": [
+    { "operatingState": "paused", "pausedUntil": "2026-10-12T18:00:00Z", "runtimeUnavailableReason": null, "activeAnalysts": 1, "maxAnalysts": 2, "managerVersion": "0.3.0" }
+  ]
+}

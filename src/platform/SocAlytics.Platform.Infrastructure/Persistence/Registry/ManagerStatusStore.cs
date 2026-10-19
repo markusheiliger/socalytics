@@ -50,6 +50,14 @@ internal sealed class ManagerStatusStore(IDbSession session) : IManagerStatusSto
         return row?.ToStored();
     }
 
+    public async Task<string?> FindVersionAsync(Guid registrationId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
+            "SELECT manager_version FROM socalytics.analyst_manager_status WHERE registration_id = @registrationId",
+            new { registrationId }, session.Transaction, cancellationToken: cancellationToken));
+    }
+
     public async Task<IReadOnlyDictionary<Guid, StoredManagerStatus>> FindManyAsync(
         IReadOnlyCollection<Guid> registrationIds, CancellationToken cancellationToken)
     {

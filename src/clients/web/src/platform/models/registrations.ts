@@ -64,6 +64,8 @@ export interface Registration {
   activationExpiresAt?: Date;
   status?: RegistrationStatus;
   connectivity?: Connectivity;
+  minimumManagerVersion?: string;
+  belowMinimumVersion: boolean;
 }
 
 export interface RegistrationPage {

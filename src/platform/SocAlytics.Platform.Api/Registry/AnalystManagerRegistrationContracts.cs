@@ -27,7 +27,7 @@ internal sealed record AnalystManagerStatusDto(
 	string ManagerVersion,
 	DateTimeOffset ReportedAt);
 
-// Status and Connectivity belong to the Club Admin fleet view: both are omitted unless IncludesOperations is set
+// Status, Connectivity, and the minimum-version flags belong to the Club Admin fleet view: all are omitted unless IncludesOperations is set
 // (see RegistrationDtoJson), and Status is written as null for a registration that has not reported yet.
 internal sealed record AnalystManagerRegistrationDto(
 	Guid RegistrationId,
@@ -58,6 +58,10 @@ internal sealed record AnalystManagerRegistrationDto(
 
 	public string? Connectivity { get; init; }
 
+	public string? MinimumManagerVersion { get; init; }
+
+	public bool BelowMinimumVersion { get; init; }
+
 	[JsonIgnore]
 	internal bool IncludesOperations { get; init; }
 }
@@ -77,7 +81,7 @@ internal static class RegistrationDtoJson
 
 		foreach (var property in typeInfo.Properties)
 		{
-			if (property.Name is "status" or "connectivity")
+			if (property.Name is "status" or "connectivity" or "minimumManagerVersion" or "belowMinimumVersion")
 			{
 				property.ShouldSerialize = static (instance, _) => ((AnalystManagerRegistrationDto)instance).IncludesOperations;
 			}

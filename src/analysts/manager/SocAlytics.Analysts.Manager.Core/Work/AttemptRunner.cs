@@ -40,7 +40,8 @@ public sealed class AttemptRunner(
     ILogger<AttemptRunner>? logger = null,
     ExecutedRuntime? executedRuntime = null,
     ResultPublisher? publisher = null,
-    UpstreamStager? stager = null)
+    UpstreamStager? stager = null,
+    Registration.MinimumVersionState? minimumVersion = null)
 {
     public static readonly TimeSpan ClaimRetryWindow = TimeSpan.FromSeconds(20);
 
@@ -110,6 +111,13 @@ public sealed class AttemptRunner(
                     "Claim for Logical Job {LogicalJobId} correlation {CorrelationId} got no outcome ({Kind}); delivery stays unacknowledged",
                     job.LogicalJobId, job.Correlation.CorrelationId, claim.Kind);
                 return AttemptRunEnd.ClaimDeferred;
+            case WorkResultKind.Refused when claim.IsVersionRefusal:
+                minimumVersion?.MarkRefused(claim.MinimumManagerVersion);
+                _logger.LogWarning(
+                    "Claim for Logical Job {LogicalJobId} correlation {CorrelationId} was refused: the Manager version is below the stamp minimum {Minimum}",
+                    job.LogicalJobId, job.Correlation.CorrelationId, claim.MinimumManagerVersion);
+                await NegativelyAcknowledgeAsync(delivery, job, null, cancellationToken);
+                return AttemptRunEnd.NotAdmitted;
             default:
                 _logger.LogWarning(
                     "Claim for Logical Job {LogicalJobId} correlation {CorrelationId} was refused ({Code}); delivery stays unacknowledged",
