@@ -84,7 +84,7 @@ describe('StartConversationDialog', () => {
     createConversation.mockRejectedValueOnce(new TriageFailure({ kind: 'runNotEligible' }, new PlatformFailure('conflict')));
     renderDialog();
     await userEvent.click(screen.getByRole('button', { name: 'Start triage conversation' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('This analysis run cannot be used for triage.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('This analysis run cannot be used for triage. Choose another run.');
     expect(screen.getByTestId('location')).toHaveTextContent('/matches/match-1');
   });
 
@@ -93,10 +93,32 @@ describe('StartConversationDialog', () => {
     createConversation.mockResolvedValueOnce({ conversationId: 'conv-3' });
     renderDialog();
     await userEvent.click(screen.getByRole('button', { name: 'Start triage conversation' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('We could not confirm');
-    await userEvent.click(screen.getByRole('button', { name: 'Start triage conversation' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('We could not confirm that the conversation was started.');
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
     await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(2));
     expect(createConversation.mock.calls[1]![2]).toBe(createConversation.mock.calls[0]![2]);
+    await waitFor(() => expect(screen.getByTestId('location')).toHaveTextContent('/matches/match-1/triage/conv-3'));
+  });
+
+  it('uses a new key when another run is chosen after an unknown outcome', async () => {
+    createConversation.mockRejectedValueOnce(new TriageFailure({ kind: 'unknownOutcome' }, new PlatformFailure('unreachable')));
+    createConversation.mockRejectedValueOnce(new TriageFailure({ kind: 'runNotEligible' }, new PlatformFailure('conflict')));
+    renderDialog();
+    await userEvent.click(screen.getByRole('button', { name: 'Start triage conversation' }));
+    await screen.findByRole('button', { name: 'Try again' });
+    await userEvent.click(screen.getByRole('combobox', { name: 'Analysis run' }));
+    await userEvent.click(screen.getAllByRole('option')[1]!);
+    await userEvent.click(screen.getByRole('button', { name: 'Start triage conversation' }));
+    await waitFor(() => expect(createConversation).toHaveBeenCalledTimes(2));
+    expect(createConversation.mock.calls[1]![2]).not.toBe(createConversation.mock.calls[0]![2]);
+  });
+
+  it('shows the notPermitted message and stays open', async () => {
+    createConversation.mockRejectedValueOnce(new TriageFailure({ kind: 'notPermitted' }, new PlatformFailure('notPermitted')));
+    renderDialog();
+    await userEvent.click(screen.getByRole('button', { name: 'Start triage conversation' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only Club Admins and Coaches of the team can start triage conversations.');
+    expect(screen.getByTestId('location')).toHaveTextContent('/matches/match-1');
   });
 
   it('closes on cancel', async () => {

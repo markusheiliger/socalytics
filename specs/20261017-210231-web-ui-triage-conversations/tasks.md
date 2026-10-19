@@ -118,7 +118,7 @@ description: "Task list for Web UI Match Triage Conversations"
 
 - [x] T024 [P] [US3] Extend `src/clients/web/src/features/triage/QuestionComposer.tsx` with refusal handling: `tooManyUnfinished`, `agentNotAvailable`, `agentNotParticipant`, and `invalidQuestion` messages next to the input with the draft kept, the unknown-outcome message with "Send again" reusing the key, and `notPermitted` reported to the page; extend `src/clients/web/tests/unit/features/triage/QuestionComposer.test.tsx` (FR-016, FR-017)
 - [x] T025 [P] [US3] Extend `src/clients/web/src/features/triage/ParticipantsPanel.tsx` so `participantExists`, `staleVersion`, and `agentNotAvailable` reload the conversation and ask the member to choose again; extend `src/clients/web/tests/unit/features/triage/ParticipantsPanel.test.tsx` (FR-016)
-- [ ] T026 [P] [US3] Extend `src/clients/web/src/features/triage/StartConversationDialog.tsx` with the `runNotEligible` and `notPermitted` messages and the unknown-outcome "Try again" that reuses the creation key; extend `src/clients/web/tests/unit/features/triage/StartConversationDialog.test.tsx` (FR-016, FR-017)
+- [x] T026 [P] [US3] Extend `src/clients/web/src/features/triage/StartConversationDialog.tsx` with the `runNotEligible` and `notPermitted` messages and the unknown-outcome "Try again" that reuses the creation key; extend `src/clients/web/tests/unit/features/triage/StartConversationDialog.test.tsx` (FR-016, FR-017)
 
 ### Page-level failures, connectivity, and leaving
 

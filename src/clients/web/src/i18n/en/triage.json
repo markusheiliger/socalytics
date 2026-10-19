@@ -18,7 +18,11 @@
     "noParticipants": "No agents take part yet.",
     "open": "Open conversation",
     "notCurrentRun": "No longer current run",
-    "retry": "Try again"
+    "retry": "Try again",
+    "runNotEligible": "This analysis run cannot be used for triage. Choose another run.",
+    "notPermitted": "Only Club Admins and Coaches of the team can start triage conversations.",
+    "unknownOutcome": "We could not confirm that the conversation was started.",
+    "unknownOutcomeHint": "Trying again is safe: the conversation is only created once."
   },
   "conversation": {
     "title": "Triage conversation",

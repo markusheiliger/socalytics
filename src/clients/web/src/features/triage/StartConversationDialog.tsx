@@ -11,6 +11,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 import { createAgentConversationAdapter, TriageFailure } from '../../platform/adapters/agentConversationAdapter';
+import type { TriageOutcome } from '../../platform/models/agents';
 import type { AnalysisRunSummary } from '../../platform/models/recordings';
 import { useSession } from '../../session/sessionContext';
 import { formatKickoff } from '../matches/MatchForm';
@@ -33,6 +34,17 @@ interface StartConversationDialogProps {
   onClose: () => void;
 }
 
+const creationMessage = (outcome: TriageOutcome) => {
+  switch (outcome.kind) {
+    case 'runNotEligible':
+      return { key: 'section.runNotEligible' };
+    case 'notPermitted':
+      return { key: 'section.notPermitted' };
+    default:
+      return triageMessage(outcome);
+  }
+};
+
 export function StartConversationDialog({ open, matchId, runs, onClose }: StartConversationDialogProps) {
   const { t } = useTranslation('triage');
   const { t: tLineage } = useTranslation('lineage');
@@ -44,12 +56,14 @@ export function StartConversationDialog({ open, matchId, runs, onClose }: StartC
   const [chosen, setChosen] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ key: string; params?: Record<string, string | number> } | undefined>(undefined);
+  const [unknown, setUnknown] = useState(false);
 
   const analysisRunId = chosen && candidates.some((run) => run.runId === chosen) ? chosen : (candidates[0]?.runId ?? '');
   const intent = useCreationIntent(analysisRunId);
 
   const close = () => {
     setMessage(undefined);
+    setUnknown(false);
     setChosen(undefined);
     intent.reset();
     onClose();
@@ -61,6 +75,7 @@ export function StartConversationDialog({ open, matchId, runs, onClose }: StartC
     const key = intent.startSend();
     setBusy(true);
     setMessage(undefined);
+    setUnknown(false);
     try {
       const created = await adapter.createConversation(matchId, analysisRunId, key);
       intent.settle('accepted');
@@ -69,7 +84,11 @@ export function StartConversationDialog({ open, matchId, runs, onClose }: StartC
     } catch (error) {
       if (error instanceof TriageFailure) {
         intent.settle(error.outcome.kind === 'unknownOutcome' ? 'unknown' : 'refused');
-        setMessage(triageMessage(error.outcome));
+        if (error.outcome.kind === 'unknownOutcome') {
+          setUnknown(true);
+        } else {
+          setMessage(creationMessage(error.outcome));
+        }
       } else {
         intent.settle('refused');
         setMessage({ key: 'refusal.failed' });
@@ -83,6 +102,11 @@ export function StartConversationDialog({ open, matchId, runs, onClose }: StartC
     <Dialog open={open} onClose={close} aria-labelledby="start-conversation-title" component="form" onSubmit={(e: FormEvent) => void submit(e)}>
       <DialogTitle id="start-conversation-title">{t('section.startTitle')}</DialogTitle>
       <DialogContent>
+        {unknown && (
+          <Alert severity="warning" role="alert" sx={{ mb: 2 }}>
+            {t('section.unknownOutcome')} {t('section.unknownOutcomeHint')}
+          </Alert>
+        )}
         {message && (
           <Alert severity="error" role="alert" sx={{ mb: 2 }}>
             {t(message.key, message.params)}
@@ -97,6 +121,7 @@ export function StartConversationDialog({ open, matchId, runs, onClose }: StartC
           onChange={(e) => {
             setChosen(e.target.value);
             setMessage(undefined);
+            setUnknown(false);
           }}
           disabled={busy}
         >
@@ -115,7 +140,7 @@ export function StartConversationDialog({ open, matchId, runs, onClose }: StartC
           {t('section.cancel')}
         </Button>
         <Button type="submit" variant="contained" disabled={busy || !analysisRunId}>
-          {busy ? t('section.starting') : t('section.start')}
+          {busy ? t('section.starting') : unknown ? t('section.retry') : t('section.start')}
         </Button>
       </DialogActions>
     </Dialog>
