@@ -383,7 +383,7 @@ public sealed partial class SelfServicePasswordRecoveryLimitsTests(PostgresConta
 			Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
 			ActivityStopped = activity =>
 			{
-				if (IsProcessWide(activity.Source.Name) && activity.TraceId != testTrace)
+				if (activity.TraceId != testTrace)
 				{
 					return;
 				}
@@ -423,7 +423,7 @@ public sealed partial class SelfServicePasswordRecoveryLimitsTests(PostgresConta
 		};
 		void Measured(Instrument instrument, ReadOnlySpan<KeyValuePair<string, object?>> tags)
 		{
-			if (IsProcessWide(instrument.Meter.Name) && Activity.Current?.TraceId != testTrace)
+			if (Activity.Current?.TraceId != testTrace)
 			{
 				return;
 			}
@@ -520,15 +520,10 @@ public sealed partial class SelfServicePasswordRecoveryLimitsTests(PostgresConta
 
 	private static readonly string[] HostScopes = ["Microsoft.AspNetCore", "System.Net.Http", "SocAlytics", "MailKit"];
 
-	private static readonly string[] ProcessWideScopes = ["Microsoft.AspNetCore", "System.Net.Http"];
-
+	// Sources and meters are process-wide statics shared with parallel hosts, so only telemetry of the test's own trace counts.
 	private static bool IsScopeOfHost(string name) =>
 		!name.StartsWith("Npgsql", StringComparison.OrdinalIgnoreCase) &&
 		HostScopes.Any(scope => name.StartsWith(scope, StringComparison.Ordinal));
-
-	// Framework instrumentation is shared by every host in the test process, so only the traces of the test's own requests count.
-	private static bool IsProcessWide(string name) =>
-		ProcessWideScopes.Any(scope => name.StartsWith(scope, StringComparison.Ordinal));
 
 	private static void AppendTags(StringBuilder sink, ReadOnlySpan<KeyValuePair<string, object?>> tags)
 	{
