@@ -73,6 +73,14 @@ internal sealed class PostgresAuditTrail(
         "workloadClientId",
         "disposition",
         "reasonCode",
+        "kind",
+        "artifactId",
+        "artifactVersion",
+        "digest",
+        "previousVersion",
+        "newVersion",
+        "differentiationAcknowledged",
+        "violationCodes",
     };
 
     private const string InsertSql =
