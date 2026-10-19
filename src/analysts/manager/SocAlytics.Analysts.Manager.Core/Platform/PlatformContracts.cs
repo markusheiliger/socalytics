@@ -42,7 +42,8 @@ public sealed record OAuthError(
 public sealed record OwnRegistration(
     string ManagerId, string StampId, string State, string ClubName, string KeyThumbprint,
     DateTimeOffset ActivatedAt, double? StatusCheckIntervalSeconds = null,
-    bool? ReportAccepted = null, IReadOnlyList<ReportViolation>? ReportViolations = null);
+    bool? ReportAccepted = null, IReadOnlyList<ReportViolation>? ReportViolations = null,
+    string? MinimumManagerVersion = null);
 
 public sealed record ReportViolation(string Field, string Code);
 
@@ -54,7 +55,7 @@ public sealed record UnregistrationResult(string ManagerId, string State);
 
 public sealed record Problem(
     string Type, string Title, int Status, string Code, string CorrelationId,
-    string? Detail = null, string? Instance = null, string? RegistrationState = null);
+    string? Detail = null, string? Instance = null, string? RegistrationState = null, string? MinimumManagerVersion = null);
 
 public static class PlatformJson
 {

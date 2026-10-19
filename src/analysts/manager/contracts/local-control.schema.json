@@ -609,6 +609,27 @@
             "$ref": "#/$defs/activeAttempt"
           }
         },
+        "update": {
+          "type": "object",
+          "description": "Present only while this Manager build is below the stamp's minimum Manager version; minimumVersion is the value as received.",
+          "additionalProperties": false,
+          "required": [
+            "required",
+            "managerVersion",
+            "minimumVersion"
+          ],
+          "properties": {
+            "required": {
+              "const": true
+            },
+            "managerVersion": {
+              "type": "string"
+            },
+            "minimumVersion": {
+              "type": "string"
+            }
+          }
+        },
         "queueDepth": {
           "$ref": "#/$defs/queueDepth"
         },

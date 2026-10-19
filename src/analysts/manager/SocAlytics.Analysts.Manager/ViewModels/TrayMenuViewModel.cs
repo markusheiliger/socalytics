@@ -17,6 +17,7 @@ public sealed class TrayMenuViewModel : ObservableBase, IDisposable
     [
         nameof(RegisterEnabled), nameof(PauseEnabled), nameof(ResumeEnabled), nameof(UnregisterEnabled),
         nameof(DiscardEnabled), nameof(AutostartChecked), nameof(PauseRemaining), nameof(ResumeText),
+        nameof(UpdateRequired), nameof(UpdateMenuText),
     ];
 
     private readonly IManagerControl _control;
@@ -42,6 +43,10 @@ public sealed class TrayMenuViewModel : ObservableBase, IDisposable
     public bool DiscardEnabled => _control.GetStatus().RegistrationState == "restore-failed";
 
     public bool AutostartChecked => _control.GetStatus().AutostartEnabled == true;
+
+    public bool UpdateRequired => _control.GetStatus().UpdateRequired is { Required: true };
+
+    public string UpdateMenuText => _control.GetStatus().UpdateRequired is { Required: true } u ? $"Update required (minimum {u.MinimumVersion})" : "";
 
     public string PauseRemaining => FormatRemaining(_control.GetStatus().PauseRemainingSeconds);
 

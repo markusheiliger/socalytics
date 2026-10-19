@@ -94,6 +94,8 @@ internal static class AnalystManagerRegistrationEndpoints
 					status.Report.ManagerVersion,
 					status.ReceivedAt),
 			Connectivity = entry.Connectivity.ToApiName(),
+			MinimumManagerVersion = entry.MinimumManagerVersion,
+			BelowMinimumVersion = entry.BelowMinimumVersion,
 		};
 	}
 

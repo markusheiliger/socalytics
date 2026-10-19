@@ -245,6 +245,6 @@ through the API and in the Web UI; only the outdated Manager is marked, with its
   attestation verification, automatic or manual self-update, maximum versions, and production values for the
   minimum.
 - **Architecture**: Implements the minimum-version rule of
-  [Updates](../../docs/architecture/analyst-manager.md#updates) and the version parts of
-  [Fleet Visibility In The Web UI](../../docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui); the
+  [Updates](../../../docs/architecture/analyst-manager.md#updates) and the version parts of
+  [Fleet Visibility In The Web UI](../../../docs/architecture/analyst-manager.md#fleet-visibility-in-the-web-ui); the
   rest of Updates stays unimplemented.

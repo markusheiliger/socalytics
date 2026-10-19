@@ -27,8 +27,12 @@ public static class TrayMenuBuilder
         var autostart = new NativeMenuItem("Start at sign-in") { ToggleType = Avalonia.Controls.MenuItemToggleType.CheckBox };
         autostart.Click += (_, _) => _ = model.ToggleAutostartAsync();
 
+        var update = new NativeMenuItem("") { IsEnabled = false, IsVisible = false };
+
         void Sync()
         {
+            update.IsVisible = model.UpdateRequired;
+            update.Header = model.UpdateMenuText;
             register.IsEnabled = model.RegisterEnabled;
             pause.IsEnabled = model.PauseEnabled;
             pauseFor.IsEnabled = model.PauseEnabled;
@@ -41,7 +45,7 @@ public static class TrayMenuBuilder
 
         Sync();
         model.PropertyChanged += (_, _) => Sync();
-        return [status, register, new NativeMenuItemSeparator(), pause, pauseFor, resume, new NativeMenuItemSeparator(), exit, unregister, discard, autostart];
+        return [status, update, register, new NativeMenuItemSeparator(), pause, pauseFor, resume, new NativeMenuItemSeparator(), exit, unregister, discard, autostart];
     }
 
     private static NativeMenuItem Item(string header, Action click)

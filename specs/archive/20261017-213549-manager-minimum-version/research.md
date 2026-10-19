@@ -10,7 +10,7 @@
   keeps the last valid value: on reload it re-validates, and an invalid reloaded value is logged once and ignored
   (FR-003, clarification). Every exchange and refusal reads `provider.Current`, so a reload or a restart applies a
   change without re-registration.
-- **Rationale**: Mirrors `WebUi:MinimumVersion` (archived [Web UI PWA updates](../archive/20261015-194113-web-ui-pwa-updates/research.md),
+- **Rationale**: Mirrors `WebUi:MinimumVersion` (archived [Web UI PWA updates](../20261015-194113-web-ui-pwa-updates/research.md),
   R4) and the existing `Registry:*` sections; the monitor satisfies "takes effect while running".
 - **Alternatives considered**: `IOptions` only (rejected: needs a restart, contradicts the clarification); a database
   setting with an admin API (rejected: out of scope, the architecture names deployment configuration).
