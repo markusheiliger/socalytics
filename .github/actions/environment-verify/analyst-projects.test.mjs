@@ -780,6 +780,107 @@ it('${id}', () => {
       });
     });
 
+    describe('agents area coverage and regression', () => {
+      const bypass = /--no-locked|--frozen|--upgrade|skip|ignore|disable|merge|unlock|bypass|weaken/i;
+      const recommendations = (log) => log.split('\n').filter((line) => line.includes('Recommended action:'));
+
+      it('keeps deleted, area-root, nested, and unowned agents-area paths uncovered while valid roots stay covered', () => {
+        const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+        project(root, 'src/agents/kept', { name: 'kept' });
+        const changed = [
+          'src/agents/deleted/pyproject.toml', 'src/agents/deleted/a.py', 'src/agents/pyproject.toml',
+          'src/agents/stray.py', 'src/agents/kept/a.py', 'src/agents/README.md',
+        ];
+        const result = run(root, { mode: 'task', changed, bin: toolBin() });
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.outputs.uncovered, 'src/agents/deleted/pyproject.toml,src/agents/deleted/a.py,src/agents/pyproject.toml,src/agents/stray.py');
+        assert.equal(result.outputs.checks, [names.python.replace('Analyst', 'Agent'), names.markdown].join(','));
+      });
+
+      it('covers src/agents/README.md only through the Markdown rule', () => {
+        const absent = run(fullRepository({ platform: false, manager: false, web: false, python: false }), { mode: 'task', changed: ['src/agents/README.md'], bin: toolBin() });
+        assert.equal(absent.status, 0, absent.log);
+        assert.equal(absent.outputs.uncovered, '');
+        assert.equal(absent.outputs.checks, names.markdown);
+        const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+        project(root, 'src/agents/kept', { name: 'kept' });
+        const present = run(root, { mode: 'task', changed: ['src/agents/README.md'], bin: toolBin() });
+        assert.equal(present.outputs.uncovered, '');
+        assert.equal(present.outputs.checks, names.markdown);
+        assert.equal(present.calls.length, 0);
+      });
+
+      const invalid = [
+        ['a missing lock', 'src/agents/mcp', (root) => project(root, 'src/agents/mcp', { name: 'mcp' }, { lock: false })],
+        ['the area-root manifest', 'src/agents/pyproject.toml', (root) => { project(root, 'src/agents', { name: 'area' }); project(root, 'src/agents/mcp', { name: 'mcp' }); }],
+        ['a nested manifest', 'src/agents/mcp/nested/pyproject.toml', (root) => { project(root, 'src/agents/mcp', { name: 'mcp' }); project(root, 'src/agents/mcp/nested', { name: 'nested' }); }],
+        ['an Analyst dependency', 'src/agents/mcp', (root) => { project(root, 'src/analysts/sdk', { name: 'sdk' }); project(root, 'src/agents/mcp', { name: 'mcp', dependencies: ['sdk'], sources: { sdk: '../../analysts/sdk' } }); }],
+        ['a name repeating an Analyst name', 'src/agents/mcp', (root) => { project(root, 'src/analysts/sdk', { name: 'sdk' }); project(root, 'src/agents/mcp', { name: 'sdk' }); }],
+        ['a malformed manifest', 'src/agents/mcp', (root) => project(root, 'src/agents/mcp', { raw: '[project\n' })],
+      ];
+      for (const [label, named, build] of invalid) {
+        it(`fails ${label} in every mode with the named project and exactly one safe recommendation, covering no agent root`, () => {
+          for (const mode of ['task', 'phase', 'finalize']) {
+            const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+            build(root);
+            const changed = ['src/clients/other/b.ts', 'src/agents/mcp/a.py'];
+            const result = run(root, { mode, changed: mode === 'finalize' ? [] : changed, bin: toolBin() });
+            assert.equal(result.status, 1, `${mode}: ${result.log}`);
+            assert.match(result.log, /Agent Python projects: discovery failed/);
+            assert.ok(result.log.includes(named), `${mode}: ${named}`);
+            assert.ok(result.outputs.checks.split(',').includes('Agent Python projects'));
+            assert.ok(!result.outputs.checks.includes('Markdown'));
+            const advice = recommendations(result.log);
+            assert.equal(advice.length, 1, result.log);
+            assert.doesNotMatch(advice[0], bypass);
+            assert.equal(result.calls.filter((call) => call[0].includes('src/agents')).length, 0);
+            if (mode !== 'finalize') assert.equal(result.outputs.uncovered, 'src/clients/other/b.ts,src/agents/mcp/a.py');
+          }
+        });
+      }
+
+      it('fails an invalid agent project even when the changed paths do not touch it', () => {
+        const root = fullRepository({ platform: false, manager: false, web: false, python: false });
+        project(root, 'src/agents/mcp', { name: 'mcp' }, { lock: false });
+        const result = run(root, { mode: 'task', changed: ['src/clients/other/b.ts'], bin: toolBin() });
+        assert.equal(result.status, 1);
+        assert.equal(result.outputs.checks, 'Agent Python projects');
+        assert.equal(result.outputs.uncovered, 'src/clients/other/b.ts');
+        assert.match(result.log, /project src\/agents\/mcp: locked sync: uv\.lock is missing/);
+      });
+
+      it('keeps the log, checks, and uncovered outputs for an agent stage failure alongside platform checks', () => {
+        const root = fullRepository({ web: false, python: false });
+        project(root, 'src/agents/mcp', { name: 'mcp' });
+        const result = run(root, {
+          mode: 'phase', changed: ['src/agents/mcp/a.py', 'src/agents/gone/a.py', 'src/platform/a.cs'],
+          env: { FAIL_STAGE: stages[3] }, bin: toolBin(),
+        });
+        assert.equal(result.status, 1);
+        assert.equal(result.outputs.checks, [names.platform, 'Agent Python projects'].join(','));
+        assert.equal(result.outputs.uncovered, 'src/agents/gone/a.py');
+        const advice = recommendations(result.log).filter((line) => line.startsWith('Agent Python stage failed'));
+        assert.equal(advice.length, 1);
+        assert.match(advice[0], /Agent Python stage failed: tests in src\/agents\/mcp \(command: uv run --no-sync pytest\)/);
+        assert.doesNotMatch(advice[0], /--no-locked|--frozen|--upgrade|skip|ignore|disable|merge|unlock|bypass/i);
+      });
+
+      it('runs every check in the documented order in finalize mode', () => {
+        const fixtureDir = path.join(temporary, `env-tests-${counter++}`);
+        mkdirSync(fixtureDir);
+        const file = path.join(fixtureDir, 'pass.test.mjs');
+        writeFileSync(file, "import { it } from 'node:test';\nit('passes', () => {});\n");
+        const root = fullRepository();
+        project(root, 'src/agents/mcp', { name: 'mcp' });
+        const result = run(root, { bin: toolBin(), env: { ENVIRONMENT_TESTS: file } });
+        assert.equal(result.status, 0, result.log);
+        assert.equal(result.outputs.checks, [
+          names.platform, names.manager, names.web, names.python, 'Agent Python projects', 'Environment action tests', names.markdown,
+        ].join(','));
+        assert.equal(result.outputs.uncovered, '');
+      });
+    });
+
     it('keeps the log, checks, and uncovered outputs for an Analyst failure alongside platform checks', () => {
       const root = fullRepository({ web: false });
       const result = run(root, {

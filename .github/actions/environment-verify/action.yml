@@ -17,7 +17,13 @@ description: >-
   while src/clients/web/package.json exists, and runs the steps install (npm ci without a browser download),
   playwright pin (the installed @playwright/test must be 1.63.0, the version environment-setup installs), build,
   unit tests, and browser tests through the npm scripts build, test, and test:e2e, stopping at the first failure;
-  other paths under src/clients/ stay uncovered; "Environment action tests" runs the Node test files of
+  other paths under src/clients/ stay uncovered; "Analyst Python projects" runs the locked stages for the Analyst
+  Python projects (src/analysts/sdk, src/analysts/capabilities/<name>) the changes select; "Agent Python projects"
+  does the same for src/agents/<name> projects with the same convention and stages, runs when an agent project, a
+  folder directly under contracts/ named agent-*, contracts/common/, or an environment action folder changed or in
+  finalize mode, covers only the roots of existing valid agent projects (src/agents/pyproject.toml, nested manifests,
+  and unowned or deleted agent paths stay uncovered), and fails in every mode while an existing agent project is
+  invalid; agent projects never depend on Analyst projects or repeat their names; "Environment action tests" runs the Node test files of
   environment-setup and environment-verify when either action folder changed or in finalize mode; "Markdown check"
   follows.
 # Extending: specs change this action, together with environment-setup, only in a standalone environment spec, which
@@ -29,7 +35,10 @@ description: >-
 # exists; the Analyst Manager scope (src/analysts/manager/) is covered while the Manager solution exists, and its
 # check also runs for contracts/analyst-manager/ changes without covering those files; the Web UI scope
 # (src/clients/web/) is covered while src/clients/web/package.json exists, and its check also runs for
-# src/platform/SocAlytics.Platform.Api/ changes without covering those files.
+# src/platform/SocAlytics.Platform.Api/ changes without covering those files. The agent Python project scope (each
+# existing valid src/agents/<name> root) is covered by the check "Agent Python projects", which also runs for
+# contracts/agent-*, contracts/common/, finalize, and environment action changes without covering those contract
+# files; src/agents/README.md stays covered only by the Markdown rule.
 inputs:
   workspace:
     description: Path of the code to verify
