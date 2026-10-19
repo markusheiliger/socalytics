@@ -90,6 +90,12 @@ public sealed partial class SelfServicePasswordRecoveryLimitsTests(PostgresConta
 	private static async Task<HttpResponseMessage> PostAsync(EmailApiHarness h, string path, object body, CancellationToken ct)
 	{
 		using var anonymous = h.Factory.CreateApiClient();
+		// TestServer clients do not propagate trace context, so the host's server activities would start a new trace.
+		if (Activity.Current?.Id is { } traceparent)
+		{
+			anonymous.DefaultRequestHeaders.TryAddWithoutValidation("traceparent", traceparent);
+		}
+
 		return await anonymous.PostAsJsonAsync($"/api/v1/password-recovery/{path}", body, ct);
 	}
 
@@ -520,7 +526,7 @@ public sealed partial class SelfServicePasswordRecoveryLimitsTests(PostgresConta
 		!name.StartsWith("Npgsql", StringComparison.OrdinalIgnoreCase) &&
 		HostScopes.Any(scope => name.StartsWith(scope, StringComparison.Ordinal));
 
-	// Framework instrumentation is shared by every host in the test process, so only the test's own traces count.
+	// Framework instrumentation is shared by every host in the test process, so only the traces of the test's own requests count.
 	private static bool IsProcessWide(string name) =>
 		ProcessWideScopes.Any(scope => name.StartsWith(scope, StringComparison.Ordinal));
 
