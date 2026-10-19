@@ -257,7 +257,7 @@ scope and query this stream through team-authorized, match-scoped APIs.
 The stream is readable by authorized members as well, per run and capability
 (implemented as development evidence), as described in
 [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access),
-with the Web UI's connected analysis review (decided, not yet implemented; see
+with the Web UI's connected analysis review (implemented; see
 [Client Applications](client-applications.md#web-ui)) as its first consumer;
 high-level ACs keep receiving their inputs through the Analyst Manager's
 staging of accepted upstream results.

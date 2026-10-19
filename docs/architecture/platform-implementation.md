@@ -837,7 +837,9 @@ current and non-current migration states; and
   view, and the fleet view with revocation, and the match workflow and
   recording upload (match creation and editing, direct multipart upload with
   resume, timeline mapping, finalization, and the development CORS access to
-  RustFS): the `simulated` project against a simulated API and a fake object
+  RustFS) and the analysis review (run status, fact streams, range filtering,
+  paging, coverage, provenance, explicit empty, incomplete, and unavailable
+  states, access by role, accessibility checks, and the online-only rule): the `simulated` project against a simulated API and a fake object
   store, and the `platform` project against the real platform with a scripted
   Manager and RustFS; and
 - a Host test verifies the development CORS allow-list and the storage origin
@@ -888,14 +890,15 @@ choice or reveals a material operational tradeoff:
   fact reads are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views
-  and the match workflow with recording upload and finalization. External
+  and the match workflow with recording upload and finalization, and the
+  connected analysis review of a run's status and indexed facts. External
   OpenID Connect sign-in with Club Admin linking, unlinking, and coexistence
   with local accounts is evidenced by Integration and Playwright tests against
   a test provider (`mock-oauth2-server`), with production provider values,
   secret custody, and lifetimes (`GOV-CRED-006`) still unresolved. The
   production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
   updates through its service worker as development evidence on Chromium), the other
-  Web UI client workflows (analysis review and agent conversations),
+  Web UI client workflow (agent conversations),
   cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
   profile on a Linux engine (Windows automation, Podman, and the other
