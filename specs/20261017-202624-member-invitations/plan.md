@@ -30,7 +30,7 @@ Router, TanStack Query, MUI, the Kiota client generated from the OpenAPI snapsho
 
 **Storage**: PostgreSQL through the existing persistence foundation: new tables `member_invitations` (versioned),
 `member_invitation_team_roles` (aggregate child), and `member_invitation_links` (unversioned), and on `email_messages`
-a nullable `account_id`, a new nullable `invitation_link_id`, and a type check, in one forward-only migration (see [data-model.md](data-model.md)).
+a nullable `account_id`, a new nullable `invitation_ref`, and a type check, in one forward-only migration (see [data-model.md](data-model.md)).
 
 **Testing**: xUnit integration tests with Docker-backed PostgreSQL and Mailpit (`SocAlytics.Platform.Integration.Tests`),
 Host tests (`OpenApiSnapshotTests`), architecture tests; Vitest unit tests and Playwright `simulated` and `platform`
