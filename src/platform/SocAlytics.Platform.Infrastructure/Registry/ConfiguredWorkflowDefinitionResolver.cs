@@ -28,6 +28,33 @@ internal sealed class ConfiguredWorkflowDefinitionResolver(IOptionsMonitor<Confi
         }
     }
 
+    private static bool TryMapCoverage(ConfiguredCoverage? coverage, out CoveragePolicy policy)
+    {
+        policy = CoveragePolicy.Complete;
+        if (coverage is null || string.IsNullOrEmpty(coverage.Mode))
+        {
+            return coverage?.MinimumAcceptedFraction is null;
+        }
+
+        if (!AnalysisPersistedNames.TryParseCoverageMode(coverage.Mode, out var mode))
+        {
+            return false;
+        }
+
+        if (mode == CoverageMode.Complete)
+        {
+            return coverage.MinimumAcceptedFraction is null;
+        }
+
+        if (coverage.MinimumAcceptedFraction is { } fraction && !CoveragePolicy.IsValidFraction(fraction))
+        {
+            return false;
+        }
+
+        policy = CoveragePolicy.Partial(coverage.MinimumAcceptedFraction);
+        return true;
+    }
+
     private static ResolvedWorkflowDefinition? Map(ConfiguredWorkflowOptions o)
     {
         if (string.IsNullOrWhiteSpace(o.WorkflowId)
@@ -75,13 +102,23 @@ internal sealed class ConfiguredWorkflowDefinitionResolver(IOptionsMonitor<Confi
                 n.ExecutionTimeoutSeconds));
         }
 
-        var edges = o.Edges
-            .Select(e => new ResolvedWorkflowEdge(
+        var edges = new List<ResolvedWorkflowEdge>();
+        foreach (var e in o.Edges)
+        {
+            if (!TryMapCoverage(e.Coverage, out var coverage))
+            {
+                return null;
+            }
+
+            edges.Add(new ResolvedWorkflowEdge(
                 e.UpstreamNodeKey,
                 e.DependentNodeKey,
                 e.Kind,
-                e.Predicate is null ? null : new ConditionalPredicate(e.Predicate.Kind, e.Predicate.CapabilityId, e.Predicate.NodeKey)))
-            .ToArray();
+                e.Predicate is null ? null : new ConditionalPredicate(e.Predicate.Kind, e.Predicate.CapabilityId, e.Predicate.NodeKey))
+            {
+                CoveragePolicy = coverage,
+            });
+        }
 
         return new ResolvedWorkflowDefinition(
             o.WorkflowId,
@@ -166,6 +203,15 @@ internal sealed class ConfiguredEdge
     public string Kind { get; set; } = "";
 
     public ConfiguredPredicate? Predicate { get; set; }
+
+    public ConfiguredCoverage? Coverage { get; set; }
+}
+
+internal sealed class ConfiguredCoverage
+{
+    public string? Mode { get; set; }
+
+    public decimal? MinimumAcceptedFraction { get; set; }
 }
 
 internal sealed class ConfiguredPredicate

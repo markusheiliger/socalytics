@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Analysis.Stores;
 using SocAlytics.Platform.Domain.Analysis;
@@ -23,7 +24,8 @@ public sealed class RunReadinessCoordinator(
     IAcceptedResultStore results,
     IOutbox outbox,
     IContractValidator validator,
-    TimeProvider time)
+    TimeProvider time,
+    ILogger<RunReadinessCoordinator>? logger = null)
 {
     private const string ContractVersion = "1.0.0";
 
@@ -61,7 +63,10 @@ public sealed class RunReadinessCoordinator(
                 nodesById[e.UpstreamNodeId].NodeKey,
                 nodesById[e.DependentNodeId].NodeKey,
                 e.Kind,
-                e.PredicateJson is not null && ConditionalPredicate.TryParseJson(e.PredicateJson, out var p) ? p : null)).ToList(),
+                e.PredicateJson is not null && ConditionalPredicate.TryParseJson(e.PredicateJson, out var p) ? p : null)
+            {
+                CoveragePolicy = e.CoveragePolicy,
+            }).ToList(),
             jobRecords.Select(j => new RunJobState(
                 j.Id,
                 nodesById[j.NodeId].NodeKey,
@@ -86,10 +91,19 @@ public sealed class RunReadinessCoordinator(
         {
             var previous = jobsById[blocked.JobId].State;
             Telemetry.AnalysisMetrics.RunBlocked(null);
-            if (await jobs.TryTransitionAsync(blocked.JobId, previous, LogicalJobState.Blocked, "upstream-required-failed", null, cancellationToken)
-                && previous == LogicalJobState.Ready)
+            var reason = blocked.BelowMinimumCoverage ? AnalysisPersistedNames.UpstreamCoverageBelowMinimum : "upstream-required-failed";
+            if (await jobs.TryTransitionAsync(blocked.JobId, previous, LogicalJobState.Blocked, reason, null, cancellationToken))
             {
-                await outbox.DiscardUnpublishedReadyWorkAsync(blocked.JobId, cancellationToken);
+                if (blocked.BelowMinimumCoverage)
+                {
+                    Telemetry.AnalysisMetrics.PartialBarrierBlocked();
+                    logger?.LogWarning("Analysis job {LogicalJobId} of run {RunId} was blocked: {Reason}.", blocked.JobId, runId, reason);
+                }
+
+                if (previous == LogicalJobState.Ready)
+                {
+                    await outbox.DiscardUnpublishedReadyWorkAsync(blocked.JobId, cancellationToken);
+                }
             }
         }
 
@@ -104,13 +118,15 @@ public sealed class RunReadinessCoordinator(
             }
 
             var inputs = readyJob.Snapshot ?? [];
-            await jobs.TryInsertInputsAsync(job.Id, JsonSerializer.Serialize(inputs.Select(i => new
+            if (await jobs.TryInsertInputSnapshotAsync(job.Id, inputs, cancellationToken))
             {
-                upstreamNodeKey = i.UpstreamNodeKey,
-                edgeKind = AnalysisPersistedNames.ToPersistedName(i.EdgeKind),
-                status = i.Status,
-                acceptedResultIds = i.AcceptedResultIds,
-            })), cancellationToken);
+                foreach (var barrier in inputs.Where(i => i.CoverageMode == CoverageMode.Partial))
+                {
+                    var coverage = barrier.Status == SnapshotStatus.Accepted ? "complete" : "partial";
+                    Telemetry.AnalysisMetrics.PartialBarrierReady(coverage);
+                    logger?.LogInformation("Analysis job {LogicalJobId} of run {RunId} became ready behind a partial barrier with {Coverage} coverage.", job.Id, runId, coverage);
+                }
+            }
 
             var occurrenceId = Guid.CreateVersion7();
             var sequence = await jobs.InsertReadinessOccurrenceAsync(job.Id, occurrenceId, "initial", cancellationToken);
@@ -176,20 +192,7 @@ public sealed class RunReadinessCoordinator(
         var node = hierarchy.Nodes.Single(n => n.Id == job.NodeId);
         var accepted = (await results.ListByRunAsync(job.RunId, cancellationToken)).ToDictionary(a => a.Id);
 
-        var inputs = new List<InputSnapshotEntry>();
-        if (await jobs.LoadInputsAsync(job.Id, cancellationToken) is { } inputsJson)
-        {
-            using var doc = JsonDocument.Parse(inputsJson);
-            foreach (var e in doc.RootElement.EnumerateArray())
-            {
-                AnalysisPersistedNames.TryParseDependencyKind(e.GetProperty("edgeKind").GetString(), out var kind);
-                inputs.Add(new InputSnapshotEntry(
-                    e.GetProperty("upstreamNodeKey").GetString()!,
-                    kind,
-                    e.GetProperty("status").GetString()!,
-                    e.GetProperty("acceptedResultIds").EnumerateArray().Select(x => x.GetGuid()).ToList()));
-            }
-        }
+        var inputs = await jobs.LoadInputSnapshotAsync(job.Id, cancellationToken);
 
         var persisted = cause switch
         {
@@ -300,7 +303,8 @@ public sealed class RunReadinessCoordinator(
                     upstreamNodeKey = i.UpstreamNodeKey,
                     capability = new { id = upstream.CapabilityId, version = Semver(upstream.CapabilityVersion) },
                     edgeKind = AnalysisPersistedNames.ToPersistedName(i.EdgeKind),
-                    status = i.Status,
+                    // The job contract has no partial status; accepted results are the consumed ones.
+                    status = i.Status == SnapshotStatus.Partial ? SnapshotStatus.Accepted : i.Status,
                     acceptedResults = i.AcceptedResultIds.Select(id => acceptedById[id]).Select(a => new
                     {
                         acceptedResultId = a.Id,

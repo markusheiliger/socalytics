@@ -9,6 +9,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using SocAlytics.Platform.Application.Analysis.Commands;
 using SocAlytics.Platform.Application.Recordings;
+using SocAlytics.Platform.Application.Registry;
+using SocAlytics.Platform.Domain.Analysis;
 using Xunit;
 
 namespace SocAlytics.Platform.Integration.Tests.Analysis;
@@ -129,8 +131,112 @@ public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsCo
 		var outcomes = await Task.WhenAll(Enumerable.Range(0, 10).Select(_ => Task.Run(() => HandleAsync(s, n, ct), ct)));
 		outcomes.ShouldAllBe(o => o is NotificationOutcome.RunCreated || o is NotificationOutcome.RunExists);
 		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(1);
-		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_logical_jobs", ct)).ShouldBe(2);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_logical_jobs", ct)).ShouldBe(3);
 		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_logical_jobs WHERE segment_number = 1 AND recording_version_id IS NOT NULL", ct)).ShouldBe(1);
+	}
+
+	private sealed class CoverageResolver(IWorkflowDefinitionResolver inner, CoverageResolver.Setting setting) : IWorkflowDefinitionResolver
+	{
+		public sealed class Setting { public volatile CoveragePolicy Policy = CoveragePolicy.Complete; }
+
+		public async Task<WorkflowResolution> ResolveDefaultAsync(CancellationToken ct)
+		{
+			var resolution = await inner.ResolveDefaultAsync(ct);
+			if (resolution is not WorkflowResolution.ResolvedResult resolved)
+			{
+				return resolution;
+			}
+
+			var definition = resolved.Definition;
+			return WorkflowResolution.Resolved(definition with
+			{
+				Edges = definition.Edges.Select(e => e with { CoveragePolicy = setting.Policy }).ToList(),
+			});
+		}
+	}
+
+	private async Task<(RecordingsFinalizedNotification Notification, FinalizationSetup Setup)> StartWithCoverageAsync(
+		CoverageResolver.Setting setting, CancellationToken ct)
+	{
+		var setup = await FinalizationSetup.StartAsync(postgres, rustFs, ct, sets: null, configureServices: services =>
+		{
+			var original = services.Last(d => d.ServiceType == typeof(IWorkflowDefinitionResolver));
+			services.Remove(original);
+			services.AddSingleton<IWorkflowDefinitionResolver>(sp => new CoverageResolver(
+				(IWorkflowDefinitionResolver)ActivatorUtilities.CreateInstance(sp, original.ImplementationType!), setting));
+		}, extraSettings: DevWorkflow());
+		var set = await RecordingFinalizationHelper.FinalizeAsync(setup.Coach, setup.Hierarchy.MatchId, 1, ct);
+		await using var scope = setup.Factory.Services.CreateAsyncScope();
+		var lineage = (await scope.ServiceProvider.GetRequiredService<IRecordingSetLookup>().GetAsync(set.RecordingSetVersionId, ct))!;
+		return (new RecordingsFinalizedNotification(
+			Guid.NewGuid(), "1.0.0", DateTimeOffset.UtcNow, lineage.RecordingSetVersionId, lineage.MatchId, lineage.TeamId,
+			lineage.Members.Select(m => new FinalizedNotificationMember(m.Position, m.RecordingVersionId, m.RecordingContentDigest, m.TimelineMappingId, m.TimelineMappingDigest)).ToList()), setup);
+	}
+
+	private static async Task<string> SnapshotAsync(FinalizationSetup s, string column, CancellationToken ct)
+	{
+		await using var connection = new NpgsqlConnection(s.Db.MigratorConnectionString);
+		await connection.OpenAsync(ct);
+		await using var command = new NpgsqlCommand($"SELECT {column} FROM socalytics.analysis_run_snapshots", connection);
+		return (string)(await command.ExecuteScalarAsync(ct))!;
+	}
+
+	[Fact]
+	public async Task RunCopiesThePartialEdgePolicyIntoTheEdgeRowAndTheSnapshot()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var setting = new CoverageResolver.Setting { Policy = CoveragePolicy.Partial(0.5m) };
+		var (n, s) = await StartWithCoverageAsync(setting, ct);
+		await using var _ = s;
+		(await HandleAsync(s, n, ct)).ShouldBeOfType<NotificationOutcome.RunCreated>();
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'partial' AND minimum_accepted_fraction = 0.5", ct)).ShouldBe(2);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges", ct)).ShouldBe(2);
+		using var snapshot = JsonDocument.Parse(await SnapshotAsync(s, "snapshot::text", ct));
+		var coverage = snapshot.RootElement.GetProperty("edges")[0].GetProperty("coverage");
+		coverage.GetProperty("mode").GetString().ShouldBe("partial");
+		coverage.GetProperty("minimumAcceptedFraction").GetString().ShouldBe("0.5");
+	}
+
+	[Fact]
+	public async Task WorkflowWithoutPartialEdgesKeepsItsPreviousSnapshotShape()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (n, s) = await StartWithCoverageAsync(new CoverageResolver.Setting(), ct);
+		await using var _ = s;
+		(await HandleAsync(s, n, ct)).ShouldBeOfType<NotificationOutcome.RunCreated>();
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'complete' AND minimum_accepted_fraction IS NULL", ct)).ShouldBe(2);
+		var json = await SnapshotAsync(s, "snapshot::text", ct);
+		json.ShouldNotContain("coverage");
+
+		await using var scope = s.Factory.Services.CreateAsyncScope();
+		var definition = ((WorkflowResolution.ResolvedResult)await scope.ServiceProvider.GetRequiredService<IWorkflowDefinitionResolver>().ResolveDefaultAsync(ct)).Definition;
+		var mapper = scope.ServiceProvider.GetRequiredService<SocAlytics.Platform.Application.Analysis.WorkflowSnapshotMapper>();
+		var complete = mapper.Map(definition);
+		complete.RunSnapshotJson.ShouldNotContain("coverage");
+		(await SnapshotAsync(s, "snapshot_digest", ct)).ShouldBe(complete.RunSnapshotDigest);
+		mapper.Map(definition with { Edges = definition.Edges.Select(e => e with { CoveragePolicy = CoveragePolicy.Partial() }).ToList() })
+			.RunSnapshotDigest.ShouldNotBe(complete.RunSnapshotDigest);
+	}
+
+	[Fact]
+	public async Task LaterRegistryChangeDoesNotAlterAnExistingRun()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var setting = new CoverageResolver.Setting { Policy = CoveragePolicy.Partial(0.5m) };
+		var (n, s) = await StartWithCoverageAsync(setting, ct);
+		await using var _ = s;
+		(await HandleAsync(s, n, ct)).ShouldBeOfType<NotificationOutcome.RunCreated>();
+		var digest = await SnapshotAsync(s, "snapshot_digest", ct);
+
+		setting.Policy = CoveragePolicy.Complete;
+		(await HandleAsync(s, n with { EventId = Guid.NewGuid() }, ct)).ShouldBeOfType<NotificationOutcome.RunExists>();
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_runs", ct)).ShouldBe(1);
+		(await s.ScalarAsync("SELECT count(*) FROM socalytics.analysis_dependency_edges WHERE coverage_mode = 'partial' AND minimum_accepted_fraction = 0.5", ct)).ShouldBe(2);
+		(await SnapshotAsync(s, "snapshot_digest", ct)).ShouldBe(digest);
+		await using var scope = s.Factory.Services.CreateAsyncScope();
+		var run = await scope.ServiceProvider.GetRequiredService<SocAlytics.Platform.Application.Analysis.Stores.IAnalysisRunStore>()
+			.FindRunIdAsync(n.RecordingSetVersionId, "development-default", "1", ct);
+		run.ShouldNotBeNull();
 	}
 
 	[Fact]
@@ -172,9 +278,9 @@ public sealed class RunCreationTests(PostgresContainerFixture postgres, RustFsCo
 	{
 		var ct = TestContext.Current.CancellationToken;
 		var workflow = DevWorkflow();
-		workflow["Analysis:DefaultWorkflow:Edges:1:UpstreamNodeKey"] = upstream;
-		workflow["Analysis:DefaultWorkflow:Edges:1:DependentNodeKey"] = dependent;
-		workflow["Analysis:DefaultWorkflow:Edges:1:Kind"] = "required";
+		workflow["Analysis:DefaultWorkflow:Edges:2:UpstreamNodeKey"] = upstream;
+		workflow["Analysis:DefaultWorkflow:Edges:2:DependentNodeKey"] = dependent;
+		workflow["Analysis:DefaultWorkflow:Edges:2:Kind"] = "required";
 		var (n, s) = await StartAsync(workflow, ct);
 		await using var _ = s;
 		(await HandleAsync(s, n, ct)).ShouldBeOfType<NotificationOutcome.RunCreated>();

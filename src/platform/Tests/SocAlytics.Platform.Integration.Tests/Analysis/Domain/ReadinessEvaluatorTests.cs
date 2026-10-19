@@ -161,6 +161,257 @@ public sealed class ReadinessEvaluatorTests
 		NodeState(r, "a").ShouldBe(WorkflowNodeState.Active);
 	}
 
+	private static RunNodeState Seg(string key, WorkflowNodeState s = WorkflowNodeState.Active) => N(key, s, ExecutionScope.Segment);
+
+	private static RunJobState SegJob(string node, int number, LogicalJobState s, bool snapshot = false) =>
+		new(Guid.NewGuid(), node, new AnalysisSegmentReference(Guid.Empty, Sha("1"), Sha("2"), number), s, snapshot, s == LogicalJobState.Completed ? [Result] : []);
+
+	private static RunJobState[] SegJobs(string node, params LogicalJobState[] states) =>
+		states.Select((s, i) => SegJob(node, i + 1, s)).ToArray();
+
+	private static RunJobState[] Plus(RunJobState[] jobs, params RunJobState[] more) => [.. jobs, .. more];
+
+	private static RunEdgeState Partial(string up, string down, decimal? fraction = null, DependencyKind kind = DependencyKind.Required, ConditionalPredicate? p = null) =>
+		new(up, down, kind, p) { CoveragePolicy = CoveragePolicy.Partial(fraction) };
+
+	private static string SegId(int number) => $"{Guid.Empty}-{number}";
+
+	private static InputSnapshotEntry SnapshotOf(ReadinessEvaluation r, string upstream) =>
+		r.ReadyJobs.Single(j => j.Snapshot is not null).Snapshot!.Single(e => e.UpstreamNodeKey == upstream);
+
+	[Theory]
+	[InlineData(LogicalJobState.Waiting)]
+	[InlineData(LogicalJobState.Ready)]
+	[InlineData(LogicalJobState.Claimed)]
+	public void Partial_barrier_waits_for_every_segment_job_even_with_the_minimum_met(LogicalJobState pending)
+	{
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a"), N("b")], [Partial("a", "b")],
+			Plus(SegJobs("a", LogicalJobState.Completed, pending), J("b"))));
+
+		JobState(r, "b").ShouldBe(LogicalJobState.Waiting);
+		NodeState(r, "b").ShouldBe(WorkflowNodeState.Waiting);
+		r.BlockedJobs.ShouldBeEmpty();
+	}
+
+	[Fact]
+	public void Partial_barrier_is_ready_with_a_failed_segment_and_snapshots_the_coverage()
+	{
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a", WorkflowNodeState.Failed), N("b")], [Partial("a", "b", 0.5m)],
+			Plus(SegJobs("a", LogicalJobState.Completed, LogicalJobState.Failed), J("b"))));
+
+		JobState(r, "b").ShouldBe(LogicalJobState.Ready);
+		NodeState(r, "b").ShouldBe(WorkflowNodeState.Active);
+		var entry = SnapshotOf(r, "a");
+		entry.Status.ShouldBe(SnapshotStatus.Partial);
+		entry.CoverageMode.ShouldBe(CoverageMode.Partial);
+		entry.MinimumAcceptedFraction.ShouldBe(0.5m);
+		entry.AcceptedResultIds.ShouldBe([Result]);
+		entry.Coverage.ShouldNotBeNull();
+		entry.Coverage!.Select(c => (c.SegmentId, c.State)).ShouldBe(
+			[(SegId(1), SegmentCoverageState.Accepted), (SegId(2), SegmentCoverageState.Failed)]);
+	}
+
+	[Fact]
+	public void Partial_barrier_with_all_segments_accepted_snapshots_accepted()
+	{
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a", WorkflowNodeState.Completed), N("b")], [Partial("a", "b")],
+			Plus(SegJobs("a", LogicalJobState.Completed, LogicalJobState.Completed), J("b"))));
+
+		JobState(r, "b").ShouldBe(LogicalJobState.Ready);
+		var entry = SnapshotOf(r, "a");
+		entry.Status.ShouldBe(SnapshotStatus.Accepted);
+		entry.CoverageMode.ShouldBe(CoverageMode.Partial);
+		entry.Coverage!.Select(c => c.State).ShouldAllBe(s => s == SegmentCoverageState.Accepted);
+	}
+
+	[Fact]
+	public void Partial_barrier_with_all_segments_accepted_completes_the_run()
+	{
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a", WorkflowNodeState.Completed), N("b", WorkflowNodeState.Active)], [Partial("a", "b")],
+			Plus(SegJobs("a", LogicalJobState.Completed, LogicalJobState.Completed), J("b", LogicalJobState.Completed, snapshot: true))));
+
+		NodeState(r, "b").ShouldBe(WorkflowNodeState.Completed);
+		r.RunOutcome.ShouldBe(AnalysisRunState.Completed);
+	}
+
+	[Theory]
+	[InlineData(1, 3, 0.5, false)]
+	[InlineData(2, 1, 0.5, true)]
+	[InlineData(1, 2, 0.34, false)]
+	[InlineData(1, 2, 0.33, true)]
+	[InlineData(2, 2, 0.75, false)]
+	[InlineData(3, 1, 0.75, true)]
+	[InlineData(1, 3, null, true)]
+	[InlineData(0, 3, null, false)]
+	public void Partial_barrier_rounds_the_required_count_up(int accepted, int failed, double? fraction, bool ready)
+	{
+		var states = Enumerable.Repeat(LogicalJobState.Completed, accepted).Concat(Enumerable.Repeat(LogicalJobState.Failed, failed)).ToArray();
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a", WorkflowNodeState.Failed), N("b")], [Partial("a", "b", (decimal?)fraction)],
+			Plus(SegJobs("a", states), J("b"))));
+
+		JobState(r, "b").ShouldBe(ready ? LogicalJobState.Ready : LogicalJobState.Blocked);
+		NodeState(r, "b").ShouldBe(ready ? WorkflowNodeState.Active : WorkflowNodeState.Blocked);
+	}
+
+	[Fact]
+	public void Partial_barrier_below_the_minimum_blocks_the_dependent_and_names_the_upstream()
+	{
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a", WorkflowNodeState.Failed), N("b")], [Partial("a", "b", 0.5m)],
+			Plus(SegJobs("a", LogicalJobState.Completed, LogicalJobState.Failed, LogicalJobState.Failed, LogicalJobState.Failed), J("b"))));
+
+		var blocked = r.BlockedJobs.Single();
+		blocked.BlockingNodeKey.ShouldBe("a");
+		blocked.BelowMinimumCoverage.ShouldBeTrue();
+		r.NodeTransitions.ShouldContain(t => t.NodeKey == "b" && t.To == WorkflowNodeState.Blocked && t.BlockingNodeKey == "a");
+		r.ReadyJobs.ShouldBeEmpty();
+	}
+
+	[Fact]
+	public void Partial_barrier_without_an_accepted_segment_blocks_the_dependent()
+	{
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a", WorkflowNodeState.Failed), N("b")], [Partial("a", "b")],
+			Plus(SegJobs("a", LogicalJobState.Failed, LogicalJobState.Failed), J("b"))));
+
+		JobState(r, "b").ShouldBe(LogicalJobState.Blocked);
+		r.BlockedJobs.Single().BelowMinimumCoverage.ShouldBeTrue();
+	}
+
+	[Fact]
+	public void Partial_barrier_blocks_when_the_upstream_node_is_blocked_by_its_own_failed_upstream()
+	{
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("x", WorkflowNodeState.Failed), Seg("a", WorkflowNodeState.Waiting), N("b")],
+			[E("x", "a"), Partial("a", "b")],
+			Plus(Plus(SegJobs("x", LogicalJobState.Failed, LogicalJobState.Failed), SegJobs("a", LogicalJobState.Waiting, LogicalJobState.Waiting)), J("b"))));
+
+		NodeState(r, "a").ShouldBe(WorkflowNodeState.Blocked);
+		r.ResultState.Jobs.Where(j => j.NodeKey == "a").ShouldAllBe(j => j.State == LogicalJobState.Blocked);
+		NodeState(r, "b").ShouldBe(WorkflowNodeState.Blocked);
+		JobState(r, "b").ShouldBe(LogicalJobState.Blocked);
+		r.BlockedJobs.Single(j => j.JobId == r.ResultState.Jobs.Single(x => x.NodeKey == "b").JobId).BlockingNodeKey.ShouldBe("a");
+	}
+
+	[Theory]
+	[InlineData(LogicalJobState.Failed, LogicalJobState.Blocked, "c")]
+	[InlineData(LogicalJobState.Claimed, LogicalJobState.Waiting, null)]
+	public void A_complete_edge_still_blocks_or_holds_next_to_a_met_partial_barrier(LogicalJobState completeUpstream, LogicalJobState expected, string? blocker)
+	{
+		var cNode = completeUpstream == LogicalJobState.Failed ? WorkflowNodeState.Failed : WorkflowNodeState.Active;
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a", WorkflowNodeState.Failed), N("c", cNode), N("b")], [Partial("a", "b"), E("c", "b")],
+			Plus(SegJobs("a", LogicalJobState.Completed, LogicalJobState.Failed), J("c", completeUpstream), J("b"))));
+
+		JobState(r, "b").ShouldBe(expected);
+		if (blocker is not null)
+		{
+			var blocked = r.BlockedJobs.Single();
+			blocked.BlockingNodeKey.ShouldBe(blocker);
+			blocked.BelowMinimumCoverage.ShouldBeFalse();
+		}
+	}
+
+	[Fact]
+	public void Conditional_partial_edge_that_applies_is_a_partial_barrier()
+	{
+		var p = ConditionalPredicate.CapabilityRequested("cap-x");
+		var r = ReadinessEvaluator.Evaluate(G(["cap-x", "cap-b"], [Seg("a", WorkflowNodeState.Failed), N("b")],
+			[Partial("a", "b", kind: DependencyKind.Conditional, p: p)],
+			Plus(SegJobs("a", LogicalJobState.Completed, LogicalJobState.Failed), J("b"))));
+
+		JobState(r, "b").ShouldBe(LogicalJobState.Ready);
+		var entry = SnapshotOf(r, "a");
+		entry.Status.ShouldBe(SnapshotStatus.Partial);
+		entry.EdgeKind.ShouldBe(DependencyKind.Conditional);
+		entry.Coverage!.Count.ShouldBe(2);
+	}
+
+	[Fact]
+	public void Conditional_partial_edge_that_applies_blocks_below_the_minimum()
+	{
+		var p = ConditionalPredicate.CapabilityRequested("cap-x");
+		var r = ReadinessEvaluator.Evaluate(G(["cap-x", "cap-b"], [Seg("a", WorkflowNodeState.Failed), N("b")],
+			[Partial("a", "b", kind: DependencyKind.Conditional, p: p)],
+			Plus(SegJobs("a", LogicalJobState.Failed, LogicalJobState.Failed), J("b"))));
+
+		JobState(r, "b").ShouldBe(LogicalJobState.Blocked);
+		r.BlockedJobs.Single().BelowMinimumCoverage.ShouldBeTrue();
+	}
+
+	[Fact]
+	public void Conditional_partial_edge_that_is_not_applicable_neither_blocks_nor_carries_coverage()
+	{
+		var p = ConditionalPredicate.CapabilityRequested("cap-x");
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a", WorkflowNodeState.Failed), N("b")],
+			[Partial("a", "b", kind: DependencyKind.Conditional, p: p)],
+			Plus(SegJobs("a", LogicalJobState.Failed, LogicalJobState.Failed), J("b"))));
+
+		JobState(r, "b").ShouldBe(LogicalJobState.Ready);
+		var entry = SnapshotOf(r, "a");
+		entry.Status.ShouldBe(SnapshotStatus.NotApplicable);
+		entry.CoverageMode.ShouldBe(CoverageMode.Complete);
+		entry.Coverage.ShouldBeNull();
+	}
+
+	[Fact]
+	public void Partial_policy_on_a_match_scoped_upstream_behaves_as_complete()
+	{
+		var failed = ReadinessEvaluator.Evaluate(G(["cap-b"], [N("a", WorkflowNodeState.Failed), N("b")], [Partial("a", "b")],
+			[J("a", LogicalJobState.Failed), J("b")]));
+		JobState(failed, "b").ShouldBe(LogicalJobState.Blocked);
+		failed.BlockedJobs.Single().BelowMinimumCoverage.ShouldBeFalse();
+
+		var claimed = ReadinessEvaluator.Evaluate(G(["cap-b"], [N("a", WorkflowNodeState.Active), N("b")], [Partial("a", "b")],
+			[J("a", LogicalJobState.Claimed), J("b")]));
+		JobState(claimed, "b").ShouldBe(LogicalJobState.Waiting);
+
+		var accepted = ReadinessEvaluator.Evaluate(G(["cap-b"], [N("a", WorkflowNodeState.Completed), N("b")], [Partial("a", "b")],
+			[J("a", LogicalJobState.Completed), J("b")]));
+		JobState(accepted, "b").ShouldBe(LogicalJobState.Ready);
+		var entry = SnapshotOf(accepted, "a");
+		entry.Status.ShouldBe(SnapshotStatus.Accepted);
+		entry.CoverageMode.ShouldBe(CoverageMode.Complete);
+		entry.Coverage.ShouldBeNull();
+	}
+
+	[Fact]
+	public void Segment_to_segment_partial_edge_keeps_node_level_blocking()
+	{
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a", WorkflowNodeState.Failed), Seg("b", WorkflowNodeState.Waiting)], [Partial("a", "b")],
+			Plus(SegJobs("a", LogicalJobState.Completed, LogicalJobState.Failed), SegJobs("b", LogicalJobState.Waiting, LogicalJobState.Waiting))));
+
+		NodeState(r, "b").ShouldBe(WorkflowNodeState.Blocked);
+		r.ResultState.Jobs.Where(j => j.NodeKey == "b").ShouldAllBe(j => j.State == LogicalJobState.Blocked);
+		r.BlockedJobs.ShouldAllBe(j => !j.BelowMinimumCoverage && j.BlockingNodeKey == "a");
+	}
+
+	[Fact]
+	public void Run_is_partially_completed_when_a_bridged_segment_failed()
+	{
+		var r = ReadinessEvaluator.Evaluate(G(["cap-a", "cap-b"], [Seg("a"), N("b", WorkflowNodeState.Active)], [Partial("a", "b")],
+			Plus(SegJobs("a", LogicalJobState.Completed, LogicalJobState.Failed), J("b", LogicalJobState.Completed, snapshot: true))));
+
+		NodeState(r, "a").ShouldBe(WorkflowNodeState.Failed);
+		NodeState(r, "b").ShouldBe(WorkflowNodeState.Completed);
+		r.RunOutcome.ShouldBe(AnalysisRunState.PartiallyCompleted);
+	}
+
+	[Fact]
+	public void Run_fails_when_nothing_requested_completed_below_the_minimum()
+	{
+		var r = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a"), N("b")], [Partial("a", "b", 0.5m)],
+			Plus(SegJobs("a", LogicalJobState.Completed, LogicalJobState.Failed, LogicalJobState.Failed), J("b"))));
+
+		JobState(r, "b").ShouldBe(LogicalJobState.Blocked);
+		r.RunOutcome.ShouldBe(AnalysisRunState.Failed);
+	}
+
+	[Fact]
+	public void Partial_barrier_evaluation_is_idempotent()
+	{
+		var first = ReadinessEvaluator.Evaluate(G(["cap-b"], [Seg("a", WorkflowNodeState.Failed), N("b")], [Partial("a", "b")],
+			Plus(SegJobs("a", LogicalJobState.Completed, LogicalJobState.Failed), J("b"))));
+		first.HasChanges.ShouldBeTrue();
+		ReadinessEvaluator.Evaluate(first.ResultState).HasChanges.ShouldBeFalse();
+	}
+
 	[Fact]
 	public void Evaluation_is_idempotent()
 	{

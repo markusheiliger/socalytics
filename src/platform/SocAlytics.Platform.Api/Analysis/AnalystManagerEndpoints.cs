@@ -5,6 +5,7 @@ using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Api.Recordings;
 using SocAlytics.Platform.Application.Analysis.Commands;
 using SocAlytics.Platform.Application.Analysis.Results;
+using SocAlytics.Platform.Domain.Analysis;
 
 namespace SocAlytics.Platform.Api.Analysis;
 
@@ -28,7 +29,11 @@ internal sealed record ResultGrantsDto(string ResultLocation, IReadOnlyList<Resu
 
 internal sealed record UpstreamCapabilityDto(string Id, string Version);
 
-internal sealed record UpstreamDependencyDto(UpstreamCapabilityDto Capability, string SchemaVersion, string EdgeKind);
+internal sealed record UpstreamCoverageModeDto(
+	string Mode,
+	[property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)] decimal? MinimumAcceptedFraction);
+
+internal sealed record UpstreamDependencyDto(UpstreamCapabilityDto Capability, string SchemaVersion, string EdgeKind, UpstreamCoverageModeDto Coverage);
 
 internal sealed record UpstreamSegmentScopeDto(string SegmentId, long WindowStartMs, long WindowEndMs);
 
@@ -182,8 +187,10 @@ internal static partial class AnalystManagerEndpoints
 		http.Response.Headers.CacheControl = "no-store";
 		return Results.Ok(
 			new UpstreamResultsDto(
-				"1.0.0",
-				new UpstreamDependencyDto(new UpstreamCapabilityDto(v.CapabilityId, v.CapabilityVersion), v.SchemaVersion, v.EdgeKind),
+				"1.1.0",
+				new UpstreamDependencyDto(
+					new UpstreamCapabilityDto(v.CapabilityId, v.CapabilityVersion), v.SchemaVersion, v.EdgeKind,
+					new UpstreamCoverageModeDto(AnalysisPersistedNames.ToPersistedName(v.CoverageMode), v.MinimumAcceptedFraction)),
 				v.Results.Select(r => new UpstreamResultDto(
 					r.AcceptedResultId.ToString(),
 					r.SegmentId is null

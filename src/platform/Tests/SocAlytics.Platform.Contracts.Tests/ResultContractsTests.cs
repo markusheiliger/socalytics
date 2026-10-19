@@ -14,7 +14,7 @@ public class ResultContractsTests
     public void Result_manifest_closes_every_object_and_has_a_released_copy()
     {
         var schema = JsonNode.Parse(File.ReadAllText(ManifestSchemaFile))!;
-        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.0.0");
+        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.1.0");
         schema["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
         foreach (var path in new[] { "scope", "provenance", "attempt", "validityWindow" })
         {
@@ -24,7 +24,7 @@ public class ResultContractsTests
         schema["properties"]!["artifacts"]!["items"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
         schema["properties"]!["upstreamLineage"]!["items"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
 
-        File.ReadAllBytes(Path.Combine(AnalysisRoot, "result-manifest", "v1", "releases", "1.0.0.schema.json"))
+        File.ReadAllBytes(Path.Combine(AnalysisRoot, "result-manifest", "v1", "releases", "1.1.0.schema.json"))
             .ShouldBe(File.ReadAllBytes(ManifestSchemaFile));
     }
 
@@ -53,9 +53,10 @@ public class ResultContractsTests
         var dir = Path.Combine(AnalysisRoot, "upstream-results", "v1");
         var file = Path.Combine(dir, "upstream-results.schema.json");
         var schema = JsonNode.Parse(File.ReadAllText(file))!;
-        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.0.0");
+        schema["x-socalytics-version"]!.GetValue<string>().ShouldBe("1.1.0");
         schema["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
         schema["properties"]!["upstream"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
+        schema["properties"]!["upstream"]!["properties"]!["coverage"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
         var defs = schema["$defs"]!;
         defs["result"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
         defs["result"]!["properties"]!["scope"]!["additionalProperties"]!.GetValue<bool>().ShouldBeFalse();
@@ -65,7 +66,8 @@ public class ResultContractsTests
         defs["coverageEntry"]!["properties"]!["state"]!["enum"]!.AsArray().Select(n => n!.GetValue<string>())
             .ShouldBe(["accepted", "missing", "failed", "blocked", "skipped"]);
 
-        File.ReadAllBytes(Path.Combine(dir, "releases", "1.0.0.schema.json")).ShouldBe(File.ReadAllBytes(file));
+        File.ReadAllBytes(Path.Combine(dir, "releases", "1.1.0.schema.json")).ShouldBe(File.ReadAllBytes(file));
+        File.Exists(Path.Combine(dir, "releases", "1.0.0.schema.json")).ShouldBeTrue();
     }
 
     [Fact]
@@ -95,6 +97,32 @@ public class ResultContractsTests
         foreach (var name in new[] { "duplicate-names", "invalid-name", "invalid-digest", "size-zero" })
         {
             expectations.ContainsKey("request." + name + ".json").ShouldBeTrue(name);
+        }
+    }
+
+    [Theory]
+    [InlineData("analyst-manifest", new[] { "match-high-level-with-upstream.json", "segment-low-level.json" })]
+    [InlineData("result-manifest", new[] { "match-result-with-lineage.json", "segment-result.json" })]
+    [InlineData("upstream-results", new[] { "empty-page.json", "segment-upstream-partial-coverage.json" })]
+    public void Schema_1_1_0_is_same_major_compatible_with_its_1_0_0_baseline(string name, string[] baselineExamples)
+    {
+        var dir = Path.Combine(AnalysisRoot, name, "v1");
+        var baseline = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, "releases", "1.0.0.schema.json")))!;
+        var current = JsonNode.Parse(File.ReadAllText(Path.Combine(dir, name + ".schema.json")))!;
+        var baselineFile = Path.Combine(dir, "releases", "1.0.0.schema.json");
+
+        current["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order()
+            .ShouldBe(baseline["required"]!.AsArray().Select(n => n!.GetValue<string>()).Order());
+        foreach (var property in baseline["properties"]!.AsObject().Select(p => p.Key))
+        {
+            current["properties"]!.AsObject().ContainsKey(property).ShouldBeTrue($"{name}: property {property} removed");
+        }
+
+        foreach (var example in baselineExamples)
+        {
+            var file = Path.Combine(dir, "examples", "valid", example);
+            ContractCatalog.EvaluateAgainstRelease(baselineFile, file).IsValid.ShouldBeTrue($"{name}/{example} under 1.0.0");
+            ContractCatalog.EvaluateAgainstRelease(Path.Combine(dir, name + ".schema.json"), file).IsValid.ShouldBeTrue($"{name}/{example} under 1.1.0");
         }
     }
 }

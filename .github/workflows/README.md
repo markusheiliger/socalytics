@@ -19,7 +19,7 @@ flowchart TD
     subgraph chain["Implementation chain · one per spec"]
         spec["<b>Spec Kit implement spec</b><br/>decide → implement | repair | converge | resolve | merge → continue"]
         phase["<b>Spec Kit implement phase</b><br/>plan → groups one at a time → verify"]
-        group["<b>Spec Kit implement group</b><br/>one task, or consecutive [P] tasks in parallel<br/>→ combined verify and report"]
+        group["<b>Spec Kit implement group</b><br/>one task, or consecutive [P] tasks in parallel<br/>→ verify combined edits and report"]
         task["<b>Spec Kit implement task</b><br/>one agent → verify → tick, commit, and push"]
         repair["<b>Spec Kit implement repair</b><br/>guided repair → commit and push → reverify"]
         converge["<b>Spec Kit implement convergence</b><br/>check against spec → commit and push"]
@@ -98,7 +98,7 @@ They become ready only after final verification, immediately before an automatic
 | Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; fix specs start regardless), restarts broken chains, finalizes merged implementations, settles amendments and fix specs, and lifts the block of every pull request labelled `blocked` whose fix spec has landed and retries it. Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
 | Spec Kit implement spec | [speckit-implement-spec.yml](speckit-implement-spec.yml) | Orchestrate, itself, commands | One per run: a phase, a guided repair, the convergence, a conflict resolution, or the merge; then dispatches its next run. |
 | Spec Kit implement phase | [speckit-implement-phase.yml](speckit-implement-phase.yml) | Implement spec (`workflow_call`) | Plans one phase's ordered units and calls the group workflow for them serially; verifies the phase after its last unit. |
-| Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Implement phase (`workflow_call`) | Calls the single-task workflow once for a singleton or in parallel for consecutive `[P]` tasks. Multi-task groups always receive full combined verification and reporting; singleton groups add no duplicate work. |
+| Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Implement phase (`workflow_call`) | Calls the single-task workflow once for a singleton or in parallel for consecutive `[P]` tasks. A multi-task group is verified together (affected tests of the group's changes) only when a landing had to merge a sibling's edits to the same files; otherwise each task's own verification and the phase verification cover it, and the report only shows the next unit. Singleton groups add no duplicate work. |
 | Spec Kit implement task | [speckit-implement-task.yml](speckit-implement-task.yml) | Implement group (`workflow_call`) | Implements and verifies exactly one task, then validates, ticks, commits, pushes, and reports that task through a write-isolated landing job. |
 | Spec Kit implement repair | [speckit-implement-repair.yml](speckit-implement-repair.yml) | Implement spec (`workflow_call`) | Applies writer-approved diagnosis guidance to an already-landed verification failure, lands the repair without changing `tasks.md`, and resolves its durable repair state only after reverification passes. |
 | Spec Kit implement convergence | [speckit-implement-converge.yml](speckit-implement-converge.yml) | Implement spec (`workflow_call`) | Runs `/speckit-converge` against the completed implementation with the strong model, validates the tasks-only result, then commits and pushes it. |
@@ -123,7 +123,12 @@ contracts differ.
   pull request.
 - **Phase:** a `##` heading of the spec's `tasks.md`.
 - **Group:** one ordered phase unit: either one task or consecutive `[P]` tasks under one heading.
-- **Task:** one checkbox line of `tasks.md`. Groups run serially; the tasks of a multi-task group run in parallel.
+- **Task:** one checkbox line of `tasks.md`. Groups run serially; the tasks of a multi-task group run in parallel. A
+  landing that has to merge a sibling's edits to the same files three-way names them in its commit message
+  (`Combined with parallel changes to …`); only then are the group's changes verified together, with their affected
+  tests. Measured on the implementation pull requests up to #179, a full verification after every multi-task group
+  cost about three times the critical-path time that parallelism saved, and none of its failures came from the parallel
+  tasks interacting; the phase verification catches the same failures.
 
 Each run of Spec Kit implement spec does one of these: a phase, a guided repair, the convergence
 (`/speckit-converge`), a conflict resolution, or the merge. A failed verification of already-landed code records
