@@ -5,7 +5,7 @@ description: "Task list for Deterministic Telemetry Capture in the Password Reco
 
 # Tasks: Deterministic Telemetry Capture in the Password Recovery Secret Test
 
-**Input**: Design documents from `specs/20261019-102401-fix-recovery-telemetry-scope/`
+**Input**: Design documents from `specs/archive/20261019-102401-fix-recovery-telemetry-scope/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 
