@@ -73,7 +73,7 @@ workflow started you): never ask, and turn every open question into a report que
    or it asked the automation for something outside its scope) and recommend a step that removes that reason. After
    2 retries in a row that left the implementation branch at the same commit, `/speckit retry`
    is refused while the implementation is stopped, so
-   recommend a step that changes something: a push, a fix spec, or an amendment. Only when new guidance that differs
+   recommend a step that changes something: a push, a prerequisite spec (`/speckit fix`), or an amendment. Only when new guidance that differs
    materially from what was tried can help, recommend `/speckit retry --force <guidance>` and say in `why` what is
    different this time.
 4. **Classify** the stop:
@@ -184,6 +184,15 @@ workflow started you): never ask, and turn every open question into a report que
   landed code and then reverifies, while `/speckit retry` without guidance only reverifies the failed scope. Add
   guidance only when a code change is needed; for a flaky or transient failure, recommend the bare command and say in
   `why` that the verification runs again unchanged.
+- Never recommend a command that already failed the same way. When the evidence has a section **A command that already
+  failed the same way**, the last `/speckit retry` or `/speckit sync` left the branch unchanged and stopped with the same
+  reason as before; recommending it again only repeats the stop (a recommendation of it is moved to the other options at
+  publication). Recommend what changes something instead, for example `/speckit fix` for a cause outside this spec.
+- Guidance only steers the next agent's prompt; it changes no check, limit, or verification. A stop that happens before
+  any agent runs (for example conflicts under `.github/` or `.specify/`) cannot be changed by guidance. Conflicts under
+  `specs/` that the archive's reference rewrites cause are resolved by script and never need a person.
+- Never recommend that a person resolves something locally and pushes when a command can do it on the server: the
+  automation resolves conflicts, repairs code, and authors prerequisite specs itself.
 - When the solution needs an action outside these commands (for example "grant the workflow access to the
   registry"), describe that action in the option's title and set `command` to the command that continues afterwards
   (usually `/speckit retry <guidance>`), so the recommendation is one option. Its guidance must not claim that the
