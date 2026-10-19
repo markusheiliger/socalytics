@@ -60,11 +60,40 @@ const asRole = (role?: TeamRoleName) =>
     ),
   });
 
-function stub(runAnswer: () => Response, match: unknown = matchDto) {
+const provenance = { workflow: { id: 'default', version: '3' }, analystProfile: { id: 'p', digest: 'sha256:a' }, imageDigest: 'sha256:b' };
+const streamsDto = {
+  items: [
+    {
+      nodeKey: 'detect-1',
+      capability: { id: 'detect', version: '1.2' },
+      schemaVersion: '1',
+      outputType: 'foundational-facts',
+      executionScope: 'Segment',
+      required: true,
+      factCount: 1,
+      provenance,
+      coverage: { accepted: 1, missing: 0, failed: 0, blocked: 0, skipped: 0 },
+    },
+  ],
+};
+const factsDto = {
+  run: { runId: RUN, matchId: MATCH, state: 'Completed' },
+  stream: { nodeKey: 'detect-1', capability: { id: 'detect', version: '1.2' }, schemaVersion: '1', outputType: 'foundational-facts', executionScope: 'Segment', provenance },
+  range: { fromMs: 0, toMs: 100000 },
+  items: [{ acceptedResultId: '00000000-0000-4000-8000-0000000000e1', ordinal: 0, kind: 'pass', startMs: 1000, endMs: 2000, confidence: 0.5, payload: { a: 1 } }],
+  coverage: [{ startMs: 0, endMs: 60000, state: 'accepted' }],
+};
+
+function stub(runAnswer: () => Response, match: unknown = matchDto, factUrls: string[] = []) {
   const runCalls = vi.fn();
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string) => {
+      if (url.includes('/fact-streams')) return json(200, streamsDto);
+      if (url.includes('/facts')) {
+        factUrls.push(url);
+        return json(200, factsDto);
+      }
       if (url.includes('/analysis/runs/')) {
         runCalls();
         return runAnswer();
@@ -146,5 +175,43 @@ describe('analysis run page', () => {
     await screen.findByText('default 3');
     await new Promise((resolve) => setTimeout(resolve, 200));
     expect(calls).toHaveBeenCalledTimes(1);
+  });
+
+  it('lists the streams and selects one from and to the address', async () => {
+    const factUrls: string[] = [];
+    stub(() => json(200, runDto()), matchDto, factUrls);
+    const { router } = renderApp(asRole('Coach'), path());
+    await userEvent.click(await screen.findByRole('button', { name: 'Show facts of detect-1' }));
+    expect(await screen.findByText('pass')).toBeInTheDocument();
+    expect(router.state.location.search).toBe('?stream=detect-1');
+    await userEvent.type(screen.getByLabelText('From'), '0:10');
+    await userEvent.type(screen.getByLabelText('To'), '0:20');
+    await userEvent.click(screen.getByRole('button', { name: 'Apply range' }));
+    await waitFor(() => expect(router.state.location.search).toBe('?stream=detect-1&fromMs=10000&toMs=20000'));
+    await waitFor(() => expect(factUrls.at(-1)).toContain('fromMs=10000'));
+    await router.navigate(-1);
+    await waitFor(() => expect(router.state.location.search).toBe('?stream=detect-1'));
+  });
+
+  it('opens the stream and range of the address', async () => {
+    const factUrls: string[] = [];
+    stub(() => json(200, runDto()), matchDto, factUrls);
+    renderApp(asRole('Viewer'), `${path()}?stream=detect-1&fromMs=5000&toMs=9000`);
+    expect(await screen.findByText('pass')).toBeInTheDocument();
+    expect(factUrls[0]).toContain('fromMs=5000');
+    expect(factUrls[0]).toContain('toMs=9000');
+    expect(screen.getByLabelText('From')).toHaveValue('0:05');
+    expect(screen.getByLabelText('To')).toHaveValue('0:09');
+  });
+
+  it('explains an unknown stream and a malformed range without a fact request', async () => {
+    const factUrls: string[] = [];
+    stub(() => json(200, runDto()), matchDto, factUrls);
+    const first = renderApp(asRole('Coach'), `${path()}?stream=nope`);
+    expect(await screen.findByText(/not part of this run/)).toBeInTheDocument();
+    first.router.dispose();
+    renderApp(asRole('Coach'), `${path()}?stream=detect-1&fromMs=9000&toMs=5000`);
+    expect(await screen.findByText(/range is not valid/)).toBeInTheDocument();
+    expect(factUrls).toHaveLength(0);
   });
 });
