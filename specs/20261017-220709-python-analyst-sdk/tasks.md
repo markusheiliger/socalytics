@@ -66,7 +66,7 @@ models every story uses.
 
 ### Model exports
 
-- [ ] T012 Add `src/analysts/sdk/src/socalytics_analyst/models/upstream.py` (`StagedCoverage` for the staged `coverage.json` with `upstream` (capability, schema version, edge kind, optional 1.1.0 `coverage` mode `complete`/`partial` and `minimumAcceptedFraction` "`0 < f <= 1`") and `coverage` entries) and `src/analysts/sdk/src/socalytics_analyst/models/__init__.py` exporting every model of T007–T012 (FR-002, FR-019)
+- [x] T012 Add `src/analysts/sdk/src/socalytics_analyst/models/upstream.py` (`StagedCoverage` for the staged `coverage.json` with `upstream` (capability, schema version, edge kind, optional 1.1.0 `coverage` mode `complete`/`partial` and `minimumAcceptedFraction` "`0 < f <= 1`") and `coverage` entries) and `src/analysts/sdk/src/socalytics_analyst/models/__init__.py` exporting every model of T007–T012 (FR-002, FR-019)
 
 **Checkpoint**: Contracts, schema copy, validation, and models are ready
 
