@@ -5,7 +5,7 @@ import Container from '@mui/material/Container';
 import Typography from '@mui/material/Typography';
 import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import { toPlatformFailure } from '../../platform/failure';
 import type { MemberRef } from '../../platform/models/registry';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
@@ -31,6 +31,7 @@ function useKnown(namespace: string) {
 /** One Analyst image with every field of FR-005 and the stored manifest as text on request. */
 export function ImagePage() {
   const { digest = '' } = useParams();
+  const alreadyRegistered = (useLocation().state as { alreadyRegistered?: boolean } | null)?.alreadyRegistered === true;
   const { t } = useTranslation('registry');
   const { t: tc } = useTranslation('common');
   const tier = useKnown('tier');
@@ -68,6 +69,7 @@ export function ImagePage() {
       <Typography variant="h1">{tc('app.name')}</Typography>
       <Typography variant="h2">{t('image.title')}</Typography>
       <Link to="/registry/images">{t('image.back')}</Link>
+      {alreadyRegistered && <Alert severity="info" role="status" sx={{ mt: 2 }}>{t('outcome.alreadyRegistered')}</Alert>}
       {failure &&
         (failure.status === 404 ? (
           <Alert severity="error" role="alert" sx={{ mt: 2 }}>{t('image.notFound')}</Alert>

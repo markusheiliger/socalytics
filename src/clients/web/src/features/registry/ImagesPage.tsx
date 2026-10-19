@@ -35,7 +35,10 @@ export function ImagesPage() {
     <Container component="main" maxWidth="md" sx={{ py: 4 }}>
       <Typography variant="h1">{tc('app.name')}</Typography>
       <Typography variant="h2">{t('images.title')}</Typography>
-      <Link to="/registry">{t('overview.title')}</Link>
+      <Stack direction="row" spacing={2}>
+        <Link to="/registry">{t('overview.title')}</Link>
+        <Link to="/registry/images/register">{t('images.register')}</Link>
+      </Stack>
       <Stack component="form" direction="row" spacing={1} onSubmit={apply} sx={{ mt: 2, alignItems: 'center' }}>
         <TextField size="small" label={t('images.filterCapability')} value={text} onChange={(e) => setText(e.target.value)} />
         <Button type="submit" variant="outlined">{t('images.applyFilter')}</Button>

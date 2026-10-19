@@ -20,6 +20,7 @@ import { ImagePage } from './features/registry/ImagePage';
 import { ImagesPage } from './features/registry/ImagesPage';
 import { ProfilesPage } from './features/registry/ProfilesPage';
 import { ProfileVersionPage } from './features/registry/ProfileVersionPage';
+import { RegisterImagePage } from './features/registry/RegisterImagePage';
 import { RegistryOverviewPage } from './features/registry/RegistryOverviewPage';
 import { WorkflowsPage } from './features/registry/WorkflowsPage';
 import { WorkflowVersionPage } from './features/registry/WorkflowVersionPage';
@@ -98,6 +99,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/analyst-managers/:registrationId', element: clubAdminOnly(<RegistrationPage />) },
           { path: '/registry', element: clubAdminOnly(<RegistryOverviewPage />) },
           { path: '/registry/images', element: clubAdminOnly(<ImagesPage />) },
+          { path: '/registry/images/register', element: clubAdminOnly(<RegisterImagePage />) },
           { path: '/registry/images/:digest', element: clubAdminOnly(<ImagePage />) },
           { path: '/registry/profiles', element: clubAdminOnly(<ProfilesPage />) },
           { path: '/registry/profiles/:profileId/versions/:version', element: clubAdminOnly(<ProfileVersionPage />) },
