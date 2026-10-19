@@ -101,7 +101,7 @@ description: "Task list for Web UI Match Triage Conversations"
 
 ### Paging and lineage in the history
 
-- [ ] T022 [US2] Extend `src/clients/web/src/features/triage/TurnList.tsx` with history paging (`useInfiniteQuery` over the cursor, "Show more" in submission order, each turn once across pages and pending turns, pages in memory only) and a "Show lineage" toggle per turn that mounts `LineagePanel` with the turn's polling change counter; extend `src/clients/web/tests/unit/features/triage/TurnList.test.tsx` (FR-004a, FR-015)
+- [x] T022 [US2] Extend `src/clients/web/src/features/triage/TurnList.tsx` with history paging (`useInfiniteQuery` over the cursor, "Show more" in submission order, each turn once across pages and pending turns, pages in memory only) and a "Show lineage" toggle per turn that mounts `LineagePanel` with the turn's polling change counter; extend `src/clients/web/tests/unit/features/triage/TurnList.test.tsx` (FR-004a, FR-015)
 - [ ] T023 [US2] Add a `Return and context` block to `src/clients/web/tests/e2e/simulated/triage.spec.ts`: conversations listed newest first with run, participants, and marker; the superseded notice; three history pages with "Show more" and no duplicate turn; a lineage panel with ordered entries and execution references that refreshes while its turn runs; a Viewer who owns a conversation reads it without start, add, or submit controls and sees the read-only note (FR-024)
 
 **Checkpoint**: User Stories 1 and 2 work independently.

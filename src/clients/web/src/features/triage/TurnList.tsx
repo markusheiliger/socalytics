@@ -2,12 +2,13 @@ import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TriageFailure, type AgentConversationAdapter } from '../../platform/adapters/agentConversationAdapter';
 import { toTurnState, type Turn, type TurnPage } from '../../platform/models/agents';
 import { AdviceCard } from './AdviceCard';
+import { LineagePanel } from './LineagePanel';
 import { triageKeys } from './triageKeys';
 import { agentName, triageMessage, turnPresentation } from './turnPresentation';
 import { useInvocationPolling, type PollTarget } from './useInvocationPolling';
@@ -52,18 +53,28 @@ export function TurnList({ adapter, conversationId, pendingTurns, onPendingResol
   const { t } = useTranslation('triage');
   const queryClient = useQueryClient();
   const [announcement, setAnnouncement] = useState('');
+  const [openLineages, setOpenLineages] = useState<ReadonlySet<string>>(new Set());
   const lastStates = useRef(new Map<string, string>());
 
-  const history = useQuery({
+  const history = useInfiniteQuery({
     queryKey: triageKeys.turns(conversationId),
-    queryFn: async (): Promise<TurnPage> => {
-      const answer = await adapter.listTurns(conversationId);
+    initialPageParam: undefined as string | undefined,
+    queryFn: async ({ pageParam }): Promise<TurnPage> => {
+      const answer = await adapter.listTurns(conversationId, pageParam);
       if (answer.kind !== 'changed') throw new Error('Unexpected unconditional answer');
       return answer.value;
     },
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
   });
 
-  const historyTurns = history.data?.turns;
+  // Each turn once across the loaded pages, in submission order.
+  const historyTurns = useMemo(() => {
+    if (history.data === undefined) return undefined;
+    const seen = new Set<string>();
+    return history.data.pages
+      .flatMap((page) => page.turns)
+      .filter((turn) => !seen.has(turn.invocationId) && seen.add(turn.invocationId));
+  }, [history.data]);
   const knownIds = useMemo(() => new Set((historyTurns ?? []).map((turn) => turn.invocationId)), [historyTurns]);
   const stillPending = useMemo(
     () => (historyTurns === undefined ? pendingTurns : pendingTurns.filter((turn) => !knownIds.has(turn.invocationId))),
@@ -113,7 +124,15 @@ export function TurnList({ adapter, conversationId, pendingTurns, onPendingResol
 
   useEffect(() => {
     lastStates.current.clear();
+    setOpenLineages(new Set());
   }, [conversationId]);
+
+  const toggleLineage = (invocationId: string) =>
+    setOpenLineages((current) => {
+      const next = new Set(current);
+      if (!next.delete(invocationId)) next.add(invocationId);
+      return next;
+    });
 
   useEffect(() => {
     for (const turn of turns) {
@@ -159,6 +178,8 @@ export function TurnList({ adapter, conversationId, pendingTurns, onPendingResol
           {turns.map((turn) => {
             const name = agentName(turn.agentId, t);
             const presentation = turnPresentation(turn);
+            const lineageOpen = openLineages.has(turn.invocationId);
+            const lineageId = `lineage-${turn.invocationId}`;
             return (
               <Box
                 component="li"
@@ -187,10 +208,33 @@ export function TurnList({ adapter, conversationId, pendingTurns, onPendingResol
                     {presentation.attempt && ` (${t(presentation.attempt.key, presentation.attempt.params)})`}
                   </Typography>
                 )}
+                <Button
+                  size="small"
+                  aria-expanded={lineageOpen}
+                  aria-controls={lineageOpen ? lineageId : undefined}
+                  onClick={() => toggleLineage(turn.invocationId)}
+                >
+                  {t(lineageOpen ? 'advice.hideLineage' : 'advice.showLineage')}
+                </Button>
+                {lineageOpen && (
+                  <div id={lineageId}>
+                    <LineagePanel
+                      adapter={adapter}
+                      invocationId={turn.invocationId}
+                      changeCount={changes[turn.invocationId] ?? 0}
+                      ended={turn.state.recognized === 'succeeded' || turn.state.recognized === 'failed'}
+                    />
+                  </div>
+                )}
               </Box>
             );
           })}
         </Box>
+      )}
+      {history.hasNextPage && (
+        <Button disabled={history.isFetchingNextPage} onClick={() => void history.fetchNextPage()}>
+          {t(history.isFetchingNextPage ? 'conversation.loadingMore' : 'conversation.showMore')}
+        </Button>
       )}
       <div role="status" aria-live="polite" style={{ position: 'absolute', left: -10000 }}>
         {announcement}

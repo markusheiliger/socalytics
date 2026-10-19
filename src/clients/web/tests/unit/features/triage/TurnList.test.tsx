@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import '../../../../src/i18n';
 import { TurnList, type PendingTurn } from '../../../../src/features/triage/TurnList';
@@ -99,5 +100,61 @@ describe('TurnList', () => {
     setup([turn('inv-1', 'queued')]);
     const live = await screen.findByRole('status');
     expect(live).toHaveAttribute('aria-live', 'polite');
+  });
+
+  describe('paging and lineage', () => {
+    function pagedSetup() {
+      const getInvocationStatus = vi.fn(() => new Promise<never>(() => {}));
+      const listTurns = vi.fn(async (_id: string, cursor?: string) =>
+        cursor === undefined
+          ? { kind: 'changed' as const, etag: 'e1', value: { turns: [turn('inv-1', 'queued'), turn('inv-2', 'queued')], nextCursor: 'c2', etag: 'e1' } }
+          : { kind: 'changed' as const, etag: 'e2', value: { turns: [turn('inv-2', 'queued'), turn('inv-3', 'queued')], etag: 'e2' } },
+      );
+      const getLineage = vi.fn(async () => ({
+        kind: 'changed' as const,
+        etag: 'l1',
+        value: {
+          invocationId: 'inv-1',
+          policyVersion: 'p1',
+          entries: [{ sequence: 1, kind: { value: 'accepted' }, recordedAt: '2026-10-19T10:00:00Z', details: {} }],
+        },
+      }));
+      const adapter = { listTurns, getInvocationStatus, getLineage } as unknown as AgentConversationAdapter;
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      render(
+        <QueryClientProvider client={queryClient}>
+          <TurnList adapter={adapter} conversationId="conv-1" pendingTurns={[]} />
+        </QueryClientProvider>,
+      );
+      return { listTurns, getLineage };
+    }
+
+    it('loads further pages on request in order and shows each turn once', async () => {
+      const { listTurns } = pagedSetup();
+      await screen.findByText('Question inv-2');
+      expect(listTurns).toHaveBeenCalledTimes(1);
+      await userEvent.click(screen.getByRole('button', { name: 'Show more' }));
+      await screen.findByText('Question inv-3');
+      expect(listTurns).toHaveBeenLastCalledWith('conv-1', 'c2');
+      const items = Array.from(screen.getByRole('list', { name: 'Questions and advice' }).querySelectorAll(':scope > li'));
+      expect(items.map((item) => item.textContent)).toEqual([
+        expect.stringContaining('Question inv-1'),
+        expect.stringContaining('Question inv-2'),
+        expect.stringContaining('Question inv-3'),
+      ]);
+      expect(screen.queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+    });
+
+    it('opens and closes the lineage of one turn', async () => {
+      const { getLineage } = pagedSetup();
+      await screen.findByText('Question inv-1');
+      expect(getLineage).not.toHaveBeenCalled();
+      const [first] = screen.getAllByRole('button', { name: 'Show lineage' });
+      await userEvent.click(first);
+      expect(await screen.findByRole('region', { name: 'Lineage' })).toBeInTheDocument();
+      expect(getLineage).toHaveBeenCalledWith('inv-1', undefined);
+      await userEvent.click(screen.getByRole('button', { name: 'Hide lineage' }));
+      expect(screen.queryByRole('region', { name: 'Lineage' })).not.toBeInTheDocument();
+    });
   });
 });
