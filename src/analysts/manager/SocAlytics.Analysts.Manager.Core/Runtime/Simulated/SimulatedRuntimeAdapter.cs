@@ -120,7 +120,15 @@ public sealed class SimulatedAttempt : IAttemptExecution
                 await Task.Delay(behavior.RunDuration, time, stopped.Token);
             }
 
-            switch (behavior.Outcome)
+            var outcomeKind = behavior.Outcome;
+            if (outcomeKind == SimulatedOutcome.Succeed
+                && Launch.Job?.Segment is { } segment
+                && behavior.FailSegmentStartsMs.Contains(SimulatedResultWriter.SegmentStartMs(segment.SegmentNumber)))
+            {
+                outcomeKind = SimulatedOutcome.Fail;
+            }
+
+            switch (outcomeKind)
             {
                 case SimulatedOutcome.Succeed:
                     SimulatedResultWriter.Write(Launch, _options);

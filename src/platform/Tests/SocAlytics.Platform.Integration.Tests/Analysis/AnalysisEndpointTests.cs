@@ -1,8 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Npgsql;
 using Shouldly;
+using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.Analysis.Stores;
+using SocAlytics.Platform.Domain.Analysis;
 using SocAlytics.Platform.Integration.Tests.IdentityAccess.Support;
 using SocAlytics.Platform.Integration.Tests.Infrastructure;
 using SocAlytics.Platform.Integration.Tests.Recordings;
@@ -91,6 +95,162 @@ public sealed class AnalysisEndpointTests(PostgresContainerFixture postgres, Rus
 
 		using var bad = await s.Coach.Client.GetAsync($"/api/v1/matches/{s.Hierarchy.MatchId}/analysis-runs?pageSize=201", ct);
 		bad.StatusCode.ShouldBe(HttpStatusCode.BadRequest);
+	}
+
+	private static readonly string DigestA = "sha-256:" + new string('a', 64);
+	private static readonly string DigestB = "sha-256:" + new string('b', 64);
+
+	private static string NodeSnapshot(string key) =>
+		$$"""
+		{"nodeKey":"{{key}}","capabilityId":"cap.{{key}}","schemaVersion":"1.0.0","analystProfileId":"profile-{{key}}",
+		 "analystProfileDigest":"{{DigestA}}","imageDigest":"{{DigestB}}","modelDigest":"{{DigestA}}"}
+		""";
+
+	private sealed record CoverageRun(Guid RunId, Guid[] SegmentResults);
+
+	// Segment node "seg" (two accepted jobs, one failed) feeds the match nodes "partial" (partial edge), "full" (complete edge),
+	// and "pending" (no input snapshot yet).
+	private static async Task<CoverageRun> SeedCoverageRunAsync(FinalizationSetup s, Guid recordingSet, CancellationToken ct)
+	{
+		var seg = Guid.CreateVersion7();
+		var partial = Guid.CreateVersion7();
+		var full = Guid.CreateVersion7();
+		var pending = Guid.CreateVersion7();
+		WorkflowNodeRecord Node(Guid id, string key, CapabilityTier tier, ExecutionScope scope, int ordinal) =>
+			new(id, key, $"cap.{key}", "1.0.0", tier, scope, ordinal, WorkflowNodeState.Active, null, default, NodeSnapshot(key));
+		var run = new NewAnalysisRun(
+			s.Hierarchy.TeamId, s.Hierarchy.MatchId, recordingSet, "wf", "1", ["cap.partial"], "all-requested-capabilities",
+			AnalysisRunState.Running, null,
+			new AnalysisRunSnapshotRecord("""{"segmentationPolicy":{"version":"1","durationSeconds":300,"digest":"x"}}""", DigestA),
+			[
+				Node(seg, "seg", CapabilityTier.LowLevel, ExecutionScope.Segment, 0),
+				Node(partial, "partial", CapabilityTier.HighLevel, ExecutionScope.Match, 1),
+				Node(full, "full", CapabilityTier.HighLevel, ExecutionScope.Match, 2),
+				Node(pending, "pending", CapabilityTier.HighLevel, ExecutionScope.Match, 3),
+			],
+			[
+				new DependencyEdgeRecord(seg, partial, DependencyKind.Required, null) { CoveragePolicy = CoveragePolicy.Partial() },
+				new DependencyEdgeRecord(seg, full, DependencyKind.Required, null),
+				new DependencyEdgeRecord(seg, pending, DependencyKind.Required, null) { CoveragePolicy = CoveragePolicy.Partial() },
+			]);
+		var snapshot = new LogicalJobSnapshotRecord(3, 60, 120, 600, DigestB, DigestA, null, "{}", "1.0.0");
+		var segJobs = new[] { 1, 2, 3 }.Select(n => new NewLogicalJob(
+			Guid.CreateVersion7(), default, seg, ExecutionScope.Segment, Guid.NewGuid(), DigestA, DigestB, n, LogicalJobState.Waiting, snapshot)).ToArray();
+		NewLogicalJob MatchJob(Guid node) =>
+			new(Guid.CreateVersion7(), default, node, ExecutionScope.Match, null, null, null, null, LogicalJobState.Waiting, snapshot);
+		var partialJob = MatchJob(partial);
+		var fullJob = MatchJob(full);
+		var pendingJob = MatchJob(pending);
+
+		Guid runId;
+		await using (var scope = s.Factory.Services.CreateAsyncScope())
+		{
+			await using var uow = await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
+			runId = await scope.ServiceProvider.GetRequiredService<IAnalysisRunStore>().InsertAsync(run, ct);
+			await scope.ServiceProvider.GetRequiredService<ILogicalJobStore>()
+				.InsertAsync([.. segJobs.Append(partialJob).Append(fullJob).Append(pendingJob).Select(j => j with { RunId = runId })], ct);
+			await uow.CommitAsync(ct);
+		}
+
+		async Task<Guid> AcceptAsync(NewLogicalJob job, Guid node, string capability)
+		{
+			var occurrence = Guid.NewGuid();
+			var attempt = Guid.NewGuid();
+			await ExecAsync(s,
+				"""
+				INSERT INTO socalytics.analysis_readiness_occurrences (id, logical_job_id, sequence, cause, created_at) VALUES (@occurrence, @jobId, 1, 'initial', now());
+				INSERT INTO socalytics.analysis_execution_attempts
+					(id, logical_job_id, readiness_occurrence_id, attempt_number, manager_id, fencing_token, state, claimed_at, lease_expires_at, last_heartbeat_at)
+				VALUES (@attempt, @jobId, @occurrence, 1, gen_random_uuid(), nextval('socalytics.analysis_fencing_token_seq'), 'Stale', now(), now(), now());
+				""",
+				new { occurrence, attempt, jobId = job.Id }, ct);
+			var result = new AcceptedResultRecord(
+				Guid.NewGuid(), job.Id, runId, node, attempt, "results/key", DigestA, capability, "1.0.0", "1.0.0",
+				DigestB, DigestA, null, "{}", "{}", [], DateTimeOffset.UtcNow);
+			await using var scope = s.Factory.Services.CreateAsyncScope();
+			await using var uow = await scope.ServiceProvider.GetRequiredService<IUnitOfWork>().BeginAsync(ct);
+			await scope.ServiceProvider.GetRequiredService<IAcceptedResultStore>().InsertAsync(result, ct);
+			await uow.CommitAsync(ct);
+			return result.Id;
+		}
+
+		var results = new[] { await AcceptAsync(segJobs[0], seg, "cap.seg"), await AcceptAsync(segJobs[1], seg, "cap.seg") };
+		await AcceptAsync(partialJob, partial, "cap.partial");
+		await ExecAsync(s, "UPDATE socalytics.analysis_logical_jobs SET state = 'Completed' WHERE id = ANY(@ids)", new { ids = new[] { segJobs[0].Id, segJobs[1].Id, partialJob.Id } }, ct);
+		await ExecAsync(s,
+			"UPDATE socalytics.analysis_logical_jobs SET state = 'Failed', failure_reason = 'attempts-exhausted' WHERE id = @id",
+			new { id = segJobs[2].Id }, ct);
+
+		var partialInputs = JsonSerializer.Serialize(new[]
+		{
+			new
+			{
+				upstreamNodeKey = "seg", edgeKind = "required", status = "partial", acceptedResultIds = results,
+				coverageMode = "partial", minimumAcceptedFraction = (decimal?)null,
+				coverage = new[] { "a", "b", "c" }.Select((id, i) => new { segmentId = id, state = i == 2 ? "failed" : "accepted" }).ToArray(),
+			},
+		});
+		var fullInputs = JsonSerializer.Serialize(new[]
+		{
+			new { upstreamNodeKey = "seg", edgeKind = "required", status = "accepted", acceptedResultIds = results },
+		});
+		const string insertInputs = "INSERT INTO socalytics.analysis_logical_job_inputs (logical_job_id, inputs, recorded_at) VALUES (@job, @inputs::jsonb, now())";
+		await ExecAsync(s, insertInputs, new { job = partialJob.Id, inputs = partialInputs }, ct);
+		await ExecAsync(s, insertInputs, new { job = fullJob.Id, inputs = fullInputs }, ct);
+		return new CoverageRun(runId, results);
+	}
+
+	[Fact]
+	public async Task NodeInputCoverageReportsCountsAndNullBeforeSnapshotAndHidesFromOthers()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		await using var s = await FinalizationSetup.StartAsync(postgres, rustFs, ct);
+		var set = await RecordingFinalizationHelper.FinalizeAsync(s.Coach, s.Hierarchy.MatchId, 1, ct);
+		var seeded = await SeedCoverageRunAsync(s, set.RecordingSetVersionId, ct);
+		var viewer = await MemberAsync(s, "viewer-1", "viewer", s.Hierarchy.TeamId, ct);
+
+		static int[] Counts(JsonElement e) =>
+			[.. new[] { "accepted", "failed", "blocked", "skipped", "missing" }.Select(k => e.GetProperty(k).GetInt32())];
+
+		foreach (var session in new[] { s.Coach, viewer })
+		{
+			using var response = await session.Client.GetAsync($"/api/v1/analysis/runs/{seeded.RunId}", ct);
+			response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(ct));
+			var nodes = (await response.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("nodes").EnumerateArray()
+				.ToDictionary(n => n.GetProperty("nodeKey").GetString()!);
+
+			nodes["seg"].GetProperty("inputCoverage").ValueKind.ShouldBe(JsonValueKind.Null);
+			nodes["pending"].GetProperty("inputCoverage").ValueKind.ShouldBe(JsonValueKind.Null);
+
+			var partial = nodes["partial"].GetProperty("inputCoverage").EnumerateArray().ToList();
+			partial.Count.ShouldBe(1);
+			partial[0].GetProperty("upstreamNodeKey").GetString().ShouldBe("seg");
+			partial[0].GetProperty("coverageMode").GetString().ShouldBe("partial");
+			partial[0].GetProperty("minimumAcceptedFraction").ValueKind.ShouldBe(JsonValueKind.Null);
+			Counts(partial[0]).ShouldBe([2, 1, 0, 0, 0]);
+
+			var full = nodes["full"].GetProperty("inputCoverage").EnumerateArray().ToList();
+			full.Count.ShouldBe(1);
+			full[0].GetProperty("coverageMode").GetString().ShouldBe("complete");
+			Counts(full[0]).ShouldBe([2, 0, 0, 0, 0]);
+		}
+
+		// The member fact reads keep their semantics: the partial node's own coverage is one accepted match window.
+		using var streams = await s.Coach.Client.GetAsync($"/api/v1/analysis/runs/{seeded.RunId}/fact-streams", ct);
+		streams.StatusCode.ShouldBe(HttpStatusCode.OK, await streams.Content.ReadAsStringAsync(ct));
+		var partialStream = (await streams.Content.ReadFromJsonAsync<JsonElement>(ct)).GetProperty("items").EnumerateArray()
+			.Single(i => i.GetProperty("nodeKey").GetString() == "partial");
+		var coverage = partialStream.GetProperty("coverage");
+		coverage.GetProperty("accepted").GetInt32().ShouldBe(1);
+		foreach (var other in new[] { "missing", "failed", "blocked", "skipped" })
+		{
+			coverage.GetProperty(other).GetInt32().ShouldBe(0);
+		}
+
+		var (otherTeam, _) = await new ClubHierarchyBuilder(s.Factory, s.Admin).CreateTeamWithMatchAsync(s.Hierarchy.SeasonId, ct);
+		var outsider = await MemberAsync(s, "coach-2", "coach", otherTeam, ct);
+		using var hidden = await outsider.Client.GetAsync($"/api/v1/analysis/runs/{seeded.RunId}", ct);
+		hidden.StatusCode.ShouldBe(HttpStatusCode.NotFound);
 	}
 
 	[Fact]

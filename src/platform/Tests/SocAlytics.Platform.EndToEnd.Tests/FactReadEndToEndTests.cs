@@ -114,7 +114,7 @@ public sealed class FactReadEndToEndTests
         read.Select(f => f.AcceptedResultId).Distinct().Order().ShouldBe(acceptedIds.Order());
     }
 
-    private static async Task<Guid> SeedRecordingSetAsync(EndToEndHarness harness, ClubHierarchy hierarchy, Guid createdBy, CancellationToken ct)
+    internal static async Task<Guid> SeedRecordingSetAsync(EndToEndHarness harness, ClubHierarchy hierarchy, Guid createdBy, CancellationToken ct)
     {
         var (session, version, mapping, set) = (Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
         var hex = new string('a', 64);
@@ -197,7 +197,7 @@ public sealed class FactReadEndToEndTests
         return ids;
     }
 
-    private static async Task ExecuteAsync(EndToEndHarness harness, string sql, (string Name, object Value)[] parameters, CancellationToken ct)
+    internal static async Task ExecuteAsync(EndToEndHarness harness, string sql, (string Name, object Value)[] parameters, CancellationToken ct)
     {
         await using var connection = new NpgsqlConnection(harness.Database.MigratorConnectionString);
         await connection.OpenAsync(ct);

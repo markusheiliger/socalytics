@@ -43,7 +43,7 @@ public sealed class UpstreamReadTests(PostgresContainerFixture postgres, NatsCon
     }
 
     // Segment node "low" with segments 1 and 2 accepted before the snapshot and 3 failed, and a match node "high" that depends on it.
-    private async Task<Seeded> SeedAsync(IsolatedDatabase db, CancellationToken ct)
+    private async Task<Seeded> SeedAsync(IsolatedDatabase db, CancellationToken ct, bool partial = false)
     {
         Guid run = Guid.NewGuid(), low = Guid.NewGuid(), high = Guid.NewGuid(), recording = Guid.NewGuid(), highJob = Guid.NewGuid(), highOcc = Guid.NewGuid();
         var at = DateTimeOffset.UtcNow;
@@ -101,10 +101,20 @@ public sealed class UpstreamReadTests(PostgresContainerFixture postgres, NatsCon
                 ("artifacts", prepared.Manifest["artifacts"]!.ToJsonString()));
         }
 
-        var inputs = JsonSerializer.Serialize(new[]
-        {
-            new { upstreamNodeKey = "low", edgeKind = "required", status = "accepted", acceptedResultIds = results },
-        });
+        var inputs = partial
+            ? JsonSerializer.Serialize(new[]
+            {
+                new
+                {
+                    upstreamNodeKey = "low", edgeKind = "required", status = "partial", acceptedResultIds = results,
+                    coverageMode = "partial", minimumAcceptedFraction = 0.5m,
+                    coverage = Enumerable.Range(1, 3).Select(n => new { segmentId = $"{recording}-{n}", state = n == 3 ? "failed" : "accepted" }).ToArray(),
+                },
+            })
+            : JsonSerializer.Serialize(new[]
+            {
+                new { upstreamNodeKey = "low", edgeKind = "required", status = "accepted", acceptedResultIds = results },
+            });
         await ExecAsync(c,
             """
             INSERT INTO socalytics.analysis_logical_jobs (id, run_id, node_id, execution_scope, state, updated_at) VALUES (@job, @run, @high, 'match', 'Waiting', @at);
@@ -179,6 +189,65 @@ public sealed class UpstreamReadTests(PostgresContainerFixture postgres, NatsCon
             using var artifact = await Http.GetAsync(grants[1].GetProperty("url").GetString(), ct);
             artifact.StatusCode.ShouldBe(HttpStatusCode.OK);
         }
+    }
+
+    [Fact]
+    public async Task CompleteDependencyReportsCompleteModeWithoutFractionAndKeepsStateMappedCoverage()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, host) = await StartAsync(ct);
+        await using var _ = host;
+        var seed = await SeedAsync(db, ct);
+        using var m = new TestManagerClient(host.Factory);
+        var c = await ClaimAsync(seed, m, ct);
+
+        using var response = await m.ListUpstreamResultsAsync(c.Attempt, Query(c), ct);
+        var (status, body) = await BodyAsync(response, ct);
+        status.ShouldBe(HttpStatusCode.OK, body.ToString());
+        body.GetProperty("contractVersion").GetString().ShouldBe("1.1.0");
+        var coverage = body.GetProperty("upstream").GetProperty("coverage");
+        coverage.GetProperty("mode").GetString().ShouldBe("complete");
+        coverage.TryGetProperty("minimumAcceptedFraction", out var fraction).ShouldBeFalse(fraction.ToString());
+        body.GetProperty("coverage").EnumerateArray().Select(e => e.GetProperty("state").GetString()).ShouldBe(["accepted", "accepted", "failed"]);
+    }
+
+    [Fact]
+    public async Task PartialDependencyServesSnapshotFixedCoverageOnEveryPage()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, host) = await StartAsync(ct);
+        await using var _ = host;
+        var seed = await SeedAsync(db, ct, partial: true);
+        using var m = new TestManagerClient(host.Factory);
+        var c = await ClaimAsync(seed, m, ct);
+
+        // Later job states must not change the coverage the snapshot fixed.
+        await using (var update = new NpgsqlConnection(db.MigratorConnectionString))
+        {
+            await update.OpenAsync(ct);
+            await ExecAsync(update, "UPDATE socalytics.analysis_logical_jobs SET state = 'Failed' WHERE segment_number = 1", ct);
+        }
+
+        string? token = null;
+        var pages = 0;
+        do
+        {
+            using var response = await m.ListUpstreamResultsAsync(c.Attempt, Query(c, "&pageSize=1" + (token is null ? "" : "&continuationToken=" + token)), ct);
+            var (status, body) = await BodyAsync(response, ct);
+            status.ShouldBe(HttpStatusCode.OK, body.ToString());
+            var validation = host.Services.GetRequiredService<IContractValidator>().Validate(ContractSchemaIds.UpstreamResultsV1, body);
+            validation.IsValid.ShouldBeTrue(string.Join("; ", validation.Errors.Select(e => e.Field + ":" + e.Keyword)));
+            body.GetProperty("contractVersion").GetString().ShouldBe("1.1.0");
+            var coverage = body.GetProperty("upstream").GetProperty("coverage");
+            coverage.GetProperty("mode").GetString().ShouldBe("partial");
+            coverage.GetProperty("minimumAcceptedFraction").GetDecimal().ShouldBe(0.5m);
+            body.GetProperty("coverage").EnumerateArray().Select(e => (e.GetProperty("segmentId").GetString()!, e.GetProperty("state").GetString()!))
+                .ShouldBe(Enumerable.Range(1, 3).Select(n => ($"{seed.RecordingId}-{n}", n == 3 ? "failed" : "accepted")));
+            token = body.GetProperty("continuationToken").GetString();
+            pages++;
+        }
+        while (token is not null);
+        pages.ShouldBeGreaterThan(1);
     }
 
     [Fact]

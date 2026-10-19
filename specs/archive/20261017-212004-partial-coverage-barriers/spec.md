@@ -311,8 +311,8 @@ node shows that it is blocked.
   Acceptance, Analysis Result Read for Jobs, and Analyst Manager Work Execution (archived under `specs/archive/`), and
   coordinates with `specs/archive/20261017-175648-fact-indexing-queries`, `specs/20261017-182600-analysis-run-cancellation`,
   and `specs/20261017-183953-analysis-run-supersession`, which are being implemented.
-- Implements [job processing: readiness and dependencies](../../docs/architecture/job-processing.md#readiness-and-dependencies),
+- Implements [job processing: readiness and dependencies](../../../docs/architecture/job-processing.md#readiness-and-dependencies),
   the capability declaration and coverage of
-  [Analysts, models, and hardware](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access),
-  and [contracts and compatibility](../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility)
+  [Analysts, models, and hardware](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access),
+  and [contracts and compatibility](../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility)
   for the additive contract versions.

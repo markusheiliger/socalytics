@@ -1,3 +1,5 @@
+using SocAlytics.Platform.Domain.Analysis;
+
 namespace SocAlytics.Platform.Application.Analysis.Results;
 
 // SegmentIds and the match range are mutually exclusive; the range is half-open and selects overlapping segment windows.
@@ -24,7 +26,9 @@ public sealed record UpstreamResultsPage(
     string SnapshotStatus,
     IReadOnlyList<UpstreamResultItem> Results,
     IReadOnlyList<CoverageEntry> Coverage,
-    string? ContinuationToken);
+    string? ContinuationToken,
+    CoverageMode CoverageMode = CoverageMode.Complete,
+    decimal? MinimumAcceptedFraction = null);
 
 public sealed class InvalidContinuationTokenException() : Exception("The continuation token is not valid.");
 

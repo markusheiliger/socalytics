@@ -816,6 +816,11 @@ current and non-current migration states; and
   per-object read grants, coverage), digest-verified staging with cleanup in the
   Analyst Manager, and simulated match-level lineage equal to the staged
   results; and
+- integration and end-to-end tests cover partial-coverage match barriers
+  (declaration import and seeding, the readiness rule with a minimum, snapshot-
+  fixed coverage in the upstream read and staging, the coverage check of result
+  acceptance, and the input coverage counts of the run status read) with a
+  simulated Analyst that fails one segment; and
 - integration and end-to-end tests cover fact validation (the twelfth ordered
   manifest check), atomic and idempotent fact indexing at acceptance, and the
   member reads `listAnalysisRunFacts` and `listAnalysisRunFactStreams`

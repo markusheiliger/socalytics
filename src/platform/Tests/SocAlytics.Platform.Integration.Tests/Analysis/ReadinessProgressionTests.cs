@@ -137,7 +137,7 @@ public sealed class ReadinessProgressionTests(PostgresContainerFixture postgres)
 			new { runId })).ShouldBe(3);
 		(await connection.QuerySingleAsync<int>(
 			"SELECT count(*) FROM socalytics.analysis_logical_jobs j JOIN socalytics.analysis_workflow_nodes n ON n.id = j.node_id WHERE j.run_id = @runId AND n.execution_scope = 'match' AND j.state = 'Waiting'",
-			new { runId })).ShouldBe(1);
+			new { runId })).ShouldBe(2);
 		(await connection.QuerySingleAsync<int>(
 			"SELECT count(*) FROM socalytics.analysis_logical_job_inputs i JOIN socalytics.analysis_logical_jobs j ON j.id = i.logical_job_id WHERE j.run_id = @runId",
 			new { runId })).ShouldBe(3);

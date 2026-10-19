@@ -19,6 +19,12 @@ public static class SimulatedResultModes
     public const string ValidityInvalid = "validity-invalid";
     public const string ContractInvalid = "contract-invalid";
 
+    /// <summary>Flips the state of one unit in the reported input coverage.</summary>
+    public const string CoverageMismatch = "coverage-mismatch";
+
+    /// <summary>Drops the reported input coverage.</summary>
+    public const string CoverageOmitted = "coverage-omitted";
+
     /// <summary>Writes one fact outside the job's validity window.</summary>
     public const string InvalidFacts = "invalid-facts";
 
@@ -26,7 +32,7 @@ public static class SimulatedResultModes
     public const string IgnoreInputs = "ignore-inputs";
 
     public static readonly IReadOnlyList<string> All =
-        [Valid, ScopeMismatch, ProvenanceMismatch, LineageMismatch, ArtifactMissing, ValidityInvalid, ContractInvalid, IgnoreInputs, InvalidFacts];
+        [Valid, ScopeMismatch, ProvenanceMismatch, LineageMismatch, ArtifactMissing, ValidityInvalid, ContractInvalid, IgnoreInputs, CoverageMismatch, CoverageOmitted, InvalidFacts];
 }
 
 public sealed class SimulatedCapabilityOptions
@@ -42,6 +48,9 @@ public sealed class SimulatedCapabilityOptions
 
     /// <summary>One of <see cref="SimulatedResultModes"/>; applies to successful attempts.</summary>
     public string ResultMode { get; set; } = SimulatedResultModes.Valid;
+
+    /// <summary>Segment jobs whose window starts at one of these milliseconds fail with <see cref="FailureReason"/>; other jobs follow <see cref="Outcome"/>.</summary>
+    public List<long> FailSegmentStartsMs { get; set; } = [];
 
     public string? ResultReference { get; set; }
 
