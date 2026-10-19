@@ -51,9 +51,9 @@ A maintainer running the Integration test suite, or the verification of any impl
 
 ### Measurable Outcomes
 
-- **SC-001**: The audit test passes in 100% of at least 20 consecutive runs of the Integration suite on one machine, including runs in which other tests emit database-driver telemetry containing the text `short`.
+- **SC-001**: The audit test passes in 100% of at least 20 consecutive runs of its test class on one machine and in a run of the whole Integration suite, in which other tests emit database-driver telemetry containing the text `short`.
 - **SC-002**: A deliberate probe that makes the host under test record each checked secret in an activity tag or a metric tag makes the test fail in 100% of probes (verified during implementation, probe removed afterward).
-- **SC-003**: The verification of #186 (combined verification of its tasks T012 and T013) passes the Integration suite without a retry.
+- **SC-003** (post-merge evidence, observed when #186 retries and not verified by a task of this spec): The verification of #186 (combined verification of its tasks T012 and T013) passes the Integration suite without a retry.
 - **SC-004**: No file outside the test project and this spec folder changes, and the audit, log, and secret-list assertions are textually unchanged.
 
 ## Assumptions
