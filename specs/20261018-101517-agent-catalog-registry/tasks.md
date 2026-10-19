@@ -39,7 +39,7 @@ description: "Task list for Agent Catalog Registry"
 
 ### Contract index
 
-- [ ] T008 Add index rows for the nine `contracts/agent-catalog/*/v1` contracts to `contracts/README.md` following the existing `$id` convention and update the `agent-orchestration/execution-envelope` row to version `1.1.0` with its released copies, so that `ContractCatalog`, `ContractIndexTests`, and `SchemaMetaValidationTests` in `src/platform/Tests/SocAlytics.Platform.Contracts.Tests` load and validate them and their fixtures; run `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests` (FR-001, FR-021)
+- [x] T008 Add index rows for the nine `contracts/agent-catalog/*/v1` contracts to `contracts/README.md` following the existing `$id` convention and update the `agent-orchestration/execution-envelope` row to version `1.1.0` with its released copies, so that `ContractCatalog`, `ContractIndexTests`, and `SchemaMetaValidationTests` in `src/platform/Tests/SocAlytics.Platform.Contracts.Tests` load and validate them and their fixtures; run `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests` (FR-001, FR-021)
 
 ### Application abstractions
 
