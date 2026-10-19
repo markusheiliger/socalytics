@@ -87,11 +87,19 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
+      name: 'platform-analysis',
+      testDir: './tests/e2e/platform',
+      testMatch: /analysis-review\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform-upload'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
+    {
       name: 'platform-recovery',
       testDir: './tests/e2e/platform',
       testMatch: /[\\/]recovery\.spec\.ts$/,
       fullyParallel: false,
-      dependencies: ['platform-upload'],
+      dependencies: ['platform-analysis'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
     {
