@@ -366,6 +366,23 @@ Migrator Contract. The API image contains no Migrator or DbUp, and neither image
 values. The images are not deployment support or production readiness; `dotnet test
 src/platform/Tests/SocAlytics.Platform.Images.Tests` (Docker required) is their evidence.
 
+## Evaluation Composition
+
+`deploy/compose/` holds a Docker Compose definition (`compose.yaml`, `stamp.env.template`, and its
+[README](deploy/compose/README.md)) that runs one self-hosted stamp for evaluation from the three images above:
+PostgreSQL, NATS, S3-compatible storage, the one-off Migrator, the API, and the Web UI, of which only the Web UI
+publishes a port, on `127.0.0.1`. `SocAlytics.Platform.StampSetup` is the setup console that writes a stamp
+directory (`stamp.env`, `nats.conf`) outside any Git working tree and generates every secret. The evidence project is
+`Tests/SocAlytics.Platform.Compose.Tests` (Docker with the Compose v2 plugin required):
+
+```powershell
+dotnet run --project src/platform/SocAlytics.Platform.StampSetup -- --output <new directory outside a Git working tree>
+dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests
+```
+
+The composition is not deployment support or production readiness: it is not a production profile and passes no
+production preflight.
+
 ## Migrator Contract
 
 The Migrator applies all pending platform migrations once and exits. It is safe
