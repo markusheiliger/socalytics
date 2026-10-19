@@ -106,7 +106,7 @@ and `listAvailableAgents` (`GET /api/v1/agent-catalog/agents`, which Club Admins
 version" or, for Coach Agents, "not available in conversations yet" (clarification 4).
 
 **Rationale**: The available-agents read is what the triage conversation views use
-([Web UI Match Triage Conversations](../20261017-210231-web-ui-triage-conversations/research.md)), so the area shows
+([Web UI Match Triage Conversations](../archive/20261017-210231-web-ui-triage-conversations/research.md)), so the area shows
 exactly what members are offered, and needs no change when Coach Agents become available.
 
 ## R7. Version proposal and starting from an existing record
