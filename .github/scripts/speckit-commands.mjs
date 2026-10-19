@@ -1,4 +1,4 @@
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 import { canWrite } from './speckit-prepare.mjs';
@@ -47,15 +47,21 @@ const describeFlags = (command) => {
   return flags.length > 0 ? flags.map(([flag, help]) => `\`${flag}\`: ${help}`).join('; ') : 'none';
 };
 
+export function renderCommandTable(commands = PR_COMMANDS) {
+  return [
+    '| Command | What it does | Flags |',
+    '| --- | --- | --- |',
+    ...commands.map((command) => `| \`${command.usage}\` | ${command.help} | ${describeFlags(command)} |`),
+  ].join('\n');
+}
+
 export function renderHelp() {
   return [
     '**Spec Kit commands** — comment one of these on an implementation pull request (`speckit/<folder>`). Only people with write access can use them; the command must be the first word of the comment.',
     '',
     'Every command has the form `/speckit <command> [flags] [guidance]`: flags start with `--` and come right after the command (each command supports its own), and everything after them is guidance for the next agent. Put `--` before guidance that itself starts with `--`.',
     '',
-    '| Command | What it does | Flags |',
-    '| --- | --- | --- |',
-    ...PR_COMMANDS.map((command) => `| \`${command.usage}\` | ${command.help} | ${describeFlags(command)} |`),
+    renderCommandTable(),
     '',
     'An amendment pull request (`speckit-amend/<folder>`) or fix spec pull request (`speckit-fix/<folder>`) needs no commands: merge it to apply it, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
     '',
@@ -236,9 +242,54 @@ const HANDLERS = {
   fix: handleFix,
 };
 
-export async function main(argv, { env = process.env, log = console.log, client } = {}) {
-  const [command] = argv;
-  if (!['command', 'target'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target> (inputs come from SPECKIT_* environment variables)');
+export const COMMAND_DOCS_FILE = '.github/workflows/README.md';
+export const COMMAND_DOCS_START = '<!-- speckit-commands:start -->';
+export const COMMAND_DOCS_END = '<!-- speckit-commands:end -->';
+const COMMAND_DOCS_REFRESH = 'node .github/scripts/speckit-commands.mjs docs --write';
+
+export function renderCommandDocs(commands = PR_COMMANDS) {
+  return [
+    COMMAND_DOCS_START,
+    `<!-- Generated from PR_COMMANDS in .github/scripts/speckit-implement-core.mjs; refresh with \`${COMMAND_DOCS_REFRESH}\`. -->`,
+    '',
+    renderCommandTable(commands),
+    '',
+    COMMAND_DOCS_END,
+  ].join('\n');
+}
+
+// Replaces the generated block between the markers; the rest of the document stays as it is.
+export function syncCommandDocs(text, commands = PR_COMMANDS) {
+  const start = text.indexOf(COMMAND_DOCS_START);
+  const end = text.indexOf(COMMAND_DOCS_END);
+  if (start < 0 || end < start) throw new CommandUsageError(`${COMMAND_DOCS_FILE} has no ${COMMAND_DOCS_START} … ${COMMAND_DOCS_END} block.`);
+  return text.slice(0, start) + renderCommandDocs(commands) + text.slice(end + COMMAND_DOCS_END.length);
+}
+
+function runDocs(args, { file = new URL('../workflows/README.md', import.meta.url), log }) {
+  const unknown = args.filter((arg) => arg !== '--write');
+  if (unknown.length > 0) throw new CommandUsageError(`Unknown docs argument: ${unknown.join(' ')}`);
+  const label = typeof file === 'string' ? file : COMMAND_DOCS_FILE;
+  const current = readFileSync(file, 'utf8');
+  const eol = current.includes('\r\n') ? '\r\n' : '\n';
+  const synced = syncCommandDocs(current.replace(/\r\n/g, '\n')).replace(/\n/g, eol);
+  if (synced === current) {
+    log(`${label}: the command table is current.`);
+    return 0;
+  }
+  if (args.includes('--write')) {
+    writeFileSync(file, synced);
+    log(`${label}: the command table was refreshed.`);
+    return 0;
+  }
+  log(`${label}: the command table is stale; run \`${COMMAND_DOCS_REFRESH}\`.`);
+  return 1;
+}
+
+export async function main(argv, { env = process.env, log = console.log, client, docsFile } = {}) {
+  const [command, ...args] = argv;
+  if (command === 'docs') return runDocs(args, { file: docsFile, log });
+  if (!['command', 'target'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target | docs [--write]> (command and target take their inputs from SPECKIT_* environment variables)');
   const github = client ?? createGitHubClient(env);
   if (command === 'target') {
     const pull = await runCommandTarget({ client: github, env });

@@ -105,7 +105,7 @@ They become ready only after final verification, immediately before an automatic
 | Spec Kit implement conflict resolution | [speckit-implement-resolve.yml](speckit-implement-resolve.yml) | Implement spec (`workflow_call`) | Integrates the base branch, lets Copilot resolve unprotected conflicts when needed, runs final verification, then validates, commits, and pushes the resolution. |
 | Spec Kit implement merge | [speckit-implement-merge.yml](speckit-implement-merge.yml) | Implement spec (`workflow_call`) | Archives the spec, builds and verifies the prospective merged tree with a read-only token, then squash-merges the pull request or deliberately hands it to a person for review. |
 | Spec Kit commands | [speckit-commands.yml](speckit-commands.yml) | Pull request comments, reviews, and events | Handles `/speckit` commands (`retry`, `sync`, `fix`, `help`) and amendment and fix spec feedback; keeps Spec Kit pull requests out of stacks. |
-| Spec Kit diagnose | [speckit-diagnose.md](speckit-diagnose.md) ([lock](speckit-diagnose.lock.yml)) | Implement spec, analyze | Automatically explains why an implementation stopped and recommends one ready-to-post command that fits the category; for spec artifact defects opens and reworks an amendment pull request. |
+| Spec Kit diagnose | [speckit-diagnose.md](speckit-diagnose.md) ([lock](speckit-diagnose.lock.yml)) | Implement spec, analyze | Automatically explains why an implementation stopped and recommends one ready-to-post command that fits the category, chosen from the "Commands you can recommend" reference its evidence generates from `PR_COMMANDS`; for spec artifact defects opens and reworks an amendment pull request. |
 | Spec Kit fix | [speckit-fix.md](speckit-fix.md) ([lock](speckit-fix.lock.yml)) | Commands (`/speckit fix`), analyze | Authors a fix spec for a cause outside the stopped spec and proposes it against the default branch, or joins the existing fix spec when one already removes the cause (one cause, one fix spec); reworks it after findings or feedback. |
 | Spec Kit analyze | [speckit-analyze.md](speckit-analyze.md) ([lock](speckit-analyze.lock.yml)) | Diagnose, fix, commands | Runs a read-only `/speckit-analyze` of the amended spec folder or the new fix spec and decides between a correction round, a rework, or human review. |
 
@@ -139,7 +139,7 @@ agent; with guidance it runs the repair
 agent, and a successful no-change result reaches reverification without creating an empty commit. Agent failures and
 invalid or out-of-scope patches remain failures. Every failed repair attempt stops for a person, and every restart
 (`/speckit retry`, a merged amendment, or a landed fix spec) gets a fresh repair attempt; the
-unchanged-restart guard below keeps restarts from looping. Every unresolved implementation stop starts a diagnosis;
+[unchanged-restart guard](#retry) keeps restarts from looping. Every unresolved implementation stop starts a diagnosis;
 while it runs, the stop comment links to the diagnosis workflow so a person can inspect its progress. A reported
 diagnosis then waits for its recommended action instead of being started again.
 Reverification uses the original failure artifact's changed files together with repair changes, not just the diff since
@@ -147,19 +147,8 @@ the failed head. Missing or empty original scope falls back to full (`finalize`)
 readable by the repair agent inside its workspace at the locally ignored `.speckit-repair-evidence/`; unavailable
 artifacts do not weaken verification. The verification action must actually succeed, and the verified commit must still
 be the pull request head, before the marker can resolve; verification-only work uses the decision's pinned head.
-Every comment command has the form `/speckit <command> [flags] [guidance]`. Flags start with `--`, directly follow
-the command, and are declared per command in `PR_COMMANDS`; case and trailing punctuation (`--force;`) are tolerated,
-a bare `--` ends the flags, and a flag the command does not support refuses the command instead of becoming guidance.
-Writer-supplied text after `/speckit retry`, `/speckit sync`, or `/speckit fix` and their flags is consistently called
-**guidance**. Retry and sync guidance is stored in a bot-authored pull request marker so a replaced dispatch or
-scheduled continuation cannot lose it. Copilot-bound guidance is whitespace-normalized, capped at 4,000 characters, and
-added to every task in the first retried group, or to the first convergence, repair, or conflict-resolution prompt.
-Later units do not inherit it. Each restart comment also records the implementation branch head and the base branch
-head. While the implementation is stopped (`help wanted`), `Spec Kit commands` refuses a `retry` after
-`MAX_UNCHANGED_RESTARTS` (2) restarts in a row on the same implementation branch head, because it would most likely
-stop the same way again; the flag `--force` (`/speckit retry --force [guidance]`) insists. The refusal points to a push,
-retry guidance based on the diagnosis, or `/speckit fix`. A clean merge and a verification-only repair restart invoke no agent, so they consume
-no prompt guidance. The chain keeps its branch current with the base branch by pulling: every run starts with
+The comment commands that restart, synchronize, or fix a stopped implementation are described in
+[Comment commands](#comment-commands). The chain keeps its branch current with the base branch by pulling: every run starts with
 the job `sync` ("Merge the base branch"), which merges the base branch into the implementation branch through the
 GitHub API when it is ahead and the next work is a phase that has not started (none of its tasks is ticked yet), the
 convergence, or the merge (repository variable `SPECKIT_SYNC_BASE`, default `true`). Retries (`/speckit retry`),
@@ -184,6 +173,72 @@ names say what a job does, without step numbers; GitHub shows their order. The c
 `/speckit-gha-drift`, which checks `docs/architecture/` against the implementation; each stale, missing, or
 contradicting statement becomes a convergence task, so the architecture is corrected before the merge. The hook comes
 from the implementation branch, so a branch created before it existed gets it with the next merge of the base branch.
+
+The merge workflow first archives the spec to `specs/archive/<folder>` on the implementation branch (job `archive`),
+so the archive lands with the implementation. The controller runs only one of its `phase`, `repair`, `converge`,
+`resolve`, or `merge` reusable jobs, so the others
+always show as skipped. Prepare, orchestrate, and implement spec also have a `refuse` job that only runs, and fails, when
+started from a branch other than the default branch.
+
+## Comment commands
+
+People with write access steer a stopped or running implementation by commenting on its implementation pull request
+(`speckit/<folder>`); the command must be the first word of the comment, and `Spec Kit commands` handles it. Amendment
+pull requests (`speckit-amend/<folder>`) and fix spec pull requests (`speckit-fix/<folder>`) need no commands: merge one
+to apply it, comment or review it (*Comment* or *Request changes*) to have it reworked, or close it to discard it.
+
+`PR_COMMANDS` in `.github/scripts/speckit-implement-core.mjs` is the single source of the commands, their flags, and
+the diagnosis categories they fit. The table below, the reply to `/speckit help`, and the command reference in every
+diagnosis evidence file are generated from it, and a test fails when this table is stale; refresh it with
+`node .github/scripts/speckit-commands.mjs docs --write`.
+
+<!-- speckit-commands:start -->
+<!-- Generated from PR_COMMANDS in .github/scripts/speckit-implement-core.mjs; refresh with `node .github/scripts/speckit-commands.mjs docs --write`. -->
+
+| Command | What it does | Flags |
+| --- | --- | --- |
+| `/speckit retry [--force] [guidance]` | restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt's prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given | `--force`: restart even after 2 restarts in a row that left the branch unchanged |
+| `/speckit sync [guidance]` | require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved | none |
+| `/speckit fix [guidance]` | for a cause outside this spec: an agent authors a fix spec and opens it against the base branch for your review; once it is merged and implemented, this implementation retries by itself | none |
+| `/speckit help` | list these commands | none |
+
+<!-- speckit-commands:end -->
+
+### Format and flags
+
+Every comment command has the form `/speckit <command> [flags] [guidance]`. Flags start with `--`, directly follow the
+command, and are declared per command in `PR_COMMANDS`; case and trailing punctuation (`--force;`) are tolerated, a
+bare `--` ends the flags (put it before guidance that itself starts with `--`), and a flag the command does not support
+refuses the command instead of becoming guidance. An unknown command is answered with the help.
+
+### Guidance
+
+Writer-supplied text after `/speckit retry`, `/speckit sync`, or `/speckit fix` and their flags is called
+**guidance**. Retry and sync guidance is stored in a bot-authored pull request marker so a replaced dispatch or
+scheduled continuation cannot lose it. Copilot-bound guidance is whitespace-normalized, capped at 4,000 characters, and
+added to every task in the first retried group, or to the first convergence, repair, or conflict-resolution prompt.
+Later units do not inherit it, and it expires after successful work or a newer person-authored push. A clean merge and a verification-only repair restart invoke no agent, so they consume
+no prompt guidance; clean sync verification keeps unconsumed guidance for the first continued work. Fix guidance goes
+to the agent that authors the fix spec.
+
+### Retry
+
+`/speckit retry` restarts a stopped implementation with a fresh attempt count and keeps the base of a started phase.
+With a pending repair (see [Units of work](#units-of-work)), `retry` without guidance reverifies the failed scope
+without a repair agent, and `retry` with guidance runs the repair agent first. Each restart comment records the
+implementation branch head and the base branch head. While the implementation is stopped (`help wanted`),
+`Spec Kit commands` refuses a `retry` after `MAX_UNCHANGED_RESTARTS` (2) restarts in a row on the same implementation
+branch head, because it would most likely stop the same way again; the flag `--force`
+(`/speckit retry --force [guidance]`) insists. The refusal points to a push, retry guidance based on the diagnosis, or
+`/speckit fix`.
+
+### Fix
+
+`/speckit fix [guidance]` handles a cause outside the stopped spec: another feature's code or tests on the base
+branch, or the environment actions. The `Spec Kit fix` workflow authors a fix spec, or joins the implementation to an
+open or merged fix spec that already removes the cause; the implementation is blocked until the fix twin is implemented
+and then retries by itself (see [Pull requests that need attention](#pull-requests-that-need-attention)). When the fix
+is already on the base branch, use `sync` instead.
 
 ### Required synchronization
 
@@ -211,12 +266,6 @@ receiving base-branch changes is a prerequisite. Diagnosis categorizes a fix alr
 recommends `sync`; inconsistent category/command reports are rejected at publication, not rewritten into retries.
 
 Architecture impact: none. This changes repository automation, not the product design in `docs/architecture/`.
-
-The merge workflow first archives the spec to `specs/archive/<folder>` on the implementation branch (job `archive`),
-so the archive lands with the implementation. The controller runs only one of its `phase`, `repair`, `converge`,
-`resolve`, or `merge` reusable jobs, so the others
-always show as skipped. Prepare, orchestrate, and implement spec also have a `refuse` job that only runs, and fails, when
-started from a branch other than the default branch.
 
 ## Pull requests that need attention
 
