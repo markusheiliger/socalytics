@@ -5,19 +5,10 @@ using Amazon.S3;
 using DotNet.Testcontainers.Builders;
 using DotNet.Testcontainers.Containers;
 using DotNet.Testcontainers.Networks;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.FileProviders;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Npgsql;
 using Shouldly;
-using SocAlytics.Platform.Application;
-using SocAlytics.Platform.Application.Abstractions;
-using SocAlytics.Platform.Application.Registry;
-using SocAlytics.Platform.Infrastructure;
 using SocAlytics.Platform.Infrastructure.Messaging.Nats;
-using SocAlytics.Platform.Infrastructure.Registry;
 using Testcontainers.PostgreSql;
 using Xunit;
 
@@ -79,7 +70,7 @@ public sealed class StampDependenciesFixture(ImageBuildFixture images) : IAsyncL
             ct: ct);
         run.ExitCode.ShouldBe(0, run.Logs);
 
-        await SeedDefaultWorkflowAsync(ct);
+        await DefaultWorkflowArrangement.SeedAsync(ApplicationConnectionString(), ct);
     }
 
     public async ValueTask DisposeAsync()
@@ -167,6 +158,15 @@ public sealed class StampDependenciesFixture(ImageBuildFixture images) : IAsyncL
             ["IdentityAccess__OneTimeCredential__Lifetime"] = "1.00:00:00",
             ["WebUi__MinimumVersion"] = ImageBuildFixture.TestVersion,
         };
+
+    private string ApplicationConnectionString() =>
+        new NpgsqlConnectionStringBuilder(_postgres!.GetConnectionString())
+        {
+            Database = "socalytics",
+            Username = "socalytics_app",
+            Password = _appPassword,
+            Pooling = false,
+        }.ConnectionString;
 
     private static string Secret() => Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
 
@@ -260,63 +260,5 @@ public sealed class StampDependenciesFixture(ImageBuildFixture images) : IAsyncL
                 ResponseChecksumValidation = ResponseChecksumValidation.WHEN_REQUIRED,
             });
         await client.PutBucketAsync(Bucket, ct);
-    }
-
-    // The seeding runs in-process in the Test environment because the API container runs as Production, where it is disabled.
-    private async Task SeedDefaultWorkflowAsync(CancellationToken ct)
-    {
-        var settings = Path.Combine(images.RepositoryRoot, "src", "platform", "SocAlytics.Platform.Api", "appsettings.Development.json");
-        var runtimeConnection = new NpgsqlConnectionStringBuilder(_postgres!.GetConnectionString())
-        {
-            Database = "socalytics",
-            Username = "socalytics_app",
-            Password = _appPassword,
-            Pooling = false,
-        }.ConnectionString;
-        var configuration = new ConfigurationBuilder()
-            .AddJsonFile(settings, optional: false)
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["ConnectionStrings:socalytics"] = runtimeConnection })
-            .Build();
-
-        var services = new ServiceCollection();
-        services.AddSingleton<IConfiguration>(configuration);
-        services.AddSingleton<IHostEnvironment>(new TestHostEnvironment());
-        services.AddLogging();
-        services.AddHealthChecks();
-        services.AddScoped<SocAlytics.Platform.Application.Abstractions.IRequestContext, SeedRequestContext>();
-        services.AddInfrastructure();
-        services.AddApplication();
-        await using var provider = services.BuildServiceProvider();
-
-        foreach (var seeder in provider.GetServices<IHostedService>().OfType<ConfiguredWorkflowSeeder>())
-        {
-            await seeder.StartAsync(ct);
-            await seeder.StopAsync(ct);
-        }
-
-        var resolution = await provider.GetRequiredService<IWorkflowDefinitionResolver>().ResolveDefaultAsync(ct);
-        resolution.ShouldBeOfType<WorkflowResolution.ResolvedResult>("the default analysis workflow must resolve after seeding");
-    }
-
-    private sealed class SeedRequestContext : SocAlytics.Platform.Application.Abstractions.IRequestContext
-    {
-        public Guid? MemberAccountId => null;
-
-        public Guid? SessionId => null;
-
-        public string CorrelationId => "image-evidence-seed";
-
-        public AuditActorKind ActorKind => AuditActorKind.System;
-    }
-
-    private sealed class TestHostEnvironment : IHostEnvironment
-    {
-        public string EnvironmentName { get; set; } = "Test";
-
-        public string ApplicationName { get; set; } = "SocAlytics.Platform.Api";
-
-        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
-
-        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }
