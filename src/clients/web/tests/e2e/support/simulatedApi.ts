@@ -216,6 +216,13 @@ export class SimulatedApi {
   /** Completed recoveries, in order. */
   readonly recoveryCompletions: { accountName: string; newPassword: string }[] = [];
 
+  /** Usable invitation tokens mapped to their club and account name; an acceptance uses its token up. */
+  readonly invitationTokens = new Map<string, { clubName: string; accountName: string }>();
+  /** Invitations a Club Admin created, in order, with the token the simulated email link would carry. */
+  readonly invitationsCreated: { token: string; address: string; accountName: string; teamRoles: { teamId: string; role: string }[] }[] = [];
+  /** Accepted invitations, in order. */
+  readonly invitationAcceptances: { accountName: string; password: string }[] = [];
+
   /** Identity providers the simulated platform lists; empty means none is configured. */
   providers: { id: string; displayName: string }[] = [];
   /** When true, starting an external sign-in answers 503 `provider-unavailable`. */
@@ -476,6 +483,20 @@ export class SimulatedApi {
       this.recoveryCompletions.push({ accountName, newPassword: sent.newPassword });
       return route.fulfill({ status: 204 });
     }
+    if (method === 'POST' && (path === '/invitations/checks' || path === '/invitations/acceptances')) {
+      const sent = (request.postDataJSON() ?? {}) as { token?: string; password?: string };
+      const invitation = sent.token ? this.invitationTokens.get(sent.token) : undefined;
+      if (!invitation) {
+        return json(400, problem(400, 'Invitation invalid', { code: 'invitation-invalid' }));
+      }
+      if (path === '/invitations/checks') return json(200, invitation);
+      if (!sent.password) {
+        return json(400, problem(400, 'Validation failed', { errors: [{ field: 'password', code: 'required' }] }));
+      }
+      this.invitationTokens.delete(sent.token as string);
+      this.invitationAcceptances.push({ accountName: invitation.accountName, password: sent.password });
+      return route.fulfill({ status: 204 });
+    }
     if (!this.current) {
       return unauthorized();
     }
@@ -523,6 +544,46 @@ export class SimulatedApi {
           continuationToken: null,
         } satisfies MemberPageDto);
       }
+    }
+    if (method === 'POST' && path === '/invitations') {
+      if (role !== 'ClubAdmin') return json(403, problem(403, 'Forbidden'));
+      const sent = (request.postDataJSON() ?? {}) as {
+        address?: string;
+        accountName?: string;
+        teamRoles?: { teamId: string; role: string }[];
+      };
+      const address = (sent.address ?? '').trim();
+      const accountName = (sent.accountName ?? '').trim();
+      if (!address || !accountName) {
+        return json(400, problem(400, 'Validation failed', { errors: [{ field: address ? 'accountName' : 'address', code: 'required' }] }));
+      }
+      if (this.invitationsCreated.some((i) => i.address === address)) {
+        return json(409, problem(409, 'Conflict', { code: 'email-address-in-use' }));
+      }
+      if (this.invitationsCreated.some((i) => i.accountName === accountName) || Object.values(members).some((m) => m.accountName === accountName)) {
+        return json(409, problem(409, 'Conflict', { code: 'account-name-taken' }));
+      }
+      const teamRoles = sent.teamRoles ?? [];
+      const token = `simulated-invitation-token-${this.invitationsCreated.length + 1}`;
+      this.invitationsCreated.push({ token, address, accountName, teamRoles });
+      this.invitationTokens.set(token, { clubName: club.displayName ?? '', accountName });
+      return json(201, {
+        id: newId(),
+        state: 'pending',
+        address,
+        accountName,
+        teamRoles: teamRoles.map((r) => ({ teamId: r.teamId, teamName: team.name, role: r.role })),
+        invitedBy: { id: members.ClubAdmin.id, accountName: members.ClubAdmin.accountName },
+        createdAt: now,
+        linkIssuedAt: now,
+        linkExpiresAt: later(72),
+        deliveryState: 'queued',
+        resendCount: 0,
+        revokedAt: null,
+        acceptedAt: null,
+        acceptedMemberId: null,
+        version: 1,
+      });
     }
     if (method === 'POST' || method === 'PUT') {
       if (role === 'Viewer') return json(403, problem(403, 'Forbidden'));
