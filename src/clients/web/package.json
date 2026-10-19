@@ -8,7 +8,8 @@
   },
   "scripts": {
     "generate": "kiota generate --language typescript --openapi ../../platform/SocAlytics.Platform.Api/openapi/v1.json --output src/generated/platform-api --class-name PlatformApiClient --clean-output",
-    "build": "npm run generate && tsc -b && vite build",
+    "build": "npm run generate && npm run build:bundle",
+    "build:bundle": "tsc -b && vite build",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "preview": "vite preview"

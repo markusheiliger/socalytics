@@ -105,8 +105,8 @@ Portability rules that bind both profiles:
 
 - both profiles run the same cloud-neutral OCI images built from the same
   release;
-- the platform's images share one deployable contract (decided, not yet
-  implemented; see
+- the platform's images share one deployable contract (implemented as
+  development evidence, not production readiness; see
   [Platform Implementation](platform-implementation.md#source-and-runtime-baseline)):
   non-root users, a read-only root filesystem with `/tmp` as the only writable
   location, configuration through environment variables, HTTP health through
