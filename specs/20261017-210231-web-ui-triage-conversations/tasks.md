@@ -50,7 +50,7 @@ description: "Task list for Web UI Match Triage Conversations"
 
 ### Status polling
 
-- [ ] T009 Create `src/clients/web/src/features/triage/useInvocationPolling.ts`: one timer per unfinished invocation using `getInvocationStatus` with the last `ETag`, delays from `pollDelay.ts`, pausing while `document.visibilityState` is `hidden` or `src/clients/web/src/connectivity/useConnectivity.ts` reports offline and checking at once on return, stopping on `succeeded`, `failed`, or `notFound`, invalidating `['triage', 'turns', conversationId]` on a terminal state, and exposing a change counter for open lineage panels; add `src/clients/web/tests/unit/features/triage/useInvocationPolling.test.ts` with fake timers for backoff, reset, pause and resume, stop, and no request after the end (FR-010, FR-011, FR-018, SC-003)
+- [X] T009 Create `src/clients/web/src/features/triage/useInvocationPolling.ts`: one timer per unfinished invocation using `getInvocationStatus` with the last `ETag`, delays from `pollDelay.ts`, pausing while `document.visibilityState` is `hidden` or `src/clients/web/src/connectivity/useConnectivity.ts` reports offline and checking at once on return, stopping on `succeeded`, `failed`, or `notFound`, invalidating `['triage', 'turns', conversationId]` on a terminal state, and exposing a change counter for open lineage panels; add `src/clients/web/tests/unit/features/triage/useInvocationPolling.test.ts` with fake timers for backoff, reset, pause and resume, stop, and no request after the end (FR-010, FR-011, FR-018, SC-003)
 
 **Checkpoint**: Foundation ready; user story work can begin.
 
