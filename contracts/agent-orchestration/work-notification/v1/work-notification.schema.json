@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-orchestration/work-notification/v1/work-notification.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent invocation work notification v1",
+  "description": "Content-free notification that one queued Agent Invocation is ready for an Agent Workload, published at least once to the agent work queue (message id invocationId:readyOccurrence). Possession of this message confers no authority: the Agent Workload must claim the invocation through the platform API. Additional properties are refused, so no content (question, advice, history, scope, credentials, or URLs) can be added.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "invocationId",
+    "route",
+    "agentId",
+    "readyOccurrence",
+    "correlationId"
+  ],
+  "properties": {
+    "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1" },
+    "invocationId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "route": { "const": "user-to-specialist" },
+    "agentId": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+    "readyOccurrence": {
+      "description": "Incremented each time the invocation becomes queued; part of the message id.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "correlationId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" }
+  }
+}

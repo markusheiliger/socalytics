@@ -6,7 +6,7 @@ and
 [Web UI Match Workflow and Recording Upload](../../archive/20261013-112844-web-ui-match-upload/contracts/routes-and-roles.md).
 "Reader" means a Club Admin, or a Coach or Viewer of the match's team; "Editor" means a Club Admin or a Coach of the
 match's team (`canEditTeamMatches`). The platform stays authoritative: the owner-only reads of
-[Agent Orchestration Direct Invocations](../../20261017-204332-agent-orchestration-invocations/spec.md) decide what a
+[Agent Orchestration Direct Invocations](../../archive/20261017-204332-agent-orchestration-invocations/spec.md) decide what a
 member sees.
 
 | Route | View | Allowed for | Platform operations |

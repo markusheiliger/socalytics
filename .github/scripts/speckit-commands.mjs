@@ -11,10 +11,13 @@ import {
   PR_COMMANDS,
   RESTART_FORCE_FLAG,
   baseBranchOf,
+  continuationOf,
+  describeGuidanceReach,
   dispatchImplementation,
   describeCommandEffect,
   folderOfBranch,
   implementationBranch,
+  latestStopReason,
   neutralizeMarkers,
   parseCommandArguments,
   renderRetryComment,
@@ -63,7 +66,7 @@ export function renderHelp() {
     '',
     renderCommandTable(),
     '',
-    'An amendment pull request (`speckit-amend/<folder>`) or fix spec pull request (`speckit-fix/<folder>`) needs no commands: merge it to apply it, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
+    'An amendment pull request (`speckit-amend/<folder>`) or prerequisite spec pull request (`speckit-spec/<folder>`, earlier `speckit-fix/<folder>`) needs no commands: merge it to apply it, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
     '',
     'These are pull request comment commands, not skills. To walk through a stop locally in VS Code, use the skill `/speckit-gha-diagnose`.',
   ].join('\n');
@@ -103,6 +106,10 @@ async function retryImplementation(client, env, { implementation, twin, folder }
   const repair = unresolvedRepair(await client.listIssueComments(implementation.number));
   if (repair) {
     lead = `${lead.split(';')[0]}; ${describeCommandEffect(`/speckit retry${guidance ? ` ${guidance}` : ''}`, { baseBranch: baseBranchOf(implementation), continuation: { repair } })}`;
+  }
+  if (guidance) {
+    const continuation = repair ? { repair } : await continuationOf(client, { folder, pull: implementation });
+    lead = `${lead} ${describeGuidanceReach('retry', { continuation })}`;
   }
   await client.createComment(implementation.number, renderRetryComment(lead, guidance, state));
   await setAttention(client, implementation.number, false);
@@ -177,8 +184,9 @@ async function handleRetry({ client, env, actor, number, flags, guidance, folder
 }
 
 async function handleSync({ client, env, actor, number, guidance, implementation, twin }) {
+  const reach = guidance ? ` ${describeGuidanceReach('sync', { lastStop: latestStopReason(await client.listIssueComments(implementation.number)) })}` : '';
   await client.createComment(implementation.number, renderSyncComment(
-    `Required synchronization requested by @${actor}; merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.`,
+    `Required synchronization requested by @${actor}; merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.${reach}`,
     guidance,
     await restartState(client, implementation),
   ));
@@ -218,7 +226,7 @@ async function refuseUnchangedRestart(client, { name, number, implementation, fo
     '',
     '<details><summary>Other options</summary>',
     '',
-    `- If the diagnosis locates the cause on \`${base}\`, post \`/speckit fix\` with its concrete findings to author a prerequisite fix spec.`,
+    `- If the diagnosis locates the cause on \`${base}\`, post \`/speckit fix\` with its concrete findings to author a prerequisite spec.`,
     `- Only if the cause has already cleared (for example an outage has ended), insist with \`/speckit ${name} ${RESTART_FORCE_FLAG}\`; add the evidence after the command as guidance.`,
     '',
     '</details>',
@@ -232,7 +240,7 @@ async function handleFix({ client, env, actor, number, guidance, now, implementa
     await reply(client, number, `\`/speckit fix\` cannot start: ${neutralizeMarkers(started.reason)}.`);
     return { outcome: 'refused' };
   }
-  if (number !== implementation.number) await reply(client, number, `A fix spec is being authored; its progress is reported on #${implementation.number}.`);
+  if (number !== implementation.number) await reply(client, number, `A prerequisite spec is being authored; its progress is reported on #${implementation.number}.`);
   return { outcome: 'started' };
 }
 

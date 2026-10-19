@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "0b0a7f0e-6f55-4a3c-9d5e-2f6a1f0c9a11",
+  "route": "user-to-specialist",
+  "agentId": "specialist-tactics",
+  "readyOccurrence": 1,
+  "correlationId": "3c5b1e44-8d7a-4c1b-b1a5-7d2f0e9a4b62"
+}

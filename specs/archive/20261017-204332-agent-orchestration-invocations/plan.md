@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-204332-agent-orchestration-invocations` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261017-204332-agent-orchestration-invocations/spec.md`
+**Input**: Feature specification from `/specs/archive/20261017-204332-agent-orchestration-invocations/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -62,7 +62,7 @@ and Test executable.
 
 | Principle | Gate | Result |
 | --- | --- | --- |
-| I. Architecture Is the Design Authority | The feature implements [Agent Orchestration Authority](../../docs/architecture/intelligence-and-agents.md#agent-orchestration-authority), [Durable State And Transaction Boundaries](../../docs/architecture/intelligence-and-agents.md#durable-state-and-transaction-boundaries), [Client, Transport, And Runtime Protocol](../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol), [Authorization, Lineage, And Lifecycle](../../docs/architecture/intelligence-and-agents.md#authorization-lineage-and-lifecycle), and [Agent Runtime](../../docs/architecture/platform-implementation.md#agent-runtime) for direct specialists; decisions not yet stated there (workload identity, role rules, execution policy, simulated workload) are applied now as decided but not implemented (see Architecture Updates). | Pass |
+| I. Architecture Is the Design Authority | The feature implements [Agent Orchestration Authority](../../../docs/architecture/intelligence-and-agents.md#agent-orchestration-authority), [Durable State And Transaction Boundaries](../../../docs/architecture/intelligence-and-agents.md#durable-state-and-transaction-boundaries), [Client, Transport, And Runtime Protocol](../../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol), [Authorization, Lineage, And Lifecycle](../../../docs/architecture/intelligence-and-agents.md#authorization-lineage-and-lifecycle), and [Agent Runtime](../../../docs/architecture/platform-implementation.md#agent-runtime) for direct specialists; decisions not yet stated there (workload identity, role rules, execution policy, simulated workload) are applied now as decided but not implemented (see Architecture Updates). | Pass |
 | II. Respect Source-Area Ownership | Production code lives in the existing platform layers; the simulated workload is platform-owned validation tooling under `src/platform/Tests`; `src/agents/` stays reserved for Hermes; no new first-level area. | Pass |
 | III. API-First Control Plane | Members and workloads use only `/api/v1` operations described in the OpenAPI document; no runtime accesses the database; three JSON Schema 2020-12 contracts with golden fixtures are authoritative for the workload protocol. | Pass |
 | IV. Evidence Over Claims | Integration, contract, Host, and architecture tests cover every requirement (FR-037); the simulated workload is development evidence only and is not presented as an agent runtime or production readiness. | Pass |
@@ -75,26 +75,26 @@ Post-design re-check: unchanged, all gates pass. No Complexity Tracking entries.
 
 **Narratives** (implemented or changed by this feature):
 
-- [Intelligence and Agents → Agent Orchestration Authority](../../docs/architecture/intelligence-and-agents.md#agent-orchestration-authority):
+- [Intelligence and Agents → Agent Orchestration Authority](../../../docs/architecture/intelligence-and-agents.md#agent-orchestration-authority):
   the functional area, its operations, and the first implementation slice.
-- [Durable State And Transaction Boundaries](../../docs/architecture/intelligence-and-agents.md#durable-state-and-transaction-boundaries):
+- [Durable State And Transaction Boundaries](../../../docs/architecture/intelligence-and-agents.md#durable-state-and-transaction-boundaries):
   invocation and attempt states and the submit, claim, checkpoint, complete, and expire-or-fail transitions for
   direct invocations.
-- [Client, Transport, And Runtime Protocol](../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol):
+- [Client, Transport, And Runtime Protocol](../../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol):
   `202` submission, conditional polling, outbox notifications, the workload identity, claims, leases, fencing, stale
   dispositions, retries, and the execution policy.
-- [Authorization, Lineage, And Lifecycle](../../docs/architecture/intelligence-and-agents.md#authorization-lineage-and-lifecycle):
+- [Authorization, Lineage, And Lifecycle](../../../docs/architecture/intelligence-and-agents.md#authorization-lineage-and-lifecycle):
   private reads, role rules, scope-loss re-evaluation and fencing, lineage, and supersession of the bound run.
-- [Post-Analysis Match Triage](../../docs/architecture/intelligence-and-agents.md#post-analysis-match-triage): the
+- [Post-Analysis Match Triage](../../../docs/architecture/intelligence-and-agents.md#post-analysis-match-triage): the
   conversation bound to one match and one terminal successful run.
-- [Intelligence Agent Catalog](../../docs/architecture/intelligence-agent-catalog.md) introduction and
-  [Implementation Waves](../../docs/architecture/intelligence-agent-catalog.md#implementation-waves): the platform side
+- [Intelligence Agent Catalog](../../../docs/architecture/intelligence-agent-catalog.md) introduction and
+  [Implementation Waves](../../../docs/architecture/intelligence-agent-catalog.md#implementation-waves): the platform side
   of direct specialist conversations.
-- [Platform Implementation Profile → Agent Runtime](../../docs/architecture/platform-implementation.md#agent-runtime)
-  and [API And Identity](../../docs/architecture/platform-implementation.md#api-and-identity): the implementation
+- [Platform Implementation Profile → Agent Runtime](../../../docs/architecture/platform-implementation.md#agent-runtime)
+  and [API And Identity](../../../docs/architecture/platform-implementation.md#api-and-identity): the implementation
   baseline and the workload token endpoint.
-- [Security and Data Governance](../../docs/architecture/security-and-data-governance.md):
-  [Audit Events](../../docs/architecture/security-and-data-governance.md#audit-events), `GOV-CRED-003`, and `DAT-008`
+- [Security and Data Governance](../../../docs/architecture/security-and-data-governance.md):
+  [Audit Events](../../../docs/architecture/security-and-data-governance.md#audit-events), `GOV-CRED-003`, and `DAT-008`
   development evidence.
 
 **Design updates** (applied now to the owning narratives, worded as decided but not yet implemented; the
@@ -157,7 +157,7 @@ whole job.
 ### Documentation (this feature)
 
 ```text
-specs/20261017-204332-agent-orchestration-invocations/
+specs/archive/20261017-204332-agent-orchestration-invocations/
 ├── plan.md
 ├── research.md
 ├── data-model.md

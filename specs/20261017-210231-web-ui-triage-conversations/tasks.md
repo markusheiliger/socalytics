@@ -13,7 +13,7 @@ description: "Task list for Web UI Match Triage Conversations"
 
 **Organization**: Tasks are grouped by user story so each story can be implemented and tested independently. All paths are relative to the repository root; Web UI paths start with `src/clients/web/`.
 
-**Before starting**: the batch sibling [Agent Orchestration Direct Invocations](../20261017-204332-agent-orchestration-invocations/spec.md) must be merged, so the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` contains its member operations; `npm run build` (or `npm run generate`) in `src/clients/web` regenerates the ignored Kiota client from it. This feature never changes the snapshot or any platform code.
+**Before starting**: the batch sibling [Agent Orchestration Direct Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md) must be merged, so the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` contains its member operations; `npm run build` (or `npm run generate`) in `src/clients/web` regenerates the ignored Kiota client from it. This feature never changes the snapshot or any platform code.
 
 ## Format: `[ID] [P?] [Story] Description`
 

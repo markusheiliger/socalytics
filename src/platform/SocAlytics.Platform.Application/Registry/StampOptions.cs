@@ -11,6 +11,8 @@ public sealed class StampOptions
 
     public Uri TokenUri => Build("/api/v1/analyst-managers/token");
 
+    public Uri WorkloadTokenUri => Build("/api/v1/agent-orchestration/workload/token");
+
     public Uri ActivationUri => Build("/api/v1/analyst-managers/pairings/activation");
 
     public Uri PairingUri => Build("/api/v1/analyst-managers/pairings");

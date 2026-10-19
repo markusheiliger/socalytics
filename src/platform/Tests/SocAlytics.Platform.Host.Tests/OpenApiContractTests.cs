@@ -58,7 +58,7 @@ public sealed class OpenApiContractTests
 		// Recording operations are verified by RecordingsOpenApiTests and Registry operations by
 		// RegistryOpenApiTests and AnalystRegistryOpenApiTests, not against the Club contract.
 		var operationCount = paths.EnumerateObject()
-			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name) && !IsExternalSignInPath(p.Name) && !IsPasswordRecoveryPath(p.Name))
+			.Where(p => !IsRecordingPath(p.Name) && !IsRegistryPath(p.Name) && !IsAnalysisPath(p.Name) && !IsEmailPath(p.Name) && !IsExternalSignInPath(p.Name) && !IsPasswordRecoveryPath(p.Name) && !IsAgentOrchestrationPath(p.Name))
 			.Sum(p => p.Value.EnumerateObject().Count(o => o.Name != "parameters"));
 		operationCount.ShouldBe(ContractOperations.All.Count);
 
@@ -86,6 +86,11 @@ public sealed class OpenApiContractTests
 		|| path == "/api/v1/me/notification-preferences"
 		|| path.StartsWith("/api/v1/me/notification-preferences/", StringComparison.Ordinal)
 		|| path == "/api/v1/members/{memberId}/email";
+
+	// Agent orchestration operations are verified by the Agent Orchestration tests, not against the Club contract.
+	private static bool IsAgentOrchestrationPath(string path) =>
+		path.StartsWith("/api/v1/agent-", StringComparison.Ordinal)
+		|| path.EndsWith("/agent-conversations", StringComparison.Ordinal);
 
 	// External sign-in operations are verified by ExternalSignInEndpointTests against
 	// specs/archive/20261015-145134-oidc-sign-in/contracts/external-sign-in-api.md, not against the Club contract.
