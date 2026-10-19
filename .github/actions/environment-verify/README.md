@@ -2,7 +2,7 @@
 
 `environment-verify` is the optional composite action the Spec Kit workflows run to verify a change. This page describes only what the action executes today. It is build-environment behavior, not product documentation, and it neither approves a product nor shows production readiness.
 
-The action keeps its inputs (`workspace`, `mode`, `changed-files`, `log-file`) and outputs (`checks`, `uncovered`). It runs in a read-only job without token environment variables, because the checks execute agent-written code. Its header in [`action.yml`](action.yml) is the authoritative description of the platform, Analyst Manager, and Web UI checks; this page adds the Analyst Python check, the environment action tests, and the shared coverage rules.
+The action keeps its inputs (`workspace`, `mode`, `changed-files`, `log-file`) and outputs (`checks`, `uncovered`). It runs in a read-only job without token environment variables, because the checks execute agent-written code. Its header in [`action.yml`](action.yml) is the authoritative description of the platform, Analyst Manager, and Web UI checks; this page adds the Analyst Python check, the Agent Python check, the environment action tests, and the shared coverage rules.
 
 ## Analyst Python projects
 
@@ -63,26 +63,61 @@ The bootstrap sync installs locked external wheels and backends without building
 
 Discovery always validates the existing manifests. A malformed or unsupported project fails the check with the project, the stage, and one recommended action, even when the changed files do not touch it.
 
+## Agent Python projects
+
+The check "Agent Python projects" verifies agent projects with the same helper, convention, and command stages as the Analyst check, run separately as its own check. No agent project exists yet, so the check selects nothing and adds no coverage. The action creates no project, lock file, or declaration, and this page advertises no product command for an agent project.
+
+### Agent project layout
+
+Only this manifest is recognized, for each immediate child of `src/agents/`, as an independent project:
+
+```text
+src/agents/<name>/pyproject.toml
+```
+
+Each project follows the [Analyst project convention](#project-layout): a unique static `[project].name`, a `requires-python` that admits `SOCALYTICS_PYTHON`, its own committed `uv.lock`, a `[build-system]` with `requires` and `build-backend` and no `[tool.uv].package = false`, locked backends and pytest, published wheels for external dependencies, and at least one collectable test. Hidden folders, symbolic links, and the dependency and generated folders `.venv`, `venv`, `node_modules`, `__pycache__`, `.git`, `build`, `dist`, and `site-packages` are not recognized and not searched. `src/agents/pyproject.toml` and any manifest nested below a project fail discovery as an unsupported layout at the `project convention` stage, naming the manifest, and their source stays uncovered. A shared uv workspace and a git, URL, or index source are not supported.
+
+A default test run of an agent project needs no network service, model provider, credential, or secret, and verification supplies none: only `UV_PYTHON_DOWNLOADS=never` and `UV_PYTHON` are set.
+
+### Agent dependencies and names
+
+An agent project may depend only on another recognized agent project, declared in its requirements and with a path-based `[tool.uv.sources]` entry that resolves under `src/agents/<name>`, stays inside the repository, and names the project that the source key names. A dependency on an Analyst project fails discovery in the agents area; an Analyst project's dependency on an agent project still fails in the Analyst area. The agents area reads only the static `[project].name` of the Analyst projects and fails an agent project whose normalized name repeats one, naming both projects, so names are unique across both areas. The Analyst check's output and failures do not change while agent projects exist. Selected projects run in dependency order, dependencies first, and the log lines are `Agent Python project: <root>`, `Agent Python stage: <stage> (<root>)`, and on failure `Agent Python stage failed: <stage> in <root> (command: <command>). Recommended action: <action>`.
+
+### When the agent check runs
+
+The stages are those of the [Analyst check](#command-stages), run from each selected agent project's folder. `analyst-projects.py select --area agents` validates every existing agent project and selects projects by mode and changed paths, matching complete path components:
+
+| Condition | Selected agent projects |
+| --- | --- |
+| `finalize` mode | every existing agent project |
+| a change in either environment action folder | every existing agent project |
+| a change in a folder directly under `contracts/` whose name starts with `agent-`, or in `contracts/common/` | every existing agent project |
+| a change in an agent project's own folder (`task` and `phase`) | that project and every agent project that depends on it, directly or transitively |
+| `contracts/agentic/`, a root file such as `contracts/agent-x.md`, `contracts/analysis/`, Analyst, Manager, or unrelated changes, or no agent project exists | none |
+
+Discovery always validates the existing agent manifests. A malformed or unsupported agent project fails the check in every mode with the project, the stage, and one recommended action, even when the changed files do not touch it, and then no agent root is covered. Agent-only changes do not run the Analyst check and Analyst-only changes do not run the agent check.
+
 ## Environment action tests
 
 The check "Environment action tests" runs `node --test` over [`analyst-projects.test.mjs`](analyst-projects.test.mjs) and [`../environment-setup/toolchain.test.mjs`](../environment-setup/toolchain.test.mjs). It runs when a file under `.github/actions/environment-setup/` or `.github/actions/environment-verify/` changed, and in `finalize` mode, whether or not an Analyst Python project exists. It uses the Node.js that the caller provides. The marker `SOCALYTICS_ENVIRONMENT_TESTS_RUNNING` makes a nested run of the action skip this check, so the test fixtures never start the self-test again. The tests stub external commands and never connect to a database. They use isolated fixtures, not product projects.
 
 ## Check order and coverage
 
-Checks run in this order and stop at the first failing check: platform build and tests, Analyst Manager build and tests, Web UI build and tests, Analyst Python projects, Environment action tests, and Markdown check. The `checks` output lists the checks that ran, and after a failure the last one failed.
+Checks run in this order and stop at the first failing check: platform build and tests, Analyst Manager build and tests, Web UI build and tests, Analyst Python projects, Agent Python projects, Environment action tests, and Markdown check. The `checks` output lists the checks that ran, and after a failure the last one failed.
 
 The `uncovered` output lists changed files that no check covers, and the workflows hold such changes for review. These paths are covered:
 
 - Markdown files, `specs/`, and the repository metadata files `.gitignore`, `.gitattributes`, and `.editorconfig`;
 - the two environment action folders, which the merge self-tests;
 - `src/platform/` and `contracts/` while the platform solution exists, `src/analysts/manager/` while the Manager solution exists, and `src/clients/web/` while its `package.json` exists;
-- the root of each existing recognized Analyst Python project.
+- the root of each existing recognized Analyst Python project;
+- the root of each existing valid agent Python project (`src/agents/<name>`); `src/agents/README.md` is covered only by the Markdown rule.
 
-The source of a deleted or unrecognized Analyst project stays uncovered, because no check can approve a project that does not exist. Contracts stay covered by the platform scope. Other paths under `src/analysts/` and `src/clients/` stay uncovered.
+The source of a deleted or unrecognized Analyst or agent project stays uncovered, because no check can approve a project that does not exist; this includes `src/agents/pyproject.toml`, nested agent manifests, and unowned files directly in `src/agents/`. Contracts stay covered by the platform scope, and the `contracts/agent-*` and `contracts/common/` triggers run the agent check without covering those files. Other paths under `src/analysts/`, `src/agents/`, and `src/clients/` stay uncovered.
 
 ## Corrective actions
 
-Every failure names the project or tool, the stage, and one recommended action in the log:
+Every failure names the project or tool, the stage, and one recommended action in the log. The table applies to Analyst and agent projects alike, with the agent additions below it:
 
 | Failure | Action |
 | --- | --- |
@@ -93,5 +128,13 @@ Every failure names the project or tool, the stage, and one recommended action i
 | failed or empty tests | reproduce the command in the named project and correct the tests or the source they cover without weakening them |
 | missing `SOCALYTICS_PYTHON` or `uv` | run `environment-setup` with `install-tools: true`, then retry |
 | failed environment action test | reproduce the `node --test` command, correct the action or its test without weakening the test, then retry |
+
+Agent projects add these corrective actions at the `project convention` stage:
+
+| Failure | Action |
+| --- | --- |
+| agent manifest or local dependency outside the convention | correct the named manifest to the agent project convention, or author the required environment extension, before retrying |
+| local dependency on an Analyst project | remove the dependency on the Analyst project or move the shared code into an agent project under `src/agents/<name>`, before retrying |
+| unsupported agents manifest location (`src/agents/pyproject.toml`, a nested manifest) | move the project to `src/agents/<name>`, or author the required environment extension, before retrying |
 
 Never bypass an integrity check, unlock the verification, weaken a test, or merge without passing evidence. An environment change goes through a standalone environment spec, as the header of [`action.yml`](action.yml) describes.
