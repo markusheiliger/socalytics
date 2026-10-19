@@ -71,7 +71,7 @@ description: "Task list for Agent Catalog Registry"
 
 ### Test support for User Story 1
 
-- [ ] T015 [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/Catalog/Support/AgentCatalogApi.cs` (typed calls for every catalog operation as a given member, and builders that load the `contracts/agent-catalog/*/v1/examples/valid/` fixtures and recompute their digests) (FR-028)
+- [x] T015 [US1] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/Catalog/Support/AgentCatalogApi.cs` (typed calls for every catalog operation as a given member, and builders that load the `contracts/agent-catalog/*/v1/examples/valid/` fixtures and recompute their digests) (FR-028)
 
 ### Tests for User Story 1
 
