@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 import { TWIN_LABEL, renderTwinBody } from './speckit-prepare-core.mjs';
@@ -164,6 +164,33 @@ const remoteHead = (repos) => git(repos.base, `--git-dir=${repos.bare}`, 'log', 
 const remoteShow = (repos, spec) => git(repos.base, `--git-dir=${repos.bare}`, 'show', spec);
 const remoteSha = (repos, ref) => git(repos.base, `--git-dir=${repos.bare}`, 'rev-parse', ref).trim();
 
+// On Windows, `bash` on the PATH is often WSL's System32 launcher, which neither receives the environment these tests
+// pass nor understands Windows paths; Git for Windows' bash does both.
+function resolveBash() {
+  if (process.platform !== 'win32') return 'bash';
+  const execPath = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim();
+  const gitBash = path.resolve(execPath, '..', '..', '..', 'bin', 'bash.exe');
+  return existsSync(gitBash) ? gitBash : 'bash';
+}
+const BASH = resolveBash();
+const PYTHON = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-c', 'import sys;print(sys.executable)'], { encoding: 'utf8' }).stdout?.trim() || 'python3';
+// Runs a workflow script from a file: Windows re-quotes a long `-c` argument with nested quotes, which bash then misparses.
+const runBash = (script, options) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-bash-'));
+  try {
+    writeFileSync(path.join(dir, 'script.sh'), script);
+    return spawnSync(BASH, ['-e', path.join(dir, 'script.sh')], options);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+};
+const readText = (url) => readFileSync(url, 'utf8').replace(/\r\n/g, '\n');
+const prependPath = (env, dir) => {
+  const key = Object.keys(env).find((name) => name.toUpperCase() === 'PATH') ?? 'PATH';
+  const { [key]: current = '', ...rest } = env;
+  return { ...rest, PATH: `${dir}${path.delimiter}${current}` };
+};
+
 function withRepos(options, body) {
   const repos = makeGitRepos(options.tasks, options);
   return Promise.resolve(body(repos)).finally(() => rmSync(repos.base, { recursive: true, force: true }));
@@ -274,7 +301,7 @@ test('repair: reverification preserves original product paths and unions repair 
 });
 
 test('repair workflow: unchanged HEAD reverifies the original product scope, or all checks without evidence', () => withRepos({ tasks: DONE_TASKS }, (repos) => {
-  const workflow = readFileSync(new URL('../workflows/speckit-implement-repair.yml', import.meta.url), 'utf8');
+  const workflow = readText(new URL('../workflows/speckit-implement-repair.yml', import.meta.url));
   const script = workflow.match(/- name: Prepare the verification tree[\s\S]*?        run: \|\n([\s\S]*?)\n      - name:/)[1].replace(/^ {10}/gm, '');
   symlinkSync(process.cwd(), path.join(repos.base, 'tooling'), 'dir');
   const evidence = path.join(repos.base, 'failed-verification');
@@ -283,7 +310,7 @@ test('repair workflow: unchanged HEAD reverifies the original product scope, or 
     if (available) write(evidence, 'changed-files.txt', 'src/platform/Host.cs\n');
     else rmSync(evidence, { recursive: true });
     writeFileSync(output, '');
-    const run = spawnSync('bash', ['-e', '-c', script], {
+    const run = runBash(script, {
       cwd: repos.work, encoding: 'utf8',
       env: { ...process.env, SCOPE: 'phase', FAILED_HEAD: git(repos.work, 'rev-parse', 'HEAD').trim(), SPECKIT_RESULT_DIR: repos.resultDir, GITHUB_OUTPUT: output },
     });
@@ -298,7 +325,7 @@ test('repair workflow: unchanged HEAD reverifies the original product scope, or 
   assert.match(workflow, /Require the verification action\n        run: test -f tooling\/\.github\/actions\/environment-verify\/action\.yml/);
   assert.match(workflow, /SPECKIT_VERIFICATION_OUTCOME: \$\{\{ needs\.verify\.outputs\.verification \}\}/);
   const guard = workflow.match(/Require the verification action\n        run: ([^\n]+)/)[1];
-  assert.equal(spawnSync('bash', ['-e', '-c', guard], { cwd: repos.land }).status, 1, 'missing verifier fails the job instead of skipping verification');
+  assert.equal(runBash(guard, { cwd: repos.land }).status, 1, 'missing verifier fails the job instead of skipping verification');
 }));
 
 test('repair: no-op on a moved branch pins the actual current checkout, never an unchecked API head', () => withRepos({ tasks: DONE_TASKS }, async (repos) => {
@@ -323,7 +350,7 @@ test('repair: no-op on a moved branch pins the actual current checkout, never an
 }));
 
 test('repair fallback: finalize dispatches real product verification commands with an empty changed-file list', () => withRepos({}, (repos) => {
-  const action = readFileSync(new URL('../actions/environment-verify/action.yml', import.meta.url), 'utf8');
+  const action = readText(new URL('../actions/environment-verify/action.yml', import.meta.url));
   const script = action.match(/      run: \|\n([\s\S]*)/)[1].replace(/^ {8}/gm, '');
   const bin = path.join(repos.base, 'bin');
   for (const command of ['dotnet', 'npm']) {
@@ -341,11 +368,13 @@ test('repair fallback: finalize dispatches real product verification commands wi
   write(repos.work, 'src/clients/web/node_modules/@playwright/test/package.json', '{"version":"1.63.0"}');
   write(repos.base, 'markdown.mjs', '');
   const mode = repairVerificationScope({ scope: 'phase', repairChangedFiles: '' }).mode;
-  const run = spawnSync('bash', ['-e', '-c', script], { cwd: repos.work, encoding: 'utf8', env: {
-    ...process.env, PATH: `${bin}:${process.env.PATH}`, MODE: mode, WORKSPACE: repos.work,
+  const run = runBash(script, { cwd: repos.work, encoding: 'utf8', env: {
+    ...prependPath(process.env, bin), MODE: mode, WORKSPACE: repos.work,
     CHANGED_FILES: '', LOG_FILE: path.join(repos.base, 'verification.log'),
     GITHUB_OUTPUT: path.join(repos.base, 'output'), GITHUB_STEP_SUMMARY: path.join(repos.base, 'summary'),
     MARKDOWN_CHECK: path.join(repos.base, 'markdown.mjs'), CALLS: path.join(repos.base, 'calls'),
+    ANALYST_PROJECTS: fileURLToPath(new URL('../actions/environment-verify/analyst-projects.py', import.meta.url)),
+    SOCALYTICS_PYTHON: PYTHON, ENVIRONMENT_TESTS: '',
   } });
   assert.equal(run.status, 0, run.stderr);
   const calls = readFileSync(path.join(repos.base, 'calls'), 'utf8');
