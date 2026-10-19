@@ -562,11 +562,40 @@ function fetchArgs(env, branch) {
 // How often a task is rebuilt on a moved branch before it is redone from the newest head.
 const MAX_LAND_TRIES = 5;
 
+// Commit-message line of a task whose landing merged a parallel task's edits to the same files three-way.
+export const COMBINED_EDITS_NOTE = 'Combined with parallel changes to ';
+
+// The files whose edits the landings between start and head combined, read from the commit messages they wrote
+// (see pushTask). An empty list means every parallel task landed without merging a sibling's edits.
+export function combinedGroupEdits(git, start, head = 'HEAD') {
+  const messages = gitOrThrow(git, ['log', '--format=%B%x00', `${start}..${head}`]);
+  const files = new Set();
+  for (const line of messages.split(/\r?\n/)) {
+    if (!line.startsWith(COMBINED_EDITS_NOTE)) continue;
+    const list = line.slice(COMBINED_EDITS_NOTE.length).replace(/; verified together after the parallel tasks\.$/, '');
+    for (const file of list.split(', ')) if (file.trim()) files.add(file.trim());
+  }
+  return [...files].sort();
+}
+
+// Spec Kit implement group, job "verify" (read-only): decides whether the parallel tasks need a combined verification.
+// Writes combined=true|false and the combined files; the workflow verifies only a combination.
+export function runCombinedEdits({ git, env, log }) {
+  const start = String(env.SPECKIT_GROUP_START ?? '').trim();
+  if (!/^[0-9a-f]{40}$/.test(start)) throw new TaskInputError('Expected SPECKIT_GROUP_START to be the commit the group started from.');
+  const files = combinedGroupEdits(git, start);
+  setOutput(env, 'combined', String(files.length > 0));
+  log(files.length > 0
+    ? `The landings combined parallel edits to ${files.join(', ')}; the group's changes are verified together.`
+    : 'Every parallel task landed without combining edits; the phase verification covers the group.');
+  return { exitCode: 0, combined: files };
+}
+
 // Pushes the committed task. When the branch moved (a parallel task or a person pushed first), the task is rebuilt
 // on the new head: its change without tasks.md is applied again and its tick is set in the new tasks.md, then
 // everything is validated again. Files that also changed on the branch since the task started (a parallel task
-// edited them too) are merged three-way; the combination is verified after the parallel tasks landed (see
-// runCombinedVerified). Only
+// edited them too) are merged three-way and named in the commit message (COMBINED_EDITS_NOTE); only such a
+// combination is verified after the parallel tasks landed (see combinedGroupEdits and runCombinedVerified). Only
 // a change that no longer applies, or conflicts with those edits, has to be redone from the new head: that is a
 // requeue, not a failed attempt.
 // The shared job lock makes acceptance atomic with publication; rereads also fence stale work and push retries.
@@ -614,7 +643,7 @@ async function pushTask({ client, inputs, git, env, folder, task, message, resul
     gitOrThrow(git, ['add', '--', tasksPath]);
     const staged = checkStagedTask({ git, workspace, folder, task, patchBytes: statSync(patchFile).size, baseBranch: baseBranchFromEnv(env) });
     if (staged.reasons.length > 0) return { reasons: staged.reasons };
-    const note = combined.length > 0 ? [`Combined with parallel changes to ${combined.join(', ')}; verified together after the parallel tasks.`] : [];
+    const note = combined.length > 0 ? [`${COMBINED_EDITS_NOTE}${combined.join(', ')}; verified together after the parallel tasks.`] : [];
     gitOrThrow(git, [...GIT_IDENTITY, 'commit', '--no-verify', ...[...message, ...note].flatMap((part) => ['-m', part])]);
     onto = newHead;
   }
@@ -1054,9 +1083,11 @@ export async function runLandTasks({ client, git, env, folder, workspace, result
 }
 
 // Spec Kit implement group, job "report" (write token, never runs agent-written code): after parallel tasks land,
-// their combined verification decides how the phase continues. Verified: the next tasks are shown as
-// in progress on the new head. Otherwise the implementation stops for a person, like a failed phase verification (the
-// next run diagnoses it), and the job fails, so the matrix cancels the tasks after these.
+// the group decides how the phase continues. Without combined edits (SPECKIT_COMBINED=false) nothing was verified
+// together, because each task passed its own verification and the phase verification covers them; with combined
+// edits the affected tests of the group's changes ran. Success: the next tasks are shown as in progress on the new
+// head. Otherwise the implementation stops for a person, like a failed phase verification (the next run diagnoses
+// it), and the job fails, so the matrix cancels the tasks after these.
 export async function runCombinedVerified({ client, env, log }) {
   const report = createReporter(env, log);
   const twin = Number(env.SPECKIT_TWIN);
@@ -1072,14 +1103,17 @@ export async function runCombinedVerified({ client, env, log }) {
   if (!head) throw new TaskInputError('Expected the implementation pull request to have a head commit.');
   const tasks = current.include.map((entry) => entry.task).filter(Boolean).join(', ');
   const verification = String(env.SPECKIT_VERIFY_RESULT ?? '');
+  const combinedEdits = String(env.SPECKIT_COMBINED ?? 'true').toLowerCase() !== 'false';
   if (verification === 'success') {
     const next = order[index + 1];
     if (String(env.SPECKIT_LAND_OK) === 'true' && Array.isArray(next?.include) && next.include.length > 0) {
       await startAttemptChecks(client, { head, kind: 'task', entries: next.include });
     }
-    report.line(`${tasks} verified together on ${head}.`);
+    report.line(combinedEdits
+      ? `${tasks} verified together on ${head}.`
+      : `${tasks} landed on ${head} without combining edits; the phase verification covers them.`);
     report.flush();
-    return { exitCode: 0, verified: true };
+    return { exitCode: 0, verified: true, combined: combinedEdits };
   }
   const outcome = verification === 'failure' ? 'failed' : `did not finish (${verification || 'unknown'})`;
   const server = (env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '');
@@ -1624,13 +1658,14 @@ export async function runArchive({ client, git, env, folder, log }) {
   return finish(0, newHead, movedCheck, `Archived ${specDir(folder)} in ${newHead}${merging ? ` (merged ${baseBranch} first)` : ''}; rewrote ${edited.length} file(s).`);
 }
 
-const COMMANDS = 'integrate | package | verdict | land-tasks | combined-verified | repair-report | archive | merge-land';
+const COMMANDS = 'integrate | package | verdict | land-tasks | combined-edits | combined-verified | repair-report | archive | merge-land';
 
 export async function main(argv, { env = process.env, log = console.log, client, git } = {}) {
   const [command] = argv;
   const workspace = path.resolve(env.SPECKIT_WORKSPACE || 'workspace');
   const resultDir = path.resolve(env.SPECKIT_RESULT_DIR || 'result');
   const folder = env.SPECKIT_FOLDER;
+  if (command === 'combined-edits') return runCombinedEdits({ git: git ?? defaultGit(workspace), env, log }).exitCode;
   if (command === 'combined-verified') return (await runCombinedVerified({ client: client ?? createGitHubClient(env), env, log })).exitCode;
   if (command === 'repair-report') return (await runRepairReport({ client: client ?? createGitHubClient(env), env, log })).exitCode;
   if (command === 'archive') return (await runArchive({ client: client ?? createGitHubClient(env), git: git ?? defaultGit(workspace), env, folder, log })).exitCode;
