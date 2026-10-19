@@ -168,6 +168,24 @@ function memberListEntry(member: CurrentMemberDto): MemberDto {
   };
 }
 
+export interface SimulatedInvitation {
+  id: string;
+  state: 'pending' | 'expired' | 'accepted' | 'revoked';
+  address: string;
+  accountName: string;
+  teamRoles: { teamId?: string | null; teamName?: string | null; role: string }[];
+  invitedBy: { id?: string | null; accountName?: string | null };
+  createdAt: Date;
+  linkIssuedAt: Date;
+  linkExpiresAt: Date;
+  deliveryState: 'queued' | 'sent' | 'failed';
+  resendCount: number;
+  revokedAt: Date | null;
+  acceptedAt: Date | null;
+  acceptedMemberId: string | null;
+  version: number;
+}
+
 export function problem(status: number, title: string, extra: Record<string, unknown> = {}) {
   return { type: 'about:blank', title, status, ...extra };
 }
@@ -222,6 +240,11 @@ export class SimulatedApi {
   readonly invitationsCreated: { token: string; address: string; accountName: string; teamRoles: { teamId: string; role: string }[] }[] = [];
   /** Accepted invitations, in order. */
   readonly invitationAcceptances: { accountName: string; password: string }[] = [];
+  /** Invitation records the list, resend, and revoke operations work on, oldest first; created invitations are added. Tests may add more. */
+  readonly invitations: SimulatedInvitation[] = [];
+  /** Operations the simulated platform applied to invitations, in order. */
+  readonly invitationOperations: { id: string; operation: 'resend' | 'revoke'; ifMatch: string }[] = [];
+  private readonly invitationLinkTokens = new Map<string, string>();
 
   /** Identity providers the simulated platform lists; empty means none is configured. */
   providers: { id: string; displayName: string }[] = [];
@@ -537,6 +560,12 @@ export class SimulatedApi {
       }
       const found = this.handleMatchReads(path, json);
       if (found) return found;
+      if (path === '/invitations') {
+        if (role !== 'ClubAdmin') return json(403, problem(403, 'Forbidden'));
+        const state = new URL(request.url()).searchParams.get('state');
+        const items = this.invitations.filter((i) => !state || i.state === state).reverse();
+        return json(200, items);
+      }
       if (path === '/members') {
         if (role !== 'ClubAdmin') return json(403, problem(403, 'Forbidden'));
         return json(200, {
@@ -567,7 +596,7 @@ export class SimulatedApi {
       const token = `simulated-invitation-token-${this.invitationsCreated.length + 1}`;
       this.invitationsCreated.push({ token, address, accountName, teamRoles });
       this.invitationTokens.set(token, { clubName: club.displayName ?? '', accountName });
-      return json(201, {
+      const created: SimulatedInvitation = {
         id: newId(),
         state: 'pending',
         address,
@@ -583,7 +612,41 @@ export class SimulatedApi {
         acceptedAt: null,
         acceptedMemberId: null,
         version: 1,
-      });
+      };
+      this.invitations.push(created);
+      this.invitationLinkTokens.set(created.id, token);
+      return json(201, created);
+    }
+    const operation = /^\/invitations\/([^/]+)\/(resend|revoke)$/.exec(path);
+    if (method === 'POST' && operation) {
+      if (role !== 'ClubAdmin') return json(403, problem(403, 'Forbidden'));
+      const invitation = this.invitations.find((i) => i.id === operation[1]);
+      if (!invitation) return json(404, problem(404, 'Not found'));
+      const ifMatch = request.headers()['if-match'];
+      if (!ifMatch) return json(428, problem(428, 'Precondition required'));
+      if (ifMatch !== `"${invitation.version}"`) return json(412, problem(412, 'Precondition failed'));
+      if (invitation.state === 'accepted' || invitation.state === 'revoked') {
+        return json(409, problem(409, 'Conflict', { code: 'invitation-not-open' }));
+      }
+      const kind = operation[2] as 'resend' | 'revoke';
+      this.invitationOperations.push({ id: invitation.id, operation: kind, ifMatch });
+      const token = this.invitationLinkTokens.get(invitation.id);
+      if (token) this.invitationTokens.delete(token);
+      if (kind === 'resend') {
+        invitation.state = 'pending';
+        invitation.resendCount += 1;
+        invitation.linkIssuedAt = now;
+        invitation.linkExpiresAt = later(72);
+        invitation.deliveryState = 'queued';
+        const fresh = `${token ?? 'simulated-invitation-token'}-resent-${invitation.resendCount}`;
+        this.invitationLinkTokens.set(invitation.id, fresh);
+        this.invitationTokens.set(fresh, { clubName: club.displayName ?? '', accountName: invitation.accountName });
+      } else {
+        invitation.state = 'revoked';
+        invitation.revokedAt = now;
+      }
+      invitation.version += 1;
+      return json(200, invitation);
     }
     if (method === 'POST' || method === 'PUT') {
       if (role === 'Viewer') return json(403, problem(403, 'Forbidden'));
