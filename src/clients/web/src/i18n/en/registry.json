@@ -330,7 +330,8 @@
   "changed": {
     "title": "The record has changed",
     "message": "The record has changed since you loaded it. It has been reloaded; review it and decide again.",
-    "currentState": "Current state: {{state}}"
+    "currentState": "Current state: {{state}}",
+    "currentDefault": "Current default: {{current}}"
   },
   "outcome": {
     "alreadyRegistered": "The image was already registered, nothing changed.",
