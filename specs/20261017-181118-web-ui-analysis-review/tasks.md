@@ -112,6 +112,10 @@ description: "Task list for Web UI Connected Analysis Review"
 - [x] T021 [US3] Render every state of `specs/20261017-181118-web-ui-analysis-review/contracts/review-states.md` in `src/clients/web/src/features/analysis/FactBrowser.tsx` through `deriveFactViewState`: its own message per state, coverage in every data state, the incomplete note on facts while the run is in progress or coverage is not fully accepted, the non-accepted windows for `incomplete`, and the continuation-restart note; add `src/clients/web/tests/unit/features/analysis/factBrowserStates.test.tsx` with one case per state (FR-014, FR-015, SC-003)
 - [x] T022 [US3] In `src/clients/web/src/features/analysis/AnalysisRunPage.tsx`, compare the refreshed stream summary of the selected stream with the counts and coverage the open page was loaded with and show the "new results are available" notice with a reload action that restarts at the first page, announced through a polite live region; treat a `stream` node key that is not in the listing as `capabilityNotInRun` and show the stream list; extend `src/clients/web/tests/unit/features/analysis/analysisRunPage.test.tsx` (FR-006, FR-014, US3 acceptance 5 and 6)
 
+### Platform range fidelity
+
+- [ ] T029 [US3] Corrective task (research.md R14): in `src/clients/web/src/platform/adapters/analysisFactAdapter.ts`, make `toFactPage` accept `null` or absent `range.fromMs` and `range.toMs` (mapped to absent bounds, a present non-finite bound stays `incompatible`) and make `FactPage.range` in `src/clients/web/src/platform/models/analysis.ts` `{ fromMs?: number; toMs?: number }`; make the fact route of `src/clients/web/tests/e2e/support/simulatedApi.ts` echo `null` for a bound the request did not set instead of an effective range; extend `src/clients/web/tests/unit/platform/adapters/analysisFactAdapter.test.ts` with a page whose range bounds are `null` (FR-007, FR-017, FR-022)
+
 ### State browser evidence
 
 - [ ] T023 [US3] Add an `Explicit states` block to `src/clients/web/tests/e2e/simulated/analysis-review.spec.ts`: running run without facts (`inProgress`), partially completed run with failed and blocked windows (`incomplete` and facts with the incomplete note), complete coverage without facts (`completeWithoutFacts`), a range without facts (`noFactsInRange`), an outdated stream address (`capabilityNotInRun`), a rejected continuation (restart note), a platform error with reload, and a running run whose counts and coverage change after a poll with the notice offered instead of the page changing (US3 acceptance 1–6); extend `src/clients/web/tests/e2e/platform/analysis-review.spec.ts` to open the run's first stream and see zero facts with the in-progress or incomplete message (FR-022)
@@ -158,7 +162,7 @@ description: "Task list for Web UI Connected Analysis Review"
 - **Foundational (Phase 2)**: depends on Setup; T003–T009 form one parallel group.
 - **User Story 1 (Phase 3)**: depends on Foundational.
 - **User Story 2 (Phase 4)**: depends on Foundational and on T011 (the route view it extends).
-- **User Story 3 (Phase 5)**: depends on US2 (it extends `FactBrowser.tsx` and the selection in `AnalysisRunPage.tsx`).
+- **User Story 3 (Phase 5)**: depends on US2 (it extends `FactBrowser.tsx` and the selection in `AnalysisRunPage.tsx`); T029 (the corrective range mapping) runs before T023 so the platform spec reads a real unranged fact page.
 - **User Story 4 (Phase 6)**: depends on US1–US3 (its checks cover every view and state).
 - **Polish (Phase 7)**: depends on all stories; T028 runs last.
 

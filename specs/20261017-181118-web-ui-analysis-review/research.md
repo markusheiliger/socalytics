@@ -201,3 +201,24 @@ rationale, and the alternatives considered.
 - **Alternatives**: Executing jobs in the Web UI platform project with a
   scripted Manager that uploads results (large new test harness duplicating
   the platform's end-to-end tests).
+
+## R14 — The echoed range of a fact page (refined)
+
+- **Decision**: The adapter maps the fact page's `range` bounds as optional:
+  `null` (the platform's answer for a bound the request did not set) becomes
+  an absent bound, and the simulated API echoes the same (`null` for an unset
+  bound), not an invented effective range.
+- **Rationale**: `ListRunFactsHandler` returns the parsed `fromMs` and `toMs`
+  unchanged (`long?`), and `FactRangeDto` declares both nullable, so the first
+  page of a stream read without a range carries `{ "fromMs": null,
+  "toMs": null }`. The adapter and the simulated API had assumed finite numbers
+  ("the effective range"), so the adapter reported `incompatible` for every
+  real unranged read and the review showed the error state instead of
+  `inProgress` or `incomplete`. The simulated API hid this, and the
+  `platform-analysis` spec of T023 is the first test to open a stream against
+  the running platform (T023 failed twice with the in-progress or incomplete
+  message missing).
+- **Alternatives**: Treating a `null` bound as zero or as the coverage end in
+  the adapter (invents values the platform did not report); changing the
+  platform to echo an effective range (outside this feature; the fact read is
+  merged and tested by its own feature).
