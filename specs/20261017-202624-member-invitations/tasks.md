@@ -41,7 +41,7 @@ description: "Task list for Member Invitations by Email"
 
 ### Registration
 
-- [ ] T007 Register `IMemberInvitationStore` in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs`; bind and validate `InvitationOptions` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`; set the development values explicitly in the `Invitations` section of `src/platform/SocAlytics.Platform.Api/appsettings.Development.json`; and add the detail keys the invitation audit events use that the allow-list in `src/platform/SocAlytics.Platform.Infrastructure/Persistence/PostgresAuditTrail.cs` lacks (`teamCount`, `memberId`; `maskedAddress` is already allowed) (FR-018, FR-019)
+- [x] T007 Register `IMemberInvitationStore` in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs`; bind and validate `InvitationOptions` in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`; set the development values explicitly in the `Invitations` section of `src/platform/SocAlytics.Platform.Api/appsettings.Development.json`; and add the detail keys the invitation audit events use that the allow-list in `src/platform/SocAlytics.Platform.Infrastructure/Persistence/PostgresAuditTrail.cs` lacks (`teamCount`, `memberId`; `maskedAddress` is already allowed) (FR-018, FR-019)
 
 ### Foundational tests
 

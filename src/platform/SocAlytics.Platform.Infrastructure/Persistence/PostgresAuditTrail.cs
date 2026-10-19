@@ -59,6 +59,8 @@ internal sealed class PostgresAuditTrail(
         "readyJobsRepublished",
         "notificationsRepublished",
         "maskedAddress",
+        "teamCount",
+        "memberId",
         "notificationType",
         "enabled",
         "logicalJobId",

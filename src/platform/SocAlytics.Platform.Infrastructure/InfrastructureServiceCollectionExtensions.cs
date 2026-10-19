@@ -162,6 +162,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.IEmailConfirmationStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.EmailConfirmationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.INotificationPreferenceStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.NotificationPreferenceStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.IPasswordRecoveryStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.PasswordRecoveryStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Invitations.IMemberInvitationStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.MemberInvitationStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.IEmailMessageStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.EmailMessageStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.Email.INotificationRecipientStore, SocAlytics.Platform.Infrastructure.Persistence.IdentityAccess.NotificationRecipientStore>();
         services.AddOptions<SocAlytics.Platform.Infrastructure.Email.EmailOptions>()
