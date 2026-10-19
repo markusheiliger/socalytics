@@ -99,7 +99,7 @@ public sealed class AttemptDirectoryTests
         launch.ResultDirectory.ShouldBe(Path.Combine(directory, "result"));
         launch.ScratchDirectory.ShouldBe(Path.Combine(directory, "scratch"));
         launch.InputsDirectory.ShouldBeNull();
-        _runtime.Observed.ShouldBe(["job.json", "result", "scratch"]);
+        _runtime.Observed.ShouldBe(["attempt.json", "job.json", "result", "scratch"]);
 
         var job = JsonNode.Parse(_runtime.JobJson!)!;
         job["logicalJobId"]!.GetValue<string>().ShouldBe(JobId.ToString());

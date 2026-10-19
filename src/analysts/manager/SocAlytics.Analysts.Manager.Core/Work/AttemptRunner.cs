@@ -46,6 +46,7 @@ public sealed class AttemptRunner(
     public static readonly TimeSpan ClaimRetryWindow = TimeSpan.FromSeconds(20);
 
     public const string JobFileName = "job.json";
+    public const string AttemptFileName = "attempt.json";
     public const string ScratchFolder = "scratch";
 
     private static readonly TimeSpan InitialBackoff = TimeSpan.FromSeconds(1);
@@ -125,7 +126,7 @@ public sealed class AttemptRunner(
                 return AttemptRunEnd.Rejected;
         }
 
-        var attempt = new ActiveAttempt(job, claim.Value!, time.GetUtcNow());
+        var attempt = new ActiveAttempt(job, claim.Value!, time.GetUtcNow(), delivery.Data.ToArray());
         _logger.LogInformation(
             "Claimed Logical Job {LogicalJobId} attempt {AttemptId} number {AttemptNumber} correlation {CorrelationId} (replayed: {Replayed})",
             attempt.LogicalJobId, attempt.AttemptId, attempt.AttemptNumber, attempt.CorrelationId, claim.Kind == WorkResultKind.Replayed);
@@ -385,8 +386,15 @@ public sealed class AttemptRunner(
         Directory.CreateDirectory(attemptDirectory);
         Directory.CreateDirectory(Path.Combine(attemptDirectory, ResultPublisher.ResultFolder));
         Directory.CreateDirectory(Path.Combine(attemptDirectory, ScratchFolder));
+        File.WriteAllBytes(Path.Combine(attemptDirectory, JobFileName), attempt.JobBytes);
         File.WriteAllBytes(
-            Path.Combine(attemptDirectory, JobFileName), JsonSerializer.SerializeToUtf8Bytes(attempt.Job, PlatformJson.Options));
+            Path.Combine(attemptDirectory, AttemptFileName),
+            JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, object>
+            {
+                ["contractVersion"] = "1.0.0",
+                ["attemptId"] = attempt.AttemptId.ToString(),
+                ["attemptNumber"] = attempt.AttemptNumber,
+            }));
     }
 
     private static async Task<AttemptOutcome> ReadOutcomeAsync(IAttemptExecution execution)
@@ -536,7 +544,8 @@ public sealed class AttemptRunner(
             job.ExecutionScope, job.Pinned.AnalystProfileDigest, job.Pinned.ImageDigest, job.Pinned.ModelDigest ?? string.Empty,
             new AttemptResources(job.Resources.CpuMillicores / 1000.0, job.Resources.MemoryMebibytes * 1024 * 1024, []),
             job, attempt.AttemptNumber, publisher is null ? null : ResultPublisher.DirectoryFor(attempt.AttemptId), inputsDirectory,
-            Path.Combine(attemptDirectory, JobFileName), Path.Combine(attemptDirectory, ScratchFolder));
+            Path.Combine(attemptDirectory, JobFileName), Path.Combine(attemptDirectory, ScratchFolder),
+            Path.Combine(attemptDirectory, AttemptFileName));
     }
 
     private static ExecutedRuntime Describe(string profile) => new(
