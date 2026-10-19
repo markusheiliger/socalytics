@@ -59,7 +59,7 @@
 ### Parallel Environment Documentation
 
 - [ ] T006 [P] Document in `.github/actions/environment-verify/README.md` the implemented agent project layout (`src/agents/<name>/pyproject.toml`), the shared convention, agent-only local dependencies and names unique across areas, the requirement that a default test run needs no network service, model provider, credential, or secret, the selection triggers (including the `contracts/agent-*` family and `contracts/common/`), coverage, the new check's place in the check order, and its corrective actions next to the Analyst Python section; advertise no product command for an agent project that does not exist.
-- [ ] T007 [P] State in `.github/actions/environment-setup/README.md` that the installed `SOCALYTICS_PYTHON` and `uv` also serve the agent Python projects that `environment-verify` checks, without changing any pin, step, or other statement.
+- [x] T007 [P] State in `.github/actions/environment-setup/README.md` that the installed `SOCALYTICS_PYTHON` and `uv` also serve the agent Python projects that `environment-verify` checks, without changing any pin, step, or other statement.
 
 ### Final Acceptance
 
