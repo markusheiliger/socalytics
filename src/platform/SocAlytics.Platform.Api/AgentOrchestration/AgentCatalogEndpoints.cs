@@ -321,7 +321,8 @@ internal static class AgentCatalogEndpoints
 			});
 
 	private static bool TryParseKind(string kind, out AgentCatalogRecordKind parsed) =>
-		kind.EndsWith('s') && AgentCatalogRecordKinds.TryParse(kind[..^1], out parsed)
+		AgentCatalogRecordKinds.TryParse(
+			kind.EndsWith("ies", StringComparison.Ordinal) ? kind[..^3] + "y" : kind.EndsWith('s') ? kind[..^1] : null, out parsed)
 			? true
 			: Fail(out parsed);
 
