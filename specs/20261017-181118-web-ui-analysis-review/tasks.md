@@ -80,7 +80,7 @@ description: "Task list for Web UI Connected Analysis Review"
 
 ### Paging state
 
-- [ ] T014 [US2] Create `src/clients/web/src/features/analysis/useFactPages.ts`: a hook that keeps the continuation-token stack of `data-model.md` (first page without token; Next pushes the current page's `continuationToken`, Previous pops) for one selection, discards it when the selection changes, on reload, and on `continuationRejected` (reporting that a restart happened), and loads pages through `listFacts` under the facts query key with no automatic refetch; add `src/clients/web/tests/unit/features/analysis/useFactPages.test.tsx` proving three pages forward and back without repeats and the resets (FR-009, FR-013)
+- [x] T014 [US2] Create `src/clients/web/src/features/analysis/useFactPages.ts`: a hook that keeps the continuation-token stack of `data-model.md` (first page without token; Next pushes the current page's `continuationToken`, Previous pops) for one selection, discards it when the selection changes, on reload, and on `continuationRejected` (reporting that a restart happened), and loads pages through `listFacts` under the facts query key with no automatic refetch; add `src/clients/web/tests/unit/features/analysis/useFactPages.test.tsx` proving three pages forward and back without repeats and the resets (FR-009, FR-013)
 
 ### Fact browser building blocks
 
