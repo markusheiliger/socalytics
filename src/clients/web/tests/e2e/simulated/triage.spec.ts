@@ -1,6 +1,7 @@
+import type { Page } from '@playwright/test';
 import { expectNoAxeViolations } from '../support/axe';
 import { expect, test } from '../support/fixtures';
-import { match, team } from '../support/simulatedApi';
+import { agentRefusals, match, team, type SimulatedApi } from '../support/simulatedApi';
 
 test.beforeEach(async ({ api }) => {
   api.on('GET', `/teams/${team.id}`, (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(team) }));
@@ -190,5 +191,143 @@ test.describe('Return and context', () => {
     await expect(page.getByLabel('Your question')).toHaveCount(0);
     await expect(page.getByLabel('Agent to add')).toHaveCount(0);
     await expectNoAxeViolations(page);
+  });
+});
+
+test.describe('Failures and refusals', () => {
+  const openConversation = async (page: Page, api: SimulatedApi, participants = ['specialist-tactics']) => {
+    api.signInAs('Coach');
+    const conversation = api.seedAgentConversation({ participants });
+    await page.goto(`/matches/${match.id}/triage/${conversation.conversationId}`);
+    await expect(page.getByLabel('Your question')).toBeVisible();
+    return conversation;
+  };
+
+  test('a network failure after acceptance followed by Send again leaves one turn and one idempotency key (SC-003)', async ({ page, api }) => {
+    const conversation = await openConversation(page, api);
+    const keys: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && request.url().endsWith('/invocations')) keys.push(request.headers()['idempotency-key'] ?? '');
+    });
+    api.dropNextResponse('submit');
+
+    await page.getByLabel('Your question').fill('Who won the second balls?');
+    await page.getByRole('button', { name: 'Send question' }).click();
+    await expect(page.getByRole('alert').filter({ hasText: 'We could not confirm that your question was received.' })).toBeVisible();
+    await expect(page.getByLabel('Your question')).toHaveValue('Who won the second balls?');
+
+    await page.getByRole('button', { name: 'Send again' }).click();
+    const history = page.getByRole('list', { name: 'Questions and advice' });
+    await expect(history).toContainText('Who won the second balls?');
+    await expect(history.getByRole('listitem', { name: /^Question to/ })).toHaveCount(1);
+
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+    expect([...api.agentInvocations.values()].filter((i) => i.conversationId === conversation.conversationId)).toHaveLength(1);
+    expect([...api.idempotencyRecords.values()].filter((record) => record.fingerprint.startsWith('["submit"'))).toHaveLength(1);
+  });
+
+  const refusals = [
+    ['tooManyUnfinished', agentRefusals.tooManyUnfinished, 'Too many of your questions are still being answered. Send this one when one of them has finished.'],
+    ['agentNotAvailable', agentRefusals.agentNotAvailable, 'This agent is no longer available on this platform.'],
+    ['agentNotParticipant', agentRefusals.agentNotParticipant, 'Add this agent to the conversation before asking it.'],
+    ['runNotEligible', agentRefusals.runNotEligible, 'This analysis run cannot be used for triage.'],
+    ['invalidQuestion (required)', agentRefusals.invalidQuestion, 'Enter a question.'],
+    ['invalidQuestion (too long)', agentRefusals.questionTooLong, 'The question is too long. Shorten it to at most'],
+  ] as const;
+
+  for (const [name, refusal, message] of refusals) {
+    test(`shows the message of the refusal ${name} and keeps the draft (SC-003)`, async ({ page, api }) => {
+      await openConversation(page, api);
+      api.refuseNext('submit', refusal);
+      await page.getByLabel('Your question').fill('Keep this draft');
+      await page.getByRole('button', { name: 'Send question' }).click();
+      await expect(page.getByRole('alert').filter({ hasText: message })).toBeVisible();
+      await expect(page.getByLabel('Your question')).toHaveValue('Keep this draft');
+      expect(api.agentInvocations.size).toBe(0);
+      await expectNoAxeViolations(page);
+    });
+  }
+
+  test('a refused submission for lack of the right switches the conversation to read-only (SC-003)', async ({ page, api }) => {
+    await openConversation(page, api);
+    api.refuseNext('submit', agentRefusals.forbidden);
+    await page.getByLabel('Your question').fill('Am I still allowed?');
+    await page.getByRole('button', { name: 'Send question' }).click();
+    await expect(page.getByText('You can read this conversation, but only Club Admins and Coaches of the team can ask questions.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send question' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Add agent' })).toHaveCount(0);
+  });
+
+  test('a stale participant add reloads the conversation and a new choice succeeds (SC-003)', async ({ page, api }) => {
+    const conversation = await openConversation(page, api);
+    const reads: string[] = [];
+    page.on('request', (request) => {
+      if (request.method() === 'GET' && new URL(request.url()).pathname === `/api/v1/agent-conversations/${conversation.conversationId}`) {
+        reads.push(request.url());
+      }
+    });
+    const before = reads.length;
+    conversation.version += 1;
+
+    await page.getByLabel('Agent to add').selectOption('specialist-scouting');
+    await page.getByRole('button', { name: 'Add agent' }).click();
+    await expect(page.getByText('The conversation changed. It has been reloaded; choose again.')).toBeVisible();
+    await expect.poll(() => reads.length).toBeGreaterThan(before);
+    await expect(page.getByRole('list', { name: 'Participating agents' })).not.toContainText('specialist-scouting');
+
+    await page.getByLabel('Agent to add').selectOption('specialist-scouting');
+    await page.getByRole('button', { name: 'Add agent' }).click();
+    await expect(page.getByRole('list', { name: 'Participating agents' })).toContainText('specialist-scouting');
+  });
+
+  test('revoking the owner while a turn is pending shows the not-found view and stops all status requests (FR-018)', async ({ page, api }) => {
+    test.setTimeout(60_000);
+    api.signInAs('Coach');
+    api.statusRetryAfterSeconds = 1;
+    const conversation = api.seedAgentConversation({ participants: ['specialist-tactics'] });
+    api.seedAgentTurn(conversation.conversationId, { script: [{ state: 'accepted', holdReads: 1000 }] });
+    let statusReads = 0;
+    page.on('request', (request) => {
+      if (request.method() === 'GET' && /\/api\/v1\/agent-invocations\/[^/]+$/.test(new URL(request.url()).pathname)) statusReads++;
+    });
+
+    await page.goto(`/matches/${match.id}/triage/${conversation.conversationId}`);
+    await expect(page.getByRole('list', { name: 'Questions and advice' })).toContainText('Waiting for the agent');
+    await expect.poll(() => statusReads).toBeGreaterThan(0);
+
+    conversation.ownerId = 'a-member-without-ownership';
+    await expect(page.getByText('This page does not exist.')).toBeVisible({ timeout: 20_000 });
+    const settled = statusReads;
+    await page.waitForTimeout(3500);
+    expect(statusReads).toBe(settled);
+  });
+
+  test('the leave confirmation appears for unsent input and not for pending turns (FR-019a)', async ({ page, api }) => {
+    api.signInAs('Coach');
+    const conversation = api.seedAgentConversation({ participants: ['specialist-tactics'] });
+    api.seedAgentTurn(conversation.conversationId, { script: [{ state: 'accepted', holdReads: 1000 }] });
+    const url = `/matches/${match.id}/triage/${conversation.conversationId}`;
+
+    await page.goto(url);
+    await expect(page.getByRole('list', { name: 'Questions and advice' })).toContainText('Waiting for the agent');
+    await page.getByRole('link', { name: 'Back to match' }).click();
+    await expect(page).toHaveURL(`/matches/${match.id}`);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    await page.goto(url);
+    await page.getByLabel('Your question').fill('An unsent question');
+    await page.getByRole('link', { name: 'Back to match' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Leave this conversation?' });
+    await expect(dialog).toContainText('Leave this conversation? Your unsent question will be lost.');
+    await expectNoAxeViolations(page);
+    await dialog.getByRole('button', { name: 'Stay' }).click();
+    await expect(page).toHaveURL(url);
+    await expect(page.getByLabel('Your question')).toHaveValue('An unsent question');
+
+    await page.getByRole('link', { name: 'Back to match' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Leave' }).click();
+    await expect(page).toHaveURL(`/matches/${match.id}`);
   });
 });
