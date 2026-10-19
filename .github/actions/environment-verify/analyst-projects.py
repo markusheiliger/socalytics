@@ -379,7 +379,16 @@ def under(folder, path):
     return components(path)[: len(folder_parts)] == folder_parts
 
 
-def select(projects, mode, changed):
+def shared_contract_change(path, area):
+    parts = components(path)
+    if area == "agents":
+        if len(parts) >= 3 and parts[0] == "contracts" and parts[1].startswith("agent-"):
+            return True
+        return under("contracts/common", path)
+    return any(under(folder, path) for folder in SHARED_CONTRACT_FOLDERS)
+
+
+def select(projects, mode, changed, area="analysts"):
     """Returns the selected projects in dependency order, each once, with the reason it was selected."""
     by_root = {project["root"]: project for project in projects}
     reasons = {}
@@ -389,7 +398,7 @@ def select(projects, mode, changed):
         paths = [path for path in changed if components(path)]
         if any(under(folder, path) for path in paths for folder in ENVIRONMENT_FOLDERS):
             reasons = {root: "environment change" for root in by_root}
-        elif any(under(folder, path) for path in paths for folder in SHARED_CONTRACT_FOLDERS):
+        elif any(shared_contract_change(path, area) for path in paths):
             reasons = {root: "shared contract change" for root in by_root}
         else:
             direct = {root for root in by_root if any(under(root, path) for path in paths)}
@@ -428,7 +437,7 @@ def main(argv):
         if arguments.changed_files and os.path.isfile(arguments.changed_files):
             with open(arguments.changed_files, encoding="utf-8") as handle:
                 changed = handle.read().splitlines()
-        result = {"projects": select(projects, arguments.mode, changed), "covered": [project["root"] for project in projects]}
+        result = {"projects": select(projects, arguments.mode, changed, arguments.area), "covered": [project["root"] for project in projects]}
     else:
         result = {"projects": projects}
     json.dump(result, sys.stdout, indent=2)

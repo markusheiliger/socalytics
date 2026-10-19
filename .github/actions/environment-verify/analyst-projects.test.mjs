@@ -926,3 +926,88 @@ describe('agents area discovery', () => {
     rejectedAgents(root, /project src\/agents\/a: project convention: local dependency 'sdk' at src\/analysts\/sdk is outside the permitted ownership roots/);
   });
 });
+
+describe('agents area selection', () => {
+  const mcp = 'src/agents/mcp';
+  const server = 'src/agents/mcp-server';
+  const hermes = 'src/agents/hermes';
+
+  function graph() {
+    const root = repository();
+    project(root, mcp, { name: 'mcp' });
+    project(root, server, { name: 'mcp-server', dependencies: ['mcp'], sources: { mcp: '../mcp' } });
+    project(root, hermes, { name: 'hermes' });
+    return root;
+  }
+
+  function select(root, mode, changed = []) {
+    const list = path.join(root, 'changed.txt');
+    writeFileSync(list, changed.join('\n'));
+    const result = spawnSync('python', [helper, 'select', '--area', 'agents', '--root', root, '--python-version', '3.13.5', '--mode', mode, '--changed-files', list], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    const parsed = JSON.parse(result.stdout);
+    return { selected: parsed.projects.map((entry) => [entry.root, entry.reason]), covered: parsed.covered };
+  }
+
+  it('selects an own-source change and its reverse local-dependency closure once, in order', () => {
+    const root = graph();
+    for (const mode of ['task', 'phase']) {
+      assert.deepEqual(select(root, mode, [`${mcp}/src/x.py`]).selected, [[mcp, 'direct change'], [server, 'local-dependency change']]);
+      assert.deepEqual(select(root, mode, [`${server}/a.py`, `${mcp}/b.py`, `${server}/c.py`]).selected, [[mcp, 'direct change'], [server, 'direct change']]);
+      assert.deepEqual(select(root, mode, [`${hermes}/pyproject.toml`]).selected, [[hermes, 'direct change']]);
+    }
+  });
+
+  it('never matches prefix-similar project folders', () => {
+    const root = graph();
+    assert.deepEqual(select(root, 'task', [`${server}/x.py`]).selected, [[server, 'direct change']]);
+    assert.deepEqual(select(root, 'task', ['src/agents/mcp-other/x.py']).selected, []);
+  });
+
+  it('selects every agent project for shared contract families', () => {
+    const root = graph();
+    const all = [[hermes, 'shared contract change'], [mcp, 'shared contract change'], [server, 'shared contract change']];
+    for (const changed of [
+      'contracts/agent-catalog/schema.json', 'contracts/agent-orchestration/x/y.json', 'contracts/agent-tools/a.json',
+      'contracts/agent-x/new.json', 'contracts/common/shared.json',
+    ]) {
+      for (const mode of ['task', 'phase']) assert.deepEqual(select(root, mode, [changed]).selected, all, changed);
+    }
+  });
+
+  it('selects nothing for unrelated, lookalike, and Analyst changes', () => {
+    const root = graph();
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    for (const changed of [
+      'contracts/agentic/x.json', 'contracts/agent-x.md', 'contracts/analysis/x.json', 'src/analysts/sdk/x.py',
+      'src/analysts/manager/x.cs', 'src/platform/x.cs', 'README.md', 'src/agents/README.md',
+    ]) {
+      assert.deepEqual(select(root, 'task', [changed]).selected, [], changed);
+    }
+  });
+
+  it('selects every agent project for finalize and environment changes', () => {
+    const root = graph();
+    const expected = (reason) => [[hermes, reason], [mcp, reason], [server, reason]];
+    assert.deepEqual(select(root, 'finalize').selected, expected('finalize'));
+    for (const changed of ['.github/actions/environment-verify/action.yml', '.github/actions/environment-setup/scripts/x.sh']) {
+      assert.deepEqual(select(root, 'task', [changed]).selected, expected('environment change'), changed);
+    }
+  });
+
+  it('covers the existing valid agent roots only', () => {
+    const root = graph();
+    assert.deepEqual(select(root, 'task', []).covered, [hermes, mcp, server]);
+    assert.deepEqual(select(repository(), 'task', []).covered, []);
+  });
+
+  it('keeps Analyst selection unchanged by agent contract folders', () => {
+    const root = repository();
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    const list = path.join(root, 'changed.txt');
+    writeFileSync(list, 'contracts/agent-tools/a.json\ncontracts/analysis/x.json');
+    const result = spawnSync('python', [helper, 'select', '--root', root, '--python-version', '3.13.5', '--mode', 'task', '--changed-files', list], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).projects.map((entry) => entry.reason), ['shared contract change']);
+  });
+});
