@@ -140,7 +140,7 @@ staged results fail with named errors and exit 2
 ### Tests for User Story 3
 
 - [ ] T026 [P] [US3] Add `src/analysts/sdk/tests/test_inputs.py`: matching staged inputs load with typed manifests, facts, verified artifacts, coverage, and edge kinds; a changed artifact byte, a wrong size, a missing or extra staged result, a manifest checksum mismatch, and staged results for an `absent` entry fail with their categories and exit 2 through the entry point (FR-018, FR-019, FR-022)
-- [ ] T027 [P] [US3] Add `src/analysts/sdk/tests/test_result_coverage.py`: lineage equals the input snapshot whatever the Analyst does; a partial-coverage dependency with a failed segment yields `inputCoverage` equal to the staged coverage and a result valid against result-manifest 1.1.0; complete-coverage dependencies get no report; the derived match window and `validity-window-missing` (FR-010, FR-013, FR-017, FR-022; SC-001)
+- [x] T027 [P] [US3] Add `src/analysts/sdk/tests/test_result_coverage.py`: lineage equals the input snapshot whatever the Analyst does; a partial-coverage dependency with a failed segment yields `inputCoverage` equal to the staged coverage and a result valid against result-manifest 1.1.0; complete-coverage dependencies get no report; the derived match window and `validity-window-missing` (FR-010, FR-013, FR-017, FR-022; SC-001)
 
 **Checkpoint**: High-level Analysts consume verified inputs and report coverage
 
