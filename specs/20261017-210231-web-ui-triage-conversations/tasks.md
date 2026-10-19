@@ -96,7 +96,7 @@ description: "Task list for Web UI Match Triage Conversations"
 ### Context components
 
 - [ ] T019 [P] [US2] Create `src/clients/web/src/features/triage/LineagePanel.tsx`: loads `getLineage` on first open, shows entries in sequence order with worded or raw kind, attempt number, time, and details as text, and the advice's execution references by name; refetches conditionally when the given change counter changes and stops once the turn ended; add `src/clients/web/tests/unit/features/triage/LineagePanel.test.tsx` (FR-015, FR-022)
-- [ ] T020 [P] [US2] Extend `src/clients/web/src/features/triage/TriageSection.tsx` so each listed conversation shows its bound run, participants, creation time, and the "no longer current run" marker; extend `src/clients/web/tests/unit/features/triage/TriageSection.test.tsx` (FR-001)
+- [x] T020 [P] [US2] Extend `src/clients/web/src/features/triage/TriageSection.tsx` so each listed conversation shows its bound run, participants, creation time, and the "no longer current run" marker; extend `src/clients/web/tests/unit/features/triage/TriageSection.test.tsx` (FR-001)
 - [x] T021 [P] [US2] Extend `src/clients/web/src/features/triage/ConversationPage.tsx` with the superseded-run notice when `analysisRunIsCurrent` is false (questions stay possible) and the read-only note for members without submit rights (no add control, no composer); extend `src/clients/web/tests/unit/features/triage/ConversationPage.test.tsx` (FR-004, FR-009)
 
 ### Paging and lineage in the history

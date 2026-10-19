@@ -36,7 +36,6 @@ export function TriageSection({ matchId, canStart }: TriageSectionProps) {
   const runs = useQuery({
     queryKey: RUNS_KEY(matchId),
     queryFn: () => loadAllRuns(runAdapter, matchId),
-    enabled: canStart,
     retry: false,
     refetchOnWindowFocus: false,
   });
@@ -74,7 +73,7 @@ export function TriageSection({ matchId, canStart }: TriageSectionProps) {
                 <Link to={`/matches/${matchId}/triage/${conversation.conversationId}`}>
                   {t('section.createdAt', { time: formatKickoff(new Date(conversation.createdAt)) })}
                 </Link>
-                {runTime && ` · ${t('section.boundRun', { time: formatKickoff(runTime) })}`}
+                {` · ${runTime ? t('section.boundRun', { time: formatKickoff(runTime) }) : t('section.boundRunId', { id: conversation.analysisRunId })}`}
                 {!conversation.analysisRunIsCurrent && ` · ${t('section.notCurrentRun')}`}
                 {` · ${names ? t('section.participants', { names }) : t('section.noParticipants')}`}
               </li>

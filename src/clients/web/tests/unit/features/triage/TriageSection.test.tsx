@@ -74,13 +74,28 @@ describe('TriageSection', () => {
     expect(screen.getAllByText(/Tactics specialist/)).toHaveLength(2);
   });
 
+  it('shows the bound run, participants, creation time, and the not-current marker for each conversation', async () => {
+    listConversations.mockResolvedValue([
+      conversation('conv-1', '2026-10-02T10:00:00Z'),
+      { ...conversation('conv-2', '2026-10-03T10:00:00Z', false), analysisRunId: 'run-9' },
+    ]);
+    renderSection(false);
+    const items = await screen.findAllByRole('listitem');
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('Analysis run run-9');
+    expect(items[0]).toHaveTextContent('No longer current run');
+    expect(items[0]).toHaveTextContent('Participants: Tactics specialist');
+    expect(items[1]).toHaveTextContent('Analysis run created');
+    expect(items[1]).not.toHaveTextContent('No longer current run');
+    expect(items[1]).toHaveTextContent('Created');
+  });
+
   it('says so when there are no conversations and offers no start to viewers', async () => {
     listConversations.mockResolvedValue([]);
     renderSection(false);
     expect(await screen.findByText('You have no triage conversations for this match yet.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Start triage conversation' })).not.toBeInTheDocument();
     expect(screen.queryByText('Triage needs a finished analysis of this match first.')).not.toBeInTheDocument();
-    expect(listByMatch).not.toHaveBeenCalled();
   });
 
   it('offers the start action to editors when an eligible run exists', async () => {

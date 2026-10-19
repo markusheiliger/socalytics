@@ -13,6 +13,7 @@
     "item": "Conversation created {{time}}, bound to the analysis run created {{runTime}}",
     "createdAt": "Created {{time}}",
     "boundRun": "Analysis run created {{time}}",
+    "boundRunId": "Analysis run {{id}}",
     "participants": "Participants: {{names}}",
     "noParticipants": "No agents take part yet.",
     "open": "Open conversation",
