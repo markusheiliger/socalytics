@@ -91,6 +91,8 @@ export function QuestionComposer({
 
   const unknown = refusal?.kind === 'unknownOutcome';
   const refusalMessage = refusal && !unknown ? triageMessage(refusal, { maxQuestionCharacters }) : undefined;
+  const agentRefused = refusal?.kind === 'agentNotAvailable' || refusal?.kind === 'agentNotParticipant';
+  const describedBy = refusalMessage || unknown ? 'composer-refusal' : undefined;
 
   return (
     <section aria-labelledby="composer-title">
@@ -109,6 +111,7 @@ export function QuestionComposer({
           select
           size="small"
           label={t('composer.agent')}
+          error={agentRefused}
           value={draft.agentId}
           onChange={(event) => {
             draft.setAgentId(event.target.value);
@@ -128,6 +131,8 @@ export function QuestionComposer({
           multiline
           minRows={3}
           label={t('composer.question')}
+          error={refusalMessage !== undefined && !agentRefused}
+          slotProps={{ htmlInput: { 'aria-describedby': describedBy } }}
           value={draft.text}
           onChange={(event) => {
             draft.setText(event.target.value);
@@ -135,12 +140,12 @@ export function QuestionComposer({
           }}
         />
         {unknown && (
-          <Alert severity="warning" role="alert">
+          <Alert id="composer-refusal" severity="warning" role="alert">
             {t('composer.unknownOutcome')} {t('composer.unknownOutcomeHint')}
           </Alert>
         )}
         {refusalMessage && (
-          <Alert severity="error" role="alert">
+          <Alert id="composer-refusal" severity="error" role="alert">
             {t(refusalMessage.key, refusalMessage.params)}
           </Alert>
         )}

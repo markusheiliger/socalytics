@@ -130,6 +130,43 @@ describe('QuestionComposer', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('The question is too long');
   });
 
+  it.each([
+    [{ kind: 'agentNotAvailable' }, 'This agent is no longer available on this platform.'],
+    [{ kind: 'agentNotParticipant' }, 'Add this agent to the conversation before asking it.'],
+    [
+      { kind: 'notPermitted' },
+      'You can read this conversation, but only Club Admins and Coaches of the team can ask questions.',
+    ],
+  ] as [TriageOutcome, string][])('shows the %j refusal, keeps the draft, and reports it', async (outcome, message) => {
+    const user = userEvent.setup();
+    const { onOutcome } = setup(
+      vi.fn(async () => {
+        throw failure(outcome);
+      }),
+      ['specialist-tactics'],
+    );
+    await user.type(screen.getByLabelText('Your question'), 'Keep me');
+    await user.click(screen.getByRole('button', { name: 'Send question' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(message);
+    expect(screen.getByLabelText('Your question')).toHaveValue('Keep me');
+    expect(onOutcome).toHaveBeenCalledWith(outcome);
+  });
+
+  it('clears the refusal message once the draft changes', async () => {
+    const user = userEvent.setup();
+    setup(
+      vi.fn(async () => {
+        throw failure({ kind: 'tooManyUnfinished' });
+      }),
+      ['specialist-tactics'],
+    );
+    await user.type(screen.getByLabelText('Your question'), 'Q');
+    await user.click(screen.getByRole('button', { name: 'Send question' }));
+    await screen.findByRole('alert');
+    await user.type(screen.getByLabelText('Your question'), 'x');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
   it('offers to send again after an unknown outcome and reuses the key', async () => {
     const user = userEvent.setup();
     const submitQuestion = vi
