@@ -1,3 +1,5 @@
+import Box from '@mui/material/Box';
+import SvgIcon from '@mui/material/SvgIcon';
 import { useTranslation } from 'react-i18next';
 import { isCurrent, type Registration } from '../../platform/models/registrations';
 
@@ -42,6 +44,20 @@ export function StatusLines({ r, showVersion = true }: { r: Registration; showVe
       {current && operating && <li>{t('fleet.operatingState', { value: operating })}</li>}
       {current && analysts && <li>{analysts}</li>}
       {showVersion && version && <li>{t('fleet.version', { value: version })}</li>}
+      {current && r.belowMinimumVersion && r.minimumManagerVersion && (
+        <li>
+          <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+            <SvgIcon fontSize="small" sx={{ color: 'warning.dark' }} aria-hidden="true" focusable="false">
+              <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+            </SvgIcon>
+            <span>
+              {version
+                ? t('fleet.updateRequired', { version, minimum: r.minimumManagerVersion })
+                : t('fleet.updateRequiredUnknownVersion', { minimum: r.minimumManagerVersion })}
+            </span>
+          </Box>
+        </li>
+      )}
     </>
   );
 }

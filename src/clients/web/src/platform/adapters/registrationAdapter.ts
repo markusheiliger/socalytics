@@ -114,6 +114,8 @@ export function toRegistration(dto: AnalystManagerRegistrationDto | undefined | 
         }
       : undefined,
     connectivity: dto.connectivity ? (lookup(CONNECTIVITY_WIRE, dto.connectivity) ?? 'unknown') : undefined,
+    minimumManagerVersion: text(dto.minimumManagerVersion),
+    belowMinimumVersion: dto.belowMinimumVersion === true,
   };
 }
 

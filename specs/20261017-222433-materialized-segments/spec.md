@@ -24,7 +24,7 @@
   unchanged.
 - Q: How should an Analyst Manager too old to stage segment media be kept from running jobs that carry segment media?
   → A: Through the stamp's minimum Manager version from
-  [Analyst Manager Minimum Version](../20261017-213549-manager-minimum-version/spec.md): environments that use
+  [Analyst Manager Minimum Version](../archive/20261017-213549-manager-minimum-version/spec.md): environments that use
   video-permitting profiles set it to at least the first Manager version that stages media; no new mechanism is added.
 
 ## User Scenarios & Testing *(mandatory)*
@@ -359,7 +359,7 @@ job is reported as in use and kept.
 - [Python Analyst SDK](../20261017-220709-python-analyst-sdk/spec.md) (batch sibling) completes the container
   interface (verbatim job file, analyst-job 1.1.0 with the segment window, attempt context) and creates the SDK this
   feature extends; it MUST merge before this feature.
-- [Analyst Manager Minimum Version](../20261017-213549-manager-minimum-version/spec.md) (batch sibling) provides the
+- [Analyst Manager Minimum Version](../archive/20261017-213549-manager-minimum-version/spec.md) (batch sibling) provides the
   stamp's minimum Manager version that keeps Managers unable to stage segment media from admitting work; it MUST merge
   before this feature, and this feature's Manager documentation names the first Manager version that stages media.
 - [Recording Lineage and Upload](../archive/20261005-130702-recording-lineage-upload/spec.md),
