@@ -228,7 +228,7 @@ private conditional reads, lineage, and the workload claim, lease, checkpoint,
 completion, and failure operations, executed in Development and Test by a
 simulated agent workload that stands in for Hermes. Consultations, Coach Agents,
 lifecycle operations, and tombstones remain later work. See
-`specs/20261017-204332-agent-orchestration-invocations`.
+`specs/archive/20261017-204332-agent-orchestration-invocations`.
 
 Hermes is a separate Python OCI service using Microsoft Agent Framework for
 agent execution and CA-to-SA orchestration. Framework-specific types remain

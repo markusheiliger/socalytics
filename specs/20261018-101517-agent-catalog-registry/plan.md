@@ -237,4 +237,4 @@ without crossing areas. Lifecycle, approval, seed, and endpoint layout follow th
 classifies `agent_catalog_artifacts` and `agent_invocation_pins` as immutable. The OpenAPI snapshot is refreshed with
 `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests`
 during implementation, never in the verification environment. This feature is implemented after
-`specs/20261017-204332-agent-orchestration-invocations` has merged and changes its code in place.
+`specs/archive/20261017-204332-agent-orchestration-invocations` has merged and changes its code in place.
