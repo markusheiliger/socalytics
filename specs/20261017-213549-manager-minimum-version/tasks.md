@@ -197,3 +197,9 @@ Task: "T016 [US2] Handle version refusals in PlatformClient.cs, AttemptRunner.cs
 3. User Story 2 → platform enforcement independent of the Manager
 4. User Story 3 → fleet visibility for Club Admins
 5. Polish → architecture and READMEs true for the merged state, full verification
+
+---
+
+## Phase 6: Convergence
+
+- [ ] T027 Show the update-required line in `src/clients/web/src/features/managers/StatusLines.tsx` only for current registrations (`isCurrent(r)`), so ended (revoked, unregistered, rejected) registrations keep showing no status lines as the component's contract states, and add a case to `src/clients/web/tests/unit/features/managers/fleet/fleet.test.tsx` asserting that an ended registration with `belowMinimumVersion: true` shows no update notice per FR-016, FR-017 (partial)
