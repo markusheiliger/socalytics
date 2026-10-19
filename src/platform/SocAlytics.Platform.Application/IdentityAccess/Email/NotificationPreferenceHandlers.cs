@@ -16,6 +16,7 @@ internal static class NotificationPreferenceRules
     public static bool Applies(NotificationType type, MemberAccessSnapshot snapshot) => type.Audience switch
     {
         NotificationAudience.ClubAdmins => snapshot.ClubRoles.Contains(ClubRole.ClubAdmin),
+        NotificationAudience.Invitee => false,
         _ => true,
     };
 }
