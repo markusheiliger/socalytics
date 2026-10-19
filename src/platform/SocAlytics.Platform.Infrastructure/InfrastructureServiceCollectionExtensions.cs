@@ -79,6 +79,13 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ITeamScopeSource, TeamScopeSource>();
         services.AddScoped<ITeamScopeSource, MatchScopeSource>();
         services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.Analysis.AnalysisRunScopeSource>();
+        services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.AgentOrchestration.AgentConversationScopeSource>();
+        services.AddScoped<ITeamScopeSource, SocAlytics.Platform.Infrastructure.AgentOrchestration.AgentInvocationScopeSource>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IAgentConversationStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentConversationStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IAgentInvocationStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentInvocationStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IAgentAttemptStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentAttemptStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IAgentWorkloadOperationStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentWorkloadOperationStore>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IAgentWorkloadTokenStore, SocAlytics.Platform.Infrastructure.Persistence.AgentOrchestration.AgentWorkloadTokenStore>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisRunQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisRunQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.IFactQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.FactQueries>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.IAnalysisOperationalQueries, SocAlytics.Platform.Infrastructure.Persistence.Analysis.AnalysisOperationalQueries>();
@@ -153,6 +160,8 @@ public static class InfrastructureServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.AnalysisNotificationOptions.SectionName);
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.RecordingsFinalizedConsumerWorker>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.LeaseExpiryWorker>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentAttemptMonitorWorker>();
+        services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.AgentWorkReconciliationWorker>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Stores.IPublicationReconciliationStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.PublicationReconciliationStore>();
         services.AddHostedService<SocAlytics.Platform.Infrastructure.Workers.PublicationReconciliationWorker>();
         services.TryAddScoped<SocAlytics.Platform.Application.Messaging.IOutboxRetentionStore, SocAlytics.Platform.Infrastructure.Persistence.Messaging.OutboxRetentionStore>();

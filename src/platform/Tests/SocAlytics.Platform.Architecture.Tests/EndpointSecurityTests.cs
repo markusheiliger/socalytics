@@ -18,9 +18,10 @@ public sealed class EndpointSecurityTests
     private const string ApiPrefix = "/api/v1";
     private const string SessionScheme = "SocAlyticsSession";
 
-    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "confirmEmail", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken", "listIdentityProviders", "startExternalSignIn", "completeExternalSignIn", "requestPasswordRecovery", "checkPasswordRecovery", "completePasswordRecovery" };
+    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "confirmEmail", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken", "listIdentityProviders", "startExternalSignIn", "completeExternalSignIn", "requestPasswordRecovery", "checkPasswordRecovery", "completePasswordRecovery", "issueAgentWorkloadToken" };
 
     private const string ManagerScheme = "AnalystManagerDPoP";
+    private const string WorkloadScheme = "AgentWorkloadDPoP";
 
     private static readonly HashSet<string> SessionHolderOperations =
         new(StringComparer.Ordinal) { "getSession", "signOut", "getCurrentMember", "changeOwnPassword" };
@@ -94,6 +95,12 @@ public sealed class EndpointSecurityTests
             if (authorizeData.Any(data => data.Policy == "AnalystManager"))
             {
                 policy.AuthenticationSchemes.ShouldBe([ManagerScheme], $"{label} must use only the DPoP scheme.");
+                continue;
+            }
+
+            if (authorizeData.Any(data => data.Policy == "AgentWorkload"))
+            {
+                policy.AuthenticationSchemes.ShouldBe([WorkloadScheme], $"{label} must use only the workload DPoP scheme.");
                 continue;
             }
 

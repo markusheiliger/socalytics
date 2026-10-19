@@ -45,7 +45,7 @@ public static class ServiceDefaultsExtensions
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()
-                .AddMeter("SocAlytics.Platform.Analysis", "SocAlytics.Platform.Messaging"))
+                .AddMeter("SocAlytics.Platform.Analysis", "SocAlytics.Platform.Messaging", "SocAlytics.Platform.AgentOrchestration"))
             .WithTracing(tracing => tracing
                 .AddSource(builder.Environment.ApplicationName)
                 .AddAspNetCoreInstrumentation()

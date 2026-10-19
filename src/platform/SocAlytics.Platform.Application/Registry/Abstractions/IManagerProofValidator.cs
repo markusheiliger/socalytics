@@ -16,8 +16,10 @@ public interface IManagerProofValidator
 {
     Task<ProofValidationResult> ValidateActivationProofAsync(string proof, string storedPublicJwk, CancellationToken cancellationToken);
 
+    // audience defaults to the Analyst Manager token URI.
     Task<ProofValidationResult> ValidateClientAssertionAsync(
-        string assertion, string expectedClientId, string storedPublicJwk, CancellationToken cancellationToken);
+        string assertion, string expectedClientId, string storedPublicJwk, CancellationToken cancellationToken,
+        Uri? audience = null);
 
     // requestPath is the request path; query and fragment are ignored. KeyThumbprint is the jkt of the header jwk.
     Task<ProofValidationResult> ValidateDPoPProofAsync(

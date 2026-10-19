@@ -1,7 +1,7 @@
 # Contract: Attempt Report 1.1.0 (completion execution references)
 
 Change to `contracts/agent-orchestration/attempt-report/v1` of
-[Agent Orchestration Direct Invocations](../../20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md#machine-readable-contracts-contractsagent-orchestration).
+[Agent Orchestration Direct Invocations](../../archive/20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md#machine-readable-contracts-contractsagent-orchestration).
 Release `1.0.0` stays unchanged; `releases/1.1.0.schema.json` is added and the main schema becomes 1.1.0.
 
 ## Schema change
