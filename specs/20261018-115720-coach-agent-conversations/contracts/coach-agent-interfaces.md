@@ -1,6 +1,6 @@
 # Contract: Coach Agent Interfaces
 
-Changes to the interfaces of [Agent Orchestration API](../../20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md),
+Changes to the interfaces of [Agent Orchestration API](../../archive/20261017-204332-agent-orchestration-invocations/contracts/agent-orchestration-api.md),
 [Agent Catalog API](../../20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md), the
 [Hermes Runtime Interface](../../20261018-113729-hermes-runtime/contracts/hermes-runtime.md), and the Web UI adapters of
 [Web UI Match Triage Conversations](../../20261017-210231-web-ui-triage-conversations/contracts/agent-conversation-adapter.md)

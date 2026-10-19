@@ -15,5 +15,6 @@
   <ItemGroup>
     <ProjectReference Include="..\SocAlytics.Platform.Migrator\SocAlytics.Platform.Migrator.csproj" />
     <ProjectReference Include="..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" />
+    <ProjectReference Include="..\Tests\SocAlytics.Platform.SimulatedAgentWorkload\SocAlytics.Platform.SimulatedAgentWorkload.csproj" />
   </ItemGroup>
 </Project>

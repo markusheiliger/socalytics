@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
@@ -13,6 +14,8 @@ public sealed class PublishOutboxBatch(
     IOptions<OutboxPublicationOptions> options,
     TimeProvider timeProvider)
 {
+    public const string AgentInvocationReadyMessageType = "agent-invocation-ready";
+
     /// <summary>Publishes one batch of due rows and returns the number of rows claimed.</summary>
     public async Task<int> HandleAsync(CancellationToken cancellationToken)
     {
@@ -21,7 +24,10 @@ public sealed class PublishOutboxBatch(
         var rows = await store.ClaimDueAsync(timeProvider.GetUtcNow(), settings.BatchSize, cancellationToken);
         foreach (var row in rows)
         {
-            var messageId = row.PublicationRound <= 1 ? row.Id.ToString() : $"{row.Id}.r{row.PublicationRound}";
+            var baseId = row.MessageType == AgentInvocationReadyMessageType && TryGetAgentMessageId(row.Payload, out var agentId)
+                ? agentId
+                : row.Id.ToString();
+            var messageId = row.PublicationRound <= 1 ? baseId : $"{baseId}.r{row.PublicationRound}";
             try
             {
                 await transport.PublishAsync(
@@ -48,5 +54,29 @@ public sealed class PublishOutboxBatch(
         MessagingMetrics.SetBacklog(await store.GetBacklogAsync(timeProvider.GetUtcNow(), cancellationToken));
         await scope.CommitAsync(cancellationToken);
         return rows.Count;
+    }
+
+    // The broker deduplicates agent notifications by <invocationId>:<readyOccurrence>.
+    private static bool TryGetAgentMessageId(string payload, out string messageId)
+    {
+        messageId = string.Empty;
+        try
+        {
+            using var document = JsonDocument.Parse(payload);
+            var root = document.RootElement;
+            if (root.TryGetProperty("invocationId", out var invocation)
+                && invocation.ValueKind == JsonValueKind.String
+                && root.TryGetProperty("readyOccurrence", out var occurrence)
+                && occurrence.TryGetInt32(out var n))
+            {
+                messageId = $"{invocation.GetString()}:{n}";
+                return true;
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        return false;
     }
 }

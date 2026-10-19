@@ -1,14 +1,14 @@
 # Research: Agent Orchestration Direct Invocations
 
 All Technical Context items are resolved; no `NEEDS CLARIFICATION` remains. Each decision builds on code that exists
-under `src/platform/` and on [Intelligence and Agents](../../docs/architecture/intelligence-and-agents.md).
+under `src/platform/` and on [Intelligence and Agents](../../../docs/architecture/intelligence-and-agents.md).
 
 ## R1 - Functional area and layering
 
 - **Decision**: Add an `AgentOrchestration` folder and namespace to each platform layer (Domain, Application,
   Infrastructure, Api), with handlers in the Application layer and Dapper stores in the Infrastructure layer, exactly as
   the Analysis functional area is organized. No new production project.
-- **Rationale**: [Agent Orchestration Authority](../../docs/architecture/intelligence-and-agents.md#agent-orchestration-authority)
+- **Rationale**: [Agent Orchestration Authority](../../../docs/architecture/intelligence-and-agents.md#agent-orchestration-authority)
   places the functional area inside the platform's layers and stamp database; `AGENTS.md` forbids functional areas as
   separate projects; the architecture tests already enforce inward dependencies.
 - **Alternatives considered**: A separate agent service or database (rejected by the architecture); placing the code in
@@ -28,7 +28,7 @@ under `src/platform/` and on [Intelligence and Agents](../../docs/architecture/i
   authenticated request re-reads the client's configured enabled state, so disabling a client stops its tokens at once.
 - **Rationale**: The architecture requires Hermes to authenticate "as a stamp-local workload"; the platform already
   validates `private_key_jwt` and DPoP for Analyst Managers and runs no general-purpose authorization server
-  ([API And Identity](../../docs/architecture/platform-implementation.md#api-and-identity)). A workload is deployed by
+  ([API And Identity](../../../docs/architecture/platform-implementation.md#api-and-identity)). A workload is deployed by
   the stamp operator, not paired by members, so its key is configured rather than registered through device-code
   pairing.
 - **Alternatives considered**: Reusing Analyst Manager registrations (rejected: wrong actor, member pairing, Manager
@@ -45,7 +45,7 @@ under `src/platform/` and on [Intelligence and Agents](../../docs/architecture/i
   `POST /api/v1/agent-orchestration/workload/queue-credentials`, limited to pulling and acknowledging from that consumer,
   through the existing `IQueueCredentialIssuer` signing mechanics; in `None` mode (Development and Test only) it
   connects without credentials, as Managers do.
-- **Rationale**: [Client, Transport, And Runtime Protocol](../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)
+- **Rationale**: [Client, Transport, And Runtime Protocol](../../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)
   requires minimal, at-least-once JetStream notifications from the outbox; the platform already publishes analysis
   work this way and issues scoped queue credentials to Managers.
 - **Alternatives considered**: Workload polling a "next work" operation (rejected: contradicts the architecture's
@@ -65,7 +65,7 @@ under `src/platform/` and on [Intelligence and Agents](../../docs/architecture/i
   `agent-attempt-stale` and a `disposition` of `attempt-not-current`, `lease-expired`, `attempt-fenced`,
   `invocation-ended`, or `scope-lost`; obsolete claims are answered `409` with `claim-obsolete`.
 - **Rationale**: The pattern is proven by the analysis workflow tests and matches
-  [Durable State And Transaction Boundaries](../../docs/architecture/intelligence-and-agents.md#durable-state-and-transaction-boundaries).
+  [Durable State And Transaction Boundaries](../../../docs/architecture/intelligence-and-agents.md#durable-state-and-transaction-boundaries).
 - **Alternatives considered**: Advisory locks only (rejected: the existing pattern uses row locks and version checks);
   client-generated fencing tokens (rejected: tokens come from durable authority).
 
@@ -89,7 +89,7 @@ under `src/platform/` and on [Intelligence and Agents](../../docs/architecture/i
   owner, answering every non-owner with the same not-found problem. Workload operations evaluate the stored owner
   through a new `IInvocationScopeEvaluator` that loads the owner's access snapshot (`IMemberAccountStore`) and grants
   only an active owner without a pending password change who is Club Admin or Coach of the team.
-- **Rationale**: [Authorization, Lineage, And Lifecycle](../../docs/architecture/intelligence-and-agents.md#authorization-lineage-and-lifecycle)
+- **Rationale**: [Authorization, Lineage, And Lifecycle](../../../docs/architecture/intelligence-and-agents.md#authorization-lineage-and-lifecycle)
   makes ordinary reads private to the initiating user with current team access and requires re-evaluation at claim,
   checkpoint, and completion; `TeamPermission.Write` is the existing Club Admin or Coach rule.
 - **Alternatives considered**: Viewer submissions (rejected: Viewers are read-only); granting Club Admins ordinary
@@ -113,7 +113,7 @@ under `src/platform/` and on [Intelligence and Agents](../../docs/architecture/i
   conversation version or the invocation's progress version, and answer `If-None-Match` matches with `304`, as
   `AnalysisRunEndpoints` and `RecordingEndpoints` do; the invocation read sets `Retry-After` to the policy's polling
   interval while the invocation is unfinished. Submission answers `202` with `Location` set to the invocation read.
-- **Rationale**: Matches [Client, Transport, And Runtime Protocol](../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)
+- **Rationale**: Matches [Client, Transport, And Runtime Protocol](../../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)
   and existing endpoints.
 
 ## R9 - Lineage and accepted advice storage

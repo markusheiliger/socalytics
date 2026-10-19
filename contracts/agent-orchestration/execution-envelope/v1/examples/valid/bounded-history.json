@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "1.0.0",
+  "invocationId": "inv-0003",
+  "conversationId": "conv-0001",
+  "attemptId": "att-0007",
+  "attemptNumber": 2,
+  "fencingToken": "ft_91d0b5c2a8e74f31b6c4",
+  "leaseExpiresAt": "2026-10-17T21:15:00Z",
+  "leaseSeconds": 60,
+  "deadlineAt": "2026-10-17T21:25:00Z",
+  "correlationId": "corr-0003",
+  "route": "user-to-specialist",
+  "agentId": "specialist-video-analysis",
+  "question": "Which clips show the pressing trigger you mentioned?",
+  "history": [
+    {
+      "invocationId": "inv-0002",
+      "agentId": "specialist-video-analysis",
+      "question": "Where did the team lose the ball most often?",
+      "advice": "Most turnovers happened in the left half-space between minutes 55 and 70."
+    },
+    {
+      "invocationId": "inv-0001",
+      "agentId": "specialist-tactics",
+      "question": "How did the team defend against counterattacks in the second half?",
+      "advice": "The back line stayed compact; the holding midfielder covered the gap after turnovers."
+    }
+  ],
+  "scope": { "teamId": "team-0001", "matchId": "match-0001", "analysisRunId": "run-0001" },
+  "limits": { "maxAdviceCharacters": 4000, "maxCheckpointNoteCharacters": 500 }
+}

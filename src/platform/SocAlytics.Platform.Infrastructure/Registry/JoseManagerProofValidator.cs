@@ -36,14 +36,15 @@ internal sealed class JoseManagerProofValidator(
     }
 
     public async Task<ProofValidationResult> ValidateClientAssertionAsync(
-        string assertion, string expectedClientId, string storedPublicJwk, CancellationToken cancellationToken)
+        string assertion, string expectedClientId, string storedPublicJwk, CancellationToken cancellationToken,
+        Uri? audience = null)
     {
         var jwt = await ParseAndVerifyAsync(assertion, ParseKey(storedPublicJwk), null);
         var now = timeProvider.GetUtcNow();
         if (jwt is null
             || !SingleString(jwt, "iss", out var iss) || !SingleString(jwt, "sub", out var sub)
             || !FixedTimeEquals(iss, expectedClientId) || !FixedTimeEquals(sub, expectedClientId)
-            || !SingleString(jwt, "aud", out var aud) || aud != stamp.Value.TokenUri.ToString()
+            || !SingleString(jwt, "aud", out var aud) || aud != (audience ?? stamp.Value.TokenUri).ToString()
             || !jwt.TryGetPayloadValue<long>("exp", out var exp) || !jwt.TryGetPayloadValue<long>("iat", out var iat)
             || exp <= now.ToUnixTimeSeconds()
             || exp - iat > (long)registry.Value.Tokens.MaxAssertionLifetime.TotalSeconds

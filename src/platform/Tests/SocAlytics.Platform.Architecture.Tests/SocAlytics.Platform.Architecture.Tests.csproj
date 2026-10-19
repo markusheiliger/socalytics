@@ -32,5 +32,6 @@
     <None Include="..\..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" Link="InspectedProjects\SocAlytics.Platform.Infrastructure.csproj" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\SocAlytics.Platform.ServiceDefaults\SocAlytics.Platform.ServiceDefaults.csproj" Link="InspectedProjects\SocAlytics.Platform.ServiceDefaults.csproj" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\SocAlytics.Platform.Migrator\SocAlytics.Platform.Migrator.csproj" Link="InspectedProjects\SocAlytics.Platform.Migrator.csproj" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\SocAlytics.Platform.SimulatedAgentWorkload\SocAlytics.Platform.SimulatedAgentWorkload.csproj" Link="InspectedProjects\SocAlytics.Platform.SimulatedAgentWorkload.csproj" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
