@@ -1,15 +1,19 @@
 import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
+import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 import { toPlatformFailure } from '../../platform/failure';
 import type { MemberRef } from '../../platform/models/registry';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { FailureAlert } from '../shared/FailureAlert';
+import { ApproveProfileDialog } from './ApproveProfileDialog';
 import { DigestText } from './DigestText';
+import { RetireProfileDialog } from './RetireProfileDialog';
 import { useMemberNames, useProfile } from './registryKeys';
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -52,11 +56,13 @@ function ProfileVersionView({ profileId, version }: { profileId: string; version
   const { t } = useTranslation('registry');
   const query = useProfile(profileId, version);
   const names = useMemberNames();
+  const [dialog, setDialog] = useState<'approve' | 'retire' | undefined>();
   const failure = query.error ? toPlatformFailure(query.error) : undefined;
 
   if (failure?.kind === 'notPermitted') return <NotPermittedPage />;
 
   const p = query.data;
+  const canTransition = p !== undefined && p.rowVersion !== undefined && (p.state === 'draft' || p.state === 'approved');
   const known = (namespace: string, value: string) => t(`${namespace}.${value}`, { defaultValue: value });
   const none = t('image.none');
   const who = (ref: MemberRef) => {
@@ -104,6 +110,18 @@ function ProfileVersionView({ profileId, version }: { profileId: string; version
             <Field label={t('field.inputSchemaVersions')}>{pairs(p.content.inputSchemaVersions)}</Field>
             <Field label={t('field.outputSchemaVersion')}>{p.content.outputSchemaVersion}</Field>
           </Box>
+          {canTransition && (
+            <Stack direction="row" spacing={1} sx={{ mt: 2 }}>
+              {p.state === 'draft' && <Button variant="contained" onClick={() => setDialog('approve')}>{t('profileVersion.approve')}</Button>}
+              <Button variant="outlined" color="error" onClick={() => setDialog('retire')}>{t('profileVersion.retire')}</Button>
+            </Stack>
+          )}
+          {canTransition && (
+            <>
+              <ApproveProfileDialog profile={p} open={dialog === 'approve'} onClose={() => setDialog(undefined)} />
+              <RetireProfileDialog profile={p} open={dialog === 'retire'} onClose={() => setDialog(undefined)} />
+            </>
+          )}
           <Typography variant="h4" sx={{ mt: 2 }}>{t('profileVersion.historyTitle')}</Typography>
           <Box component="dl" sx={{ m: 0 }}>
             <Field label={t('field.createdAt')}>{p.createdAt.toLocaleString()}</Field>

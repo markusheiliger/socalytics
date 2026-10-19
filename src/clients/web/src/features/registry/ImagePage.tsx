@@ -116,6 +116,9 @@ export function ImagePage() {
             <Field label={t('field.registeredAt')}>{d.registeredAt.toLocaleString()}</Field>
             <Field label={t('field.registeredBy')}>{who(d.registeredBy)}</Field>
           </Box>
+          <Typography sx={{ mt: 2 }}>
+            <Link to={`/registry/profiles/new?image=${encodeURIComponent(d.imageDigest)}`}>{t('image.newProfile')}</Link>
+          </Typography>
           <Typography>{t('image.manifestIntro')}</Typography>
           <Button aria-expanded={showManifest} onClick={() => setShowManifest((open) => !open)}>
             {t('image.manifestTitle')}

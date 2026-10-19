@@ -18,6 +18,7 @@ import { PairingPage } from './features/managers/PairingPage';
 import { RegistrationPage } from './features/managers/RegistrationPage';
 import { ImagePage } from './features/registry/ImagePage';
 import { ImagesPage } from './features/registry/ImagesPage';
+import { ProfileCreatePage } from './features/registry/ProfileCreatePage';
 import { ProfilesPage } from './features/registry/ProfilesPage';
 import { ProfileVersionPage } from './features/registry/ProfileVersionPage';
 import { RegisterImagePage } from './features/registry/RegisterImagePage';
@@ -102,6 +103,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/registry/images/register', element: clubAdminOnly(<RegisterImagePage />) },
           { path: '/registry/images/:digest', element: clubAdminOnly(<ImagePage />) },
           { path: '/registry/profiles', element: clubAdminOnly(<ProfilesPage />) },
+          { path: '/registry/profiles/new', element: clubAdminOnly(<ProfileCreatePage />) },
           { path: '/registry/profiles/:profileId/versions/:version', element: clubAdminOnly(<ProfileVersionPage />) },
           { path: '/registry/workflows', element: clubAdminOnly(<WorkflowsPage />) },
           { path: '/registry/workflows/:workflowId/versions/:version', element: clubAdminOnly(<WorkflowVersionPage />) },

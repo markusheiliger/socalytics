@@ -56,6 +56,9 @@ export function ProfilesPage() {
       <Typography variant="h1">{tc('app.name')}</Typography>
       <Typography variant="h2">{t('profiles.title')}</Typography>
       <Link to="/registry">{t('overview.title')}</Link>
+      <Typography sx={{ mt: 1 }}>
+        <Link to="/registry/profiles/new">{t('profileCreate.title')}</Link>
+      </Typography>
       <Stack component="form" direction="row" spacing={1} onSubmit={apply} sx={{ mt: 2, alignItems: 'center', flexWrap: 'wrap' }}>
         <TextField
           select
