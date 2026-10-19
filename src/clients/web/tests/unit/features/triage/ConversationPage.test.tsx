@@ -1,13 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { createMemoryRouter, Link, RouterProvider } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import '../../../../src/i18n';
 import { ConversationPage } from '../../../../src/features/triage/ConversationPage';
 import { PlatformFailure } from '../../../../src/platform/failure';
 import { TriageFailure } from '../../../../src/platform/adapters/agentConversationAdapter';
 import type { TriageConversation } from '../../../../src/platform/models/agents';
+import { ConnectivityContext } from '../../../../src/connectivity/connectivityContext';
 import { SessionContext, type SessionApi } from '../../../../src/session/sessionContext';
 
 const getConversation = vi.fn();
@@ -26,15 +27,23 @@ vi.mock('../../../../src/features/triage/ParticipantsPanel', () => ({
   ParticipantsPanel: ({ canEdit }: { canEdit: boolean }) => <div>participants {canEdit ? 'editable' : 'readonly'}</div>,
 }));
 vi.mock('../../../../src/features/triage/TurnList', () => ({
-  TurnList: ({ pendingTurns }: { pendingTurns: { invocationId: string; question: string }[] }) => (
-    <ul>{pendingTurns.map((turn) => <li key={turn.invocationId}>pending {turn.question}</li>)}</ul>
+  TurnList: ({ pendingTurns, onNotFound }: { pendingTurns: { invocationId: string; question: string }[]; onNotFound: () => void }) => (
+    <div>
+      <ul>{pendingTurns.map((turn) => <li key={turn.invocationId}>pending {turn.question}</li>)}</ul>
+      <button onClick={onNotFound}>poll not found</button>
+    </div>
   ),
 }));
 vi.mock('../../../../src/features/triage/QuestionComposer', () => ({
-  QuestionComposer: ({ onAccepted }: { onAccepted: (a: unknown, agent: string, q: string) => void }) => (
+  QuestionComposer: ({ onAccepted, onUnsentChange, onOutcome }: { onAccepted: (a: unknown, agent: string, q: string) => void; onUnsentChange: (unsent: boolean) => void; onOutcome: (o: unknown) => void }) => (
+    <>
+      <button onClick={() => onUnsentChange(true)}>type draft</button>
+      <button onClick={() => onUnsentChange(false)}>clear draft</button>
+      <button onClick={() => onOutcome({ kind: 'notPermitted' })}>refuse</button>
     <button onClick={() => onAccepted({ conversationId: 'conv-1', invocationId: 'inv-1', statusLocation: '', retryAfterSeconds: 2 }, 'specialist-tactics', 'Why?')}>
       composer
     </button>
+    </>
   ),
 }));
 
@@ -52,7 +61,7 @@ const conversation = (over: Partial<TriageConversation> = {}): TriageConversatio
   ...over,
 });
 
-function renderPage(role: 'Coach' | 'Viewer' | undefined) {
+function renderPage(role: 'Coach' | 'Viewer' | undefined, unreachable = false) {
   const member = {
     id: 'm1',
     accountName: 'a',
@@ -61,15 +70,21 @@ function renderPage(role: 'Coach' | 'Viewer' | undefined) {
     teamRoles: role ? [{ teamId: 'team-1', teamName: 'First', seasonId: 's', role }] : [],
   };
   const session = { platform: {}, session: { member }, status: 'signedIn' } as unknown as SessionApi;
+  const router = createMemoryRouter(
+    [
+      { path: '/matches/:matchId/triage/:conversationId', element: <><ConversationPage /><Link to="/elsewhere">elsewhere</Link></> },
+      { path: '/elsewhere', element: <div>elsewhere page</div> },
+      { path: '/matches/:matchId', element: <div>match page</div> },
+    ],
+    { initialEntries: ['/matches/match-1/triage/conv-1'] },
+  );
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <SessionContext.Provider value={session}>
-        <MemoryRouter initialEntries={['/matches/match-1/triage/conv-1']}>
-          <Routes>
-            <Route path="/matches/:matchId/triage/:conversationId" element={<ConversationPage />} />
-          </Routes>
-        </MemoryRouter>
-      </SessionContext.Provider>
+      <ConnectivityContext.Provider value={{ status: unreachable ? 'unreachable' : 'online', isUnreachable: unreachable, reportNetworkFailure: () => {} }}>
+        <SessionContext.Provider value={session}>
+          <RouterProvider router={router} />
+        </SessionContext.Provider>
+      </ConnectivityContext.Provider>
     </QueryClientProvider>,
   );
 }
@@ -138,6 +153,46 @@ describe('ConversationPage', () => {
     renderPage('Coach');
     expect(await screen.findByRole('heading', { name: 'This page does not exist.' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Open the analysis review' })).toBeNull();
+  });
+
+  it('shows the not-found view when a poll or read inside the history answers not found', async () => {
+    renderPage('Coach');
+    await userEvent.click(await screen.findByRole('button', { name: 'poll not found' }));
+    expect(await screen.findByRole('heading', { name: 'This page does not exist.' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'poll not found' })).toBeNull();
+  });
+
+  it('switches to read-only when a submission answers not permitted', async () => {
+    renderPage('Coach');
+    await userEvent.click(await screen.findByRole('button', { name: 'refuse' }));
+    expect(await screen.findByText(/only Club Admins and Coaches/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'composer' })).toBeNull();
+  });
+
+  it('shows the connection-required state while offline', async () => {
+    renderPage('Coach', true);
+    expect(await screen.findByText(/A connection is required/)).toBeInTheDocument();
+  });
+
+  it('asks before leaving with an unsent question and lets the member stay or leave', async () => {
+    renderPage('Coach');
+    await userEvent.click(await screen.findByRole('button', { name: 'type draft' }));
+    await userEvent.click(screen.getByRole('link', { name: 'elsewhere' }));
+    expect(await screen.findByText('Leave this conversation? Your unsent question will be lost.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Stay' }));
+    expect(screen.queryByText('elsewhere page')).toBeNull();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await userEvent.click(screen.getByRole('link', { name: 'elsewhere' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Leave' }));
+    expect(await screen.findByText('elsewhere page')).toBeInTheDocument();
+  });
+
+  it('does not ask before leaving without unsent input', async () => {
+    renderPage('Coach');
+    await userEvent.click(await screen.findByRole('button', { name: 'type draft' }));
+    await userEvent.click(screen.getByRole('button', { name: 'clear draft' }));
+    await userEvent.click(screen.getByRole('link', { name: 'elsewhere' }));
+    expect(await screen.findByText('elsewhere page')).toBeInTheDocument();
   });
 
   it('shows the not-permitted view without a team role', async () => {

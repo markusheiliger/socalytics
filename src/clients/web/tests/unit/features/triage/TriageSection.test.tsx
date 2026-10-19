@@ -5,6 +5,7 @@ import { vi } from 'vitest';
 import { TriageSection } from '../../../../src/features/triage/TriageSection';
 import type { ConversationSummary } from '../../../../src/platform/models/agents';
 import type { AnalysisRunSummary } from '../../../../src/platform/models/recordings';
+import { ConnectivityContext } from '../../../../src/connectivity/connectivityContext';
 import { SessionContext, type SessionApi } from '../../../../src/session/sessionContext';
 import '../../../../src/i18n';
 
@@ -40,15 +41,17 @@ const conversation = (id: string, createdAt: string, current = true): Conversati
   version: 1,
 });
 
-function renderSection(canStart: boolean) {
+function renderSection(canStart: boolean, unreachable = false) {
   const session = { platform: {} } as unknown as SessionApi;
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <SessionContext.Provider value={session}>
-        <MemoryRouter>
-          <TriageSection matchId="match-1" canStart={canStart} />
-        </MemoryRouter>
-      </SessionContext.Provider>
+      <ConnectivityContext.Provider value={{ status: unreachable ? 'unreachable' : 'online', isUnreachable: unreachable, reportNetworkFailure: () => {} }}>
+        <SessionContext.Provider value={session}>
+          <MemoryRouter>
+            <TriageSection matchId="match-1" canStart={canStart} />
+          </MemoryRouter>
+        </SessionContext.Provider>
+      </ConnectivityContext.Provider>
     </QueryClientProvider>,
   );
 }
@@ -111,5 +114,12 @@ describe('TriageSection', () => {
     renderSection(true);
     expect(await screen.findByText('Triage needs a finished analysis of this match first.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Start triage conversation' })).not.toBeInTheDocument();
+  });
+
+  it('shows the connection-required state and disables the start action while offline', async () => {
+    listConversations.mockResolvedValue([]);
+    renderSection(true, true);
+    expect(await screen.findByText(/A connection is required/)).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Start triage conversation' })).toBeDisabled();
   });
 });

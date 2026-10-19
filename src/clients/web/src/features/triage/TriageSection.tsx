@@ -1,9 +1,11 @@
+import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
 import { useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
+import { useConnectivity } from '../../connectivity/useConnectivity';
 import { createAgentConversationAdapter } from '../../platform/adapters/agentConversationAdapter';
 import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAdapter';
 import { toPlatformFailure } from '../../platform/failure';
@@ -24,6 +26,8 @@ interface TriageSectionProps {
 export function TriageSection({ matchId, canStart }: TriageSectionProps) {
   const { t } = useTranslation('triage');
   const { platform } = useSession();
+  const { isUnreachable } = useConnectivity();
+  const { t: ts } = useTranslation('shell');
   const adapter = useMemo(() => createAgentConversationAdapter(platform), [platform]);
   const runAdapter = useMemo(() => createAnalysisRunAdapter(platform), [platform]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -53,6 +57,11 @@ export function TriageSection({ matchId, canStart }: TriageSectionProps) {
       <Typography variant="h3" component="h3" sx={{ mt: 3 }}>
         {t('section.title')}
       </Typography>
+      {isUnreachable && (
+        <Alert severity="warning" role="status" sx={{ mb: 1 }}>
+          {ts('connectivity.connectionRequired')}
+        </Alert>
+      )}
       {failure && (
         <FailureAlert
           failure={toPlatformFailure(failure)}
@@ -82,7 +91,7 @@ export function TriageSection({ matchId, canStart }: TriageSectionProps) {
         </ul>
       )}
       {canStart && runs.data && eligible.length > 0 && (
-        <Button variant="contained" sx={{ mt: 1 }} onClick={() => setDialogOpen(true)}>
+        <Button variant="contained" sx={{ mt: 1 }} disabled={isUnreachable} onClick={() => setDialogOpen(true)}>
           {t('section.start')}
         </Button>
       )}

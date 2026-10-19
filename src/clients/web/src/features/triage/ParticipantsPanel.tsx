@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { TriageFailure, type AgentConversationAdapter } from '../../platform/adapters/agentConversationAdapter';
+import { useConnectivity } from '../../connectivity/useConnectivity';
 import type { ConversationSummary, TriageConversation, TriageOutcome } from '../../platform/models/agents';
 import { triageKeys } from './triageKeys';
 import { agentName, triageMessage } from './turnPresentation';
@@ -28,6 +29,7 @@ interface ParticipantsPanelProps {
 /** Participants with readable name, identifier, and domain, and for Editors the add control (FR-005). */
 export function ParticipantsPanel({ adapter, conversation, canEdit, onAdded, onConflict }: ParticipantsPanelProps) {
   const { t } = useTranslation('triage');
+  const { isUnreachable } = useConnectivity();
   const [choice, setChoice] = useState('');
   const [announcement, setAnnouncement] = useState('');
   const queryClient = useQueryClient();
@@ -123,7 +125,7 @@ export function ParticipantsPanel({ adapter, conversation, canEdit, onAdded, onC
               </option>
             ))}
           </TextField>
-          <Button type="submit" variant="contained" disabled={choice === '' || add.isPending}>
+          <Button type="submit" variant="contained" disabled={choice === '' || add.isPending || isUnreachable}>
             {add.isPending ? t('participants.adding') : t('participants.add')}
           </Button>
         </Stack>

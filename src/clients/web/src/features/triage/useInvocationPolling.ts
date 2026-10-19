@@ -36,6 +36,7 @@ export function useInvocationPolling(
   adapter: AgentConversationAdapter,
   conversationId: string,
   targets: readonly PollTarget[],
+  onNotFound?: () => void,
 ): InvocationPolling {
   const queryClient = useQueryClient();
   const { isUnreachable } = useConnectivity();
@@ -46,6 +47,8 @@ export function useInvocationPolling(
   const resumed = useRef(false);
   const targetsRef = useRef(targets);
   targetsRef.current = targets;
+  const onNotFoundRef = useRef(onNotFound);
+  onNotFoundRef.current = onNotFound;
   const paused = hidden || isUnreachable;
   const targetsKey = useMemo(() => targets.map((target) => target.invocationId).join('|'), [targets]);
 
@@ -106,6 +109,7 @@ export function useInvocationPolling(
         if (cancelled) return;
         if (error instanceof TriageFailure && error.outcome.kind === 'notFound') {
           stop(invocationId, true);
+          onNotFoundRef.current?.();
           return;
         }
       }

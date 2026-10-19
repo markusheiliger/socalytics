@@ -6,6 +6,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useConnectivity } from '../../connectivity/useConnectivity';
 import { TriageFailure, type AgentConversationAdapter } from '../../platform/adapters/agentConversationAdapter';
 import type { ConversationSummary, SubmissionAccepted, TriageOutcome } from '../../platform/models/agents';
 import { useQuestionDraft } from './useQuestionDraft';
@@ -18,6 +19,8 @@ interface QuestionComposerProps {
   onAccepted: (accepted: SubmissionAccepted, agentId: string, question: string) => void;
   /** Called with every refusal or unknown outcome so the owner can react (for example to a lost submit right). */
   onOutcome?: (outcome: TriageOutcome) => void;
+  /** True while the composer holds an unsent question or a submission whose outcome is unknown (FR-019a). */
+  onUnsentChange?: (unsent: boolean) => void;
   maxQuestionCharacters?: number;
 }
 
@@ -33,10 +36,12 @@ export function QuestionComposer({
   conversation,
   onAccepted,
   onOutcome,
+  onUnsentChange,
   maxQuestionCharacters,
 }: QuestionComposerProps) {
   const { t } = useTranslation('triage');
   const draft = useQuestionDraft();
+  const { isUnreachable } = useConnectivity();
   const { agentId, setAgentId } = draft;
   const [announcement, setAnnouncement] = useState('');
   const [refusal, setRefusal] = useState<TriageOutcome | undefined>(undefined);
@@ -48,13 +53,19 @@ export function QuestionComposer({
     if (onlyParticipant !== undefined && agentId === '') setAgentId(onlyParticipant);
   }, [onlyParticipant, agentId, setAgentId]);
 
+  const unsent = draft.text.trim() !== '' || draft.outcome === 'unknown';
+  useEffect(() => {
+    onUnsentChange?.(unsent);
+  }, [unsent, onUnsentChange]);
+  useEffect(() => () => onUnsentChange?.(false), [onUnsentChange]);
+
   const send = useMutation({
     mutationFn: (submission: Submission) =>
       adapter.submitQuestion(conversation.conversationId, submission.agentId, submission.question, submission.key),
   });
 
   const trimmed = draft.text.trim();
-  const canSend = trimmed !== '' && draft.agentId !== '' && !send.isPending;
+  const canSend = trimmed !== '' && draft.agentId !== '' && !send.isPending && !isUnreachable;
 
   const submit = () => {
     if (!canSend) return;

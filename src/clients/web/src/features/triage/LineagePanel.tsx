@@ -15,6 +15,8 @@ interface LineagePanelProps {
   changeCount?: number;
   /** True once the turn is terminal: the lineage no longer refreshes after it has loaded. */
   ended?: boolean;
+  /** Called when the platform no longer knows the invocation. */
+  onNotFound?: () => void;
 }
 
 const EXECUTION_FIELDS: readonly (keyof ExecutionReferences)[] = [
@@ -35,7 +37,7 @@ function formatTime(value: string): string {
 }
 
 /** The ordered lineage of one invocation with its declared execution references, shown as text (FR-015, FR-022). */
-export function LineagePanel({ adapter, invocationId, changeCount = 0, ended = false }: LineagePanelProps) {
+export function LineagePanel({ adapter, invocationId, changeCount = 0, ended = false, onNotFound }: LineagePanelProps) {
   const { t } = useTranslation('triage');
   const [lineage, setLineage] = useState<InvocationLineage>();
   const [failed, setFailed] = useState<ReturnType<typeof triageMessage>>();
@@ -59,6 +61,7 @@ export function LineagePanel({ adapter, invocationId, changeCount = 0, ended = f
       setFailed(undefined);
     } catch (error) {
       if (current !== requestId.current) return;
+      if (error instanceof TriageFailure && error.outcome.kind === 'notFound') onNotFound?.();
       setFailed(
         triageMessage(error instanceof TriageFailure ? error.outcome : { kind: 'platform', failureKind: 'unreachable' }),
       );

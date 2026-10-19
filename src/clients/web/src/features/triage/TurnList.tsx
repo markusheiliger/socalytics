@@ -28,6 +28,8 @@ interface TurnListProps {
   pendingTurns: readonly PendingTurn[];
   /** Called with the invocation identifiers that a history page now contains, so the owner can drop them. */
   onPendingResolved?: (invocationIds: string[]) => void;
+  /** Called when any read or poll answers not found, so the owner can show the not-found view and end all polling (FR-018). */
+  onNotFound?: () => void;
 }
 
 function formatTime(value: string): string {
@@ -49,7 +51,7 @@ function liveKey(turn: Turn): string | undefined {
 }
 
 /** The first history page in submission order followed by accepted turns the history does not contain yet. */
-export function TurnList({ adapter, conversationId, pendingTurns, onPendingResolved }: TurnListProps) {
+export function TurnList({ adapter, conversationId, pendingTurns, onPendingResolved, onNotFound }: TurnListProps) {
   const { t } = useTranslation('triage');
   const queryClient = useQueryClient();
   const [announcement, setAnnouncement] = useState('');
@@ -114,7 +116,7 @@ export function TurnList({ adapter, conversationId, pendingTurns, onPendingResol
     [turns, pendingTurns],
   );
 
-  const { changes } = useInvocationPolling(adapter, conversationId, targets);
+  const { changes } = useInvocationPolling(adapter, conversationId, targets, onNotFound);
   const changeCount = Object.values(changes).reduce((sum, count) => sum + count, 0);
 
   // A changed status refreshes the history so the turn shows its current state.
@@ -145,6 +147,10 @@ export function TurnList({ adapter, conversationId, pendingTurns, onPendingResol
   }, [turns, t]);
 
   const failure = history.error;
+  const historyGone = failure instanceof TriageFailure && failure.outcome.kind === 'notFound';
+  useEffect(() => {
+    if (historyGone) onNotFound?.();
+  }, [historyGone, onNotFound]);
   const failureMessage = failure
     ? triageMessage(
         failure instanceof TriageFailure ? failure.outcome : { kind: 'platform', failureKind: 'unreachable' },
@@ -223,6 +229,7 @@ export function TurnList({ adapter, conversationId, pendingTurns, onPendingResol
                       invocationId={turn.invocationId}
                       changeCount={changes[turn.invocationId] ?? 0}
                       ended={turn.state.recognized === 'succeeded' || turn.state.recognized === 'failed'}
+                      onNotFound={onNotFound}
                     />
                   </div>
                 )}

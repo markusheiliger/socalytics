@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router';
 import { createAgentConversationAdapter, TriageFailure } from '../../platform/adapters/agentConversationAdapter';
 import type { TriageOutcome } from '../../platform/models/agents';
 import type { AnalysisRunSummary } from '../../platform/models/recordings';
+import { useConnectivity } from '../../connectivity/useConnectivity';
 import { useSession } from '../../session/sessionContext';
 import { formatKickoff } from '../matches/MatchForm';
 import { triageKeys } from './triageKeys';
@@ -49,6 +50,7 @@ export function StartConversationDialog({ open, matchId, runs, onClose }: StartC
   const { t } = useTranslation('triage');
   const { t: tLineage } = useTranslation('lineage');
   const { platform } = useSession();
+  const { isUnreachable } = useConnectivity();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const adapter = useMemo(() => createAgentConversationAdapter(platform), [platform]);
@@ -139,7 +141,7 @@ export function StartConversationDialog({ open, matchId, runs, onClose }: StartC
         <Button onClick={close} disabled={busy}>
           {t('section.cancel')}
         </Button>
-        <Button type="submit" variant="contained" disabled={busy || !analysisRunId}>
+        <Button type="submit" variant="contained" disabled={busy || !analysisRunId || isUnreachable}>
           {busy ? t('section.starting') : unknown ? t('section.retry') : t('section.start')}
         </Button>
       </DialogActions>

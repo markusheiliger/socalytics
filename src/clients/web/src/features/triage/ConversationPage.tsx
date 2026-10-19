@@ -1,17 +1,24 @@
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogContentText from '@mui/material/DialogContentText';
+import DialogTitle from '@mui/material/DialogTitle';
 import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useParams } from 'react-router';
+import { Link, useBlocker, useParams } from 'react-router';
+import { useConnectivity } from '../../connectivity/useConnectivity';
 import { createAgentConversationAdapter, TriageFailure } from '../../platform/adapters/agentConversationAdapter';
 import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAdapter';
 import { toPlatformFailure } from '../../platform/failure';
 import type { SubmissionAccepted, TriageConversation, TriageOutcome } from '../../platform/models/agents';
 import { useSession } from '../../session/sessionContext';
+import { useLeaveGuard } from '../../uploads/useLeaveGuard';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { loadAllRuns, RUNS_KEY } from '../lineage/AnalysisRunStates';
 import { formatKickoff } from '../matches/MatchForm';
@@ -36,6 +43,12 @@ export function ConversationPage() {
   const { match, permitted, editor } = useMatchContext(matchId);
   const [pending, setPending] = useState<PendingTurn[]>([]);
   const [lostSubmitRight, setLostSubmitRight] = useState(false);
+  const [gone, setGone] = useState(false);
+  const [unsent, setUnsent] = useState(false);
+  const { isUnreachable } = useConnectivity();
+  const guardLeave = unsent && !gone;
+  useLeaveGuard(guardLeave);
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => guardLeave && currentLocation.pathname !== nextLocation.pathname);
 
   const conversation = useQuery({
     queryKey: triageKeys.conversation(conversationId),
@@ -74,6 +87,7 @@ export function ConversationPage() {
   const reload = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: triageKeys.conversation(conversationId) });
   }, [queryClient, conversationId]);
+  const onNotFound = useCallback(() => setGone(true), []);
   const onOutcome = useCallback((outcome: TriageOutcome) => {
     if (outcome.kind === 'notPermitted') setLostSubmitRight(true);
   }, []);
@@ -83,6 +97,7 @@ export function ConversationPage() {
 
   const conversationFailure = conversation.error;
   const notFound =
+    gone ||
     (conversationFailure instanceof TriageFailure && conversationFailure.outcome.kind === 'notFound') ||
     (data !== undefined && data.matchId !== matchId);
 
@@ -115,6 +130,11 @@ export function ConversationPage() {
       <Button component={Link} to={`/matches/${matchId}`} variant="outlined" sx={{ mb: 2 }}>
         {t('conversation.backToMatch')}
       </Button>
+      {isUnreachable && (
+        <Alert severity="warning" role="status" sx={{ mb: 2 }}>
+          {ts('connectivity.connectionRequired')}
+        </Alert>
+      )}
       {match.error && <FailureAlert failure={toPlatformFailure(match.error)} onReload={() => void match.refetch()} />}
       {conversation.isPending && <Typography>{t('conversation.loading')}</Typography>}
       {conversationFailure &&
@@ -143,10 +163,20 @@ export function ConversationPage() {
             onAdded={(updated) => queryClient.setQueryData(triageKeys.conversation(conversationId), updated)}
             onConflict={reload}
           />
-          <TurnList adapter={adapter} conversationId={conversationId} pendingTurns={pending} onPendingResolved={onPendingResolved} />
-          {canAsk && <QuestionComposer adapter={adapter} conversation={data} onAccepted={onAccepted} onOutcome={onOutcome} />}
+          <TurnList adapter={adapter} conversationId={conversationId} pendingTurns={pending} onPendingResolved={onPendingResolved} onNotFound={onNotFound} />
+          {canAsk && <QuestionComposer adapter={adapter} conversation={data} onAccepted={onAccepted} onOutcome={onOutcome} onUnsentChange={setUnsent} />}
         </Stack>
       )}
+      <Dialog open={blocker.state === 'blocked'} onClose={() => blocker.reset?.()} aria-labelledby="leave-title">
+        <DialogTitle id="leave-title">{t('leave.title')}</DialogTitle>
+        <DialogContent>
+          <DialogContentText>{t('leave.message')}</DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => blocker.reset?.()}>{t('leave.stay')}</Button>
+          <Button onClick={() => blocker.proceed?.()}>{t('leave.leave')}</Button>
+        </DialogActions>
+      </Dialog>
     </Container>
   );
 }
