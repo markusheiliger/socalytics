@@ -1,0 +1,6 @@
+{
+  "completion-missing-execution-references.json": "oneOf",
+  "failure-missing-retryable.json": "oneOf",
+  "operation-id-pattern.json": "oneOf",
+  "empty-execution-reference.json": "oneOf"
+}

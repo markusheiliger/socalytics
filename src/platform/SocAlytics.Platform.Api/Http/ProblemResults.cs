@@ -18,13 +18,15 @@ internal static class ProblemResults
 			OperationFailureKind.Unauthenticated => StatusCodes.Status401Unauthorized,
 			OperationFailureKind.PasswordChangeRequired => StatusCodes.Status403Forbidden,
 			OperationFailureKind.Unavailable => StatusCodes.Status503ServiceUnavailable,
+			OperationFailureKind.TooManyRequests => StatusCodes.Status429TooManyRequests,
 			_ => throw new ArgumentOutOfRangeException(nameof(failure)),
 		};
 		return new ProblemResult(status, failure.Code, failure.FieldViolations, failure.Extensions);
 	}
 
-	public static IResult Problem(int status, string code, IReadOnlyList<FieldViolation>? violations = null) =>
-		new ProblemResult(status, code, violations, null);
+	public static IResult Problem(
+		int status, string code, IReadOnlyList<FieldViolation>? violations = null, IReadOnlyDictionary<string, string>? extensions = null) =>
+		new ProblemResult(status, code, violations, extensions);
 
 	private sealed class ProblemResult(
 		int status, string code, IReadOnlyList<FieldViolation>? violations, IReadOnlyDictionary<string, string>? extensions) : IResult
@@ -42,6 +44,14 @@ internal static class ProblemResults
 			if (Detail(code) is { } detail)
 			{
 				body["detail"] = detail;
+			}
+
+			if (extensions is not null)
+			{
+				foreach (var (name, value) in extensions)
+				{
+					body[name] = value;
+				}
 			}
 
 			if (violations is { Count: > 0 })

@@ -1,10 +1,11 @@
 ---
 name: Spec Kit fix
 description: >-
-  Authors a fix spec for the cause of a stopped Spec Kit implementation that lies outside its spec (code or tests of
-  another feature on the base branch, or the environment actions) and proposes it as a pull request against the
-  default branch; reworks it after consistency findings (fix) or a person's feedback (revise). Started by
-  `/speckit fix` (Spec Kit commands) and by the fix spec lifecycle (Spec Kit analyze, Spec Kit commands).
+  Authors a prerequisite spec, an ordinary spec for the cause of a stopped Spec Kit implementation that lies outside its
+  spec (code or tests of another feature on the base branch, or the environment actions), and proposes it as a pull
+  request against the default branch; the stopped spec depends on it once it is merged. Reworks it after consistency
+  findings (fix) or a person's feedback (revise). Started by `/speckit fix` (Spec Kit commands) and by the prerequisite
+  spec lifecycle (Spec Kit analyze, Spec Kit commands).
 on:
   workflow_dispatch:
     inputs:
@@ -17,11 +18,11 @@ on:
         required: true
         type: string
       folder:
-        description: author — the stopped spec's folder under specs/; fix and revise — the fix spec's folder
+        description: author — the stopped spec's folder under specs/; fix and revise — the prerequisite spec's folder
         required: true
         type: string
       guidance:
-        description: The guidance of the person who asked for the fix spec (author), the findings to fix (fix), or the feedback (revise)
+        description: The guidance of the person who asked for the prerequisite spec (author), the findings to fix (fix), or the feedback (revise)
         required: false
         type: string
       check_run:
@@ -29,12 +30,16 @@ on:
         required: true
         type: string
       mode:
-        description: author (write a new fix spec), fix (consistency findings), or revise (a person's feedback)
+        description: author (write a new prerequisite spec), fix (consistency findings), or revise (a person's feedback)
         required: false
         type: string
         default: author
       amendment:
-        description: Fix spec pull request number (fix and revise)
+        description: Prerequisite spec pull request number (fix and revise)
+        required: false
+        type: string
+      branch:
+        description: The prerequisite spec pull request's branch, speckit-spec/<folder> (fix and revise; empty for the earlier speckit-fix/<folder>)
         required: false
         type: string
       round:
@@ -52,13 +57,13 @@ on:
         required: false
         type: string
       stamp:
-        description: UTC time stamp (YYYYMMDD-HHMMSS) that starts the new fix spec's folder name (author)
+        description: UTC time stamp (YYYYMMDD-HHMMSS) that starts the new prerequisite spec's folder name (author)
         required: false
         type: string
   # Only the Spec Kit workflows dispatch this workflow, with the repository's token; dispatching already requires
   # write access.
   roles: all
-run-name: "Spec Kit fix spec #${{ inputs.twin }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the fix spec, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the fix spec with review feedback' || 'Write a fix spec that unblocks the implementation' }}"
+run-name: "Spec Kit fix spec #${{ inputs.twin }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the prerequisite spec, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the prerequisite spec with review feedback' || 'Write a prerequisite spec that unblocks the implementation' }}"
 # One run per twin at a time; runs for different twins run side by side.
 concurrency:
   group: speckit-fix-${{ inputs.twin }}
@@ -85,12 +90,12 @@ tools:
   github:
     toolsets: [default, actions]
 steps:
-  # Custom steps replace gh-aw's default checkout. Authoring starts from the default branch, where the fix spec is
-  # proposed; a rework works on the fix spec branch and pushes to its pull request.
-  - name: Check out the default branch or the fix spec branch
+  # Custom steps replace gh-aw's default checkout. Authoring starts from the default branch, where the prerequisite
+  # spec is proposed; a rework works on the prerequisite spec branch and pushes to its pull request.
+  - name: Check out the default branch or the prerequisite spec branch
     uses: actions/checkout@v5
     with:
-      ref: ${{ inputs.mode == 'fix' && format('speckit-fix/{0}', inputs.folder) || inputs.mode == 'revise' && format('speckit-fix/{0}', inputs.folder) || github.event.repository.default_branch }}
+      ref: ${{ (inputs.mode == 'fix' || inputs.mode == 'revise') && inputs.branch != '' && inputs.branch || (inputs.mode == 'fix' || inputs.mode == 'revise') && format('speckit-fix/{0}', inputs.folder) || github.event.repository.default_branch }}
       fetch-depth: 0
       persist-credentials: false
   # The trusted tooling comes from the default branch.
@@ -100,7 +105,7 @@ steps:
       ref: ${{ github.event.repository.default_branch }}
       path: .speckit-tooling
       persist-credentials: false
-  - name: Keep the tooling and the evidence out of the fix spec
+  - name: Keep the tooling and the evidence out of the prerequisite spec
     run: printf '.speckit-tooling/\n.speckit-fix/\n' >> .git/info/exclude
   - name: Set up Node.js
     uses: actions/setup-node@v5
@@ -136,17 +141,18 @@ safe-outputs:
     draft: true
     allowed-files: ["specs/**"]
     base-branch: ${{ github.event.repository.default_branch }}
-    allowed-branches: ["speckit-fix/*"]
-    # Never overwrite an existing branch: only a branch this run creates can carry its fix spec.
+    allowed-branches: ["speckit-spec/*"]
+    # Never overwrite an existing branch: only a branch this run creates can carry its prerequisite spec.
     preserve-branch-name: true
     recreate-ref: false
     fallback-as-issue: false
     auto-close-issue: false
     if-no-changes: "ignore"
     max: 1
-  # Reworks push to the existing fix spec pull request; the title prefix keeps them away from other pull requests.
+  # Reworks push to the existing prerequisite spec pull request; the title prefix keeps them away from other pull
+  # requests.
   push-to-pull-request-branch:
-    # Only the fix spec pull request of this run; when authoring there is none, so nothing can be pushed.
+    # Only the prerequisite spec pull request of this run; when authoring there is none, so nothing can be pushed.
     target: ${{ inputs.amendment }}
     base-branch: ${{ github.event.repository.default_branch }}
     required-title-prefix: "Fix spec: "
@@ -171,8 +177,8 @@ safe-outputs:
         report:
           description: >-
             The report as one JSON object, as described in the speckit-gha-fix skill: when authoring, the fields
-            folder, summary, refused (why no fix spec was written, empty otherwise), and reuse (the pull request
-            number of an existing fix spec that already removes the cause, empty otherwise); for a rework the fields
+            folder, summary, refused (why no spec was written, empty otherwise), and reuse (the pull request
+            number of an existing prerequisite spec that already removes the cause, empty otherwise); for a rework the fields
             summary, artifacts, and responses.
           required: true
           type: string
@@ -208,28 +214,29 @@ safe-outputs:
           run: node .github/scripts/speckit-fix.mjs record
 ---
 
-# Author or rework a fix spec for a stopped Spec Kit implementation
+# Author or rework a prerequisite spec for a stopped Spec Kit implementation
 
 The Spec Kit implementation of spec twin #${{ inputs.twin }} stopped in pull request #${{ inputs.pull }}, and its
 diagnosis found the cause outside that spec. This run's mode is **`${{ inputs.mode }}`**.
 
 Follow the skill `.speckit-tooling/.github/skills/speckit-gha-fix/SKILL.md` in **non-interactive mode**. It defines
-what a fix spec is, its rules, and the report formats.
+what a prerequisite spec is, its rules, and the report formats.
 
 - The evidence is in `.speckit-fix/evidence.md`, the identifiers in `.speckit-fix/context.json`. Use the GitHub tools
   for anything else you need to read.
-- **`author`**: the workspace is the default branch. One cause gets one fix spec: when one of the existing fix specs
-  listed in the evidence already removes the cause, write nothing and report its pull request number in `reuse`.
-  Otherwise write one new fix spec folder named
-  `<folderPrefix><short-name>` (from `context.json`) under `specs/`, add its row to `specs/README.md`, and propose it
-  with `create_pull_request` on a branch `speckit-fix/<folder>`. When the cause cannot be fixed by a fix spec, change
+- **`author`**: the workspace is the default branch. One cause gets one spec: when one of the existing prerequisite
+  specs listed in the evidence already removes the cause, write nothing and report its pull request number in `reuse`.
+  Otherwise write one new, ordinary spec folder named `<folderPrefix><short-name>` (from `context.json`) under
+  `specs/`, state in its dependency or assumption text that the spec named `prerequisiteOf` in `context.json` depends
+  on it, add its row to `specs/README.md`, and propose it with `create_pull_request` on a branch
+  `<branchPrefix><folder>` (`branchPrefix` in `context.json`). When the cause cannot be fixed by a spec, change
   nothing and report why in `refused`.
-- **`fix`**: the workspace is the fix spec branch `speckit-fix/${{ inputs.folder }}` of pull request
+- **`fix`**: the workspace is the spec's pull request branch (`branch` in `context.json`) of pull request
   #${{ inputs.amendment }}. Fix the consistency findings listed in the evidence (correction round ${{ inputs.round }}),
   commit, and push with `push_to_pull_request_branch` for pull request #${{ inputs.amendment }}.
-- **`revise`**: the workspace is the fix spec branch of pull request #${{ inputs.amendment }}. Address every piece of
-  feedback listed in the evidence, commit, and push with `push_to_pull_request_branch` for pull request
+- **`revise`**: the workspace is the spec's pull request branch of pull request #${{ inputs.amendment }}. Address every
+  piece of feedback listed in the evidence, commit, and push with `push_to_pull_request_branch` for pull request
   #${{ inputs.amendment }}.
-- Changes outside the fix spec folder and `specs/README.md` are scratch work for experiments and are discarded;
-  revert them before you create or push anything.
+- Changes outside the spec folder and `specs/README.md` are scratch work for experiments and are discarded; revert
+  them before you create or push anything.
 - Finish by calling `speckit_fix` exactly once with the report.

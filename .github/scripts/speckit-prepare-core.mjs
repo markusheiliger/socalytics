@@ -47,8 +47,8 @@ export function isValidFolderName(folder) {
   return typeof folder === 'string' && FOLDER_PATTERN.test(folder) && folder !== '.' && folder !== '..';
 }
 
-// A fix spec (`/speckit fix`) names the implementation pull request it unblocks in spec.md: "**Fix for**: #75 …". It
-// skips dependency inference (the tooling links it to the spec it unblocks) and starts ahead of the scheduler's limit.
+// Specs authored by earlier `/speckit fix` tooling named the implementation pull request they unblock in spec.md
+// ("**Fix for**: #75 …"). Read for compatibility only; it has no effect on the twin.
 const FIX_FOR_LINE = /^\*\*Fix for\*\*:[^\n]*?#(\d+)/m;
 export function parseFixForLine(specMarkdown) {
   const match = String(specMarkdown ?? '').match(FIX_FOR_LINE);
@@ -328,7 +328,7 @@ export function planSync({ specs, issues, context }) {
     }
     if (!twin) {
       if (unreadable.length > 0) plan.skippedCreates.push({ folder, title });
-      else plan.create.push({ folder, title, body, stage: deriveStage(artifacts, tasks), fix: entry.fixFor !== null && entry.fixFor !== undefined });
+      else plan.create.push({ folder, title, body, stage: deriveStage(artifacts, tasks) });
       continue;
     }
     if (twin.state === 'closed') {

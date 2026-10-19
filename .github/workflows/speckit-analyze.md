@@ -1,8 +1,8 @@
 ---
 name: Spec Kit analyze
 description: >-
-  Checks an amendment of Spec Kit artifacts, or a new fix spec, for consistency with an independent, read-only
-  /speckit-analyze of the whole spec folder. Started by the amendment and fix spec lifecycles (Spec Kit diagnose, Spec
+  Checks an amendment of Spec Kit artifacts, or a new prerequisite spec, for consistency with an independent, read-only
+  /speckit-analyze of the whole spec folder. Started by the amendment and prerequisite spec lifecycles (Spec Kit diagnose, Spec
   Kit fix, and Spec Kit commands); its record job starts a correction round, a rework with pending feedback, or hands
   the pull request to a person for review.
 on:
@@ -21,7 +21,7 @@ on:
         required: true
         type: string
       amendment:
-        description: Amendment or fix spec pull request number
+        description: Amendment or prerequisite spec pull request number
         required: true
         type: string
       round:
@@ -48,14 +48,14 @@ on:
         required: true
         type: string
       kind:
-        description: amend (an amendment on speckit-amend/<folder>) or fix (a new fix spec on speckit-fix/<folder>)
+        description: amend (an amendment on speckit-amend/<folder>), spec (a new prerequisite spec on speckit-spec/<folder>), or fix (one on the earlier speckit-fix/<folder>)
         required: false
         type: string
         default: amend
   # Only the Spec Kit workflows dispatch this workflow, with the repository's token; dispatching already requires
   # write access.
   roles: all
-run-name: "Spec Kit analyze spec #${{ inputs.twin }} · ${{ inputs.mode == 'check' && format('Check the {0} for consistency after a manual push', inputs.kind == 'fix' && 'fix spec' || 'amendment') || inputs.round != '0' && inputs.round != '' && format('Check the {0} for consistency after round {1}', inputs.kind == 'fix' && 'fix spec' || 'amendment', inputs.round) || format('Check the {0} for consistency', inputs.kind == 'fix' && 'fix spec' || 'amendment') }}"
+run-name: "Spec Kit analyze spec #${{ inputs.twin }} · ${{ inputs.mode == 'check' && format('Check the {0} for consistency after a manual push', (inputs.kind == 'fix' || inputs.kind == 'spec') && 'prerequisite spec' || 'amendment') || inputs.round != '0' && inputs.round != '' && format('Check the {0} for consistency after round {1}', (inputs.kind == 'fix' || inputs.kind == 'spec') && 'prerequisite spec' || 'amendment', inputs.round) || format('Check the {0} for consistency', (inputs.kind == 'fix' || inputs.kind == 'spec') && 'prerequisite spec' || 'amendment') }}"
 concurrency:
   group: speckit-analyze-${{ inputs.twin }}
   cancel-in-progress: false
@@ -78,11 +78,11 @@ tools:
   github:
     toolsets: [default]
 steps:
-  # Custom steps replace gh-aw's default checkout: the workspace is the amendment or fix spec branch.
-  - name: Check out the amendment or fix spec branch
+  # Custom steps replace gh-aw's default checkout: the workspace is the amendment or prerequisite spec branch.
+  - name: Check out the amendment or prerequisite spec branch
     uses: actions/checkout@v5
     with:
-      ref: ${{ inputs.kind == 'fix' && format('speckit-fix/{0}', inputs.folder) || format('speckit-amend/{0}', inputs.folder) }}
+      ref: ${{ inputs.kind == 'spec' && format('speckit-spec/{0}', inputs.folder) || inputs.kind == 'fix' && format('speckit-fix/{0}', inputs.folder) || format('speckit-amend/{0}', inputs.folder) }}
       # Full history with all branches, so the agent can diff the pull request against its base.
       fetch-depth: 0
       persist-credentials: false
@@ -102,11 +102,11 @@ steps:
       printf '%s' "${SPECKIT_PREVIOUS:-[]}" > .speckit-analysis/previous.json
       printf '.speckit-tooling/\n.speckit-analysis/\n' >> .git/info/exclude
   # The spec folder moves to specs/archive/<folder> when the implementation archives it right before its merge. The
-  # base the agent diffs against: the implementation branch for an amendment, the default branch for a fix spec.
+  # base the agent diffs against: the implementation branch for an amendment, the default branch for a prerequisite spec.
   - name: Locate the spec folder
     env:
       FOLDER: ${{ inputs.folder }}
-      BASE: ${{ inputs.kind == 'fix' && github.event.repository.default_branch || format('speckit/{0}', inputs.folder) }}
+      BASE: ${{ (inputs.kind == 'fix' || inputs.kind == 'spec') && github.event.repository.default_branch || format('speckit/{0}', inputs.folder) }}
     run: |
       if [ -d "specs/$FOLDER" ]; then dir="specs/$FOLDER"; else dir="specs/archive/$FOLDER"; fi
       printf '%s' "$dir" > .speckit-analysis/spec-dir
@@ -117,7 +117,7 @@ safe-outputs:
   report-failure-as-issue: false
   jobs:
     speckit-analysis:
-      description: Report the consistency analysis of the amendment or fix spec. Call it exactly once.
+      description: Report the consistency analysis of the amendment or prerequisite spec. Call it exactly once.
       runs-on: ubuntu-latest
       output: "The analysis was recorded."
       permissions:
@@ -158,11 +158,11 @@ safe-outputs:
           run: node .github/scripts/speckit-amend.mjs record-analysis
 ---
 
-# Check an amendment of Spec Kit artifacts, or a new fix spec, for consistency
+# Check an amendment of Spec Kit artifacts, or a new prerequisite spec, for consistency
 
 Pull request #${{ inputs.amendment }} is of kind **${{ inputs.kind }}**. Kind `amend` amends the Spec Kit artifacts of an
-existing spec folder; kind `fix` adds a new fix spec, a small spec for a cause outside the stopped spec of pull
-request #${{ inputs.pull }}. The spec folder is named in `.speckit-analysis/spec-dir`. For an amendment it is
+existing spec folder; kinds `spec` and `fix` add a new prerequisite spec, an ordinary spec for a cause outside the
+stopped spec of pull request #${{ inputs.pull }}, which depends on it. The spec folder is named in `.speckit-analysis/spec-dir`. For an amendment it is
 `specs/${{ inputs.folder }}/` until the implementation archives it right before its merge, and
 `specs/archive/${{ inputs.folder }}/` after that.
 The workspace is the pull request's branch. Check the **whole** spec folder for consistency,
@@ -180,9 +180,10 @@ other and with the constitution.
    finding. A changed design decision that `docs/architecture/` states must be covered by an unchecked documentation
    task that brings it into the owning narrative (constitution Principle I); a missing one is a finding, and so is a
    pull request that changes `docs/architecture/` itself.
-   For a fix spec (`fix`), also check that it stays minimal and fixes the cause where it lives without weakening any
-   requirement, test, or threshold of the feature that owns the code, that its tasks can be implemented and verified
-   on their own, and that `spec.md` names the implementation it unblocks in its `**Fix for**` line.
+   For a prerequisite spec (`spec` or `fix`), also check that it stays minimal and fixes the cause where it lives
+   without weakening any requirement, test, or threshold of the feature that owns the code, and that its tasks can be
+   implemented and verified on their own. It needs no special marker line: the stopped spec's dependency on it is
+   recorded on GitHub once it is merged.
 3. Use the severities of the skill. Report only real inconsistencies, ambiguities, coverage gaps, and constitution
    conflicts; no style preferences above LOW.
 4. `.speckit-analysis/previous.json` lists the findings that the last correction round tried to fix, each with an id
