@@ -15,6 +15,7 @@ import type { CredentialCode } from '../../platform/models/member';
 import { useSession } from '../../session/sessionContext';
 import { FailureAlert, useFieldError } from '../shared/FailureAlert';
 import { CredentialDialog } from './CredentialDialog';
+import { InviteMemberDialog } from './InviteMemberDialog';
 import { MemberFailureAlert } from './MemberFailureAlert';
 
 export const MEMBERS_KEY = ['members'];
@@ -23,6 +24,7 @@ export const MEMBERS_KEY = ['members'];
 export function MembersPage() {
   const { t } = useTranslation('members');
   const { t: tc } = useTranslation('common');
+  const { t: ti } = useTranslation('invitations');
   const { platform, listProviders } = useSession();
   const { isUnreachable } = useConnectivity();
   const queryClient = useQueryClient();
@@ -30,6 +32,8 @@ export function MembersPage() {
   const [accountName, setAccountName] = useState('');
   const [created, setCreated] = useState<{ name: string; credential: CredentialCode }>();
   const [notice, setNotice] = useState(false);
+  const [inviting, setInviting] = useState(false);
+  const [invitedAddress, setInvitedAddress] = useState<string>();
   const [linkProvider, setLinkProvider] = useState('');
   const providers = useQuery({ queryKey: ['identity-providers'], queryFn: () => listProviders(), retry: false });
   const query = useQuery({ queryKey: MEMBERS_KEY, queryFn: () => adapter.list(), retry: false });
@@ -56,6 +60,21 @@ export function MembersPage() {
     <Container component="main" maxWidth="md" sx={{ py: 4 }}>
       <Typography variant="h1">{tc('app.name')}</Typography>
       <Typography variant="h2">{t('members.title')}</Typography>
+      <Button
+        variant="contained"
+        sx={{ mt: 1 }}
+        onClick={() => {
+          setInvitedAddress(undefined);
+          setInviting(true);
+        }}
+      >
+        {ti('invite.action')}
+      </Button>
+      {invitedAddress && (
+        <Alert severity="success" role="status" sx={{ mt: 2 }}>
+          {ti('invite.sent', { address: invitedAddress })}
+        </Alert>
+      )}
       {query.error && <FailureAlert failure={toPlatformFailure(query.error)} onReload={() => void query.refetch()} />}
       {query.data &&
         (query.data.length === 0 ? (
@@ -112,6 +131,14 @@ export function MembersPage() {
           {create.isPending ? t('members.creating') : t('members.create')}
         </Button>
       </Stack>
+      <InviteMemberDialog
+        open={inviting}
+        onClose={() => setInviting(false)}
+        onInvited={(invitation) => {
+          setInviting(false);
+          setInvitedAddress(invitation.address);
+        }}
+      />
       <CredentialDialog credential={created?.credential} accountName={created?.name ?? ''} onClose={() => setCreated(undefined)} />
     </Container>
   );

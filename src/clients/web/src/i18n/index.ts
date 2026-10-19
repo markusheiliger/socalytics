@@ -8,6 +8,7 @@ import passwordRecovery from './en/passwordRecovery.json';
 import shell from './en/shell.json';
 import seasons from './en/seasons.json';
 import members from './en/members.json';
+import invitations from './en/invitations.json';
 import lineage from './en/lineage.json';
 import matches from './en/matches.json';
 import managers from './en/managers.json';
@@ -19,8 +20,8 @@ void i18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'managers', 'matches', 'uploads', 'lineage', 'email', 'passwordRecovery'],
-  resources: { en: { common, session, account, shell, club, seasons, teams, members, managers, matches, uploads, lineage, email, passwordRecovery } },
+  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'managers', 'matches', 'uploads', 'lineage', 'email', 'passwordRecovery', 'invitations'],
+  resources: { en: { common, session, account, shell, club, seasons, teams, members, managers, matches, uploads, lineage, email, passwordRecovery, invitations } },
   interpolation: { escapeValue: false },
 });
 

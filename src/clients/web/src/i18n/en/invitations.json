@@ -1,0 +1,33 @@
+{
+  "invite": {
+    "action": "Invite member",
+    "title": "Invite a member",
+    "intro": "The invitee receives an email with a link to choose their own password. The account name cannot be changed by the invitee.",
+    "address": "Email address",
+    "accountName": "Sign-in name",
+    "teamRolesTitle": "Team roles",
+    "noTeams": "There are no teams to assign.",
+    "noRows": "No team roles. The member can get roles later.",
+    "team": "Team",
+    "role": "Role",
+    "teamRole": {
+      "Coach": "Coach",
+      "Viewer": "Viewer"
+    },
+    "addRow": "Add team role",
+    "removeRow": "Remove team role {{number}}",
+    "send": "Send invitation",
+    "sending": "Sending…",
+    "cancel": "Cancel",
+    "sent": "The invitation was sent to {{address}}.",
+    "emailAddressInUse": "This email address is already in use by a member or another invitation.",
+    "accountNameTaken": "This sign-in name is already taken by a member or another invitation.",
+    "rateLimited": "Too many requests. Try again later.",
+    "rateLimitedWait": "Too many requests. Try again in {{seconds}} seconds.",
+    "fieldError": {
+      "required": "This field is required.",
+      "too-long": "This value is too long.",
+      "other": "The platform refused this value."
+    }
+  }
+}
