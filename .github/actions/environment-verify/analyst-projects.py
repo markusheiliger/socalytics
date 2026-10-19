@@ -38,6 +38,7 @@ FIX_MANIFEST = "correct the named manifest to the documented Python product conv
 FIX_LAYOUT = "move the project to src/analysts/sdk or src/analysts/capabilities/<name>, or author the required environment extension, before retrying"
 FIX_AGENT_MANIFEST = "correct the named manifest to the agent project convention, or author the required environment extension, before retrying"
 FIX_AGENT_LAYOUT = "move the project to src/agents/<name>, or author the required environment extension, before retrying"
+FIX_AGENT_ANALYST = "remove the dependency on the Analyst project or move the shared code into an agent project under src/agents/<name>, before retrying"
 FIX_LOCK = "commit the consuming project's own uv.lock, generated from its committed declarations, before retrying"
 FIX_RUNTIME = "correct requires-python of the named project so it admits the installed interpreter, or author the required environment extension, before retrying"
 
@@ -281,9 +282,15 @@ def resolve_dependency(root, project, source_name, path, recognized, errors, are
         )
         roots = f"{SDK_ROOT} and {CAPABILITIES_ROOT}/<name>"
     if not permitted:
+        if area != "agents":
+            action = FIX_MANIFEST
+        elif relative.startswith("src/analysts/"):
+            action = FIX_AGENT_ANALYST
+        else:
+            action = FIX_AGENT_MANIFEST
         errors.append(ProjectError(project["root"], "project convention",
                                    f"local dependency {source_name!r} at {relative} is outside the permitted ownership roots "
-                                   f"({roots})"))
+                                   f"({roots})", action))
         return None
     if not os.path.isfile(os.path.join(target, "pyproject.toml")):
         errors.append(ProjectError(project["root"], "project convention",
@@ -328,6 +335,25 @@ def order_projects(projects, errors):
     return order
 
 
+def analyst_project_names(root):
+    """Maps the normalized static [project].name of every Analyst manifest to its root; unreadable names are skipped."""
+    names = {}
+    for relative in candidate_manifests(root, "analysts"):
+        manifest = os.path.join(root, relative, "pyproject.toml")
+        if os.path.islink(manifest):
+            continue
+        try:
+            with open(manifest, "rb") as handle:
+                data = tomllib.load(handle)
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
+            continue
+        project = data.get("project")
+        name = project.get("name") if isinstance(project, dict) else None
+        if isinstance(name, str) and name.strip() and "name" not in (project.get("dynamic") or []):
+            names.setdefault(normalize_name(name), relative)
+    return names
+
+
 def discover(root, python_version, area="analysts"):
     errors = []
     loaded = {}
@@ -350,6 +376,15 @@ def discover(root, python_version, area="analysts"):
             errors.append(ProjectError(roots[1], "project convention",
                                        f"project name {name!r} duplicates {roots[0]}"))
     duplicates = {relative for roots in identities.values() if len(roots) > 1 for relative in roots[1:]}
+    if area == "agents":
+        analyst_names = analyst_project_names(root)
+        for relative in sorted(loaded):
+            name = loaded[relative]["name"]
+            if relative not in duplicates and name in analyst_names:
+                errors.append(ProjectError(relative, "project convention",
+                                           f"project name {name!r} duplicates Analyst project {analyst_names[name]}",
+                                           FIX_AGENT_MANIFEST))
+                duplicates.add(relative)
 
     recognized = {relative: project for relative, project in loaded.items() if relative not in duplicates}
     # Every candidate manifest is recognized, even an invalid one, so only valid targets resolve below.

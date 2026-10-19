@@ -887,6 +887,45 @@ it('${id}', () => {
       assert.equal(result.outputs.checks, 'Analyst Python projects,Agent Python projects,Markdown check');
       assert.deepEqual([...new Set(result.calls.map((call) => path.relative(root, call[0])))], [sdkRoot, mcpRoot]);
     });
+
+    it('runs only the check of the area that changed', () => {
+      const root = sdkRepository();
+      project(root, mcpRoot, { name: 'mcp' });
+      const agent = run(root, { mode: 'task', changed: [`${mcpRoot}/a.py`] });
+      assert.equal(agent.status, 0, agent.log);
+      assert.equal(agent.outputs.checks, 'Agent Python projects');
+      assert.deepEqual([...new Set(agent.calls.map((call) => path.relative(root, call[0])))], [mcpRoot]);
+      const analyst = run(root, { mode: 'task', changed: [`${sdkRoot}/a.py`] });
+      assert.equal(analyst.outputs.checks, 'Analyst Python projects');
+      assert.deepEqual([...new Set(analyst.calls.map((call) => path.relative(root, call[0])))], [sdkRoot]);
+      const analysis = run(root, { mode: 'task', changed: ['contracts/analysis/x.json'] });
+      assert.equal(analysis.outputs.checks, 'Analyst Python projects');
+      assert.deepEqual([...new Set(analysis.calls.map((call) => path.relative(root, call[0])))], [sdkRoot]);
+    });
+
+    it('fails only the agent check for an agent discovery failure and keeps the Analyst check', () => {
+      const root = sdkRepository();
+      project(root, mcpRoot, { name: 'mcp', dependencies: ['sdk'], sources: { sdk: '../../analysts/sdk' } });
+      const result = run(root);
+      assert.equal(result.status, 1);
+      assert.equal(result.outputs.checks, 'Analyst Python projects,Agent Python projects');
+      assert.match(result.log, /Agent Python projects: discovery failed/);
+      assert.equal(result.log.match(/Recommended action:/g).length, 1);
+      assert.match(result.log, /remove the dependency on the Analyst project/);
+      assert.deepEqual([...new Set(result.calls.map((call) => path.relative(root, call[0])))], [sdkRoot]);
+      assert.doesNotMatch(result.log, /Analyst Python projects: discovery failed/);
+    });
+
+    it('keeps the Analyst check unchanged while an invalid agent project exists', () => {
+      const root = sdkRepository();
+      project(root, mcpRoot, { name: 'sdk' });
+      const result = run(root, { mode: 'task', changed: [`${sdkRoot}/a.py`] });
+      assert.equal(result.status, 1);
+      assert.equal(result.outputs.checks, 'Analyst Python projects,Agent Python projects');
+      assert.equal(result.calls.length, 4);
+      assert.match(result.log, /Analyst Python stage: tests \(src\/analysts\/sdk\)/);
+      assert.match(result.log, /project src\/agents\/mcp: project convention: project name 'sdk' duplicates Analyst project src\/analysts\/sdk/);
+    });
   });
 
   const uvReal = spawnSync('uv', ['--version']).status === 0;
@@ -1055,7 +1094,50 @@ describe('agents area discovery', () => {
     const root = repository();
     project(root, 'src/analysts/sdk', { name: 'sdk' });
     project(root, 'src/agents/a', { name: 'a', dependencies: ['sdk'], sources: { sdk: '../../analysts/sdk' } });
-    rejectedAgents(root, /project src\/agents\/a: project convention: local dependency 'sdk' at src\/analysts\/sdk is outside the permitted ownership roots/);
+    const result = rejectedAgents(root, /project src\/agents\/a: project convention: local dependency 'sdk' at src\/analysts\/sdk is outside the permitted ownership roots/);
+    assert.match(result.stderr, /Recommended action: remove the dependency on the Analyst project or move the shared code into an agent project under src\/agents\/<name>, before retrying/);
+    const capability = repository();
+    project(capability, 'src/analysts/capabilities/seg', { name: 'seg' });
+    project(capability, 'src/agents/a', { name: 'a', dependencies: ['seg'], sources: { seg: '../../analysts/capabilities/seg' } });
+    rejectedAgents(capability, /local dependency 'seg' at src\/analysts\/capabilities\/seg is outside/);
+  });
+
+  it('keeps an Analyst dependency on an agent project failing as before', () => {
+    const root = repository();
+    project(root, 'src/agents/a', { name: 'a' });
+    project(root, 'src/analysts/sdk', { name: 'sdk', dependencies: ['a'], sources: { a: '../../agents/a' } });
+    const result = rejected(root, /project src\/analysts\/sdk: project convention: local dependency 'a' at src\/agents\/a is outside the permitted ownership roots/);
+    assert.match(result.stderr, /Recommended action: correct the named manifest to the documented Python product convention/);
+  });
+
+  it('fails an agent name that repeats an Analyst name and names both projects', () => {
+    const root = repository();
+    project(root, 'src/analysts/capabilities/seg', { name: 'Seg_Core' });
+    project(root, 'src/agents/a', { name: 'seg-core' });
+    const result = rejectedAgents(root, /project src\/agents\/a: project convention: project name 'seg-core' duplicates Analyst project src\/analysts\/capabilities\/seg/);
+    assert.equal(result.stderr.trim().split('\n').length, 1);
+    assert.equal(discover(root).status, 0);
+  });
+
+  it('reads only static Analyst names and skips unreadable Analyst manifests', () => {
+    const root = repository();
+    project(root, 'src/analysts/sdk', { raw: '[project\n' });
+    project(root, 'src/analysts/capabilities/dyn', { raw: '[project]\ndynamic = ["name"]\nname = "a"\n' });
+    project(root, 'src/analysts/capabilities/noname', { raw: '[project]\nrequires-python = ">=3.11"\n' });
+    project(root, 'src/agents/a', { name: 'a' });
+    const result = agents(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.projects.map((entry) => entry.root), ['src/agents/a']);
+  });
+
+  it('leaves Analyst output and errors unchanged while agent projects exist', () => {
+    const root = repository();
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    project(root, 'src/agents/a', { name: 'sdk' });
+    project(root, 'src/agents/b', { raw: '[project\n' });
+    const result = discover(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.projects.map((entry) => entry.root), ['src/analysts/sdk']);
   });
 });
 
