@@ -6,7 +6,10 @@ Recognized manifests (see the environment interface contract of the analyst-medi
     src/analysts/sdk/pyproject.toml
     src/analysts/capabilities/<name>/pyproject.toml
 
-Usage: analyst-projects.py discover [--root DIR] [--python-version X.Y[.Z]]
+With `--area agents` the helper recognizes src/agents/<name>/pyproject.toml instead (see the environment
+interface contract of the agents-python-environment spec); `--area analysts` is the default.
+
+Usage: analyst-projects.py discover [--area analysts|agents] [--root DIR] [--python-version X.Y[.Z]]
        analyst-projects.py select --mode task|phase|finalize [--changed-files FILE] [--root DIR] [--python-version X.Y[.Z]]
 
 Prints the validated projects as JSON in dependency order (dependencies first). `select` prints only the projects
@@ -30,8 +33,11 @@ MANAGER_ROOT = "src/analysts/manager"
 IGNORED_DIRECTORIES = {
     ".venv", "venv", "node_modules", "__pycache__", ".git", "build", "dist", "site-packages",
 }
+AGENTS_ROOT = "src/agents"
 FIX_MANIFEST = "correct the named manifest to the documented Python product convention, or author the required environment extension, before retrying"
 FIX_LAYOUT = "move the project to src/analysts/sdk or src/analysts/capabilities/<name>, or author the required environment extension, before retrying"
+FIX_AGENT_MANIFEST = "correct the named manifest to the agent project convention, or author the required environment extension, before retrying"
+FIX_AGENT_LAYOUT = "move the project to src/agents/<name>, or author the required environment extension, before retrying"
 FIX_LOCK = "commit the consuming project's own uv.lock, generated from its committed declarations, before retrying"
 FIX_RUNTIME = "correct requires-python of the named project so it admits the installed interpreter, or author the required environment extension, before retrying"
 
@@ -88,8 +94,26 @@ def specifier_allows(specifier, version):
     return all(clause_allows(clause, version) for clause in clauses)
 
 
-def candidate_manifests(root):
+def immediate_projects(root, parent):
+    """Returns the immediate, searched child folders of parent that hold a pyproject.toml."""
+    found = []
+    folder = os.path.join(root, parent)
+    if os.path.isdir(folder) and not os.path.islink(folder):
+        for entry in sorted(os.listdir(folder)):
+            path = os.path.join(folder, entry)
+            if entry.startswith(".") or entry in IGNORED_DIRECTORIES:
+                continue
+            if os.path.islink(path) or not os.path.isdir(path):
+                continue
+            if os.path.isfile(os.path.join(path, "pyproject.toml")):
+                found.append(f"{parent}/{entry}")
+    return found
+
+
+def candidate_manifests(root, area="analysts"):
     """Yields (relative project root) for every recognized manifest location that has a pyproject.toml."""
+    if area == "agents":
+        return immediate_projects(root, AGENTS_ROOT)
     found = []
     if os.path.isfile(os.path.join(root, SDK_ROOT, "pyproject.toml")):
         found.append(SDK_ROOT)
@@ -106,9 +130,9 @@ def candidate_manifests(root):
     return found
 
 
-def unrecognized_manifests(root, recognized):
-    """Returns every pyproject.toml under src/analysts outside the recognized project roots, Manager, and ignored folders."""
-    analysts = os.path.join(root, "src", "analysts")
+def unrecognized_manifests(root, recognized, area="analysts"):
+    """Returns every pyproject.toml under the area outside the recognized project roots, Manager, and ignored folders."""
+    analysts = os.path.join(root, *(AGENTS_ROOT if area == "agents" else "src/analysts").split("/"))
     found = []
     if not os.path.isdir(analysts) or os.path.islink(analysts):
         return found
@@ -140,10 +164,12 @@ def requirement_names(data):
     return names
 
 
-def load_project(root, relative, python_version, errors):
+def load_project(root, relative, python_version, errors, area="analysts"):
     manifest = os.path.join(root, relative, "pyproject.toml")
+    default_action = FIX_AGENT_MANIFEST if area == "agents" else FIX_MANIFEST
 
-    def fail(stage, problem, action=FIX_MANIFEST):
+    def fail(stage, problem, action=None):
+        action = action or default_action
         errors.append(ProjectError(relative, stage, problem, action))
 
     if os.path.islink(manifest):
@@ -238,7 +264,7 @@ def within(parent, child):
     return child_parts[: len(parent_parts)] == parent_parts
 
 
-def resolve_dependency(root, project, source_name, path, recognized, errors):
+def resolve_dependency(root, project, source_name, path, recognized, errors, area="analysts"):
     real_root = os.path.realpath(root)
     target = os.path.realpath(os.path.join(root, project["root"], path))
     if not within(real_root, target):
@@ -246,13 +272,18 @@ def resolve_dependency(root, project, source_name, path, recognized, errors):
                                    f"local dependency {source_name!r} points outside the repository"))
         return None
     relative = os.path.relpath(target, real_root).replace(os.sep, "/")
-    permitted = relative == SDK_ROOT or (
-        relative.startswith(CAPABILITIES_ROOT + "/") and relative.count("/") == CAPABILITIES_ROOT.count("/") + 1
-    )
+    if area == "agents":
+        permitted = relative.startswith(AGENTS_ROOT + "/") and relative.count("/") == AGENTS_ROOT.count("/") + 1
+        roots = f"{AGENTS_ROOT}/<name>"
+    else:
+        permitted = relative == SDK_ROOT or (
+            relative.startswith(CAPABILITIES_ROOT + "/") and relative.count("/") == CAPABILITIES_ROOT.count("/") + 1
+        )
+        roots = f"{SDK_ROOT} and {CAPABILITIES_ROOT}/<name>"
     if not permitted:
         errors.append(ProjectError(project["root"], "project convention",
                                    f"local dependency {source_name!r} at {relative} is outside the permitted ownership roots "
-                                   f"({SDK_ROOT} and {CAPABILITIES_ROOT}/<name>)"))
+                                   f"({roots})"))
         return None
     if not os.path.isfile(os.path.join(target, "pyproject.toml")):
         errors.append(ProjectError(project["root"], "project convention",
@@ -297,16 +328,17 @@ def order_projects(projects, errors):
     return order
 
 
-def discover(root, python_version):
+def discover(root, python_version, area="analysts"):
     errors = []
     loaded = {}
-    candidates = candidate_manifests(root)
-    for manifest in unrecognized_manifests(root, set(candidates)):
+    candidates = candidate_manifests(root, area)
+    recognized_at = f"{AGENTS_ROOT}/<name>" if area == "agents" else f"{SDK_ROOT} and {CAPABILITIES_ROOT}/<name>"
+    for manifest in unrecognized_manifests(root, set(candidates), area):
         errors.append(ProjectError(manifest, "project convention",
-                                   f"unsupported layout: Python manifests are recognized only at {SDK_ROOT} and "
-                                   f"{CAPABILITIES_ROOT}/<name>, so its source stays uncovered", FIX_LAYOUT))
+                                   f"unsupported layout: Python manifests are recognized only at {recognized_at}, "
+                                   f"so its source stays uncovered", FIX_AGENT_LAYOUT if area == "agents" else FIX_LAYOUT))
     for relative in candidates:
-        project = load_project(root, relative, python_version, errors)
+        project = load_project(root, relative, python_version, errors, area)
         if project:
             loaded[relative] = project
 
@@ -324,7 +356,7 @@ def discover(root, python_version):
     for relative, project in recognized.items():
         project["dependencies"] = []
         for source_name, path in project.pop("declaredDependencies"):
-            target = resolve_dependency(root, project, source_name, path, recognized, errors)
+            target = resolve_dependency(root, project, source_name, path, recognized, errors, area)
             if target and target not in project["dependencies"]:
                 project["dependencies"].append(target)
         project["dependencies"].sort()
@@ -375,6 +407,7 @@ def select(projects, mode, changed):
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("command", choices=["discover", "select"])
+    parser.add_argument("--area", choices=["analysts", "agents"], default="analysts")
     parser.add_argument("--root", default=".")
     parser.add_argument("--mode", choices=["task", "phase", "finalize"], default="task")
     parser.add_argument("--changed-files", default=None)
@@ -385,7 +418,7 @@ def main(argv):
     except ValueError:
         print(f"--python-version {arguments.python_version!r} is not a numeric version", file=sys.stderr)
         return 2
-    projects, errors = discover(arguments.root, version)
+    projects, errors = discover(arguments.root, version, arguments.area)
     if errors:
         for error in errors:
             print(error, file=sys.stderr)

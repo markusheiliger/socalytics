@@ -837,3 +837,92 @@ dev = ["pytest>=8", "setuptools>=68"]
     assert.match(stale.log, /Analyst Python stage failed: bootstrap sync/);
   });
 });
+
+describe('agents area discovery', () => {
+  const agents = (root, args = []) => discover(root, ['--area', 'agents', ...args]);
+  const rejectedAgents = (root, pattern) => {
+    const result = agents(root);
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, pattern);
+    assert.match(result.stderr, /Recommended action: /);
+    return result;
+  };
+
+  it('finds nothing without an agents area or project', () => {
+    const root = repository();
+    assert.deepEqual(agents(root).projects, []);
+    mkdirSync(path.join(root, 'src/agents/empty'), { recursive: true });
+    assert.deepEqual(agents(root).projects, []);
+  });
+
+  it('recognizes several agent projects with dependencies first', () => {
+    const root = repository();
+    project(root, 'src/agents/mcp-server', { name: 'mcp-server', dependencies: ['mcp'], sources: { mcp: '../mcp' } });
+    project(root, 'src/agents/mcp', { name: 'MCP' });
+    const result = agents(root);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(result.projects.map((entry) => entry.root), ['src/agents/mcp', 'src/agents/mcp-server']);
+    assert.deepEqual(result.projects[1].dependencies, ['src/agents/mcp']);
+  });
+
+  it('skips hidden, ignored, and symbolic-link folders and leaves the Analyst area unchanged', () => {
+    const root = repository();
+    for (const name of ['.hidden', '.venv', 'venv', 'node_modules', '__pycache__', '.git', 'build', 'dist', 'site-packages']) {
+      project(root, `src/agents/${name}`, { name: `x-${name}` });
+    }
+    project(root, 'elsewhere', { name: 'linked' });
+    symlinkSync(path.join(root, 'elsewhere'), path.join(root, 'src/agents/linked'));
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    assert.deepEqual(agents(root).projects, []);
+    assert.deepEqual(discover(root).projects.map((entry) => entry.root), ['src/analysts/sdk']);
+  });
+
+  it('fails the area root and nested manifests as an unsupported layout', () => {
+    const root = repository();
+    project(root, 'src/agents', { name: 'area' });
+    project(root, 'src/agents/one/nested', { name: 'nested' });
+    project(root, 'src/agents/one', { name: 'one' });
+    const result = rejectedAgents(root, /project src\/agents\/pyproject\.toml: project convention: unsupported layout/);
+    assert.match(result.stderr, /project src\/agents\/one\/nested\/pyproject\.toml: project convention: unsupported layout/);
+    assert.match(result.stderr, /Recommended action: move the project to src\/agents\/<name>, or author the required environment extension, before retrying/);
+  });
+
+  it('applies every convention check and names the agent project', () => {
+    const cases = [
+      [{ raw: '[project\n' }, /malformed/],
+      [{ name: 'a', requiresPython: '<3.0' }, /runtime compatibility: requires-python/],
+      [{ name: 'a', build: false }, /\[build-system\]/],
+      [{ name: 'a', extra: '[tool.uv]\npackage = false' }, /package = false/],
+      [{ name: 'a', extra: '[tool.uv.workspace]\nmembers = ["x"]' }, /workspace/],
+      [{ name: 'a', dependencies: ['other'], extra: '[tool.uv.sources]\nother = { git = "https://example.test/x.git" }' }, /must be a path/],
+      [{ name: 'a', sources: { other: '../other' } }, /not in the project requirements/],
+      [{ name: 'a', dependencies: ['other'], sources: { other: '../missing' } }, /has no project/],
+    ];
+    for (const [options, pattern] of cases) {
+      const root = repository();
+      project(root, 'src/agents/a', options);
+      rejectedAgents(root, new RegExp(`project src/agents/a: .*${pattern.source}`));
+    }
+    const root = repository();
+    project(root, 'src/agents/a', { name: 'a' }, { lock: false });
+    rejectedAgents(root, /project src\/agents\/a: locked sync: uv\.lock is missing/);
+  });
+
+  it('rejects duplicate names and cycles', () => {
+    const root = repository();
+    project(root, 'src/agents/a', { name: 'same' });
+    project(root, 'src/agents/b', { name: 'Same' });
+    rejectedAgents(root, /project src\/agents\/b: project convention: project name 'same' duplicates src\/agents\/a/);
+    const cyclic = repository();
+    project(cyclic, 'src/agents/a', { name: 'a', dependencies: ['b'], sources: { b: '../b' } });
+    project(cyclic, 'src/agents/b', { name: 'b', dependencies: ['a'], sources: { a: '../a' } });
+    rejectedAgents(cyclic, /local dependencies form a cycle/);
+  });
+
+  it('rejects dependencies outside the agents roots', () => {
+    const root = repository();
+    project(root, 'src/analysts/sdk', { name: 'sdk' });
+    project(root, 'src/agents/a', { name: 'a', dependencies: ['sdk'], sources: { sdk: '../../analysts/sdk' } });
+    rejectedAgents(root, /project src\/agents\/a: project convention: local dependency 'sdk' at src\/analysts\/sdk is outside the permitted ownership roots/);
+  });
+});
