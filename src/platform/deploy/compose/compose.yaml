@@ -100,7 +100,7 @@ services:
       WebUi__MinimumVersion: ${SOCALYTICS_RELEASE_VERSION:?SOCALYTICS_RELEASE_VERSION is required}
       Stamp__Id: ${SOCALYTICS_STAMP_ID:?SOCALYTICS_STAMP_ID is required}
       Stamp__PublicBaseUri: ${SOCALYTICS_PUBLIC_BASE_URI:?SOCALYTICS_PUBLIC_BASE_URI is required}
-      Notifications__WebUiBaseUri: ${SOCALYTICS_PUBLIC_BASE_URI:?SOCALYTICS_PUBLIC_BASE_URI is required}
+      Notifications__WebUiBaseUri: http://localhost:${SOCALYTICS_WEB_PORT:?SOCALYTICS_WEB_PORT is required}
       Registry__Pairing__VerificationBaseUri: ${SOCALYTICS_PUBLIC_BASE_URI:?SOCALYTICS_PUBLIC_BASE_URI is required}
       IdentityAccess__Session__IdleTimeout: "00:30:00"
       IdentityAccess__Session__AbsoluteLifetime: "08:00:00"

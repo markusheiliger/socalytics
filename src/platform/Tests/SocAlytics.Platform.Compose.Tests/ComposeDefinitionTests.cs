@@ -102,6 +102,14 @@ public sealed partial class ComposeDefinitionTests(ComposeDefinitionTests.Config
     }
 
     [Fact]
+    public void Email_links_point_at_the_web_origin_and_pairing_keeps_the_placeholder_base_uri()
+    {
+        var environment = Services.GetProperty("api").GetProperty("environment");
+        environment.GetProperty("Notifications__WebUiBaseUri").GetString().ShouldBe($"http://localhost:{fixture.WebPort}");
+        environment.GetProperty("Registry__Pairing__VerificationBaseUri").GetString().ShouldBe("https://stamp.invalid");
+    }
+
+    [Fact]
     public void The_web_service_has_no_object_storage_origin()
     {
         var environment = Services.GetProperty("web").GetProperty("environment");

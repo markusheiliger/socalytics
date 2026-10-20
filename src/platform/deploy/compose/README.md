@@ -41,7 +41,9 @@ Open `<stamp dir>/stamp.env` and fill the values that the setup step left empty 
 - `SOCALYTICS_RELEASE_VERSION`: the release version of the images (the API's `WebUi__MinimumVersion`).
 - `SOCALYTICS_WEB_PORT`: the loopback port of the Web UI.
 - `SOCALYTICS_STAMP_ID`: an identifier of this stamp.
-- `SOCALYTICS_PUBLIC_BASE_URI`: an `https` placeholder base URI; no endpoint is behind it.
+- `SOCALYTICS_PUBLIC_BASE_URI`: an `https` placeholder base URI; no endpoint is behind it. Links in transactional email
+  use `http://localhost:<port>` (the value of `SOCALYTICS_WEB_PORT`); only the Analyst Manager pairing verification link
+  uses the placeholder base URI.
 - `SOCALYTICS_CLUB_DISPLAY_NAME` and `SOCALYTICS_FIRST_CLUB_ADMIN_ACCOUNT_NAME`: the club bootstrap.
 - `SOCALYTICS_SMTP_HOST`, `SOCALYTICS_SMTP_PORT`, `SOCALYTICS_SMTP_SECURITY`: your SMTP relay, or the documented
   placeholder `smtp.invalid`, `587`, `StartTls`, which never delivers.
