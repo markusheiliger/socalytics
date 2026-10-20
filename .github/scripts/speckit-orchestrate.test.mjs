@@ -6,9 +6,9 @@ import test from 'node:test';
 
 import { TWIN_LABEL } from './speckit-prepare-core.mjs';
 import { renderImplementRequested, runSync } from './speckit-prepare.mjs';
-import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
+import { UsageError, main, maintainFlakyTests, parseFlakyThreshold, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
 import { decideForPull, phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
-import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderFlakyLines, renderFlakySpecMarker, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 import { CHECK_DIAGNOSING, DIAGNOSIS_STALE_MS, renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 
@@ -1295,13 +1295,68 @@ test('chain: continue starts the next run, and reports a failed phase verificati
     assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: String(twin.number), pull: String(pull.number), title: 'a title' }]);
     assert.equal(github.repo.runs.at(-1).display_title, `Spec Kit implement spec #${twin.number} · a title`);
     assert.equal(github.repo.checkRuns.some((check) => check.external_id === CHECK_LIMIT), false);
+    const comments = github.comments.length;
+    await runContinue({ client: github, env: { ...env, SPECKIT_PHASE_CHECK: 'success', SPECKIT_PHASE: 'Phase 1: Setup', SPECKIT_VERIFY_FLAKY: 'Ns.A.Works' }, log: silent });
+    assert.equal(github.comments.length, comments + 1, 'a passed phase verification reports only its flaky tests');
+    assert.match(github.comments.at(-1).body, /^\*\*The phase verification passed\*\* for Phase 1: Setup on `[^`]+`\.\n\n- Flaky \(passed on rerun\): `Ns\.A\.Works`\n<!-- speckit-implement:flaky \{"tests":\["Ns\.A\.Works"\]\} -->$/);
 
-    await runContinue({ client: github, env: { ...env, SPECKIT_PHASE_CHECK: 'failure' }, log: silent });
+    await runContinue({ client: github, env: { ...env, SPECKIT_PHASE_CHECK: 'failure', SPECKIT_VERIFY_FLAKY: 'Ns.B.Works' }, log: silent });
     const stop = github.repo.checkRuns.at(-1);
     assert.deepEqual([stop.external_id, stop.conclusion, stop.output.title], [CHECK_LIMIT, 'failure', 'The phase verification failed']);
-    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: the full verification at the end of the phase failed[\s\S]*actions\/runs\/42[\s\S]*covers only the tests it touched/);
-    assert.equal(github.repo.runs.filter((run) => run.workflow === 'speckit-implement-spec.yml').length, 2, 'the next run reports the stop and starts a diagnosis');
+    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: the full verification at the end of the phase failed[\s\S]*actions\/runs\/42[\s\S]*covers only the tests it touched[^\n]*\n\n- Flaky \(passed on rerun\): `Ns\.B\.Works`\n<!-- speckit-implement:flaky/);
+    assert.equal(github.repo.runs.filter((run) => run.workflow === 'speckit-implement-spec.yml').length, 3, 'the next run reports the stop and starts a diagnosis');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('the flaky-test ledger starts one non-blocking spec per test that is flaky in enough implementations', async () => {
+  const github = new FakeGitHub([5, 6, 7].map((number) => ({ number, id: number * 1000, node_id: `I_${number}`, state: 'open', title: `T${number}`, body: '', labels: [] })));
+  github.permissions.dev = 'write';
+  github.humanLabel(6, IMPLEMENT, 'dev');
+  const day = 24 * 60 * 60 * 1000;
+  const pull = (number, ref, twin, fields = {}) => {
+    github.repo.branches[ref] = `sha-${number}`;
+    github.repo.pulls.push({ number, node_id: `PR_${number}`, title: `Implement: ${ref}`, body: `Closes #${twin}\n`, draft: true, state: 'open', merged_at: null, base: { ref: 'main', repo: { full_name: 'octo/repo' } }, head: { ref, sha: `sha-${number}`, repo: { full_name: 'octo/repo' } }, user: { login: 'dev' }, created_at: github.tick(), ...fields });
+  };
+  const flaky = (number, tests) => github.createComment(number, [`**T001 implemented** (attempt 1)`, '', ...renderFlakyLines(tests)].join('\n'));
+  pull(20, 'speckit/a', 5);
+  pull(22, 'speckit/c', 7, { state: 'closed', merged_at: new Date(github.clock - 2 * day).toISOString(), updated_at: new Date(github.clock - 2 * day).toISOString() });
+  pull(23, 'speckit/d', 7, { state: 'closed', merged_at: new Date(github.clock - 20 * day).toISOString(), updated_at: new Date(github.clock - 20 * day).toISOString() });
+  pull(24, 'speckit-amend/a', 5);
+  pull(21, 'speckit/b', 6);
+  for (const number of [23, 22, 20]) await flaky(number, ['Ns.Store.Saves', 'Ns.Covered.Test']);
+  await flaky(24, ['Ns.Store.Saves']);
+  github.commentAuthor = 'mallory';
+  for (const number of [20, 21, 22]) await flaky(number, ['Ns.Forged.Test']);
+  github.commentAuthor = undefined;
+  await github.createComment(22, renderFlakySpecMarker('Ns.Covered.Test'));
+  const env = { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main' };
+
+  const below = await maintainFlakyTests(github, env, { now: github.clock });
+  assert.deepEqual(below.started, [], 'only two implementations in the window (the old merge and the amendment do not count)');
+
+  await flaky(21, ['Ns.Store.Saves', 'Ns.Covered.Test']);
+  await flaky(20, ['Ns.Other.Test']);
+  const result = await maintainFlakyTests(github, env, { now: github.clock });
+  assert.deepEqual(result.started, [{ test: 'Ns.Store.Saves', pull: 21, pulls: [21, 20, 22] }], 'started on the open pull request where it was flaky most recently');
+  assert.match(result.lines.join('\n'), /`Ns\.Store\.Saves` was flaky in #20, #21, #22; started a spec to make it deterministic on #21\./);
+  const specify = github.repo.runs.filter((run) => run.workflow === 'speckit-specify.lock.yml');
+  assert.equal(specify.length, 1);
+  assert.deepEqual([specify[0].inputs.twin, specify[0].inputs.pull, specify[0].inputs.mode], ['6', '21', 'author']);
+  assert.match(specify[0].inputs.guidance, /The test `Ns\.Store\.Saves` failed and then passed on its one rerun in the verifications of 3 implementation pull requests \(#20, #21, #22\)[\s\S]*Do not weaken, skip, or delete the test/);
+  const onPull = github.comments.filter((comment) => comment.number === 21);
+  assert.match(onPull.at(-2).body, /^<!-- speckit-fix:requested \{"by":"dev","stamp":"\d{8}-\d{6}","link":false\} -->/);
+  assert.match(onPull.at(-1).body, /^<!-- speckit-implement:flaky-spec \{"test":"Ns\.Store\.Saves"\} -->\n\*\*Flaky test\*\* `Ns\.Store\.Saves` passed only on its rerun in 3 implementations/);
+  assert.ok(!(github.repo.pulls.find((item) => item.number === 21).labels ?? []).some((label) => [BLOCKED_LABEL, ATTENTION_LABEL].includes(label.name)));
+
+  github.repo.checkRuns.at(-1).status = 'completed';
+  const again = await maintainFlakyTests(github, env, { now: github.clock });
+  assert.deepEqual(again.started, [], 'a test is started once');
+  assert.equal(github.repo.runs.filter((run) => run.workflow === 'speckit-specify.lock.yml').length, 1);
+  assert.equal(parseFlakyThreshold('2'), 2);
+  assert.equal(parseFlakyThreshold(''), 3);
+  assert.equal(parseFlakyThreshold('x'), 3);
+  const lower = await maintainFlakyTests(github, { ...env, SPECKIT_FLAKY_THRESHOLD: '1' }, { now: github.clock });
+  assert.match(lower.lines.join('\n'), /`Ns\.Other\.Test` was flaky in #20; started a spec/);
 });

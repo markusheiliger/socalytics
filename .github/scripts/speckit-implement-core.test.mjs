@@ -280,7 +280,7 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.deepEqual(parseAttemptCheckId('speckit:attempt:converge::1'), { kind: 'converge', task: null, attempt: 1 });
   assert.deepEqual(parseAttemptCheckId('speckit:attempt:repair::2'), { kind: 'repair', task: null, attempt: 2 });
   assert.equal(parseAttemptCheckId(CHECK_ATTEMPT), null);
-  assert.equal(renderTaskPrompt('T004'), `/speckit-implement Implement only task T004. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`);
+  assert.equal(renderTaskPrompt('T004'), `/speckit-implement Implement only task T004. Do not implement any other task. Do not edit \`tasks.md\`: the tooling checks the task's box after verification. Do not commit and do not push. ${TASK_TEST_SCOPE}`);
   assert.match(TASK_TEST_SCOPE, /Do not run the whole test suite/);
   assert.match(renderTaskPrompt('T004', 'f'), /^\/speckit-implement Implement only task T004 of the spec in `specs\/f\/` \(its `tasks\.md`\); ignore the other specs\. Do not implement any other task\./);
   assert.match(renderConvergePrompt(), /^\/speckit-converge /);
@@ -660,7 +660,7 @@ test('detects conflict markers and appends convergence tasks to the pull request
   );
 });
 
-test('accepts only the target task tick in tasks.md and no protected paths', () => {
+test('accepts an untouched tasks.md or only the target task tick, and no protected paths', () => {
   const folder = 'f';
   const before = '# Tasks\n\n- [ ] T001 One\n- [ ] T002 Two\n';
   const ticked = before.replace('- [ ] T001', '- [X] T001');
@@ -668,7 +668,7 @@ test('accepts only the target task tick in tasks.md and no protected paths', () 
 
   assert.deepEqual(check({}), []);
   assert.deepEqual(check({ after: before.replace('- [ ] T001', '- [x] T001') }), []);
-  assert.match(check({ after: before }).join(), /T001 was not checked/);
+  assert.deepEqual(check({ after: before, changedPaths: ['src/a.cs'] }), [], 'the land job checks the task');
   assert.match(check({ after: before.replace('- [ ] T002', '- [x] T002') }).join(), /may only change by checking T001/);
   assert.match(check({ after: ticked.replace('One', 'Uno') }).join(), /may only change by checking T001/);
   assert.match(check({ after: `${ticked}\n- [ ] T003 New\n` }).join(), /may only change by checking T001/);
