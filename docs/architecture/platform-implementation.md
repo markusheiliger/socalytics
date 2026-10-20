@@ -844,7 +844,13 @@ current and non-current migration states; and
   conversation for a run, adding specialists, asking, polling, and reading
   advice with its disclosure and lineage) in the `simulated` project and in the
   `platform-triage` project against the real platform with the simulated agent
-  workload; and
+  workload; and the Analyst Registry administration for Club Admins (browsing
+  the default workflow, images, profile versions, and workflow versions;
+  registering images; creating, approving, and retiring profile versions;
+  defining workflow versions; and changing the default workflow, with
+  confirmations and refusals) in the `simulated` and `platform` projects; and
+- a Host test verifies that every Registry operation carries OpenAPI schemas
+  from which the Web UI client is generated (`AnalystRegistryOpenApiTests`); and
 - a Host test verifies the development CORS allow-list and the storage origin
   the AppHost passes to the Web UI; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
@@ -892,8 +898,8 @@ choice or reveals a material operational tradeoff:
   read and staging of accepted upstream results, fact indexing, and the member
   fact reads are
   implemented, and the online-only Web UI foundation exists as development
-  evidence, including the Analyst Manager pairing, approval, and fleet views
-  the match workflow with recording upload and finalization, and the match
+  evidence, including the Analyst Manager pairing, approval, and fleet views,
+  the Analyst Registry administration views, the match workflow with recording upload and finalization, and the match
   triage conversations with Specialist Agents. External
   OpenID Connect sign-in with Club Admin linking, unlinking, and coexistence
   with local accounts is evidenced by Integration and Playwright tests against

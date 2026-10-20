@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-185438-web-ui-registry-admin` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-185438-web-ui-registry-admin/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-185438-web-ui-registry-admin/spec.md`
 
 ## Summary
 
@@ -109,12 +109,12 @@ simulated browser specs, 1 platform browser spec.
 
 | Principle | Status | Evidence |
 | --- | --- | --- |
-| I. Architecture is the design authority | Pass | Implements "platform configuration and administration" of [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui) for the Registry and the operator side of [Image Metadata And Packaging](../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging) and [Analyst Profiles And Container-Owned Preprocessing](../../docs/architecture/analysts-models-and-hardware.md#analyst-profiles-and-container-owned-preprocessing); stays online only per [Offline Mode](../../docs/architecture/client-applications.md#offline-mode). Design updates applied now (see Architecture Updates). |
+| I. Architecture is the design authority | Pass | Implements "platform configuration and administration" of [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui) for the Registry and the operator side of [Image Metadata And Packaging](../../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging) and [Analyst Profiles And Container-Owned Preprocessing](../../../docs/architecture/analysts-models-and-hardware.md#analyst-profiles-and-container-owned-preprocessing); stays online only per [Offline Mode](../../../docs/architecture/client-applications.md#offline-mode). Design updates applied now (see Architecture Updates). |
 | II. Source-area ownership | Pass | Web UI code under `src/clients/web/`; API metadata under `src/platform/SocAlytics.Platform.Api/Registry/`; no new `src/` child. |
 | III. API-first control plane | Pass | The Web UI uses only `/api/v1` Registry operations via the generated client behind an adapter; the platform decides every rule; the OpenAPI document (authoritative over generated code) gains the schemas the client needs. |
 | IV. Evidence over claims | Pass | Host, integration, unit, simulated browser, and platform browser tests (FR-023); nothing claims production readiness. |
 | V. Focused, minimal changes | Pass | No new dependency, operation, or project; reuses `clubAdminOnly`, `FailureAlert`, `memberAdapter`, the Kiota helpers, and the middleware pattern. |
-| Technology and tooling | Pass | Needs the .NET SDK, Docker, Node.js 24, Kiota 1.36.0, and Playwright 1.63.0 Chromium, all provided by `.github/actions/environment-setup` and `environment-verify` (merged [Web UI Verification Environment](../archive/20261012-145505-web-ui-environment/spec.md) and the platform environment); no environment spec is needed. |
+| Technology and tooling | Pass | Needs the .NET SDK, Docker, Node.js 24, Kiota 1.36.0, and Playwright 1.63.0 Chromium, all provided by `.github/actions/environment-setup` and `environment-verify` (merged [Web UI Verification Environment](../20261012-145505-web-ui-environment/spec.md) and the platform environment); no environment spec is needed. |
 
 Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 
@@ -123,7 +123,7 @@ Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 ### Documentation (this feature)
 
 ```text
-specs/20261017-185438-web-ui-registry-admin/
+specs/archive/20261017-185438-web-ui-registry-admin/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output
@@ -214,12 +214,12 @@ its snapshot.
 
 ### Narratives
 
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): "platform configuration and administration" gains its first implemented part, the Analyst Registry administration for Club Admins.
-- [Analysts, Models, and Hardware → Image Metadata And Packaging](../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging): image registration by digest gains a Web UI path for Club Admins; packaging rules unchanged.
-- [Analysts, Models, and Hardware → Analyst Profiles And Container-Owned Preprocessing](../../docs/architecture/analysts-models-and-hardware.md#analyst-profiles-and-container-owned-preprocessing): profiles are created, approved, and retired by Club Admins in the Web UI; no design change.
-- [Tenancy And Technology → Stamp Persistence](../../docs/architecture/tenancy-and-technology.md#stamp-persistence) and [Job Processing](../../docs/architecture/job-processing.md) (default workflow resolution): unchanged rules the area operates on (runs pin a snapshot; only runs created afterwards use a new default).
-- [Platform Implementation](../../docs/architecture/platform-implementation.md): Web UI evidence and the OpenAPI snapshot from which the client is generated.
-- [Client Applications → Offline Mode](../../docs/architecture/client-applications.md#offline-mode): unchanged rule (online only; no user data in the service worker) that the area follows.
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): "platform configuration and administration" gains its first implemented part, the Analyst Registry administration for Club Admins.
+- [Analysts, Models, and Hardware → Image Metadata And Packaging](../../../docs/architecture/analysts-models-and-hardware.md#image-metadata-and-packaging): image registration by digest gains a Web UI path for Club Admins; packaging rules unchanged.
+- [Analysts, Models, and Hardware → Analyst Profiles And Container-Owned Preprocessing](../../../docs/architecture/analysts-models-and-hardware.md#analyst-profiles-and-container-owned-preprocessing): profiles are created, approved, and retired by Club Admins in the Web UI; no design change.
+- [Tenancy And Technology → Stamp Persistence](../../../docs/architecture/tenancy-and-technology.md#stamp-persistence) and [Job Processing](../../../docs/architecture/job-processing.md) (default workflow resolution): unchanged rules the area operates on (runs pin a snapshot; only runs created afterwards use a new default).
+- [Platform Implementation](../../../docs/architecture/platform-implementation.md): Web UI evidence and the OpenAPI snapshot from which the client is generated.
+- [Client Applications → Offline Mode](../../../docs/architecture/client-applications.md#offline-mode): unchanged rule (online only; no user data in the service worker) that the area follows.
 
 ### Design updates (applied now, worded as decided but not implemented)
 
