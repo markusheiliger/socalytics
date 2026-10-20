@@ -34,14 +34,14 @@ A maintainer running the Integration suite, or the verification of any implement
 
 ### Edge Cases
 
-- The runner's cancellation is tied to the same limit as the wait, so the runner is not stopped before the test stops waiting.
+- The runner's cancellation is tied to the limit of the wait plus a small margin, so the runner is not stopped before the test stops waiting.
 - Other tests of `SimulatedAgentWorkloadTests` (such as the production-refusal test) keep their behavior.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: The advice test MUST wait for the awaited condition (invocation succeeded with advice) up to a generous bounded limit, longer than 30 seconds, and return as soon as it holds; the runner's lifetime MUST cover the same limit.
+- **FR-001**: The advice test MUST wait for the awaited condition (invocation succeeded with advice) up to a generous bounded limit, longer than 30 seconds, and return as soon as it holds; the runner's lifetime MUST cover that limit with a small margin.
 - **FR-002**: The test MUST keep every assertion, including that the advice is not null and equals the simulated advice of the specialist; a wait that never succeeds MUST still fail with those assertions after the limit.
 - **FR-003**: The change MUST stay in `SimulatedAgentWorkloadTests.cs` of the Integration test project; no production code, option default, other test, or assertion changes.
 

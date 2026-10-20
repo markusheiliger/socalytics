@@ -43,7 +43,7 @@ Post-design re-check: Pass.
 
 ## Design
 
-- Introduce one local limit (120 seconds) in the test, used for the runner's `CancelAfter` and the polling deadline, and keep the 250 ms poll interval. The deadline uses the same limit so the runner outlives the wait.
+- Introduce one local limit (120 seconds) in the test, used for the runner's `CancelAfter` and the polling deadline, and keep the 250 ms poll interval. Compute the polling deadline first from the limit and give the runner's `CancelAfter` the limit plus a small margin (for example 5 seconds), so the runner is never cancelled before the wait ends.
 - The advice assertions stay as they are.
 - The fake clock is untouched: the runner's lease logic uses it, and the test does not advance it.
 
