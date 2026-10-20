@@ -37,7 +37,7 @@ description: "Task list for Timing Margins for Intermittent Integration Tests"
 
 ### Verification
 
-- [ ] T006 [US1] Verify without committing any probe: run each of the five classes at least 10 times alone and the whole `SocAlytics.Platform.Integration.Tests` project at least once with `dotnet test`, with CPU load applied during one run; temporarily break the expiry sweep, ready-work publication, and attempt expiry behavior and confirm the matching tests still fail, then remove the probes; confirm `git diff` shows only the five test files (and an optional support helper) changed and no assertion removed (SC-001, SC-002, SC-004)
+- [x] T006 [US1] Verify without committing any probe: run each of the five classes at least 10 times alone and the whole `SocAlytics.Platform.Integration.Tests` project at least once with `dotnet test`, with CPU load applied during one run; temporarily break the expiry sweep, ready-work publication, and attempt expiry behavior and confirm the matching tests still fail, then remove the probes; confirm `git diff` shows only the five test files (and an optional support helper) changed and no assertion removed (SC-001, SC-002, SC-004)
 
 ---
 
