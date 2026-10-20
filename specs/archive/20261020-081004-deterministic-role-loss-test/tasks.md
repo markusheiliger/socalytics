@@ -5,7 +5,7 @@ description: "Task list for Deterministic Club Admin Role-Loss Notification Test
 
 # Tasks: Deterministic Club Admin Role-Loss Notification Test
 
-**Input**: Design documents from `specs/20261020-081004-deterministic-role-loss-test/`
+**Input**: Design documents from `specs/archive/20261020-081004-deterministic-role-loss-test/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 
