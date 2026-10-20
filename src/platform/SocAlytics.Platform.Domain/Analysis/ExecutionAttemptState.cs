@@ -7,4 +7,5 @@ public enum ExecutionAttemptState
 	Failed,
 	Accepted,
 	Rejected,
+	Cancelled,
 }

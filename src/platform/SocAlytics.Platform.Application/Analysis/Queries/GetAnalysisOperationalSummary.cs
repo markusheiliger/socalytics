@@ -9,7 +9,7 @@ public sealed record WorkflowDefinitionStatusView(string State, string? Category
 
 public sealed record AnalysisOperationalCounts(
     IReadOnlyDictionary<string, int> RunsByState, int RunsWithBlockedNodes, int StaleAttempts, int RejectedNotifications,
-    int OutboxPending, int OutboxFailed, long? OldestPendingAgeSeconds);
+    int OutboxPending, int OutboxFailed, long? OldestPendingAgeSeconds, int CancelledJobs = 0, int CancelledAttempts = 0);
 
 public sealed record AnalysisOperationalSummary(
     WorkflowDefinitionStatusView WorkflowDefinition, IReadOnlyDictionary<string, int> RunsByState, int RunsWithBlockedNodes,

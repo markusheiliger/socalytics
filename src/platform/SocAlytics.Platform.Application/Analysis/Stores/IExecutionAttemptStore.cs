@@ -55,5 +55,11 @@ public interface IExecutionAttemptStore
 
     Task<IReadOnlyList<ExpiredAttemptRef>> ListExpiredAsync(DateTimeOffset now, int batchSize, CancellationToken cancellationToken);
 
+    // Lists the run's Active attempts in id order.
+    Task<IReadOnlyList<ExpiredAttemptRef>> ListActiveForRunAsync(Guid runId, CancellationToken cancellationToken);
+
+    // Closes the run's Active attempts as Cancelled with close reason run-cancelled and returns them in id order.
+    Task<IReadOnlyList<ExpiredAttemptRef>> CancelActiveForRunAsync(Guid runId, CancellationToken cancellationToken);
+
     Task<IReadOnlyList<ExpiredAttemptRef>> ListActiveForManagerAsync(Guid managerId, CancellationToken cancellationToken);
 }
