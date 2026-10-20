@@ -92,6 +92,20 @@ describe('fetch routing', () => {
     }
   });
 
+  it('passes registry API requests to the network and never caches them', () => {
+    const registryPaths = [
+      '/api/v1/registry/analyst-images',
+      '/api/v1/registry/analyst-images?pageSize=20',
+      '/api/v1/registry/analyst-profiles/2f6c1c52-0d0b-4a53-9a3f-5c1f3c1c8e11',
+      '/api/v1/registry/workflows/2f6c1c52-0d0b-4a53-9a3f-5c1f3c1c8e11',
+      '/api/v1/registry/default-workflow',
+    ];
+    for (const path of registryPaths) {
+      expect(classify(path)).toBeUndefined();
+      expect(classify(path, 'navigate')).toBeUndefined();
+    }
+  });
+
   it('does not handle triage conversation API paths for any method', () => {
     const paths = [
       '/api/v1/agent-catalog/agents',

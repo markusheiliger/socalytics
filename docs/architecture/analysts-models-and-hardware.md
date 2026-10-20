@@ -62,9 +62,9 @@ reproducible execution without runtime artifact downloads or credentials.
 External digest-pinned model artifacts remain a future optimization.
 
 The packaging convention for Analyst authors, enforced when an image is
-registered by digest (`POST /api/v1/registry/analyst-images`; Club Admins will
-also register images from the Web UI's Registry administration, decided but
-not yet implemented, see [Web UI](client-applications.md#web-ui)):
+registered by digest (`POST /api/v1/registry/analyst-images`; Club Admins also
+register images from the Web UI's Registry administration, see
+[Web UI](client-applications.md#web-ui)):
 
 - `analyst-manifest.json` sits beside the Dockerfile and is validated against
   the released manifest schema `contracts/analysis/analyst-manifest/v1/`.

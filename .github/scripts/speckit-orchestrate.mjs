@@ -22,12 +22,14 @@ import {
 import { GitHubClient } from './speckit-prepare-github.mjs';
 import { discoverSpecs, readSpecFolder, resolveImplementRequester, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { maintainAmendment } from './speckit-amend.mjs';
-import { maintainFixSpec } from './speckit-fix.mjs';
+import { maintainFixSpec, startFixAuthoring } from './speckit-fix.mjs';
 import { contextFromEnv, decideForPull, needsRun } from './speckit-spec.mjs';
 import { pointPullRequestLinks, twinLinksAfterMerge } from './speckit-merge.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 import {
   BLOCKED_LABEL,
+  BOT_LOGIN,
+  BRANCH_PREFIX,
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
   IMPLEMENT_WORKFLOW_FILE,
@@ -43,7 +45,11 @@ import {
   implementationBranch,
   isImplementRunOf,
   kindLabel,
+  neutralizeMarkers,
+  parseFlakyMarkers,
+  parseFlakySpecMarkers,
   parseMaxActiveSpecs,
+  renderFlakySpecMarker,
   renderPullRequestBody,
   renderPullRequestTitle,
   readSpecTasks,
@@ -324,8 +330,107 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     actions += 1;
   }
   if (actions === 0) report.line('- Nothing to do.');
+  const flaky = await maintainFlakyTests(client, env, { now: now() });
+  if (flaky.lines.length > 0) {
+    report.line();
+    report.line('### Flaky tests');
+    report.line();
+    for (const line of flaky.lines) report.line(line);
+  }
   report.flush();
-  return { exitCode: 0, selection };
+  return { exitCode: 0, selection, flaky };
+}
+
+// Flaky-test ledger: a test that passed only on its rerun (the flaky markers of verification comments) in at least
+// SPECKIT_FLAKY_THRESHOLD (default 3) distinct implementation pull requests (the open ones and those merged in the last
+// FLAKY_WINDOW_MS) gets one spec that makes it deterministic. It is started with `/speckit specify`'s authoring entry on
+// the open implementation pull request where the test was flaky most recently, without blocking that implementation
+// (`link: false`), and recorded there with a flaky-spec marker, so the test is never started again while that marker
+// is in the window. Returns the summary lines and the tests it started specs for.
+export const FLAKY_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
+export const DEFAULT_FLAKY_THRESHOLD = 3;
+export function parseFlakyThreshold(value) {
+  const number = Number(String(value ?? '').trim());
+  return Number.isInteger(number) && number > 0 ? number : DEFAULT_FLAKY_THRESHOLD;
+}
+
+const isImplementationPull = (pull) => String(pull.head?.ref ?? '').startsWith(BRANCH_PREFIX) &&
+  !(pull.head?.repo?.full_name && pull.base?.repo?.full_name && pull.head.repo.full_name !== pull.base.repo.full_name);
+
+export async function maintainFlakyTests(client, env, { now = Date.now() } = {}) {
+  const lines = [];
+  const started = [];
+  const threshold = parseFlakyThreshold(env.SPECKIT_FLAKY_THRESHOLD);
+  const since = new Date(now - FLAKY_WINDOW_MS).toISOString();
+  let pulls;
+  try {
+    const open = (await client.listOpenPullRequests()).filter(isImplementationPull);
+    const merged = (await client.listClosedPullRequestsSince(since))
+      .filter((pull) => isImplementationPull(pull) && pull.merged_at && Date.parse(pull.merged_at) >= Date.parse(since));
+    pulls = [...open, ...merged.filter((pull) => !open.some((item) => item.number === pull.number))];
+  } catch (error) {
+    return { lines: [`- Warning: could not read the flaky tests: ${error.message}`], started };
+  }
+  const seen = new Map();
+  const covered = new Set();
+  for (const pull of pulls) {
+    const comments = await client.listIssueComments(pull.number);
+    for (const test of parseFlakySpecMarkers(comments)) covered.add(test);
+    for (const { test, at } of parseFlakyMarkers(comments)) {
+      const byPull = seen.get(test) ?? new Map();
+      const previous = byPull.get(pull.number);
+      if (!previous || Date.parse(at) > Date.parse(previous.at)) byPull.set(pull.number, { pull, at });
+      seen.set(test, byPull);
+    }
+  }
+  const candidates = [...seen.entries()]
+    .filter(([test, byPull]) => byPull.size >= threshold && !covered.has(test))
+    .sort(([a], [b]) => a.localeCompare(b));
+  const busy = new Set();
+  for (const [test, byPull] of candidates) {
+    const occurrences = [...byPull.values()].sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+    const numbers = occurrences.map((item) => `#${item.pull.number}`).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+    const target = occurrences.find((item) => item.pull.state === 'open')?.pull;
+    const name = `\`${neutralizeMarkers(test).replaceAll('`', "'")}\``;
+    if (!target) {
+      lines.push(`- ${name} was flaky in ${numbers.join(', ')}; no spec started: none of them is open.`);
+      continue;
+    }
+    if (busy.has(target.number)) {
+      lines.push(`- ${name} was flaky in ${numbers.join(', ')}; its spec starts on #${target.number} in a later run.`);
+      continue;
+    }
+    busy.add(target.number);
+    const twin = Number(String(target.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
+    if (!Number.isInteger(twin) || twin <= 0) {
+      lines.push(`- ${name} was flaky in ${numbers.join(', ')}; no spec started: #${target.number} names no twin.`);
+      continue;
+    }
+    const implementation = await client.getPullRequest(target.number);
+    const actor = (await resolveImplementRequester(client, twin))?.login ?? implementation.user?.login ?? BOT_LOGIN;
+    const guidance = [
+      `The test \`${test}\` failed and then passed on its one rerun in the verifications of ${occurrences.length} implementation pull requests (${numbers.join(', ')}), so it is flaky.`,
+      'Make it deterministic: find and remove the cause of the flakiness (timing, ordering, shared state, external dependencies) in the test or in the code it covers.',
+      'Do not weaken, skip, or delete the test or its assertions, and do not add retries or longer timeouts as the fix.',
+    ].join(' ');
+    let result;
+    try {
+      result = await startFixAuthoring(client, env, { twin, implementation, guidance, actor, now, link: false });
+    } catch (error) {
+      result = { started: false, reason: error.message };
+    }
+    if (!result.started) {
+      lines.push(`- ${name} was flaky in ${numbers.join(', ')}; the spec could not start on #${target.number}: ${neutralizeMarkers(result.reason)}.`);
+      continue;
+    }
+    await client.createComment(target.number, [
+      renderFlakySpecMarker(test),
+      `**Flaky test** ${name} passed only on its rerun in ${occurrences.length} implementations (${numbers.join(', ')}), so a spec that makes it deterministic is being authored from here. It does not block this implementation.`,
+    ].join('\n'));
+    started.push({ test, pull: target.number, pulls: occurrences.map((item) => item.pull.number) });
+    lines.push(`- ${name} was flaky in ${numbers.join(', ')}; started a spec to make it deterministic on #${target.number}.`);
+  }
+  return { lines, started };
 }
 // Server side: prepares the implementation workspace of one ready twin. Each part checks what already exists,
 // so a rerun after a partial failure completes the work instead of duplicating it.
