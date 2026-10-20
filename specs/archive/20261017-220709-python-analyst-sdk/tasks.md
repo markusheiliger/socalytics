@@ -5,7 +5,7 @@ description: "Task list for Python Analyst SDK"
 
 # Tasks: Python Analyst SDK
 
-**Input**: Design documents from `specs/20261017-220709-python-analyst-sdk/`
+**Input**: Design documents from `specs/archive/20261017-220709-python-analyst-sdk/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 
