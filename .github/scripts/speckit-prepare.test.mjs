@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { PENDING_LABEL, TWIN_LABEL, parseTwinFolder } from './speckit-prepare-core.mjs';
 import { GitHubClient } from './speckit-prepare-github.mjs';
-import { canWrite, discoverSpecs, main, runApply, runSync, runValidateImplement } from './speckit-prepare.mjs';
+import { canWrite, discoverSpecs, main, parseImplementRequested, renderFlaggedFor, renderImplementRequested, resolveImplementRequester, runApply, runGuardStage, runSync } from './speckit-prepare.mjs';
 import { FakeGitHub, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 
 const IMPLEMENT = 'speckit:stage:implement';
@@ -27,73 +27,80 @@ async function flaggedTwin(folders, login = 'dev') {
   return { root, github, issue };
 }
 
-async function validate(github, root, issue, actor = 'dev') {
-  return runValidateImplement({ client: github, rootDir: root, env: envFor(root), issueNumber: issue.number, actor, log: silent });
+async function guard(github, root, issue, { actor = 'dev', action = 'labeled', label = IMPLEMENT } = {}) {
+  return runGuardStage({ client: github, rootDir: root, env: envFor(root), issueNumber: issue.number, actor, action, label, log: silent });
 }
 
-test('accepts an implementation request from a writer for a tasked spec with complete checklists', async () => {
+test('a person\'s implement label is removed with one comment that recommends /speckit implement', async () => {
   const { root, github, issue } = await flaggedTwin([{ folder: 'a', plan: true, tasks: TASKS_OPEN, checklists: { 'requirements.md': '- [x] done\n' } }]);
   try {
     github.permissions.dev = 'write';
-    const result = await validate(github, root, issue);
-    assert.equal(result.decision.action, 'accept');
-    assert.deepEqual(stageLabels(issue), [IMPLEMENT]);
-    assert.equal(github.updates.length, 1);
-    assert.equal(github.comments.length, 0);
+    const result = await guard(github, root, issue);
+    assert.deepEqual([result.outcome, result.stage], ['restored', 'tasked']);
+    assert.deepEqual(stageLabels(issue), ['speckit:stage:tasked']);
+    const comment = github.comments.at(-1).body;
+    assert.match(comment, /^<!-- speckit:stage-restored -->\n@dev, the `speckit:stage:implement` label was removed: stage labels are generated, and implementation is requested with a comment[\s\S]*\*\*Recommended next step\*\*: Comment this on this issue[\s\S]*```text\n\/speckit implement\n```/);
+    assert.equal(comment.match(/\*\*Recommended next step\*\*/g).length, 1);
+    const comments = github.comments.length;
+    await guard(github, root, issue);
+    assert.equal(github.comments.length, comments, 'explained once');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
 });
 
-test('rejects requests without write access, outside tasked, or with open checklist items', async () => {
-  const cases = [
-    { name: 'triage user', permission: 'triage', folder: { folder: 'a', plan: true, tasks: TASKS_OPEN }, stage: 'tasked', reason: /needs at least write access/ },
-    { name: 'planned spec', permission: 'maintain', folder: { folder: 'a', plan: true }, stage: 'planned', reason: /stage `planned`/ },
-    { name: 'open checklist', permission: 'admin', folder: { folder: 'a', plan: true, tasks: TASKS_OPEN, checklists: { 'ux.md': '- [x] a\n- [ ] b\n* [ ] c\n' } }, stage: 'tasked', reason: /2 checklist item\(s\)/ },
-    { name: 'implemented spec', permission: 'write', folder: { folder: 'a', plan: true, tasks: '- [x] T001 one\n' }, stage: 'implemented', reason: /stage `implemented`/ },
-  ];
-  for (const testCase of cases) {
-    const { root, github, issue } = await flaggedTwin([testCase.folder]);
-    try {
-      github.permissions.dev = testCase.permission;
-      const result = await validate(github, root, issue);
-      assert.equal(result.decision.action, 'reject', testCase.name);
-      assert.deepEqual(stageLabels(issue), [`speckit:stage:${testCase.stage}`], testCase.name);
-      assert.ok(issue.labels.some((label) => label.name === TWIN_LABEL), testCase.name);
-      assert.match(github.comments.at(-1).body, testCase.reason, testCase.name);
-      assert.match(github.comments.at(-1).body, /^@dev, /, testCase.name);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
-  }
-});
-
-test('removes the implement flag from issues that are not open spec twins', async () => {
-  const root = makeRepo([]);
+test('a person\'s removal of the implement stage of a requested twin, or another stage label change, is undone; the workflow\'s changes are kept', async () => {
+  const root = makeRepo([{ folder: 'a', plan: true, tasks: TASKS_OPEN }]);
   try {
-    const github = new FakeGitHub([
-      { number: 1, id: 1, state: 'open', title: 'bug', body: 'not a twin', labels: [{ name: IMPLEMENT }, { name: 'bug' }] },
-    ]);
-    github.permissions.dev = 'admin';
-    const result = await validate(github, root, github.issues[0]);
-    assert.equal(result.decision.action, 'reject');
-    assert.deepEqual(github.issues[0].labels.map((label) => label.name), ['bug']);
-    assert.match(github.comments[0].body, /not a spec twin/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('ignores a request whose label was already removed', async () => {
-  const { root, github, issue } = await flaggedTwin([{ folder: 'a', plan: true, tasks: TASKS_OPEN }]);
-  try {
+    const github = new FakeGitHub();
+    github.permissions.dev = 'write';
+    await syncRepo(github, root);
+    const issue = github.issues[0];
+    await github.createComment(issue.number, `${renderImplementRequested({ by: 'dev', comment: 7 })}\n**Implementation requested** by @dev.`);
+    issue.labels = [{ name: TWIN_LABEL }, { name: IMPLEMENT }];
     issue.labels = issue.labels.filter((label) => label.name !== IMPLEMENT);
-    const result = await validate(github, root, issue);
-    assert.equal(result.decision, null);
-    assert.equal(github.updates.length + github.comments.length, 0);
+    const restored = await guard(github, root, issue, { actor: 'other', action: 'unlabeled' });
+    assert.equal(restored.stage, 'implement');
+    assert.deepEqual(stageLabels(issue), [IMPLEMENT]);
+    assert.match(github.comments.at(-1).body, /^<!-- speckit:stage-restored -->\n@other, the change of `speckit:stage:implement` was undone[\s\S]*back at `speckit:stage:implement`[\s\S]*`\/speckit implement` on this issue/);
+
+    issue.labels.push({ name: 'speckit:stage:implemented' });
+    assert.equal((await guard(github, root, issue, { actor: 'other', label: 'speckit:stage:implemented' })).stage, 'implement');
+    assert.deepEqual(stageLabels(issue), [IMPLEMENT]);
+
+    const comments = github.comments.length;
+    const updates = github.updates.length;
+    issue.labels = [{ name: TWIN_LABEL }, { name: 'speckit:stage:implementing' }];
+    assert.equal((await guard(github, root, issue, { actor: 'github-actions[bot]', label: 'speckit:stage:implementing' })).outcome, 'kept');
+    assert.equal((await guard(github, root, issue, { actor: 'dev', label: 'bug' })).outcome, 'kept', 'other labels are not stage labels');
+    assert.deepEqual([github.comments.length, github.updates.length], [comments, updates]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('the requester comes from the latest /speckit implement record, with the label history as the fallback for earlier requests', async () => {
+  const github = new FakeGitHub([{ number: 1, id: 1, state: 'open', title: 'T', body: '', labels: [] }]);
+  github.permissions.dev = 'write';
+  github.permissions.lead = 'admin';
+  github.permissions.mallory = 'read';
+  github.events.push({ issue: 1, event: 'labeled', label: { name: IMPLEMENT }, actor: { login: 'dev' }, created_at: github.tick() });
+  assert.deepEqual(await resolveImplementRequester(github, 1), { login: 'dev', canWrite: true, labeledAt: github.events.at(-1).created_at, source: 'label' }, 'a request made before this change, by the label');
+
+  github.events.push({ issue: 1, event: 'labeled', label: { name: IMPLEMENT }, actor: { login: 'github-actions[bot]' }, created_at: github.tick() });
+  await github.createComment(1, renderFlaggedFor('lead'));
+  assert.equal((await resolveImplementRequester(github, 1)).login, 'lead', 'a request the earlier tooling made on behalf of a person');
+
+  await github.createComment(1, `${renderImplementRequested({ by: 'dev', comment: 9 })}\n**Implementation requested** by @dev.`);
+  const record = github.comments.at(-1);
+  assert.deepEqual(await resolveImplementRequester(github, 1), { login: 'dev', canWrite: true, labeledAt: record.created_at, source: 'record' });
+  github.commentAuthor = 'mallory';
+  await github.createComment(1, renderImplementRequested({ by: 'mallory' }));
+  github.commentAuthor = undefined;
+  await github.createComment(1, `quoted ${renderImplementRequested({ by: 'mallory' })}`);
+  assert.equal((await resolveImplementRequester(github, 1)).login, 'dev', 'only the workflow\'s own record, at the start of its comment, counts');
+  assert.deepEqual(parseImplementRequested(renderImplementRequested({ by: 'lead', comment: 3 })), { by: 'lead', comment: 3 });
+  assert.equal(parseImplementRequested('<!-- speckit:implement-requested {"by":"a b"} -->'), null);
 });
 
 test('sync keeps a valid implement flag and revokes it with a comment once it no longer holds', async () => {
@@ -111,20 +118,6 @@ test('sync keeps a valid implement flag and revokes it with a comment once it no
     assert.deepEqual(stageLabels(issue), ['speckit:stage:implemented']);
     assert.match(github.comments.at(-1).body, /flag was removed[\s\S]*stage `implemented`/);
     assert.match(readFileSync(path.join(root, 'summary.md'), 'utf8'), /revoke the implement flag/);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test('judges the request by who actually added the label, not by the triggering actor', async () => {
-  const { root, github, issue } = await flaggedTwin([{ folder: 'a', plan: true, tasks: TASKS_OPEN }], 'outsider');
-  try {
-    github.permissions.dev = 'admin';
-    github.permissions.outsider = 'triage';
-    const result = await validate(github, root, issue, 'dev');
-    assert.equal(result.decision.action, 'reject');
-    assert.match(github.comments.at(-1).body, /^@outsider, [\s\S]*@outsider needs at least write access/);
-    assert.deepEqual(stageLabels(issue), ['speckit:stage:tasked']);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -412,6 +405,8 @@ test('main validates arguments', async () => {
   const client = new FakeGitHub();
   await assert.rejects(() => main(['sync'], { env: {}, client }), /--prompt-file/);
   await assert.rejects(() => main(['apply'], { env: {}, client }), /--output-file/);
+  await assert.rejects(() => main(['guard-stage', '--issue', '1', '--actor', 'dev'], { env: {}, client }), /guard-stage requires/);
+  await assert.rejects(() => main(['validate-implement', '--issue', '1', '--actor', 'dev'], { env: {}, client }), /Usage/, 'implementation is requested with /speckit implement');
   await assert.rejects(() => main(['nope'], { env: {}, client }), /Usage/);
 });
 

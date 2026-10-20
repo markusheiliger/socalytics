@@ -304,7 +304,13 @@ runs:
         fi
         if [ "$status" -eq 0 ] && applies '\.md$'; then
           checks+=("Markdown check")
-          step node "$MARKDOWN_CHECK" || status=1
+          # A task or parallel group checks only the Markdown files it changed, so a broken file elsewhere on the base
+          # branch does not fail it; phase and finalize verification check the whole repository.
+          if [ "$MODE" = task ] && [ -n "$CHANGED_FILES" ] && [ -f "$CHANGED_FILES" ]; then
+            step node "$MARKDOWN_CHECK" --files "$CHANGED_FILES" || status=1
+          else
+            step node "$MARKDOWN_CHECK" || status=1
+          fi
         fi
         popd > /dev/null
 

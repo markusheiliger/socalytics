@@ -43,6 +43,12 @@ Autopilot carries each spec through every stage to step 6, so that the spec only
 Committing and pushing remain a person's decision (see step 7), because `AGENTS.md` forbids
 committing or pushing without an explicit request.
 
+- **Server** (the `Spec Kit specify` agentic workflow, started by `/speckit specify` on an implementation pull
+  request): there is no session to ask; act as in autopilot for exactly one spec whose feature description the
+  workflow gives you. Instead of step 7, the workflow proposes the spec as a pull request with its own tool, and
+  instead of step 8 you report as the workflow prescribes. Do not use `gh` or `git push`; read twin issues with the
+  GitHub tools the workflow provides.
+
 ## Rules
 
 - **Follow the Spec Kit flow in its order:** `/speckit-specify` → `/speckit-clarify` → `/speckit-plan` → optional
