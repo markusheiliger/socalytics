@@ -58,7 +58,7 @@ public sealed class AnalystRegistryOpenApiTests
 		"setDefaultWorkflow",
 	];
 
-	// specs/20261017-185438-web-ui-registry-admin/contracts/registry-openapi.md
+	// specs/archive/20261017-185438-web-ui-registry-admin/contracts/registry-openapi.md
 	[Fact]
 	public async Task AnalystRegistryOperationsDeclareJsonSchemasForSuccessResponsesAndRequestBodies()
 	{
