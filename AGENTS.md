@@ -111,5 +111,5 @@
 - Keep changes focused and avoid speculative abstractions or dependencies.
 - Document every supported setup, build, test, and lint command in `README.md` when it becomes available.
 - After each substantive edit, run the narrowest relevant check before widening scope.
-- Run `node .github/scripts/check-markdown.mjs` to validate Markdown diagnostics and repository-relative links when changing documentation or Spec Kit artifacts.
+- Run `node .github/scripts/check-markdown.mjs` to validate Markdown diagnostics and repository-relative links when changing documentation or Spec Kit artifacts (`--files <list>` checks only the listed files). The record job of `Spec Kit analyze` runs it on the changed Markdown of every amendment and authored spec pull request: a finding is a rule finding that a correction round fixes, so such a pull request is never handed over as consistent or merged automatically with a Markdown problem. Task verification checks only the task's changed Markdown; phase and finalize verification check the whole repository.
 - Preserve user changes in a dirty worktree and do not use destructive Git commands.

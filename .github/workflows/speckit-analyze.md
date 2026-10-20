@@ -144,10 +144,14 @@ safe-outputs:
           uses: actions/setup-node@v5
           with:
             node-version: 24
+        - name: Install the Markdown tools
+          # The versions environment-setup installs; the record step checks the changed Markdown with them.
+          run: npm install --global markdownlint-cli2@0.23.3 markdown-link-check@3.15.0
         - name: Record the analysis
           env:
             GITHUB_TOKEN: ${{ github.token }}
             SPECKIT_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+            SPECKIT_MARKDOWN_GATE: "true"
             SPECKIT_AMENDMENT: ${{ inputs.amendment }}
             SPECKIT_ROUND: ${{ inputs.round }}
             SPECKIT_STALLS: ${{ inputs.stalls }}

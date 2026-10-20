@@ -584,7 +584,7 @@ function amendmentInputs(env) {
 
 // Custom safe-output job of Spec Kit analyze: decides between a correction round, a rework with pending feedback,
 // and presenting the amendment.
-export async function runRecordAnalysis({ client, env, log }) {
+export async function runRecordAnalysis({ client, env, log, markdownRun = undefined }) {
   const number = amendmentInputs(env);
   const round = Math.max(0, Number(env.SPECKIT_ROUND) || 0);
   const mode = env.SPECKIT_MODE === 'check' ? 'check' : 'loop';
@@ -612,6 +612,11 @@ export async function runRecordAnalysis({ client, env, log }) {
     ? { reasons: [`the analysis was withheld because threat detection did not pass (result: ${detection})`], analysis: null }
     : reports.length > 0 ? validateAnalysis(reports.at(-1)) : { reasons: ['the analysis did not report'], analysis: null };
   const rules = (await checkAmendment(client, { folder: context.folder, amendment: context.amendment, kind: context.kind, implementation: context.implementation })).reasons;
+  // The record job of Spec Kit analyze installs the Markdown tools and sets SPECKIT_MARKDOWN_GATE.
+  if (env.SPECKIT_MARKDOWN_GATE === 'true') {
+    const { markdownGate } = await import('./speckit-markdown-gate.mjs');
+    rules.push(...await markdownGate(client, { pull: context.amendment, ...(markdownRun ? { run: markdownRun, root: markdownRun.root } : {}) }));
+  }
   const blocking = (analysis?.findings ?? []).filter((item) => BLOCKING.has(item.severity));
   const consistent = Boolean(analysis) && rules.length === 0 && blocking.length === 0;
   const findingsText = renderFindings(analysis?.findings ?? [], rules);

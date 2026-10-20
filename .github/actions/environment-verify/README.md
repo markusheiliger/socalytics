@@ -71,6 +71,8 @@ The check "Environment action tests" runs `node --test` over [`analyst-projects.
 
 Checks run in this order and stop at the first failing check: platform build and tests, Analyst Manager build and tests, Web UI build and tests, Analyst Python projects, Environment action tests, and Markdown check. The `checks` output lists the checks that ran, and after a failure the last one failed.
 
+The Markdown check runs when a Markdown file changed and in `finalize` mode. In `task` mode (a task or a parallel group) it checks only the changed Markdown files (`check-markdown.mjs --files`), so a broken file elsewhere on the base branch does not fail the task; `phase` and `finalize` check every Markdown file of the repository.
+
 The `uncovered` output lists changed files that no check covers, and the workflows hold such changes for review. These paths are covered:
 
 - Markdown files, `specs/`, and the repository metadata files `.gitignore`, `.gitattributes`, and `.editorconfig`;

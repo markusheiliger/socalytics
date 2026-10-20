@@ -256,7 +256,9 @@ branch head, because it would most likely stop the same way again; the flag `--f
 branch, or the environment actions. The `Spec Kit specify` workflow runs `/speckit-gha-author` non-interactively
 (every recommended choice) to author an ordinary spec that removes the cause, proposed as a pull request
 `speckit-spec/<folder>` against the default branch, or reuses an open or merged spec that already removes it. Once the
-analysis finds it consistent, the pull request is merged automatically; it waits for review when it changes
+analysis finds it consistent and its changed Markdown passes the Markdown check (the record job runs
+`check-markdown.mjs` on it, and every problem is a finding for the correction rounds; amendments get the same
+check), the pull request is merged automatically; it waits for review when it changes
 `docs/architecture/` (a **Design decisions** comment explains why) or when a person pushed to it. On the default
 branch it is an ordinary spec with its own twin, and the stopped spec's twin is blocked by it like by any dependency.
 Nothing requests its implementation automatically: someone signs it off with `/speckit implement` on its twin. The
