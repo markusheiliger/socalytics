@@ -2,9 +2,9 @@
   "schema_version": "1.0",
   "extensions": {
     "gha": {
-      "version": "1.10.0",
+      "version": "1.11.0",
       "source": "local",
-      "manifest_hash": "sha256:043eece4e1ff5563d87abbbfb53ff6061ebf95eee7e8ed8d00f583226ab4541b",
+      "manifest_hash": "sha256:eada952d8860f67802bf62172148fbbd3910ea77bbe4402928ae652ad8a94e29",
       "enabled": true,
       "priority": 10,
       "registered_commands": {},
@@ -18,7 +18,7 @@
         "speckit-gha-architecture",
         "speckit-gha-drift"
       ],
-      "installed_at": "2026-10-20T11:54:34.195133+00:00"
+      "installed_at": "2026-10-20T15:27:44.762218+00:00"
     }
   }
 }

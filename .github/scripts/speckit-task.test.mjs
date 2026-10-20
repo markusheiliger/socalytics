@@ -270,9 +270,11 @@ test('repair: successful no-op lands unchanged without a commit and still requir
   assert.doesNotMatch(github.comments.at(-1).body, /attempt 1 landed|fresh attempt count/);
   env.SPECKIT_VERIFY_RESULT = 'success';
   env.SPECKIT_VERIFICATION_OUTCOME = 'success';
+  env.SPECKIT_VERIFY_FLAKY = 'Ns.Repair.Flaky';
   github.repo.branches['speckit/f'] = landed.head;
   assert.equal((await runRepairReport({ client: github, env, log: silent })).exitCode, 0);
   assert.equal(unresolvedRepair(github.comments), null);
+  assert.match(github.comments.at(-1).body, /\*\*Repair verified\*\*[^\n]*\n\n- Flaky \(passed on rerun\): `Ns\.Repair\.Flaky`\n<!-- speckit-implement:flaky \{"tests":\["Ns\.Repair\.Flaky"\]\} -->/);
 }));
 
 test('repair: no-op does not excuse agent failure, missing patch, invalid patch, or failed work job', async () => {
@@ -388,7 +390,7 @@ test('repair fallback: finalize dispatches real product verification commands wi
 
 test('task: package rejects missing ticks, protected paths, and agent failures; verdict records failed verification', async () => {
   const cases = [
-    { name: 'no tick', agent: (r) => agentDoesT001(r.work, { tick: false }), reason: /T001 was not checked/, verify: false },
+    { name: 'wrong tick', agent: (r) => { agentDoesT001(r.work, { tick: false }); write(r.work, 'specs/f/tasks.md', TASKS.replace('- [ ] T002', '- [x] T002')); }, reason: /may only change by checking T001/, verify: false },
     { name: 'protected path', agent: (r) => agentDoesT001(r.work, { extra: { '.github/workflows/evil.yml': 'x' } }), reason: /changed protected paths: \.github\/workflows\/evil\.yml/, verify: false },
     { name: 'timeout', agent: (r) => agentDoesT001(r.work), agentExit: '124', reason: /did not finish within 60 minutes/, verify: false },
     { name: 'no agent', agentExit: null, reason: /the agent did not run/, verify: false },
@@ -419,6 +421,21 @@ test('task: land re-validates, commits, pushes, and reports a verified task', ()
   const progress = github.repo.checkRuns.at(-1);
   assert.deepEqual([progress.status, progress.external_id, progress.head_sha, progress.output.title], ['queued', CHECK_PROGRESS, result.head, '1 of 2 tasks implemented']);
   assert.match(github.comments.at(-1).body, /\*\*T001 implemented\*\* \(attempt 2\)[\s\S]*`docs\/x\.md`[\s\S]*Markdown check passed[\s\S]*1 of 2 tasks/);
+}));
+
+test('task: land checks the task itself when the agent left tasks.md untouched, keeping its line endings', () => withRepos({ tasks: TASKS.replaceAll('\n', '\r\n') }, async (repos) => {
+  const { result: verdict } = work(repos, { agent: (r) => agentDoesT001(r.work, { tick: false }), env: { SPECKIT_VERIFY_FLAKY: 'Ns.T.A, Ns.T.<b>-->' } });
+  assert.equal(verdict.verified, true, verdict.reasons.join());
+  assert.deepEqual(verdict.changedFiles, ['docs/x.md']);
+  assert.deepEqual(verdict.flaky, ['Ns.T.A', 'Ns.T.<b>-->']);
+  const github = fakeGitHub();
+  const result = await land(repos, github);
+  assert.equal(result.exitCode, 0, JSON.stringify(result.reasons));
+  assert.match(remoteShow(repos, 'speckit/f:specs/f/tasks.md'), /- \[x\] T001 Create docs\/x\.md\r?\n- \[ \] T002/);
+  assert.match(readFileSync(path.join(repos.land, 'specs/f/tasks.md'), 'utf8'), /- \[x\] T001 Create docs\/x\.md\r\n- \[ \] T002 Create docs\/y\.md\r\n/);
+  assert.match(github.repo.pulls[0].body, /- \[x\] T001 Create docs\/x\.md\n- \[ \] T002/);
+  assert.match(github.comments.at(-1).body, /\*\*T001 implemented\*\*[\s\S]*1 of 2 tasks/);
+  assert.match(github.comments.at(-1).body, /\n- Flaky \(passed on rerun\): `Ns\.T\.A`, `Ns\.T\.<b>-->`\n<!-- speckit-implement:flaky \{"tests":\["Ns\.T\.A","Ns\.T\.\\u003cb\\u003e--\\u003e"\]\} -->\n/);
 }));
 
 const PARALLEL_TASKS = '# Tasks\n\n## Phase 1\n\n- [ ] T001 [P] Create docs/x.md\n- [ ] T002 [P] Create docs/y.md\n';
@@ -636,6 +653,10 @@ test('combined verification: success shows the next task, anything else stops th
   assert.deepEqual([next.status, next.head_sha, next.output.summary], ['in_progress', 'sha-new', 'Create docs/z.md']);
   assert.equal(verified.comments.some((comment) => /needs attention/.test(comment.body)), false);
   assert.match(verifiedLines.join('\n'), /T001, T002 verified together on sha-new\./);
+  assert.equal(verified.comments.length, 0, 'nothing to report without flaky tests');
+  const flakyGroup = fakeGitHub();
+  await runCombinedVerified({ client: flakyGroup, env: combinedEnv({ SPECKIT_VERIFY_RESULT: 'success', SPECKIT_VERIFY_FLAKY: 'Ns.A.Works,Ns.A.Works' }), log: silent });
+  assert.equal(flakyGroup.comments.at(-1).body, '**T001, T002 verified together** on `sha-new`.\n\n- Flaky (passed on rerun): `Ns.A.Works`\n<!-- speckit-implement:flaky {"tests":["Ns.A.Works"]} -->');
 
   // Without combined edits nothing ran together; the next task starts and the phase verification covers the group.
   const separate = fakeGitHub();
@@ -743,9 +764,12 @@ test('task: land reports failures without pushing and does not trust a forged re
   assert.deepEqual([failed.check.status, failed.check.conclusion, failed.check.output.title], ['completed', 'failure', 'T001 attempt 2 failed']);
   assert.match(github.comments.at(-1).body, /\*\*T001 attempt 2 failed:\*\*[\s\S]*Agent summary[\s\S]*I could not finish T001\. &lt;!-- speckit-implement:resume -->/);
 
+  write(repos.work, 'specs/f/tasks.md', TASKS.replace('- [ ] T001 Create docs/x.md', '- [x] T001 Create docs/x.md (done)'));
   work(repos);
   const rejected = await land(repos, github);
-  assert.match(rejected.reasons.join(), /T001 was not checked/);
+  assert.match(rejected.reasons.join(), /may only change by checking T001/);
+  assert.equal(remoteHead(repos), before);
+  git(repos.work, 'checkout', '-q', 'HEAD', '--', 'specs/f/tasks.md');
 
   agentDoesT001(repos.work, { extra: { '.github/workflows/evil.yml': 'x' } });
   work(repos);
@@ -1407,6 +1431,30 @@ test('resolve: conflicts in the spec\'s own artifacts go to the resolution, keep
     const landed = await land(repos, fakeGitHub(), { inputs: RESOLVE_INPUTS });
     assert.equal(landed.exitCode, 1);
     assert.match(landed.reasons.join('; '), /the resolution of `specs\/f\/tasks\.md` unchecked tasks: T001/);
+  });
+});
+
+test('a file the base branch added that links to the spec this branch archived is rewritten after the merge, without a conflict', async () => {
+  const options = {
+    ...crossArchived,
+    main: (dir) => write(dir, 'specs/h/spec.md', '# H\n\nSee [f](../f/spec.md) and `specs/f`.\n'),
+  };
+  await withRepos(options, (repos) => {
+    const { integrated, result } = work(repos, { inputs: MERGE_INPUTS, verify: { outcome: 'success', checks: 'Markdown check' } });
+    assert.deepEqual([integrated.result.conflicts, integrated.result.reasons], [[], []], 'the reference rewrite is allowed outside the own spec folder');
+    assert.deepEqual(integrated.result.referencesRefreshed, ['specs/h/spec.md']);
+    assert.equal(readFileSync(path.join(repos.work, 'specs/h/spec.md'), 'utf8').replace(/\r\n/g, '\n'), '# H\n\nSee [f](../archive/f/spec.md) and `specs/archive/f`.\n');
+    assert.ok(result.changedFiles.includes('specs/h/spec.md'));
+  });
+  await withRepos({ ...options, branch: crossArchived.branch }, async (repos) => {
+    const github = fakeGitHub();
+    await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: remoteSha(repos, 'speckit/f'), external_id: CHECK_SYNC_CONFLICT, status: 'completed', conclusion: 'neutral' });
+    const { integrated } = work(repos, { inputs: RESOLVE_INPUTS, verify: { outcome: 'success', checks: 'Markdown check' } });
+    assert.deepEqual(integrated.result.referencesRefreshed, ['specs/h/spec.md']);
+    const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+    assert.equal(landed.exitCode, 0, landed.reasons?.join('; '));
+    assert.equal(remoteShow(repos, 'speckit/f:specs/h/spec.md'), '# H\n\nSee [f](../archive/f/spec.md) and `specs/archive/f`.\n', 'the land replay rewrites it the same way');
+    assert.match(github.comments.at(-1).body, /- References to archived specs rewritten by the archive script after the merge: `specs\/h\/spec\.md`/);
   });
 });
 

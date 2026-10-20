@@ -22,6 +22,7 @@ import {
   RESTART_COMMENT_MARKERS,
   RETRY_COMMENT_MARKER,
   SYNC_COMMENT_MARKER,
+  startsWithMarker,
   syncBarrier,
   renderSyncBarrierMarker,
   baseBranchOf,
@@ -50,6 +51,7 @@ import {
   readSpecTasks,
   renderAttemptMarker,
   renderConvergePrompt,
+  renderFlakyLines,
   renderImplementRunName,
   renderImplementTitle,
   renderNextSteps,
@@ -117,12 +119,12 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
     const latestRepairAttempt = repairAttempts.map((attempt) => Date.parse(attempt.at)).sort((a, b) => b - a)[0] ?? 0;
     const restart = comments
       .filter((comment) => comment.user?.login === BOT_LOGIN &&
-        [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)) &&
+        [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => startsWithMarker(comment.body, marker)) &&
         Date.parse(comment.created_at) >= Math.max(Date.parse(repair.at), latestRepairAttempt))
       .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))[0] ?? null;
-    if (restart && (!String(restart.body ?? '').startsWith(SYNC_COMMENT_MARKER) ||
+    if (restart && (!startsWithMarker(restart.body, SYNC_COMMENT_MARKER) ||
         repairAttempts.filter((attempt) => attempt.outcome === 'failure').length < MAX_TASK_ATTEMPTS)) {
-      const guidance = String(restart.body ?? '').startsWith(SYNC_COMMENT_MARKER)
+      const guidance = startsWithMarker(restart.body, SYNC_COMMENT_MARKER)
         ? currentGuidance({ comments, ledger: attempts, pushedAt }) ?? ''
         : parseGuidance(restart.body) ?? '';
       decision = {
@@ -224,12 +226,12 @@ export function needsRun(decision, env) {
 // A clean/no-op sync has no prompt and carries its unconsumed guidance into the first continued work.
 function currentGuidance({ comments, ledger, pushedAt }) {
   const restart = comments
-    .filter((comment) => comment.user?.login === BOT_LOGIN && [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => String(comment.body ?? '').startsWith(marker)))
+    .filter((comment) => comment.user?.login === BOT_LOGIN && [...RESTART_COMMENT_MARKERS, SYNC_COMMENT_MARKER].some((marker) => startsWithMarker(comment.body, marker)))
     .at(-1);
   const guidance = restart ? parseGuidance(restart.body) : null;
   if (!guidance) return null;
   if (pushedAt && Date.parse(pushedAt) > Date.parse(restart.created_at)) return null;
-  const sync = String(restart.body ?? '').startsWith(SYNC_COMMENT_MARKER) ? syncBarrier(comments, { includeReleased: true }) : null;
+  const sync = startsWithMarker(restart.body, SYNC_COMMENT_MARKER) ? syncBarrier(comments, { includeReleased: true }) : null;
   if (sync?.completion?.guidanceConsumed) return null;
   // A clean/no-op sync has no Copilot prompt; only work after its acknowledgement consumes the guidance.
   const since = sync?.completionAt ?? restart.created_at;
@@ -634,6 +636,11 @@ export async function runContinue({ client, env, log }) {
   const { twin, pull: pullNumber } = readSpecInputs(env);
   const folder = String(env.SPECKIT_FOLDER ?? '');
   const pull = await client.getPullRequest(pullNumber);
+  const flaky = renderFlakyLines(env.SPECKIT_VERIFY_FLAKY);
+  if (String(env.SPECKIT_PHASE_CHECK ?? '') === 'success' && flaky.length > 0) {
+    const phase = String(env.SPECKIT_PHASE ?? '').trim();
+    await client.createComment(pullNumber, [`**The phase verification passed**${phase ? ` for ${neutralizeMarkers(phase)}` : ''} on \`${pull.head.sha}\`.`, '', ...flaky].join('\n'));
+  }
   if (String(env.SPECKIT_PHASE_CHECK ?? '') === 'failure') {
     let repairTasks = [];
     try {
@@ -664,6 +671,7 @@ export async function runContinue({ client, env, log }) {
         at: new Date().toISOString(),
       }),
       `**Implementation needs attention**${requester ? ` @${requester}` : ''}: the full verification at the end of the phase failed${run ? ` (see the [run](${run}))` : ''}. Each task passed its own verification, which covers only the tests it touched, so a change of the phase breaks tests elsewhere, or the tasks break something together.`,
+      ...(flaky.length > 0 ? ['', ...flaky] : []),
       '',
       ...renderNextSteps({
         diagnosisUrl: diagnosisRunsUrl(env),

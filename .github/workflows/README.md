@@ -144,7 +144,17 @@ invalid or out-of-scope patches remain failures. Every failed repair attempt sto
 (`/speckit retry`, a merged amendment, or implemented blockers) gets a fresh repair attempt; the
 [unchanged-restart guard](#retry) keeps restarts from looping. Every unresolved implementation stop starts a diagnosis;
 while it runs, the stop comment links to the diagnosis workflow so a person can inspect its progress. A reported
-diagnosis then waits for its recommended action instead of being started again.
+diagnosis then waits for its recommended action instead of being started again, unless the automation continues by
+itself (see [Automatic continuation](#automatic-continuation)).
+A task's agent leaves `tasks.md` alone: after the verification passed, the land job checks exactly that task's box
+(an agent's own correct tick is still accepted, any other change of `tasks.md` is refused).
+The verification reruns failing tests once: a .NET test project with at most 10 failed tests reruns only those, and
+the Web UI browser tests run with `--retries=1`. A test that passes on the rerun lets the check pass but is reported as
+**flaky** in the comment (marker `speckit-implement:flaky`); a test that fails twice fails the check. After each
+scheduler run, a test that was flaky in `SPECKIT_FLAKY_THRESHOLD` (repository variable, default 3) implementation pull
+requests within 14 days gets one `/speckit specify` run, started on the latest open implementation pull request where
+it was flaky (marker `speckit-implement:flaky-spec`) and without blocking it; the spec makes the test deterministic
+and is implemented once someone signs it off with `/speckit implement` on its twin.
 Reverification uses the original failure artifact's changed files together with repair changes, not just the diff since
 the failed head. Missing or empty original scope falls back to full (`finalize`) verification. Downloaded evidence is
 readable by the repair agent inside its workspace at the locally ignored `.speckit-repair-evidence/`; unavailable
@@ -171,7 +181,9 @@ to archived specs, often on the same lines. Every base merge (the job `sync`, th
 archive step, and the land job's replay) first resolves them with the archive script (`resolveSpecConflicts` in
 `speckit-archive.mjs`): outside the implementation's own spec folder it takes the base branch's version and applies
 every archive to it; in the own folder it normalizes both sides and their merge base with every archive and merges them
-three-way. Only conflicts that remain go to Copilot: code, and real edits of the own spec's artifacts that the base
+three-way. After every such merge, also without conflicts, the script points references in all files to every archived
+spec, for example in a spec the base branch added that links to the spec this branch archived. Only conflicts that
+remain go to Copilot: code, and real edits of the own spec's artifacts that the base
 branch changed too. Copilot may resolve the latter if it keeps every task and every checked box (the land job checks
 `tasks.md`), and the final merge waits for a person's review of them. Outside the own spec folder an implementation may
 change files under `specs/` only by reference rewrites: the merge verification refuses any other difference from the
@@ -238,6 +250,16 @@ to the agent that authors the new spec. Guidance only steers an agent's prompt: 
 runs next, the checks, the attempt limits, or the verification. The reply to `retry` and `sync` says where the
 guidance goes next, or that it cannot change the last stop (for example a stop before any agent ran).
 [Where AI runs and where guidance applies](#where-ai-runs-and-where-guidance-applies) lists every place.
+
+### Automatic continuation
+
+When a diagnosis recommends `/speckit retry` (category `retry`, confidence medium or high) or `/speckit sync`
+(category `outside`, the fix is already on the base branch), the diagnosis record step posts that command itself, with
+the diagnosis guidance, as a comment that starts with the marker `speckit-implement:auto-continue` and says
+"Continued automatically with … as the diagnosis recommends". It does so at most once after each action of a person
+(a `/speckit` comment or a push), never when the same command already failed the same way, and never for `artifacts`,
+`decision`, or `unknown`. A person is asked as before when it stops again. Set the repository variable
+`SPECKIT_AUTO_CONTINUE` to `false` to always wait for a person.
 
 ### Retry
 

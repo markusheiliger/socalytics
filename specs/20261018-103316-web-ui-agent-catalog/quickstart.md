@@ -7,7 +7,7 @@ platform browser test.
 ## Prerequisites
 
 - [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md) and
-  [Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/spec.md) are merged.
+  [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/spec.md) are merged.
 - .NET SDK from `src/platform/global.json`, Node.js 24, Kiota 1.36.0 on `PATH`, Playwright 1.63.0 Chromium.
 
 ## Automated checks

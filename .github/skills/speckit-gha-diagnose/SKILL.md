@@ -184,6 +184,9 @@ workflow started you): never ask, and turn every open question into a report que
   landed code and then reverifies, while `/speckit retry` without guidance only reverifies the failed scope. Add
   guidance only when a code change is needed; for a flaky or transient failure, recommend the bare command and say in
   `why` that the verification runs again unchanged.
+- A recommended `/speckit retry` (category `retry`, confidence medium or high) or `/speckit sync` (category `outside`)
+  may be posted by the automation itself, once after each action of a person: write its guidance so it is right without
+  anyone reading it first, and use `low` confidence when a person should look before it runs again.
 - Never recommend a command that already failed the same way. When the evidence has a section **A command that already
   failed the same way**, the last `/speckit retry` or `/speckit sync` left the branch unchanged and stopped with the same
   reason as before; recommending it again only repeats the stop (a recommendation of it is moved to the other options at

@@ -374,10 +374,7 @@ public sealed class ResultManifestVerifier(
             return false;
         }
 
-        using var snapshot = JsonDocument.Parse(request.RunSnapshotJson);
-        var duration = snapshot.RootElement.GetProperty("segmentationPolicy").GetProperty("durationSeconds").GetInt32() * 1000L;
-        var start = (segmentNumber - 1) * duration;
-        var end = segmentNumber * duration;
+        var (start, end) = SegmentWindows.Window(segmentNumber, SegmentWindows.DurationMs(request.RunSnapshotJson));
         if (!segment.GetProperty("windowStartMs").TryGetInt64(out var reportedStart)
             || !segment.GetProperty("windowEndMs").TryGetInt64(out var reportedEnd)
             || reportedStart != start

@@ -29,8 +29,9 @@ SocAlytics uses one `src` root with these first-level ownership areas:
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
 - `src/analysts` owns the Analyst Manager, whose first desktop slice is
-  executable under `src/analysts/manager`, and the future Analyst SDK and
-  Analyst capability implementations across their required runtimes
+  executable under `src/analysts/manager`, and the Analyst SDK, executable
+  under `src/analysts/sdk`; Analyst capability implementations across their
+  required runtimes remain future
 
 The executable platform projects are peers under `src/platform`, except for the
 test projects grouped under `src/platform/Tests`:
@@ -746,9 +747,9 @@ minor version when native or vendor compatibility requires it.
 
 Versioned JSON Schema documents are canonical for Analyst job and result
 contracts (`contracts/analysis/`); the platform and the Analyst Manager validate
-result manifests against them. The planned internal Analyst SDK exposes Pydantic
-models and validates input and output at the container boundary, and the
-platform independently validates the same schemas. Runtime-specific OCI images use locked dependencies and record
+result manifests against them. The internal Analyst SDK (`src/analysts/sdk`) exposes
+Pydantic models and validates input and output at the container boundary, and
+the platform independently validates the same schemas. Runtime-specific OCI images use locked dependencies and record
 their immutable image, model, and package provenance. Preprocessing and
 postprocessing implementation is traced through the immutable OCI image rather
 than selected as a separate job artifact.
@@ -844,7 +845,13 @@ current and non-current migration states; and
   conversation for a run, adding specialists, asking, polling, and reading
   advice with its disclosure and lineage) in the `simulated` project and in the
   `platform-triage` project against the real platform with the simulated agent
-  workload; and
+  workload; and the Analyst Registry administration for Club Admins (browsing
+  the default workflow, images, profile versions, and workflow versions;
+  registering images; creating, approving, and retiring profile versions;
+  defining workflow versions; and changing the default workflow, with
+  confirmations and refusals) in the `simulated` and `platform` projects; and
+- a Host test verifies that every Registry operation carries OpenAPI schemas
+  from which the Web UI client is generated (`AnalystRegistryOpenApiTests`); and
 - a Host test verifies the development CORS allow-list and the storage origin
   the AppHost passes to the Web UI; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
@@ -892,8 +899,8 @@ choice or reveals a material operational tradeoff:
   read and staging of accepted upstream results, fact indexing, and the member
   fact reads are
   implemented, and the online-only Web UI foundation exists as development
-  evidence, including the Analyst Manager pairing, approval, and fleet views
-  the match workflow with recording upload and finalization, and the match
+  evidence, including the Analyst Manager pairing, approval, and fleet views,
+  the Analyst Registry administration views, the match workflow with recording upload and finalization, and the match
   triage conversations with Specialist Agents. External
   OpenID Connect sign-in with Club Admin linking, unlinking, and coexistence
   with local accounts is evidenced by Integration and Playwright tests against
@@ -936,8 +943,9 @@ implementation-proven, evidence must demonstrate:
   (installation and service-worker updates are evidenced on Chromium; the
   offline-mode rows stay open)
 - JSON Schema validation agrees at .NET and Python boundaries (the platform
-  and the Analyst Manager already agree on result manifests at the .NET
-  boundary)
+  and the Analyst Manager agree on result manifests at the .NET boundary, and
+  the Analyst SDK's conformance tests evidence the Python boundary over the
+  same examples; real Analyst images remain open)
 - locked Analyst images rebuild reproducibly and emit valid manifests
 - Avalonia and OCI-runtime spikes satisfy the platform matrix in the
   [Analyst Manager architecture](analyst-manager.md)

@@ -10,11 +10,11 @@ The planned boundary includes the future Analyst Manager at `analysts/manager`, 
 
 ## Exclusions
 
-Platform APIs, client applications, Hermes, Coach Agents, and Specialist Agents do not belong here. `manager/` contains the executable Analyst Manager (see [manager/README.md](manager/README.md)); no Analyst SDK or capabilities exist yet.
+Platform APIs, client applications, Hermes, Coach Agents, and Specialist Agents do not belong here. `manager/` contains the executable Analyst Manager (see [manager/README.md](manager/README.md)); `sdk/` contains the executable Python Analyst SDK (its author documentation is `sdk/README.md`); no Analyst capabilities exist yet.
 
 ## Current Status
 
-`manager/` contains the executable Analyst Manager desktop app (tray app, Core worker, tests, and macOS Swift bridge source); see [manager/README.md](manager/README.md). No Analyst SDK or capabilities exist yet, and there is no package, runtime, or deployment support.
+`manager/` contains the executable Analyst Manager desktop app (tray app, Core worker, tests, and macOS Swift bridge source); see [manager/README.md](manager/README.md). `sdk/` contains the executable Python Analyst SDK (`socalytics_analyst`: contract models, input verification, result writing, and the container entry point, with an example and tests); its author documentation is `sdk/README.md`. Analyst capabilities remain future: no real Analyst, image, or capability exists, and there is no package publication, production runtime, or deployment support.
 
 ## Authoritative Architecture
 
