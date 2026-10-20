@@ -3,7 +3,7 @@ schema_version: "1.0"
 extension:
   id: gha
   name: "GitHub Actions implementation routing"
-  version: "1.8.0"
+  version: "1.9.0"
   description: "Guide spec authoring through the full Spec Kit flow to specs that only need to be committed, one at a time or a batch of the next logical specs, interactively or in autopilot, keep docs/architecture in sync with each plan and implementation, route /speckit-implement between local implementation and a validated implementation request for the speckit-orchestrate GitHub Actions workflow, refine the parallel task groups after /speckit-tasks, diagnose implementations that stopped, author prerequisite specs for causes outside the stopped spec, and archive implemented specs"
   author: socalytics
   repository: https://github.com/markusheiliger/socalytics

@@ -71,17 +71,16 @@ written by hand works the same once a person adds the dependency on its twin.
      architecture updates.
    - `checklists/requirements.md`: the requirements quality checklist of `/speckit-specify`. Verify every item and
      check it; an item that does not hold means the spec must change until it does.
-   - `specs/README.md`: add the folder's row like the existing rows.
 4. **Check it** from the repository root with
    `node .speckit-tooling/.github/scripts/speckit-author.mjs status <folder>` until it reports "Publish blockers: none",
    and re-check consistency like `/speckit-analyze` for the whole folder. An independent analysis checks it again.
-5. **Propose it**: change only `specs/<folder>/` and `specs/README.md`, then call `create_pull_request` with branch
+5. **Propose it**: change only `specs/<folder>/` (`specs/README.md` lists no specs), then call `create_pull_request` with branch
    `<branchPrefix><folder>` (`branchPrefix` in `context.json`), a title naming the fix (the title prefix in
    `context.json` is added), and a body with the cause, the feature that owns the code, what the spec changes, and
    which implementation depends on it. Do not commit or push yourself.
 6. **Report**: call `speckit_fix` exactly once with the author report below.
 7. **Fix consistency findings** (mode `fix`). The evidence lists the findings of the independent analysis (and broken
-   spec rules, if any). Fix each one in `specs/<folder>/` (and its row in `specs/README.md`) on the spec's branch,
+   spec rules, if any). Fix each one in `specs/<folder>/` on the spec's branch,
    following steps 3 and 4; when a finding is wrong, leave the artifacts as they are and say why. Commit
    `docs(<folder>): fix consistency findings` and call `push_to_pull_request_branch` for the spec's pull request.
    Report with the rework report below.
