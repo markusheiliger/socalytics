@@ -282,6 +282,7 @@ export function runIntegrate({ git, env, inputs, folder, resultDir, log }) {
   const conflicts = unmergedPaths(git);
   const result = { kind: inputs.kind, baseSha, head, conflicts, reasons: [], checks: [], verified: false };
   if (specs.resolved.length > 0) result.specResolved = specs.resolved;
+  if (specs.refreshed.length > 0) result.referencesRefreshed = specs.refreshed;
   if (env.SPECKIT_REQUIRED_SYNC) result.requiredSync = env.SPECKIT_REQUIRED_SYNC;
   if (env.SPECKIT_REQUIRED_SYNC && env.SPECKIT_SYNC_REPAIR) {
     const repair = parseJsonInput(env.SPECKIT_SYNC_REPAIR, 'SPECKIT_SYNC_REPAIR');
@@ -912,6 +913,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       `Merge ${baseBranchOf(pull)} into ${implementationBranch(folder)}`,
       files.length > 0 ? `Conflicts in ${files.join(', ')} resolved by Copilot (attempt ${inputs.attempt}).` : 'No conflicts remained.',
       ...((result.specResolved ?? []).length > 0 ? [`Archive reference conflicts in ${result.specResolved.join(', ')} resolved by the archive script.`] : []),
+      ...((result.referencesRefreshed ?? []).length > 0 ? [`References to archived specs rewritten by the archive script in ${result.referencesRefreshed.join(', ')}.`] : []),
       ...(extra.length > 0 ? [`Also adapted this implementation's own files: ${extra.join(', ')}.`] : []),
       ...(baseOwned.length > 0 ? [`Also adapted files of ${baseBranchOf(pull)} for the merged result (held for review): ${baseOwned.join(', ')}.`] : []),
       ...(ownSpec.length > 0 ? [`Resolved conflicts in this spec's own artifacts (held for review): ${ownSpec.join(', ')}.`] : []),
@@ -923,6 +925,7 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
       `**${barrier ? 'Base synchronized and verified' : 'Conflicts resolved'}** (attempt ${inputs.attempt}): ${files.map((file) => `\`${file}\``).join(', ') || 'none remained'}.`,
       '',
       ...((result.specResolved ?? []).length > 0 ? [`- Archive reference conflicts resolved by the archive script, without an agent: ${result.specResolved.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
+      ...((result.referencesRefreshed ?? []).length > 0 ? [`- References to archived specs rewritten by the archive script after the merge: ${result.referencesRefreshed.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
       ...(extra.length > 0 ? [`- Also adapted this implementation's own files: ${extra.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}`] : []),
       ...(baseOwned.length > 0 ? [`- Also adapted files of \`${baseBranchOf(pull)}\` that the merged result needed: ${baseOwned.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}. The final merge waits for a person's review of these changes.`] : []),
       ...(ownSpec.length > 0 ? [`- Resolved conflicts in this spec's own artifacts that \`${baseBranchOf(pull)}\` changed too: ${ownSpec.map((file) => `\`${neutralizeMarkers(file)}\``).join(', ')}. Every task and every checked box was kept; the final merge waits for a person's review of these changes.`] : []),
@@ -983,17 +986,20 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   if (body !== pull.body) await client.updatePullRequest(inputs.pull, { body });
   await client.updateCheckRun(inputs.checkRun, { status: 'completed', conclusion: 'success', output: { title: checkTitle, summary: message.join('\n\n') } });
   await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'queued', external_id: CHECK_PROGRESS, output: progressOutput(progress) });
-  await client.createComment(inputs.pull, [...markerLines(inputs, 'success'), ...comment].join('\n'));
+  // The barrier state of a required synchronization rides on the visible comment that reports it, so no comment is
+  // only a marker (GitHub would show it empty).
+  let barrierMarker = [];
   if (barrier) {
     const repair = unresolvedRepair(await client.listIssueComments(inputs.pull));
-    await client.createComment(inputs.pull, renderSyncBarrierMarker({
+    barrierMarker = [renderSyncBarrierMarker({
       request: barrier.request, state: 'verified', head, base: baseBranchOf(pull), baseSha: result.baseSha,
       guidanceConsumed: Boolean(barrier.completion?.guidanceConsumed || (result.conflicts ?? []).length > 0),
       ...(repair && result.syncRepair?.id === repair.id && result.syncRepair.scope === repair.scope && result.syncRepair.covered === true &&
           JSON.stringify(result.syncRepair.snapshot) === JSON.stringify(repair)
         ? { repair: { id: repair.id, covered: true, snapshot: repair } } : {}),
-    }));
+    })];
   }
+  await client.createComment(inputs.pull, [...markerLines(inputs, 'success'), ...barrierMarker, ...comment].join('\n'));
   report.line(`${checkTitle}; pushed as ${head}.`);
   report.flush();
   return { exitCode: 0, head, combined };

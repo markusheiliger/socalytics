@@ -911,6 +911,9 @@ test('required sync verifies and lands clean, conflicted and already-current mer
       assert.equal(landed.exitCode, 0, landed.reasons?.join('; '));
       const completion = syncBarrier(github.comments).completion;
       assert.equal(completion.state, 'verified', 'landing does not itself release the latest-base barrier');
+      for (const comment of github.comments) {
+        assert.notEqual(comment.body.replace(/<!--[\s\S]*?-->/g, '').trim(), '', 'no comment consists only of markers');
+      }
       assert.equal(completion.guidanceConsumed, options === conflicting, 'only a successful Copilot conflict resolution consumes sync guidance');
       assert.equal(completion.baseSha, remoteSha(repos, 'main'));
       if (!options.main && options !== conflicting) {
@@ -1431,6 +1434,30 @@ test('resolve: conflicts in the spec\'s own artifacts go to the resolution, keep
     const landed = await land(repos, fakeGitHub(), { inputs: RESOLVE_INPUTS });
     assert.equal(landed.exitCode, 1);
     assert.match(landed.reasons.join('; '), /the resolution of `specs\/f\/tasks\.md` unchecked tasks: T001/);
+  });
+});
+
+test('a file the base branch added that links to the spec this branch archived is rewritten after the merge, without a conflict', async () => {
+  const options = {
+    ...crossArchived,
+    main: (dir) => write(dir, 'specs/h/spec.md', '# H\n\nSee [f](../f/spec.md) and `specs/f`.\n'),
+  };
+  await withRepos(options, (repos) => {
+    const { integrated, result } = work(repos, { inputs: MERGE_INPUTS, verify: { outcome: 'success', checks: 'Markdown check' } });
+    assert.deepEqual([integrated.result.conflicts, integrated.result.reasons], [[], []], 'the reference rewrite is allowed outside the own spec folder');
+    assert.deepEqual(integrated.result.referencesRefreshed, ['specs/h/spec.md']);
+    assert.equal(readFileSync(path.join(repos.work, 'specs/h/spec.md'), 'utf8').replace(/\r\n/g, '\n'), '# H\n\nSee [f](../archive/f/spec.md) and `specs/archive/f`.\n');
+    assert.ok(result.changedFiles.includes('specs/h/spec.md'));
+  });
+  await withRepos({ ...options, branch: crossArchived.branch }, async (repos) => {
+    const github = fakeGitHub();
+    await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: remoteSha(repos, 'speckit/f'), external_id: CHECK_SYNC_CONFLICT, status: 'completed', conclusion: 'neutral' });
+    const { integrated } = work(repos, { inputs: RESOLVE_INPUTS, verify: { outcome: 'success', checks: 'Markdown check' } });
+    assert.deepEqual(integrated.result.referencesRefreshed, ['specs/h/spec.md']);
+    const landed = await land(repos, github, { inputs: RESOLVE_INPUTS });
+    assert.equal(landed.exitCode, 0, landed.reasons?.join('; '));
+    assert.equal(remoteShow(repos, 'speckit/f:specs/h/spec.md'), '# H\n\nSee [f](../archive/f/spec.md) and `specs/archive/f`.\n', 'the land replay rewrites it the same way');
+    assert.match(github.comments.at(-1).body, /- References to archived specs rewritten by the archive script after the merge: `specs\/h\/spec\.md`/);
   });
 });
 
