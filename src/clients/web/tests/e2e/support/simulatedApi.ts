@@ -216,6 +216,8 @@ export const analysisRun: AnalysisRunSummaryDto = {
   runningAt: null,
   terminatedAt: null,
   failureReason: null,
+  cancelledBy: null,
+  cancellationReason: null,
   version: 1,
 };
 
@@ -1398,10 +1400,38 @@ export class SimulatedApi {
     }
     if (method === 'POST' || method === 'PUT') {
       if (role === 'Viewer') return json(403, problem(403, 'Forbidden'));
+      const cancellation = /^\/analysis\/runs\/([^/]+)\/cancellation$/.exec(path);
+      if (cancellation) {
+        return this.handleRunCancellation(cancellation[1], request.headers()['if-match'], request.postDataJSON?.() ?? null, role, json);
+      }
       const result = this.handleMatchWrites(method, path, request.postDataJSON?.() ?? null, json);
       if (result) return result;
     }
     return json(404, problem(404, 'Not found'));
+  }
+
+  /** Cancels an unfinished run like the platform: `If-Match` must carry the current version, terminal runs answer 409. */
+  private handleRunCancellation(
+    runId: string,
+    ifMatch: string | undefined,
+    body: { reason?: string | null } | null,
+    role: SimulatedRole,
+    json: (status: number, body: unknown) => Promise<void>,
+  ) {
+    const run = this.analysisRuns.find((r) => r.runId === runId);
+    if (!run) return json(404, problem(404, 'Not found'));
+    if (!ifMatch) return json(428, problem(428, 'Precondition required'));
+    if (ifMatch.replace(/"/g, '') !== String(run.version)) return json(412, problem(412, 'Precondition failed'));
+    if (run.state !== 'Requested' && run.state !== 'Running') {
+      return json(409, problem(409, 'Run already ended', { code: 'analysis-run-terminal' }));
+    }
+    const member = members[role];
+    run.state = 'Cancelled';
+    run.terminatedAt = new Date();
+    run.cancelledBy = { memberId: member.id, accountName: member.accountName };
+    run.cancellationReason = body?.reason ?? null;
+    run.version = (run.version ?? 0) + 1;
+    return json(200, run);
   }
 
   private handleMatchReads(path: string, json: (status: number, body: unknown) => Promise<void>) {
