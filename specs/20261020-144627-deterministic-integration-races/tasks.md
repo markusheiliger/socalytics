@@ -34,7 +34,7 @@ description: "Task list for Bounded Wait for the Simulated Agent Workload Advice
 ### Verification
 
 - [x] T002 [US1] Verify without committing any probe: run `SimulatedAgentWorkloadTests.RunnerClaimsAndCompletesASubmittedInvocationSoTheOwnerReadsSimulatedAdvice` at least 10 times alone and once with CPU load applied; temporarily keep the runner from completing the invocation and confirm the test fails on the advice assertion within twice the limit, then remove the probe; confirm `git diff` shows only `SimulatedAgentWorkloadTests.cs` changed and no assertion removed (SC-001 to SC-003)
-- [ ] T003 [US1] Update `docs/architecture/` only if a statement it makes became false; the plan's Architecture Updates section is `None`, so confirm by reading `docs/architecture/README.md` that no architecture statement mentions this test and change nothing (SC-003)
+- [x] T003 [US1] Update `docs/architecture/` only if a statement it makes became false; the plan's Architecture Updates section is `None`, so confirm by reading `docs/architecture/README.md` that no architecture statement mentions this test and change nothing (SC-003)
 
 ---
 
