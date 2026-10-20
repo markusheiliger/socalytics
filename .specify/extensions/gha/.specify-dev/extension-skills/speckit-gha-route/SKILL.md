@@ -28,7 +28,8 @@ This command runs as a mandatory `before_implement` hook of `/speckit-implement`
      on GitHub, use that mode.
    - Otherwise ask the user exactly one question with these two choices:
      - **Implement locally**: continue with `/speckit-implement` in this session.
-     - **Request implementation on GitHub**: flag the spec for the speckit-orchestrate GitHub Actions workflow and stop.
+     - **Request implementation on GitHub**: post `/speckit implement` on the spec twin for the speckit-orchestrate
+       GitHub Actions workflow and stop.
 
 2. **Local mode**: reply `CONTINUE: implementing locally.` and nothing else, so `/speckit-implement` proceeds with its
    outline.

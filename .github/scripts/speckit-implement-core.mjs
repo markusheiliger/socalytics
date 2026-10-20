@@ -1,4 +1,4 @@
-import { artifactUrl, renderSpecLine, specDir } from './speckit-prepare-core.mjs';
+import { artifactUrl, isImplementRequested, renderSpecLine, specDir } from './speckit-prepare-core.mjs';
 
 export const BRANCH_PREFIX = 'speckit/';
 export const CHECK_RUN_NAME = 'Spec Kit implementation';
@@ -88,18 +88,23 @@ export const CHECK_DIAGNOSED = 'speckit:diagnosed';
 export const DIAGNOSIS_STALE_MS = 60 * 60 * 1000;
 export const DIAGNOSE_WORKFLOW_FILE = 'speckit-diagnose.lock.yml';
 export const AMEND_BRANCH_PREFIX = 'speckit-amend/';
-// Prerequisite specs (`/speckit fix`): an ordinary spec, authored by an agent for a cause outside the stopped spec,
+// Specs authored by `/speckit specify`: an ordinary spec, authored by an agent for a cause outside the stopped spec,
 // proposed as a pull request from speckit-spec/<folder> against the default branch. Pull requests opened earlier use
 // speckit-fix/<folder> and are still recognized until they are settled. Its own check run tracks the authoring on the
 // implementation pull request's head, apart from the implementation's check runs.
 export const SPEC_BRANCH_PREFIX = 'speckit-spec/';
 export const FIX_BRANCH_PREFIX = 'speckit-fix/';
 export const PREREQUISITE_BRANCH_PREFIXES = Object.freeze([SPEC_BRANCH_PREFIX, FIX_BRANCH_PREFIX]);
-export const FIX_WORKFLOW_FILE = 'speckit-fix.lock.yml';
-export const FIX_CHECK_NAME = 'Spec Kit fix spec';
+export const FIX_WORKFLOW_FILE = 'speckit-specify.lock.yml';
+export const FIX_CHECK_NAME = 'Spec Kit specify';
 export const CHECK_FIX_AUTHORING = 'speckit:fix-authoring';
 export const CHECK_FIX_AUTHORED = 'speckit:fix-authored';
-export const FIX_TITLE_PREFIX = 'Fix spec: ';
+export const FIX_TITLE_PREFIX = 'Spec: ';
+// The title prefix of spec pull requests opened by earlier tooling; a rework renames them to FIX_TITLE_PREFIX, which
+// the rework's push requires.
+export const LEGACY_FIX_TITLE_PREFIX = 'Fix spec: ';
+// Architecture changes of a spec pull request may only come from the spec's design (docs/architecture/**).
+export const ARCHITECTURE_PREFIX = 'docs/architecture/';
 export const DIAGNOSIS_COMMENT_MARKER = '<!-- speckit-implement:diagnosis -->';
 
 export function diagnosisRunsUrl(env) {
@@ -294,7 +299,7 @@ export function fixBranch(folder, prefix = SPEC_BRANCH_PREFIX) {
   return `${prefix}${folder}`;
 }
 
-// Whether a branch carries a prerequisite spec pull request authored by `/speckit fix`, new or legacy.
+// Whether a branch carries a prerequisite spec pull request authored by `/speckit specify` (earlier `/speckit fix`), new or legacy.
 export function isPrerequisiteBranch(branch) {
   const value = String(branch ?? '');
   return PREREQUISITE_BRANCH_PREFIXES.some((prefix) => value.startsWith(prefix) && value.length > prefix.length);
@@ -687,7 +692,7 @@ export function isImplementRunOf(title, twin) {
 // Diagnose, analyze, and fix runs are named "<workflow> spec #<twin> · <why the run started>" like the implementation
 // chain (run-name in their workflow sources). Runs started earlier are named "<workflow> · spec #<twin> · …",
 // "[<workflow>] spec #<twin> · …", or "<workflow> #<twin> · …".
-const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze'], [FIX_WORKFLOW_FILE, 'Spec Kit fix']]);
+const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze'], [FIX_WORKFLOW_FILE, 'Spec Kit specify']]);
 
 export function isTwinRunOf(workflowFile, title, twin) {
   const workflow = TWIN_RUN_NAMES.get(workflowFile);
@@ -735,16 +740,39 @@ export async function setBlocked(client, number, blocked, { explain = null } = {
   }
 }
 
-// Why an implementation waits for the open blocked-by dependencies of its twin (`blockers`, twin numbers), for
-// setBlocked.
+// Why an implementation waits for the open blocked-by dependencies of its twin, for setBlocked. `blockers` are twin
+// numbers or the twin issues; an issue without an implementation request (isImplementRequested) never starts by
+// itself, so the explanation then recommends requesting it with `/speckit implement` on that twin.
 export function dependencyBlock(blockers) {
-  const numbers = [...new Set(blockers.map(Number))].sort((a, b) => a - b);
+  const issues = new Map();
+  for (const blocker of blockers) {
+    const number = Number(typeof blocker === 'object' && blocker !== null ? blocker.number : blocker);
+    if (!issues.has(number) || typeof blocker === 'object') issues.set(number, typeof blocker === 'object' ? blocker : null);
+  }
+  const numbers = [...issues.keys()].sort((a, b) => a - b);
+  const unrequested = numbers.filter((number) => issues.get(number) && !isImplementRequested(issues.get(number)));
   const list = numbers.map((number) => `#${number}`).join(', ');
   const one = numbers.length === 1;
+  const [first, ...others] = unrequested;
+  const request = first
+    ? [
+      '',
+      `**Recommended next step**: Comment the following on spec twin #${first} to request its implementation.`,
+      '',
+      '```text',
+      '/speckit implement',
+      '```',
+      '',
+      `- **Why**: #${first} is not requested for implementation, so it never starts by itself, and this implementation waits for it.`,
+      `- **What it does**: Checks that #${first} is ready (\`tasked\`, checklists checked), records who requested it, and starts its implementation ahead of other specs. Running \`/speckit-implement <folder>\` locally for its folder does the same.`,
+      ...(others.length > 0 ? [`- ${others.map((number) => `#${number}`).join(', ')} ${others.length === 1 ? 'is' : 'are'} not requested either; comment the same there.`] : []),
+    ]
+    : [];
   return {
-    key: { blockers: numbers },
+    key: { blockers: numbers, ...(unrequested.length > 0 ? { unrequested } : {}) },
     lines: [
-      `**Blocked** by prerequisite ${list}: the spec twin of this implementation depends on ${one ? 'it' : 'them'}, so this implementation waits instead of continuing. Nothing is needed on this pull request.`,
+      `**Blocked** by prerequisite ${list}: the spec twin of this implementation depends on ${one ? 'it' : 'them'}, so this implementation waits instead of continuing.${first ? '' : ' Nothing is needed on this pull request.'}`,
+      ...request,
       '',
       `- **Unblocks by itself** once ${list} ${one ? 'is' : 'are'} implemented: this implementation then continues with a fresh attempt count on its current phase base.`,
       `- **To follow the prerequisite**: watch ${list} and ${one ? 'its' : 'their'} implementation pull request; if that implementation stops, it asks for help there.`,
@@ -767,7 +795,7 @@ export async function maintainDependencyBlock(client, env, { implementation, twi
   const blockers = await client.listBlockedBy(twin);
   const open = blockers.filter((blocker) => blocker.state === 'open');
   if (open.length > 0) {
-    await setBlocked(client, implementation.number, true, { explain: dependencyBlock(open.map((blocker) => blocker.number)) });
+    await setBlocked(client, implementation.number, true, { explain: dependencyBlock(open) });
     return { outcome: 'blocked', blocked: true, blockers: open.map((blocker) => blocker.number) };
   }
   if (hold) return { outcome: 'held', blocked: true, blockers: [] };
@@ -806,7 +834,7 @@ export async function maintainDependencyBlock(client, env, { implementation, twi
       : '**The block is lifted**: the spec twin has no open prerequisites anymore. The implementation retries with a fresh attempt count on its current phase base.',
   ].join('\n');
   const guidance = implemented.length > 0
-    ? `This implementation waited for the prerequisite spec twin(s) ${list(implemented)}, which are now implemented on the base branch. Continue as planned; do not work around what they provide in this spec.`
+    ? `This implementation waited for the spec twin(s) ${list(implemented)}, which are now implemented on the base branch. Continue as planned; do not work around what they provide in this spec.`
     : '';
   await client.createComment(pull.number, renderRetryComment(lead, guidance));
   await setBlocked(client, pull.number, false);
@@ -1247,9 +1275,10 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
   return result.length > GITHUB_BODY_LIMIT ? syncPullRequestTicks(text, tasksMarkdown) : result;
 }
 
-// The commands a person can comment on an implementation pull request, all in the form
-// `/speckit <command> [flags] [guidance]`; `flags` lists the flags each command supports. An amendment pull request
-// needs none: merging it applies the amendment, closing it discards it, and a comment or review asks for a rework.
+// The comment commands, all in the form `/speckit <command> [flags] [guidance]`; `flags` lists the flags each command
+// supports, and `scope` where it works: `pr` on an implementation pull request (or an amendment pull request of it),
+// `twin` on a spec twin issue, `any` on both. An amendment pull request needs none: merging it applies the amendment,
+// closing it discards it, and a comment or review asks for a rework.
 // This list is the single source for everything that names the commands: the command router and its help, and the
 // diagnosis (which commands it may recommend, for which categories, and the command reference in its evidence).
 // `recommend` marks commands a diagnosis may recommend; `categories` the diagnosis categories they fit;
@@ -1258,6 +1287,7 @@ export const PR_COMMANDS = [
   {
     name: 'retry',
     usage: '/speckit retry [--force] [guidance]',
+    scope: 'pr',
     flags: { [RESTART_FORCE_FLAG]: 'restart even after 2 restarts in a row that left the branch unchanged' },
     help: 'restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given',
     recommend: true,
@@ -1268,6 +1298,7 @@ export const PR_COMMANDS = [
   {
     name: 'sync',
     usage: '/speckit sync [guidance]',
+    scope: 'pr',
     flags: {},
     help: 'require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved',
     recommend: true,
@@ -1276,17 +1307,28 @@ export const PR_COMMANDS = [
     guidanceScope: 'the conflict resolution when the merge conflicts, otherwise the first prompted work after the clean merge (it is kept until that work succeeds)',
   },
   {
-    name: 'fix',
-    usage: '/speckit fix [guidance]',
+    name: 'specify',
+    usage: '/speckit specify [guidance]',
+    scope: 'pr',
     flags: {},
-    help: 'for a cause outside this spec: an agent authors a prerequisite spec and opens it against the base branch for your review; once it is merged, this spec depends on it, and once it is implemented, this implementation retries by itself',
+    help: 'author a new spec for a cause outside this spec; it is checked and merged to the default branch automatically, and this implementation waits until that spec is signed off with `/speckit implement` on its twin and implemented',
     recommend: true,
     categories: ['outside'],
     whenToRecommend: 'The cause lies in code, tests, or environment actions owned by another feature on the base branch and is not fixed there yet: the guidance says what to fix, where, and how.',
-    guidanceScope: 'the agent that authors the prerequisite spec',
+    guidanceScope: 'the agent that authors the new spec',
   },
-  { name: 'help', usage: '/speckit help', flags: {}, help: 'list these commands', recommend: false, categories: [] },
+  {
+    name: 'implement',
+    usage: '/speckit implement',
+    scope: 'twin',
+    flags: {},
+    help: 'request the implementation of this spec: checks that it is `tasked` with all checklists checked, records who requested it, and starts it on GitHub (it waits for open prerequisites)',
+    recommend: false,
+    categories: [],
+  },
+  { name: 'help', usage: '/speckit help', scope: 'any', flags: {}, help: 'list these commands', recommend: false, categories: [] },
 ];
+export const COMMAND_SCOPES = Object.freeze({ pr: 'implementation pull request', twin: 'spec twin issue', any: 'anywhere' });
 
 // The commands a diagnosis may recommend, and those that fit a category.
 export const recommendableCommands = (commands = PR_COMMANDS) => commands.filter((command) => command.recommend).map((command) => command.name);
@@ -1366,10 +1408,10 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
       return mergesAnyway
         ? `The implementation ${next}, ${attempts}. That work merges ${base} first at its normal synchronization boundary. ${guidance}`
         : `Does not merge ${base}: the implementation ${next} on the branch as it is, ${attempts}. ${guidance}`;
-    case 'fix':
+    case 'specify':
       return [
-        `An agent authors a small prerequisite spec for the cause${argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and then waits for your review.`,
-        `Once you merge it, this spec depends on it, it is implemented like any spec, this implementation waits for it, and then retries by itself on its current phase base, ${attempts}.`,
+        `An agent authors a new spec for the cause${argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and merged automatically (a change of \`docs/architecture/\` or a person's push waits for your review instead).`,
+        `This spec then depends on it; it starts once someone with write access signs it off with \`/speckit implement\` on its spec twin, this implementation waits for it, and then retries by itself on its current phase base, ${attempts}.`,
       ].join(' ');
     default:
       return null;
@@ -1496,16 +1538,16 @@ export function renderAmendmentHowTo(implementationPull) {
   ];
 }
 
-// How a person handles a prerequisite spec pull request; shown in its description and referenced from the
-// implementation.
+// How a person handles a spec pull request authored by `/speckit specify`; shown in its description and referenced
+// from the implementation.
 export function renderFixHowTo(implementationPull, baseBranch = null) {
   const base = baseBranch ? `\`${baseBranch}\`` : 'the default branch';
   return [
     '**How to proceed** (people with write access):',
     '',
-    `- **Merge** this pull request to add the prerequisite spec to ${base}. It becomes a spec twin that the stopped spec depends on, is requested for implementation on behalf of the person who asked for it, and is implemented like any spec. #${implementationPull} waits for it and retries by itself once it is implemented.`,
-    '- **Comment**, or **submit a review** with *Comment* or *Request changes* (line comments included), to have the prerequisite spec reworked with your feedback. It returns here, checked again, for your review.',
-    `- **Close** this pull request without merging to discard the prerequisite spec; #${implementationPull} stays stopped and lists what you can do next.`,
+    `- **Merge** this pull request to add the spec to ${base}. It becomes a spec twin that the stopped spec depends on; it is implemented once someone signs it off with \`/speckit implement\` on its twin. #${implementationPull} waits for it and retries by itself once it is implemented.`,
+    '- **Comment**, or **submit a review** with *Comment* or *Request changes* (line comments included), to have the spec reworked with your feedback. It returns here, checked again.',
+    `- **Close** this pull request without merging to discard the spec; #${implementationPull} stays stopped and lists what you can do next.`,
   ];
 }
 

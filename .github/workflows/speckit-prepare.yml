@@ -2,7 +2,8 @@ name: Spec Kit prepare
 
 # Keeps one non-authoritative twin issue per Spec Kit feature folder on the default branch and,
 # once per newly created twin, infers "blocked by" dependencies between open twins with Copilot CLI.
-# It also validates human requests to flag a twin with speckit:stage:implement.
+# Stage labels are generated: when a person adds or removes a speckit:stage:* label, it restores the computed
+# label set and explains how to change the state (implementation is requested with `/speckit implement`).
 # The repository stays authoritative for spec content; dependencies are maintained on GitHub after
 # the initial inference.
 on:
@@ -11,7 +12,7 @@ on:
     paths:
       - specs/**
   issues:
-    types: [labeled]
+    types: [labeled, unlabeled]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -22,7 +23,7 @@ on:
 permissions: {}
 
 # Label events run in their own group so they never displace a queued sync; only the
-# implement-request validation itself is serialized per issue (see the job below).
+# stage label guard itself is serialized per issue (see the job below).
 concurrency:
   group: ${{ github.event_name == 'issues' && format('speckit-label-{0}', github.run_id) || 'speckit-prepare' }}
   cancel-in-progress: false
@@ -41,10 +42,12 @@ jobs:
           echo "::error::Spec Kit workflows only run from the default branch, not ${GITHUB_REF}."
           exit 1
 
-  validate-implement:
-    name: Validate implementation request
+  guard-stage:
+    name: Restore generated stage labels
+    # Label changes by the workflow token start no workflows; a person's change of a stage label is undone.
     if: >-
-      github.event_name == 'issues' && github.event.label.name == 'speckit:stage:implement' &&
+      github.event_name == 'issues' && startsWith(github.event.label.name, 'speckit:stage:') &&
+      github.event.sender.type != 'Bot' &&
       github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -54,6 +57,7 @@ jobs:
     permissions:
       contents: read
       issues: write
+      pull-requests: read
     steps:
       - name: Check out the repository
         uses: actions/checkout@v5
@@ -66,12 +70,14 @@ jobs:
         with:
           node-version: 24
 
-      - name: Validate the request
+      - name: Restore the stage labels
         env:
           GITHUB_TOKEN: ${{ github.token }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ACTOR: ${{ github.event.sender.login }}
-        run: node .github/scripts/speckit-prepare.mjs validate-implement --issue "$ISSUE_NUMBER" --actor "$ACTOR"
+          ACTION: ${{ github.event.action }}
+          LABEL: ${{ github.event.label.name }}
+        run: node .github/scripts/speckit-prepare.mjs guard-stage --issue "$ISSUE_NUMBER" --actor "$ACTOR" --action "$ACTION" --label "$LABEL"
 
   sync:
     name: Synchronize spec twin issues

@@ -377,7 +377,11 @@ export class GitHubClient {
   }
 
   async createComment(number, body) {
-    await this.request('POST', this.repoPath(`/issues/${number}/comments`), { body });
+    return (await this.request('POST', this.repoPath(`/issues/${number}/comments`), { body })).data;
+  }
+
+  async updateComment(commentId, body) {
+    return (await this.request('PATCH', this.repoPath(`/issues/comments/${encodeURIComponent(commentId)}`), { body })).data;
   }
 
   async listBlockedBy(number) {
