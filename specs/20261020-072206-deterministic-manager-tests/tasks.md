@@ -25,7 +25,7 @@ description: "Task list for Deterministic Analyst Manager Queue Credential and U
 
 ## Phase 2: Verification
 
-- [ ] T003 [US1] Verify the whole Manager solution: `dotnet build src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-restore` has 0 warnings and `dotnet test src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-build` passes. Change no file.
+- [x] T003 [US1] Verify the whole Manager solution: `dotnet build src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-restore` has 0 warnings and `dotnet test src/analysts/manager/SocAlytics.Analysts.Manager.slnx --no-build` passes. Change no file.
 
 ## Dependencies & Execution Order
 
