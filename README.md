@@ -17,8 +17,9 @@ through approved changes.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.
 - [`src/analysts/`](src/analysts/README.md) contains the executable Analyst
-    Manager desktop app under `src/analysts/manager/` and records the planned
-    Analyst SDK and Analyst capability ownership boundary.
+    Manager desktop app under `src/analysts/manager/`, the executable Python
+    Analyst SDK under `src/analysts/sdk/`, and records the planned Analyst
+    capability ownership boundary.
 - [`docs/`](docs/README.md) indexes architecture, component, and operational documentation.
 - [`contracts/`](contracts/README.md) holds the canonical machine-readable
     contracts (JSON Schema 2020-12), the golden-fixture set shared by the
@@ -243,6 +244,26 @@ SoftHSM2 (`softhsm2`); Windows and macOS key-store tests are skipped elsewhere
 and verified manually. No production container-runtime integration ships, so a
 Manager stays Runtime unavailable. This is development evidence, not production
 readiness.
+
+### Analyst SDK
+
+The Python Analyst SDK lives in `src/analysts/sdk/` (Python 3.12, `uv`) and
+implements the Analyst container interface. From `src/analysts/sdk/`, run the
+locked build and tests (author documentation: `src/analysts/sdk/README.md`):
+
+```text
+UV_PYTHON_DOWNLOADS=never
+uv sync --locked --all-groups --no-install-local --no-build
+uv sync --locked --all-groups --no-build-isolation
+uv build --wheel --no-build-isolation --python .venv/bin/python
+uv run --no-sync pytest
+uv run --no-sync python scripts/sync_contracts.py --check
+```
+
+On Windows use `.venv\Scripts\python.exe` for the build. The SDK carries a copy
+of the canonical schemas; `scripts/sync_contracts.py` refreshes it after a
+contract change. This is development evidence, not a published package or
+production readiness.
 
 ### Contracts
 

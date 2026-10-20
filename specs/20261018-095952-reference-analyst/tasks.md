@@ -14,7 +14,7 @@ description: "Task list for Reference Analyst Container on the Python SDK"
 SC-005), so test tasks accompany the code they exercise and every landed task keeps the suites green.
 
 **Organization**: Tasks are grouped by user story. The Python Analyst SDK
-(`specs/20261017-220709-python-analyst-sdk`), Materialized Video Segments
+(`specs/archive/20261017-220709-python-analyst-sdk`), Materialized Video Segments
 (`specs/20261017-222433-materialized-segments`), and Fact Indexing (`specs/archive/20261017-175648-fact-indexing-queries`)
 must be merged first: the capability uses the SDK's `run`, `AnalystContext.media`, and `SegmentMedia.to_match_ms`, and
 the end-to-end test reuses the segment feature's `SyntheticMedia` support, 5-second test policy, and media staging, and

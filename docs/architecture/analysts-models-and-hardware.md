@@ -122,12 +122,14 @@ select the newest Python release independently of the validated runtime matrix.
 
 The versioned JSON Schema documents for job inputs and result manifests in
 `contracts/analysis/` are canonical; the platform and the Analyst Manager
-validate result manifests against them. The shared internal Analyst SDK will
-expose Pydantic models and validate both boundaries; it and cross-runtime
-schema agreement remain future work. The platform validates the same schemas
-independently rather than treating Python types as cross-language authority.
+validate result manifests against them. The shared internal Analyst SDK exposes
+Pydantic models and validates both boundaries; cross-runtime schema agreement
+is evidenced by the shared contract examples that the platform, the Analyst
+Manager, and the SDK's conformance tests all validate. The platform validates
+the same schemas independently rather than treating Python types as
+cross-language authority.
 
-The Analyst SDK is decided as follows and not yet implemented. It is the
+The Analyst SDK is the
 independently locked Python project `src/analysts/sdk/` (distribution
 `socalytics-analyst-sdk`, package `socalytics_analyst`), whose major version
 follows the contracts' major version. It carries a byte-identical, test-verified
