@@ -79,16 +79,17 @@ The React Web UI supports connected platform and club workflows, including:
   run list will also mark the match's current run and each superseded run
   with the run that superseded it, and shows a run cancelled because it was
   superseded without a member (decided, not yet implemented)
-- team and match review, analytics, and agent conversations for coaches
-  (the match triage conversations with Specialist Agents are implemented as
-  connected workflows, see below; the analysis review is decided and not yet
-  implemented, and so are the Coach Agent conversations and consultations)
+- team and match review, analytics, and agent conversations for coaches (the
+  connected analysis review and the match triage conversations with Specialist
+  Agents are implemented, see below; analytics beyond the review, such as
+  visualizations and comparison, and the Coach Agent conversations and
+  consultations are not implemented yet)
 
 What a user sees is decided by their roles and team authorization, online and
 offline alike.
 
-The connected analysis review is decided as follows and not yet implemented.
-From a match, members who may read it (Club Admins, and Coaches and Viewers of
+The connected analysis review is implemented as development evidence (the
+`simulated` and `platform` browser-test projects). From a match, members who may read it (Club Admins, and Coaches and Viewers of
 the owning team) open the review of one analysis run: its state, timestamps,
 failure reason, workflow, and each capability node's tier, scope, state,
 blocking node, and job counts, refreshed while the run is in progress. For

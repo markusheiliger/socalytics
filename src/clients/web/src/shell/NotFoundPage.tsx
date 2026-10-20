@@ -5,14 +5,16 @@ import { SignOutButton } from '../features/account/SignOutButton';
 import { useSession } from '../session/sessionContext';
 import { ShellHeader } from './AppLayout';
 
-export function NotFoundPage() {
+/** `framed` is set inside the signed-in layout, which already renders the shell header. */
+export function NotFoundPage({ framed = false }: { framed?: boolean }) {
   const { t } = useTranslation('common');
   const { t: ts } = useTranslation('shell');
   const { status } = useSession();
   const signedIn = status === 'signedIn';
+  const showHeader = signedIn && !framed;
   return (
     <>
-      {signedIn && <ShellHeader />}
+      {showHeader && <ShellHeader />}
       <Container component="main" maxWidth="md" sx={{ py: 4 }}>
         <Typography variant="h1">{t('app.name')}</Typography>
         <Typography variant="h2">{ts('notFound')}</Typography>

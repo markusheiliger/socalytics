@@ -224,6 +224,139 @@ export const analysisRun: AnalysisRunSummaryDto = {
 let nextId = 100;
 const newId = () => `00000000-0000-4000-8000-${String(++nextId).padStart(12, '0')}`;
 
+export interface SeededFact {
+  acceptedResultId: string;
+  ordinal: number;
+  kind: string;
+  startMs: number;
+  endMs: number;
+  confidence: number;
+  payload: unknown;
+}
+
+export interface SeededCoverageWindow {
+  startMs: number;
+  endMs: number;
+  state: 'accepted' | 'missing' | 'failed' | 'blocked' | 'skipped';
+}
+
+export interface SeededProvenance {
+  workflow: { id: string; version: string };
+  analystProfile: { id: string; digest: string };
+  imageDigest: string;
+  modelDigest: string | null;
+}
+
+export interface SeededFactStream {
+  nodeKey: string;
+  capabilityId: string;
+  capabilityVersion: string;
+  schemaVersion: string;
+  outputType: string;
+  executionScope: string;
+  required: boolean;
+  provenance: SeededProvenance;
+  facts: SeededFact[];
+  /** Coverage windows of the whole match; every fact page carries them clipped to its range. */
+  coverage: SeededCoverageWindow[];
+  /** End of the recording coverage, the effective `toMs` when a read sets none. */
+  coverageEndMs: number;
+}
+
+export interface SeededNode {
+  nodeKey: string;
+  capabilityId: string;
+  capabilityVersion: string;
+  tier: string;
+  executionScope: string;
+  state: string;
+  blockedByNodeKey: string | null;
+  jobs: { waiting: number; ready: number; claimed: number; completed: number; failed: number; blocked: number };
+}
+
+export interface SeededAnalysisRun {
+  runId: string;
+  teamId: string;
+  matchId: string;
+  recordingSetVersionId: string;
+  workflowId: string;
+  workflowVersion: string;
+  state: string;
+  failureReason: string | null;
+  createdAt: Date;
+  runningAt: Date | null;
+  terminatedAt: Date | null;
+  requestedCapabilities: string[];
+  nodes: SeededNode[];
+  streams: SeededFactStream[];
+  /** Applied one per status read after the first, so a running run changes between polls; see `advanceAnalysisRun`. */
+  steps: ((run: SeededAnalysisRun) => void)[];
+}
+
+export const seededProvenance: SeededProvenance = {
+  workflow: { id: 'default', version: '1' },
+  analystProfile: { id: 'profile-detector', digest: `sha256:${'a'.repeat(64)}` },
+  imageDigest: `sha256:${'b'.repeat(64)}`,
+  modelDigest: `sha256:${'c'.repeat(64)}`,
+};
+
+/** A run with one completed node and its stream; `overrides` replace any field. */
+export function analysisRunFixture(overrides: Partial<SeededAnalysisRun> = {}): SeededAnalysisRun {
+  const nodeKey = 'detections';
+  return {
+    runId: newId(),
+    teamId: ids.team,
+    matchId: String(match.id),
+    recordingSetVersionId: newId(),
+    workflowId: 'default',
+    workflowVersion: '1',
+    state: 'Completed',
+    failureReason: null,
+    createdAt: now,
+    runningAt: later(0.1),
+    terminatedAt: later(0.5),
+    requestedCapabilities: ['player-detection'],
+    nodes: [
+      {
+        nodeKey,
+        capabilityId: 'player-detection',
+        capabilityVersion: '1.0.0',
+        tier: 'LowLevel',
+        executionScope: 'Segment',
+        state: 'Completed',
+        blockedByNodeKey: null,
+        jobs: { waiting: 0, ready: 0, claimed: 0, completed: 3, failed: 0, blocked: 0 },
+      },
+    ],
+    streams: [
+      {
+        nodeKey,
+        capabilityId: 'player-detection',
+        capabilityVersion: '1.0.0',
+        schemaVersion: '1.0.0',
+        outputType: 'detections',
+        executionScope: 'Segment',
+        required: true,
+        provenance: seededProvenance,
+        facts: [],
+        coverage: [{ startMs: 0, endMs: 90_000, state: 'accepted' }],
+        coverageEndMs: 90_000,
+      },
+    ],
+    steps: [],
+    ...overrides,
+  };
+}
+
+const base64Url = (text: string) => Buffer.from(text, 'utf8').toString('base64url');
+const selectionHash = (runId: string, stream: SeededFactStream, fromMs: number | null, toMs: number | null) =>
+  createHash('sha256').update(`${runId}|${stream.nodeKey}|${stream.schemaVersion}|${fromMs}|${toMs}`).digest('hex').slice(0, 32);
+const compareFacts = (a: SeededFact, b: SeededFact) =>
+  a.startMs - b.startMs ||
+  a.endMs - b.endMs ||
+  (a.acceptedResultId < b.acceptedResultId ? -1 : a.acceptedResultId > b.acceptedResultId ? 1 : 0) ||
+  a.ordinal - b.ordinal;
+
 /** The base64 SHA-256 a grant requires: the declared part digest may be hex or prefixed hex. */
 function checksumHeader(digest: string | undefined): string {
   const hex = (digest ?? '').replace(/^sha-?256[:=]/i, '');
@@ -380,11 +513,211 @@ export class SimulatedApi {
   readonly timelineMappings: TimelineMappingDto[] = [];
   readonly recordingSetVersions: RecordingSetVersionDto[] = [];
   readonly analysisRuns: AnalysisRunSummaryDto[] = [];
+  /** Analysis state behind `/analysis/runs/{runId}`, by run identifier; see `seedAnalysisRun`. */
+  readonly analysisStates = new Map<string, SeededAnalysisRun>();
+  /** Fact page size of the simulated platform (its default page size); tests may lower it to page. */
+  factPageSize = 50;
+  private readonly statusReads = new Map<string, number>();
 
   constructor(private readonly page: Page) {}
 
   async install(): Promise<void> {
     await this.page.route('**/api/v1/**', (route) => this.handle(route));
+  }
+
+  /** Seeds a run for the review routes and keeps the match's run list consistent with it. */
+  seedAnalysisRun(overrides: Partial<SeededAnalysisRun> = {}): SeededAnalysisRun {
+    const run = analysisRunFixture(overrides);
+    this.analysisStates.set(run.runId, run);
+    this.syncRunSummary(run);
+    return run;
+  }
+
+  /** Applies the next step of the run, as a status poll does; returns false when no step is left. */
+  advanceAnalysisRun(runId: string): boolean {
+    const run = this.analysisStates.get(runId);
+    const step = run?.steps.shift();
+    if (!run || !step) return false;
+    step(run);
+    this.syncRunSummary(run);
+    return true;
+  }
+
+  private syncRunSummary(run: SeededAnalysisRun): void {
+    const summary: AnalysisRunSummaryDto = {
+      runId: run.runId,
+      teamId: run.teamId,
+      matchId: run.matchId,
+      recordingSetVersionId: run.recordingSetVersionId,
+      workflowId: run.workflowId,
+      workflowVersion: run.workflowVersion,
+      state: run.state,
+      createdAt: run.createdAt,
+      runningAt: run.runningAt,
+      terminatedAt: run.terminatedAt,
+      failureReason: run.failureReason,
+      version: 1,
+    };
+    const index = this.analysisRuns.findIndex((r) => r.runId === run.runId);
+    if (index >= 0) this.analysisRuns[index] = summary;
+    else this.analysisRuns.push(summary);
+  }
+
+  private async handleAnalysisRead(
+    route: Route,
+    path: string,
+    role: SimulatedRole,
+    json: (status: number, body: unknown) => Promise<void>,
+  ): Promise<void> {
+    const parsed = /^\/analysis\/runs\/([^/]+)(?:\/(fact-streams|facts))?$/.exec(path);
+    const run = parsed && this.analysisStates.get(parsed[1]);
+    const permitted = run && (members[role].teamRoles ?? []).some((r) => r.teamId === run.teamId);
+    if (!parsed || !run || !permitted) return json(404, problem(404, 'Not found'));
+
+    if (!parsed[2]) {
+      const reads = this.statusReads.get(run.runId) ?? 0;
+      this.statusReads.set(run.runId, reads + 1);
+      if (reads > 0) this.advanceAnalysisRun(run.runId);
+      return json(200, {
+        runId: run.runId,
+        teamId: run.teamId,
+        matchId: run.matchId,
+        recordingSetVersionId: run.recordingSetVersionId,
+        workflowId: run.workflowId,
+        workflowVersion: run.workflowVersion,
+        state: run.state,
+        failureReason: run.failureReason,
+        createdAt: run.createdAt,
+        runningAt: run.runningAt,
+        terminatedAt: run.terminatedAt,
+        version: 1,
+        requestedCapabilities: run.requestedCapabilities,
+        nodes: run.nodes.map((n, i) => ({ nodeId: `00000000-0000-4000-8000-${String(900 + i).padStart(12, '0')}`, ...n })),
+      });
+    }
+
+    const runDto = { runId: run.runId, teamId: run.teamId, matchId: run.matchId, state: run.state };
+    if (parsed[2] === 'fact-streams') {
+      return json(200, {
+        run: runDto,
+        items: run.streams.map((s) => {
+          const count = (state: string) => s.coverage.filter((w) => w.state === state).length;
+          return {
+            nodeKey: s.nodeKey,
+            capability: { id: s.capabilityId, version: s.capabilityVersion },
+            schemaVersion: s.schemaVersion,
+            outputType: s.outputType,
+            executionScope: s.executionScope,
+            required: s.required,
+            factCount: s.facts.length,
+            provenance: s.provenance,
+            coverage: {
+              accepted: count('accepted'),
+              missing: count('missing'),
+              failed: count('failed'),
+              blocked: count('blocked'),
+              skipped: count('skipped'),
+            },
+          };
+        }),
+      });
+    }
+
+    const query = new URL(route.request().url()).searchParams;
+    const errors: { field: string; code: string }[] = [];
+    const required = (field: string, pattern: RegExp) => {
+      const value = query.get(field);
+      if (!value) errors.push({ field, code: 'required' });
+      else if (!pattern.test(value)) errors.push({ field, code: 'invalid' });
+      return value ?? '';
+    };
+    const capabilityId = required('capabilityId', /^[a-z0-9][a-z0-9._-]{0,99}$/);
+    const capabilityVersion = required('capabilityVersion', /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
+    const schemaVersion = required('schemaVersion', /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
+    const nodeKey = query.get('nodeKey');
+    if (nodeKey !== null && !/^[a-z0-9][a-z0-9._-]{0,99}$/.test(nodeKey)) errors.push({ field: 'nodeKey', code: 'invalid' });
+    const milliseconds = (field: string, minimum: number) => {
+      const value = query.get(field);
+      if (value === null) return null;
+      const parsedValue = /^\d+$/.test(value) ? Number(value) : Number.NaN;
+      if (!Number.isSafeInteger(parsedValue) || parsedValue < minimum) {
+        errors.push({ field, code: 'out-of-range' });
+        return null;
+      }
+      return parsedValue;
+    };
+    const fromMs = milliseconds('fromMs', 0);
+    const toMs = milliseconds('toMs', fromMs === null ? 1 : fromMs + 1);
+    const token = query.get('continuationToken');
+    let after: { s: number; e: number; r: string; o: number; h: string } | null = null;
+    if (token !== null) {
+      try {
+        after = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'));
+        if (!after || typeof after.s !== 'number' || typeof after.e !== 'number' || typeof after.r !== 'string' || typeof after.o !== 'number' || typeof after.h !== 'string') {
+          throw new Error('malformed');
+        }
+      } catch {
+        after = null;
+        errors.push({ field: 'continuationToken', code: 'invalid' });
+      }
+    }
+    if (errors.length > 0) return json(400, problem(400, 'Validation failed', { errors }));
+
+    const nodes = run.streams.filter(
+      (s) =>
+        s.capabilityId === capabilityId &&
+        s.capabilityVersion === capabilityVersion &&
+        s.schemaVersion === schemaVersion &&
+        (nodeKey === null || s.nodeKey === nodeKey),
+    );
+    if (nodes.length === 0) {
+      return json(404, problem(404, 'Capability not in run', { code: 'analysis-capability-not-in-run' }));
+    }
+    if (nodes.length > 1) {
+      return json(400, problem(400, 'Capability ambiguous', { code: 'analysis-capability-ambiguous' }));
+    }
+    const stream = nodes[0];
+    const hash = selectionHash(run.runId, stream, fromMs, toMs);
+    if (after && after.h !== hash) {
+      return json(400, problem(400, 'Validation failed', { errors: [{ field: 'continuationToken', code: 'invalid' }] }));
+    }
+
+    // Same ordering and overlap rule as the platform's fact index query: half-open intervals that overlap the range.
+    const ordered = stream.facts
+      .filter((f) => (toMs === null || f.startMs < toMs) && (fromMs === null || f.endMs > fromMs))
+      .sort(compareFacts)
+      .filter((f) => {
+        if (!after) return true;
+        const key = (x: { s: number; e: number; r: string; o: number }) => [x.s, x.e, x.r, x.o] as const;
+        const [a, b] = [key({ s: f.startMs, e: f.endMs, r: f.acceptedResultId, o: f.ordinal }), key(after as never)];
+        for (let i = 0; i < 4; i++) if (a[i] !== b[i]) return a[i] > b[i];
+        return false;
+      });
+    const items = ordered.slice(0, this.factPageSize);
+    const last = items[items.length - 1];
+    const next =
+      ordered.length > items.length && last
+        ? base64Url(JSON.stringify({ s: last.startMs, e: last.endMs, r: last.acceptedResultId, o: last.ordinal, h: hash }))
+        : null;
+    const rangeStart = fromMs ?? 0;
+    const rangeEnd = toMs ?? stream.coverageEndMs;
+    return json(200, {
+      run: runDto,
+      stream: {
+        nodeKey: stream.nodeKey,
+        capability: { id: stream.capabilityId, version: stream.capabilityVersion },
+        schemaVersion: stream.schemaVersion,
+        outputType: stream.outputType,
+        executionScope: stream.executionScope,
+        provenance: stream.provenance,
+      },
+      range: { fromMs, toMs },
+      items,
+      coverage: stream.coverage
+        .map((w) => ({ startMs: Math.max(w.startMs, rangeStart), endMs: Math.min(w.endMs, rangeEnd), state: w.state }))
+        .filter((w) => w.endMs > w.startMs),
+      continuationToken: next,
+    });
   }
 
   /** Subsequent requests are answered by the signed-in state; sign-in succeeds for this role. */
@@ -1371,6 +1704,9 @@ export class SimulatedApi {
     }
     if (path.startsWith('/analyst-manager-registrations')) {
       return this.handleRegistrations(route, method, path, role, json);
+    }
+    if (method === 'GET' && path.startsWith('/analysis/runs/')) {
+      return this.handleAnalysisRead(route, path, role, json);
     }
     if (path.startsWith('/registry/')) {
       return this.handleRegistry(route, method, path, role, json);

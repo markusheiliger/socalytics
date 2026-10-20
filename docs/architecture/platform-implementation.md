@@ -843,7 +843,11 @@ current and non-current migration states; and
   view, and the fleet view with revocation, and the match workflow and
   recording upload (match creation and editing, direct multipart upload with
   resume, timeline mapping, finalization, run cancellation from the match
-  page, and the development CORS access to RustFS): the `simulated` project against a simulated API and a fake object
+  page, and the development CORS access to RustFS) and the analysis review
+  (run status, fact streams, range filtering, paging, coverage, provenance,
+  explicit empty, incomplete, and unavailable states, access by role,
+  accessibility checks, and the online-only rule): the `simulated` project
+  against a simulated API and a fake object
   store, and the `platform` project against the real platform with a scripted
   Manager and RustFS; and the match triage conversations (starting a
   conversation for a run, adding specialists, asking, polling, and reading
@@ -904,7 +908,9 @@ choice or reveals a material operational tradeoff:
   fact reads are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views,
-  the Analyst Registry administration views, the match workflow with recording upload and finalization, and the match
+  the Analyst Registry administration views, the match workflow with recording
+  upload and finalization, the connected analysis review of a run's status and
+  indexed facts, and the match
   triage conversations with Specialist Agents. External
   OpenID Connect sign-in with Club Admin linking, unlinking, and coexistence
   with local accounts is evidenced by Integration and Playwright tests against
@@ -912,8 +918,7 @@ choice or reveals a material operational tradeoff:
   secret custody, and lifetimes (`GOV-CRED-006`) still unresolved. The
   production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
   updates through its service worker as development evidence on Chromium), the other
-  Web UI client workflows (the analysis review and the Coach Agent and
-  consultation conversations),
+  Web UI client workflows (the Coach Agent and consultation conversations),
   cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
   profile on a Linux engine (Windows automation, Podman, and the other
