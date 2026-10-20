@@ -14,14 +14,15 @@ import matches from './en/matches.json';
 import managers from './en/managers.json';
 import session from './en/session.json';
 import teams from './en/teams.json';
+import triage from './en/triage.json';
 import uploads from './en/uploads.json';
 
 void i18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'managers', 'matches', 'uploads', 'lineage', 'email', 'passwordRecovery', 'invitations'],
-  resources: { en: { common, session, account, shell, club, seasons, teams, members, managers, matches, uploads, lineage, email, passwordRecovery, invitations } },
+  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'managers', 'matches', 'uploads', 'lineage', 'triage', 'email', 'passwordRecovery', 'invitations'],
+  resources: { en: { common, session, account, shell, club, seasons, teams, members, managers, matches, uploads, lineage, triage, email, passwordRecovery, invitations } },
   interpolation: { escapeValue: false },
 });
 

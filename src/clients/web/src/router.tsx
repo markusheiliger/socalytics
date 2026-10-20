@@ -7,6 +7,7 @@ import { PasswordChangePage } from './features/account/PasswordChangePage';
 import { ClubPage } from './features/club/ClubPage';
 import { HomePage } from './features/home/HomePage';
 import { InvitationAcceptPage } from './features/invitations/InvitationAcceptPage';
+import { ConversationPage } from './features/triage/ConversationPage';
 import { FinalizePage } from './features/lineage/FinalizePage';
 import { RecordingVersionPage } from './features/lineage/RecordingVersionPage';
 import { MatchCreatePage } from './features/matches/MatchCreatePage';
@@ -84,6 +85,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/matches/:matchId/edit', element: <MatchEditPage /> },
           { path: '/matches/:matchId/finalize', element: <FinalizePage /> },
           { path: '/matches/:matchId/recordings/:recordingVersionId', element: <RecordingVersionPage /> },
+          { path: '/matches/:matchId/triage/:conversationId', element: <ConversationPage /> },
           { path: '/members', element: clubAdminOnly(<MembersPage />) },
           { path: '/members/:memberId', element: clubAdminOnly(<MemberPage />) },
           { path: '/analyst-managers', element: clubAdminOnly(<FleetPage />) },

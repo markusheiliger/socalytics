@@ -2,14 +2,14 @@
 
 **Branch**: `20261017-210231-web-ui-triage-conversations` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-210231-web-ui-triage-conversations/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-210231-web-ui-triage-conversations/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
 ## Summary
 
 Add connected match triage conversations to the Web UI at `src/clients/web/` on top of the member operations of
-[Agent Orchestration Direct Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md).
+[Agent Orchestration Direct Invocations](../20261017-204332-agent-orchestration-invocations/spec.md).
 
 - **Entry**: the match view gains a triage section with the member's own conversations and, for Club Admins and Coaches
   of the team with a `Completed` or `PartiallyCompleted` run, a start dialog; conversations open at
@@ -80,12 +80,12 @@ and up to the platform's limit of unfinished questions per member.
 
 | Principle | Status | Evidence |
 | --- | --- | --- |
-| I. Architecture is the design authority | Pass | Implements the agent conversations of [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui) and [Connected Agent Conversations](../../docs/architecture/client-applications.md#connected-agent-conversations), the Web UI side of [Client, Transport, And Runtime Protocol](../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol), and the advice disclosure of [Prompt And Advice Governance](../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance); stays online only per [Offline Mode](../../docs/architecture/client-applications.md#offline-mode). Design updates are applied now (see Architecture Updates). |
+| I. Architecture is the design authority | Pass | Implements the agent conversations of [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui) and [Connected Agent Conversations](../../../docs/architecture/client-applications.md#connected-agent-conversations), the Web UI side of [Client, Transport, And Runtime Protocol](../../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol), and the advice disclosure of [Prompt And Advice Governance](../../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance); stays online only per [Offline Mode](../../../docs/architecture/client-applications.md#offline-mode). Design updates are applied now (see Architecture Updates). |
 | II. Source-area ownership | Pass | Changes only under `src/clients/web/`; no new `src/` child; the platform is untouched. |
 | III. API-first control plane | Pass | The Web UI uses only `/api/v1` member operations through the generated client behind adapters; every rule (roles, limits, eligibility, privacy) stays with the platform; the Web UI never calls Hermes or the transport. |
 | IV. Evidence over claims | Pass | Unit, simulated browser, and platform browser tests (FR-024); the full ask-and-answer flow is proven against the simulated API, and nothing claims production readiness. |
 | V. Focused, minimal changes | Pass | No new dependency, platform operation, project, or test-only platform hook; reuses the match context, connectivity, session, leave guard, failure, and i18n patterns. |
-| Technology and tooling | Pass | Needs Node.js 24, Kiota 1.36.0, Playwright 1.63.0 Chromium, the .NET SDK, and Docker for the platform project, all provided by `.github/actions/environment-setup` and `environment-verify` through the merged [Web UI Verification Environment](../archive/20261012-145505-web-ui-environment/spec.md); no environment spec is needed. |
+| Technology and tooling | Pass | Needs Node.js 24, Kiota 1.36.0, Playwright 1.63.0 Chromium, the .NET SDK, and Docker for the platform project, all provided by `.github/actions/environment-setup` and `environment-verify` through the merged [Web UI Verification Environment](../20261012-145505-web-ui-environment/spec.md); no environment spec is needed. |
 
 Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 
@@ -93,20 +93,20 @@ Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 
 ### Narratives
 
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): agent conversations for coaches
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): agent conversations for coaches
   in the connected Web UI.
-- [Client Applications → Connected Agent Conversations](../../docs/architecture/client-applications.md#connected-agent-conversations):
+- [Client Applications → Connected Agent Conversations](../../../docs/architecture/client-applications.md#connected-agent-conversations):
   submission with an idempotency key, `202`, conditional polling, private reads, connected-only rules; the Web UI's
   concrete behavior (key reuse after a lost answer, backoff, pausing while hidden or offline).
-- [Intelligence and Agents → Client, Transport, And Runtime Protocol](../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)
-  and [Post-Analysis Match Triage](../../docs/architecture/intelligence-and-agents.md#post-analysis-match-triage): the
+- [Intelligence and Agents → Client, Transport, And Runtime Protocol](../../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)
+  and [Post-Analysis Match Triage](../../../docs/architecture/intelligence-and-agents.md#post-analysis-match-triage): the
   Web UI side of the protocol and of the run-bound triage conversation; no design change.
-- [Intelligence Agent Catalog → Prompt And Advice Governance](../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance):
+- [Intelligence Agent Catalog → Prompt And Advice Governance](../../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance):
   the AI disclosure and attribution of Specialist Agent advice in the Web UI; no design change.
-- [Platform Implementation Profile → Agent Runtime](../../docs/architecture/platform-implementation.md#agent-runtime),
-  [Client Technology](../../docs/architecture/platform-implementation.md#client-technology), and the Architecture
+- [Platform Implementation Profile → Agent Runtime](../../../docs/architecture/platform-implementation.md#agent-runtime),
+  [Client Technology](../../../docs/architecture/platform-implementation.md#client-technology), and the Architecture
   Reassessment and Acceptance Evidence lists: status of the Web UI agent workflows.
-- [Client Applications → Offline Mode In A PWA](../../docs/architecture/client-applications.md#offline-mode-in-a-pwa):
+- [Client Applications → Offline Mode In A PWA](../../../docs/architecture/client-applications.md#offline-mode-in-a-pwa):
   unchanged rule (agent submission and refresh stay connected-only) that the feature follows.
 
 ### Design updates (applied now, worded as decided but not implemented)
@@ -161,7 +161,7 @@ state, re-reading `docs/architecture/` (and `AGENTS.md` "Current State", `src/cl
 ### Documentation (this feature)
 
 ```text
-specs/20261017-210231-web-ui-triage-conversations/
+specs/archive/20261017-210231-web-ui-triage-conversations/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output

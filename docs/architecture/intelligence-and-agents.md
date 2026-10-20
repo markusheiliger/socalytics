@@ -202,8 +202,11 @@ clip references through MCP/API tools. The triage remains bound to its selected
 analysis run; a newer run requires a new triage until an explicit rebase design
 is introduced. The platform side of direct `User -> SA` conversations bound to
 one terminal successful run is implemented as development evidence (see
-[Agent Orchestration Authority](#agent-orchestration-authority)); Coach
-consultations and the Web UI remain planned.
+[Agent Orchestration Authority](#agent-orchestration-authority)), and the
+connected Web UI conversations with Specialist Agents are implemented as
+development evidence (see
+[Client Applications → Web UI](client-applications.md#web-ui)); Coach Agent
+conversations and consultations remain planned.
 
 ### Agent Orchestration Authority
 
