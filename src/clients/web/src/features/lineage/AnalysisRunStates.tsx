@@ -3,6 +3,7 @@ import Typography from '@mui/material/Typography';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { createAnalysisRunAdapter } from '../../platform/adapters/analysisRunAdapter';
 import { createRecordingLineageAdapter } from '../../platform/adapters/recordingLineageAdapter';
 import { toPlatformFailure, type PlatformFailure } from '../../platform/failure';
@@ -155,6 +156,8 @@ export function AnalysisRunStates({ matchId, teamId }: { matchId: string; teamId
                             {t('runs.cancelAction')}
                           </Button>
                         )}
+                        {' · '}
+                        <Link to={`/matches/${matchId}/analysis-runs/${run.runId}`}>{t('runs.openReview')}</Link>
                       </li>
                     ))}
                   </ul>

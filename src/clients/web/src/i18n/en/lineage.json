@@ -58,6 +58,7 @@
     "started": "Started {{time}}",
     "ended": "Ended {{time}}",
     "failure": "Reason: {{reason}}",
+    "openReview": "Open analysis review",
     "loadFailed": "The analysis runs could not be loaded."
   },
   "cancelRun": {
