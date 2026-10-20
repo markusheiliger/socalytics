@@ -5,7 +5,9 @@ import { pathToFileURL } from 'node:url';
 import { specDir } from './speckit-prepare-core.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import { beginAmendment, checkAmendment, decodeTracked, findAmendment, pendingFeedback, presentAmendment, reportSpecPullFailure, resolveAmendment, startAnalysis, startRework } from './speckit-amend.mjs';
+import { RETRY_EFFECT, requestSync, restartState, retryImplementation } from './speckit-commands.mjs';
 import {
+  AUTO_CONTINUE_MARKER,
   BOT_LOGIN,
   CATEGORY_MEANING,
   CHECK_AMEND_CHECKING,
@@ -29,6 +31,7 @@ import {
   implementationBranch,
   isImplementRunOf,
   isTwinRunOf,
+  latestHumanCommit,
   neutralizeMarkers,
   nextStepContext,
   nextTaskGroup,
@@ -614,13 +617,15 @@ export async function runRecord({ client, env, log }) {
     ...context,
   }));
   const checkRun = Number(env.SPECKIT_CHECK_RUN);
+  const next = !repeat && !amendment && autoContinueEnabled(env) ? autoContinueCommand(usable, { amendment, repeated }) : null;
+  const continues = next !== null && !(await continuedSincePerson(client, pullNumber, comments));
   if (Number.isInteger(checkRun) && checkRun > 0) {
     await client.updateCheckRun(checkRun, {
       status: 'completed',
       conclusion: usable ? 'neutral' : 'failure',
       external_id: CHECK_DIAGNOSED,
       output: usable
-        ? { title: repeat ? `Diagnosis continues: ${usable.category}` : `Waiting for a decision: ${usable.category}`, summary: clip(usable.summary, 2000) }
+        ? { title: repeat ? `Diagnosis continues: ${usable.category}` : continues ? `Continued automatically: ${usable.category}` : `Waiting for a decision: ${usable.category}`, summary: clip(usable.summary, 2000) }
         : { title: 'Diagnosis without a usable report', summary: clip(reasons.join('; '), 2000) },
     });
   }
@@ -637,11 +642,61 @@ export async function runRecord({ client, env, log }) {
   } else if (amendment) {
     const implementation = await client.getPullRequest(pullNumber);
     await beginAmendment(client, env, { amendment, folder, implementation, twin });
+  } else if (continues) {
+    await autoContinue(client, env, { twin, pull: pullNumber, folder, command: next });
+    log(`Continued #${pullNumber} automatically with /speckit ${next.verb}.`);
   } else {
     await setAttention(client, pullNumber, true);
   }
   log(usable ? `Posted the diagnosis (${usable.category}) on #${pullNumber}.` : `Posted that the diagnosis had no usable report on #${pullNumber}.`);
-  return { exitCode: 0, report: usable, reasons };
+  return { exitCode: 0, report: usable, reasons, continued: continues ? next.verb : null };
+}
+
+// A diagnosis continues by itself (SPECKIT_AUTO_CONTINUE, on unless `false`) when its recommendation is a transient
+// one: `/speckit retry` for a `retry` diagnosis of high or medium confidence, or `/speckit sync` for an `outside` cause
+// already fixed on the base branch. Never with an amendment or after the same command already failed the same way.
+export function autoContinueEnabled(env) {
+  return String(env.SPECKIT_AUTO_CONTINUE ?? '').trim().toLowerCase() !== 'false';
+}
+
+// The recommended command a diagnosis continues with by itself ({ verb, guidance, … } of parseNextCommand), or null.
+export function autoContinueCommand(report, { amendment = null, repeated = null } = {}) {
+  if (!report || amendment || repeated) return null;
+  const option = recommendNextSteps(report, { amendment, repeated }).options.find((item) => item.recommended && item.command);
+  const command = parseNextCommand(option?.command);
+  if (!command) return null;
+  if (command.verb === 'retry' && report.category === 'retry' && ['high', 'medium'].includes(report.confidence)) return command;
+  if (command.verb === 'sync' && report.category === 'outside') return command;
+  return null;
+}
+
+// Whether a diagnosis already continued automatically since the last action of a person on the implementation pull
+// request (a `/speckit` comment by a person, or a push by a person): it continues once per person's action, so a
+// failure that keeps coming back stops for a person.
+export async function continuedSincePerson(client, pull, comments) {
+  const person = (comment) => comment.user?.login && comment.user.login !== BOT_LOGIN && !String(comment.user.login).endsWith('[bot]') && comment.user.type !== 'Bot';
+  const commands = comments.filter((comment) => person(comment) && /^\s*\/speckit\b/.test(String(comment.body ?? ''))).map((comment) => Date.parse(comment.created_at));
+  const pushed = Date.parse(latestHumanCommit(await client.listPullRequestCommits(pull)) ?? '') || 0;
+  const since = Math.max(0, pushed, ...commands);
+  return comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(AUTO_CONTINUE_MARKER) && Date.parse(comment.created_at) > since);
+}
+
+// Continues the implementation like the person's command would (speckit-commands.mjs), with a comment that starts with
+// AUTO_CONTINUE_MARKER.
+async function autoContinue(client, env, { twin, pull, folder, command }) {
+  const implementation = await client.getPullRequest(pull);
+  const guidance = neutralizeMarkers(command.guidance).slice(0, MAX_WRITER_GUIDANCE);
+  const options = {
+    lead: `Continued automatically with \`/speckit ${command.verb}\` as the diagnosis recommends`,
+    guidance,
+    prefix: `${AUTO_CONTINUE_MARKER}\n`,
+    suffix: ' Post another command or push to steer it.',
+  };
+  if (command.verb === 'sync') {
+    await requestSync(client, env, { implementation, twin }, options);
+  } else {
+    await retryImplementation(client, env, { implementation, twin, folder }, { ...options, effect: RETRY_EFFECT, state: await restartState(client, implementation) });
+  }
 }
 
 // Records a rework of an amendment (`fix` after the consistency check, `revise` after a person's feedback) and starts

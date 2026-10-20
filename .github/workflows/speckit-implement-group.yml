@@ -103,6 +103,7 @@ jobs:
     outputs:
       head: ${{ steps.head.outputs.head }}
       combined: ${{ steps.combined.outputs.combined }}
+      flaky: ${{ steps.verify.outputs.flaky }}
     env:
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
@@ -157,6 +158,7 @@ jobs:
       - name: Verify the combined group
         if: steps.combined.outputs.combined == 'true' && hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
         uses: ./tooling/.github/actions/environment-verify
+        id: verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: task
@@ -209,4 +211,5 @@ jobs:
           SPECKIT_LAND_OK: "true"
           SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
           SPECKIT_COMBINED: ${{ needs.verify.outputs.combined || 'true' }}
+          SPECKIT_VERIFY_FLAKY: ${{ needs.verify.outputs.flaky }}
         run: node .github/scripts/speckit-group.mjs combined-verified
