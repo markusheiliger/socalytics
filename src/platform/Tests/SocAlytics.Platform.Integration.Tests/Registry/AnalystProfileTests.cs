@@ -196,6 +196,86 @@ public sealed class AnalystProfileTests(PostgresContainerFixture postgres, OciRe
         missing.StatusCode.ShouldBe(HttpStatusCode.NotFound);
     }
 
+    private static string[] Names(JsonElement element) =>
+        element.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).ToArray();
+
+    private static string[] Sorted(params string[] names) => names.Order(StringComparer.Ordinal).ToArray();
+
+    private static void AssertProfileShape(JsonElement profile)
+    {
+        Names(profile).ShouldBe(Sorted(
+            "profileId", "version", "profileDigest", "imageDigest", "state", "content",
+            "createdAt", "createdBy", "approvedAt", "approvedBy", "retiredAt", "retiredBy"));
+        var content = profile.GetProperty("content");
+        Names(content).ShouldBe(Sorted(
+            "capabilityId", "capabilityVersion", "modelDigest", "runtimeConstraints", "accelerators", "resources",
+            "maxAttempts", "leaseSeconds", "staleTimeoutSeconds", "executionTimeoutSeconds", "videoPolicy",
+            "inputSchemaVersions", "outputSchemaVersion"));
+        content.GetProperty("runtimeConstraints").ValueKind.ShouldBe(JsonValueKind.Array);
+        content.GetProperty("accelerators").ValueKind.ShouldBe(JsonValueKind.Array);
+        content.GetProperty("resources").ValueKind.ShouldBe(JsonValueKind.Object);
+        content.GetProperty("inputSchemaVersions").ValueKind.ShouldBe(JsonValueKind.Object);
+        profile.GetProperty("version").ValueKind.ShouldBe(JsonValueKind.Number);
+    }
+
+    [Fact]
+    public async Task Keeps_the_profile_wire_shape_headers_and_statuses_unchanged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, factory, image) = await StartAsync(ct);
+        await using var _ = db;
+        await using var __ = factory;
+        using var admin = await ApiSession.SignInAsync(factory, "admin-1", TestMembers.DefaultPassword, ct);
+
+        using var created = await admin.SendAsync(HttpMethod.Post, ProfilesPath, new { profileId = "gpu-standard", imageDigest = image, content = Content() }, ct);
+        created.StatusCode.ShouldBe(HttpStatusCode.Created);
+        created.Headers.ETag!.Tag.ShouldBe("\"1\"");
+        created.Headers.Location!.ToString().ShouldEndWith(VersionPath("gpu-standard", 1));
+        var body = JsonDocument.Parse(await created.Content.ReadAsStringAsync(ct)).RootElement.Clone();
+        AssertProfileShape(body);
+        body.GetProperty("profileId").GetString().ShouldBe("gpu-standard");
+        body.GetProperty("state").GetString().ShouldBe("draft");
+        body.GetProperty("content").GetProperty("resources").GetProperty("memory").GetString().ShouldBe("8Gi");
+        body.GetProperty("approvedAt").ValueKind.ShouldBe(JsonValueKind.Null);
+        body.GetProperty("retiredBy").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        using var replay = await admin.SendAsync(HttpMethod.Post, ProfilesPath, new { profileId = "gpu-standard", imageDigest = image, content = Content() }, ct);
+        replay.StatusCode.ShouldBe(HttpStatusCode.OK);
+        replay.Headers.ETag!.Tag.ShouldBe("\"1\"");
+        replay.Headers.Location!.ToString().ShouldEndWith(VersionPath("gpu-standard", 1));
+        AssertProfileShape(JsonDocument.Parse(await replay.Content.ReadAsStringAsync(ct)).RootElement);
+
+        using var read = await admin.SendAsync(HttpMethod.Get, VersionPath("gpu-standard", 1), null, ct);
+        read.StatusCode.ShouldBe(HttpStatusCode.OK);
+        read.Headers.ETag!.Tag.ShouldBe("\"1\"");
+        AssertProfileShape(JsonDocument.Parse(await read.Content.ReadAsStringAsync(ct)).RootElement);
+
+        using var list = await admin.SendAsync(HttpMethod.Get, ProfilesPath, null, ct);
+        list.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var listBody = JsonDocument.Parse(await list.Content.ReadAsStringAsync(ct)).RootElement;
+        Names(listBody).ShouldBe(["items"]);
+        listBody.GetProperty("items").GetArrayLength().ShouldBe(1);
+        AssertProfileShape(listBody.GetProperty("items")[0]);
+
+        using var approved = await PostWithVersionAsync(admin, VersionPath("gpu-standard", 1) + "/approval", created.Headers.ETag.Tag, ct);
+        approved.StatusCode.ShouldBe(HttpStatusCode.OK);
+        approved.Headers.ETag.ShouldNotBeNull();
+        var approvedBody = JsonDocument.Parse(await approved.Content.ReadAsStringAsync(ct)).RootElement.Clone();
+        AssertProfileShape(approvedBody);
+        approvedBody.GetProperty("state").GetString().ShouldBe("approved");
+        approvedBody.GetProperty("approvedAt").ValueKind.ShouldBe(JsonValueKind.String);
+        approvedBody.GetProperty("approvedBy").ValueKind.ShouldBe(JsonValueKind.String);
+
+        using var retired = await PostWithVersionAsync(admin, VersionPath("gpu-standard", 1) + "/retirement", approved.Headers.ETag.Tag, ct);
+        retired.StatusCode.ShouldBe(HttpStatusCode.OK);
+        retired.Headers.ETag.ShouldNotBeNull();
+        var retiredBody = JsonDocument.Parse(await retired.Content.ReadAsStringAsync(ct)).RootElement;
+        AssertProfileShape(retiredBody);
+        retiredBody.GetProperty("state").GetString().ShouldBe("retired");
+        retiredBody.GetProperty("retiredAt").ValueKind.ShouldBe(JsonValueKind.String);
+        retiredBody.GetProperty("retiredBy").ValueKind.ShouldBe(JsonValueKind.String);
+    }
+
     [Fact]
     public async Task Approves_with_self_approval_marked_refuses_repeats_and_requires_the_version()
     {

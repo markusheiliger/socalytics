@@ -126,6 +126,15 @@ export default defineConfig({
       dependencies: ['platform-triage'],
       use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
     },
+    // Runs last because it changes the default workflow.
+    {
+      name: 'platform-registry',
+      testDir: './tests/e2e/platform',
+      testMatch: /registry\.spec\.ts$/,
+      fullyParallel: false,
+      dependencies: ['platform'],
+      use: { ...devices['Desktop Chrome'], baseURL: platformUrl },
+    },
   ],
   webServer: [
     {

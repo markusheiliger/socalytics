@@ -11,7 +11,7 @@ Registry operations in the OpenAPI document with internal DTO records in a new
 `.Accepts<T>("application/json")` on the four state changes with bodies,
 `.Produces<T>()` (and `201` where the operation creates), and
 `.ProducesProblem(...)` for the refusal statuses of the
-[Registry API contract](../archive/20261012-152148-analyst-registry/contracts/registry-api.md).
+[Registry API contract](../20261012-152148-analyst-registry/contracts/registry-api.md).
 The endpoints serialize these records instead of anonymous objects; every
 response body keeps exactly today's JSON property names, nesting, and values.
 The committed snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json`
@@ -91,7 +91,7 @@ used by other areas:
 
 | Operation | Status and code | Outcome |
 | --- | --- | --- |
-| `registerAnalystImage` | `400`/`404`/`422`/`502`/`503` with the image refusal codes of [analyst-manifest-and-packaging.md](../archive/20261012-152148-analyst-registry/contracts/analyst-manifest-and-packaging.md), details in `errors[]` (`field`, `code`) | `imageRefused` with code, details, and `retryable` (`registry-unavailable` only) |
+| `registerAnalystImage` | `400`/`404`/`422`/`502`/`503` with the image refusal codes of [analyst-manifest-and-packaging.md](../20261012-152148-analyst-registry/contracts/analyst-manifest-and-packaging.md), details in `errors[]` (`field`, `code`) | `imageRefused` with code, details, and `retryable` (`registry-unavailable` only) |
 | `createAnalystProfile` | `422 profile-contradicts-declaration` (`errors[]`: field and message), `404 image-not-registered`, `409 profile-content-exists`, `400 validation-failed` | `profileRefused` |
 | `approveAnalystProfile`, `retireAnalystProfile` | `409 profile-not-draft`, `profile-in-default-workflow`, `profile-already-retired`; `412` | `transitionRefused`; `412` → `changed` |
 | `defineWorkflow` | `422 workflow-invalid` (`errors[]`: `workflow`/violation code, or `nodes.<key>`/`profile-not-found`), `409 workflow-version-exists`, `400 validation-failed` | `workflowRefused` |

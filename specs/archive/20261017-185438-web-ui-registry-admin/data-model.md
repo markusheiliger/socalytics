@@ -1,7 +1,7 @@
 # Data Model: Web UI Analyst Registry Administration
 
 This feature adds no persisted data. The platform's Registry records are
-defined by [Analyst Registry](../archive/20261012-152148-analyst-registry/data-model.md);
+defined by [Analyst Registry](../20261012-152148-analyst-registry/data-model.md);
 this document defines the Web UI's application-owned models in
 `src/clients/web/src/platform/models/registry.ts`, which the Registry adapter
 maps from the generated client (see [contracts/registry-adapter.md](contracts/registry-adapter.md)).

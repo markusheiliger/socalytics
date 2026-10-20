@@ -12,44 +12,6 @@ using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Api.Registry;
 
-internal sealed record RegisterAnalystImageBody(string? Reference);
-
-internal sealed record AnalystProfileContentBody(
-	string? CapabilityId,
-	string? CapabilityVersion,
-	string? ModelDigest,
-	string[]? RuntimeConstraints,
-	string[]? Accelerators,
-	Dictionary<string, string>? Resources,
-	int MaxAttempts,
-	int LeaseSeconds,
-	int StaleTimeoutSeconds,
-	int ExecutionTimeoutSeconds,
-	string? VideoPolicy,
-	Dictionary<string, string>? InputSchemaVersions,
-	string? OutputSchemaVersion);
-
-internal sealed record CreateAnalystProfileBody(string? ProfileId, string? ImageDigest, AnalystProfileContentBody? Content);
-
-internal sealed record WorkflowNodeBody(string? NodeKey, string? ProfileId, int ProfileVersion);
-
-internal sealed record WorkflowPredicateBody(string? Kind, string? CapabilityId, string? NodeKey);
-
-internal sealed record WorkflowEdgeBody(string? UpstreamNodeKey, string? DependentNodeKey, string? Kind, WorkflowPredicateBody? Predicate);
-
-internal sealed record WorkflowSegmentationBody(int Version, int DurationSeconds, string? Digest);
-
-internal sealed record DefineWorkflowBody(
-	string? WorkflowId,
-	string? WorkflowVersion,
-	string[]? RequestedCapabilities,
-	string? CompletionPolicy,
-	WorkflowSegmentationBody? SegmentationPolicy,
-	WorkflowNodeBody[]? Nodes,
-	WorkflowEdgeBody[]? Edges);
-
-internal sealed record SetDefaultWorkflowBody(string? WorkflowId, string? WorkflowVersion);
-
 internal static class AnalystRegistryEndpoints
 {
 	private const string ImagesPath = MemberApiRouteGroup.Prefix + "/registry/analyst-images";
@@ -61,58 +23,135 @@ internal static class AnalystRegistryEndpoints
 		var group = routes.MapMemberApi().WithTags("Analyst registry");
 		group.MapPost("/registry/analyst-images", RegisterImageAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
-			.WithName("registerAnalystImage");
+			.WithName("registerAnalystImage")
+			.Accepts<RegisterAnalystImageRequest>("application/json")
+			.Produces<AnalystImageDto>(StatusCodes.Status201Created)
+			.Produces<AnalystImageDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+			.ProducesProblem(StatusCodes.Status502BadGateway)
+			.ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 		group.MapGet("/registry/analyst-images", ListImagesAsync)
-			.WithName("listAnalystImages");
+			.WithName("listAnalystImages")
+			.Produces<AnalystImageListDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden);
 		group.MapGet("/registry/analyst-images/{digest}", GetImageAsync)
-			.WithName("getAnalystImage");
+			.WithName("getAnalystImage")
+			.Produces<AnalystImageDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		group.MapPost("/registry/analyst-profiles", CreateProfileAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
-			.WithName("createAnalystProfile");
+			.WithName("createAnalystProfile")
+			.Accepts<CreateAnalystProfileRequest>("application/json")
+			.Produces<AnalystProfileDto>(StatusCodes.Status201Created)
+			.Produces<AnalystProfileDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 		group.MapGet("/registry/analyst-profiles", ListProfilesAsync)
-			.WithName("listAnalystProfiles");
+			.WithName("listAnalystProfiles")
+			.Produces<AnalystProfileListDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden);
 		group.MapGet("/registry/analyst-profiles/{profileId}/versions/{version:int}", GetProfileAsync)
-			.WithName("getAnalystProfile");
+			.WithName("getAnalystProfile")
+			.Produces<AnalystProfileDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		group.MapPost("/registry/analyst-profiles/{profileId}/versions/{version:int}/approval", ApproveProfileAsync)
-			.WithName("approveAnalystProfile");
+			.WithName("approveAnalystProfile")
+			.Produces<AnalystProfileDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		group.MapPost("/registry/analyst-profiles/{profileId}/versions/{version:int}/retirement", RetireProfileAsync)
-			.WithName("retireAnalystProfile");
+			.WithName("retireAnalystProfile")
+			.Produces<AnalystProfileDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		group.MapPost("/registry/workflows", DefineWorkflowAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
-			.WithName("defineWorkflow");
+			.WithName("defineWorkflow")
+			.Accepts<DefineWorkflowRequest>("application/json")
+			.Produces<RegistryWorkflowDefinitionDto>(StatusCodes.Status201Created)
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status409Conflict)
+			.ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 		group.MapGet("/registry/workflows", ListWorkflowsAsync)
-			.WithName("listWorkflows");
+			.WithName("listWorkflows")
+			.Produces<WorkflowListDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden);
 		group.MapGet("/registry/workflows/{workflowId}/versions/{version}", GetWorkflowAsync)
-			.WithName("getWorkflow");
+			.WithName("getWorkflow")
+			.Produces<RegistryWorkflowDefinitionDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		group.MapGet("/registry/default-workflow", GetDefaultWorkflowAsync)
-			.WithName("getDefaultWorkflow");
+			.WithName("getDefaultWorkflow")
+			.Produces<DefaultWorkflowDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status404NotFound);
 		group.MapPut("/registry/default-workflow", SetDefaultWorkflowAsync)
 			.AddEndpointFilter<JsonOnlyFilter>()
-			.WithName("setDefaultWorkflow");
+			.WithName("setDefaultWorkflow")
+			.Accepts<SetDefaultWorkflowRequest>("application/json")
+			.Produces<DefaultWorkflowDto>()
+			.ProducesProblem(StatusCodes.Status400BadRequest)
+			.ProducesProblem(StatusCodes.Status401Unauthorized)
+			.ProducesProblem(StatusCodes.Status403Forbidden)
+			.ProducesProblem(StatusCodes.Status412PreconditionFailed)
+			.ProducesProblem(StatusCodes.Status422UnprocessableEntity)
+			.ProducesProblem(StatusCodes.Status428PreconditionRequired);
 		return routes;
 	}
 
-	internal static object ToDto(StoredCapabilityDeclaration s)
+	internal static AnalystImageDto ToDto(StoredCapabilityDeclaration s)
 	{
 		var d = s.Declaration;
-		return new
-		{
-			imageDigest = d.ImageDigest,
-			repository = s.Repository,
-			manifestDigest = s.ManifestDigest,
-			capability = new
-			{
-				id = d.CapabilityId,
-				version = d.CapabilityVersion,
-				tier = AnalysisPersistedNames.ToPersistedName(d.Tier),
-				executionScope = AnalysisPersistedNames.ToPersistedName(d.ExecutionScope),
-			},
-			modelDigest = d.ModelDigest,
-			manifest = JsonNode.Parse(s.ManifestJson),
-			source = s.Source,
-			registeredAt = s.RegisteredAt,
-			registeredBy = s.RegisteredBy,
-		};
+		return new AnalystImageDto(
+			d.ImageDigest,
+			s.Repository,
+			s.ManifestDigest,
+			new AnalystImageCapabilityDto(
+				d.CapabilityId,
+				d.CapabilityVersion,
+				AnalysisPersistedNames.ToPersistedName(d.Tier),
+				AnalysisPersistedNames.ToPersistedName(d.ExecutionScope)),
+			d.ModelDigest,
+			JsonNode.Parse(s.ManifestJson),
+			s.Source,
+			s.RegisteredAt,
+			s.RegisteredBy);
 	}
 
 	private static int StatusOf(string code) => code switch
@@ -127,10 +166,10 @@ internal static class AnalystRegistryEndpoints
 	private static async Task<IResult> RegisterImageAsync(
 		HttpContext http, RegisterAnalystImageHandler handler, CancellationToken cancellationToken)
 	{
-		RegisterAnalystImageBody? body;
+		RegisterAnalystImageRequest? body;
 		try
 		{
-			body = await http.Request.ReadFromJsonAsync<RegisterAnalystImageBody>(cancellationToken);
+			body = await http.Request.ReadFromJsonAsync<RegisterAnalystImageRequest>(cancellationToken);
 		}
 		catch (JsonException)
 		{
@@ -159,16 +198,11 @@ internal static class AnalystRegistryEndpoints
 	{
 		var result = await handler.HandleAsync(capabilityId, cancellationToken);
 		return result.IsSuccess
-			? Results.Json(new
-			{
-				items = result.Value.Select(s => new
-				{
-					imageDigest = s.Declaration.ImageDigest,
-					capabilityId = s.Declaration.CapabilityId,
-					capabilityVersion = s.Declaration.CapabilityVersion,
-					registeredAt = s.RegisteredAt,
-				}).ToArray(),
-			})
+			? Results.Json(new AnalystImageListDto(result.Value.Select(s => new AnalystImageListItemDto(
+				s.Declaration.ImageDigest,
+				s.Declaration.CapabilityId,
+				s.Declaration.CapabilityVersion,
+				s.RegisteredAt)).ToArray()))
 			: ProblemResults.From(result.Failure);
 	}
 
@@ -178,40 +212,36 @@ internal static class AnalystRegistryEndpoints
 		return result.IsSuccess ? Results.Json(ToDto(result.Value)) : ProblemResults.From(result.Failure);
 	}
 
-	internal static object ToDto(StoredAnalystProfile s)
+	internal static AnalystProfileDto ToDto(StoredAnalystProfile s)
 	{
 		var p = s.Profile;
 		var c = p.Content;
-		return new
-		{
-			profileId = p.ProfileId,
-			version = p.Version,
-			profileDigest = p.Digest.ToString(),
-			imageDigest = c.ImageDigest,
-			state = p.State.ToPersistedName(),
-			content = new
-			{
-				capabilityId = c.CapabilityId,
-				capabilityVersion = c.CapabilityVersion,
-				modelDigest = c.ModelDigest,
-				runtimeConstraints = c.RuntimeConstraints,
-				accelerators = c.Accelerators,
-				resources = c.Resources,
-				maxAttempts = c.MaxAttempts,
-				leaseSeconds = c.LeaseSeconds,
-				staleTimeoutSeconds = c.StaleTimeoutSeconds,
-				executionTimeoutSeconds = c.ExecutionTimeoutSeconds,
-				videoPolicy = c.VideoPolicy,
-				inputSchemaVersions = c.InputSchemaVersions,
-				outputSchemaVersion = c.OutputSchemaVersion,
-			},
-			createdAt = p.CreatedAt,
-			createdBy = p.CreatedBy,
-			approvedAt = p.ApprovedAt,
-			approvedBy = p.ApprovedBy,
-			retiredAt = p.RetiredAt,
-			retiredBy = p.RetiredBy,
-		};
+		return new AnalystProfileDto(
+			p.ProfileId,
+			p.Version,
+			p.Digest.ToString(),
+			c.ImageDigest,
+			p.State.ToPersistedName(),
+			new AnalystProfileContentDto(
+				c.CapabilityId,
+				c.CapabilityVersion,
+				c.ModelDigest,
+				c.RuntimeConstraints,
+				c.Accelerators,
+				c.Resources,
+				c.MaxAttempts,
+				c.LeaseSeconds,
+				c.StaleTimeoutSeconds,
+				c.ExecutionTimeoutSeconds,
+				c.VideoPolicy,
+				c.InputSchemaVersions,
+				c.OutputSchemaVersion),
+			p.CreatedAt,
+			p.CreatedBy,
+			p.ApprovedAt,
+			p.ApprovedBy,
+			p.RetiredAt,
+			p.RetiredBy);
 	}
 
 	private static IResult ProfileResult(HttpContext http, OperationResult<StoredAnalystProfile> result)
@@ -227,10 +257,10 @@ internal static class AnalystRegistryEndpoints
 
 	private static async Task<IResult> CreateProfileAsync(HttpContext http, CreateAnalystProfileHandler handler, CancellationToken cancellationToken)
 	{
-		CreateAnalystProfileBody? body;
+		CreateAnalystProfileRequest? body;
 		try
 		{
-			body = await http.Request.ReadFromJsonAsync<CreateAnalystProfileBody>(cancellationToken);
+			body = await http.Request.ReadFromJsonAsync<CreateAnalystProfileRequest>(cancellationToken);
 		}
 		catch (JsonException)
 		{
@@ -268,7 +298,7 @@ internal static class AnalystRegistryEndpoints
 	{
 		var result = await handler.HandleAsync(state, capabilityId, cancellationToken);
 		return result.IsSuccess
-			? Results.Json(new { items = result.Value.Select(ToDto).ToArray() })
+			? Results.Json(new AnalystProfileListDto(result.Value.Select(ToDto).ToArray()))
 			: ProblemResults.From(result.Failure);
 	}
 
@@ -285,23 +315,17 @@ internal static class AnalystRegistryEndpoints
 			: ProblemResults.From(expected.Failure);
 	}
 
-	internal static object ToDto(StoredWorkflowDefinition d) => new
-	{
-		workflowId = d.WorkflowId,
-		workflowVersion = d.WorkflowVersion,
-		definitionDigest = d.DefinitionDigest,
-		definition = JsonNode.Parse(d.DefinitionJson),
-		createdAt = d.CreatedAt,
-		createdBy = d.CreatedBy,
-	};
+	private static readonly JsonSerializerOptions DefinitionOptions = new(JsonSerializerDefaults.Web);
 
-	private static object ToDto(StoredDefaultWorkflow d) => new
-	{
-		workflowId = d.WorkflowId,
-		workflowVersion = d.WorkflowVersion,
-		changedAt = d.ChangedAt,
-		changedBy = d.ChangedBy,
-	};
+	internal static RegistryWorkflowDefinitionDto ToDto(StoredWorkflowDefinition d) => new(
+		d.WorkflowId,
+		d.WorkflowVersion,
+		d.DefinitionDigest,
+		JsonSerializer.Deserialize<WorkflowDefinitionContentDto>(d.DefinitionJson, DefinitionOptions)!,
+		d.CreatedAt,
+		d.CreatedBy);
+
+	private static DefaultWorkflowDto ToDto(StoredDefaultWorkflow d) => new(d.WorkflowId, d.WorkflowVersion, d.ChangedAt, d.ChangedBy);
 
 	private static async Task<T?> ReadBodyAsync<T>(HttpContext http, CancellationToken cancellationToken)
 		where T : class
@@ -318,7 +342,7 @@ internal static class AnalystRegistryEndpoints
 
 	private static async Task<IResult> DefineWorkflowAsync(HttpContext http, DefineWorkflowHandler handler, CancellationToken cancellationToken)
 	{
-		var body = await ReadBodyAsync<DefineWorkflowBody>(http, cancellationToken);
+		var body = await ReadBodyAsync<DefineWorkflowRequest>(http, cancellationToken);
 		var command = new DefineWorkflowCommand(
 			body?.WorkflowId,
 			body?.WorkflowVersion,
@@ -352,16 +376,11 @@ internal static class AnalystRegistryEndpoints
 	{
 		var result = await handler.HandleAsync(cancellationToken);
 		return result.IsSuccess
-			? Results.Json(new
-			{
-				items = result.Value.Select(d => new
-				{
-					workflowId = d.WorkflowId,
-					workflowVersion = d.WorkflowVersion,
-					definitionDigest = d.DefinitionDigest,
-					createdAt = d.CreatedAt,
-				}).ToArray(),
-			})
+			? Results.Json(new WorkflowListDto(result.Value.Select(d => new WorkflowListItemDto(
+				d.WorkflowId,
+				d.WorkflowVersion,
+				d.DefinitionDigest,
+				d.CreatedAt)).ToArray()))
 			: ProblemResults.From(result.Failure);
 	}
 
@@ -402,7 +421,7 @@ internal static class AnalystRegistryEndpoints
 			expected = parsed.Value;
 		}
 
-		var body = await ReadBodyAsync<SetDefaultWorkflowBody>(http, cancellationToken);
+		var body = await ReadBodyAsync<SetDefaultWorkflowRequest>(http, cancellationToken);
 		var result = await handler.HandleAsync(new SetDefaultWorkflowCommand(body?.WorkflowId, body?.WorkflowVersion, expected), cancellationToken);
 		if (result.Failure is { } failure)
 		{

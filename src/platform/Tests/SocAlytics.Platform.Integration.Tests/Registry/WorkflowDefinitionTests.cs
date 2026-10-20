@@ -247,6 +247,73 @@ public sealed class WorkflowDefinitionTests(PostgresContainerFixture postgres, O
         (await CountAsync(db, "SELECT count(*) FROM socalytics.default_workflow WHERE workflow_version = '2'", ct)).ShouldBe(1);
     }
 
+    private static string[] Names(JsonElement element) =>
+        element.EnumerateObject().Select(p => p.Name).Order(StringComparer.Ordinal).ToArray();
+
+    private static string[] Sorted(params string[] names) => names.Order(StringComparer.Ordinal).ToArray();
+
+    private static void AssertWorkflowShape(JsonElement workflow)
+    {
+        Names(workflow).ShouldBe(Sorted("workflowId", "workflowVersion", "definitionDigest", "definition", "createdAt", "createdBy"));
+        var definition = workflow.GetProperty("definition");
+        Names(definition).ShouldBe(Sorted("requestedCapabilities", "completionPolicy", "segmentationPolicy", "nodes", "edges"));
+        Names(definition.GetProperty("segmentationPolicy")).ShouldBe(Sorted("version", "durationSeconds", "digest"));
+        definition.GetProperty("requestedCapabilities").ValueKind.ShouldBe(JsonValueKind.Array);
+        foreach (var node in definition.GetProperty("nodes").EnumerateArray())
+        {
+            Names(node).ShouldBe(Sorted("nodeKey", "profileId", "profileVersion", "profileDigest"));
+        }
+
+        foreach (var edge in definition.GetProperty("edges").EnumerateArray())
+        {
+            Names(edge).ShouldBe(Sorted("upstreamNodeKey", "dependentNodeKey", "kind"));
+        }
+    }
+
+    [Fact]
+    public async Task Keeps_the_workflow_and_default_wire_shape_headers_and_statuses_unchanged()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var (db, factory) = await StartAsync(ct);
+        await using var _ = db;
+        await using var __ = factory;
+        using var admin = await ApiSession.SignInAsync(factory, "admin-1", TestMembers.DefaultPassword, ct);
+        var (detect, track, _) = await SeedProfilesAsync(admin, ct);
+        const string location = $"{WorkflowsPath}/default/versions/1";
+
+        using var defined = await admin.SendAsync(HttpMethod.Post, WorkflowsPath, Workflow("default", "1", detect, track), ct);
+        defined.StatusCode.ShouldBe(HttpStatusCode.Created);
+        defined.Headers.Location!.ToString().ShouldEndWith(location);
+        var body = await ReadAsync(defined, ct);
+        AssertWorkflowShape(body);
+        body.GetProperty("workflowId").GetString().ShouldBe("default");
+        body.GetProperty("workflowVersion").GetString().ShouldBe("1");
+        body.GetProperty("definition").GetProperty("edges").GetArrayLength().ShouldBe(1);
+
+        using var get = await admin.SendAsync(HttpMethod.Get, location, null, ct);
+        get.StatusCode.ShouldBe(HttpStatusCode.OK);
+        AssertWorkflowShape(await ReadAsync(get, ct));
+
+        using var list = await admin.SendAsync(HttpMethod.Get, WorkflowsPath, null, ct);
+        list.StatusCode.ShouldBe(HttpStatusCode.OK);
+        var listBody = await ReadAsync(list, ct);
+        Names(listBody).ShouldBe(["items"]);
+        var item = listBody.GetProperty("items")[0];
+        Names(item).ShouldBe(Sorted("workflowId", "workflowVersion", "definitionDigest", "createdAt"));
+
+        using var set = await PutDefaultAsync(admin, new { workflowId = "default", workflowVersion = "1" }, null, ct);
+        set.StatusCode.ShouldBe(HttpStatusCode.OK);
+        set.Headers.ETag.ShouldNotBeNull();
+        Names(await ReadAsync(set, ct)).ShouldBe(Sorted("workflowId", "workflowVersion", "changedAt", "changedBy"));
+
+        using var current = await admin.SendAsync(HttpMethod.Get, DefaultPath, null, ct);
+        current.StatusCode.ShouldBe(HttpStatusCode.OK);
+        current.Headers.ETag!.Tag.ShouldBe(set.Headers.ETag!.Tag);
+        var currentBody = await ReadAsync(current, ct);
+        Names(currentBody).ShouldBe(Sorted("workflowId", "workflowVersion", "changedAt", "changedBy"));
+        currentBody.GetProperty("changedBy").ValueKind.ShouldBe(JsonValueKind.String);
+    }
+
     [Fact]
     public async Task Refuses_invalid_workflows_with_the_specific_reason_and_stores_nothing()
     {
