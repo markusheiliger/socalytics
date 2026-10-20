@@ -5,7 +5,7 @@ description: "Task list for Bounded Wait for the Simulated Agent Workload Advice
 
 # Tasks: Bounded Wait for the Simulated Agent Workload Advice Test
 
-**Input**: Design documents from `specs/20261020-144627-deterministic-integration-races/`
+**Input**: Design documents from `specs/archive/20261020-144627-deterministic-integration-races/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 
