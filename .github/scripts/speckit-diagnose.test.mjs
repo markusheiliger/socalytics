@@ -244,12 +244,12 @@ test('records an unusable or missing report', async () => {
       category: 'outside',
       options: [
         { title: 'Retry on a less loaded runner. Unlikely to succeed.', why: 'Timing only.', command: '/speckit retry Keep going', recommended: false },
-        { title: 'Fix the flaky test outside this spec.', why: 'The test belongs to another feature.', command: '/speckit fix Make the flaky test robust', recommended: true },
+        { title: 'Fix the flaky test outside this spec.', why: 'The test belongs to another feature.', command: '/speckit specify Make the flaky test robust', recommended: true },
       ],
     }).report,
     baseBranch: 'main',
   });
-  assert.match(outside, /\*\*Recommended next step\*\*: Fix the flaky test outside this spec\.\n\n- \*\*Why\*\*: The test belongs to another feature\.\n- \*\*What it does\*\*: An agent authors a small prerequisite spec[\s\S]*```text\n\/speckit fix Make the flaky test robust\n```/);
+  assert.match(outside, /\*\*Recommended next step\*\*: Fix the flaky test outside this spec\.\n\n- \*\*Why\*\*: The test belongs to another feature\.\n- \*\*What it does\*\*: An agent authors a new spec[\s\S]*merged automatically[\s\S]*```text\n\/speckit specify Make the flaky test robust\n```/);
   assert.deepEqual(validateReport({ ...REPORT, category: 'outside', options: [{ title: 'Sync', why: 'x', command: '/speckit sync' }] }).reasons, []);
   assert.match(outside, /<summary>Other options<\/summary>[\s\S]*- \*\*Retry on a less loaded runner\. Unlikely to succeed\*\*\n/, 'alternatives are collapsed, without doubled punctuation');
   assert.match(validateReport({ ...REPORT, options: [{ title: 'Apply', why: 'x', command: '/speckit apply' }] }).reasons.join(), /option "Apply" has an invalid command/);
@@ -290,13 +290,13 @@ test('the recommended command always fits the category', () => {
   const base = { ...REPORT, options: [], questions: [] };
   const recommendation = (report) => recommendNextSteps(validateReport(report).report).options.find((option) => option.recommended);
   assert.match(recommendation({ ...base, category: 'retry' }).command, /^\/speckit retry The diagnosis found: The design leaves open/);
-  assert.match(recommendation({ ...base, category: 'outside' }).command, /^\/speckit fix The design leaves open how the counter write is issued\. UserManager/);
+  assert.match(recommendation({ ...base, category: 'outside' }).command, /^\/speckit specify The design leaves open how the counter write is issued\. UserManager/);
   assert.equal(recommendation({ ...base, category: 'unknown' }).kind, 'wait');
   assert.equal(recommendation({ ...base, category: 'decision', questions: [{ question: 'Keep the counter write?', choices: ['Yes, keep it.', 'No'] }, { question: 'Split?', choices: ['No'] }] }).command, '/speckit retry 1. Yes, keep it. 2. No.');
   const agentRetry = { title: 'Retry and keep the helper', why: 'The agent dropped the helper.', command: '/speckit retry Keep the helper in UserManager', recommended: true };
   assert.equal(recommendation({ ...base, category: 'retry', options: [agentRetry] }).command, '/speckit retry Keep the helper in UserManager', 'a fitting agent recommendation keeps its guidance');
-  const promoted = recommendation({ ...base, category: 'outside', options: [{ ...agentRetry, recommended: true }, { title: 'Fix the test on main', why: 'It is flaky.', command: '/speckit fix Use a longer SessionLifetime', recommended: false }] });
-  assert.equal(promoted.command, '/speckit fix Use a longer SessionLifetime', 'a fitting option of the agent is preferred over the default');
+  const promoted = recommendation({ ...base, category: 'outside', options: [{ ...agentRetry, recommended: true }, { title: 'Fix the test on main', why: 'It is flaky.', command: '/speckit specify Use a longer SessionLifetime', recommended: false }] });
+  assert.equal(promoted.command, '/speckit specify Use a longer SessionLifetime', 'a fitting option of the agent is preferred over the default');
 
   const decision = renderDiagnosisComment({ report: validateReport({ ...base, category: 'decision', questions: [{ question: 'Keep the counter write?', choices: ['Yes', 'No'] }] }).report });
   assert.match(decision, /\*\*Questions\*\* \(the recommended next step answers them with the first, recommended choice of each; change the answers before posting if you decide otherwise\)/);
@@ -310,7 +310,7 @@ test('validates options: placeholders, a missing why, and a single recommendatio
   assert.equal(removePlaceholderArgument('/speckit retry Read items[0] first'), '/speckit retry Read items[0] first');
   assert.equal(removePlaceholderArgument('/speckit retry Return IReadOnlyList<Recording> from the query handler'), '/speckit retry Return IReadOnlyList<Recording> from the query handler', 'code is no placeholder');
   assert.equal(removePlaceholderArgument('/speckit retry Run the [P] tasks of [US1] one after another'), '/speckit retry Run the [P] tasks of [US1] one after another', 'task tags are no placeholders');
-  assert.equal(removePlaceholderArgument('/speckit fix <what to fix>'), '/speckit fix');
+  assert.equal(removePlaceholderArgument('/speckit specify <what to fix>'), '/speckit specify');
   const { reasons, report } = validateReport({
     ...REPORT,
     options: [
@@ -530,11 +530,11 @@ test('a command that already failed the same way on the unchanged branch is not 
   assert.deepEqual(steps.notes, [], 'the report stays usable');
   assert.match(steps.adjusted[0], /`\/speckit sync` already stopped the same way on the unchanged branch/);
   const pick = steps.options.find((option) => option.recommended);
-  assert.match(pick.command, /^\/speckit fix /);
+  assert.match(pick.command, /^\/speckit specify /);
   assert.ok(steps.options.some((option) => option.command === '/speckit sync Verify the merge' && !option.recommended), 'still listed under the other options');
   const retryReport = validateReport({ ...REPORT, category: 'retry', artifacts: [], questions: [], options: [{ title: 'Retry', why: 'x', command: '/speckit retry', recommended: true }] }).report;
   assert.equal(recommendNextSteps(retryReport, { repeated }).options.find((option) => option.recommended).command, '/speckit retry', 'another command is not affected');
   const comment = renderDiagnosisComment({ report, repeated });
-  assert.match(comment, /\*\*Recommended next step\*\*[\s\S]*\/speckit fix/);
+  assert.match(comment, /\*\*Recommended next step\*\*[\s\S]*\/speckit specify/);
   assert.match(comment, /_Parts of the report were adjusted: the recommended `\/speckit sync` already stopped the same way/);
 });
