@@ -5,7 +5,7 @@ description: "Task list for Timing Margins for Intermittent Integration Tests"
 
 # Tasks: Timing Margins for Intermittent Integration Tests
 
-**Input**: Design documents from `specs/20261019-221242-harden-integration-test-timing/`
+**Input**: Design documents from `specs/archive/20261019-221242-harden-integration-test-timing/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 
