@@ -535,6 +535,14 @@
               "string"
             ]
           },
+          "cancelled": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
           "claimed": {
             "format": "int32",
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -582,7 +590,8 @@
           "claimed",
           "completed",
           "failed",
-          "blocked"
+          "blocked",
+          "cancelled"
         ],
         "type": "object"
       },
@@ -796,8 +805,40 @@
         ],
         "type": "object"
       },
+      "AnalysisRunCancelledByDto": {
+        "properties": {
+          "accountName": {
+            "type": "string"
+          },
+          "memberId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memberId",
+          "accountName"
+        ],
+        "type": "object"
+      },
       "AnalysisRunStatusDto": {
         "properties": {
+          "cancellationReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cancelledBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnalysisRunCancelledByDto"
+              }
+            ]
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -881,6 +922,8 @@
           "runningAt",
           "terminatedAt",
           "version",
+          "cancelledBy",
+          "cancellationReason",
           "requestedCapabilities",
           "nodes"
         ],
@@ -888,6 +931,22 @@
       },
       "AnalysisRunSummaryDto": {
         "properties": {
+          "cancellationReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cancelledBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnalysisRunCancelledByDto"
+              }
+            ]
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -958,7 +1017,9 @@
           "createdAt",
           "runningAt",
           "terminatedAt",
-          "version"
+          "version",
+          "cancelledBy",
+          "cancellationReason"
         ],
         "type": "object"
       },
@@ -1745,6 +1806,20 @@
         },
         "required": [
           "agents"
+        ],
+        "type": "object"
+      },
+      "CancelAnalysisRunRequest": {
+        "properties": {
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "reason"
         ],
         "type": "object"
       },
@@ -5963,6 +6038,123 @@
             "description": "Not Found"
           }
         },
+        "tags": [
+          "Analysis runs"
+        ]
+      }
+    },
+    "/api/v1/analysis/runs/{runId}/cancellation": {
+      "post": {
+        "operationId": "cancelAnalysisRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelAnalysisRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRunStatusDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Required"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
         "tags": [
           "Analysis runs"
         ]

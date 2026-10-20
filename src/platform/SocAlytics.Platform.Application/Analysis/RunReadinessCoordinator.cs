@@ -37,6 +37,12 @@ public sealed class RunReadinessCoordinator(
         var run = hierarchy.Run;
         var runTransitions = 0;
 
+        // Cancelled and other settled runs get no readiness, publication, node completion, or terminal evaluation.
+        if (run.State is not (AnalysisRunState.Requested or AnalysisRunState.Running))
+        {
+            return new ReadinessApplication(0, 0);
+        }
+
         if (run.State == AnalysisRunState.Requested)
         {
             if (!await runs.TryTransitionAsync(runId, AnalysisRunState.Requested, AnalysisRunState.Running, null, cancellationToken))
@@ -236,7 +242,7 @@ public sealed class RunReadinessCoordinator(
 
     private string Now() => time.GetUtcNow().UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
 
-    private async Task EnqueueRunStateAsync(AnalysisRunRecord run, AnalysisRunState from, AnalysisRunState to, string? reason, CancellationToken ct)
+    public async Task EnqueueRunStateAsync(AnalysisRunRecord run, AnalysisRunState from, AnalysisRunState to, string? reason, CancellationToken ct)
     {
         var messageId = Guid.CreateVersion7();
         var transitionId = Guid.CreateVersion7();

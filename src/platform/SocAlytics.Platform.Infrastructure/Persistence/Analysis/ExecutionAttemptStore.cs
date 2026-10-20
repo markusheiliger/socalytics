@@ -151,6 +151,43 @@ internal sealed class ExecutionAttemptStore(IDbSession session, TimeProvider tim
         return rows.AsList();
     }
 
+    public async Task<IReadOnlyList<ExpiredAttemptRef>> ListActiveForRunAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<ExpiredAttemptRef>(new CommandDefinition(
+            """
+            SELECT a.id AS AttemptId, a.logical_job_id AS LogicalJobId, j.run_id AS RunId
+            FROM socalytics.analysis_execution_attempts a
+            JOIN socalytics.analysis_logical_jobs j ON j.id = a.logical_job_id
+            WHERE a.state = 'Active' AND j.run_id = @runId
+            ORDER BY a.id
+            """,
+            new { runId }, session.Transaction, cancellationToken: cancellationToken));
+        return rows.AsList();
+    }
+
+    public async Task<IReadOnlyList<ExpiredAttemptRef>> CancelActiveForRunAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var rows = await connection.QueryAsync<ExpiredAttemptRef>(new CommandDefinition(
+            """
+            WITH locked AS (
+                SELECT a.id FROM socalytics.analysis_execution_attempts a
+                JOIN socalytics.analysis_logical_jobs j ON j.id = a.logical_job_id
+                WHERE a.state = 'Active' AND j.run_id = @runId
+                ORDER BY a.id FOR UPDATE OF a)
+            UPDATE socalytics.analysis_execution_attempts a
+            SET state = 'Cancelled', closed_at = @now, close_reason = 'run-cancelled'
+            FROM locked WHERE a.id = locked.id
+            RETURNING a.id AS AttemptId, a.logical_job_id AS LogicalJobId, @runId AS RunId
+            """,
+            new { runId, now = time.GetUtcNow() },
+            transaction,
+            cancellationToken: cancellationToken));
+        return rows.OrderBy(r => r.AttemptId.ToString(), StringComparer.Ordinal).ToList();
+    }
+
     public async Task<IReadOnlyList<ExpiredAttemptRef>> ListActiveForManagerAsync(Guid managerId, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);

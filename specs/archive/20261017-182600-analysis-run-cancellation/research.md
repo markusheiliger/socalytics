@@ -45,7 +45,7 @@
   `Ready`, and the Manager acknowledges the delivery (existing
   `AttemptRunEnd.ClaimObsolete` path).
 - **Rationale**: Matches "stops publication, revokes queued work" in
-  [Run State And Recovery](../../docs/architecture/job-processing.md#run-state-and-recovery)
+  [Run State And Recovery](../../../docs/architecture/job-processing.md#run-state-and-recovery)
   while keeping PostgreSQL the workflow truth and delivery at least once;
   the outbox already has the `discarded` state.
 - **Alternatives considered**: purging JetStream messages by subject or

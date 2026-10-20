@@ -243,7 +243,7 @@ permanently and is not republished. A recovered old AM cannot renew or complete
 the stale attempt. Late heartbeats and callbacks are rejected or acknowledged
 as obsolete without changing the accepted result.
 
-Cancelling an analysis run (decided, not yet implemented; see
+Cancelling an analysis run (implemented; see
 [Run State And Recovery](job-processing.md#run-state-and-recovery)) closes
 its active attempts in the cancellation's transaction, like expiry invalidates
 a token, but neither republishes their logical jobs nor consumes attempt
