@@ -175,7 +175,10 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
           `**Original ${repair.scope} verification passed during required synchronization** on \`${pull.head.sha}\`. Existing repair attempts remain recorded; no repair attempt limit was reset.`,
         ].join('\n'));
       }
-      await client.createComment(pullNumber, renderSyncBarrierMarker({ ...completion, state: 'released' }));
+      await client.createComment(pullNumber, [
+        renderSyncBarrierMarker({ ...completion, state: 'released' }),
+        `**Required synchronization complete**: \`${base}\` at \`${String(completion.baseSha ?? '').slice(0, 7)}\` is merged and verified, and it has not moved since, so the implementation continues.`,
+      ].join('\n'));
       // Replan from the durable acknowledgement, including any original failure that the full verification cleared.
       return decideForPull(client, { twin, folder, pullNumber, now, context });
     } else {

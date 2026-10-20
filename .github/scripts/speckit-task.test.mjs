@@ -911,6 +911,9 @@ test('required sync verifies and lands clean, conflicted and already-current mer
       assert.equal(landed.exitCode, 0, landed.reasons?.join('; '));
       const completion = syncBarrier(github.comments).completion;
       assert.equal(completion.state, 'verified', 'landing does not itself release the latest-base barrier');
+      for (const comment of github.comments) {
+        assert.notEqual(comment.body.replace(/<!--[\s\S]*?-->/g, '').trim(), '', 'no comment consists only of markers');
+      }
       assert.equal(completion.guidanceConsumed, options === conflicting, 'only a successful Copilot conflict resolution consumes sync guidance');
       assert.equal(completion.baseSha, remoteSha(repos, 'main'));
       if (!options.main && options !== conflicting) {
