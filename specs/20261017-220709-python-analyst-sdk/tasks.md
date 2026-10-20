@@ -174,7 +174,7 @@ keyword, and fails when a model field differs from its schema
 
 ### Final validation
 
-- [ ] T033 Run the validation of quickstart.md §1–§3 (SDK locked sequence and tests, `scripts/sync_contracts.py --check`, platform Contracts and full suites, Manager suite) and `node .github/scripts/check-markdown.mjs`, and fix any failure in the files of this feature (SC-001–SC-005)
+- [x] T033 Run the validation of quickstart.md §1–§3 (SDK locked sequence and tests, `scripts/sync_contracts.py --check`, platform Contracts and full suites, Manager suite) and `node .github/scripts/check-markdown.mjs`, and fix any failure in the files of this feature (SC-001–SC-005)
 
 ---
 
