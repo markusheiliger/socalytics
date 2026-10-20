@@ -183,7 +183,10 @@ evidence (migration `0019_identityaccess_email_notifications.sql`):
 
 The durable analysis workflow is implemented as development evidence (outbox,
 NATS JetStream publication, run creation from finalized recording sets,
-readiness, fenced attempts, Analyst job and completion contracts). Result
+readiness, fenced attempts, member-initiated run cancellation
+(`POST /api/v1/analysis/runs/{runId}/cancellation`, `cancelAnalysisRun`;
+migration `0026_analysis_run_cancellation.sql`), Analyst job and completion
+contracts). Result
 write grants and validated result acceptance are implemented against the
 simulated Analyst as development evidence (migrations
 `0017_analysis_result_manifests.sql` and

@@ -8,4 +8,5 @@ public enum LogicalJobState
 	Completed,
 	Failed,
 	Blocked,
+	Cancelled,
 }

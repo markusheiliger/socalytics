@@ -801,13 +801,17 @@ current and non-current migration states; and
   team-scoped authorization, and audit evidence; idempotent recording upload,
   immutable recording lineage, and S3 conformance against RustFS; Analyst
   Manager pairing, approval, activation, revocation, and DPoP authentication;
-  and analysis run creation, readiness, claims, fenced completion,
+  and analysis run creation, readiness, claims, fenced completion, run
+  cancellation with fencing of queued and active work,
   state-plus-outbox atomicity, outbox publication and retention, and recovery
   from NATS outage, restart, and duplicate notifications; and
 - integration, host, and browser tests cover member email addresses and their
   verification, notification preferences, transactional email delivery through
   the dedicated outbox including a relay outage, and the pending-request
   notification, using the Mailpit mail catcher; and
+- end-to-end tests cover run cancellation during an active simulated attempt:
+  the attempt is closed without consuming budget, its later calls are refused
+  as obsolete, and the Analyst Manager cleans up; and
 - integration and end-to-end tests cover per-object result write grants and
   validated result acceptance (eleven ordered manifest checks, storage-attested
   checksums, rejected manifests ending the attempt as failed, and immutable
@@ -838,8 +842,8 @@ current and non-current migration states; and
 - Web UI browser tests cover Analyst Manager pairing, the Club Admin decision
   view, and the fleet view with revocation, and the match workflow and
   recording upload (match creation and editing, direct multipart upload with
-  resume, timeline mapping, finalization, and the development CORS access to
-  RustFS): the `simulated` project against a simulated API and a fake object
+  resume, timeline mapping, finalization, run cancellation from the match
+  page, and the development CORS access to RustFS): the `simulated` project against a simulated API and a fake object
   store, and the `platform` project against the real platform with a scripted
   Manager and RustFS; and the match triage conversations (starting a
   conversation for a run, adding specialists, asking, polling, and reading
@@ -882,8 +886,8 @@ choice or reveals a material operational tradeoff:
 - **Consequences and operational tradeoffs understood — partially met.**
   Layer dependency rules, host composition with PostgreSQL, NATS, RustFS, and
   the Migrator, local transaction boundaries, local database and broker
-  unavailability, duplicate delivery, and analysis restart recovery are
-  exercised. Production database access control, backup/restore, lifecycle
+  unavailability, duplicate delivery, analysis restart recovery, and run cancellation
+  are exercised. Production database access control, backup/restore, lifecycle
   controls, service objectives, and capacity remain unevidenced; workflow
   failure behavior with real Analyst execution is evidenced on the Docker
   Desktop profile against a Linux engine only.

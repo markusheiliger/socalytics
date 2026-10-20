@@ -8,6 +8,8 @@ public static class AnalysisStateTransitions
 		(AnalysisRunState.Running, AnalysisRunState.Completed) => true,
 		(AnalysisRunState.Running, AnalysisRunState.PartiallyCompleted) => true,
 		(AnalysisRunState.Running, AnalysisRunState.Failed) => true,
+		(AnalysisRunState.Requested, AnalysisRunState.Cancelled) => true,
+		(AnalysisRunState.Running, AnalysisRunState.Cancelled) => true,
 		_ => false,
 	};
 
@@ -18,6 +20,8 @@ public static class AnalysisStateTransitions
 		(WorkflowNodeState.Active, WorkflowNodeState.Completed) => true,
 		(WorkflowNodeState.Active, WorkflowNodeState.Blocked) => true,
 		(WorkflowNodeState.Active, WorkflowNodeState.Failed) => true,
+		(WorkflowNodeState.Waiting, WorkflowNodeState.Cancelled) => true,
+		(WorkflowNodeState.Active, WorkflowNodeState.Cancelled) => true,
 		_ => false,
 	};
 
@@ -30,6 +34,9 @@ public static class AnalysisStateTransitions
 		(LogicalJobState.Claimed, LogicalJobState.Completed) => true,
 		(LogicalJobState.Claimed, LogicalJobState.Ready) => true,
 		(LogicalJobState.Claimed, LogicalJobState.Failed) => true,
+		(LogicalJobState.Waiting, LogicalJobState.Cancelled) => true,
+		(LogicalJobState.Ready, LogicalJobState.Cancelled) => true,
+		(LogicalJobState.Claimed, LogicalJobState.Cancelled) => true,
 		_ => false,
 	};
 
@@ -41,6 +48,7 @@ public static class AnalysisStateTransitions
 		(ExecutionAttemptState.Active, ExecutionAttemptState.Failed) => true,
 		(ExecutionAttemptState.Active, ExecutionAttemptState.Rejected) => true,
 		(ExecutionAttemptState.Active, ExecutionAttemptState.Stale) => true,
+		(ExecutionAttemptState.Active, ExecutionAttemptState.Cancelled) => true,
 		_ => false,
 	};
 }
