@@ -111,6 +111,10 @@ public sealed class SecretHygieneTests(PostgresContainerFixture postgres, RustFs
 			await scope.ServiceProvider.GetRequiredService<ExpireUploadSessionsHandler>().HandleAsync(ct);
 		}
 
+		var sessionStates = await QueryAsync(db, "SELECT id || '|' || state || '|' || (expired_at IS NOT NULL) FROM socalytics.recording_upload_sessions", ct);
+		sessionStates.ShouldContain($"{pendingId}|expired|true");
+		sessionStates.ShouldContain($"{id}|completed|false");
+
 		var objectKeys = await QueryAsync(db, "SELECT object_key FROM socalytics.recording_upload_sessions", ct);
 		var uploadIds = await QueryAsync(db, "SELECT multipart_upload_id FROM socalytics.recording_upload_sessions", ct);
 		objectKeys.Count.ShouldBe(2);
