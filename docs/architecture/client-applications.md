@@ -63,9 +63,10 @@ The React Web UI supports connected platform and club workflows, including:
   Club Admins create, resend, and revoke in the members area and that invitees
   accept on a public invitation page (decided, not yet implemented; see
   [Email Notifications](email-notifications.md#member-invitations))
-- platform configuration and administration (the Analyst Registry
-  administration, the workflow operations area, and the agent catalog
-  administration for Club Admins are decided, not yet implemented; see below)
+- platform configuration and administration: the Analyst Registry
+  administration for Club Admins is implemented (connected workflow; see
+  below); the workflow operations area and the agent catalog administration
+  for Club Admins are decided, not yet implemented
 - Analyst Manager pairing for Registrars and the fleet view for Club Admins
   (implemented): registration approval, rejection, and revocation, and each
   Manager's connectivity, operating state, and activity (see
@@ -144,8 +145,8 @@ disagreed with it, a conflict marked as a disagreement; the Agent Catalog area
 shows and registers consultation policies and lets Coach Agent versions
 reference one.
 
-The Analyst Registry administration is decided as follows and not yet
-implemented. Club Admins, the only role that operates the Registry, see the
+The Analyst Registry administration is implemented as a connected workflow
+as follows. Club Admins, the only role that operates the Registry, see the
 stamp's default workflow and browse the registered Analyst images with their
 imported declarations, the Analyst profile versions with their states, and the
 workflow versions with their nodes and dependency edges as readable lists.
