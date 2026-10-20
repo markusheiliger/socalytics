@@ -110,17 +110,17 @@ export async function runCommandTarget({ client, env }) {
 const onTwin = (env) => env.SPECKIT_TARGET === 'twin';
 
 // Starts a new attempt window: the retry comment persists the request (and the guidance), so a replaced
-// pending run cannot lose it; starting the implementation chain only makes it happen right away.
-async function retryImplementation(client, env, { implementation, twin, folder }, lead, guidance = '', state = null) {
+// pending run cannot lose it; starting the implementation chain only makes it happen right away. `lead` says who
+// continued it, `effect` what a restart does (replaced by the repair's effect while a repair is pending); `prefix`
+// leads the comment (the diagnosis' AUTO_CONTINUE_MARKER) and `suffix` ends its first paragraph.
+export async function retryImplementation(client, env, { implementation, twin, folder }, { lead, effect, guidance = '', state = null, prefix = '', suffix = '' }) {
   const repair = unresolvedRepair(await client.listIssueComments(implementation.number));
-  if (repair) {
-    lead = `${lead.split(';')[0]}; ${describeCommandEffect(`/speckit retry${guidance ? ` ${guidance}` : ''}`, { baseBranch: baseBranchOf(implementation), continuation: { repair } })}`;
-  }
+  let text = `${lead}; ${repair ? describeCommandEffect(`/speckit retry${guidance ? ` ${guidance}` : ''}`, { baseBranch: baseBranchOf(implementation), continuation: { repair } }) : effect}`;
   if (guidance) {
     const continuation = repair ? { repair } : await continuationOf(client, { folder, pull: implementation });
-    lead = `${lead} ${describeGuidanceReach('retry', { continuation })}`;
+    text = `${text} ${describeGuidanceReach('retry', { continuation })}`;
   }
-  await client.createComment(implementation.number, renderRetryComment(lead, guidance, state));
+  await client.createComment(implementation.number, `${prefix}${renderRetryComment(`${text}${suffix}`, guidance, state)}`);
   await setAttention(client, implementation.number, false);
   try {
     await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
@@ -128,6 +128,26 @@ async function retryImplementation(client, env, { implementation, twin, folder }
     // The retry comment persists the request; the hourly scheduler run continues the implementation.
   }
 }
+
+// Requests the required synchronization like `/speckit sync`: the sync comment persists the request, which merges the
+// pull request base and passes full verification before any work continues. `lead` says who requested it; `prefix`
+// and `suffix` as for retryImplementation.
+export async function requestSync(client, env, { implementation, twin }, { lead, guidance = '', prefix = '', suffix = '' }) {
+  const reach = guidance ? ` ${describeGuidanceReach('sync', { lastStop: latestStopReason(await client.listIssueComments(implementation.number)) })}` : '';
+  await client.createComment(implementation.number, `${prefix}${renderSyncComment(
+    `${lead}; merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.${reach}${suffix}`,
+    guidance,
+    await restartState(client, implementation),
+  )}`);
+  await setAttention(client, implementation.number, false);
+  try {
+    await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
+  } catch {
+    // The durable request survives a failed dispatch or replacement by another pending run.
+  }
+}
+
+export const RETRY_EFFECT = 'what stopped restarts with a fresh attempt count while preserving the current phase base.';
 
 // Command router (issue_comment): validates the author and the command, reacts, and performs the command. Comments
 // by bots never get here; the workflow filters them. SPECKIT_TARGET `twin` marks a comment on a spec twin issue; every
@@ -203,29 +223,18 @@ async function handleRetry({ client, env, actor, number, flags, guidance, folder
   const force = flags.includes(RESTART_FORCE_FLAG);
   const state = await restartState(client, implementation);
   if (!force && (await refuseUnchangedRestart(client, { name: 'retry', number, implementation, folder, state }))) return { outcome: 'refused' };
-  await retryImplementation(client, env, { implementation, twin, folder }, `Implementation retried by @${actor}; what stopped restarts with a fresh attempt count while preserving the current phase base.`, guidance, state);
+  await retryImplementation(client, env, { implementation, twin, folder }, { lead: `Implementation retried by @${actor}`, effect: RETRY_EFFECT, guidance, state });
   if (number !== implementation.number) await reply(client, number, `Retried; the implementation continues on #${implementation.number}.`);
   return { outcome: 'retried' };
 }
 
 async function handleSync({ client, env, actor, number, guidance, implementation, twin }) {
-  const reach = guidance ? ` ${describeGuidanceReach('sync', { lastStop: latestStopReason(await client.listIssueComments(implementation.number)) })}` : '';
-  await client.createComment(implementation.number, renderSyncComment(
-    `Required synchronization requested by @${actor}; merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.${reach}`,
-    guidance,
-    await restartState(client, implementation),
-  ));
-  await setAttention(client, implementation.number, false);
-  try {
-    await dispatchImplementation(client, env, { twin, pull: implementation.number, title: specTitleOfPull(implementation) });
-  } catch {
-    // The durable request survives a failed dispatch or replacement by another pending run.
-  }
+  await requestSync(client, env, { implementation, twin }, { lead: `Required synchronization requested by @${actor}`, guidance });
   if (number !== implementation.number) await reply(client, number, `Synchronization requested; progress is reported on #${implementation.number}.`);
   return { outcome: 'sync requested' };
 }
 
-async function restartState(client, implementation) {
+export async function restartState(client, implementation) {
   let base = null;
   try {
     base = await client.getBranchSha(baseBranchOf(implementation));

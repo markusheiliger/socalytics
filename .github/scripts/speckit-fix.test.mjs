@@ -540,3 +540,45 @@ test('specs authored by /speckit specify are added to the default branch only, w
   assert.match(refused.reason, /base branch `release` is not the default branch `main`, where new specs are added/);
   assert.equal(fixStamp(Date.parse('2026-10-14T08:23:07Z')), '20261014-082307');
 });
+
+test('a spec that does not block (link: false) is authored, maintained, and merged without holding or linking the implementation', async () => {
+  const github = fixRepo();
+  github.permissions.dev = 'write';
+  const implementation = () => github.repo.pulls.find((pull) => pull.number === 9);
+  const labels = () => (implementation().labels ?? []).map((label) => label.name);
+  const started = await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, implementation: await github.getPullRequest(9), guidance: 'Make `Ns.Flaky.Test` deterministic', actor: 'dev', now: github.clock, link: false });
+  assert.equal(started.started, true);
+  const request = github.comments.filter((item) => item.number === 9).at(-1);
+  assert.match(request.body, /^<!-- speckit-fix:requested \{"by":"dev","stamp":"\d{8}-\d{6}","link":false\} -->/);
+  assert.match(request.body, /It does not block this implementation, which continues meanwhile\./);
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-fix-'));
+  try {
+    const output = path.join(dir, 'agent_output.json');
+    writeFileSync(output, JSON.stringify({ items: [{ type: 'speckit_fix', report: JSON.stringify({ folder: FOLDER, summary: 'Removes the timing dependency.' }) }] }));
+    const result = await runRecord({ client: github, env: env({ GH_AW_AGENT_OUTPUT: output, SPECKIT_CHECK_RUN: String(github.repo.checkRuns.at(-1).id), SPECKIT_DETECTION: 'success', SPECKIT_CREATED_PULL: '12' }), log: silent });
+    assert.equal(result.outcome, 'created');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const created = github.comments.filter((item) => item.number === 9).at(-1);
+  assert.match(created.body, /^<!-- speckit-fix:created \{"pull":12,"folder":"20261014-100000-upload-expiry","link":false\} -->\n\*\*Spec \[[^\n]*It does not block this implementation, which continues\./);
+  assert.doesNotMatch(created.body, /speckit-implement:blocked/);
+  assert.ok(!labels().includes(BLOCKED_LABEL) && !labels().includes(ATTENTION_LABEL));
+  assert.equal(github.repo.runs.at(-1).workflow, 'speckit-analyze.lock.yml', 'its consistency check starts like for any authored spec');
+
+  const linked = await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, implementation: await github.getPullRequest(9), actor: 'dev', now: github.clock + 3 * 60 * 60 * 1000 });
+  assert.equal(linked.started, true, 'a blocking spec for a stop is not refused by it');
+  github.repo.checkRuns.at(-1).status = 'completed';
+  assert.match((await startFixAuthoring(github, { SPECKIT_DEFAULT_BRANCH: 'main' }, { twin: 5, implementation: await github.getPullRequest(9), actor: 'dev', now: github.clock, link: false })).reason, /spec #12 is still open/, 'one non-blocking spec at a time');
+
+  github.closePull(12, { merged: true });
+  addTwin(github, 30, FOLDER, ['speckit:stage:tasked']);
+  const maintained = await maintainFixSpec(github, env(), { implementation: implementation(), twin: 5 }, { now: github.clock, report: silent });
+  assert.equal(maintained.blocked ?? false, false);
+  const merged = github.comments.filter((item) => item.number === 9).find((item) => item.body.includes('speckit-fix:merged'));
+  assert.match(merged.body, /^<!-- speckit-fix:merged \{"pull":12,"folder":"20261014-100000-upload-expiry","link":false\} -->\n\*\*Spec #12 was merged\*\* by a person into `main`[\s\S]*it does not block this implementation\./);
+  assert.deepEqual(github.edges, [], 'never linked as a dependency');
+  assert.ok(!labels().includes(BLOCKED_LABEL));
+  await maintainFixSpec(github, env(), { implementation: implementation(), twin: 5 }, { now: github.clock, report: silent });
+  assert.equal(github.comments.filter((item) => item.number === 9 && item.body.includes('speckit-fix:merged')).length, 1, 'recorded once');
+});
