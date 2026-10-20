@@ -2,7 +2,7 @@
 
 **Branch**: `20261019-102401-fix-recovery-telemetry-scope` | **Date**: 2026-10-19 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261019-102401-fix-recovery-telemetry-scope/spec.md`
+**Input**: Feature specification from `/specs/archive/20261019-102401-fix-recovery-telemetry-scope/spec.md`
 
 ## Summary
 
@@ -53,7 +53,7 @@ Post-design re-check: Pass.
 ### Documentation (this feature)
 
 ```text
-specs/20261019-102401-fix-recovery-telemetry-scope/
+specs/archive/20261019-102401-fix-recovery-telemetry-scope/
 ├── plan.md
 ├── spec.md
 ├── tasks.md
