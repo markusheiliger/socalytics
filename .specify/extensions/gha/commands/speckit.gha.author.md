@@ -127,7 +127,7 @@ Create nothing before the user has chosen (in autopilot: before the discovery ha
 
 #### Discovery
 
-1. Read `AGENTS.md` ("Current State"), `docs/architecture/README.md` and the architecture documents, `specs/README.md`,
+1. Read `AGENTS.md` ("Current State"), `docs/architecture/README.md` and the architecture documents,
    every `spec.md` under `specs/` and `specs/archive/`, and the twin issues. Run `git fetch` first and work on an
    up-to-date default branch, so the discovery sees specs and implementations that merged recently.
 2. Check the implementation where a claim matters, for example whether an endpoint, table, or project exists under
@@ -220,8 +220,6 @@ Run `node .github/scripts/speckit-author.mjs status <folder>` and resolve every 
 - **Open checklist items:** in `checklists/requirements.md`, run `/speckit-clarify` for the gaps the open items name;
   it re-validates the checklist. For any other checklist, go through the items with the user and tick an item only
   when the user confirms it; in autopilot, report the checklist as open (step 8) instead.
-- **Missing `specs/README.md` entry:** add a row for the spec to the matching table (feature link, purpose, depends
-  on) and show it. `specs/README.md` is a repository overview, not a Spec Kit artifact.
 - **Missing `## Architecture Updates` in `plan.md`:** rerun `/speckit-plan` (its `after_plan` hook writes the
   section), or run `/speckit-gha-architecture <folder>` for a plan that is otherwise final.
 - **No task references `docs/architecture/`:** rerun `/speckit-tasks` so it generates the outcome-based
@@ -233,7 +231,7 @@ and run `speckit-author.mjs status` again: the spec is ready when it reports no 
 ### 7. Commit and push
 
 This is the last decision of the flow; in a batch it comes once, after every spec of the batch passed step 6. Show the
-files that would be committed (`git status --short -- specs/<folder> specs/README.md` for each spec), the current
+files that would be committed (`git status --short -- specs/<folder>` for each spec), the current
 branch, and the default branch. If the current branch is not the default branch, say that the spec twin is only
 created once the spec reaches the default branch.
 
@@ -243,7 +241,7 @@ report the command that resumes the flow at this decision.
 
 - Before committing, run `git fetch` and, when the branch is behind its upstream, fast-forward it
   (`git pull --ff-only`); never rebase or merge over local spec work without asking.
-- Commit each spec separately, in batch order: stage only `specs/<folder>/` and the `specs/README.md` row of that spec,
+- Commit each spec separately, in batch order: stage only `specs/<folder>/` of that spec (`specs/README.md` lists no specs),
   and commit with the message `Spec: <spec title>` (add the repository's co-author trailer when it applies). Then push
   to the branch's upstream (`git push`, or `git push -u origin <branch>` when it has none). Never force-push.
 - Report the commits and the push result. After the push, the GitHub workflows take over: they create the spec twins,

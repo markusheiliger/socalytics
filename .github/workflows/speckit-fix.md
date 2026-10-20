@@ -228,7 +228,7 @@ what a prerequisite spec is, its rules, and the report formats.
   specs listed in the evidence already removes the cause, write nothing and report its pull request number in `reuse`.
   Otherwise write one new, ordinary spec folder named `<folderPrefix><short-name>` (from `context.json`) under
   `specs/`, state in its dependency or assumption text that the spec named `prerequisiteOf` in `context.json` depends
-  on it, add its row to `specs/README.md`, and propose it with `create_pull_request` on a branch
+  on it, and propose it with `create_pull_request` on a branch
   `<branchPrefix><folder>` (`branchPrefix` in `context.json`). When the cause cannot be fixed by a spec, change
   nothing and report why in `refused`.
 - **`fix`**: the workspace is the spec's pull request branch (`branch` in `context.json`) of pull request
@@ -237,6 +237,6 @@ what a prerequisite spec is, its rules, and the report formats.
 - **`revise`**: the workspace is the spec's pull request branch of pull request #${{ inputs.amendment }}. Address every
   piece of feedback listed in the evidence, commit, and push with `push_to_pull_request_branch` for pull request
   #${{ inputs.amendment }}.
-- Changes outside the spec folder and `specs/README.md` are scratch work for experiments and are discarded; revert
+- Changes outside the spec folder are scratch work for experiments and are discarded; revert
   them before you create or push anything.
 - Finish by calling `speckit_fix` exactly once with the report.
