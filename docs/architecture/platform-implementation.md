@@ -29,8 +29,9 @@ SocAlytics uses one `src` root with these first-level ownership areas:
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
 - `src/analysts` owns the Analyst Manager, whose first desktop slice is
-  executable under `src/analysts/manager`, and the future Analyst SDK and
-  Analyst capability implementations across their required runtimes
+  executable under `src/analysts/manager`, and the Analyst SDK, executable
+  under `src/analysts/sdk`; Analyst capability implementations across their
+  required runtimes remain future
 
 The executable platform projects are peers under `src/platform`, except for the
 test projects grouped under `src/platform/Tests`:
@@ -746,9 +747,9 @@ minor version when native or vendor compatibility requires it.
 
 Versioned JSON Schema documents are canonical for Analyst job and result
 contracts (`contracts/analysis/`); the platform and the Analyst Manager validate
-result manifests against them. The planned internal Analyst SDK exposes Pydantic
-models and validates input and output at the container boundary, and the
-platform independently validates the same schemas. Runtime-specific OCI images use locked dependencies and record
+result manifests against them. The internal Analyst SDK (`src/analysts/sdk`) exposes
+Pydantic models and validates input and output at the container boundary, and
+the platform independently validates the same schemas. Runtime-specific OCI images use locked dependencies and record
 their immutable image, model, and package provenance. Preprocessing and
 postprocessing implementation is traced through the immutable OCI image rather
 than selected as a separate job artifact.
@@ -936,8 +937,9 @@ implementation-proven, evidence must demonstrate:
   (installation and service-worker updates are evidenced on Chromium; the
   offline-mode rows stay open)
 - JSON Schema validation agrees at .NET and Python boundaries (the platform
-  and the Analyst Manager already agree on result manifests at the .NET
-  boundary)
+  and the Analyst Manager agree on result manifests at the .NET boundary, and
+  the Analyst SDK's conformance tests evidence the Python boundary over the
+  same examples; real Analyst images remain open)
 - locked Analyst images rebuild reproducibly and emit valid manifests
 - Avalonia and OCI-runtime spikes satisfy the platform matrix in the
   [Analyst Manager architecture](analyst-manager.md)
