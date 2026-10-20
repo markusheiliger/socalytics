@@ -210,6 +210,8 @@ safe-outputs:
             SPECKIT_CREATED_PULL: ${{ needs.safe_outputs.outputs.created_pr_number }}
             SPECKIT_PUSH_SHA: ${{ needs.safe_outputs.outputs.push_commit_sha }}
             SPECKIT_PUSH_FAILURES: ${{ needs.safe_outputs.outputs.code_push_failure_count }}
+            # A transient diagnosis (retry, or sync for an outside cause) continues by itself unless this is `false`.
+            SPECKIT_AUTO_CONTINUE: ${{ vars.SPECKIT_AUTO_CONTINUE }}
           run: node .github/scripts/speckit-diagnose.mjs record
 ---
 
