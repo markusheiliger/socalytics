@@ -121,7 +121,7 @@ description: "Task list for Member Invitations by Email"
 
 ### Implementation for User Story 3
 
-- [ ] T030 [US3] Refuse an account name reserved by a pending or expired invitation with `account-name-taken` in `src/platform/SocAlytics.Platform.Application/IdentityAccess/CreateMemberHandler.cs`, using `IMemberInvitationStore` (FR-003; research R2)
+- [x] T030 [US3] Refuse an account name reserved by a pending or expired invitation with `account-name-taken` in `src/platform/SocAlytics.Platform.Application/IdentityAccess/CreateMemberHandler.cs`, using `IMemberInvitationStore` (FR-003; research R2)
 - [ ] T031 [US3] Add the per-client policy `invitation-token` (`Invitations:TokenAttemptsPerMinute`, shared by check and acceptance) partitioned by remote address, refusing with `429`, `Retry-After`, `Cache-Control: no-store`, and problem code `invitation-rate-limited`, in the new `src/platform/SocAlytics.Platform.Api/Endpoints/IdentityAccess/InvitationRateLimiting.cs`; register it in `src/platform/SocAlytics.Platform.Api/Program.cs`, apply it and declare `429` in `src/platform/SocAlytics.Platform.Api/Endpoints/IdentityAccess/InvitationEndpoints.cs`, and refresh `src/platform/SocAlytics.Platform.Api/openapi/v1.json` as in T014 (FR-017; contracts/member-invitations-api.md)
 
 ### Tests for User Story 3
