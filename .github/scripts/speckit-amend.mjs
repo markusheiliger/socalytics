@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { canWrite, resolveImplementRequester } from './speckit-prepare.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
+  ARCHITECTURE_PREFIX,
   AMEND_BRANCH_PREFIX,
   AMEND_CHECK_NAME,
   AMEND_PRESENTED_MARKER,
@@ -14,7 +15,9 @@ import {
   CHECK_AMEND_INCONSISTENT,
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_STALE_MS,
+  FIX_TITLE_PREFIX,
   FIX_WORKFLOW_FILE,
+  LEGACY_FIX_TITLE_PREFIX,
   MAX_CORRECTION_ROUNDS,
   MAX_STALLED_ROUNDS,
   amendmentBranch,
@@ -96,7 +99,7 @@ export async function guardPullRequest(client, env, pull, { report = () => {} } 
   if (isFix && defaultBranch && pull.base?.ref !== defaultBranch) {
     await client.updatePullRequest(pull.number, { base: defaultBranch });
     actions.push(`retargeted from ${pull.base?.ref}`);
-    notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${defaultBranch}\`: a prerequisite spec merges into the default branch, where its twin is created and its implementation starts.`);
+    notes.push(`The base branch was set back from \`${pull.base?.ref}\` to \`${defaultBranch}\`: a spec authored by \/speckit specify\ merges into the default branch, where its twin is created.`);
   }
   if (actions.length > 0) {
     await client.createComment(pull.number, notes.join('\n\n'));
@@ -132,12 +135,12 @@ export async function resolveAmendment(client, env, number) {
   const head = String(amendment.head?.ref ?? '');
   const kind = head.startsWith(AMEND_BRANCH_PREFIX) ? 'amend' : isPrerequisiteBranch(head) ? 'fix' : null;
   const folder = kind ? folderOfBranch(head) : null;
-  if (!folder || amendment.head?.repo?.full_name !== env.GITHUB_REPOSITORY) return { reason: 'this is not a Spec Kit amendment or prerequisite spec pull request' };
+  if (!folder || amendment.head?.repo?.full_name !== env.GITHUB_REPOSITORY) return { reason: 'this is not a Spec Kit amendment or authored spec pull request' };
   let listed;
   if (kind === 'fix') {
     const { authoredFor } = await import('./speckit-fix.mjs');
     const target = await authoredFor(client, amendment);
-    if (!target) return { reason: 'no open implementation pull request recorded this prerequisite spec', amendment, folder, kind };
+    if (!target) return { reason: 'no open implementation pull request recorded this authored spec', amendment, folder, kind };
     listed = await client.getPullRequest(target);
     if (listed.state !== 'open') return { reason: `the implementation pull request #${target} is not open`, amendment, folder, kind };
   } else {
@@ -158,7 +161,7 @@ async function requesterOf(client, twin) {
   }
 }
 
-// The owner of a spec pull request: for a prerequisite spec the person who asked for it with `/speckit fix` on the
+// The owner of a spec pull request: for a spec authored by `/speckit specify` the person who asked for it on the
 // implementation, for an amendment (and when no such request is recorded) the person who requested the implementation.
 export async function ownerOf(client, { kind = 'amend', implementation = null, twin }) {
   if (kind === 'fix' && implementation) {
@@ -241,11 +244,15 @@ export async function startAnalysis(client, env, context, { round, mode = 'loop'
 // Starts a rework of the amendment or prerequisite spec: `revise` with a person's feedback (`feedback`, from
 // pendingFeedback, handed to the rework as guidance), or `fix` with the findings of the consistency check. The pull
 // request goes back to draft until it is presented again. Amendments are reworked by Spec Kit diagnose, prerequisite
-// specs by Spec Kit fix.
+// specs authored by `/speckit specify` by Spec Kit specify.
 export async function startRework(client, env, context, { mode, round = 0, guidance = '', feedback = null, stalls = 0, findings = [], progress = null }) {
   const { amendment, folder, implementation, twin, kind = 'amend' } = context;
-  const noun = kind === 'fix' ? 'prerequisite spec' : 'amendment';
+  const noun = kind === 'fix' ? 'spec' : 'amendment';
   const current = await client.getPullRequest(amendment.number);
+  // The rework's push requires the current title prefix; spec pull requests opened earlier carry the legacy one.
+  if (kind === 'fix' && String(current.title ?? '').startsWith(LEGACY_FIX_TITLE_PREFIX)) {
+    await client.updatePullRequest(amendment.number, { title: `${FIX_TITLE_PREFIX}${current.title.slice(LEGACY_FIX_TITLE_PREFIX.length)}` });
+  }
   if (!current.draft) await client.convertToDraft(current.node_id);
   await client.updatePullRequest(amendment.number, {
     body: setAmendmentStatus(current.body, [
@@ -314,23 +321,26 @@ export async function startRework(client, env, context, { mode, round = 0, guida
   }
 }
 
-// The first steps for an amendment a diagnosis just created, or a prerequisite spec `/speckit fix` just authored:
-// assign its owner, mark the start of the feedback window, describe the state, and start the consistency check.
+// The first steps for an amendment a diagnosis just created, or a spec `/speckit specify` just authored: assign its
+// owner, mark the start of the feedback window, describe the state, and start the consistency check.
 export async function beginAmendment(client, env, context) {
   const { amendment, implementation, kind = 'amend' } = context;
   const requester = await ownerOf(client, context);
   if (requester) await assignOwner(client, amendment.number, requester);
   const origin = kind === 'fix'
-    ? `This prerequisite spec was requested with \`/speckit fix\` on #${implementation.number}.`
+    ? `This spec was requested with \`/speckit specify\` on #${implementation.number}.`
     : `This amendment comes from the diagnosis on #${implementation.number}.`;
+  const then = kind === 'fix'
+    ? `then it is merged automatically, or handed to ${requester ? `@${requester}` : 'you'} for review when it changes \`${ARCHITECTURE_PREFIX}\` or a person pushed to it`
+    : `then it is handed to ${requester ? `@${requester}` : 'you'} for review`;
   await client.createComment(amendment.number, [
     AMEND_REWORK_MARKER,
     renderCutoff(amendment.created_at ?? new Date(0).toISOString()),
-    `${origin} An independent \`/speckit-analyze\` now checks it for consistency, and correction rounds fix what it finds while they make progress; then it is handed to ${requester ? `@${requester}` : 'you'} for review.`,
+    `${origin} An independent \`/speckit-analyze\` now checks it for consistency, and correction rounds fix what it finds while they make progress; ${then}.`,
   ].join('\n'));
   const current = await client.getPullRequest(amendment.number);
   await client.updatePullRequest(amendment.number, {
-    body: setAmendmentStatus(current.body, ['⏳ **Being checked for consistency.** You are asked to review it when the check is done.', '', ...howTo(context)]),
+    body: setAmendmentStatus(current.body, [kind === 'fix' ? '⏳ **Being checked for consistency.** It is merged automatically when it is consistent, unless it needs your review.' : '⏳ **Being checked for consistency.** You are asked to review it when the check is done.', '', ...howTo(context)]),
   });
   return startAnalysis(client, env, context, { round: 0, mode: 'loop' });
 }
@@ -339,16 +349,28 @@ function howTo({ kind = 'amend', implementation, amendment }) {
   return kind === 'fix' ? renderFixHowTo(implementation.number, amendment?.base?.ref ?? null) : renderAmendmentHowTo(implementation.number);
 }
 
-export function renderSpecPullNextSteps({ amendment, implementation, kind = 'amend' }, { consistent = false } = {}) {
-  const noun = kind === 'fix' ? 'prerequisite spec' : 'amendment';
+// Why a consistent spec authored by `/speckit specify` is handed to a person instead of being merged automatically.
+function heldReason(held, designLink) {
+  switch (held?.reason) {
+    case 'architecture': return `It changes \`${ARCHITECTURE_PREFIX}\`, so a person reviews its design decisions${designLink ? ` ([Design decisions](${designLink}))` : ''} before it is merged.`;
+    case 'push': return 'A person pushed to it, so a person merges it.';
+    case 'changes': return 'A review requests changes, so a person decides.';
+    case 'refused': return `The automatic merge was refused${held.message ? ` (${neutralizeMarkers(clip(held.message, 300))})` : ''}.`;
+    default: return null;
+  }
+}
+
+export function renderSpecPullNextSteps({ amendment, implementation, kind = 'amend' }, { consistent = false, held = null } = {}) {
+  const noun = kind === 'fix' ? 'spec' : 'amendment';
   const link = amendment.html_url ? `[#${amendment.number}](${amendment.html_url})` : `#${amendment.number}`;
   if (consistent) {
+    const reason = kind === 'fix' ? heldReason(held, held?.designLink ?? null) : null;
     return [
-      `**Recommended next step**: Review and merge ${noun} ${link}.`,
+      `**Recommended next step**: Review and merge ${noun} ${link}${held?.reason === 'architecture' && held?.designLink ? `, starting with its [Design decisions](${held.designLink})` : ''}.`,
       '',
-      '- **Why**: The consistency check passed and no automatic correction round remains pending.',
+      `- **Why**: The consistency check passed and no automatic correction round remains pending.${reason ? ` ${reason}` : ''}`,
       kind === 'fix'
-        ? `- **What it does**: Adds the prerequisite spec to \`${amendment.base?.ref ?? 'the default branch'}\`, makes this spec depend on it, and requests its implementation automatically. #${implementation.number} waits and retries by itself once it is implemented.`
+        ? `- **What it does**: Adds the spec to \`${amendment.base?.ref ?? 'the default branch'}\` and makes this spec depend on it once its twin exists; it is implemented once someone signs it off with \`/speckit implement\` on that twin. #${implementation.number} waits and retries by itself once it is implemented.`
         : `- **What it does**: Applies the amendment to the implementation branch. #${implementation.number} then continues automatically from the next unchecked task with a fresh attempt count.`,
     ];
   }
@@ -497,7 +519,7 @@ function renderFindings(findings, rules = [], { ids = false } = {}) {
 
 // Hands the amendment or prerequisite spec to its owner (ownerOf): ready for review when it is consistent (a draft
 // otherwise), assigned, review requested, status in the description, and a note on the implementation.
-export async function presentAmendment(client, env, context, { consistent, analysis = null, rules = [], problem = null, since = null, corrected = false }) {
+export async function presentAmendment(client, env, context, { consistent, analysis = null, rules = [], problem = null, since = null, corrected = false, held = null }) {
   const { amendment, folder, implementation, kind = 'amend' } = context;
   const current = await client.getPullRequest(amendment.number);
   const requester = await ownerOf(client, context);
@@ -516,7 +538,7 @@ export async function presentAmendment(client, env, context, { consistent, analy
     ? `✅ **Consistent**: an independent \`/speckit-analyze\` of \`specs/${folder}/\` found no CRITICAL, HIGH, or MEDIUM inconsistencies${findings.length > 0 ? ` (${findings.length} LOW finding(s)${corrected ? ' that the correction rounds left as they are, listed for information; nothing needs fixing by hand' : ', listed in the comments'})` : ''}.`
     : `⚠️ **Not consistent**: ${problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`}. Review the findings in the comments; merging is possible but not recommended.`;
   const link = amendment.html_url ? `[#${amendment.number}](${amendment.html_url})` : `#${amendment.number}`;
-  const recommendation = renderSpecPullNextSteps({ ...context, amendment: current }, { consistent });
+  const recommendation = renderSpecPullNextSteps({ ...context, amendment: current }, { consistent, held });
   const alternatives = ['<details><summary>Other options</summary>', '', ...howTo(context), '', '</details>'];
   await client.updatePullRequest(amendment.number, { body: setAmendmentStatus(current.body, [status, '', ...recommendation, '', ...alternatives]) });
   await client.createComment(amendment.number, [
@@ -533,8 +555,8 @@ export async function presentAmendment(client, env, context, { consistent, analy
   const remaining = problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`;
   const implementationStatus = kind === 'fix'
     ? (consistent
-      ? `**Prerequisite spec ${link} is ready for your review**: it is consistent. Merge it to add the prerequisite spec to \`${current.base?.ref ?? 'the default branch'}\` (it is then implemented, and this implementation resumes by itself once it is implemented), comment or request changes there to have it reworked, or close it to discard it.`
-      : `**Prerequisite spec ${link} is not consistent** (${remaining}). Review its findings there: comment or request changes to have it reworked, or close it.`)
+      ? `**Spec ${link} is ready for your review**: it is consistent, but it is not merged automatically. ${heldReason(held, held?.designLink ?? null) ?? ''} Merge it to add the spec to \`${current.base?.ref ?? 'the default branch'}\` (once signed off with \`/speckit implement\` on its twin, it is implemented, and this implementation resumes by itself), comment or request changes there to have it reworked, or close it to discard it.`.replace(/  +/g, ' ')
+      : `**Spec ${link} is not consistent** (${remaining}). Review its findings there: comment or request changes to have it reworked, or close it.`)
     : (consistent
       ? `**Amendment ${link} is ready for your review**: it is consistent. Merge it to apply it (the implementation then continues), comment or request changes there to have it reworked, or close it to discard it.`
       : `**Amendment ${link} is not consistent** (${remaining}). Review its findings there: comment or request changes to have it reworked, or close it.`);
@@ -635,7 +657,18 @@ export async function runRecordAnalysis({ client, env, log }) {
     : stalls >= MAX_STALLED_ROUNDS
       ? `${remaining} inconsistency(ies) remain; ${stalls} of ${round} correction round(s) made no progress`
       : `${remaining} inconsistency(ies) remain after the limit of ${MAX_CORRECTION_ROUNDS} correction rounds`;
-  await presentAmendment(client, env, context, { consistent, analysis, rules, problem, since: pending.since, corrected: mode === 'loop' });
+  // A consistent spec authored by `/speckit specify` is merged automatically unless it needs a person.
+  let held = null;
+  if (consistent && context.kind === 'fix') {
+    const { designDecisionsComment, mergeSpecPull } = await import('./speckit-fix.mjs');
+    const merge = await mergeSpecPull(client, env, context);
+    if (merge.outcome === 'merged') {
+      log(`Spec #${number}: consistent; merged automatically.`);
+      return { exitCode: 0, outcome: 'merged', stalls };
+    }
+    held = { reason: merge.held, message: merge.message ?? null, designLink: merge.held === 'architecture' ? (await designDecisionsComment(client, number))?.html_url ?? null : null };
+  }
+  await presentAmendment(client, env, context, { consistent, analysis, rules, problem, since: pending.since, corrected: mode === 'loop', held });
   log(`Amendment #${number}: presented (${consistent ? 'consistent' : 'not consistent'}).`);
   return { exitCode: 0, outcome: consistent ? 'consistent' : 'inconsistent', stalls };
 }
@@ -813,7 +846,7 @@ export async function maintainAmendment(client, env, { folder, implementation, t
 // rework for feedback no event delivered, and checks a person's push no event reported.
 export async function maintainOpenSpecPull(client, env, context, { now = Date.now(), report = () => {} } = {}) {
   const number = context.amendment.number;
-  const noun = context.kind === 'fix' ? 'prerequisite spec' : 'amendment';
+  const noun = context.kind === 'fix' ? 'spec' : 'amendment';
   const state = await reworkRunning(client, context, now);
   if (state.running) return { outcome: 'running' };
   if (state.stale) {

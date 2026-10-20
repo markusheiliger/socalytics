@@ -81,6 +81,8 @@ stands and what still blocks publishing it.
 Once the spec is on the default branch, the `Spec Kit prepare` workflow
 creates its twin issue and infers its dependencies on other twins; check them
 on GitHub. Then either request implementation on GitHub or implement locally.
+On GitHub, comment `/speckit implement` on the twin (its description ends with
+the command, ready to copy); the comment records who requested it.
 `/speckit-implement` asks which one you want; `/speckit-gha-request`
 requests it directly (see the repository
 [README](../README.md#requesting-implementation-on-github)).

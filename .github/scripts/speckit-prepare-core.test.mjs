@@ -78,6 +78,7 @@ test('renders a clickable spec line that round-trips to the folder', () => {
   assert.doesNotMatch(body, /plan\.md/);
   assert.equal(parseTwinFolder(body), 'abc-1');
   assert.equal(parseTwinFolder(body.replaceAll('\n', '\r\n')), 'abc-1');
+  assert.match(body, /\n## Request implementation\n\nPeople with write access comment this once the spec is `tasked` and its checklists are checked; the command checks that and records who requested it\.\n\n```text\n\/speckit implement\n```\n$/, 'the body ends with the command that requests the implementation');
 });
 
 test('treats missing, duplicated, or unsafe spec lines as unreadable', () => {
@@ -134,6 +135,7 @@ test('points twins of archived specs to the archive, closed as completed and imp
   assert.match(body, /^\*\*Spec\*\*: \[`specs\/archive\/a`\]\(https:\/\/github\.com\/octo\/repo\/tree\/main\/specs\/archive\/a\)$/m);
   assert.match(body, /- \[spec\.md\]\(https:\/\/github\.com\/octo\/repo\/blob\/main\/specs\/archive\/a\/spec\.md\)/);
   assert.equal(parseTwinFolder(body), 'a', 'the archived spec line keeps the twin identity');
+  assert.doesNotMatch(body, /Request implementation|\/speckit implement/, 'an implemented spec cannot be requested');
 
   const merged = twin(1, 'a', { state: 'closed', stateReason: 'completed', labels: [TWIN_LABEL, 'speckit:stage:implemented'] });
   const open = twin(2, 'b', { labels: [TWIN_LABEL, 'speckit:stage:implement'] });
