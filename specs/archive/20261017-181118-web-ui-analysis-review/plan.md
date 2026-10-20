@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-181118-web-ui-analysis-review` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-181118-web-ui-analysis-review/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-181118-web-ui-analysis-review/spec.md`
 
 ## Summary
 
@@ -16,7 +16,7 @@ run's indexed facts per capability with coverage and provenance.
   run list (`AnalysisRunStates`).
 - **Platform reads only**: `getAnalysisRun` (existing), and
   `listAnalysisRunFactStreams` and `listAnalysisRunFacts`, which
-  [Accepted Fact Indexing and Capability-Scoped Fact Queries](../archive/20261017-175648-fact-indexing-queries/spec.md)
+  [Accepted Fact Indexing and Capability-Scoped Fact Queries](../20261017-175648-fact-indexing-queries/spec.md)
   adds to the OpenAPI snapshot. No new platform operation; the Kiota client is
   regenerated from the snapshot by the existing `npm run build`.
 - **Adapters**: `analysisRunAdapter` gains `getRun`; a new
@@ -107,12 +107,12 @@ browser specs, and one platform browser spec.
 
 | Principle | Status | Evidence |
 | --- | --- | --- |
-| I. Architecture is the design authority | Pass | Implements the analysis review of [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui) and the member read side of [Segment And Match Analysis Scope](../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope) through [Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access); stays online only per [Offline Mode](../../docs/architecture/client-applications.md#offline-mode). The design update is applied now (see Architecture Updates). |
+| I. Architecture is the design authority | Pass | Implements the analysis review of [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui) and the member read side of [Segment And Match Analysis Scope](../../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope) through [Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access); stays online only per [Offline Mode](../../../docs/architecture/client-applications.md#offline-mode). The design update is applied now (see Architecture Updates). |
 | II. Source-area ownership | Pass | Changes only under `src/clients/web/`; no new `src/` child. |
 | III. API-first control plane | Pass | The Web UI reads only through `/api/v1` operations via the generated client behind adapters; it holds no business logic beyond presentation (coverage and provenance come from the platform); no media. |
 | IV. Evidence over claims | Pass | Unit, simulated browser, and platform browser tests (FR-022); nothing claims production readiness. |
 | V. Focused, minimal changes | Pass | No new dependency, platform operation, or project; reuses the match context, failure alert, connectivity, and refresh patterns. |
-| Technology and tooling | Pass | Needs Node.js 24, Kiota 1.36.0, Playwright 1.63.0 Chromium, the .NET SDK, and Docker for the platform project, all provided by `.github/actions/environment-setup` and `environment-verify` through the merged [Web UI Verification Environment](../archive/20261012-145505-web-ui-environment/spec.md); no environment spec is needed. |
+| Technology and tooling | Pass | Needs Node.js 24, Kiota 1.36.0, Playwright 1.63.0 Chromium, the .NET SDK, and Docker for the platform project, all provided by `.github/actions/environment-setup` and `environment-verify` through the merged [Web UI Verification Environment](../20261012-145505-web-ui-environment/spec.md); no environment spec is needed. |
 
 Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 
@@ -121,7 +121,7 @@ Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 ### Documentation (this feature)
 
 ```text
-specs/20261017-181118-web-ui-analysis-review/
+specs/archive/20261017-181118-web-ui-analysis-review/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output
@@ -185,10 +185,10 @@ a link per run.
 
 ### Narratives
 
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): the analysis review for coaches, the first part of "team and match review, analytics" for analysis results.
-- [Match Data Pipeline → Segment And Match Analysis Scope](../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope): the member read side of the ordered fact stream, shown in the Web UI.
-- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access): the member fact read (added by the batch sibling) gains its Web UI consumer; no design change.
-- [Client Applications → Offline Mode](../../docs/architecture/client-applications.md#offline-mode) and [Platform Implementation Profile → Client Technology](../../docs/architecture/platform-implementation.md#client-technology): unchanged rules (online only; the service worker holds no user data) that the review follows.
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): the analysis review for coaches, the first part of "team and match review, analytics" for analysis results.
+- [Match Data Pipeline → Segment And Match Analysis Scope](../../../docs/architecture/match-data-pipeline.md#segment-and-match-analysis-scope): the member read side of the ordered fact stream, shown in the Web UI.
+- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access): the member fact read (added by the batch sibling) gains its Web UI consumer; no design change.
+- [Client Applications → Offline Mode](../../../docs/architecture/client-applications.md#offline-mode) and [Platform Implementation Profile → Client Technology](../../../docs/architecture/platform-implementation.md#client-technology): unchanged rules (online only; the service worker holds no user data) that the review follows.
 
 ### Design updates (applied now, worded as decided but not implemented)
 
