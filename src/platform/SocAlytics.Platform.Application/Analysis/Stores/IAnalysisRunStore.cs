@@ -83,5 +83,18 @@ public interface IAnalysisRunStore
         Guid? blockedByNodeId,
         CancellationToken cancellationToken);
 
+    // Moves a locked Requested or Running run to Cancelled and records who cancelled it and why; false when the run is no longer in expectedState.
+    Task<bool> TryCancelAsync(
+        Guid runId,
+        AnalysisRunState expectedState,
+        Guid cancelledByAccountId,
+        string? cancellationReason,
+        CancellationToken cancellationToken);
+
+    // Moves the run's Waiting and Active nodes to Cancelled in id order and returns how many changed.
+    Task<int> CancelUnfinishedNodesAsync(Guid runId, CancellationToken cancellationToken);
+
+    Task<int> CountCancelledNodesAsync(Guid runId, CancellationToken cancellationToken);
+
     Task<AnalysisRunHierarchy?> LoadAsync(Guid runId, CancellationToken cancellationToken);
 }

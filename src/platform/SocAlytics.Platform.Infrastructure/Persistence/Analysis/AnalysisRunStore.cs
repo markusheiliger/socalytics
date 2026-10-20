@@ -200,6 +200,55 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
         return changed == 1;
     }
 
+    public async Task<bool> TryCancelAsync(
+        Guid runId, AnalysisRunState expectedState, Guid cancelledByAccountId, string? cancellationReason, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        var now = time.GetUtcNow();
+        var changed = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE socalytics.analysis_runs
+            SET state = 'Cancelled',
+                terminated_at = @now,
+                cancelled_by_account_id = @cancelledByAccountId,
+                cancellation_reason = @cancellationReason,
+                updated_at = @now
+            WHERE id = @runId AND state = @expectedState
+            """,
+            new { runId, expectedState = expectedState.ToString(), cancelledByAccountId, cancellationReason, now },
+            transaction,
+            cancellationToken: cancellationToken));
+        return changed == 1;
+    }
+
+    public async Task<int> CancelUnfinishedNodesAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteAsync(new CommandDefinition(
+            """
+            WITH locked AS (
+                SELECT id FROM socalytics.analysis_workflow_nodes
+                WHERE run_id = @runId AND state IN ('Waiting', 'Active')
+                ORDER BY id FOR UPDATE)
+            UPDATE socalytics.analysis_workflow_nodes n
+            SET state = 'Cancelled', updated_at = @now
+            FROM locked WHERE n.id = locked.id
+            """,
+            new { runId, now = time.GetUtcNow() },
+            transaction,
+            cancellationToken: cancellationToken));
+    }
+
+    public async Task<int> CountCancelledNodesAsync(Guid runId, CancellationToken cancellationToken)
+    {
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        return await connection.ExecuteScalarAsync<int>(new CommandDefinition(
+            "SELECT count(*) FROM socalytics.analysis_workflow_nodes WHERE run_id = @runId AND state = 'Cancelled'",
+            new { runId }, session.Transaction, cancellationToken: cancellationToken));
+    }
+
     public async Task<AnalysisRunHierarchy?> LoadAsync(Guid runId, CancellationToken cancellationToken)
     {
         var connection = await session.GetConnectionAsync(cancellationToken);

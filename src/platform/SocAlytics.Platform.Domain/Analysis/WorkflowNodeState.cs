@@ -7,4 +7,5 @@ public enum WorkflowNodeState
 	Completed,
 	Failed,
 	Blocked,
+	Cancelled,
 }

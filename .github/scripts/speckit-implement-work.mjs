@@ -986,17 +986,20 @@ export async function runLand({ client, git, env, inputs, folder, workspace, res
   if (body !== pull.body) await client.updatePullRequest(inputs.pull, { body });
   await client.updateCheckRun(inputs.checkRun, { status: 'completed', conclusion: 'success', output: { title: checkTitle, summary: message.join('\n\n') } });
   await client.createCheckRun({ name: CHECK_RUN_NAME, head_sha: head, status: 'queued', external_id: CHECK_PROGRESS, output: progressOutput(progress) });
-  await client.createComment(inputs.pull, [...markerLines(inputs, 'success'), ...comment].join('\n'));
+  // The barrier state of a required synchronization rides on the visible comment that reports it, so no comment is
+  // only a marker (GitHub would show it empty).
+  let barrierMarker = [];
   if (barrier) {
     const repair = unresolvedRepair(await client.listIssueComments(inputs.pull));
-    await client.createComment(inputs.pull, renderSyncBarrierMarker({
+    barrierMarker = [renderSyncBarrierMarker({
       request: barrier.request, state: 'verified', head, base: baseBranchOf(pull), baseSha: result.baseSha,
       guidanceConsumed: Boolean(barrier.completion?.guidanceConsumed || (result.conflicts ?? []).length > 0),
       ...(repair && result.syncRepair?.id === repair.id && result.syncRepair.scope === repair.scope && result.syncRepair.covered === true &&
           JSON.stringify(result.syncRepair.snapshot) === JSON.stringify(repair)
         ? { repair: { id: repair.id, covered: true, snapshot: repair } } : {}),
-    }));
+    })];
   }
+  await client.createComment(inputs.pull, [...markerLines(inputs, 'success'), ...barrierMarker, ...comment].join('\n'));
   report.line(`${checkTitle}; pushed as ${head}.`);
   report.flush();
   return { exitCode: 0, head, combined };

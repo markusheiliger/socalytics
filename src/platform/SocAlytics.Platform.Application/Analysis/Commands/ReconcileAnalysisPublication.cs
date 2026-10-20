@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Analysis.Stores;
+using SocAlytics.Platform.Domain.Analysis;
 
 namespace SocAlytics.Platform.Application.Analysis.Commands;
 
@@ -52,7 +53,8 @@ public sealed class ReconcileAnalysisPublicationHandler(
             foreach (var runId in runIds)
             {
                 await using var scope = await unitOfWork.BeginAsync(cancellationToken);
-                if (await runs.LockRunAsync(runId, cancellationToken) is null)
+                var run = await runs.LockRunAsync(runId, cancellationToken);
+                if (run is null || run.State is not (AnalysisRunState.Requested or AnalysisRunState.Running))
                 {
                     continue;
                 }
