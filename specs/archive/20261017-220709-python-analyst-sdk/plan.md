@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-220709-python-analyst-sdk` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-220709-python-analyst-sdk/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-220709-python-analyst-sdk/spec.md`
 
 ## Summary
 
@@ -53,7 +53,7 @@ rules unchanged; previous contract versions stay valid.
 | III. API-first, contract authority | Pass: JSON Schemas stay canonical; the SDK is a consumer | Pass: verified schema copy and conformance tests; additive contract versions; no data through the control plane |
 | IV. Evidence over claims | Pass: SDK, contract, platform, and Manager tests required | Pass: no image, publication, or production claim; real capability execution stays out of scope |
 | V. Focused changes | Pass: only the interface fields the SDK needs | Pass: no transport client, media handling, or capability |
-| Environment prerequisite | Pass: [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) (#143) provides CPython 3.12.15, `uv` 0.13.1, and locked verification of `src/analysts/sdk/` | Pass: all other SDK dependencies are project-locked wheels allowed by that environment's project contract; .NET and Docker already provided |
+| Environment prerequisite | Pass: [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) (#143) provides CPython 3.12.15, `uv` 0.13.1, and locked verification of `src/analysts/sdk/` | Pass: all other SDK dependencies are project-locked wheels allowed by that environment's project contract; .NET and Docker already provided |
 
 No violation; Complexity Tracking is empty.
 
@@ -61,18 +61,18 @@ No violation; Complexity Tracking is empty.
 
 **Narratives**:
 
-- [Analysts, Models, and Hardware → Implementation Profile](../../docs/architecture/analysts-models-and-hardware.md#implementation-profile):
+- [Analysts, Models, and Hardware → Implementation Profile](../../../docs/architecture/analysts-models-and-hardware.md#implementation-profile):
   the Analyst SDK and boundary validation.
-- [Analysts, Models, and Hardware → Result Manifest And Lineage](../../docs/architecture/analysts-models-and-hardware.md#result-manifest-and-lineage):
+- [Analysts, Models, and Hardware → Result Manifest And Lineage](../../../docs/architecture/analysts-models-and-hardware.md#result-manifest-and-lineage):
   what the Analyst writes into the result mount.
-- [Analyst Runtime and Recovery → Runtime Preflight And Status](../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status):
+- [Analyst Runtime and Recovery → Runtime Preflight And Status](../../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status):
   the Analyst container interface.
-- [Platform Implementation Profile → Source And Runtime Baseline](../../docs/architecture/platform-implementation.md#source-and-runtime-baseline)
-  and [Analyst Technology](../../docs/architecture/platform-implementation.md#analyst-technology): the SDK's place and
+- [Platform Implementation Profile → Source And Runtime Baseline](../../../docs/architecture/platform-implementation.md#source-and-runtime-baseline)
+  and [Analyst Technology](../../../docs/architecture/platform-implementation.md#analyst-technology): the SDK's place and
   role.
-- [Contracts and Compatibility → Scope And Dependencies](../../docs/architecture/contracts-and-compatibility.md#scope-and-dependencies)
+- [Contracts and Compatibility → Scope And Dependencies](../../../docs/architecture/contracts-and-compatibility.md#scope-and-dependencies)
   and its contract test paragraph: new and changed contracts and Python boundary validation.
-- [Technology Stack → Analytics](../../docs/architecture/tenancy-and-technology.md#analytics): Pydantic models in the
+- [Technology Stack → Analytics](../../../docs/architecture/tenancy-and-technology.md#analytics): Pydantic models in the
   Analyst SDK (already stated; stays true).
 
 **Design updates applied now** (worded as decided, not yet implemented; the documentation task turns them into
@@ -117,7 +117,7 @@ schema-copy refresh rule).
 ### Documentation (this feature)
 
 ```text
-specs/20261017-220709-python-analyst-sdk/
+specs/archive/20261017-220709-python-analyst-sdk/
 ├── spec.md
 ├── plan.md
 ├── research.md

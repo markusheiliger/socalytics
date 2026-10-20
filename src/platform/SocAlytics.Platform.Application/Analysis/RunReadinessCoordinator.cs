@@ -28,6 +28,7 @@ public sealed class RunReadinessCoordinator(
     ILogger<RunReadinessCoordinator>? logger = null)
 {
     private const string ContractVersion = "1.0.0";
+    private const string JobContractVersion = "1.1.0";
 
     public async Task<ReadinessApplication> ApplyAsync(Guid runId, CancellationToken cancellationToken)
     {
@@ -140,10 +141,10 @@ public sealed class RunReadinessCoordinator(
             var snapshot = await jobs.LoadSnapshotAsync(job.Id, cancellationToken)
                 ?? throw new InvalidOperationException("The logical job snapshot is missing.");
             var messageId = Guid.CreateVersion7();
-            var payload = BuildJobPayload(run, node, job, snapshot, occurrenceId, sequence, messageId, inputs, nodesByKey, acceptedById);
+            var payload = BuildJobPayload(run, hierarchy.Snapshot.SnapshotJson, node, job, snapshot, occurrenceId, sequence, messageId, inputs, nodesByKey, acceptedById);
             Validate(ContractSchemaIds.AnalystJobV1, payload);
             await outbox.EnqueueAsync(new OutboxMessageDraft(
-                messageId, OutboxMessageTypes.AnalysisReadyWork, ContractVersion,
+                messageId, OutboxMessageTypes.AnalysisReadyWork, JobContractVersion,
                 $"analysis.jobs.ready.{node.CapabilityId}", payload, occurrenceId, run.Id, job.Id, node.CapabilityId), cancellationToken);
             ready++;
         }
@@ -209,10 +210,10 @@ public sealed class RunReadinessCoordinator(
         }
 
         var messageId = Guid.CreateVersion7();
-        var payload = BuildJobPayload(hierarchy.Run, node, job, snapshot, occurrenceId, sequence, messageId, inputs, nodesByKey, accepted);
+        var payload = BuildJobPayload(hierarchy.Run, hierarchy.Snapshot.SnapshotJson, node, job, snapshot, occurrenceId, sequence, messageId, inputs, nodesByKey, accepted);
         Validate(ContractSchemaIds.AnalystJobV1, payload);
         await outbox.EnqueueAsync(new OutboxMessageDraft(
-            messageId, OutboxMessageTypes.AnalysisReadyWork, ContractVersion,
+            messageId, OutboxMessageTypes.AnalysisReadyWork, JobContractVersion,
             $"analysis.jobs.ready.{node.CapabilityId}", payload, occurrenceId, hierarchy.Run.Id, job.Id, node.CapabilityId), cancellationToken);
     }
 
@@ -266,7 +267,7 @@ public sealed class RunReadinessCoordinator(
     }
 
     private JsonElement BuildJobPayload(
-        AnalysisRunRecord run, WorkflowNodeRecord node, LogicalJobRecord job, LogicalJobSnapshotRecord snapshot,
+        AnalysisRunRecord run, string runSnapshotJson, WorkflowNodeRecord node, LogicalJobRecord job, LogicalJobSnapshotRecord snapshot,
         Guid occurrenceId, int sequence, Guid messageId, IReadOnlyList<InputSnapshotEntry> inputs,
         Dictionary<string, WorkflowNodeRecord> nodesByKey, Dictionary<Guid, AcceptedResultRecord> acceptedById)
     {
@@ -280,7 +281,7 @@ public sealed class RunReadinessCoordinator(
 
         var payload = new Dictionary<string, object?>
         {
-            ["contractVersion"] = ContractVersion,
+            ["contractVersion"] = JobContractVersion,
             ["messageId"] = messageId,
             ["readinessOccurrenceId"] = occurrenceId,
             ["readinessSequence"] = sequence,
@@ -291,6 +292,7 @@ public sealed class RunReadinessCoordinator(
             ["teamId"] = run.TeamId,
             ["matchId"] = run.MatchId,
             ["recordingSetVersionId"] = run.RecordingSetVersionId,
+            ["workflow"] = new { id = run.WorkflowId, version = Semver(run.WorkflowVersion) },
             ["capability"] = new { id = node.CapabilityId, version = Semver(node.CapabilityVersion) },
             ["tier"] = AnalysisPersistedNames.ToPersistedName(node.Tier),
             ["schemaVersion"] = Semver(snapshot.SchemaVersion),
@@ -343,6 +345,14 @@ public sealed class RunReadinessCoordinator(
 
         if (node.ExecutionScope == ExecutionScope.Segment)
         {
+            var segmentNumber = job.SegmentNumber!.Value;
+            var (startMs, endMs) = SegmentWindows.Window(segmentNumber, SegmentWindows.DurationMs(runSnapshotJson));
+            payload["segmentWindow"] = new
+            {
+                segmentId = SegmentWindows.SegmentId(job.RecordingVersionId, segmentNumber),
+                startMs,
+                endMs,
+            };
             payload["segment"] = new
             {
                 recordingSetVersionId = run.RecordingSetVersionId,
