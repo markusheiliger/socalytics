@@ -26,8 +26,8 @@ through approved changes.
     constitution, templates, and helper scripts; `.github/skills/speckit-*`
     holds the generated Spec Kit skills for GitHub Copilot.
 - [`specs/`](specs/README.md) holds one UTC-timestamped folder per Spec Kit
-    feature, implemented features under `specs/archive/`, and an index of
-    feature dependency order.
+    feature, implemented features under `specs/archive/`, and the authoring
+    guide; the spec twin issues are the index of features and their order.
 - [`AGENTS.md`](AGENTS.md) defines repository guidance for coding agents.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
@@ -281,7 +281,7 @@ Run the skills in GitHub Copilot Chat, one at a time, reviewing each result:
 
 1. `/speckit-specify <what and why>` creates `specs/<YYYYMMDD-HHMMSS>-<feature>/spec.md`,
     prefixed with the UTC creation time; see [specs/README.md](specs/README.md)
-    for the naming rule and feature dependency order.
+    for the naming rule; dependency order lives on the spec twin issues.
 2. `/speckit-clarify` (optional) resolves ambiguities before planning.
 3. `/speckit-plan <technical direction>` creates the plan and design artifacts
     and checks them against the constitution.
@@ -764,7 +764,7 @@ on, and the usual dependency handling does the rest.
 1. The `Spec Kit fix` agentic workflow
     ([`speckit-fix.md`](.github/workflows/speckit-fix.md)) follows the skill
     `/speckit-gha-fix` and authors a complete spec (spec, plan, tasks,
-    checklist, and its row in `specs/README.md`) in a normal
+    and checklist) in a normal
     `specs/<timestamp>-<name>/` folder. It is proposed as a draft pull request
     `speckit-spec/<folder>` → the default branch that may only add that spec
     folder. When an open or merged spec already removes the cause, it writes

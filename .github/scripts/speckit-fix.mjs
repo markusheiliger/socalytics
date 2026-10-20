@@ -55,7 +55,6 @@ export const FIX_MODES = ['author', 'fix', 'revise'];
 // An authoring run that has not reported after this long belongs to a cancelled or crashed run.
 const AUTHORING_STALE_MS = 2 * 60 * 60 * 1000;
 const MAX_EVIDENCE_BYTES = 150_000;
-const README_PATH = 'specs/README.md';
 
 const clip = (text, max) => {
   const value = String(text ?? '');
@@ -309,7 +308,6 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
       folderPrefix: `${stamp}-`,
       branchPrefix: SPEC_BRANCH_PREFIX,
       titlePrefix: FIX_TITLE_PREFIX,
-      specsReadme: README_PATH,
       existingFixes: existing.map((item) => ({ pull: item.pull, folder: item.folder, state: item.state, title: item.title })),
     };
   } else {
@@ -344,7 +342,6 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
       stalls,
       maxCorrectionRounds: MAX_CORRECTION_ROUNDS,
       maxStalledRounds: MAX_STALLED_ROUNDS,
-      specsReadme: README_PATH,
     };
   }
   let evidence = sections.join('\n');
@@ -355,7 +352,7 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
   return { exitCode: 0, context };
 }
 
-// Checks a prerequisite spec pull request: it only adds a new spec folder (plus its row in specs/README.md) and is
+// Checks a prerequisite spec pull request: it only adds a new spec folder and is
 // ready for implementation like a published spec (publishBlockers). It needs no special marker: the dependency of the
 // stopped spec on it is recorded on GitHub once it is merged. Every reason is a rule the consistency check's correction
 // rounds fix.
@@ -365,8 +362,8 @@ export async function checkFixSpec(client, { folder, pull }) {
   const files = await client.listPullRequestFiles(pull.number);
   const changedPaths = [...new Set(files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean))];
   const reasons = [];
-  const outside = changedPaths.filter((file) => !file.startsWith(prefix) && file !== README_PATH);
-  if (outside.length > 0) reasons.push(`a prerequisite spec may only add \`${prefix}\` and its row in \`${README_PATH}\`, but it changes ${outside.map((file) => `\`${file}\``).join(', ')}`);
+  const outside = changedPaths.filter((file) => !file.startsWith(prefix));
+  if (outside.length > 0) reasons.push(`a prerequisite spec may only add \`${prefix}\` (specs/README.md lists no specs), but it changes ${outside.map((file) => `\`${file}\``).join(', ')}`);
   if (!isValidFolderName(folder) || !/^\d{8}-\d{6}-/.test(folder)) reasons.push(`the folder \`${folder}\` must start with a UTC time stamp (YYYYMMDD-HHMMSS-)`);
   if (await client.getFileContent(`${prefix}spec.md`, pull.base?.ref)) reasons.push(`\`${prefix}\` already exists on \`${pull.base?.ref}\`; a prerequisite spec adds a new spec folder`);
   const head = pull.head?.sha ?? pull.head?.ref;
@@ -374,7 +371,6 @@ export async function checkFixSpec(client, { folder, pull }) {
   const specMarkdown = await read(`${prefix}spec.md`);
   const planMarkdown = await read(`${prefix}plan.md`);
   const tasksMarkdown = await read(`${prefix}tasks.md`);
-  const readme = await read(README_PATH);
   const checklists = [];
   for (const file of changedPaths.filter((item) => item.startsWith(`${prefix}checklists/`) && item.endsWith('.md'))) checklists.push((await read(file)) ?? '');
   reasons.push(...publishBlockers({
@@ -385,7 +381,6 @@ export async function checkFixSpec(client, { folder, pull }) {
     architecture: planMarkdown === null ? null : architectureUpdates(planMarkdown),
     openClarificationMarkers: (String(specMarkdown ?? '').match(/\[NEEDS CLARIFICATION/g) ?? []).length,
     openChecklistItems: countOpenChecklistItems(checklists),
-    listedInSpecsReadme: String(readme ?? '').includes(`${folder}/`),
   }));
   return { changedPaths, reasons, notes: [] };
 }
@@ -507,8 +502,8 @@ export async function runRecord({ client, env, log }) {
   if (pull.state !== 'open') broken.push('it is not open');
   if (fixFolder) {
     const files = await client.listPullRequestFiles(created);
-    const outside = files.map((file) => file.filename).filter((file) => !file.startsWith(`specs/${fixFolder}/`) && file !== README_PATH);
-    if (outside.length > 0) broken.push(`it changes files outside \`specs/${fixFolder}/\` and \`${README_PATH}\`: ${outside.map((file) => `\`${file}\``).join(', ')}`);
+    const outside = files.map((file) => file.filename).filter((file) => !file.startsWith(`specs/${fixFolder}/`));
+    if (outside.length > 0) broken.push(`it changes files outside \`specs/${fixFolder}/\`: ${outside.map((file) => `\`${file}\``).join(', ')}`);
     if (await client.getFileContent(`specs/${fixFolder}/spec.md`, defaultBranch)) broken.push(`\`specs/${fixFolder}/\` already exists on \`${defaultBranch}\``);
   }
   if (broken.length > 0) {

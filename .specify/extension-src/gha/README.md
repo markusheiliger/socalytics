@@ -77,10 +77,10 @@ checklist item without the user's confirmation. Its additions are:
   extra spec ahead of the one that needs it), then records it as a dependency
   through `/speckit-clarify`.
 - **Publish checks:** stage `tasked`, no open clarification markers or checklist
-  items, a `specs/README.md` row, an `## Architecture Updates` section in
+  items, an `## Architecture Updates` section in
   `plan.md` with its documentation task, and a clean Markdown check.
 - **Last decision:** commit each spec separately (`Spec: <title>`) and push the
-  spec folders and their `specs/README.md` rows. Everything after the push
+  spec folders. Everything after the push
   belongs to the GitHub workflows. The closing report lists every spec's state
   and the decisions autopilot took, with one recommended next action.
 
