@@ -29,7 +29,7 @@ description: "Task list for Deterministic Club Admin Role-Loss Notification Test
 
 ### Hardening
 
-- [ ] T001 [US1] Start the harness of `AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing` with settings that disable the background workers (`Analysis:Workers:Enabled` = `false`, added to a copy of `RegistrySettings`) in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Notifications/PendingRequestNotificationTests.cs`, so that only the explicit delivery in `CountAsync` sends after the role is removed; leave the assertion, the other tests, and `RegistrySettings` unchanged (FR-001 to FR-004). Verified by running the test alone.
+- [x] T001 [US1] Start the harness of `AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing` with settings that disable the background workers (`Analysis:Workers:Enabled` = `false`, added to a copy of `RegistrySettings`) in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Notifications/PendingRequestNotificationTests.cs`, so that only the explicit delivery in `CountAsync` sends after the role is removed; leave the assertion, the other tests, and `RegistrySettings` unchanged (FR-001 to FR-004). Verified by running the test alone.
 
 ### Verification
 
