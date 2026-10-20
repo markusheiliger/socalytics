@@ -199,3 +199,9 @@ Task: "T008 Add compose.evidence.yaml and StampLifecycleTests.cs"
 - The Compose tests build the three images once per run and need Docker with the Compose v2 plugin
 - Never change `.github/`, the AppHost composition, the images, or any production profile value; never commit a stamp
   directory, secret, or NATS trust material
+
+---
+
+## Phase 7: Convergence
+
+- [ ] T015 Make the links in transactional email point at the stamp's Web UI origin. In `src/platform/deploy/compose/compose.yaml`, set the `api` service's `Notifications__WebUiBaseUri` to `http://localhost:${SOCALYTICS_WEB_PORT:?SOCALYTICS_WEB_PORT is required}` instead of `${SOCALYTICS_PUBLIC_BASE_URI}`, which is an `https` placeholder with no endpoint behind it. `NotificationOptionsValidator` accepts `http`. Keep `Registry__Pairing__VerificationBaseUri` on `${SOCALYTICS_PUBLIC_BASE_URI}`, because `RegistryOptionsValidator` requires an `https` origin outside Development and Analyst Managers cannot connect to the evaluation stamp. Add an assertion for the `Notifications__WebUiBaseUri` value to `src/platform/Tests/SocAlytics.Platform.Compose.Tests/ComposeDefinitionTests.cs`. Keep the `SOCALYTICS_WEB_PORT` comment in `src/platform/deploy/compose/stamp.env.template` (`also forms http://localhost:<port> for links`) true. In `src/platform/deploy/compose/README.md`, state that email links use `http://localhost:<port>` and that the Analyst Manager pairing verification link uses the placeholder base URI, per contracts/compose-stamp.md §5 and FR-017 (partial)
