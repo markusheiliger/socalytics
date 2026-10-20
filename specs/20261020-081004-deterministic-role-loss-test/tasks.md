@@ -33,7 +33,7 @@ description: "Task list for Deterministic Club Admin Role-Loss Notification Test
 
 ### Verification
 
-- [ ] T002 [US1] Verify without committing any probe: run `PendingRequestNotificationTests.AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing` at least 10 times alone and the whole class once, with CPU load applied during one run; temporarily make the send ignore the lost role and confirm the test fails, then remove the probe; confirm `git diff` shows only `PendingRequestNotificationTests.cs` changed and no assertion removed (SC-001, SC-002, SC-004)
+- [x] T002 [US1] Verify without committing any probe: run `PendingRequestNotificationTests.AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing` at least 10 times alone and the whole class once, with CPU load applied during one run; temporarily make the send ignore the lost role and confirm the test fails, then remove the probe; confirm `git diff` shows only `PendingRequestNotificationTests.cs` changed and no assertion removed (SC-001, SC-002, SC-004)
 
 ---
 
