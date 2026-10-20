@@ -556,8 +556,9 @@ submission and conditional status, result, and lineage polling; it never calls
 Hermes directly. The complete persistence, transport, authorization, fencing,
 and recovery contract is defined by
 [Intelligence and Agents](intelligence-and-agents.md#agent-orchestration-authority).
-MCP tools, prompt/profile resolution, model execution, and Web UI agent
-workflows remain future implementation work.
+The Web UI's direct Specialist Agent triage conversations exist as development
+evidence. MCP tools, prompt/profile resolution, model execution, and the Web
+UI's Coach Agent and consultation workflows remain future implementation work.
 
 The first slice is implemented as development evidence: an `AgentOrchestration`
 folder in each platform layer stores conversations, participants, invocations,
@@ -839,7 +840,11 @@ current and non-current migration states; and
   resume, timeline mapping, finalization, and the development CORS access to
   RustFS): the `simulated` project against a simulated API and a fake object
   store, and the `platform` project against the real platform with a scripted
-  Manager and RustFS; and
+  Manager and RustFS; and the match triage conversations (starting a
+  conversation for a run, adding specialists, asking, polling, and reading
+  advice with its disclosure and lineage) in the `simulated` project and in the
+  `platform-triage` project against the real platform with the simulated agent
+  workload; and
 - a Host test verifies the development CORS allow-list and the storage origin
   the AppHost passes to the Web UI; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
@@ -888,14 +893,16 @@ choice or reveals a material operational tradeoff:
   fact reads are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views
-  and the match workflow with recording upload and finalization. External
+  the match workflow with recording upload and finalization, and the match
+  triage conversations with Specialist Agents. External
   OpenID Connect sign-in with Club Admin linking, unlinking, and coexistence
   with local accounts is evidenced by Integration and Playwright tests against
   a test provider (`mock-oauth2-server`), with production provider values,
   secret custody, and lifetimes (`GOV-CRED-006`) still unresolved. The
   production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
   updates through its service worker as development evidence on Chromium), the other
-  Web UI client workflows (analysis review and agent conversations),
+  Web UI client workflows (the analysis review and the Coach Agent and
+  consultation conversations),
   cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
   profile on a Linux engine (Windows automation, Podman, and the other

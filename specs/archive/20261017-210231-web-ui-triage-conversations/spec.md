@@ -21,14 +21,14 @@
 
 ## User Scenarios & Testing *(mandatory)*
 
-The actors are members of the team that owns an analysed match ([Terminology](../../docs/architecture/terminology-and-principles.md#terminology)).
+The actors are members of the team that owns an analysed match ([Terminology](../../../docs/architecture/terminology-and-principles.md#terminology)).
 The platform already owns triage conversations, direct `User -> SA` invocations, accepted advice, and lineage, with
-its rules for who may create, submit, and read ([Agent Orchestration Direct Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md));
+its rules for who may create, submit, and read ([Agent Orchestration Direct Invocations](../20261017-204332-agent-orchestration-invocations/spec.md));
 this feature gives members the connected Web UI for them, as
-[Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui) and
-[Connected Agent Conversations](../../docs/architecture/client-applications.md#connected-agent-conversations) require,
-following [Client, Transport, And Runtime Protocol](../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)
-and [Post-Analysis Match Triage](../../docs/architecture/intelligence-and-agents.md#post-analysis-match-triage). The
+[Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui) and
+[Connected Agent Conversations](../../../docs/architecture/client-applications.md#connected-agent-conversations) require,
+following [Client, Transport, And Runtime Protocol](../../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)
+and [Post-Analysis Match Triage](../../../docs/architecture/intelligence-and-agents.md#post-analysis-match-triage). The
 platform stays authoritative for every rule; the Web UI explains its answers.
 
 ### User Story 1 - Ask a specialist about an analysed match and read the advice (Priority: P1)
@@ -167,7 +167,7 @@ role and confirm the not-found view; take the browser offline and confirm the co
   that does not exist, is not the member's, or belongs to another match MUST be shown as not found, without disclosing
   anything about it.
 - **FR-004**: The conversation view MUST show its bound run with a link to that run's review view of
-  [Web UI Connected Analysis Review](../20261017-181118-web-ui-analysis-review/spec.md), and MUST say when the run is no
+  [Web UI Connected Analysis Review](../../20261017-181118-web-ui-analysis-review/spec.md), and MUST say when the run is no
   longer the match's current run and that the conversation stays bound to it. Conversations start only from the match
   view; the run review view offers no start action.
 - **FR-004a**: The conversation view MUST show the first page of the history with the conversation and load further pages
@@ -200,7 +200,7 @@ role and confirm the not-found view; take the browser offline and confirm the co
   succeeded, its accepted advice.
 - **FR-012**: Accepted advice MUST be shown in full as text, attributed to its agent by name and identifier, with a
   disclosure that it is AI-generated advice for a coach's review, not a decision or a statement by a person, as
-  [Prompt And Advice Governance](../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance)
+  [Prompt And Advice Governance](../../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance)
   requires; the advice text, including its assessment, evidence, uncertainty, and recommendation parts, MUST be shown
   unaltered and in the agent's order.
 - **FR-013**: For each advice the Web UI MUST show the evidence references the platform returns for it, and MUST say
@@ -234,7 +234,7 @@ role and confirm the not-found view; take the browser offline and confirm the co
 #### Interfaces and quality
 
 - **FR-020**: The Web UI MUST reach the platform only through application-owned adapters over the generated client, using
-  the member operations of [Agent Orchestration Direct Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md)
+  the member operations of [Agent Orchestration Direct Invocations](../20261017-204332-agent-orchestration-invocations/spec.md)
   and the existing match and analysis run reads; it MUST add no platform operation unless planning proves that a needed
   read is missing.
 - **FR-021**: All new user-facing text MUST come from translation keys with English as the only shipped language; all new
@@ -283,14 +283,14 @@ role and confirm the not-found view; take the browser offline and confirm the co
 
 ## Assumptions
 
-- **Dependencies**: [Agent Orchestration Direct Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md)
+- **Dependencies**: [Agent Orchestration Direct Invocations](../20261017-204332-agent-orchestration-invocations/spec.md)
   (batch sibling; conversations, participants, submission, private conditional reads, lineage, and the enabled-agent
-  read; its own end-to-end tests prove the platform side with its simulated agent workload), [Web UI Foundation](../archive/20261012-150657-web-ui-foundation/spec.md)
+  read; its own end-to-end tests prove the platform side with its simulated agent workload), [Web UI Foundation](../20261012-150657-web-ui-foundation/spec.md)
   (sign-in, sessions, role navigation, adapters over the generated client, i18n, accessibility),
-  [Web UI Match Workflow and Recording Upload](../archive/20261013-112844-web-ui-match-upload/spec.md) (the match view and
-  its analysis run list), and [Installable Web UI with Service Worker Updates](../archive/20261015-194113-web-ui-pwa-updates/spec.md)
+  [Web UI Match Workflow and Recording Upload](../20261013-112844-web-ui-match-upload/spec.md) (the match view and
+  its analysis run list), and [Installable Web UI with Service Worker Updates](../20261015-194113-web-ui-pwa-updates/spec.md)
   (online-only shell, connection-required state, service worker rules). The run review view comes from
-  [Web UI Connected Analysis Review](../20261017-181118-web-ui-analysis-review/spec.md); this feature only links to it.
+  [Web UI Connected Analysis Review](../../20261017-181118-web-ui-analysis-review/spec.md); this feature only links to it.
 - **Platform rules**: Who may create, submit, and read, the per-owner limit of unfinished questions, the question and
   advice length limits, and the suggested polling interval are the platform's; the Web UI does not duplicate them.
 - **Evidence references**: The first platform slice returns no evidence references; they arrive with the MCP tools, so
