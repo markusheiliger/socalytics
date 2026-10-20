@@ -2,7 +2,7 @@
 
 **Branch**: `20261020-144627-deterministic-integration-races` | **Date**: 2026-10-20 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261020-144627-deterministic-integration-races/spec.md`
+**Input**: Feature specification from `/specs/archive/20261020-144627-deterministic-integration-races/spec.md`
 
 ## Summary
 
@@ -52,7 +52,7 @@ Post-design re-check: Pass.
 ### Documentation (this feature)
 
 ```text
-specs/20261020-144627-deterministic-integration-races/
+specs/archive/20261020-144627-deterministic-integration-races/
 ├── plan.md
 ├── spec.md
 ├── tasks.md
