@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Fix for**: #186 (implementation of `specs/20261018-094332-compose-stamp`)
+**Fix for**: #186 (implementation of `specs/archive/20261018-094332-compose-stamp`)
 
 **Input**: User description: "SelfServicePasswordRecoveryLimitsTests.AuditTrailHoldsOneEventPerStepAndNothingSecretIsRecorded in src/platform/Tests/SocAlytics.Platform.Integration.Tests/IdentityAccess fails intermittently: its process-wide ActivityListener and MeterListener collect unrelated telemetry (Npgsql pool tags) that can contain the weak password 'short'. Scope the capture to this test's own host and keep all secret assertions unchanged."
 
@@ -60,6 +60,6 @@ A maintainer running the Integration test suite, or the verification of any impl
 
 - **Cause**: The test registers an `ActivityListener` with `ShouldListenTo = _ => true` and a `MeterListener` that enables every instrument of the process, then asserts that the collected text never contains the secrets. Database-driver telemetry of other tests in the process carries connection strings (host, port, database, user) that can contain the weak password `short` as a substring by chance (the diagnosis of #186; runs 39224866049 and 39197471333). The defect is in the test, not in the platform.
 - **Smallest fix**: The capture is scoped by what the host under test emits, for example by the instrumentation scopes the host and its clients use (excluding the database driver, whose tags are connection details and never request content) and, where the platform offers it, by an identity of the host under test. The plan chooses the mechanism; the requirements above decide acceptance.
-- **Dependencies**: The owning feature is [Self-Service Password Recovery](../20261017-200823-password-recovery/spec.md). The fix unblocks the implementation of [Compose Stamp Composition for Self-Hosted Evaluation](../../20261018-094332-compose-stamp/spec.md) in #186.
+- **Dependencies**: The owning feature is [Self-Service Password Recovery](../20261017-200823-password-recovery/spec.md). The fix unblocks the implementation of [Compose Stamp Composition for Self-Hosted Evaluation](../20261018-094332-compose-stamp/spec.md) in #186.
 - **Out of scope**: Changing production telemetry, other tests that use process-wide listeners, the secret list, or any threshold; disabling or skipping the test.
 - **Evidence**: Passing tests are development evidence only and do not establish deployment support or production readiness.

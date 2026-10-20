@@ -145,7 +145,7 @@ Migrator remain unresolved.
 A self-hosted evaluation composition of one stamp is implemented as development
 evidence, verified by Docker-backed tests in `SocAlytics.Platform.Compose.Tests`
 (see the
-[Compose stamp contract](../../specs/20261018-094332-compose-stamp/contracts/compose-stamp.md)).
+[Compose stamp contract](../../specs/archive/20261018-094332-compose-stamp/contracts/compose-stamp.md)).
 It lives in `src/platform/deploy/compose/` as one Compose file, an environment
 file template, and its documentation, and is started under one Compose project
 name per stamp; it fixes no container, network, or volume name. It runs the

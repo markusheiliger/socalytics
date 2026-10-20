@@ -5,7 +5,7 @@ description: "Task list for Compose Stamp Composition for Self-Hosted Evaluation
 
 # Tasks: Compose Stamp Composition for Self-Hosted Evaluation
 
-**Input**: Design documents from `specs/20261018-094332-compose-stamp/`
+**Input**: Design documents from `specs/archive/20261018-094332-compose-stamp/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 
@@ -131,7 +131,7 @@ every open profile value is a placeholder, and the non-production statement is p
 
 ### Final validation
 
-- [x] T014 Run the validation of `specs/20261018-094332-compose-stamp/quickstart.md`: build the three images with the commands of `specs/archive/20261018-092503-oci-images/quickstart.md`, run the setup console and the `docker compose` commands for one stamp and a second stamp and tear both down, run `dotnet build src/platform/SocAlytics.Platform.slnx` and `dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests`, and run `node .github/scripts/check-markdown.mjs`; fix any failure in the files of the task that introduced it
+- [x] T014 Run the validation of `specs/archive/20261018-094332-compose-stamp/quickstart.md`: build the three images with the commands of `specs/archive/20261018-092503-oci-images/quickstart.md`, run the setup console and the `docker compose` commands for one stamp and a second stamp and tear both down, run `dotnet build src/platform/SocAlytics.Platform.slnx` and `dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests`, and run `node .github/scripts/check-markdown.mjs`; fix any failure in the files of the task that introduced it
 
 ---
 

@@ -1,10 +1,10 @@
 # Research: Compose Stamp Composition for Self-Hosted Evaluation
 
 All decisions build on the existing projects and on the image contract of the batch sibling
-[Cloud-Neutral OCI Images](../archive/20261018-092503-oci-images/contracts/container-images.md) (see [plan.md](plan.md)).
+[Cloud-Neutral OCI Images](../20261018-092503-oci-images/contracts/container-images.md) (see [plan.md](plan.md)).
 Values that belong to a production profile (host, engine and Compose versions, ports, DNS, certificates, secret source,
 volume paths, replicas, resource sizes) stay **Open / Blocking** as
-[Production Deployment and Operations](../../docs/architecture/production-operations.md#versioned-production-profile)
+[Production Deployment and Operations](../../../docs/architecture/production-operations.md#versioned-production-profile)
 defines; where the evaluation stamp needs a value, it is a documented evaluation choice or an operator-supplied value.
 
 ## R1 Location and form of the definition
