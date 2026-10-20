@@ -8,7 +8,7 @@ Validation guide for the implemented feature. Details: [data-model.md](data-mode
 - The environment of [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md):
   CPython 3.12.15, `uv` 0.13.1, and the pinned FFmpeg and ffprobe on `PATH` (on Linux CI from `environment-setup`;
   locally any CPython 3.12 with `uv` and that FFmpeg build).
-- The merged [Python Analyst SDK](../20261017-220709-python-analyst-sdk/spec.md),
+- The merged [Python Analyst SDK](../archive/20261017-220709-python-analyst-sdk/spec.md),
   [Materialized Video Segments](../20261017-222433-materialized-segments/spec.md), and
   [Fact Indexing](../archive/20261017-175648-fact-indexing-queries/spec.md).
 - The .NET 10 SDK and a Docker-compatible runtime with a Linux engine (see `AGENTS.md`); Linux for the end-to-end test,

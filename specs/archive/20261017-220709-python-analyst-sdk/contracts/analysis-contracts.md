@@ -1,6 +1,6 @@
 # Contract: Analysis Contract Changes
 
-Both changes follow [Versioning And Compatibility](../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility):
+Both changes follow [Versioning And Compatibility](../../../../docs/architecture/contracts-and-compatibility.md#versioning-and-compatibility):
 released copies stay immutable, new `releases/<version>.schema.json` copies are added, `x-socalytics-version` is
 updated, and `contracts/README.md` lists the versions. Shared definitions come from
 `contracts/common/v1/common.schema.json`.

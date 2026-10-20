@@ -302,28 +302,28 @@ missing from or extra to its schema fails a test.
 
 ### Dependencies
 
-- [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) (twin #143)
+- [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md) (twin #143)
   provides CPython, `uv`, and the locked verification of `src/analysts/sdk/`; it MUST merge before this feature.
-- [Accepted Fact Indexing and Capability-Scoped Fact Queries](../archive/20261017-175648-fact-indexing-queries/spec.md)
+- [Accepted Fact Indexing and Capability-Scoped Fact Queries](../20261017-175648-fact-indexing-queries/spec.md)
   (twin #144) provides the fact-artifact contract and media type; it MUST merge before this feature.
-- [Partial-Coverage Match Barriers](../archive/20261017-212004-partial-coverage-barriers/spec.md) provides the result
+- [Partial-Coverage Match Barriers](../20261017-212004-partial-coverage-barriers/spec.md) provides the result
   manifest 1.1.0 input coverage report and the partial-coverage statement in the staged coverage; it MUST merge
   before this feature.
-- [Durable Analysis Workflow](../archive/20261005-130703-durable-analysis-workflow/spec.md),
-  [Analysis Result Manifests and Validated Acceptance](../archive/20261013-125502-analysis-result-manifests/spec.md),
-  [Analysis Result Read for Jobs](../archive/20261013-134112-analysis-result-read/spec.md),
-  [Analyst Manager Work Execution](../archive/20261012-141233-manager-work-execution/spec.md), and
-  [Docker Desktop Runtime Adapter for Analyst Execution](../archive/20261015-092159-docker-runtime-adapter/spec.md)
+- [Durable Analysis Workflow](../20261005-130703-durable-analysis-workflow/spec.md),
+  [Analysis Result Manifests and Validated Acceptance](../20261013-125502-analysis-result-manifests/spec.md),
+  [Analysis Result Read for Jobs](../20261013-134112-analysis-result-read/spec.md),
+  [Analyst Manager Work Execution](../20261012-141233-manager-work-execution/spec.md), and
+  [Docker Desktop Runtime Adapter for Analyst Execution](../20261015-092159-docker-runtime-adapter/spec.md)
   are implemented and define the job message, the result contracts, the staged-inputs layout, and the container
   interface this feature completes.
 
 ### Architecture Alignment
 
-- Implements the Analyst SDK of [Analyst Technology](../../docs/architecture/platform-implementation.md#analyst-technology),
-  the SDK parts of [Analysts, Models, and Hardware](../../docs/architecture/analysts-models-and-hardware.md#implementation-profile),
-  [Analytics](../../docs/architecture/tenancy-and-technology.md#analytics), and the container interface of
-  [Analyst Runtime and Recovery](../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status),
-  under the canonical-schema rules of [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md).
+- Implements the Analyst SDK of [Analyst Technology](../../../docs/architecture/platform-implementation.md#analyst-technology),
+  the SDK parts of [Analysts, Models, and Hardware](../../../docs/architecture/analysts-models-and-hardware.md#implementation-profile),
+  [Analytics](../../../docs/architecture/tenancy-and-technology.md#analytics), and the container interface of
+  [Analyst Runtime and Recovery](../../../docs/architecture/analyst-runtime-and-recovery.md#runtime-preflight-and-status),
+  under the canonical-schema rules of [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md).
 - The JSON Schemas stay canonical; the SDK's models are a consumer and never a cross-language authority.
 
 ### Scope Boundaries

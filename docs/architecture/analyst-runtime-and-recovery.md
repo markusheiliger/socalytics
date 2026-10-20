@@ -116,6 +116,7 @@ credentials, or host-wide control APIs. Analyst launches default to:
   logs
 
 The Analyst container interface fixes what an Analyst sees: the Logical Job message read-only at `/socalytics/job.json`, the
+read-only attempt context at `/socalytics/attempt.json`, the
 staged upstream results read-only at `/socalytics/inputs/`, the result mount
 at `/socalytics/result/` (where the Analyst writes its result manifest and
 artifacts), scratch space at `/socalytics/scratch/`, and a small memory-backed
@@ -126,7 +127,7 @@ container's output stays on the host as a bounded log for the operator; the
 platform receives only the sanitized failure category of the attempt
 completion.
 
-The interface is completed as follows (decided, not yet implemented; see
+The interface is completed as follows (see
 [Analysts, Models, and Hardware](analysts-models-and-hardware.md#implementation-profile)
 for the Analyst SDK that consumes it): `/socalytics/job.json` holds the
 received Logical Job message byte for byte, and job messages of contract

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/upstream-results/v1/upstream-results.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analysis upstream results page v1",
+  "description": "Response of GET /api/v1/analysis/attempts/{attemptId}/upstream-results (operation listAnalysisUpstreamResults). One page of the accepted results of one upstream dependency of an Execution Attempt, each with its embedded result manifest, its checksum, and single-object presigned GET grants, plus the coverage of the requested scope. The page carries no credentials other than the grant URLs, which are never logged or audited.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "upstream", "results", "coverage", "continuationToken"],
+  "properties": {
+    "contractVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1" },
+    "upstream": {
+      "description": "The upstream dependency of the job this page belongs to.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "schemaVersion", "edgeKind"],
+      "properties": {
+        "capability": { "$ref": "../../../common/v1/common.schema.json#/$defs/capabilityRef" },
+        "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+        "edgeKind": { "enum": ["required", "optional", "conditional"] }
+      }
+    },
+    "results": {
+      "type": "array",
+      "maxItems": 256,
+      "items": { "$ref": "#/$defs/result" }
+    },
+    "coverage": {
+      "description": "State of each requested segment, or of the match scope, whether or not a result is on this page.",
+      "type": "array",
+      "maxItems": 1024,
+      "items": { "$ref": "#/$defs/coverageEntry" }
+    },
+    "continuationToken": {
+      "description": "Opaque token for the next page, or null when this is the last page.",
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[A-Za-z0-9._~+/=\\-]+$"
+    }
+  },
+  "$defs": {
+    "milliseconds": { "type": "integer", "minimum": 0 },
+    "objectName": {
+      "description": "Relative object name in the accepted result's location. Never a URL or path.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._\\-]{0,127}$"
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["acceptedResultId", "scope", "manifestChecksum", "manifest", "grants"],
+      "properties": {
+        "acceptedResultId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "scope": {
+          "description": "Exactly one of segment or match.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "segment": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["segmentId", "windowStartMs", "windowEndMs"],
+              "properties": {
+                "segmentId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+                "windowStartMs": { "$ref": "#/$defs/milliseconds" },
+                "windowEndMs": { "$ref": "#/$defs/milliseconds" }
+              }
+            },
+            "match": { "const": true }
+          },
+          "oneOf": [
+            { "required": ["segment"] },
+            { "required": ["match"] }
+          ]
+        },
+        "manifestChecksum": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+        "manifest": { "$ref": "../../result-manifest/v1/result-manifest.schema.json" },
+        "grants": {
+          "description": "One single-object presigned GET grant per result object, including manifest.json.",
+          "type": "array",
+          "maxItems": 257,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "url", "expiresAt"],
+            "properties": {
+              "name": { "$ref": "#/$defs/objectName" },
+              "url": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "^https?://" },
+              "expiresAt": { "$ref": "../../../common/v1/common.schema.json#/$defs/timestamp" }
+            }
+          }
+        }
+      }
+    },
+    "coverageEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "segmentId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "match": { "const": true },
+        "state": { "enum": ["accepted", "missing", "failed", "blocked", "skipped"] }
+      },
+      "oneOf": [
+        { "required": ["segmentId"] },
+        { "required": ["match"] }
+      ]
+    }
+  }
+}

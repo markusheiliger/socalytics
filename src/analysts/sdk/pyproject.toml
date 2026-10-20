@@ -1,0 +1,27 @@
+[project]
+name = "socalytics-analyst-sdk"
+version = "1.0.0"
+description = "SocAlytics Analyst SDK for Python"
+requires-python = "==3.12.*"
+dependencies = [
+    "pydantic>=2,<3",
+    "jsonschema>=4,<5",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = ["pytest", "hatchling"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/socalytics_analyst"]
+dev-mode-dirs = ["src"]
+include = [
+    "src/socalytics_analyst/**/*.py",
+    "src/socalytics_analyst/contracts/**/*.json",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

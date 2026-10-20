@@ -13,7 +13,7 @@ public class DockerLaunchSpecTests
     private static AttemptLaunch Launch(string? inputs = "/attempts/a/inputs") => new(
         "attempt-1", "job-1", "cap", "cap:1", "scope", "sha-256:p", "sha-256:i", string.Empty,
         new AttemptResources(1.5, 512L * 1024 * 1024, []),
-        ResultDirectory: "/attempts/a/result", InputsDirectory: inputs, JobFile: "/attempts/a/job.json", ScratchDirectory: "/attempts/a/scratch");
+        ResultDirectory: "/attempts/a/result", InputsDirectory: inputs, JobFile: "/attempts/a/job.json", ScratchDirectory: "/attempts/a/scratch", AttemptFile: "/attempts/a/attempt.json");
 
     private static JsonObject Build(AttemptLaunch? launch = null, string user = DockerLaunchSpec.FixedUser) =>
         DockerLaunchSpec.Build(launch ?? Launch(), Image, "manager-1", user);
@@ -63,6 +63,7 @@ public class DockerLaunchSpecTests
         binds.ShouldBe(
         [
             "/attempts/a/job.json:/socalytics/job.json:ro",
+            "/attempts/a/attempt.json:/socalytics/attempt.json:ro",
             "/attempts/a/inputs:/socalytics/inputs:ro",
             "/attempts/a/result:/socalytics/result:rw",
             "/attempts/a/scratch:/socalytics/scratch:rw",
@@ -74,8 +75,26 @@ public class DockerLaunchSpecTests
     {
         var binds = Build(Launch(null))["HostConfig"]!["Binds"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
 
-        binds.Count.ShouldBe(3);
+        binds.Count.ShouldBe(4);
         binds.ShouldNotContain(b => b.Contains("/socalytics/inputs", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Binds_the_attempt_file_read_only_and_adds_no_environment_variable()
+    {
+        var body = Build();
+        var binds = body["HostConfig"]!["Binds"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
+
+        binds.Where(b => b.Contains("attempt.json", StringComparison.Ordinal)).ShouldBe(["/attempts/a/attempt.json:/socalytics/attempt.json:ro"]);
+        body["Env"]!.AsArray().Count.ShouldBe(0);
+    }
+
+    [Fact]
+    public void Omits_the_attempt_bind_when_there_is_no_attempt_file()
+    {
+        var binds = Build(Launch() with { AttemptFile = null })["HostConfig"]!["Binds"]!.AsArray().Select(n => n!.GetValue<string>()).ToList();
+
+        binds.ShouldNotContain(b => b.Contains("attempt.json", StringComparison.Ordinal));
     }
 
     [Fact]

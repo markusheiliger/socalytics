@@ -181,7 +181,9 @@ to archived specs, often on the same lines. Every base merge (the job `sync`, th
 archive step, and the land job's replay) first resolves them with the archive script (`resolveSpecConflicts` in
 `speckit-archive.mjs`): outside the implementation's own spec folder it takes the base branch's version and applies
 every archive to it; in the own folder it normalizes both sides and their merge base with every archive and merges them
-three-way. Only conflicts that remain go to Copilot: code, and real edits of the own spec's artifacts that the base
+three-way. After every such merge, also without conflicts, the script points references in all files to every archived
+spec, for example in a spec the base branch added that links to the spec this branch archived. Only conflicts that
+remain go to Copilot: code, and real edits of the own spec's artifacts that the base
 branch changed too. Copilot may resolve the latter if it keeps every task and every checked box (the land job checks
 `tasks.md`), and the final merge waits for a person's review of them. Outside the own spec folder an implementation may
 change files under `specs/` only by reference rewrites: the merge verification refuses any other difference from the
