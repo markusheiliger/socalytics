@@ -5,7 +5,7 @@ description: "Task list for Deterministic Club Admin Role-Loss Notification Test
 
 # Tasks: Deterministic Club Admin Role-Loss Notification Test
 
-**Input**: Design documents from `specs/20261020-081004-deterministic-role-loss-test/`
+**Input**: Design documents from `specs/archive/20261020-081004-deterministic-role-loss-test/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 
@@ -29,11 +29,11 @@ description: "Task list for Deterministic Club Admin Role-Loss Notification Test
 
 ### Hardening
 
-- [ ] T001 [US1] Start the harness of `AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing` with settings that disable the background workers (`Analysis:Workers:Enabled` = `false`, added to a copy of `RegistrySettings`) in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Notifications/PendingRequestNotificationTests.cs`, so that only the explicit delivery in `CountAsync` sends after the role is removed; leave the assertion, the other tests, and `RegistrySettings` unchanged (FR-001 to FR-004). Verified by running the test alone.
+- [x] T001 [US1] Start the harness of `AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing` with settings that disable the background workers (`Analysis:Workers:Enabled` = `false`, added to a copy of `RegistrySettings`) in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Notifications/PendingRequestNotificationTests.cs`, so that only the explicit delivery in `CountAsync` sends after the role is removed; leave the assertion, the other tests, and `RegistrySettings` unchanged (FR-001 to FR-004). Verified by running the test alone.
 
 ### Verification
 
-- [ ] T002 [US1] Verify without committing any probe: run `PendingRequestNotificationTests.AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing` at least 10 times alone and the whole class once, with CPU load applied during one run; temporarily make the send ignore the lost role and confirm the test fails, then remove the probe; confirm `git diff` shows only `PendingRequestNotificationTests.cs` changed and no assertion removed (SC-001, SC-002, SC-004)
+- [x] T002 [US1] Verify without committing any probe: run `PendingRequestNotificationTests.AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing` at least 10 times alone and the whole class once, with CPU load applied during one run; temporarily make the send ignore the lost role and confirm the test fails, then remove the probe; confirm `git diff` shows only `PendingRequestNotificationTests.cs` changed and no assertion removed (SC-001, SC-002, SC-004)
 
 ---
 

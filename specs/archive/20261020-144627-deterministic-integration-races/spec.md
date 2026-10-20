@@ -14,7 +14,7 @@
 
 The merge verification of #201 changed only Analyst Manager tests but failed in platform Integration tests of other features. Three tests failed intermittently:
 
-- `PendingRequestNotificationTests.AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing` and `SecretHygieneTests.NoSecretsReachLogsPersistedRecordingDataAuditOrRetryOutcomes` are already covered by the merged specs [Deterministic Club Admin Role-Loss Notification Test](../../20261020-081004-deterministic-role-loss-test/spec.md) and [Timing Margins for Intermittent Integration Tests](../../20261019-221242-harden-integration-test-timing/spec.md); this spec does not repeat them.
+- `PendingRequestNotificationTests.AClubAdminWhoLosesTheRoleBeforeTheSendReceivesNothing` and `SecretHygieneTests.NoSecretsReachLogsPersistedRecordingDataAuditOrRetryOutcomes` are already covered by the merged specs [Deterministic Club Admin Role-Loss Notification Test](../20261020-081004-deterministic-role-loss-test/spec.md) and [Timing Margins for Intermittent Integration Tests](../../20261019-221242-harden-integration-test-timing/spec.md); this spec does not repeat them.
 - `SimulatedAgentWorkloadTests.RunnerClaimsAndCompletesASubmittedInvocationSoTheOwnerReadsSimulatedAdvice` is not covered. The test starts the simulated runner, then polls the invocation for at most 30 real seconds, and cancels the runner after the same 30 seconds. On a loaded runner the runner's connection, claim, and completion can take longer, the loop ends with no advice, and the assertion reports `null`. The platform behavior is correct; the test depends on winning a race against wall-clock time.
 
 ## User Scenarios & Testing *(mandatory)*
