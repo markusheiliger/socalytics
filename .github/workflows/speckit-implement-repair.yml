@@ -230,6 +230,7 @@ jobs:
     outputs:
       head: ${{ steps.head.outputs.head }}
       verification: ${{ steps.verification.outcome }}
+      flaky: ${{ steps.verification.outputs.flaky }}
     env:
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
@@ -389,4 +390,5 @@ jobs:
           SPECKIT_HEAD: ${{ needs.verify.outputs.head || needs.land.outputs.head }}
           SPECKIT_VERIFY_RESULT: ${{ needs.verify.result }}
           SPECKIT_VERIFICATION_OUTCOME: ${{ needs.verify.outputs.verification }}
+          SPECKIT_VERIFY_FLAKY: ${{ needs.verify.outputs.flaky }}
         run: node .github/scripts/speckit-repair.mjs repair-report

@@ -5,6 +5,13 @@ export const CHECK_RUN_NAME = 'Spec Kit implementation';
 export const START_COMMENT_MARKER = '<!-- speckit-implement:start -->';
 export const RETRY_COMMENT_MARKER = '<!-- speckit-implement:retry -->';
 export const SYNC_COMMENT_MARKER = '<!-- speckit-implement:sync -->';
+// Leads a retry or sync comment that the diagnosis posted to continue automatically (speckit-diagnose.mjs). The comment
+// still counts as the restart that follows the marker: startsWithMarker skips it.
+export const AUTO_CONTINUE_MARKER = '<!-- speckit-implement:auto-continue -->';
+export function startsWithMarker(body, marker) {
+  const text = String(body ?? '');
+  return (text.startsWith(AUTO_CONTINUE_MARKER) ? text.slice(AUTO_CONTINUE_MARKER.length).replace(/^\r?\n/, '') : text).startsWith(marker);
+}
 const SYNC_BARRIER_PATTERN = /<!-- speckit-implement:sync-barrier (\{[^\n]*?\}) -->/;
 
 export function renderSyncComment(lead, guidance = '', state = null) {
@@ -16,7 +23,7 @@ export const renderSyncBarrierMarker = (state) => `<!-- speckit-implement:sync-b
 // Requests and acknowledgements live on the pull request, not in replaceable workflow inputs or head-bound checks.
 export function syncBarrier(comments, { includeReleased = false } = {}) {
   const trusted = comments.filter((comment) => comment.user?.login === BOT_LOGIN);
-  const request = trusted.filter((comment) => String(comment.body ?? '').startsWith(SYNC_COMMENT_MARKER)).at(-1);
+  const request = trusted.filter((comment) => startsWithMarker(comment.body, SYNC_COMMENT_MARKER)).at(-1);
   if (!request) return null;
   const id = String(request.id ?? request.created_at);
   let completion = null;
@@ -202,6 +209,54 @@ export function baseOwnedChanges(comments) {
     }
   }
   return [...files].sort();
+}
+
+// Tests that failed and passed on their one rerun in a verification (environment-verify's `flaky` output). Every
+// comment that reports a verification lists them and records them in a marker; the scheduler's flaky-test ledger
+// reads the markers of the workflow's comments only (parseFlakyMarkers). `<` and `>` are escaped in the JSON, so a test
+// name cannot end the comment.
+const FLAKY_MARKER_PATTERN = /<!-- speckit-implement:flaky (\{[^\n]*?\}) -->/g;
+const FLAKY_SPEC_PATTERN = /<!-- speckit-implement:flaky-spec (\{[^\n]*?\}) -->/g;
+const markerJson = (data) => JSON.stringify(data).replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
+
+// The tests of a comma-separated list or an array, trimmed and without duplicates.
+export function parseFlakyList(value) {
+  const items = Array.isArray(value) ? value : String(value ?? '').split(',');
+  return [...new Set(items.map((item) => String(item ?? '').trim()).filter(Boolean))];
+}
+
+// The lines a verification comment adds for its flaky tests: the visible list and the marker; none without flaky tests.
+export function renderFlakyLines(value, { bullet = true } = {}) {
+  const tests = parseFlakyList(value);
+  if (tests.length === 0) return [];
+  const shown = tests.map((test) => `\`${neutralizeMarkers(test).replaceAll('`', "'")}\``).join(', ');
+  return [`${bullet ? '- ' : ''}Flaky (passed on rerun): ${shown}`, `<!-- speckit-implement:flaky ${markerJson({ tests })} -->`];
+}
+
+function workflowMarkers(comments, pattern) {
+  const found = [];
+  for (const comment of comments ?? []) {
+    if (comment.user?.login !== BOT_LOGIN) continue;
+    for (const match of String(comment.body ?? '').matchAll(pattern)) {
+      try {
+        found.push({ data: JSON.parse(match[1]), at: comment.created_at });
+      } catch {
+        // A damaged marker records nothing.
+      }
+    }
+  }
+  return found;
+}
+
+// Every flaky test the workflow's comments recorded, with the time of the comment (one record per occurrence).
+export function parseFlakyMarkers(comments) {
+  return workflowMarkers(comments, FLAKY_MARKER_PATTERN).flatMap(({ data, at }) => parseFlakyList(Array.isArray(data?.tests) ? data.tests.filter((test) => typeof test === 'string') : []).map((test) => ({ test, at })));
+}
+
+// A flaky test the scheduler started a spec for (on the implementation pull request it was flaky on most recently).
+export const renderFlakySpecMarker = (test) => `<!-- speckit-implement:flaky-spec ${markerJson({ test })} -->`;
+export function parseFlakySpecMarkers(comments) {
+  return workflowMarkers(comments, FLAKY_SPEC_PATTERN).map(({ data }) => data?.test).filter((test) => typeof test === 'string' && test);
 }
 // Paths the agent must never change; specs/<folder>/tasks.md may only receive the target task's tick.
 export const PROTECTED_PREFIXES = ['.github/', '.specify/', 'specs/'];
@@ -414,7 +469,7 @@ const renderRestartState = ({ head, base = null }) => `<!-- speckit-implement:re
 export function unchangedRestarts(comments, head) {
   const restarts = [];
   const ordered = [...comments]
-    .filter((comment) => comment.user?.login === BOT_LOGIN && RESTART_COMMENT_MARKERS.some((marker) => String(comment.body ?? '').startsWith(marker)))
+    .filter((comment) => comment.user?.login === BOT_LOGIN && RESTART_COMMENT_MARKERS.some((marker) => startsWithMarker(comment.body, marker)))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
   for (const comment of ordered) {
     let state = null;
@@ -440,7 +495,7 @@ export function repeatedFailure(comments, head) {
   const ordered = [...comments]
     .filter((comment) => comment.user?.login === BOT_LOGIN)
     .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
-  const verbOf = (body) => (String(body).startsWith(SYNC_COMMENT_MARKER) ? 'sync' : RESTART_COMMENT_MARKERS.some((marker) => String(body).startsWith(marker)) ? 'retry' : null);
+  const verbOf = (body) => (startsWithMarker(body, SYNC_COMMENT_MARKER) ? 'sync' : RESTART_COMMENT_MARKERS.some((marker) => startsWithMarker(body, marker)) ? 'retry' : null);
   const restartAt = ordered.findLastIndex((comment) => verbOf(comment.body) && RESTART_STATE_PATTERN.test(String(comment.body)));
   if (restartAt < 0) return null;
   let state = null;
@@ -942,7 +997,7 @@ export const TASK_TEST_SCOPE = 'Build what you change and run only the tests tha
 // repository for one picked another spec's task.
 export function renderTaskPrompt(taskId, folder, { archived = false } = {}) {
   const where = folder ? ` of the spec in \`${specDir(folder, { archived })}/\` (its \`tasks.md\`); ignore the other specs` : '';
-  return `/speckit-implement Implement only task ${taskId}${where}. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`;
+  return `/speckit-implement Implement only task ${taskId}${where}. Do not implement any other task. Do not edit \`tasks.md\`: the tooling checks the task's box after verification. Do not commit and do not push. ${TASK_TEST_SCOPE}`;
 }
 
 export function renderConvergePrompt() {
@@ -992,7 +1047,7 @@ export function latestCheckRun(checkRuns) {
 // Creation times of workflow-authored comments that start with a marker; text inside other comments cannot forge them.
 export function markerTimes(comments, marker) {
   return comments
-    .filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(marker))
+    .filter((comment) => comment.user?.login === BOT_LOGIN && startsWithMarker(comment.body, marker))
     .map((comment) => comment.created_at);
 }
 
@@ -1198,10 +1253,9 @@ export function validateTaskChange({ folder, archived = false, taskId, before, a
     return was && now && was[2] === taskId && now[2] === taskId && was[1] === ' ' && now[1] !== ' '
       && beforeLines[index].replace(/\[ \]/, '[x]') === afterLines[index].replace(/\[[xX]\]/, '[x]');
   };
+  // An unchanged tasks.md is expected: the land job checks the task after verification (runLand).
   if (differing === null || differing.length > 1 || (differing.length === 1 && !ticked(differing[0]))) {
     reasons.push(`\`${tasksPath}\` may only change by checking ${taskId}`);
-  } else if (differing.length === 0) {
-    reasons.push(`${taskId} was not checked in \`${tasksPath}\`, so the task is not complete`);
   }
   return reasons;
 }
