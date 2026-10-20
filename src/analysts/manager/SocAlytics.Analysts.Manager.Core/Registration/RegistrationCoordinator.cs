@@ -33,9 +33,9 @@ public sealed class RegistrationCoordinator(
     IOptions<PlatformOptions> options,
     TimeProvider time,
     ApplicationProfile profile,
+    Diagnostics.ManagerBuildVersion buildVersion,
     ILogger<RegistrationCoordinator> logger)
 {
-    public const string ManagerVersion = "0.1.0";
     private ManagerTokenCache tokens => services.GetRequiredService<ManagerTokenCache>();
     private readonly object _gate = new();
     private ManagerRegistrationState _state = ManagerRegistrationState.Unregistered;
@@ -229,7 +229,7 @@ public sealed class RegistrationCoordinator(
                 key.Protection.ToWireValue(),
                 Truncate(Environment.OSVersion.VersionString, 64),
                 RuntimeInformation.OSArchitecture == Architecture.Arm64 ? "arm64" : "x64",
-                ManagerVersion,
+                buildVersion.Value,
                 request.HostLabel,
                 profile.ToApiName());
             var response = await platform.SendAsync(platform.BuildPairing(endpoint, stamp.StampId, key, metadata), ct);

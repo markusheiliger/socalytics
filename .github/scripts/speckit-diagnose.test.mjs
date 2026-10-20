@@ -5,8 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { pendingFeedback, renderFeedback } from './speckit-amend.mjs';
-import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, DIAGNOSIS_COMMENT_MARKER } from './speckit-implement-core.mjs';
-import { checkReportFile, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
+import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker, renderSyncComment, repeatedFailure } from './speckit-implement-core.mjs';
+import { CATEGORIES, CATEGORY_COMMANDS, MAX_RECOMMENDED_COMMAND, categoryCommands, checkReportFile, commandPatterns, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
 const env = (extra = {}) => ({ GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_FOLDER: 'f', ...extra });
@@ -71,9 +71,82 @@ test('collects evidence: checks, comments, failed run logs, branch state, and no
     assert.doesNotMatch(evidence, /Job "begin"/);
     const context = JSON.parse(readFileSync(path.join(dir, 'context.json'), 'utf8'));
     assert.deepEqual([context.implementationBranch, context.amendmentBranch, context.nextTask], ['speckit/f', 'speckit-amend/f', 'T002']);
+    // The live command reference: every recommendable command with what it does on this pull request.
+    assert.match(evidence, new RegExp(`## ${COMMAND_REFERENCE_TITLE}\\n`));
+    for (const command of PR_COMMANDS.filter((item) => item.recommend)) assert.ok(evidence.includes(`### \`${command.usage}\``), command.name);
+    assert.doesNotMatch(evidence, /### `\/speckit help/);
+    assert.match(evidence, /No repair is pending on this pull request\./);
+    assert.match(evidence, /Does not merge `main`: the implementation continues with what stopped/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('evidence: with a pending repair, the reference says what retry does with and without guidance', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'speckit-evidence-repair-'));
+  try {
+    const github = diagnosisRepo({ amendment: false });
+    await github.createComment(9, `${renderRepairMarker({ id: 'phase:1:sha-impl', state: 'pending', scope: 'phase', tasks: ['T001', 'T002'], head: 'sha-impl', at: '2026-10-18T10:00:00Z' })}\npending`);
+    await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir }), log: silent });
+    const evidence = readFileSync(path.join(dir, 'evidence.md'), 'utf8');
+    assert.match(evidence, /A \*\*phase repair is pending\*\* on this pull request \(T001, T002\)\./);
+    assert.match(evidence, /- What it does with guidance: Does not merge `main`; runs a repair agent with the guidance, then reverifies the pending phase verification/);
+    assert.match(evidence, /- What it does without guidance: Does not merge `main`; reverifies without running a repair agent the pending phase verification/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Everything diagnose knows about the `/speckit` commands comes from PR_COMMANDS; these tests fail when the diagnose
+// skill, its workflow prompt, or the derived lists fall behind a new, changed, or removed command.
+const SKILL_SOURCE = readFileSync(new URL('../../.specify/extension-src/gha/commands/speckit.gha.diagnose.md', import.meta.url), 'utf8');
+const DIAGNOSE_PROMPT = readFileSync(new URL('../workflows/speckit-diagnose.md', import.meta.url), 'utf8');
+const mentionedVerbs = (text) => [...new Set([...text.matchAll(/\/speckit ([a-z][a-z-]*)/g)].map((match) => match[1]))];
+
+test('drift: the diagnose skill names every recommendable command and flag, and no unknown command', () => {
+  const known = PR_COMMANDS.map((command) => command.name);
+  for (const command of PR_COMMANDS.filter((item) => item.recommend)) {
+    assert.ok(SKILL_SOURCE.includes(`/speckit ${command.name}`), `the skill names /speckit ${command.name}`);
+    for (const flag of Object.keys(command.flags ?? {})) assert.ok(SKILL_SOURCE.includes(flag), `the skill names ${flag}`);
+  }
+  for (const [label, text] of [['skill', SKILL_SOURCE], ['workflow prompt', DIAGNOSE_PROMPT]]) {
+    assert.deepEqual(mentionedVerbs(text).filter((verb) => !known.includes(verb)), [], `${label} names only existing commands`);
+  }
+  assert.ok(SKILL_SOURCE.includes(COMMAND_REFERENCE_TITLE), 'the skill points to the generated command reference');
+  assert.match(SKILL_SOURCE, /speckit-diagnose\.mjs commands/, 'the interactive skill prints the reference');
+  // The installed skill is generated from the source; it must not be stale.
+  const installed = readFileSync(new URL('../skills/speckit-gha-diagnose/SKILL.md', import.meta.url), 'utf8');
+  assert.ok(installed.replace(/\r\n/g, '\n').includes(SKILL_SOURCE.replace(/\r\n/g, '\n').replace(/^---[\s\S]*?---\s*/, '').trim().slice(0, 2000)), 'reinstall the gha extension after changing the diagnose skill');
+});
+
+test('drift: the diagnosis command lists are derived from PR_COMMANDS', () => {
+  assert.deepEqual(CATEGORY_COMMANDS, categoryCommands(PR_COMMANDS));
+  assert.deepEqual(Object.keys(CATEGORY_COMMANDS), CATEGORIES);
+  for (const verbs of Object.values(CATEGORY_COMMANDS)) for (const verb of verbs) assert.ok(RECOMMENDABLE_COMMANDS.includes(verb), verb);
+  assert.ok(!RECOMMENDABLE_COMMANDS.includes('help'));
+  for (const removed of ['/speckit diagnose x', '/speckit resume x', '/speckit help']) {
+    assert.equal(validateReport({ ...REPORT, options: [{ title: 'Old', why: 'x', command: removed }] }).report.options[0].command, null, removed);
+  }
+  // A new command needs no edit in diagnose: it becomes recommendable, fits its categories, and is in the reference.
+  const added = [...PR_COMMANDS, { name: 'rebase', usage: '/speckit rebase [guidance]', flags: {}, help: 'rebase the branch', recommend: true, categories: ['outside'], whenToRecommend: 'when rebasing helps', guidanceScope: 'the rebase' }];
+  assert.ok(commandPatterns(added.filter((item) => item.recommend).map((item) => item.name)).command.test('/speckit rebase onto main'));
+  assert.ok(categoryCommands(added).outside.includes('rebase'));
+  assert.match(renderCommandReference({ commands: added }), /### `\/speckit rebase \[guidance\]`[\s\S]*- What it does: rebase the branch/);
+});
+
+test('a recommended command may carry the guidance the commands accept', () => {
+  const guidance = (length) => 'x'.repeat(length);
+  const command = (length) => validateReport({ ...REPORT, options: [{ title: 'Retry', why: 'x', command: `/speckit retry --force ${guidance(length)}`, recommended: true }] }).report.options[0].command;
+  assert.ok(MAX_RECOMMENDED_COMMAND >= '/speckit retry --force '.length + MAX_WRITER_GUIDANCE);
+  assert.notEqual(command(MAX_WRITER_GUIDANCE), null, 'guidance at the command limit is accepted');
+  assert.equal(command(MAX_RECOMMENDED_COMMAND), null, 'longer guidance than the commands accept is rejected');
+});
+
+test('commands prints the command reference', async () => {
+  const lines = [];
+  assert.equal(await main(['commands'], { log: (line) => lines.push(line) }), 0);
+  assert.match(lines.join('\n'), new RegExp(`^## ${COMMAND_REFERENCE_TITLE}`));
+  for (const verb of RECOMMENDABLE_COMMANDS) assert.match(lines.join('\n'), new RegExp(`### \`/speckit ${verb}`));
 });
 
 test('validates the agent report and drops invalid commands', () => {
@@ -176,7 +249,7 @@ test('records an unusable or missing report', async () => {
     }).report,
     baseBranch: 'main',
   });
-  assert.match(outside, /\*\*Recommended next step\*\*: Fix the flaky test outside this spec\.\n\n- \*\*Why\*\*: The test belongs to another feature\.\n- \*\*What it does\*\*: An agent authors a small fix spec[\s\S]*```text\n\/speckit fix Make the flaky test robust\n```/);
+  assert.match(outside, /\*\*Recommended next step\*\*: Fix the flaky test outside this spec\.\n\n- \*\*Why\*\*: The test belongs to another feature\.\n- \*\*What it does\*\*: An agent authors a small prerequisite spec[\s\S]*```text\n\/speckit fix Make the flaky test robust\n```/);
   assert.deepEqual(validateReport({ ...REPORT, category: 'outside', options: [{ title: 'Sync', why: 'x', command: '/speckit sync' }] }).reasons, []);
   assert.match(outside, /<summary>Other options<\/summary>[\s\S]*- \*\*Retry on a less loaded runner\. Unlikely to succeed\*\*\n/, 'alternatives are collapsed, without doubled punctuation');
   assert.match(validateReport({ ...REPORT, options: [{ title: 'Apply', why: 'x', command: '/speckit apply' }] }).reasons.join(), /option "Apply" has an invalid command/);
@@ -315,6 +388,7 @@ test('collects the findings to fix and the feedback to address for a rework', as
     const github = diagnosisRepo();
     await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir, SPECKIT_MODE: 'fix', SPECKIT_AMENDMENT: '11', SPECKIT_ROUND: '2', SPECKIT_STALLS: '1', SPECKIT_GUIDANCE: '- **HIGH** `plan.md` CI-R10: stale' }), log: silent });
     const fix = readFileSync(path.join(dir, 'evidence.md'), 'utf8');
+    assert.ok(!fix.includes(COMMAND_REFERENCE_TITLE), 'a rework recommends no command');
     assert.match(fix, /Mode: `fix` \(correction round 2; rounds without progress so far: 1 of 3\); amendment pull request #11 on `speckit-amend\/f`/);
     assert.match(fix, /## Findings of the consistency check to fix\n\n- \*\*HIGH\*\* `plan\.md` CI-R10: stale/);
     assert.deepEqual(JSON.parse(readFileSync(path.join(dir, 'context.json'), 'utf8')).amendmentPull, 11);
@@ -330,6 +404,7 @@ test('collects the findings to fix and the feedback to address for a rework', as
     const { items } = await pendingFeedback(github, github.repo.pulls.find((pull) => pull.number === 11));
     await runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir, SPECKIT_MODE: 'revise', SPECKIT_AMENDMENT: '11', SPECKIT_GUIDANCE: renderFeedback(items) }), log: silent });
     const revise = readFileSync(path.join(dir, 'evidence.md'), 'utf8');
+    assert.ok(!revise.includes(COMMAND_REFERENCE_TITLE), 'a rework recommends no command');
     assert.match(revise, /## Feedback on the amendment to address\n\n### comment by @reviewer[\s\S]*Please also update CI-R10\.[\s\S]*### review \(changes requested\) by @reviewer[\s\S]*See the lines\.[\s\S]*- `specs\/f\/plan\.md` line 477: Stale sentence\./);
     assert.match(revise, /## Earlier comments on the amendment \(oldest first\)[\s\S]*Please also update CI-R10\./);
     await assert.rejects(() => runEvidence({ client: github, env: env({ SPECKIT_EVIDENCE_DIR: dir, SPECKIT_MODE: 'fix' }), log: silent }), /needs SPECKIT_AMENDMENT/);
@@ -436,4 +511,30 @@ test('records a rework: replies to the feedback and checks the amendment again',
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('a command that already failed the same way on the unchanged branch is not recommended again', () => {
+  const at = (minute) => `2026-10-18T10:${String(minute).padStart(2, '0')}:00Z`;
+  const bot = (minute, body) => ({ user: { login: 'github-actions[bot]' }, created_at: at(minute), body });
+  const stop = (minute, reason) => bot(minute, `<!-- speckit-implement:attempt {"outcome":"attention"} -->\n**Implementation needs attention** @dev: ${reason}\n\nSee the [run](https://x/runs/${minute}).`);
+  const protectedStop = 'conflicts in protected paths need a person: .specify/memory/constitution.md';
+  const comments = [stop(1, protectedStop), bot(2, renderSyncComment('Required sync', 'Verify', { head: 'h1', base: 'b1' })), stop(3, protectedStop)];
+  assert.deepEqual(repeatedFailure(comments, 'h1'), { verb: 'sync', reason: protectedStop });
+  assert.equal(repeatedFailure(comments, 'h2'), null, 'a push changed the branch');
+  assert.equal(repeatedFailure([stop(1, 'the build failed'), comments[1], stop(3, protectedStop)], 'h1'), null, 'a different stop');
+  assert.equal(repeatedFailure(comments.slice(0, 2), 'h1'), null, 'no stop after the command yet');
+
+  const report = validateReport({ ...REPORT, category: 'outside', artifacts: [], questions: [], options: [{ title: 'Sync again', why: 'x', command: '/speckit sync Verify the merge', recommended: true }] }).report;
+  const repeated = repeatedFailure(comments, 'h1');
+  const steps = recommendNextSteps(report, { repeated });
+  assert.deepEqual(steps.notes, [], 'the report stays usable');
+  assert.match(steps.adjusted[0], /`\/speckit sync` already stopped the same way on the unchanged branch/);
+  const pick = steps.options.find((option) => option.recommended);
+  assert.match(pick.command, /^\/speckit fix /);
+  assert.ok(steps.options.some((option) => option.command === '/speckit sync Verify the merge' && !option.recommended), 'still listed under the other options');
+  const retryReport = validateReport({ ...REPORT, category: 'retry', artifacts: [], questions: [], options: [{ title: 'Retry', why: 'x', command: '/speckit retry', recommended: true }] }).report;
+  assert.equal(recommendNextSteps(retryReport, { repeated }).options.find((option) => option.recommended).command, '/speckit retry', 'another command is not affected');
+  const comment = renderDiagnosisComment({ report, repeated });
+  assert.match(comment, /\*\*Recommended next step\*\*[\s\S]*\/speckit fix/);
+  assert.match(comment, /_Parts of the report were adjusted: the recommended `\/speckit sync` already stopped the same way/);
 });

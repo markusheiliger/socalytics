@@ -12,7 +12,7 @@ internal sealed class OutboxPublicationStore(IDbSession session) : IOutboxPublic
         var rows = await connection.QueryAsync<OutboxPublicationRow>(new CommandDefinition(
             """
             SELECT id AS Id, subject AS Subject, payload::text AS Payload, attempt_count AS AttemptCount,
-                   publication_round AS PublicationRound, created_at AS CreatedAt
+                   publication_round AS PublicationRound, created_at AS CreatedAt, message_type AS MessageType
             FROM socalytics.outbox_messages
             WHERE state = 'pending' AND (next_attempt_at IS NULL OR next_attempt_at <= @now)
             ORDER BY created_at, id

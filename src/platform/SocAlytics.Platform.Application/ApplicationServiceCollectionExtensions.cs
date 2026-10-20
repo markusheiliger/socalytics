@@ -139,6 +139,34 @@ public static class ApplicationServiceCollectionExtensions
             IValidateOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptions>,
             SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptionsValidator>());
 
+        services.AddOptions<SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions.SectionName)
+            .Validate(
+                SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions.IsValid,
+                "AgentOrchestration options are invalid: Agents:Enabled must list unique specialist agents; Execution, Workloads, and Monitor values must be positive; workload clients need a unique ClientId and, when enabled, a PublicJwk.")
+            .ValidateOnStart();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IInvocationScopeEvaluator, SocAlytics.Platform.Application.AgentOrchestration.InvocationScopeEvaluator>();
+
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadTokenHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.AuthenticateAgentWorkloadRequestHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadQueueCredentialsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAvailableAgentsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.CreateAgentConversationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAgentConversationsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.GetAgentConversationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.AddAgentConversationParticipantHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.SubmitAgentInvocationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.GetAgentInvocationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.ListAgentConversationTurnsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.GetAgentInvocationLineageHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.ClaimAgentInvocationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.CompleteAgentAttemptHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.RenewAgentAttemptLeaseHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.RecordAgentCheckpointHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.FailAgentAttemptHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.MonitorAgentAttemptsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.ReconcileAgentWorkHandler>();
+
         services.AddOptions<SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions.SectionName)
             .ValidateOnStart();
@@ -185,6 +213,12 @@ public static class ApplicationServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StatusReporting.StatusReportingOptions.SectionName)
             .Validate(static o => o.Interval > TimeSpan.Zero, "Registry:StatusReporting:Interval must be positive.")
             .Validate(static o => o.MissedIntervalsBeforeOffline >= 1, "Registry:StatusReporting:MissedIntervalsBeforeOffline must be at least 1.");
+        services.AddOptions<SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.SectionName)
+            .Validate(SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.IsValid, SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.InvalidMessage)
+            .ValidateOnStart();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.ManagerVersions.MinimumManagerVersionProvider>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionGate>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StampOptions.SectionName);
 

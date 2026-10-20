@@ -526,8 +526,8 @@ The complete workflow is defined in the
 The Analyst Manager token endpoint is a minimal endpoint in the API's
 Registry functional area that supports only this grant; the platform does not
 run a general-purpose authorization server for machine clients. Agent workload
-clients will use a second minimal endpoint of the same kind in the Agent
-Orchestration functional area (decided, not yet implemented; see
+clients use a second minimal endpoint of the same kind in the Agent
+Orchestration functional area (development evidence; see
 [Agent Runtime](#agent-runtime)).
 
 Until a dedicated stamp-operator role is defined, operational workflow
@@ -538,7 +538,7 @@ use them from the Web UI's Operations area (decided, not yet implemented; see
 
 ### Agent Runtime
 
-Agent Orchestration will use the same Dapper, PostgreSQL, DbUp, logical CQRS,
+Agent Orchestration uses the same Dapper, PostgreSQL, DbUp, logical CQRS,
 optimistic-concurrency, and transactional-outbox baseline as the rest of the
 platform. Its state remains in the stamp database; this profile introduces
 neither a second agent database nor a special extraction rule. NATS JetStream
@@ -546,10 +546,11 @@ carries only minimal, at-least-once work notifications. Consumers claim durable
 work through the Agent Orchestration application handlers and remain idempotent
 under duplicate delivery.
 
-The planned control-plane surface includes canonical asynchronous submission,
-private conditional status/result/lineage reads, workload claim, lease,
-checkpoint, consultation and completion operations, lifecycle suppression,
-migration readiness, and bounded recovery/reconciliation.
+The control-plane surface for direct invocations includes canonical
+asynchronous submission, private conditional status/result/lineage reads,
+workload claim, lease, checkpoint, completion, and failure operations, and
+bounded recovery/reconciliation (development evidence). Consultation
+operations, lifecycle suppression, and migration readiness remain planned.
 
 Hermes is a planned separate Python OCI deployment with no direct database
 access. It uses Microsoft Agent Framework behind local adapters, authenticates
@@ -560,10 +561,11 @@ submission and conditional status, result, and lineage polling; it never calls
 Hermes directly. The complete persistence, transport, authorization, fencing,
 and recovery contract is defined by
 [Intelligence and Agents](intelligence-and-agents.md#agent-orchestration-authority).
-MCP tools, prompt/profile resolution, model execution, and Web UI agent
-workflows remain future implementation work.
+The Web UI's direct Specialist Agent triage conversations exist as development
+evidence. MCP tools, prompt/profile resolution, model execution, and the Web
+UI's Coach Agent and consultation workflows remain future implementation work.
 
-The first slice is decided and not yet implemented: an `AgentOrchestration`
+The first slice is implemented as development evidence: an `AgentOrchestration`
 folder in each platform layer stores conversations, participants, invocations,
 attempts, append-only lineage, accepted advice, and workload operation records
 in the stamp database; publishes `agent-invocation-ready` notifications from
@@ -708,8 +710,13 @@ AppImage for both profiles, mounted through FUSE when available and otherwise
 started in extract-and-run mode. Signing follows once the publisher is
 decided. Each stamp serves the update feed to its Managers as a proxy for the
 Manager's GitHub Releases, after verifying their build-provenance attestation;
-it offers the releases of its chosen channel, may pin a version, and declares a
-minimum Manager version. The fleet view, implemented in the Web UI, rests on a Manager status report,
+it offers the releases of its chosen channel and may pin a version; the feed,
+channels, and pinning stay planned after the Velopack spike. The minimum
+Manager version is implemented through deployment configuration
+(`Registry:ManagerVersion:Minimum`, empty by default): the status report
+response carries it to each Manager, and the platform refuses queue credentials
+and new claims below it. The fleet view, implemented in the Web UI and marking
+Managers below the minimum, rests on a Manager status report,
 sent with the periodic registration check and stored as the latest snapshot
 only, and a fleet read operation for Club Admins.
 
@@ -838,7 +845,11 @@ current and non-current migration states; and
   resume, timeline mapping, finalization, and the development CORS access to
   RustFS): the `simulated` project against a simulated API and a fake object
   store, and the `platform` project against the real platform with a scripted
-  Manager and RustFS; and
+  Manager and RustFS; and the match triage conversations (starting a
+  conversation for a run, adding specialists, asking, polling, and reading
+  advice with its disclosure and lineage) in the `simulated` project and in the
+  `platform-triage` project against the real platform with the simulated agent
+  workload; and
 - a Host test verifies the development CORS allow-list and the storage origin
   the AppHost passes to the Web UI; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
@@ -887,14 +898,16 @@ choice or reveals a material operational tradeoff:
   fact reads are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views
-  and the match workflow with recording upload and finalization. External
+  the match workflow with recording upload and finalization, and the match
+  triage conversations with Specialist Agents. External
   OpenID Connect sign-in with Club Admin linking, unlinking, and coexistence
   with local accounts is evidenced by Integration and Playwright tests against
   a test provider (`mock-oauth2-server`), with production provider values,
   secret custody, and lifetimes (`GOV-CRED-006`) still unresolved. The
   production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
   updates through its service worker as development evidence on Chromium), the other
-  Web UI client workflows (analysis review and agent conversations),
+  Web UI client workflows (the analysis review and the Coach Agent and
+  consultation conversations),
   cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
   profile on a Linux engine (Windows automation, Podman, and the other

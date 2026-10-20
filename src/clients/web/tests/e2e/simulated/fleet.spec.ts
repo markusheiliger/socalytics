@@ -170,3 +170,35 @@ test('a registration revoked meanwhile shows the refusal (concurrent change)', a
   await expect(page.getByRole('alert')).toContainText('no longer active');
   await expect(page.getByText('State: Revoked')).toBeVisible();
 });
+
+test('a Manager below the minimum is marked in the list and the detail, one at the minimum is not (FR-017, SC-005)', async ({ page, api }) => {
+  api.signInAs('ClubAdmin');
+  api.minimumManagerVersion = '2.0.0';
+  add(api, 1, 'active', { deviceMetadata: { os: 'linux', managerVersion: '1.9.0', claimedKeyProtection: 'tpm', hostLabel: 'host-1' } });
+  add(api, 2, 'active', online);
+  add(api, 3, 'pending_approval', { deviceMetadata: { os: 'linux', managerVersion: '1.0.0', claimedKeyProtection: 'tpm', hostLabel: 'host-3' } });
+  await page.goto('/analyst-managers');
+  const list = page.getByRole('list', { name: 'Analyst Managers' });
+  await expect(list.getByText('Update required: version 1.9.0, minimum 2.0.0')).toBeVisible();
+  await expect(list.getByText('Update required: version 1.0.0, minimum 2.0.0')).toBeVisible();
+  await expect(list.getByText(/^Update required/)).toHaveCount(2);
+  await expectNoAxeViolations(page);
+
+  await page.goto(`/analyst-managers/${id(1)}`);
+  await expect(page.getByText('Update required: version 1.9.0, minimum 2.0.0')).toBeVisible();
+  await expectNoAxeViolations(page);
+
+  await page.goto(`/analyst-managers/${id(2)}`);
+  await expect(page.getByText('Manager version: 1.2.3')).toBeVisible();
+  await expect(page.getByText(/^Update required/)).toHaveCount(0);
+  await expectNoAxeViolations(page);
+});
+
+test('the Registrar view carries no minimum version marking', async ({ page, api }) => {
+  api.signInAs('Registrar');
+  api.minimumManagerVersion = '2.0.0';
+  add(api, 1, 'pending_approval', { deviceMetadata: { os: 'linux', managerVersion: '1.0.0', claimedKeyProtection: 'tpm', hostLabel: 'host-1' } });
+  await page.goto('/analyst-managers/requests');
+  await expect(page.getByText('host-1')).toBeVisible();
+  await expect(page.getByText(/^Update required/)).toHaveCount(0);
+});

@@ -50,6 +50,17 @@ public class GoldenFixtureTests
             .RegistrationState.ShouldBe("revoked");
     }
 
+    [Theory]
+    [InlineData("accepted-with-minimum.response.json")]
+    [InlineData("accepted-without-minimum.response.json")]
+    public void Status_response_examples_deserialize(string file)
+    {
+        var path = Path.Combine(Dir, "..", "..", "status", "v1", "examples", "valid", file);
+        var response = JsonSerializer.Deserialize<OwnRegistration>(File.ReadAllText(path), PlatformJson.Options)!;
+        response.State.ShouldBe("active");
+        response.ReportAccepted.ShouldBe(true);
+    }
+
     [Fact]
     public async Task Pairing_request_matches()
     {

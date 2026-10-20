@@ -10,7 +10,8 @@ through approved changes.
 - [`src/platform/`](src/platform/README.md) contains the executable control-plane
     platform host and its ownership guidance.
 - [`src/clients/`](src/clients/README.md) contains the executable
-    Web UI foundation (without offline mode), including its installable PWA shell, under
+    Web UI foundation (without offline mode), including its installable PWA shell and the
+    match triage conversations with Specialist Agents, under
     `src/clients/web/`; the offline mode for coaches is planned.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.
@@ -642,9 +643,9 @@ makes this available from GitHub Copilot:
 - `/speckit-gha-diagnose [pull request, twin, or folder] [guidance]` walks you
     through a stopped implementation locally; see
     [When an implementation stops](#when-an-implementation-stops).
-- `/speckit-gha-fix [pull request] [guidance]` explains fix specs and offers to
-    post `/speckit fix` with guidance from the latest diagnosis; see
-    [Fix spec pull requests](#fix-spec-pull-requests).
+- `/speckit-gha-fix [pull request] [guidance]` explains prerequisite specs and
+    offers to post `/speckit fix` with guidance from the latest diagnosis; see
+    [Prerequisite specs](#prerequisite-specs).
 - `/speckit-tasks` ends with `/speckit-gha-refine [folder]`, a mandatory
     `after_tasks` hook that refines the `[P]` groups of the new `tasks.md` (see
     the `[P]` paragraph under the implementation workflow). Run it on its own
@@ -704,7 +705,7 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     | --- | --- | --- |
     | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | review and merge the linked **amendment pull request** (below) |
     | `retry` | a transient failure, or the agent took a poor approach while the artifacts are fine | `/speckit retry <guidance>` |
-    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit fix <what to fix>` for code, tests, or the environment actions (a **fix spec**, below); `/speckit sync` once a fix is on the base branch, or after an action the comment names |
+    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit fix <what to fix>` for code, tests, or the environment actions (a **prerequisite spec**, below); `/speckit sync` once a fix is on the base branch, or after an action the comment names |
     | `decision` | a trade-off only a person can make | `/speckit retry 1. … 2. …`, prefilled with the recommended answers as guidance |
     | `unknown` | not enough evidence | another diagnosis starts automatically with the previous findings as context |
 
@@ -715,23 +716,11 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     access can use them; a 👀 reaction confirms receipt, and a comment reports
     the result.
 
-    | Command | Effect |
-    | --- | --- |
-    | `/speckit retry [guidance]` | restart what stopped with a fresh attempt count, without merging the base branch for it (a phase that has not started, the convergence, and the merge always merge it first); the guidance goes into its prompt |
-    | `/speckit sync [guidance]` | require the latest PR base branch to be merged and verified before continuing; Copilot resolves conflicts, and failures stop for attention instead of proceeding on the old base |
-    | `/speckit fix [guidance]` | have a fix spec authored for a cause outside this spec (below); the implementation waits and retries by itself once the fix has landed |
-    | `/speckit help` | list the commands |
-
-    Explicit sync ignores disabled automatic synchronization and earlier best-effort skips. Its durable barrier
-    checks for new base commits before release and preserves pending verification scope and repair attempt limits.
-    Category/command inconsistencies in diagnosis reports are rejected rather than rewritten into a retry.
-
-    Writer guidance is capped at 4,000 characters. Retry and sync guidance
-    is persisted in a bot-authored pull request marker and reaches every task
-    in the first retried parallel group, or the first convergence, repair, or
-    conflict-resolution prompt. It expires after successful work or a newer
-    person-authored push. Clean merges and verification-only repair retries do
-    not invoke an agent and therefore use no prompt guidance.
+    The commands (`retry`, `sync`, `fix`, and `help`), their flags, guidance,
+    and limits are described in
+    [Comment commands](.github/workflows/README.md#comment-commands); the
+    command table there is generated from the tooling, and `/speckit help`
+    posts the same table on the pull request.
 
     What restarts is decided from the pull request's state: the stopped task,
     the convergence, the conflict resolution, or the merge. A failed phase
@@ -790,34 +779,40 @@ merges and closes that no event reported, picks up feedback that no event
 delivered, checks pushes that no event reported, and closes checks that never
 finished.
 
-#### Fix Spec Pull Requests
+#### Prerequisite Specs
 
 When the cause lies outside the stopped spec (`outside`), for example a flaky
 test of another feature on the base branch, `/speckit fix <what to fix>` keeps
-the fix inside Spec Kit instead of patching around it:
+the fix inside Spec Kit instead of patching around it. It does not create a
+special kind of spec: it authors an ordinary spec that the stopped spec depends
+on, and the usual dependency handling does the rest.
 
 1. The `Spec Kit fix` agentic workflow
     ([`speckit-fix.md`](.github/workflows/speckit-fix.md)) follows the skill
-    `/speckit-gha-fix` and authors a **fix spec**: a small, complete spec
-    (spec, plan, tasks, checklist, and its row in `specs/README.md`) whose
-    `spec.md` names the implementation it unblocks (`**Fix for**: #<pull>`).
-    It is proposed as a draft pull request `speckit-fix/<folder>` → the default
-    branch that may only add that spec folder. When a fix spec cannot remove the
-    cause (tooling under `.github/`, permissions, quotas, external services), it
-    changes nothing and says why. A cause in the environment actions gets an
+    `/speckit-gha-fix` and authors a complete spec (spec, plan, tasks,
+    checklist, and its row in `specs/README.md`) in a normal
+    `specs/<timestamp>-<name>/` folder. It is proposed as a draft pull request
+    `speckit-spec/<folder>` → the default branch that may only add that spec
+    folder. When an open or merged spec already removes the cause, it writes
+    nothing and reuses that one. When a spec cannot remove the cause (tooling
+    under `.github/`, permissions, quotas, external services), it changes
+    nothing and says why. A cause in the environment actions gets an
     environment spec, which is always held for review.
 2. Like an amendment, it is checked by an independent `/speckit-analyze` with
-    correction rounds and then handed to the person who requested the
-    implementation; comments and reviews rework it, closing discards it.
-3. Merging it adds the spec to the default branch. Its twin skips dependency
-    inference; the scheduler makes the stopped spec's twin depend on it,
-    requests its implementation on behalf of the person who asked for the fix,
-    and starts it even when `SPECKIT_MAX_ACTIVE_SPECS` implementations are
-    active. It is implemented, converged, and merged like any spec.
-4. Once its twin is implemented, the stopped implementation retries by itself:
-    it merges the base branch, with the fix, and continues with a fresh attempt
-    count. If the fix spec is closed or not implemented, the implementation
-    pull request lists the next steps again.
+    correction rounds and then handed to the person who asked for it; comments
+    and reviews rework it, closing discards it.
+3. Merging it adds the spec to the default branch, where it gets a twin and
+    dependency inference like any spec. The scheduler makes the stopped spec's
+    twin depend on it.
+4. Blocking is generic: any running implementation whose twin has open
+    blocked-by twins, however the dependency was added, gets the `blocked`
+    label and waits. Each such blocker is requested for implementation on
+    behalf of the person who requested the blocked implementation and starts
+    even when `SPECKIT_MAX_ACTIVE_SPECS` implementations are active.
+5. Once its last blocker is implemented, the waiting implementation retries by
+    itself: it merges the base branch and continues with a fresh attempt count.
+    If a blocker or the prerequisite spec pull request is closed without being
+    implemented, the implementation pull request lists the next steps again.
 
 The implementation pull request records every step in a comment.
 

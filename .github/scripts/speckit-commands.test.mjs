@@ -1,8 +1,24 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
-import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
-import { main, parseCommand, renderHelp, runCommand, runCommandTarget } from './speckit-commands.mjs';
+import { ATTENTION_LABEL, CHECK_DIAGNOSED, CHECK_RUN_NAME, PR_COMMANDS, parseGuidance, renderRepairMarker } from './speckit-implement-core.mjs';
+import {
+  COMMAND_DOCS_END,
+  COMMAND_DOCS_FILE,
+  COMMAND_DOCS_START,
+  CommandUsageError,
+  main,
+  parseCommand,
+  renderCommandDocs,
+  renderCommandTable,
+  renderHelp,
+  runCommand,
+  runCommandTarget,
+  syncCommandDocs,
+} from './speckit-commands.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
 const run = (github, body, { pull = 9, actor = 'dev', env = {} } = {}) => runCommand({
@@ -22,7 +38,7 @@ test('parses commands: the first word, the name, and the rest as flags and guida
   assert.equal(parseCommand('please /speckit retry'), null);
   assert.equal(parseCommand('/speckit-gha-diagnose'), null, 'a skill name is not a command');
   assert.match(renderHelp(), /`\/speckit <command> \[flags\] \[guidance\]`/);
-  assert.match(renderHelp(), /\| `\/speckit retry \[--force\] \[guidance\]` \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*fix spec pull request[\s\S]*skill `\/speckit-gha-diagnose`/);
+  assert.match(renderHelp(), /\| `\/speckit retry \[--force\] \[guidance\]` \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*prerequisite spec pull request \(`speckit-spec\/<folder>`[\s\S]*skill `\/speckit-gha-diagnose`/);
   assert.doesNotMatch(renderHelp(), /\/speckit resume/);
   assert.doesNotMatch(renderHelp(), /\/speckit diagnose/);
   assert.equal(parseCommand('/speckit retry Rerun as is').name, 'retry');
@@ -139,7 +155,20 @@ test('retry restarts what stopped with guidance, on the branch as it is', async 
   assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: '5', pull: '9', title: 'F' }]);
   const retried = github.comments.at(-1);
   assert.match(retried.body, /^<!-- speckit-implement:retry -->[\s\S]*Implementation retried by @dev; what stopped restarts with a fresh attempt count while preserving the current phase base\.[\s\S]*> Rerun the verification unchanged/);
+  assert.match(retried.body, /The guidance is added to the prompt of the first work that runs[^\n]* and ends after its first success or a person's push; it changes no check, limit, or verification\./);
   assert.equal(parseGuidance(retried.body), 'Rerun the verification unchanged');
+  await run(github, '/speckit retry');
+  assert.doesNotMatch(github.comments.at(-1).body, /The guidance/, 'no guidance, no note');
+});
+
+test('the sync reply says where its guidance goes, and when it cannot change the last stop', async () => {
+  const github = diagnosisRepo();
+  await run(github, '/speckit sync Keep both migrations');
+  assert.match(github.comments.at(-1).body, /The guidance reaches Copilot only if conflicts remain after the merge[^\n]*after a clean merge it goes to the first work that continues\./);
+  assert.doesNotMatch(github.comments.at(-1).body, /before any agent ran/);
+  await github.createComment(9, '**Implementation needs attention** @dev: conflicts in protected paths need a person: .specify/memory/constitution.md');
+  await run(github, '/speckit sync Keep both migrations');
+  assert.match(github.comments.at(-1).body, /The last stop came before any agent ran \(conflicts in protected paths need a person: \.specify\/memory\/constitution\.md\), so the guidance alone cannot change that outcome\./);
 });
 
 test('pending repair retries distinguish verification-only and guided work without claiming fresh attempts', async () => {
@@ -201,7 +230,7 @@ test('restarts that leave a stopped implementation unchanged are refused, unless
   assert.equal((await run(github, '/speckit retry')).outcome, 'retried');
 });
 
-test('fix starts the authoring of a fix spec once, and refuses while one is pending', async () => {
+test('fix starts the authoring of a prerequisite spec once, and refuses while one is pending', async () => {
   const github = diagnosisRepo();
   const started = await run(github, '/speckit fix Make UploadSessionExpiryTests independent of runner load');
   assert.equal(started.outcome, 'started');
@@ -211,12 +240,12 @@ test('fix starts the authoring of a fix spec once, and refuses while one is pend
   assert.equal(dispatched.workflow, 'speckit-fix.lock.yml');
   assert.deepEqual({ ...dispatched.inputs, stamp: 'x' }, { twin: '5', pull: '9', folder: 'f', guidance: 'Make UploadSessionExpiryTests independent of runner load', check_run: String(check.id), mode: 'author', amendment: '', round: '0', stalls: '0', findings: '', stamp: 'x' });
   assert.match(dispatched.inputs.stamp, /^\d{8}-\d{6}$/);
-  assert.match(github.comments.at(-1).body, /^<!-- speckit-fix:requested \{"by":"dev"[\s\S]*\*\*A fix spec is being authored\*\*, requested by @dev[\s\S]*> Make UploadSessionExpiryTests/);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-fix:requested \{"by":"dev"[\s\S]*\*\*A prerequisite spec is being authored\*\*, requested by @dev[\s\S]*> Make UploadSessionExpiryTests/);
   assert.equal(parseGuidance(github.comments.at(-1).body), 'Make UploadSessionExpiryTests independent of runner load');
 
   const again = await run(github, '/speckit fix');
   assert.equal(again.outcome, 'refused');
-  assert.match(github.comments.at(-1).body, /^`\/speckit fix` cannot start: a fix spec is already being authored\./);
+  assert.match(github.comments.at(-1).body, /^`\/speckit fix` cannot start: a prerequisite spec is already being authored\./);
 });
 test('commands need an open implementation pull request with a twin', async () => {
   const github = diagnosisRepo();
@@ -226,4 +255,59 @@ test('commands need an open implementation pull request with a twin', async () =
   noTwin.repo.pulls[0].body = 'no closing keyword';
   assert.match((await run(noTwin, '/speckit retry')).rejected, /does not name its twin/);
   await noTwin.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-impl', status: 'completed', external_id: CHECK_DIAGNOSED });
+});
+
+const repoFile = (path) => readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+
+test('the command table in the workflows README is generated from PR_COMMANDS and current', () => {
+  const docs = repoFile(COMMAND_DOCS_FILE);
+  assert.equal(docs, syncCommandDocs(docs), `The command table in ${COMMAND_DOCS_FILE} is stale; run \`node .github/scripts/speckit-commands.mjs docs --write\`.`);
+  assert.match(docs, /^## Comment commands$/m);
+  assert.ok(renderHelp().includes(renderCommandTable()), '/speckit help shows the same table');
+  for (const command of PR_COMMANDS) assert.ok(docs.includes(`\`${command.usage}\``), command.usage);
+});
+
+test('syncCommandDocs replaces only the marked block and requires the markers', () => {
+  const text = `intro\n${COMMAND_DOCS_START}\nold table\n${COMMAND_DOCS_END}\noutro\n`;
+  const synced = syncCommandDocs(text, [{ name: 'rebase', usage: '/speckit rebase', help: 'rebase the branch', flags: {} }]);
+  assert.equal(synced, `intro\n${renderCommandDocs([{ name: 'rebase', usage: '/speckit rebase', help: 'rebase the branch', flags: {} }])}\noutro\n`);
+  assert.match(synced, /\| `\/speckit rebase` \| rebase the branch \| none \|/);
+  assert.doesNotMatch(synced, /old table/);
+  assert.throws(() => syncCommandDocs('no markers'), CommandUsageError);
+  assert.throws(() => syncCommandDocs(`${COMMAND_DOCS_END}\n${COMMAND_DOCS_START}`), CommandUsageError);
+});
+
+test('tooling docs name only known comment commands and the root README links to the canonical section', () => {
+  const names = PR_COMMANDS.map((command) => command.name);
+  for (const path of ['README.md', COMMAND_DOCS_FILE, 'AGENTS.md', '.specify/extension-src/gha/README.md']) {
+    const text = repoFile(path).replace(/```mermaid[\s\S]*?```/g, '');
+    const unknown = [...text.matchAll(/\/speckit[ \t]+([A-Za-z][A-Za-z-]*)/g)].map((match) => match[1]).filter((name) => !names.includes(name));
+    assert.deepEqual([...new Set(unknown)], [], `${path} names commands that PR_COMMANDS does not define`);
+  }
+  const readme = repoFile('README.md');
+  assert.ok(readme.includes('(.github/workflows/README.md#comment-commands)'), 'the root README links to the canonical command section');
+  assert.doesNotMatch(readme, /^\s*\| `\/speckit /m, 'the root README has no command table of its own');
+  assert.ok(repoFile('AGENTS.md').includes('(.github/workflows/README.md#comment-commands)'));
+});
+
+test('docs checks the command table and refreshes it with --write, keeping line endings', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'speckit-docs-'));
+  try {
+    const file = join(dir, 'README.md');
+    const stale = `# Title\r\n\r\n${COMMAND_DOCS_START}\r\nold\r\n${COMMAND_DOCS_END}\r\n`;
+    writeFileSync(file, stale);
+    const lines = [];
+    const log = (line) => lines.push(line);
+    assert.equal(await main(['docs'], { docsFile: file, log }), 1);
+    assert.equal(readFileSync(file, 'utf8'), stale, 'the check does not write');
+    assert.match(lines.at(-1), /stale; run `node \.github\/scripts\/speckit-commands\.mjs docs --write`/);
+    assert.equal(await main(['docs', '--write'], { docsFile: file, log }), 0);
+    const written = readFileSync(file, 'utf8');
+    assert.ok(written.includes(renderCommandTable().replace(/\n/g, '\r\n')));
+    assert.doesNotMatch(written.replace(/\r\n/g, ''), /\n/, 'CRLF stays CRLF');
+    assert.equal(await main(['docs'], { docsFile: file, log }), 0);
+    await assert.rejects(main(['docs', '--force'], { docsFile: file, log }), CommandUsageError);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

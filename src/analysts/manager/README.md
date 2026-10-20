@@ -6,7 +6,7 @@ The Analyst Manager is a per-user desktop application (Avalonia tray app plus a 
 
 This is development evidence, not production readiness. Installers, signing, updates, accessibility, attestation, and production values remain open.
 
-Planned, not implemented: installers and updates with Velopack (per-user, delta updates, one AppImage for both Linux profiles, signing after an unsigned spike), served by each stamp as an update feed; and a status report for the Web UI fleet view. See [Application Profiles](../../../docs/architecture/analyst-manager.md#application-profiles).
+Planned, not implemented: installers and updates with Velopack (per-user, delta updates, one AppImage for both Linux profiles, signing after an unsigned spike), served by each stamp as an update feed. The minimum Manager version is implemented ahead of the feed (see [Update Notice: Minimum Version](#update-notice-minimum-version)). See [Application Profiles](../../../docs/architecture/analyst-manager.md#application-profiles).
 
 ## Build, Run, And Test
 
@@ -70,6 +70,12 @@ The status window and `status [--json]` show approximate guidance about waiting 
 - **Host utilization**: a sampler reads CPU and memory of the host locally every 5 seconds (`/proc` on Linux, `GetSystemTimes` and `GlobalMemoryStatusEx` on Windows, `host_statistics` and `sysctl` on macOS) and keeps only the latest sample in memory; the first sample has no CPU value and unreadable values show `not available`. Accelerator utilization is not shown yet.
 
 Neither value is persisted or sent to the platform: the status report and the fleet view carry neither. The `queueDepth` and `hostUtilization` members of the `status` response are defined by [contracts/local-control.schema.json](contracts/local-control.schema.json). Windows and macOS sampling is verified on those systems.
+
+## Update Notice: Minimum Version
+
+The platform returns the stamp's minimum Manager version (`minimumManagerVersion`, from `Registry:ManagerVersion:Minimum`) in the response of each status report. The Manager compares it with its build version (the `<Version>` of the Core project, also sent in the status report and at pairing). While the Manager is below the minimum, or the minimum cannot be parsed, it keeps its registration and status reports, lets running attempts finish, claims no job, requests no queue credentials, and shows an update notice with both versions in the status window, the tray menu, and the `status` output (`update` object with `required`, `managerVersion`, and `minimumVersion` in `--json`). A `403` with the problem `analyst-manager-version-below-minimum` on a claim or queue credential request (the platform refuses independently) negatively acknowledges the delivery, stops admission, and shows the same notice until a status response with no minimum, or one at or below the build version, clears it. A restart starts without a notice until the first status check; the platform still refuses work meanwhile.
+
+The update feed, installers, and self-update do not exist yet: update the Manager by installing a newer build by hand.
 
 ## Device Key Providers
 

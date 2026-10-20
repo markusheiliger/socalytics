@@ -77,7 +77,9 @@
     "analysts": "Analysts: {{active}} of {{max}}",
     "analystsActiveOnly": "Active Analysts: {{active}}",
     "analystsMaxOnly": "Maximum Analysts: {{max}}",
-    "version": "Version: {{value}}"
+    "version": "Version: {{value}}",
+    "updateRequired": "Update required: version {{version}}, minimum {{minimum}}",
+    "updateRequiredUnknownVersion": "Update required: version unknown, minimum {{minimum}}"
   },
   "connectivity": {
     "online": "Online",

@@ -31,6 +31,7 @@ public sealed class RegistrationStatusMonitor : BackgroundService
     private readonly IQueueConnection _queue;
     private readonly PlatformClient _platform;
     private readonly QueueDepthState _depth;
+    private readonly MinimumVersionState? _minimumVersion;
     private TimeSpan _backoff;
 
     public RegistrationStatusMonitor(
@@ -38,8 +39,10 @@ public sealed class RegistrationStatusMonitor : BackgroundService
         IEnumerable<IDeviceKeyProvider> providers, ProtectedStoreFailureHandler failures, InactiveSignalSink sink,
         IOptions<PlatformOptions> options, StatusReportBuilder reports, TimeProvider time, ILogger<RegistrationStatusMonitor> logger,
         AttemptRegistry attempts, QueueCredentialProvider queueCredentials, IQueueConnection queue,
-        PlatformClient platform, QueueDepthState depth, Runtime.Docker.DockerReconciliationService? reconciliation = null)
+        PlatformClient platform, QueueDepthState depth, Runtime.Docker.DockerReconciliationService? reconciliation = null,
+        MinimumVersionState? minimumVersion = null)
     {
+        _minimumVersion = minimumVersion;
         _reconciliation = reconciliation;
         _platform = platform;
         _depth = depth;
@@ -92,6 +95,11 @@ public sealed class RegistrationStatusMonitor : BackgroundService
             {
                 case PlatformOutcome.Success:
                     _backoff = _options.RetryBackoff.Initial;
+                    if (report is not null)
+                    {
+                        _minimumVersion?.Update(result.Registration!.MinimumManagerVersion);
+                    }
+
                     if (result.Registration!.ReportAccepted == false)
                     {
                         _logger.LogWarning(

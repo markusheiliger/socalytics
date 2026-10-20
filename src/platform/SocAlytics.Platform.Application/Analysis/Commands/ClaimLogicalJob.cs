@@ -1,6 +1,8 @@
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Analysis.Stores;
+using SocAlytics.Platform.Application.Registry.Abstractions;
+using SocAlytics.Platform.Application.Registry.ManagerVersions;
 using SocAlytics.Platform.Domain.Analysis;
 
 namespace SocAlytics.Platform.Application.Analysis.Commands;
@@ -24,6 +26,8 @@ public sealed class ClaimLogicalJobHandler(
     ILogicalJobStore jobs,
     IExecutionAttemptStore attempts,
     ICurrentAnalystManager manager,
+    IRegistrationStore registrations,
+    ManagerVersionGate versionGate,
     TimeProvider time)
 {
     public const string ClaimObsoleteCode = "claim-obsolete";
@@ -69,6 +73,16 @@ public sealed class ClaimLogicalJobHandler(
             || job.AttemptsUsed >= snapshot.MaxAttempts)
         {
             return OperationFailure.Conflict(ClaimObsoleteCode);
+        }
+
+        var registration = await registrations.FindByManagerIdAsync(managerId, cancellationToken);
+        if (registration is not null)
+        {
+            var refusal = await versionGate.CheckAsync(registration, ManagerVersionGate.ClaimOperation, cancellationToken);
+            if (refusal is not null)
+            {
+                return refusal;
+            }
         }
 
         var attemptNumber = job.AttemptsUsed + 1;

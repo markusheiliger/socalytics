@@ -50,13 +50,17 @@ workflow started you): never ask, and turn every open question into a report que
 1. **Gather the evidence.**
    - Non-interactive: read `.speckit-diagnosis/evidence.md` and `.speckit-diagnosis/context.json` (stop reason,
      check runs, recent comments with the failure reports and agent summaries, logs of failed runs, branch state,
-     the person's notes, a previous diagnosis).
+     the person's notes, a previous diagnosis, and the section **Commands you can recommend**).
    - Interactive: with `gh`, read the pull request, its comments (the stop comment, the failure comments of the stuck
      task, convergence, or conflict resolution, an earlier diagnosis starting with
      `<!-- speckit-implement:diagnosis -->`), the failed runs
      (`gh run list --workflow speckit-implement-spec.yml`, `gh run view <id> --log-failed`), and an open amendment pull
-     request from `speckit-amend/<folder>` with its comments and reviews. Work in a worktree of the implementation
+     request from `speckit-amend/<folder>` with its comments and reviews. Print the command reference with
+     `node .github/scripts/speckit-diagnose.mjs commands`. Work in a worktree of the implementation
      branch (`git worktree add <temp-dir> origin/speckit/<folder>`), or of the amendment branch to rework it.
+   - **Commands you can recommend** is generated from the commands themselves: their usage, flags, what each does on
+     this pull request (including a pending repair), how far their guidance reaches, and when to recommend them. It is
+     the authority on what a command does; this skill only says how to choose and word one.
 2. **Read the artifacts** in the spec folder (`specs/<folder>/`, or `specs/archive/<folder>/` once the implementation
    archived it right before its merge; called `<spec folder>` below) and the constitution, and the code and tests the stuck task touches.
 3. **Find the root cause.** Compare the attempts: the same failure every time points to a systematic cause,
@@ -69,7 +73,7 @@ workflow started you): never ask, and turn every open question into a report que
    or it asked the automation for something outside its scope) and recommend a step that removes that reason. After
    2 retries in a row that left the implementation branch at the same commit, `/speckit retry`
    is refused while the implementation is stopped, so
-   recommend a step that changes something: a push, a fix spec, or an amendment. Only when new guidance that differs
+   recommend a step that changes something: a push, a prerequisite spec (`/speckit fix`), or an amendment. Only when new guidance that differs
    materially from what was tried can help, recommend `/speckit retry --force <guidance>` and say in `why` what is
    different this time.
 4. **Classify** the stop:
@@ -77,8 +81,8 @@ workflow started you): never ask, and turn every open question into a report que
    | Category | When | Typical way forward |
    | --- | --- | --- |
    | `artifacts` | The task cannot be done as written, or doing it as written cannot meet the spec: a missing, ambiguous, or contradictory design decision; a wrong assumption in research; a task too vague to diagnose its failure; a missing prerequisite task; a wrong task order; or a code fix inside this feature needed first (a **corrective task**) | an amendment pull request (step 5) that the person reviews and merges |
-   | `retry` | Transient infrastructure (timeouts, rate limits, runner or network failures, Copilot errors, a flaky test with evidence), or the agent took a poor approach although the artifacts are adequate | `/speckit retry <concrete guidance>`: restarts without merging the base branch for it |
-   | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | code, tests, or environment actions: `/speckit fix <what to fix, where, and how>`, which has a fix spec authored for it; the fix is already on the base branch: `/speckit sync`, which requires merging and verification before continuing; tooling under `.github/` or a non-code cause: name the action in the title, then `/speckit sync` |
+   | `retry` | Transient infrastructure (timeouts, rate limits, runner or network failures, Copilot errors, a flaky test with evidence), or the agent took a poor approach although the artifacts are adequate | `/speckit retry <concrete guidance>` |
+   | `outside` | Environment or tooling (environment actions, workflows), code or tests owned by another feature on the base branch (the implementation pull request's base), permissions, quotas, external services | code, tests, or environment actions not fixed yet: `/speckit fix <what to fix, where, and how>`; the fix is already on the base branch: `/speckit sync`; tooling under `.github/` or a non-code cause: name the action in the title, then `/speckit sync` |
    | `decision` | A trade-off only a person can make: relax a success criterion, change scope, split the spec, accept a risk, abandon | numbered questions with the recommended choice first; `/speckit retry 1. <choice> 2. <choice>` prefilled with the recommended answers as guidance |
    | `unknown` | Not enough evidence | what was checked and ruled out; the workflow starts another diagnosis automatically with these findings as context |
 
@@ -128,6 +132,7 @@ workflow started you): never ask, and turn every open question into a report que
      `speckit_diagnosis` exactly once with it as one JSON string.
    - Interactive: summarize the cause, evidence, and options; ask which option to take; carry it out, either locally
      or by commenting the command on the pull request (`gh pr comment <n> --body "/speckit retry <guidance>"`).
+     `/speckit help` on the pull request lists every command.
 7. **Fix consistency findings** (mode `fix`). The evidence lists the findings of the independent analysis (and broken
    amendment rules, if any). Fix each one in the artifacts of `<spec folder>/` on the amendment branch, following
    the rules of step 5; when a finding is wrong, leave the artifacts as they are and say why. Commit
@@ -160,20 +165,34 @@ workflow started you): never ask, and turn every open question into a report que
   fail. The person decides from the comment alone: `why` explains in one or two sentences why the option solves this
   problem (the comment adds what the command does).
 - The recommended command must fit the category: `retry` → `/speckit retry`; `outside` → `/speckit fix`,
-  or `/speckit sync`; `decision` → `/speckit retry` with the recommended answers as guidance.
+  or `/speckit sync`; `decision` → `/speckit retry` with the recommended answers as guidance (the categories each
+  command fits are also listed under **Commands you can recommend**).
   `artifacts` must create an amendment pull request, and `unknown` starts another diagnosis automatically.
   Inconsistent reports are rejected at publication, not replaced with a retry. A required fix
   already on the base branch is `outside`, not `retry`; recommend `/speckit sync` so the merge and verification
   are mandatory. Never embed another command in retry guidance as a substitute for selecting that command.
-- A `command` is one line a person can post as it is: `/speckit sync` (requires the latest PR base branch to be
-  merged, with Copilot resolving conflicts, and verified before continuing; unlike automatic sync, failures stop
-  the implementation), `/speckit retry <guidance>` (restarts what stopped without
-  merging the base branch for it; a phase that has not started, the convergence, and the merge always merge it first),
-  `/speckit fix <what to fix>` (has a fix spec authored for a cause on the base branch; the implementation
-  retries by itself once it has landed). Write the guidance or answers out from your findings; never leave
+- A `command` is one line a person can post as it is, in the form `/speckit <command> [flags] [guidance]`. Read what
+  each command does, its flags, and how far its guidance reaches under **Commands you can recommend**, and choose by
+  that, not from memory. Write the guidance or answers out from your findings; never leave
   placeholders such as `<guidance>` or `[notes]`, and leave the text out
   only when there is nothing useful to add. For `decision`, prefill the answers with the recommended choices:
   `/speckit retry 1. <first choice> 2. <first choice>`.
+- Guidance reaches only the first work that continues (the reference names it for each command), so write it for that
+  work: for example the files and change of a conflict resolution, or the test and condition of a flaky verification.
+  Put `--` before guidance that itself starts with `--`, so it is not read as a flag.
+- When a repair is pending (the reference says so), `/speckit retry <guidance>` runs a repair agent on the already
+  landed code and then reverifies, while `/speckit retry` without guidance only reverifies the failed scope. Add
+  guidance only when a code change is needed; for a flaky or transient failure, recommend the bare command and say in
+  `why` that the verification runs again unchanged.
+- Never recommend a command that already failed the same way. When the evidence has a section **A command that already
+  failed the same way**, the last `/speckit retry` or `/speckit sync` left the branch unchanged and stopped with the same
+  reason as before; recommending it again only repeats the stop (a recommendation of it is moved to the other options at
+  publication). Recommend what changes something instead, for example `/speckit fix` for a cause outside this spec.
+- Guidance only steers the next agent's prompt; it changes no check, limit, or verification. A stop that happens before
+  any agent runs (for example conflicts under `.github/` or `.specify/`) cannot be changed by guidance. Conflicts under
+  `specs/` that the archive's reference rewrites cause are resolved by script and never need a person.
+- Never recommend that a person resolves something locally and pushes when a command can do it on the server: the
+  automation resolves conflicts, repairs code, and authors prerequisite specs itself.
 - When the solution needs an action outside these commands (for example "grant the workflow access to the
   registry"), describe that action in the option's title and set `command` to the command that continues afterwards
   (usually `/speckit retry <guidance>`), so the recommendation is one option. Its guidance must not claim that the

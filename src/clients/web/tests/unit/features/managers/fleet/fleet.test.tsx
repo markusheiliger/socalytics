@@ -122,6 +122,51 @@ describe('fleet page', () => {
     expect(within(list).getAllByText('Profile (claimed): Not reported').length).toBeGreaterThan(0);
   });
 
+  it('marks only Managers below the minimum with version and minimum as text, pending requests included', async () => {
+    const minimum = { minimumManagerVersion: '2.0.0' };
+    const rows = [
+      dto(1, 'active', { ...minimum, belowMinimumVersion: false, status, connectivity: 'online' }),
+      dto(2, 'active', { ...minimum, belowMinimumVersion: true, connectivity: 'offline' }),
+      dto(3, 'pending_approval', { ...minimum, belowMinimumVersion: true }),
+      dto(4, 'active', { connectivity: 'online' }),
+    ];
+    vi.stubGlobal('fetch', vi.fn(async () => json(200, { items: rows })));
+    renderApp(as('ClubAdmin'), '/analyst-managers');
+    const list = await screen.findByRole('list', { name: 'Analyst Managers' });
+    const marks = within(list).getAllByText('Update required: version 1.2.3, minimum 2.0.0');
+    expect(marks).toHaveLength(2);
+    const owners = marks.map((m) => m.closest('ul')?.closest('li')?.textContent ?? '');
+    expect(owners.some((o) => o.includes('host-2'))).toBe(true);
+    expect(owners.some((o) => o.includes('host-3'))).toBe(true);
+    expect(owners.some((o) => o.includes('host-1') || o.includes('host-4'))).toBe(false);
+    expect(within(list).getByText('Version: 2.0.0')).toBeInTheDocument();
+    for (const mark of marks) expect(mark.closest('li')).not.toBeNull();
+  });
+
+  it('shows no update notice for an ended registration even when it is below the minimum', async () => {
+    const minimum = { minimumManagerVersion: '2.0.0', belowMinimumVersion: true };
+    const rows = [dto(1, 'active', { ...minimum, connectivity: 'online' }), dto(4, 'revoked', minimum)];
+    vi.stubGlobal('fetch', vi.fn(async (input: unknown) => {
+      const state = new URL(urlOf(input)).searchParams.get('state');
+      return json(200, { items: rows.filter((i) => !state || i.state === state) });
+    }));
+    const user = userEvent.setup();
+    renderApp(as('ClubAdmin'), '/analyst-managers');
+    const current = await screen.findByRole('list', { name: 'Analyst Managers' });
+    expect(within(current).getAllByText(/Update required/)).toHaveLength(1);
+    await user.click(screen.getByRole('combobox', { name: 'Show' }));
+    await user.click(await screen.findByRole('option', { name: 'Ended' }));
+    await waitFor(() => expect(screen.getByRole('link', { name: 'host-4 – Revoked' })).toBeInTheDocument());
+    expect(screen.queryByText(/Update required/)).not.toBeInTheDocument();
+  });
+
+  it('marks nothing without a minimum', async () => {
+    serve();
+    renderApp(as('ClubAdmin'), '/analyst-managers');
+    await screen.findByRole('list', { name: 'Analyst Managers' });
+    expect(screen.queryByText(/Update required/)).not.toBeInTheDocument();
+  });
+
   it('shows unknown values and shortens long labels without failing', async () => {
     serve();
     renderApp(as('ClubAdmin'), '/analyst-managers');

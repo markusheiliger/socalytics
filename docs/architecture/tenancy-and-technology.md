@@ -132,6 +132,7 @@ validation criteria are defined in the
   API layers, including the backend-for-frontend
 - Agent Orchestration functional area with PostgreSQL state, migrations,
   projections, and transactional outbox in the shared platform database
+  (implemented for direct specialist invocations as development evidence)
 - REST and JSON with OpenAPI; Kiota-generated clients
 - PostgreSQL
 - Npgsql, Dapper, logical CQRS, and plain typed handlers
@@ -207,8 +208,10 @@ Agent its dimension-set, philosophy-profile, and modifier-policy artifacts
 and any consultation-policy artifact (decided, not yet implemented), under the
 authenticated user's team and resource authorization; they are the artifacts
 Agent Orchestration pinned from the platform's agent catalog at submission
-(decided, not yet implemented). Hermes claims durable
-work through versioned Agent Orchestration API operations. PostgreSQL remains
+(catalog pinning decided, not yet implemented). Workloads claim durable
+work through versioned Agent Orchestration API operations (implemented for
+direct specialist invocations as development evidence; Hermes itself is not
+implemented). PostgreSQL remains
 authoritative; transactional-outbox notifications on JetStream are minimal and
 at least once. A provider-neutral adapter prevents provider SDK types from
 entering catalog or orchestration contracts, and no silent provider fallback is
