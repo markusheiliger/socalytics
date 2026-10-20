@@ -17,7 +17,7 @@ description: "Task list for Deterministic Analyst Manager Queue Credential and U
 
 ### Credential test
 
-- [ ] T001 [P] [US1] In `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Queue/QueueCredentialProviderTests.cs`, in `Requests_a_credential_with_an_ephemeral_public_key_and_renews_at_two_thirds`, replace `body.ToJsonString().ShouldNotContain("SU")` with assertions that the `userPublicKey` value has length 56, starts with `U`, and matches `^[A-Z2-7]+$`, and that the body's property names are exactly `userPublicKey` and `capabilities` (no seed field). Keep every other assertion. Verify: `dotnet test src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests --filter "FullyQualifiedName~QueueCredentialProviderTests"` passes 20 consecutive times.
+- [x] T001 [P] [US1] In `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Queue/QueueCredentialProviderTests.cs`, in `Requests_a_credential_with_an_ephemeral_public_key_and_renews_at_two_thirds`, replace `body.ToJsonString().ShouldNotContain("SU")` with assertions that the `userPublicKey` value has length 56, starts with `U`, and matches `^[A-Z2-7]+$`, and that the body's property names are exactly `userPublicKey` and `capabilities` (no seed field). Keep every other assertion. Verify: `dotnet test src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests --filter "FullyQualifiedName~QueueCredentialProviderTests"` passes 20 consecutive times.
 
 ### Stager tests
 
