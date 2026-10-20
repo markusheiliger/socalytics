@@ -2,11 +2,11 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { IMPLEMENT_STAGE, PENDING_LABEL, TWIN_LABEL, countOpenChecklistItems, hasLabel, isImplementRequested, isValidFolderName, parseFixForLine, resolveTwins, stageLabelChange } from './speckit-prepare-core.mjs';
+import { PENDING_LABEL, TWIN_LABEL, countOpenChecklistItems, hasLabel, isValidFolderName, parseFixForLine, resolveTwins } from './speckit-prepare-core.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
-import { renderFlaggedFor, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { beginAmendment, guardPullRequest, maintainOpenSpecPull } from './speckit-amend.mjs';
 import {
+  ARCHITECTURE_PREFIX,
   BOT_LOGIN,
   BRANCH_PREFIX,
   CHECK_FIX_AUTHORED,
@@ -18,9 +18,11 @@ import {
   MAX_CORRECTION_ROUNDS,
   MAX_STALLED_ROUNDS,
   ORCHESTRATE_WORKFLOW_FILE,
+  PREPARE_WORKFLOW_FILE,
   SPEC_BRANCH_PREFIX,
   baseBranchOf,
   defaultBranchOf,
+  dependencyBlock,
   fixBranch,
   folderOfBranch,
   isPrerequisiteBranch,
@@ -39,15 +41,17 @@ import {
   renderBlockedMarker,
 } from './speckit-implement-core.mjs';
 
-// Prerequisite specs (`/speckit fix`): when a diagnosis finds the cause of a stop outside the stopped spec (code or
+// Specs authored by `/speckit specify`: when a diagnosis finds the cause of a stop outside the stopped spec (code or
 // tests of another feature on the base branch, or the environment actions), an agent authors an ordinary, complete spec
-// that removes it and proposes it as a pull request from speckit-spec/<folder> against the default branch (pull
-// requests opened earlier use speckit-fix/<folder>). It runs through the same consistency check, correction rounds, and
-// review as an amendment (speckit-amend.mjs, kind `fix`). Once a person merges it, its twin goes through dependency
-// inference like any twin, and the scheduler makes the stopped spec depend on it and requests its implementation on
-// behalf of the person who asked for it. Blocking and retrying the stopped implementation is the generic handling of
-// open dependencies (maintainDependencyBlock). The lifecycle is recorded as markers in the workflow's comments on the
-// implementation pull request (renderFixEvent).
+// that removes it (with the Spec Kit authoring flow, `/speckit-gha-author`) and proposes it as a pull request from
+// speckit-spec/<folder> against the default branch (pull requests opened earlier use speckit-fix/<folder>). It runs
+// through the same consistency check and correction rounds as an amendment (speckit-amend.mjs, kind `fix`); a
+// consistent one that changes no architecture and that no person pushed to or requested changes on is merged
+// automatically (mergeSpecPull), otherwise it is handed to a person for review. Once merged, its twin goes through
+// dependency inference like any twin, and the scheduler makes the stopped spec depend on it. Like every spec it starts
+// only once someone signs it off with `/speckit implement` on its twin. Blocking and retrying the stopped
+// implementation is the generic handling of open dependencies (maintainDependencyBlock). The lifecycle is recorded as
+// markers in the workflow's comments on the implementation pull request (renderFixEvent).
 
 export class FixUsageError extends Error {}
 
@@ -55,7 +59,6 @@ export const FIX_MODES = ['author', 'fix', 'revise'];
 // An authoring run that has not reported after this long belongs to a cancelled or crashed run.
 const AUTHORING_STALE_MS = 2 * 60 * 60 * 1000;
 const MAX_EVIDENCE_BYTES = 150_000;
-const README_PATH = 'specs/README.md';
 
 const clip = (text, max) => {
   const value = String(text ?? '');
@@ -75,25 +78,25 @@ export function fixStamp(now = Date.now()) {
   return `${date.getUTCFullYear()}${pad(date.getUTCMonth() + 1)}${pad(date.getUTCDate())}-${pad(date.getUTCHours())}${pad(date.getUTCMinutes())}${pad(date.getUTCSeconds())}`;
 }
 
-// Why an implementation is blocked by its prerequisite spec before the dependency exists, for setBlocked: `review`
-// while the prerequisite spec pull request is open, `implement` once it is merged and its twin is not linked yet. Once
-// the twin depends on it, the generic dependency block (dependencyBlock) explains the wait.
+// Why an implementation is blocked by the spec `/speckit specify` authored for it before the dependency exists, for
+// setBlocked: `review` while the spec pull request is open, `implement` once it is merged and its twin is not linked
+// yet. Once the twin depends on it, the generic dependency block (dependencyBlock) explains the wait.
 export function fixBlock({ stage, fixPull, fixTwin = null, baseBranch }) {
   const base = baseBranch ? `\`${baseBranch}\`` : 'the default branch';
   const twin = fixTwin ? `#${fixTwin}` : 'its spec twin';
   const lines = stage === 'review'
     ? [
-      `**Blocked** by prerequisite spec #${fixPull}: the cause of the stop lies outside this spec, so this implementation waits for the prerequisite instead of trying again. Nothing is needed on this pull request.`,
+      `**Blocked** by spec #${fixPull}: the cause of the stop lies outside this spec, so this implementation waits for that spec instead of trying again. Nothing is needed on this pull request.`,
       '',
-      `- **To unblock**: review prerequisite spec #${fixPull} when it is handed to you (it is checked for consistency first). Merging it adds it to ${base}, where it is implemented; this implementation then retries by itself.`,
-      `- **To rework the prerequisite**: comment or request changes on #${fixPull}.`,
-      `- **To drop the prerequisite**: close #${fixPull} without merging; the block is lifted and this pull request lists what you can do next.`,
+      `- **Next**: #${fixPull} is checked for consistency and merged into ${base} automatically. When it changes \`docs/architecture/\` or a person pushed to it, it is handed to you for review instead. Once it is merged and signed off with \`/speckit implement\` on its spec twin, it is implemented; this implementation then retries by itself.`,
+      `- **To rework the spec**: comment or request changes on #${fixPull}.`,
+      `- **To drop the spec**: close #${fixPull} without merging; the block is lifted and this pull request lists what you can do next.`,
     ]
     : [
-      `**Blocked** by prerequisite spec #${fixPull}${fixTwin ? ` (spec twin #${fixTwin})` : ''}: it is merged and is implemented like any spec. Nothing is needed on this pull request.`,
+      `**Blocked** by spec #${fixPull}${fixTwin ? ` (spec twin #${fixTwin})` : ''}: it is merged and becomes a spec twin like any spec. Nothing is needed on this pull request yet.`,
       '',
-      `- **Unblocks by itself** once ${twin} is implemented: this spec depends on it, and this implementation then continues with a fresh attempt count.`,
-      `- **To follow the prerequisite**: watch ${twin} and its implementation pull request; if that implementation stops, it asks for help there.`,
+      `- **Next**: once ${twin} exists, this spec depends on it, and this pull request names the twin with the command that signs it off for implementation (\`/speckit implement\`, commented on the twin).`,
+      `- **Unblocks by itself** once ${twin} is implemented: this implementation then continues with a fresh attempt count.`,
       `- If ${twin} is closed without being implemented, the block is lifted and this pull request lists what you can do next.`,
     ];
   return { key: { pull: fixPull, stage }, lines };
@@ -135,7 +138,7 @@ export async function authoredFor(client, pull) {
 
 // One cause gets one prerequisite spec. The prerequisite specs that may already cover a cause: open prerequisite spec
 // pull requests against the default branch (both branch prefixes), and merged ones that an open implementation waits
-// for and whose spec twin is still open (not implemented yet). `/speckit fix` joins one of them instead of authoring a
+// for and whose spec twin is still open (not implemented yet). `/speckit specify` joins one of them instead of authoring a
 // second spec for the same cause.
 export async function existingFixSpecs(client, env) {
   const defaultBranch = defaultBranchOf(env);
@@ -166,27 +169,27 @@ export async function existingFixSpecs(client, env) {
   return found.sort((a, b) => a.pull - b.pull);
 }
 
-// `/speckit fix [guidance]`: records the request on the implementation pull request and starts the authoring run. The
-// implementation keeps waiting. Refused while a prerequisite spec of this implementation is being authored, open, or
+// `/speckit specify [guidance]`: records the request on the implementation pull request and starts the authoring run.
+// The implementation keeps waiting. Refused while a spec authored for this implementation is being authored, open, or
 // merged but not implemented yet.
 export async function startFixAuthoring(client, env, { twin, implementation, guidance = '', actor, now = Date.now() }) {
   const folder = folderOfBranch(implementation.head?.ref);
   const baseBranch = baseBranchOf(implementation);
   const defaultBranch = defaultBranchOf(env);
   if (baseBranch !== defaultBranch) {
-    return { started: false, reason: `the implementation's base branch \`${baseBranch}\` is not the default branch \`${defaultBranch}\`, where prerequisite specs are added` };
+    return { started: false, reason: `the implementation's base branch \`${baseBranch}\` is not the default branch \`${defaultBranch}\`, where new specs are added` };
   }
   const state = fixState(await client.listIssueComments(implementation.number));
   if (state.created && !state.discarded && !state.landed && !state.stopped) {
     const pull = await client.getPullRequest(state.created.pull);
-    if (pull.state === 'open') return { started: false, reason: `prerequisite spec #${pull.number} is still open; review it there, or close it first` };
+    if (pull.state === 'open') return { started: false, reason: `spec #${pull.number} is still open for this cause; follow it there, or close it first` };
     const pending = !state.linked || (await client.getIssue(state.linked.twin))?.state === 'open';
-    if (pull.merged_at && pending) return { started: false, reason: `prerequisite spec #${pull.number} was merged and is not implemented yet; this implementation retries by itself once it is implemented` };
+    if (pull.merged_at && pending) return { started: false, reason: `spec #${pull.number} was merged and is not implemented yet; this implementation retries by itself once it is implemented` };
   }
   const latest = latestCheckRun(await client.listCheckRuns(implementation.head.sha, FIX_CHECK_NAME));
   if (latest && latest.status !== 'completed') {
-    if (now - Date.parse(latest.started_at ?? latest.created_at ?? 0) < AUTHORING_STALE_MS) return { started: false, reason: 'a prerequisite spec is already being authored' };
-    await closeAuthoringCheck(client, latest.id, 'failure', 'The prerequisite spec authoring did not finish', 'The run ended without a result.');
+    if (now - Date.parse(latest.started_at ?? latest.created_at ?? 0) < AUTHORING_STALE_MS) return { started: false, reason: 'a new spec is already being authored' };
+    await closeAuthoringCheck(client, latest.id, 'failure', 'The spec authoring did not finish', 'The run ended without a result.');
   }
   const stamp = fixStamp(now);
   const value = String(guidance ?? '').trim();
@@ -195,12 +198,12 @@ export async function startFixAuthoring(client, env, { twin, implementation, gui
     head_sha: implementation.head.sha,
     status: 'in_progress',
     external_id: CHECK_FIX_AUTHORING,
-    output: { title: 'Authoring a prerequisite spec', summary: `Requested by @${actor}.${value ? `\n\nGuidance: ${clip(value, 2000)}` : ''}` },
+    output: { title: 'Authoring a new spec', summary: `Requested by @${actor}.${value ? `\n\nGuidance: ${clip(value, 2000)}` : ''}` },
   });
   await client.createComment(implementation.number, [
     renderFixEvent('requested', { by: actor, stamp }),
     ...(value ? [renderGuidanceMarker(value)] : []),
-    `**A prerequisite spec is being authored**, requested by @${actor}. An agent writes an ordinary spec that removes the cause outside this spec and opens it as a pull request against \`${baseBranch}\`; it is checked for consistency and then handed over for review. This implementation waits meanwhile.`,
+    `**A new spec is being authored**, requested by @${actor}. An agent writes an ordinary spec that removes the cause outside this spec with the Spec Kit authoring flow and opens it as a pull request against \`${baseBranch}\`; it is checked for consistency and then merged automatically, or handed to you for review when it changes \`docs/architecture/\`. This implementation waits meanwhile.`,
     ...(value ? ['', 'Guidance for the agent:', '', ...neutralizeMarkers(value).split('\n').map((line) => `> ${line}`)] : []),
   ].join('\n'));
   try {
@@ -220,7 +223,7 @@ export async function startFixAuthoring(client, env, { twin, implementation, gui
     await setAttention(client, implementation.number, false);
     return { started: true, check, stamp };
   } catch (error) {
-    await closeAuthoringCheck(client, check.id, 'failure', 'The prerequisite spec authoring could not start', error.message);
+    await closeAuthoringCheck(client, check.id, 'failure', 'The spec authoring could not start', error.message);
     return { started: false, reason: `the authoring could not start: ${error.message}` };
   }
 }
@@ -238,14 +241,13 @@ function inputsFrom(env) {
   }
   const mode = FIX_MODES.includes(env.SPECKIT_MODE) ? env.SPECKIT_MODE : 'author';
   const amendment = Number(env.SPECKIT_AMENDMENT);
-  if (mode !== 'author' && (!Number.isInteger(amendment) || amendment <= 0)) throw new FixUsageError(`Mode ${mode} needs SPECKIT_AMENDMENT (the prerequisite spec pull request).`);
+  if (mode !== 'author' && (!Number.isInteger(amendment) || amendment <= 0)) throw new FixUsageError(`Mode ${mode} needs SPECKIT_AMENDMENT (the spec pull request).`);
   return { twin, pull, folder, mode, amendment: mode === 'author' ? null : amendment, round: Math.max(0, Number(env.SPECKIT_ROUND) || 0), stalls: Math.max(0, Number(env.SPECKIT_STALLS) || 0) };
 }
 
-// Agent job of Spec Kit fix, before the agent: what the agent needs and cannot fetch itself, in evidence.md and
-// context.json. `author` writes a new prerequisite spec for the stop of the implementation pull request (SPECKIT_FOLDER
-// is the stopped spec); `fix` and `revise` rework the prerequisite spec pull request SPECKIT_AMENDMENT (SPECKIT_FOLDER
-// is the prerequisite spec).
+// Agent job of Spec Kit specify, before the agent: what the agent needs and cannot fetch itself, in evidence.md and
+// context.json. `author` writes a new spec for the stop of the implementation pull request (SPECKIT_FOLDER is the
+// stopped spec); `fix` and `revise` rework the spec pull request SPECKIT_AMENDMENT (SPECKIT_FOLDER is the new spec).
 export async function runEvidence({ client, env, log, now = Date.now }) {
   const { twin, pull: pullNumber, folder, mode, amendment, round, stalls } = inputsFrom(env);
   const outDir = path.resolve(env.SPECKIT_EVIDENCE_DIR || '.speckit-fix');
@@ -263,13 +265,13 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
     const guidance = (requestComment ? parseGuidance(requestComment.body) : null) ?? (env.SPECKIT_GUIDANCE?.trim() || null);
     const diagnosis = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).at(-1);
     sections.push(
-      `# Evidence for a prerequisite spec that unblocks #${pullNumber}`,
+      `# Evidence for a new spec that unblocks #${pullNumber}`,
       '',
       `- Stopped spec: \`specs/${blockedFolder}\` (twin #${twin}), implementation pull request #${pullNumber} on \`${implementation.head?.ref}\``,
-      `- Base branch: \`${baseBranch}\` (the prerequisite spec is proposed against it)`,
+      `- Base branch: \`${baseBranch}\` (the new spec is proposed against it)`,
       `- Requested by: ${requested?.by ? `@${requested.by}` : 'unknown'}`,
       '',
-      '## Guidance from the person who asked for the prerequisite spec',
+      '## Guidance from the person who asked for the new spec',
       '',
       guidance ?? '_None._',
       '',
@@ -283,7 +285,7 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
     for (const comment of comments.slice(-12)) sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 6000), '');
     const existing = await existingFixSpecs(client, env);
     sections.push(
-      '## Existing prerequisite specs',
+      '## Existing specs authored for stopped implementations',
       '',
       'One cause gets one spec. When one of these already removes the cause of this stop (the same root cause, even',
       'when another implementation asked for it), write nothing and report its pull request number in `reuse`; this',
@@ -293,7 +295,7 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
     if (existing.length === 0) sections.push('_None._', '');
     for (const item of existing) {
       sections.push(
-        `### #${item.pull} ${clip(item.title, 200)} (\`specs/${item.folder}\`, ${item.state === 'open' ? 'open for review' : `merged, waiting for the implementation of twin #${item.twin}`}${item.fixFor ? `, asked for by #${item.fixFor}` : ''})`,
+        `### #${item.pull} ${clip(item.title, 200)} (\`specs/${item.folder}\`, ${item.state === 'open' ? 'open pull request' : `merged, waiting for the implementation of twin #${item.twin}`}${item.fixFor ? `, asked for by #${item.fixFor}` : ''})`,
         '',
         clip(item.spec ?? '_spec.md could not be read._', 8000),
         '',
@@ -309,23 +311,22 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
       folderPrefix: `${stamp}-`,
       branchPrefix: SPEC_BRANCH_PREFIX,
       titlePrefix: FIX_TITLE_PREFIX,
-      specsReadme: README_PATH,
       existingFixes: existing.map((item) => ({ pull: item.pull, folder: item.folder, state: item.state, title: item.title })),
     };
   } else {
     const fix = await client.getPullRequest(amendment);
     sections.push(
-      `# Evidence for ${mode === 'fix' ? `correction round ${round} of` : 'a rework of'} prerequisite spec #${amendment}`,
+      `# Evidence for ${mode === 'fix' ? `correction round ${round} of` : 'a rework of'} spec #${amendment}`,
       '',
-      `- Prerequisite spec: \`specs/${folder}\` on \`${fix.head?.ref}\` against \`${fix.base?.ref}\``,
+      `- Spec: \`specs/${folder}\` on \`${fix.head?.ref}\` against \`${fix.base?.ref}\``,
       `- It unblocks: #${pullNumber} (\`specs/${blockedFolder}\`, which depends on it)`,
       ...(mode === 'fix' ? [`- Rounds without progress so far: ${stalls} of ${MAX_STALLED_ROUNDS}`] : []),
       '',
-      mode === 'fix' ? '## Findings of the consistency check to fix' : '## Feedback on the prerequisite spec to address',
+      mode === 'fix' ? '## Findings of the consistency check to fix' : '## Feedback on the spec to address',
       '',
       env.SPECKIT_GUIDANCE?.trim() || '_None._',
       '',
-      '## Earlier comments on the prerequisite spec (oldest first)',
+      '## Earlier comments on the spec pull request (oldest first)',
       '',
     );
     for (const comment of (await client.listIssueComments(amendment)).slice(-10)) sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 4000), '');
@@ -344,7 +345,6 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
       stalls,
       maxCorrectionRounds: MAX_CORRECTION_ROUNDS,
       maxStalledRounds: MAX_STALLED_ROUNDS,
-      specsReadme: README_PATH,
     };
   }
   let evidence = sections.join('\n');
@@ -355,26 +355,98 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
   return { exitCode: 0, context };
 }
 
-// Checks a prerequisite spec pull request: it only adds a new spec folder (plus its row in specs/README.md) and is
-// ready for implementation like a published spec (publishBlockers). It needs no special marker: the dependency of the
-// stopped spec on it is recorded on GitHub once it is merged. Every reason is a rule the consistency check's correction
-// rounds fix.
+// A spec pull request authored by `/speckit specify` may change its own spec folder and, for design decisions the
+// spec makes, docs/architecture/.
+export const isSpecPullPath = (folder, file) => file.startsWith(`specs/${folder}/`) || file.startsWith(ARCHITECTURE_PREFIX);
+
+// The Design decisions comment on a spec pull request: one comment, by the workflow, that lists each architecture
+// decision of the spec with why and the files it changes. The record jobs keep it current (syncDesignDecisions);
+// checkFixSpec requires it when the pull request changes docs/architecture/.
+export const DESIGN_DECISIONS_MARKER = '<!-- speckit-spec:design-decisions';
+const DESIGN_DECISIONS_PATTERN = /^<!-- speckit-spec:design-decisions (\{[^\n]*?\}) -->/;
+const MAX_DESIGN_DECISIONS = 20;
+
+// Validates the untrusted `designDecisions` of a report: null when the report has none, otherwise the clipped list.
+export function parseDesignDecisions(raw) {
+  if (!Array.isArray(raw)) return null;
+  const text = (value, max) => (typeof value === 'string' ? clip(value.trim(), max) : '');
+  return raw.slice(0, MAX_DESIGN_DECISIONS)
+    .map((item) => ({
+      decision: text(item?.decision, 500),
+      why: text(item?.why, 1000),
+      files: (Array.isArray(item?.files) ? item.files : []).filter((file) => typeof file === 'string' && file.trim()).slice(0, 20).map((file) => clip(file.trim(), 200)),
+    }))
+    .filter((item) => item.decision);
+}
+
+export function renderDesignDecisions(decisions) {
+  const lines = [
+    `${DESIGN_DECISIONS_MARKER} ${JSON.stringify({ count: decisions.length })} -->`,
+    '**Design decisions** of this spec (from its author report). The changes to `docs/architecture/` follow from them; review them before you merge.',
+    '',
+  ];
+  decisions.forEach((item, index) => {
+    lines.push(`${index + 1}. **${neutralizeMarkers(item.decision)}**`);
+    if (item.why) lines.push(`   - Why: ${neutralizeMarkers(item.why)}`);
+    if (item.files.length > 0) lines.push(`   - Files: ${item.files.map((file) => `\`${neutralizeMarkers(file).replace(/`/g, '')}\``).join(', ')}`);
+  });
+  if (decisions.length === 0) lines.push('_None reported._');
+  return lines.join('\n');
+}
+
+// The workflow's Design decisions comment on a spec pull request, and how many decisions it lists.
+export async function designDecisionsComment(client, number) {
+  const comment = (await client.listIssueComments(number))
+    .filter((item) => item.user?.login === BOT_LOGIN && DESIGN_DECISIONS_PATTERN.test(String(item.body ?? '')))
+    .at(-1);
+  if (!comment) return null;
+  let count = 0;
+  try {
+    count = Number(JSON.parse(String(comment.body).match(DESIGN_DECISIONS_PATTERN)[1]).count) || 0;
+  } catch {
+    // A damaged marker lists nothing.
+  }
+  return { ...comment, count };
+}
+
+// Creates or updates the Design decisions comment with the decisions a report gave; `null` (the report gave none)
+// leaves it as it is, and an empty list only replaces an existing comment.
+export async function syncDesignDecisions(client, number, decisions) {
+  if (decisions === null) return null;
+  const existing = await designDecisionsComment(client, number);
+  const body = renderDesignDecisions(decisions);
+  if (existing) {
+    if (existing.body !== body) await client.updateComment(existing.id, body);
+    return existing;
+  }
+  if (decisions.length === 0) return null;
+  return client.createComment(number, body);
+}
+
+// Checks a spec pull request authored by `/speckit specify`: it only adds a new spec folder (and, for the decisions
+// its design makes, changes docs/architecture/, which then needs its Design decisions comment), and is ready for
+// implementation like a published spec (publishBlockers). It needs no special marker: the dependency of the stopped
+// spec on it is recorded on GitHub once it is merged. Every reason is a rule the consistency check's correction rounds
+// fix.
 export async function checkFixSpec(client, { folder, pull }) {
   const { architectureUpdates, publishBlockers } = await import('./speckit-author.mjs');
   const prefix = `specs/${folder}/`;
   const files = await client.listPullRequestFiles(pull.number);
   const changedPaths = [...new Set(files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean))];
   const reasons = [];
-  const outside = changedPaths.filter((file) => !file.startsWith(prefix) && file !== README_PATH);
-  if (outside.length > 0) reasons.push(`a prerequisite spec may only add \`${prefix}\` and its row in \`${README_PATH}\`, but it changes ${outside.map((file) => `\`${file}\``).join(', ')}`);
+  const outside = changedPaths.filter((file) => !isSpecPullPath(folder, file));
+  if (outside.length > 0) reasons.push(`a spec authored by \`/speckit specify\` may only add \`${prefix}\` and change \`${ARCHITECTURE_PREFIX}\` (specs/README.md lists no specs), but it changes ${outside.map((file) => `\`${file}\``).join(', ')}`);
+  const architecture = changedPaths.filter((file) => file.startsWith(ARCHITECTURE_PREFIX));
+  if (architecture.length > 0 && !((await designDecisionsComment(client, pull.number))?.count > 0)) {
+    reasons.push(`it changes ${architecture.map((file) => `\`${file}\``).join(', ')}, but its author report lists no design decisions: report each decision behind these changes in \`designDecisions\` (decision, why, files), or revert the changes to \`${ARCHITECTURE_PREFIX}\``);
+  }
   if (!isValidFolderName(folder) || !/^\d{8}-\d{6}-/.test(folder)) reasons.push(`the folder \`${folder}\` must start with a UTC time stamp (YYYYMMDD-HHMMSS-)`);
-  if (await client.getFileContent(`${prefix}spec.md`, pull.base?.ref)) reasons.push(`\`${prefix}\` already exists on \`${pull.base?.ref}\`; a prerequisite spec adds a new spec folder`);
+  if (await client.getFileContent(`${prefix}spec.md`, pull.base?.ref)) reasons.push(`\`${prefix}\` already exists on \`${pull.base?.ref}\`; a spec authored by \`/speckit specify\` adds a new spec folder`);
   const head = pull.head?.sha ?? pull.head?.ref;
   const read = (file) => client.getFileContent(file, head);
   const specMarkdown = await read(`${prefix}spec.md`);
   const planMarkdown = await read(`${prefix}plan.md`);
   const tasksMarkdown = await read(`${prefix}tasks.md`);
-  const readme = await read(README_PATH);
   const checklists = [];
   for (const file of changedPaths.filter((item) => item.startsWith(`${prefix}checklists/`) && item.endsWith('.md'))) checklists.push((await read(file)) ?? '');
   reasons.push(...publishBlockers({
@@ -385,7 +457,6 @@ export async function checkFixSpec(client, { folder, pull }) {
     architecture: planMarkdown === null ? null : architectureUpdates(planMarkdown),
     openClarificationMarkers: (String(specMarkdown ?? '').match(/\[NEEDS CLARIFICATION/g) ?? []).length,
     openChecklistItems: countOpenChecklistItems(checklists),
-    listedInSpecsReadme: String(readme ?? '').includes(`${folder}/`),
   }));
   return { changedPaths, reasons, notes: [] };
 }
@@ -400,23 +471,30 @@ function readAgentItems(env, type) {
   }
 }
 
-// The author's report: { folder, summary, refused, reuse }. Untrusted, so only clipped strings and a pull request
-// number are kept; `reuse` is checked against the existing prerequisite specs before it is used.
+// The author's report: { folder, summary, refused, reuse, designDecisions }. Untrusted, so only clipped strings and a
+// pull request number are kept; `reuse` is checked against the existing specs before it is used, and
+// `designDecisions` is null when the report has none.
 export function parseAuthorReport(raw) {
   let report = raw;
   if (typeof raw === 'string') {
     try {
       report = JSON.parse(raw);
     } catch {
-      return { summary: '', refused: '', folder: '', reuse: null };
+      return { summary: '', refused: '', folder: '', reuse: null, designDecisions: null };
     }
   }
   const text = (value, max) => (typeof value === 'string' ? clip(value.trim(), max) : '');
   const reuse = Number(String(report?.reuse ?? '').replace(/^#/, ''));
-  return { summary: text(report?.summary, 1500), refused: text(report?.refused, 1500), folder: text(report?.folder, 200), reuse: Number.isInteger(reuse) && reuse > 0 ? reuse : null };
+  return {
+    summary: text(report?.summary, 1500),
+    refused: text(report?.refused, 1500),
+    folder: text(report?.folder, 200),
+    reuse: Number.isInteger(reuse) && reuse > 0 ? reuse : null,
+    designDecisions: parseDesignDecisions(report?.designDecisions),
+  };
 }
 
-// Closes a prerequisite spec pull request this run created and deletes its branch.
+// Closes a spec pull request this run created and deletes its branch.
 async function discardCreatedFix(client, number) {
   const pull = await client.getPullRequest(number);
   if (pull.state === 'open') await client.updatePullRequest(number, { state: 'closed' });
@@ -429,10 +507,9 @@ async function discardCreatedFix(client, number) {
   }
 }
 
-// `/speckit fix` found an existing prerequisite spec for the same cause: the implementation waits for that one instead
-// of a second spec. Records the same events as an authored prerequisite spec (`created`, and `merged` when it is
-// already merged), so the scheduler blocks and links it the same way (maintainFixSpec); the prerequisite pull request
-// is told.
+// `/speckit specify` found an existing spec for the same cause: the implementation waits for that one instead of a
+// second spec. Records the same events as an authored spec (`created`, and `merged` when it is already merged), so the
+// scheduler blocks and links it the same way (maintainFixSpec); the spec pull request is told.
 async function joinFixSpec(client, env, { implementation, pullNumber, existing, summary, complete, log }) {
   const defaultBranch = defaultBranchOf(env);
   const merged = existing.state === 'merged';
@@ -442,24 +519,39 @@ async function joinFixSpec(client, env, { implementation, pullNumber, existing, 
     renderFixEvent('created', { pull: existing.pull, folder: existing.folder, joined: true }),
     ...(merged ? [renderFixEvent('merged', { pull: existing.pull, folder: existing.folder, joined: true })] : []),
     renderBlockedMarker(block.key),
-    `**This stop has the same cause as prerequisite spec ${link}** (\`specs/${existing.folder}\`), so no second spec was written: this implementation waits for that one and retries by itself once it is implemented.`,
+    `**This stop has the same cause as spec ${link}** (\`specs/${existing.folder}\`), so no second spec was written: this implementation waits for that one and retries by itself once it is implemented.`,
     ...(summary ? ['', neutralizeMarkers(summary)] : []),
     '',
     ...block.lines,
   ].join('\n'));
-  await client.createComment(existing.pull, `**Also unblocks #${pullNumber}** (\`specs/${folderOfBranch(implementation.head?.ref)}\`): \`/speckit fix\` there found that this prerequisite spec removes the same cause, so no second spec was written. #${pullNumber} retries by itself once this spec is implemented.`);
-  await complete('success', `Joined prerequisite spec #${existing.pull}`, summary || `The cause is the one prerequisite spec #${existing.pull} removes.`);
+  await client.createComment(existing.pull, `**Also unblocks #${pullNumber}** (\`specs/${folderOfBranch(implementation.head?.ref)}\`): \`/speckit specify\` there found that this spec removes the same cause, so no second spec was written. #${pullNumber} retries by itself once this spec is implemented.`);
+  await complete('success', `Joined spec #${existing.pull}`, summary || `The cause is the one spec #${existing.pull} removes.`);
   await setBlocked(client, pullNumber, true, { explain: block });
-  log(`#${pullNumber}: joined prerequisite spec #${existing.pull}.`);
+  log(`#${pullNumber}: joined spec #${existing.pull}.`);
   return { exitCode: 0, outcome: 'joined', pull: existing.pull };
 }
 
-// Custom safe-output job of Spec Kit fix. `author`: validates the pull request the agent created, links it to the
+// Before a rework is recorded: keeps the Design decisions comment of the spec pull request in line with the report,
+// so the consistency check that follows sees the decisions.
+async function recordReworkDecisions(client, env, amendment) {
+  const detection = String(env.SPECKIT_DETECTION ?? '').trim();
+  if (detection && detection !== 'success') return;
+  const raw = readAgentItems(env, 'speckit_fix').map((item) => item.report ?? item).at(-1);
+  if (raw === undefined) return;
+  try {
+    await syncDesignDecisions(client, amendment, parseAuthorReport(raw).designDecisions);
+  } catch {
+    // The consistency check asks for the decisions again when they are missing.
+  }
+}
+
+// Custom safe-output job of Spec Kit specify. `author`: validates the pull request the agent created, links it to the
 // implementation, and starts its consistency check; a refusal or a broken pull request goes back to the implementation
 // with the next steps. `fix` and `revise` are recorded like a rework of an amendment.
 export async function runRecord({ client, env, log }) {
   const inputs = inputsFrom(env);
   if (inputs.mode !== 'author') {
+    await recordReworkDecisions(client, env, inputs.amendment);
     const { runRecord: recordRework } = await import('./speckit-diagnose.mjs');
     return recordRework({ client, env, log });
   }
@@ -482,9 +574,9 @@ export async function runRecord({ client, env, log }) {
       return joinFixSpec(client, env, { implementation, pullNumber, existing, summary: report.summary, complete, log });
     }
     if (!Number.isInteger(created) || created <= 0) {
-      const why = `the agent named prerequisite spec #${report.reuse} for this cause, but it is neither an open prerequisite spec pull request nor a merged prerequisite spec that is still to be implemented`;
-      await complete('failure', 'No prerequisite spec was created', why);
-      await client.createComment(pullNumber, [`**No prerequisite spec was created**: ${why}.`, '', ...(await nextSteps())].join('\n'));
+      const why = `the agent named spec #${report.reuse} for this cause, but it is neither an open spec pull request authored by \`/speckit specify\` nor a merged one that is still to be implemented`;
+      await complete('failure', 'No spec was created', why);
+      await client.createComment(pullNumber, [`**No spec was created**: ${why}.`, '', ...(await nextSteps())].join('\n'));
       await setAttention(client, pullNumber, true);
       log(`#${pullNumber}: invalid reuse of #${report.reuse}.`);
       return { exitCode: 0, outcome: 'none' };
@@ -492,10 +584,10 @@ export async function runRecord({ client, env, log }) {
   }
   if (!Number.isInteger(created) || created <= 0) {
     const why = withheld ? `the result was withheld because threat detection did not pass (result: ${detection})` : report?.refused || report?.summary || 'the agent did not create one';
-    await complete('failure', 'No prerequisite spec was created', why);
-    await client.createComment(pullNumber, [`**No prerequisite spec was created**: ${neutralizeMarkers(why)}`, '', ...(await nextSteps())].join('\n'));
+    await complete('failure', 'No spec was created', why);
+    await client.createComment(pullNumber, [`**No spec was created**: ${neutralizeMarkers(why)}`, '', ...(await nextSteps())].join('\n'));
     await setAttention(client, pullNumber, true);
-    log(`#${pullNumber}: no prerequisite spec was created.`);
+    log(`#${pullNumber}: no spec was created.`);
     return { exitCode: 0, outcome: 'none' };
   }
   const pull = await client.getPullRequest(created);
@@ -507,39 +599,102 @@ export async function runRecord({ client, env, log }) {
   if (pull.state !== 'open') broken.push('it is not open');
   if (fixFolder) {
     const files = await client.listPullRequestFiles(created);
-    const outside = files.map((file) => file.filename).filter((file) => !file.startsWith(`specs/${fixFolder}/`) && file !== README_PATH);
-    if (outside.length > 0) broken.push(`it changes files outside \`specs/${fixFolder}/\` and \`${README_PATH}\`: ${outside.map((file) => `\`${file}\``).join(', ')}`);
+    const outside = files.map((file) => file.filename).filter((file) => !isSpecPullPath(fixFolder, file));
+    if (outside.length > 0) broken.push(`it changes files outside \`specs/${fixFolder}/\` and \`${ARCHITECTURE_PREFIX}\`: ${outside.map((file) => `\`${file}\``).join(', ')}`);
     if (await client.getFileContent(`specs/${fixFolder}/spec.md`, defaultBranch)) broken.push(`\`specs/${fixFolder}/\` already exists on \`${defaultBranch}\``);
   }
   if (broken.length > 0) {
     await discardCreatedFix(client, created);
-    await complete('failure', 'The prerequisite spec was rejected', broken.join('; '));
-    await client.createComment(pullNumber, [`**The authored prerequisite spec #${created} was rejected and closed**: ${broken.map(neutralizeMarkers).join('; ')}.`, '', ...(await nextSteps())].join('\n'));
+    await complete('failure', 'The spec was rejected', broken.join('; '));
+    await client.createComment(pullNumber, [`**The authored spec #${created} was rejected and closed**: ${broken.map(neutralizeMarkers).join('; ')}.`, '', ...(await nextSteps())].join('\n'));
     await setAttention(client, pullNumber, true);
-    log(`#${pullNumber}: rejected prerequisite spec #${created}.`);
+    log(`#${pullNumber}: rejected spec #${created}.`);
     return { exitCode: 0, outcome: 'rejected' };
   }
   await client.updatePullRequest(created, { body: withoutComments(pull.body) });
+  await syncDesignDecisions(client, created, report?.designDecisions ?? null);
   const block = fixBlock({ stage: 'review', fixPull: created, baseBranch: defaultBranch });
   await client.createComment(pullNumber, [
     renderFixEvent('created', { pull: created, folder: fixFolder }),
     renderBlockedMarker(block.key),
-    `**Prerequisite spec [${neutralizeMarkers(pull.title ?? `#${created}`)} (#${created})](${pull.html_url ?? ''}) was authored** for \`specs/${fixFolder}\`. An independent \`/speckit-analyze\` checks it for consistency first, and correction rounds fix what it finds; then it is handed over for review.`,
+    `**Spec [${neutralizeMarkers(pull.title ?? `#${created}`)} (#${created})](${pull.html_url ?? ''}) was authored** for \`specs/${fixFolder}\`. An independent \`/speckit-analyze\` checks it for consistency first, and correction rounds fix what it finds; then it is merged automatically, or handed over for review when it changes \`${ARCHITECTURE_PREFIX}\` or a person pushed to it.`,
     ...(report?.summary ? ['', neutralizeMarkers(report.summary)] : []),
     '',
     ...block.lines,
   ].join('\n'));
-  await complete('success', `Prerequisite spec #${created} authored`, report?.summary || `specs/${fixFolder}`);
+  await complete('success', `Spec #${created} authored`, report?.summary || `specs/${fixFolder}`);
   await setBlocked(client, pullNumber, true, { explain: block });
   await beginAmendment(client, env, { amendment: await client.getPullRequest(created), folder: fixFolder, implementation, twin, kind: 'fix' });
-  log(`#${pullNumber}: prerequisite spec #${created} authored; its consistency check started.`);
+  log(`#${pullNumber}: spec #${created} authored; its consistency check started.`);
   return { exitCode: 0, outcome: 'created', pull: created };
 }
 
-// Handles a person's merge or close of a prerequisite spec pull request once (markers on the implementation pull
-// request record it). A merge into the default branch waits for the twin, which the scheduler then links
-// (maintainFixSpec).
-export async function settleClosedFix(client, env, { amendment: pull, folder, implementation, actor = null }) {
+const isBotAccount = (user) => Boolean(user) && (user.type === 'Bot' || String(user.login ?? '').endsWith('[bot]') || user.login === BOT_LOGIN);
+
+// Whether a commit comes from automation: its author and committer accounts are bots (GitHub's web-flow committer
+// counts as neutral). A commit without a linked author account counts as automation only when its author name or
+// email names a bot.
+export function isAutomationCommit(commit) {
+  const author = commit?.author;
+  const authorIsBot = author
+    ? isBotAccount(author)
+    : /\[bot\]/.test(`${commit?.commit?.author?.name ?? ''} ${commit?.commit?.author?.email ?? ''}`);
+  const committer = commit?.committer;
+  const committerIsBot = !committer || committer.login === 'web-flow' || isBotAccount(committer);
+  return authorIsBot && committerIsBot;
+}
+
+// Why a consistent spec pull request is not merged automatically but handed to a person: it changes
+// docs/architecture/ (`architecture`), a person pushed to it (`push`), or a person's latest review requests changes
+// (`changes`); null when it may be merged.
+export async function specMergeHold(client, pull, changedPaths) {
+  if (changedPaths.some((file) => file.startsWith(ARCHITECTURE_PREFIX))) return 'architecture';
+  if ((await client.listPullRequestCommits(pull.number)).some((commit) => !isAutomationCommit(commit))) return 'push';
+  const latest = new Map();
+  for (const review of await client.listPullRequestReviews(pull.number)) {
+    if (isBotAccount(review.user) || !review.user?.login || !['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(review.state)) continue;
+    latest.set(review.user.login, review.state);
+  }
+  if ([...latest.values()].includes('CHANGES_REQUESTED')) return 'changes';
+  return null;
+}
+
+// The automatic merge of a consistent spec pull request authored by `/speckit specify` (Spec Kit analyze's record
+// job): squash-merges it into the default branch unless specMergeHold holds it for a person, records the merge on the
+// implementation pull request (settleClosedFix), and starts Spec Kit prepare (its twin) and Spec Kit orchestrate (the
+// link), because events of the workflow token start no workflows. Returns `merged`, or `held` with the reason.
+export async function mergeSpecPull(client, env, { amendment, folder, implementation }) {
+  const pull = await client.getPullRequest(amendment.number);
+  const files = await client.listPullRequestFiles(pull.number);
+  const changedPaths = [...new Set(files.flatMap((file) => [file.filename, file.previous_filename]).filter(Boolean))];
+  const held = await specMergeHold(client, pull, changedPaths);
+  if (held) return { outcome: 'held', held };
+  const defaultBranch = defaultBranchOf(env);
+  if (pull.base?.ref !== defaultBranch) return { outcome: 'held', held: 'refused', message: `it targets \`${pull.base?.ref}\`` };
+  if (pull.draft) await client.markReadyForReview(pull.node_id);
+  const result = await client.mergePullRequest(pull.number, {
+    sha: pull.head.sha,
+    merge_method: 'squash',
+    commit_title: `${pull.title ?? `Spec ${folder}`} (#${pull.number})`,
+    commit_message: `Merged automatically by Spec Kit: consistent, no architecture changes, only automation commits. Authored with \`/speckit specify\` on #${implementation.number}.`,
+  });
+  if (!result.merged) return { outcome: 'held', held: 'refused', message: result.message ?? 'the merge was refused' };
+  await client.createComment(pull.number, `**Merged automatically** into \`${defaultBranch}\`: an independent \`/speckit-analyze\` found it consistent, it changes no \`${ARCHITECTURE_PREFIX}\`, and only automation pushed to it. Its spec twin is created next; like every spec, it is implemented once someone with write access signs it off with \`/speckit implement\` on that twin. #${implementation.number} names the twin with the ready-to-paste command once it exists.`);
+  await settleClosedFix(client, env, { amendment: await client.getPullRequest(pull.number), folder, implementation, automatic: true });
+  for (const [file, inputs] of [[PREPARE_WORKFLOW_FILE, { dry_run: 'false' }], [ORCHESTRATE_WORKFLOW_FILE, {}]]) {
+    try {
+      await client.dispatchWorkflow(file, defaultBranch, inputs);
+    } catch {
+      // The push to the default branch and the hourly scheduler run start them.
+    }
+  }
+  return { outcome: 'merged', sha: result.sha };
+}
+
+// Handles the merge or close of a spec pull request authored by `/speckit specify` once (markers on the
+// implementation pull request record it): a person's, or the automatic merge (`automatic`). A merge into the default
+// branch waits for the twin, which the scheduler then links (maintainFixSpec).
+export async function settleClosedFix(client, env, { amendment: pull, folder, implementation, actor = null, automatic = false }) {
   if (pull.state === 'open') return { outcome: 'open' };
   const events = parseFixEvents(await client.listIssueComments(implementation.number)).filter((event) => event.pull === pull.number);
   if (events.some((event) => ['merged', 'discarded'].includes(event.event))) return { outcome: 'handled' };
@@ -556,7 +711,9 @@ export async function settleClosedFix(client, env, { amendment: pull, folder, im
     await client.createComment(implementation.number, [
       renderFixEvent('merged', { pull: pull.number, folder }),
       renderBlockedMarker(block.key),
-      `**Prerequisite spec #${pull.number} was merged** into \`${defaultBranch}\` by ${by}. It becomes a spec twin like any spec; this spec then depends on it, and it is requested for implementation.`,
+      automatic
+        ? `**Spec #${pull.number} was merged automatically** into \`${defaultBranch}\`: it is consistent, changes no \`${ARCHITECTURE_PREFIX}\`, and only automation pushed to it. It becomes a spec twin like any spec; this spec then depends on it, and it waits for sign-off with \`/speckit implement\` on its twin.`
+        : `**Spec #${pull.number} was merged** into \`${defaultBranch}\` by ${by}. It becomes a spec twin like any spec; this spec then depends on it, and it waits for sign-off with \`/speckit implement\` on its twin.`,
       '',
       ...block.lines,
     ].join('\n'));
@@ -564,8 +721,8 @@ export async function settleClosedFix(client, env, { amendment: pull, folder, im
   }
   const context = await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref));
   const what = pull.merged_at
-    ? `**Prerequisite spec #${pull.number} was merged into \`${pull.base?.ref}\`** by ${by}, not into \`${defaultBranch}\`, so it is not implemented. The block is lifted, and this implementation stays stopped.`
-    : `**Prerequisite spec #${pull.number} was closed without merging** by ${by}. The block is lifted, and this implementation stays stopped.`;
+    ? `**Spec #${pull.number} was merged into \`${pull.base?.ref}\`** by ${by}, not into \`${defaultBranch}\`, so it is not implemented. The block is lifted, and this implementation stays stopped.`
+    : `**Spec #${pull.number} was closed without merging** by ${by}. The block is lifted, and this implementation stays stopped.`;
   await client.createComment(implementation.number, [renderFixEvent('discarded', { pull: pull.number, folder }), what, '', ...renderNextSteps({ diagnosed: true, ...context })].join('\n'));
   await setBlocked(client, implementation.number, false);
   await setAttention(client, implementation.number, true);
@@ -585,36 +742,25 @@ export async function linkPrerequisite(client, { twin, prerequisite }) {
   }
 }
 
-// Requests the implementation of an open prerequisite twin on behalf of `requester` (renderFlaggedFor), once: not when
-// it is already requested, or when the workflow requested it before (a person may have removed that request).
-export async function requestPrerequisite(client, issue, requester, why) {
-  if (!requester || issue.state !== 'open' || isImplementRequested(issue)) return false;
-  const comments = await client.listIssueComments(issue.number);
-  if (comments.some((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith('<!-- speckit:flagged-for '))) return false;
-  await client.createComment(issue.number, [renderFlaggedFor(requester), `Implementation requested on behalf of @${requester}: ${why}`].join('\n'));
-  await updateIssueWithLabels(client, issue, stageLabelChange(issue, IMPLEMENT_STAGE));
-  return true;
-}
-
 function cycleNote(prerequisite, twin) {
   return `- Warning: spec twin #${prerequisite} already depends on #${twin}, so #${twin} cannot depend on it without a dependency cycle; remove the wrong one of the two dependencies.`;
 }
 
-// Scheduler side (Spec Kit orchestrate), for every implementation in progress: maintains its open prerequisite spec
-// pull request like an amendment, settles a closed one, and once a merged one has a twin (after its dependency
-// inference), makes this spec depend on it and requests its implementation on behalf of the person who asked for it.
-// From then on the generic dependency handling (maintainDependencyBlock) blocks and retries the implementation.
-// `blocked` tells whether the prerequisite spec holds the implementation before that dependency exists. An authoring
-// run that never reported is closed.
+// Scheduler side (Spec Kit orchestrate), for every implementation in progress: maintains the open pull request of the
+// spec `/speckit specify` authored for it like an amendment, settles a closed one, and once a merged one has a twin
+// (after its dependency inference), makes this spec depend on it and names the twin with the command that signs it
+// off. From then on the generic dependency handling (maintainDependencyBlock) blocks and retries the implementation.
+// `blocked` tells whether the spec holds the implementation before that dependency exists. An authoring run that
+// never reported is closed.
 export async function maintainFixSpec(client, env, { implementation, twin }, { now = Date.now(), report = () => {} } = {}) {
   const comments = await client.listIssueComments(implementation.number);
   const state = fixState(comments);
   if (!state.created) {
     const latest = latestCheckRun(await client.listCheckRuns(implementation.head.sha, FIX_CHECK_NAME));
     if (latest && latest.status !== 'completed' && now - Date.parse(latest.started_at ?? latest.created_at ?? 0) >= AUTHORING_STALE_MS && !(await authoringRunning(client, twin, now))) {
-      await closeAuthoringCheck(client, latest.id, 'failure', 'The prerequisite spec authoring did not finish', 'The run ended without a result.');
-      await client.createComment(implementation.number, [`**The prerequisite spec authoring did not finish**.`, '', ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) })].join('\n'));
-      report(`- Closed the unfinished prerequisite spec authoring of #${implementation.number}.`);
+      await closeAuthoringCheck(client, latest.id, 'failure', 'The spec authoring did not finish', 'The run ended without a result.');
+      await client.createComment(implementation.number, [`**The spec authoring did not finish**.`, '', ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) })].join('\n'));
+      report(`- Closed the unfinished spec authoring of #${implementation.number}.`);
       await setAttention(client, implementation.number, true);
       return { outcome: 'stale' };
     }
@@ -635,7 +781,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
   }
   if (!state.merged) {
     const settled = await settleClosedFix(client, env, { amendment: pull, folder: fixFolder, implementation, actor: pull.merged_by?.login ?? null });
-    if (settled.outcome !== 'handled') report(`- Prerequisite spec #${pull.number} was ${settled.outcome}.`);
+    if (settled.outcome !== 'handled') report(`- Spec #${pull.number} was ${settled.outcome}.`);
     if (settled.outcome !== 'merged') return settled;
   }
   const hold = async () => {
@@ -646,7 +792,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     ? await client.getIssue(state.linked.twin)
     : resolveTwins(await client.listTwinIssues(TWIN_LABEL)).byFolder.get(fixFolder);
   if (!prerequisite) {
-    report(`- Prerequisite spec #${pull.number} is merged; its twin does not exist yet.`);
+    report(`- Spec #${pull.number} is merged; its twin does not exist yet.`);
     return { outcome: 'waiting', blocked: await hold() };
   }
   // A linked prerequisite is a dependency like any other, as long as the dependency exists.
@@ -654,7 +800,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
   // Dependency inference of the new twin runs first, so it never sees (and is never rejected for) a cycle with this
   // link.
   if (hasLabel(prerequisite, PENDING_LABEL)) {
-    report(`- Prerequisite spec #${pull.number} is spec twin #${prerequisite.number}; it waits for its dependency inference before #${twin} depends on it.`);
+    report(`- Spec #${pull.number} is spec twin #${prerequisite.number}; it waits for its dependency inference before #${twin} depends on it.`);
     return { outcome: 'waiting', blocked: await hold() };
   }
   const link = await linkPrerequisite(client, { twin, prerequisite });
@@ -663,18 +809,23 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
     return { outcome: link.outcome, blocked: await hold() };
   }
   if (state.linked) return { outcome: 'linked', blocked: false };
+  // Like every spec, the new twin starts only once someone signs it off with `/speckit implement`; the comment names
+  // the twin with that command, and the block it explains is the generic dependency block.
   const requester = state.requested?.by ?? null;
-  await requestPrerequisite(client, prerequisite, requester, `they asked for this prerequisite spec with \`/speckit fix\` on #${implementation.number}, which retries by itself once this spec is implemented.`);
+  const block = dependencyBlock((await client.listBlockedBy(twin)).filter((blocker) => blocker.state === 'open'));
   await client.createComment(implementation.number, [
     renderFixEvent('linked', { pull: pull.number, folder: fixFolder, twin: prerequisite.number }),
-    `**Prerequisite spec #${pull.number} is spec twin #${prerequisite.number}**, and this spec now depends on it${requester ? `; it is requested for implementation on behalf of @${requester}` : ''}. This implementation retries by itself once #${prerequisite.number} is implemented.`,
+    renderBlockedMarker(block.key),
+    `**Spec #${pull.number} is spec twin [#${prerequisite.number}](${prerequisite.html_url ?? `#${prerequisite.number}`})**, and this spec now depends on it.${requester ? ` @${requester}, you asked for it with \`/speckit specify\`:` : ''} it is implemented once someone with write access signs it off with \`/speckit implement\` on #${prerequisite.number}; this implementation retries by itself once #${prerequisite.number} is implemented.`,
+    '',
+    ...block.lines,
   ].join('\n'));
   try {
     await client.dispatchWorkflow(ORCHESTRATE_WORKFLOW_FILE, defaultBranchOf(env), {});
   } catch {
     // The hourly scheduler run starts it.
   }
-  report(`- Linked prerequisite spec #${pull.number} (twin #${prerequisite.number}) to #${implementation.number}.`);
+  report(`- Linked spec #${pull.number} (twin #${prerequisite.number}) to #${implementation.number}.`);
   return { outcome: 'linked', blocked: false };
 }
 

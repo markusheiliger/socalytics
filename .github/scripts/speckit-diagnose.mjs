@@ -211,7 +211,7 @@ export async function runEvidence({ client, env, log }) {
         '',
         `The last \`/speckit ${repeated.verb}\` left the implementation branch at ${pull.head.sha} and stopped with the same reason as the stop before it: ${neutralizeMarkers(repeated.reason)}`,
         '',
-        `Do not recommend \`/speckit ${repeated.verb}\` again: it would repeat the failure. Recommend a command that changes something, such as \`/speckit fix\` for a cause outside this spec. A recommendation of \`/speckit ${repeated.verb}\` is replaced at publication.`,
+        `Do not recommend \`/speckit ${repeated.verb}\` again: it would repeat the failure. Recommend a command that changes something, such as \`/speckit specify\` for a cause outside this spec. A recommendation of \`/speckit ${repeated.verb}\` is replaced at publication.`,
         '',
       );
     }
@@ -379,7 +379,7 @@ function readAgentItems(env, type) {
   }
 }
 
-// Diagnose reports its results as `speckit_diagnosis`; Spec Kit fix reports reworks of a prerequisite spec as `speckit_fix`.
+// Diagnose reports its results as `speckit_diagnosis`; Spec Kit specify reports reworks of a spec it authored as `speckit_fix`.
 function readAgentReports(env) {
   return [...readAgentItems(env, 'speckit_diagnosis'), ...readAgentItems(env, 'speckit_fix')].map((item) => item.report ?? item);
 }
@@ -457,9 +457,9 @@ function defaultRecommendation(report) {
       };
     case 'outside':
       return {
-        title: 'Fix the cause in a prerequisite spec, then continue by itself',
+        title: 'Fix the cause in a new spec, then continue once it is implemented',
         why: `${report.summary} The cause lies outside this spec, so running the work here again cannot remove it.`,
-        command: `/speckit fix ${guidance}`,
+        command: `/speckit specify ${guidance}`,
       };
     case 'artifacts':
       return {

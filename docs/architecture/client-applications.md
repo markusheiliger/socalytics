@@ -79,9 +79,10 @@ The React Web UI supports connected platform and club workflows, including:
   with the run that superseded it, and shows a run cancelled because it was
   superseded without a member (decided, not yet implemented)
 - team and match review, analytics, and agent conversations for coaches (the
-  connected analysis review is implemented, see below; analytics beyond it,
-  such as visualizations and comparison, and agent conversations are not
-  implemented yet, and the match triage conversations are decided, see below)
+  connected analysis review and the match triage conversations with Specialist
+  Agents are implemented, see below; analytics beyond the review, such as
+  visualizations and comparison, and the Coach Agent conversations and
+  consultations are not implemented yet)
 
 What a user sees is decided by their roles and team authorization, online and
 offline alike.
@@ -115,9 +116,9 @@ error states, and resolves again when a link expires. Links and media stay in
 memory only, the service worker never handles them, and playback is online
 only; downloads, sharing, and whole-recording playback are not offered.
 
-The connected match triage conversations are decided as follows and not yet
-implemented. From a match with a `Completed` or `PartiallyCompleted` analysis
-run, Club Admins and Coaches of the owning team start a triage conversation
+The connected match triage conversations are implemented as development
+evidence as follows. From a match with a `Completed` or `PartiallyCompleted`
+analysis run, Club Admins and Coaches of the owning team start a triage conversation
 for a run they choose, add Specialist Agents the stamp enables, and address a
 question to one of them. Members list and reopen their own conversations from
 the match view, see the bound run with a link to its review and whether it is
@@ -305,8 +306,8 @@ and receives `202 Accepted`, durable conversation and invocation identifiers, a
 status location, and retry guidance. The Web UI uses conditional REST polling
 for status, accepted advice, and lineage. It does not call Hermes, publish agent
 transport messages, or receive a separate completion semantic. The Web UI's
-retry and polling behavior is decided and not yet implemented: when the
-answer to a submission is lost, sending the unchanged question to the same
+retry and polling behavior is implemented for Specialist Agent submissions:
+when the answer to a submission is lost, sending the unchanged question to the same
 agent again reuses its idempotency key, and the Web UI checks status
 conditionally, starting at the platform's retry guidance and slowing down to
 a cap while nothing changes, pausing while the view is hidden or offline.
