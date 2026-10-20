@@ -26,7 +26,7 @@ The path of the test contains several sources of nondeterminism that the impleme
 
 - the polling loop and the runner's lifetime are bounded by two independent real-time limits started at slightly different moments, while the retry needs a second notification published by the platform's outbox worker, on its own polling interval, after the first attempt failed;
 - the runner's fetch of work notifications expires on a real-time interval, and a notification that is not settled (a transient report failure) is redelivered only after the queue's acknowledgement wait;
-- the test reads the attempt and checkpoint counts right after the runner is cancelled, while the runner may be in the middle of a report whose effect the platform has not yet committed;
+- the test reads the attempt and checkpoint counts right after the runner is cancelled, while the runner may be in the middle of a report whose effect the platform has not yet committed (the code may already order this correctly; T001 rules it in or out);
 - the runner and the platform share one fake clock that other parts of the test also read.
 
 The implementation first reproduces the failure and identifies which of these (or another cause) produces it, using evidence such as repeated runs under load and the platform and runner logs, and then removes that cause.
