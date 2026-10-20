@@ -5,7 +5,7 @@ Validation guide for the implemented feature. Details: [data-model.md](data-mode
 
 ## Prerequisites
 
-- The environment of [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md):
+- The environment of [Analyst and Media Verification Environment](../20261017-163801-analyst-media-environment/spec.md):
   CPython 3.12.15 and `uv` 0.13.1 (on Linux CI from `environment-setup`; locally any CPython 3.12 with `uv`).
 - The .NET 10 SDK and a Docker-compatible runtime for the platform and Manager suites (see `AGENTS.md`).
 - Fact Indexing and Partial-Coverage Match Barriers merged, so `contracts/analysis/fact-artifact/v1/` and the 1.1.0
@@ -14,7 +14,7 @@ Validation guide for the implemented feature. Details: [data-model.md](data-mode
 ## 1. SDK: locked build and tests
 
 From `src/analysts/sdk/`, the environment's exact command sequence
-([environment-interface.md](../archive/20261017-163801-analyst-media-environment/contracts/environment-interface.md)):
+([environment-interface.md](../20261017-163801-analyst-media-environment/contracts/environment-interface.md)):
 
 ```text
 UV_PYTHON_DOWNLOADS=never

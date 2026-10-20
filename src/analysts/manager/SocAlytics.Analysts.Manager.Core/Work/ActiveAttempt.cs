@@ -31,9 +31,10 @@ public sealed class ActiveAttempt
     private string _executionState = AttemptExecutionStates.Preparing;
     private AttemptStopReason? _stopReason;
 
-    public ActiveAttempt(AnalystJobMessage job, ClaimGranted claim, DateTimeOffset startedAt)
+    public ActiveAttempt(AnalystJobMessage job, ClaimGranted claim, DateTimeOffset startedAt, byte[]? jobBytes = null)
     {
         Job = job;
+        JobBytes = jobBytes ?? System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(job, PlatformJson.Options);
         LogicalJobId = claim.LogicalJobId;
         AttemptId = claim.AttemptId;
         AttemptNumber = claim.AttemptNumber;
@@ -47,6 +48,9 @@ public sealed class ActiveAttempt
     }
 
     public AnalystJobMessage Job { get; }
+
+    /// <summary>The delivered job message exactly as received; it is written unchanged to <c>job.json</c>.</summary>
+    public byte[] JobBytes { get; }
 
     public Guid LogicalJobId { get; }
 

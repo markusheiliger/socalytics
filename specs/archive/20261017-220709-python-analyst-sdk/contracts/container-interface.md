@@ -1,7 +1,7 @@
 # Contract: Analyst Container Interface (completed)
 
 Extends the Docker runtime adapter's
-[analyst-container contract](../../archive/20261015-092159-docker-runtime-adapter/contracts/analyst-container.md);
+[analyst-container contract](../../20261015-092159-docker-runtime-adapter/contracts/analyst-container.md);
 everything not listed here is unchanged (non-root user, read-only root filesystem, no network, no environment
 variables, no credentials, labels, outcome rules, bounded log).
 
@@ -11,7 +11,7 @@ variables, no credentials, labels, outcome rules, bounded log).
 | --- | --- | --- | --- |
 | `/socalytics/job.json` | read-only | The Logical Job message exactly as received from the work queue (bytes unchanged), valid against `analysis/analyst-job` v1 | was a reduced re-serialization |
 | `/socalytics/attempt.json` | read-only | Attempt context, valid against `analysis/analyst-attempt` v1 | new |
-| `/socalytics/inputs/` | read-only | Staged upstream results ([staged-inputs](../../archive/20261013-134112-analysis-result-read/contracts/staged-inputs.md)); `coverage.json` follows upstream-results 1.0.0 or 1.1.0 | unchanged |
+| `/socalytics/inputs/` | read-only | Staged upstream results ([staged-inputs](../../20261013-134112-analysis-result-read/contracts/staged-inputs.md)); `coverage.json` follows upstream-results 1.0.0 or 1.1.0 | unchanged |
 | `/socalytics/result/` | read-write | `manifest.json` and the artifacts it declares; top-level files only are stored | unchanged |
 | `/socalytics/scratch/` | read-write | Working space | unchanged |
 
