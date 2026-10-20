@@ -11,7 +11,7 @@ description: "Task list for Web UI Agent Catalog Administration"
 
 **Tests**: Required. FR-023 asks for automated tests of the adapter mapping, every violation and refusal explanation, the form hints, the confirmations with cancellation, self-approval note, and differentiation acknowledgement, the "has changed" handling, role-based access, accessibility rule checks, verbatim prompt text, the online-only rule, and a browser test against the running platform; test work is part of the tasks below.
 
-**Organization**: Tasks are grouped by user story so each story can be implemented and tested independently. All paths are relative to the repository root; Web UI paths start with `src/clients/web/`. The area builds on [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md) and on [Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/spec.md) (its `ResponseMetadataHandler`, `sendWithMetadataFor`, `digest.ts`, `DigestText.tsx`, and `memberNames.ts`), which are merged before this feature is implemented.
+**Organization**: Tasks are grouped by user story so each story can be implemented and tested independently. All paths are relative to the repository root; Web UI paths start with `src/clients/web/`. The area builds on [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md) and on [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/spec.md) (its `ResponseMetadataHandler`, `sendWithMetadataFor`, `digest.ts`, `DigestText.tsx`, and `memberNames.ts`), which are merged before this feature is implemented.
 
 ## Format: `[ID] [P?] [Story] Description`
 
@@ -197,7 +197,7 @@ description: "Task list for Web UI Agent Catalog Administration"
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: no dependencies; needs [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md) and [Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/spec.md) merged.
+- **Setup (Phase 1)**: no dependencies; needs [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md) and [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/spec.md) merged.
 - **Foundational (Phase 2)**: depends on Setup; blocks all user stories.
 - **US1 (Phase 3)**: depends on Foundational.
 - **US2 (Phase 4)**: depends on US1 (it adds actions to `AgentPage.tsx` and `AgentVersionPage.tsx`).

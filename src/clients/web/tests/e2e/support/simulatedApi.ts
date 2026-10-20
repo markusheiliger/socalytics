@@ -26,6 +26,93 @@ function compositeDigest(partSizeBytes: number, partDigests: string[]): string {
   return `sha-256-parts:${partSizeBytes}:${partDigests.length}:${createHash('sha256').update(raw).digest('hex')}`;
 }
 
+/** Registry fixtures mirror the JSON of the 13 Registry operations (dates serialize through JSON). */
+export interface RegistryImage {
+  imageDigest: string;
+  repository: string;
+  manifestDigest: string;
+  capability: { id: string; version: string; tier: string; executionScope: string };
+  modelDigest: string;
+  manifest: Record<string, unknown>;
+  source: string;
+  registeredAt: Date;
+  registeredBy: string | null;
+}
+
+export interface RegistryProfile {
+  profileId: string;
+  version: number;
+  profileDigest: string;
+  imageDigest: string;
+  state: 'draft' | 'approved' | 'retired';
+  content: {
+    capabilityId: string;
+    capabilityVersion: string;
+    modelDigest: string;
+    runtimeConstraints: string[];
+    accelerators: string[];
+    resources: Record<string, string>;
+    maxAttempts: number;
+    leaseSeconds: number;
+    staleTimeoutSeconds: number;
+    executionTimeoutSeconds: number;
+    videoPolicy: string;
+    inputSchemaVersions: Record<string, string>;
+    outputSchemaVersion: string;
+  };
+  createdAt: Date;
+  createdBy: string;
+  approvedAt?: Date;
+  approvedBy?: string;
+  retiredAt?: Date;
+  retiredBy?: string;
+  /** Sent as `ETag`; never part of the body. */
+  rowVersion: number;
+}
+
+export interface RegistryWorkflow {
+  workflowId: string;
+  workflowVersion: string;
+  definitionDigest: string;
+  definition: {
+    requestedCapabilities: string[];
+    completionPolicy: string;
+    segmentationPolicy: { version: number; durationSeconds: number; digest: string };
+    nodes: { nodeKey: string; profileId: string; profileVersion: number; profileDigest: string }[];
+    edges: {
+      upstreamNodeKey: string;
+      dependentNodeKey: string;
+      kind: string;
+      predicate?: { kind: string; capabilityId?: string; nodeKey?: string };
+    }[];
+  };
+  createdAt: Date;
+  createdBy: string | null;
+}
+
+export interface RegistryDefault {
+  workflowId: string;
+  workflowVersion: string;
+  changedAt: Date;
+  changedBy: string | null;
+}
+
+function imageRefusalStatus(code: string): number {
+  if (code === 'reference-not-digest' || code === 'reference-not-allowed') return 400;
+  if (code === 'image-not-found') return 404;
+  if (code === 'registry-unavailable') return 503;
+  if (code === 'digest-mismatch') return 502;
+  return 422;
+}
+
+function profileDto({ rowVersion: _rowVersion, ...dto }: RegistryProfile) {
+  return dto;
+}
+
+function digestOf(value: unknown): string {
+  return `sha-256:${createHash('sha256').update(JSON.stringify(value)).digest('hex')}`;
+}
+
 export type SimulatedRole = 'ClubAdmin' | 'Registrar' | 'Coach' | 'Viewer';
 
 export const ANTIFORGERY_TOKEN = 'simulated-antiforgery-token-7f3a9c';
@@ -495,6 +582,307 @@ export class SimulatedApi {
       });
     }
     return entity(target);
+  }
+
+  /** Registered Analyst images (stored manifests included), in list order; tests may add, replace, or clear them. */
+  registryImages: RegistryImage[] = [];
+  /** Images the simulated image registry can serve; registering a reference to one of their digests registers it. */
+  readonly registryCatalog = new Map<string, RegistryImage>();
+  /** Scripted image refusals by reference (or digest); the first registration with that reference is refused. */
+  readonly imageRefusals = new Map<string, { code: string; errors?: { field: string; code: string }[] }>();
+  /** Profile versions with the row version the platform sends as `ETag`. */
+  registryProfiles: RegistryProfile[] = [];
+  registryWorkflows: RegistryWorkflow[] = [];
+  /** The default workflow; `null` answers 404 and a first change needs no `If-Match`. */
+  registryDefault: (RegistryDefault & { rowVersion: number }) | null = null;
+
+  seedImage(image: RegistryImage): RegistryImage {
+    this.registryImages.push(image);
+    return image;
+  }
+
+  seedProfile(profile: RegistryProfile): RegistryProfile {
+    this.registryProfiles.push(profile);
+    return profile;
+  }
+
+  seedWorkflow(workflow: RegistryWorkflow): RegistryWorkflow {
+    this.registryWorkflows.push(workflow);
+    return workflow;
+  }
+
+  seedDefault(target: { workflowId: string; workflowVersion: string }, rowVersion = 1): void {
+    this.registryDefault = {
+      ...target,
+      changedAt: now,
+      changedBy: String(ids.admin),
+      rowVersion,
+    };
+  }
+
+  private async handleRegistry(
+    route: Route,
+    method: string,
+    path: string,
+    role: SimulatedRole,
+    json: (status: number, body: unknown) => Promise<void>,
+  ): Promise<void> {
+    if (role !== 'ClubAdmin') return json(403, problem(403, 'Forbidden', { code: 'forbidden' }));
+    const request = route.request();
+    const url = new URL(request.url());
+    // A 503 carries Retry-After: 0 so the client's automatic retries do not slow the test down.
+    const refuse = (status: number, code: string, errors?: { field: string; code: string }[]) =>
+      status === 503
+        ? route.fulfill({
+            status,
+            contentType: 'application/problem+json',
+            headers: { 'Retry-After': '0' },
+            body: JSON.stringify(problem(status, code, { code, ...(errors ? { errors } : {}) })),
+          })
+        : json(status, problem(status, code, { code, ...(errors ? { errors } : {}) }));
+    const respond = (status: number, body: unknown, rowVersion?: number) =>
+      route.fulfill({
+        status,
+        contentType: 'application/json',
+        headers: rowVersion === undefined ? {} : { ETag: `"${rowVersion}"` },
+        body: JSON.stringify(body),
+      });
+    let body: Record<string, any> = {};
+    try {
+      body = (request.postDataJSON() ?? {}) as Record<string, any>;
+    } catch {
+      body = {};
+    }
+    // Returns null when the precondition holds, else the refusal.
+    const precondition = (current: number): Promise<void> | null => {
+      const header = request.headers()['if-match'];
+      if (header === undefined) return refuse(428, 'version-required');
+      return header.replace(/"/g, '') === String(current) ? null : refuse(412, 'version-mismatch');
+    };
+    const seg = path.split('/').map(decodeURIComponent);
+
+    if (path === '/registry/analyst-images') {
+      if (method === 'GET') {
+        const capabilityId = url.searchParams.get('capabilityId');
+        const items = this.registryImages
+          .filter((i) => !capabilityId || i.capability.id === capabilityId)
+          .map((i) => ({
+            imageDigest: i.imageDigest,
+            capabilityId: i.capability.id,
+            capabilityVersion: i.capability.version,
+            registeredAt: i.registeredAt,
+          }));
+        return respond(200, { items });
+      }
+      if (method !== 'POST') return json(404, problem(404, 'Not found'));
+      const reference = typeof body.reference === 'string' ? body.reference.trim() : '';
+      if (!reference) return refuse(400, 'validation-failed', [{ field: 'reference', code: 'required' }]);
+      const digest = /@(sha256:[0-9a-f]{64})$/i.exec(reference)?.[1];
+      const scripted = this.imageRefusals.get(reference) ?? (digest ? this.imageRefusals.get(`sha-256:${digest.slice(7)}`) : undefined);
+      if (scripted) return refuse(imageRefusalStatus(scripted.code), scripted.code, scripted.errors);
+      if (!digest) return refuse(400, 'reference-not-digest');
+      const imageDigest = `sha-256:${digest.slice(7).toLowerCase()}`;
+      const existing = this.registryImages.find((i) => i.imageDigest === imageDigest);
+      if (existing) return respond(200, existing);
+      const offered = this.registryCatalog.get(imageDigest);
+      if (!offered) return refuse(404, 'image-not-found');
+      const created = { ...offered, registeredAt: new Date(), registeredBy: String(ids.admin) };
+      this.registryImages.push(created);
+      return respond(201, created);
+    }
+    if (seg[2] === 'analyst-images' && seg.length === 4 && method === 'GET') {
+      const found = this.registryImages.find((i) => i.imageDigest === seg[3]);
+      return found ? respond(200, found) : refuse(404, 'not-found');
+    }
+
+    if (path === '/registry/analyst-profiles') {
+      if (method === 'GET') {
+        const state = url.searchParams.get('state');
+        const capabilityId = url.searchParams.get('capabilityId');
+        const items = this.registryProfiles
+          .filter((p) => (!state || p.state === state) && (!capabilityId || p.content.capabilityId === capabilityId))
+          .map(profileDto);
+        return respond(200, { items });
+      }
+      if (method !== 'POST') return json(404, problem(404, 'Not found'));
+      const content = (body.content ?? null) as RegistryProfile['content'] | null;
+      if (!body.profileId || !body.imageDigest || !content) {
+        return refuse(400, 'validation-failed', [{ field: 'profileId', code: 'required' }]);
+      }
+      const image = this.registryImages.find((i) => i.imageDigest === body.imageDigest);
+      if (!image) return refuse(404, 'image-not-registered');
+      const contradictions: { field: string; code: string }[] = [];
+      if (content.capabilityId !== image.capability.id) contradictions.push({ field: 'capabilityId', code: 'differs' });
+      if (content.capabilityVersion !== image.capability.version) {
+        contradictions.push({ field: 'capabilityVersion', code: 'differs' });
+      }
+      if (content.modelDigest !== image.modelDigest) contradictions.push({ field: 'modelDigest', code: 'differs' });
+      if (contradictions.length > 0) return refuse(422, 'profile-contradicts-declaration', contradictions);
+      const sameContent = this.registryProfiles.find(
+        (p) =>
+          p.profileId === body.profileId &&
+          p.imageDigest === body.imageDigest &&
+          JSON.stringify(p.content) === JSON.stringify(content),
+      );
+      if (sameContent) {
+        if (sameContent.state === 'retired') return refuse(409, 'profile-content-exists');
+        return respond(200, profileDto(sameContent), sameContent.rowVersion);
+      }
+      const version =
+        Math.max(0, ...this.registryProfiles.filter((p) => p.profileId === body.profileId).map((p) => p.version)) + 1;
+      const profile: RegistryProfile = {
+        profileId: String(body.profileId),
+        version,
+        profileDigest: digestOf({ profileId: body.profileId, version, imageDigest: body.imageDigest, content }),
+        imageDigest: String(body.imageDigest),
+        state: 'draft',
+        content,
+        createdAt: new Date(),
+        createdBy: String(ids.admin),
+        rowVersion: 1,
+      };
+      this.registryProfiles.push(profile);
+      return respond(201, profileDto(profile), profile.rowVersion);
+    }
+    const profileMatch = /^\/registry\/analyst-profiles\/([^/]+)\/versions\/(\d+)(?:\/(approval|retirement))?$/.exec(path);
+    if (profileMatch) {
+      const profile = this.registryProfiles.find(
+        (p) => p.profileId === decodeURIComponent(profileMatch[1]) && p.version === Number(profileMatch[2]),
+      );
+      if (!profile) return refuse(404, 'not-found');
+      const action = profileMatch[3];
+      if (!action) return method === 'GET' ? respond(200, profileDto(profile), profile.rowVersion) : json(404, problem(404, 'Not found'));
+      if (method !== 'POST') return json(404, problem(404, 'Not found'));
+      const failed = precondition(profile.rowVersion);
+      if (failed) return failed;
+      if (action === 'approval') {
+        if (profile.state !== 'draft') return refuse(409, 'profile-not-draft');
+        Object.assign(profile, { state: 'approved', approvedAt: new Date(), approvedBy: String(ids.admin) });
+      } else {
+        if (profile.state === 'retired') return refuse(409, 'profile-already-retired');
+        const inDefault = this.registryDefault
+          ? this.registryWorkflows
+              .find(
+                (w) =>
+                  w.workflowId === this.registryDefault?.workflowId &&
+                  w.workflowVersion === this.registryDefault?.workflowVersion,
+              )
+              ?.definition.nodes.some((n) => n.profileId === profile.profileId && n.profileVersion === profile.version)
+          : false;
+        if (inDefault) return refuse(409, 'profile-in-default-workflow');
+        Object.assign(profile, { state: 'retired', retiredAt: new Date(), retiredBy: String(ids.admin) });
+      }
+      profile.rowVersion += 1;
+      return respond(200, profileDto(profile), profile.rowVersion);
+    }
+
+    if (path === '/registry/workflows') {
+      if (method === 'GET') {
+        return respond(200, {
+          items: this.registryWorkflows.map(({ workflowId, workflowVersion, definitionDigest, createdAt }) => ({
+            workflowId,
+            workflowVersion,
+            definitionDigest,
+            createdAt,
+          })),
+        });
+      }
+      if (method !== 'POST') return json(404, problem(404, 'Not found'));
+      return this.defineRegistryWorkflow(body, refuse, respond);
+    }
+    const workflowMatch = /^\/registry\/workflows\/([^/]+)\/versions\/([^/]+)$/.exec(path);
+    if (workflowMatch && method === 'GET') {
+      const found = this.registryWorkflows.find(
+        (w) => w.workflowId === decodeURIComponent(workflowMatch[1]) && w.workflowVersion === decodeURIComponent(workflowMatch[2]),
+      );
+      return found ? respond(200, found) : refuse(404, 'not-found');
+    }
+
+    if (path === '/registry/default-workflow') {
+      if (method === 'GET') {
+        if (!this.registryDefault) return refuse(404, 'not-found');
+        const { rowVersion, ...dto } = this.registryDefault;
+        return respond(200, dto, rowVersion);
+      }
+      if (method !== 'PUT') return json(404, problem(404, 'Not found'));
+      if (!body.workflowId || !body.workflowVersion) {
+        return refuse(400, 'validation-failed', [{ field: 'workflowId', code: 'required' }]);
+      }
+      if (this.registryDefault) {
+        const failed = precondition(this.registryDefault.rowVersion);
+        if (failed) return failed;
+      }
+      const target = this.registryWorkflows.find(
+        (w) => w.workflowId === body.workflowId && w.workflowVersion === body.workflowVersion,
+      );
+      if (!target) return refuse(422, 'workflow-not-resolvable');
+      this.registryDefault = {
+        workflowId: target.workflowId,
+        workflowVersion: target.workflowVersion,
+        changedAt: new Date(),
+        changedBy: String(ids.admin),
+        rowVersion: (this.registryDefault?.rowVersion ?? 0) + 1,
+      };
+      const { rowVersion, ...dto } = this.registryDefault;
+      return respond(200, dto, rowVersion);
+    }
+    return json(404, problem(404, 'Not found'));
+  }
+
+  private defineRegistryWorkflow(
+    body: Record<string, any>,
+    refuse: (status: number, code: string, errors?: { field: string; code: string }[]) => Promise<void>,
+    respond: (status: number, body: unknown, rowVersion?: number) => Promise<void>,
+  ): Promise<void> {
+    const nodes = (Array.isArray(body.nodes) ? body.nodes : []) as { nodeKey: string; profileId: string; profileVersion: number }[];
+    const edges = (Array.isArray(body.edges) ? body.edges : []) as RegistryWorkflow['definition']['edges'];
+    const requested = (Array.isArray(body.requestedCapabilities) ? body.requestedCapabilities : []) as string[];
+    if (!body.workflowId || !body.workflowVersion || nodes.length === 0) {
+      return refuse(400, 'validation-failed', [{ field: 'workflowId', code: 'required' }]);
+    }
+    if (this.registryWorkflows.some((w) => w.workflowId === body.workflowId && w.workflowVersion === body.workflowVersion)) {
+      return refuse(409, 'workflow-version-exists');
+    }
+    const violations: { field: string; code: string }[] = [];
+    const resolved = nodes.map((n) => {
+      const profile = this.registryProfiles.find((p) => p.profileId === n.profileId && p.version === n.profileVersion);
+      if (!profile) violations.push({ field: `nodes.${n.nodeKey}`, code: 'profile-not-found' });
+      else if (profile.state !== 'approved') violations.push({ field: `nodes.${n.nodeKey}`, code: 'profile-not-approved' });
+      return { ...n, profileDigest: profile?.profileDigest ?? '', capabilityId: profile?.content.capabilityId };
+    });
+    if (body.completionPolicy !== 'all-requested-capabilities') {
+      violations.push({ field: 'workflow', code: 'unknown-completion-policy' });
+    }
+    const keys = new Set(nodes.map((n) => n.nodeKey));
+    if (edges.some((e) => !keys.has(e.upstreamNodeKey) || !keys.has(e.dependentNodeKey))) {
+      violations.push({ field: 'workflow', code: 'invalid-graph' });
+    }
+    if (requested.some((c) => !resolved.some((n) => n.capabilityId === c))) {
+      violations.push({ field: 'workflow', code: 'requested-capability-missing' });
+    }
+    if (violations.length > 0) return refuse(422, 'workflow-invalid', violations);
+    const definition = {
+      requestedCapabilities: requested,
+      completionPolicy: String(body.completionPolicy),
+      segmentationPolicy: body.segmentationPolicy,
+      nodes: resolved.map(({ nodeKey, profileId, profileVersion, profileDigest }) => ({
+        nodeKey,
+        profileId,
+        profileVersion,
+        profileDigest,
+      })),
+      edges,
+    };
+    const workflow: RegistryWorkflow = {
+      workflowId: String(body.workflowId),
+      workflowVersion: String(body.workflowVersion),
+      definitionDigest: digestOf(definition),
+      definition,
+      createdAt: new Date(),
+      createdBy: String(ids.admin),
+    };
+    this.registryWorkflows.push(workflow);
+    return respond(201, workflow);
   }
 
   /** Agents the catalog lists as enabled; tests may replace them. */
@@ -981,6 +1369,9 @@ export class SimulatedApi {
     }
     if (path.startsWith('/analyst-manager-registrations')) {
       return this.handleRegistrations(route, method, path, role, json);
+    }
+    if (path.startsWith('/registry/')) {
+      return this.handleRegistry(route, method, path, role, json);
     }
     if (method === 'GET') {
       if (path === '/me/notification-preferences') {

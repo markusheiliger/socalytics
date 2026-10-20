@@ -32,6 +32,7 @@ import {
   neutralizeMarkers,
   nextStepContext,
   renderAmendmentHowTo,
+  parseFixEvents,
   renderFixHowTo,
   renderNextSteps,
   renderRetryComment,
@@ -163,11 +164,12 @@ async function requesterOf(client, twin) {
 
 // The owner of a spec pull request: for a spec authored by `/speckit specify` the person who asked for it on the
 // implementation, for an amendment (and when no such request is recorded) the person who requested the implementation.
-export async function ownerOf(client, { kind = 'amend', implementation = null, twin }) {
+export async function ownerOf(client, { kind = 'amend', implementation = null, twin, amendment = null }) {
   if (kind === 'fix' && implementation) {
     try {
-      const { fixState } = await import('./speckit-fix.mjs');
-      const by = fixState(await client.listIssueComments(implementation.number)).requested?.by;
+      const { fixState, specRequest } = await import('./speckit-fix.mjs');
+      const comments = await client.listIssueComments(implementation.number);
+      const by = (amendment ? specRequest(comments, amendment.number) : null)?.by ?? fixState(comments).requested?.by;
       if (by) return by;
     } catch {
       // Fall back to the implementation's requester.
@@ -360,7 +362,7 @@ function heldReason(held, designLink) {
   }
 }
 
-export function renderSpecPullNextSteps({ amendment, implementation, kind = 'amend' }, { consistent = false, held = null } = {}) {
+export function renderSpecPullNextSteps({ amendment, implementation, kind = 'amend' }, { consistent = false, held = null, unlinked = false } = {}) {
   const noun = kind === 'fix' ? 'spec' : 'amendment';
   const link = amendment.html_url ? `[#${amendment.number}](${amendment.html_url})` : `#${amendment.number}`;
   if (consistent) {
@@ -370,7 +372,9 @@ export function renderSpecPullNextSteps({ amendment, implementation, kind = 'ame
       '',
       `- **Why**: The consistency check passed and no automatic correction round remains pending.${reason ? ` ${reason}` : ''}`,
       kind === 'fix'
-        ? `- **What it does**: Adds the spec to \`${amendment.base?.ref ?? 'the default branch'}\` and makes this spec depend on it once its twin exists; it is implemented once someone signs it off with \`/speckit implement\` on that twin. #${implementation.number} waits and retries by itself once it is implemented.`
+        ? (unlinked
+          ? `- **What it does**: Adds the spec to \`${amendment.base?.ref ?? 'the default branch'}\`; it is implemented once someone signs it off with \`/speckit implement\` on its twin. #${implementation.number} does not depend on it and continues as it is.`
+          : `- **What it does**: Adds the spec to \`${amendment.base?.ref ?? 'the default branch'}\` and makes this spec depend on it once its twin exists; it is implemented once someone signs it off with \`/speckit implement\` on that twin. #${implementation.number} waits and retries by itself once it is implemented.`)
         : `- **What it does**: Applies the amendment to the implementation branch. #${implementation.number} then continues automatically from the next unchecked task with a fresh attempt count.`,
     ];
   }
@@ -538,7 +542,8 @@ export async function presentAmendment(client, env, context, { consistent, analy
     ? `✅ **Consistent**: an independent \`/speckit-analyze\` of \`specs/${folder}/\` found no CRITICAL, HIGH, or MEDIUM inconsistencies${findings.length > 0 ? ` (${findings.length} LOW finding(s)${corrected ? ' that the correction rounds left as they are, listed for information; nothing needs fixing by hand' : ', listed in the comments'})` : ''}.`
     : `⚠️ **Not consistent**: ${problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`}. Review the findings in the comments; merging is possible but not recommended.`;
   const link = amendment.html_url ? `[#${amendment.number}](${amendment.html_url})` : `#${amendment.number}`;
-  const recommendation = renderSpecPullNextSteps({ ...context, amendment: current }, { consistent, held });
+  const unlinked = kind === 'fix' && parseFixEvents(await client.listIssueComments(implementation.number)).some((event) => event.event === 'created' && event.pull === current.number && event.link === false);
+  const recommendation = renderSpecPullNextSteps({ ...context, amendment: current }, { consistent, held, unlinked });
   const alternatives = ['<details><summary>Other options</summary>', '', ...howTo(context), '', '</details>'];
   await client.updatePullRequest(amendment.number, { body: setAmendmentStatus(current.body, [status, '', ...recommendation, '', ...alternatives]) });
   await client.createComment(amendment.number, [
@@ -555,7 +560,7 @@ export async function presentAmendment(client, env, context, { consistent, analy
   const remaining = problem ?? `${blocking.length + rules.length} inconsistency(ies) remain`;
   const implementationStatus = kind === 'fix'
     ? (consistent
-      ? `**Spec ${link} is ready for your review**: it is consistent, but it is not merged automatically. ${heldReason(held, held?.designLink ?? null) ?? ''} Merge it to add the spec to \`${current.base?.ref ?? 'the default branch'}\` (once signed off with \`/speckit implement\` on its twin, it is implemented, and this implementation resumes by itself), comment or request changes there to have it reworked, or close it to discard it.`.replace(/  +/g, ' ')
+      ? `**Spec ${link} is ready for your review**: it is consistent, but it is not merged automatically. ${heldReason(held, held?.designLink ?? null) ?? ''} Merge it to add the spec to \`${current.base?.ref ?? 'the default branch'}\` (once signed off with \`/speckit implement\` on its twin, it is implemented${unlinked ? '; this implementation does not depend on it' : ', and this implementation resumes by itself'}), comment or request changes there to have it reworked, or close it to discard it.`.replace(/  +/g, ' ')
       : `**Spec ${link} is not consistent** (${remaining}). Review its findings there: comment or request changes to have it reworked, or close it.`)
     : (consistent
       ? `**Amendment ${link} is ready for your review**: it is consistent. Merge it to apply it (the implementation then continues), comment or request changes there to have it reworked, or close it to discard it.`

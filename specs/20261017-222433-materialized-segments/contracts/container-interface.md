@@ -1,6 +1,6 @@
 # Contract: Analyst Container Interface - Segment Media Mount
 
-Extends the [completed container interface](../../20261017-220709-python-analyst-sdk/contracts/container-interface.md)
+Extends the [completed container interface](../../archive/20261017-220709-python-analyst-sdk/contracts/container-interface.md)
 of the Python Analyst SDK feature; everything not listed here is unchanged (job and attempt files, inputs, result,
 scratch, no network, no environment variables, no credentials, labels, outcome rules).
 

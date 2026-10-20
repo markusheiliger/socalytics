@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/common/v1/common.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "SocAlytics common contract definitions",
+  "description": "Shared representation conventions from docs/architecture/contracts-and-compatibility.md. Referenced only through relative $ref values; never fetched remotely.",
+  "$defs": {
+    "identifier": {
+      "description": "Opaque, non-empty domain identifier with no inferred format.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\-]*$"
+    },
+    "key": {
+      "description": "Stable workflow-local key or registry identifier, for example a node key or capability id.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[a-z0-9][a-z0-9._\\-]*$"
+    },
+    "semanticVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "contractVersionV1": {
+      "description": "Exact contract version of the payload; any 1.x version belongs to this major contract family.",
+      "type": "string",
+      "pattern": "^1\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "timestamp": {
+      "description": "RFC 3339 UTC date-time.",
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "nonNegativeSeconds": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "positiveSeconds": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "digest": {
+      "description": "Algorithm-qualified SHA-256 digest.",
+      "type": "string",
+      "pattern": "^sha-256:[0-9a-f]{64}$"
+    },
+    "fencingToken": {
+      "description": "Positive integer whose ordering is interpreted only by the owning workflow. Treated as opaque by Analyst Managers and never logged.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "attemptNumber": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "idempotencyKey": {
+      "description": "Opaque, non-empty idempotency key.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._\\-]+$"
+    },
+    "objectKey": {
+      "description": "Opaque stamp-local object-storage key. Never a URL: schemes, query strings, and signature parameters cannot be expressed by this pattern.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._\\-/]*$"
+    },
+    "safeLabel": {
+      "description": "Short descriptive label without separators that could carry URLs or credentials.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+\\-]*$"
+    },
+    "capabilityRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "$ref": "#/$defs/key" },
+        "version": { "$ref": "#/$defs/semanticVersion" }
+      }
+    },
+    "analysisSegmentReference": {
+      "description": "Analysis segment reference from the Segment Contract: the finalized recording-set version plus the complete materialized-segment identity.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recordingSetVersionId",
+        "recordingVersionId",
+        "timelineMappingDigest",
+        "segmentationPolicyDigest",
+        "segmentNumber"
+      ],
+      "properties": {
+        "recordingSetVersionId": { "$ref": "#/$defs/identifier" },
+        "recordingVersionId": { "$ref": "#/$defs/identifier" },
+        "timelineMappingDigest": { "$ref": "#/$defs/digest" },
+        "segmentationPolicyDigest": { "$ref": "#/$defs/digest" },
+        "segmentNumber": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "acceptedResultLineage": {
+      "description": "One accepted upstream result consumed as input.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acceptedResultId",
+        "logicalJobId",
+        "capability",
+        "schemaVersion",
+        "manifestReference",
+        "manifestChecksum"
+      ],
+      "properties": {
+        "acceptedResultId": { "$ref": "#/$defs/identifier" },
+        "logicalJobId": { "$ref": "#/$defs/identifier" },
+        "capability": { "$ref": "#/$defs/capabilityRef" },
+        "schemaVersion": { "$ref": "#/$defs/semanticVersion" },
+        "manifestReference": { "$ref": "#/$defs/objectKey" },
+        "manifestChecksum": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "correlation": {
+      "description": "Correlation context. Contains identifiers only; never secrets or tokens.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["correlationId"],
+      "properties": {
+        "correlationId": { "$ref": "#/$defs/identifier" },
+        "causationId": { "$ref": "#/$defs/identifier" },
+        "traceparent": {
+          "description": "W3C Trace Context traceparent value.",
+          "type": "string",
+          "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"
+        }
+      }
+    }
+  }
+}

@@ -9,6 +9,7 @@ public static class DockerLaunchSpec
 {
     public const string FixedUser = "65532:65532";
     public const string JobMount = "/socalytics/job.json";
+    public const string AttemptMount = "/socalytics/attempt.json";
     public const string InputsMount = "/socalytics/inputs";
     public const string ResultMount = "/socalytics/result";
     public const string ScratchMount = "/socalytics/scratch";
@@ -38,6 +39,11 @@ public static class DockerLaunchSpec
         if (launch.JobFile is { } job)
         {
             binds.Add($"{job}:{JobMount}:ro");
+        }
+
+        if (launch.AttemptFile is { } attemptFile)
+        {
+            binds.Add($"{attemptFile}:{AttemptMount}:ro");
         }
 
         if (launch.InputsDirectory is { } inputs)

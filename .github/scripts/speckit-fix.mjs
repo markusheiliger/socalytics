@@ -103,12 +103,23 @@ export function fixBlock({ stage, fixPull, fixTwin = null, baseBranch }) {
 }
 
 // The latest prerequisite spec of an implementation pull request and what happened to it, from the workflow's comments.
-export function fixState(comments) {
-  const events = parseFixEvents(comments);
+// Specs that do not block the implementation (`link: false` in their events, such as a spec that makes a flaky test
+// deterministic) have a lifecycle of their own: `unlinked` selects it.
+export function fixState(comments, { unlinked = false } = {}) {
+  const events = parseFixEvents(comments).filter((event) => (event.link === false) === unlinked);
   const created = events.filter((event) => event.event === 'created').at(-1) ?? null;
   const of = (name) => (created ? events.filter((event) => event.event === name && event.pull === created.pull).at(-1) ?? null : null);
   const requested = events.filter((event) => event.event === 'requested' && (!created || Date.parse(event.at) <= Date.parse(created.at))).at(-1) ?? null;
   return { events, requested, created, merged: of('merged'), discarded: of('discarded'), linked: of('linked'), landed: of('landed'), stopped: of('stopped') };
+}
+
+// The `/speckit specify` request a spec pull request was authored for (the latest request before its `created` event
+// with the same `link`), or null.
+export function specRequest(comments, specPull) {
+  const events = parseFixEvents(comments);
+  const created = events.filter((event) => event.event === 'created' && event.pull === specPull).at(-1);
+  if (!created) return null;
+  return events.filter((event) => event.event === 'requested' && (event.link === false) === (created.link === false) && Date.parse(event.at) <= Date.parse(created.at)).at(-1) ?? null;
 }
 
 // The prerequisite spec pull requests that open implementation pull requests recorded (`created` events), by pull
@@ -171,19 +182,21 @@ export async function existingFixSpecs(client, env) {
 
 // `/speckit specify [guidance]`: records the request on the implementation pull request and starts the authoring run.
 // The implementation keeps waiting. Refused while a spec authored for this implementation is being authored, open, or
-// merged but not implemented yet.
-export async function startFixAuthoring(client, env, { twin, implementation, guidance = '', actor, now = Date.now() }) {
+// merged but not implemented yet. With `link: false` the spec does not block the implementation (the scheduler asks
+// for one that makes a flaky test deterministic): its events carry `link: false`, it is never linked as a dependency
+// of the twin, and it is refused only while another such spec is being authored or open.
+export async function startFixAuthoring(client, env, { twin, implementation, guidance = '', actor, now = Date.now(), link = true }) {
   const folder = folderOfBranch(implementation.head?.ref);
   const baseBranch = baseBranchOf(implementation);
   const defaultBranch = defaultBranchOf(env);
   if (baseBranch !== defaultBranch) {
     return { started: false, reason: `the implementation's base branch \`${baseBranch}\` is not the default branch \`${defaultBranch}\`, where new specs are added` };
   }
-  const state = fixState(await client.listIssueComments(implementation.number));
+  const state = fixState(await client.listIssueComments(implementation.number), { unlinked: !link });
   if (state.created && !state.discarded && !state.landed && !state.stopped) {
     const pull = await client.getPullRequest(state.created.pull);
     if (pull.state === 'open') return { started: false, reason: `spec #${pull.number} is still open for this cause; follow it there, or close it first` };
-    const pending = !state.linked || (await client.getIssue(state.linked.twin))?.state === 'open';
+    const pending = link && (!state.linked || (await client.getIssue(state.linked.twin))?.state === 'open');
     if (pull.merged_at && pending) return { started: false, reason: `spec #${pull.number} was merged and is not implemented yet; this implementation retries by itself once it is implemented` };
   }
   const latest = latestCheckRun(await client.listCheckRuns(implementation.head.sha, FIX_CHECK_NAME));
@@ -198,12 +211,14 @@ export async function startFixAuthoring(client, env, { twin, implementation, gui
     head_sha: implementation.head.sha,
     status: 'in_progress',
     external_id: CHECK_FIX_AUTHORING,
-    output: { title: 'Authoring a new spec', summary: `Requested by @${actor}.${value ? `\n\nGuidance: ${clip(value, 2000)}` : ''}` },
+    output: { title: 'Authoring a new spec', summary: `Requested by @${actor}.${link ? '' : ' It does not block this implementation.'}${value ? `\n\nGuidance: ${clip(value, 2000)}` : ''}` },
   });
   await client.createComment(implementation.number, [
-    renderFixEvent('requested', { by: actor, stamp }),
+    renderFixEvent('requested', { by: actor, stamp, ...(link ? {} : { link: false }) }),
     ...(value ? [renderGuidanceMarker(value)] : []),
-    `**A new spec is being authored**, requested by @${actor}. An agent writes an ordinary spec that removes the cause outside this spec with the Spec Kit authoring flow and opens it as a pull request against \`${baseBranch}\`; it is checked for consistency and then merged automatically, or handed to you for review when it changes \`docs/architecture/\`. This implementation waits meanwhile.`,
+    link
+      ? `**A new spec is being authored**, requested by @${actor}. An agent writes an ordinary spec that removes the cause outside this spec with the Spec Kit authoring flow and opens it as a pull request against \`${baseBranch}\`; it is checked for consistency and then merged automatically, or handed to you for review when it changes \`docs/architecture/\`. This implementation waits meanwhile.`
+      : `**A new spec is being authored** for @${actor}. An agent writes an ordinary spec with the Spec Kit authoring flow and opens it as a pull request against \`${baseBranch}\`; it is checked for consistency and then merged automatically, or handed over for review when it changes \`docs/architecture/\`. It does not block this implementation, which continues meanwhile.`,
     ...(value ? ['', 'Guidance for the agent:', '', ...neutralizeMarkers(value).split('\n').map((line) => `> ${line}`)] : []),
   ].join('\n'));
   try {
@@ -220,7 +235,7 @@ export async function startFixAuthoring(client, env, { twin, implementation, gui
       findings: '',
       stamp,
     });
-    await setAttention(client, implementation.number, false);
+    if (link) await setAttention(client, implementation.number, false);
     return { started: true, check, stamp };
   } catch (error) {
     await closeAuthoringCheck(client, check.id, 'failure', 'The spec authoring could not start', error.message);
@@ -260,14 +275,16 @@ export async function runEvidence({ client, env, log, now = Date.now }) {
   let context;
   if (mode === 'author') {
     const stamp = /^\d{8}-\d{6}$/.test(String(env.SPECKIT_STAMP ?? '')) ? env.SPECKIT_STAMP : fixStamp(now());
-    const requested = fixState(comments).events.filter((event) => event.event === 'requested').at(-1);
+    const requested = parseFixEvents(comments).filter((event) => event.event === 'requested').at(-1);
+    const unlinked = requested?.link === false;
     const requestComment = requested ? comments.find((comment) => comment.id === requested.commentId) : null;
     const guidance = (requestComment ? parseGuidance(requestComment.body) : null) ?? (env.SPECKIT_GUIDANCE?.trim() || null);
     const diagnosis = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).at(-1);
     sections.push(
-      `# Evidence for a new spec that unblocks #${pullNumber}`,
+      unlinked ? `# Evidence for a new spec requested on #${pullNumber}` : `# Evidence for a new spec that unblocks #${pullNumber}`,
       '',
-      `- Stopped spec: \`specs/${blockedFolder}\` (twin #${twin}), implementation pull request #${pullNumber} on \`${implementation.head?.ref}\``,
+      `- ${unlinked ? 'Implementation' : 'Stopped spec'}: \`specs/${blockedFolder}\` (twin #${twin}), implementation pull request #${pullNumber} on \`${implementation.head?.ref}\``,
+      ...(unlinked ? ['- The new spec does not block this implementation, which continues; the guidance below names what the spec must remove.'] : []),
       `- Base branch: \`${baseBranch}\` (the new spec is proposed against it)`,
       `- Requested by: ${requested?.by ? `@${requested.by}` : 'unknown'}`,
       '',
@@ -565,19 +582,33 @@ export async function runRecord({ client, env, log }) {
   const withheld = detection && detection !== 'success';
   const report = withheld ? null : parseAuthorReport(readAgentItems(env, 'speckit_fix').map((item) => item.report ?? item).at(-1) ?? null);
   const created = Number(env.SPECKIT_CREATED_PULL);
-  const nextSteps = async () => renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, blockedFolder)) });
+  // A spec that does not block the implementation (`link: false`) never stops or holds it.
+  const unlinked = parseFixEvents(await client.listIssueComments(pullNumber)).filter((event) => event.event === 'requested').at(-1)?.link === false;
+  const nextSteps = async () => (unlinked
+    ? ['This implementation is not affected and continues.']
+    : renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, blockedFolder)) }));
+  const askPerson = async () => {
+    if (!unlinked) await setAttention(client, pullNumber, true);
+  };
   if (report?.reuse) {
     const existing = (await existingFixSpecs(client, env)).find((item) => item.pull === report.reuse && item.pull !== created);
     if (existing) {
       // One cause, one spec: a spec the agent created anyway for the same cause is discarded.
       if (Number.isInteger(created) && created > 0) await discardCreatedFix(client, created);
+      if (unlinked) {
+        const link = existing.url ? `[#${existing.pull}](${existing.url})` : `#${existing.pull}`;
+        await client.createComment(pullNumber, [`**No new spec was written**: spec ${link} (\`specs/${existing.folder}\`) already removes this cause.`, ...(report.summary ? ['', neutralizeMarkers(report.summary)] : []), '', ...(await nextSteps())].join('\n'));
+        await complete('success', `Covered by spec #${existing.pull}`, report.summary || `The cause is the one spec #${existing.pull} removes.`);
+        log(`#${pullNumber}: the cause is covered by spec #${existing.pull}.`);
+        return { exitCode: 0, outcome: 'joined', pull: existing.pull };
+      }
       return joinFixSpec(client, env, { implementation, pullNumber, existing, summary: report.summary, complete, log });
     }
     if (!Number.isInteger(created) || created <= 0) {
       const why = `the agent named spec #${report.reuse} for this cause, but it is neither an open spec pull request authored by \`/speckit specify\` nor a merged one that is still to be implemented`;
       await complete('failure', 'No spec was created', why);
       await client.createComment(pullNumber, [`**No spec was created**: ${why}.`, '', ...(await nextSteps())].join('\n'));
-      await setAttention(client, pullNumber, true);
+      await askPerson();
       log(`#${pullNumber}: invalid reuse of #${report.reuse}.`);
       return { exitCode: 0, outcome: 'none' };
     }
@@ -586,7 +617,7 @@ export async function runRecord({ client, env, log }) {
     const why = withheld ? `the result was withheld because threat detection did not pass (result: ${detection})` : report?.refused || report?.summary || 'the agent did not create one';
     await complete('failure', 'No spec was created', why);
     await client.createComment(pullNumber, [`**No spec was created**: ${neutralizeMarkers(why)}`, '', ...(await nextSteps())].join('\n'));
-    await setAttention(client, pullNumber, true);
+    await askPerson();
     log(`#${pullNumber}: no spec was created.`);
     return { exitCode: 0, outcome: 'none' };
   }
@@ -607,17 +638,29 @@ export async function runRecord({ client, env, log }) {
     await discardCreatedFix(client, created);
     await complete('failure', 'The spec was rejected', broken.join('; '));
     await client.createComment(pullNumber, [`**The authored spec #${created} was rejected and closed**: ${broken.map(neutralizeMarkers).join('; ')}.`, '', ...(await nextSteps())].join('\n'));
-    await setAttention(client, pullNumber, true);
+    await askPerson();
     log(`#${pullNumber}: rejected spec #${created}.`);
     return { exitCode: 0, outcome: 'rejected' };
   }
   await client.updatePullRequest(created, { body: withoutComments(pull.body) });
   await syncDesignDecisions(client, created, report?.designDecisions ?? null);
+  const authored = `**Spec [${neutralizeMarkers(pull.title ?? `#${created}`)} (#${created})](${pull.html_url ?? ''}) was authored** for \`specs/${fixFolder}\`. An independent \`/speckit-analyze\` checks it for consistency first, and correction rounds fix what it finds; then it is merged automatically, or handed over for review when it changes \`${ARCHITECTURE_PREFIX}\` or a person pushed to it.`;
+  if (unlinked) {
+    await client.createComment(pullNumber, [
+      renderFixEvent('created', { pull: created, folder: fixFolder, link: false }),
+      `${authored} It does not block this implementation, which continues.`,
+      ...(report?.summary ? ['', neutralizeMarkers(report.summary)] : []),
+    ].join('\n'));
+    await complete('success', `Spec #${created} authored`, report?.summary || `specs/${fixFolder}`);
+    await beginAmendment(client, env, { amendment: await client.getPullRequest(created), folder: fixFolder, implementation, twin, kind: 'fix' });
+    log(`#${pullNumber}: spec #${created} authored without blocking it; its consistency check started.`);
+    return { exitCode: 0, outcome: 'created', pull: created };
+  }
   const block = fixBlock({ stage: 'review', fixPull: created, baseBranch: defaultBranch });
   await client.createComment(pullNumber, [
     renderFixEvent('created', { pull: created, folder: fixFolder }),
     renderBlockedMarker(block.key),
-    `**Spec [${neutralizeMarkers(pull.title ?? `#${created}`)} (#${created})](${pull.html_url ?? ''}) was authored** for \`specs/${fixFolder}\`. An independent \`/speckit-analyze\` checks it for consistency first, and correction rounds fix what it finds; then it is merged automatically, or handed over for review when it changes \`${ARCHITECTURE_PREFIX}\` or a person pushed to it.`,
+    authored,
     ...(report?.summary ? ['', neutralizeMarkers(report.summary)] : []),
     '',
     ...block.lines,
@@ -679,7 +722,8 @@ export async function mergeSpecPull(client, env, { amendment, folder, implementa
     commit_message: `Merged automatically by Spec Kit: consistent, no architecture changes, only automation commits. Authored with \`/speckit specify\` on #${implementation.number}.`,
   });
   if (!result.merged) return { outcome: 'held', held: 'refused', message: result.message ?? 'the merge was refused' };
-  await client.createComment(pull.number, `**Merged automatically** into \`${defaultBranch}\`: an independent \`/speckit-analyze\` found it consistent, it changes no \`${ARCHITECTURE_PREFIX}\`, and only automation pushed to it. Its spec twin is created next; like every spec, it is implemented once someone with write access signs it off with \`/speckit implement\` on that twin. #${implementation.number} names the twin with the ready-to-paste command once it exists.`);
+  const unlinked = parseFixEvents(await client.listIssueComments(implementation.number)).some((event) => event.event === 'created' && event.pull === pull.number && event.link === false);
+  await client.createComment(pull.number, `**Merged automatically** into \`${defaultBranch}\`: an independent \`/speckit-analyze\` found it consistent, it changes no \`${ARCHITECTURE_PREFIX}\`, and only automation pushed to it. Its spec twin is created next; like every spec, it is implemented once someone with write access signs it off with \`/speckit implement\` on that twin.${unlinked ? '' : ` #${implementation.number} names the twin with the ready-to-paste command once it exists.`}`);
   await settleClosedFix(client, env, { amendment: await client.getPullRequest(pull.number), folder, implementation, automatic: true });
   for (const [file, inputs] of [[PREPARE_WORKFLOW_FILE, { dry_run: 'false' }], [ORCHESTRATE_WORKFLOW_FILE, {}]]) {
     try {
@@ -705,6 +749,17 @@ export async function settleClosedFix(client, env, { amendment: pull, folder, im
     await client.deleteBranch(isPrerequisiteBranch(pull.head?.ref) ? pull.head.ref : fixBranch(folder));
   } catch {
     // Already gone, or GitHub deleted it.
+  }
+  // A spec that does not block the implementation is recorded only; the implementation is never held or stopped by it.
+  if (events.some((event) => event.event === 'created' && event.link === false)) {
+    const merged = pull.merged_at && pull.base?.ref === defaultBranch;
+    await client.createComment(implementation.number, [
+      renderFixEvent(merged ? 'merged' : 'discarded', { pull: pull.number, folder, link: false }),
+      merged
+        ? `**Spec #${pull.number} was merged**${automatic ? ' automatically' : ` by ${by}`} into \`${defaultBranch}\`. It becomes a spec twin like any spec and is implemented once someone signs it off with \`/speckit implement\` on its twin; it does not block this implementation.`
+        : `**Spec #${pull.number} was ${pull.merged_at ? `merged into \`${pull.base?.ref}\`` : 'closed without merging'}** by ${by}; it does not block this implementation, which is not affected.`,
+    ].join('\n'));
+    return { outcome: merged ? 'merged' : 'discarded' };
   }
   if (pull.merged_at && pull.base?.ref === defaultBranch) {
     const block = fixBlock({ stage: 'implement', fixPull: pull.number, baseBranch: defaultBranch });
@@ -754,11 +809,21 @@ function cycleNote(prerequisite, twin) {
 // never reported is closed.
 export async function maintainFixSpec(client, env, { implementation, twin }, { now = Date.now(), report = () => {} } = {}) {
   const comments = await client.listIssueComments(implementation.number);
+  try {
+    await maintainUnlinkedSpec(client, env, { implementation, twin, comments }, { now, report });
+  } catch (error) {
+    report(`- Warning: could not check the non-blocking spec of #${implementation.number}: ${error.message}`);
+  }
   const state = fixState(comments);
   if (!state.created) {
     const latest = latestCheckRun(await client.listCheckRuns(implementation.head.sha, FIX_CHECK_NAME));
     if (latest && latest.status !== 'completed' && now - Date.parse(latest.started_at ?? latest.created_at ?? 0) >= AUTHORING_STALE_MS && !(await authoringRunning(client, twin, now))) {
       await closeAuthoringCheck(client, latest.id, 'failure', 'The spec authoring did not finish', 'The run ended without a result.');
+      // An unfinished spec that would not have blocked the implementation does not stop it either.
+      if (parseFixEvents(comments).filter((event) => event.event === 'requested').at(-1)?.link === false) {
+        report(`- Closed the unfinished non-blocking spec authoring of #${implementation.number}.`);
+        return { outcome: 'stale' };
+      }
       await client.createComment(implementation.number, [`**The spec authoring did not finish**.`, '', ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, implementation, folderOfBranch(implementation.head?.ref))) })].join('\n'));
       report(`- Closed the unfinished spec authoring of #${implementation.number}.`);
       await setAttention(client, implementation.number, true);
@@ -827,6 +892,21 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
   }
   report(`- Linked spec #${pull.number} (twin #${prerequisite.number}) to #${implementation.number}.`);
   return { outcome: 'linked', blocked: false };
+}
+
+// Maintains the open pull request of a spec that does not block the implementation (`link: false`) like any authored
+// spec, and records once that it was merged or closed; the implementation is never held, linked, or stopped by it.
+async function maintainUnlinkedSpec(client, env, { implementation, twin, comments }, { now, report }) {
+  const state = fixState(comments, { unlinked: true });
+  if (!state.created || state.merged || state.discarded) return { outcome: 'none' };
+  const pull = await client.getPullRequest(state.created.pull);
+  if (pull.state === 'open') {
+    await guardPullRequest(client, env, pull, { report });
+    return maintainOpenSpecPull(client, env, { amendment: await client.getPullRequest(pull.number), folder: state.created.folder, implementation, twin, kind: 'fix' }, { now, report });
+  }
+  const settled = await settleClosedFix(client, env, { amendment: pull, folder: state.created.folder, implementation, actor: pull.merged_by?.login ?? null });
+  if (settled.outcome !== 'handled') report(`- Non-blocking spec #${pull.number} was ${settled.outcome}.`);
+  return settled;
 }
 
 async function authoringRunning(client, twin, now) {
