@@ -5,7 +5,7 @@ description: "Task list for Deterministic Analyst Manager Queue Credential and U
 
 # Tasks: Deterministic Analyst Manager Queue Credential and Upstream Stager Tests
 
-**Input**: Design documents from `specs/20261020-072206-deterministic-manager-tests/`
+**Input**: Design documents from `specs/archive/20261020-072206-deterministic-manager-tests/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md)
 
