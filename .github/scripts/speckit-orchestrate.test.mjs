@@ -958,6 +958,7 @@ test('required sync survives replacement, disabled/skipped automatic sync, and b
     github.getBranchSha = getBase;
     assert.equal((await inspect()).kind, 'task');
     assert.equal(syncBarrier(github.comments), null);
+    assert.match(github.comments.at(-1).body, /\*\*Required synchronization complete\*\*: `release` at `[0-9a-z-]{1,7}` is merged and verified/, 'the release is visible, not only a marker');
     assert.equal((await inspect()).kind, 'task', 'release is durable across later runs');
   } finally {
     rmSync(root, { recursive: true, force: true });
