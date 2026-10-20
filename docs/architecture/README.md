@@ -12,7 +12,7 @@ Use lowercase kebab-case filenames for architecture narratives. Add each narrati
 4. [Platform Implementation](platform-implementation.md) maps the logical architecture to the provisional implementation baseline.
 5. [Contracts and Compatibility](contracts-and-compatibility.md) defines contract authority, representation, and versioning rules.
 6. [Client Applications](client-applications.md) describes the Web UI, a Progressive Web App, and its offline mode for coaches.
-7. [Email Notifications](email-notifications.md) defines the transactional email channel: member addresses, preferences, minimal content, and SMTP delivery.
+7. [Email Notifications](email-notifications.md) defines the transactional email channel: member addresses, preferences, account messages including password recovery and member invitations, minimal content, and SMTP delivery.
 8. [Analysts, Models, and Hardware](analysts-models-and-hardware.md) defines analyst tiers, preprocessing, provenance, and acceleration strategy.
 9. [Match Data Pipeline](match-data-pipeline.md) covers recording ingestion, lineage, and segment materialization.
 10. [Job Processing](job-processing.md) defines durable, event-driven analysis workflows and dependency evaluation.

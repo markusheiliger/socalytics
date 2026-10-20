@@ -13,7 +13,7 @@ the [architecture overview](overview.md) for the system topology.
   infrastructure may be shared between stamps.
 - **Club:** the organizational root represented by a stamp. Club administrators
   manage club settings, users, seasons, teams, grants, and all stamp content.
-  They add club users directly or, once implemented, by email invitation (see
+  They add club users directly or by email invitation (see
   [Member Invitations](email-notifications.md#member-invitations)).
 - **Registrar:** a club-level role that may initiate Analyst Manager
   registration. Club administrators inherit this capability. Activation still
