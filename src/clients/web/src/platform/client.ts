@@ -11,6 +11,7 @@ import { createPlatformApiClient } from '../generated/platform-api/platformApiCl
 import { AntiforgeryHeaderHandler } from './middleware/antiforgery';
 import { ConnectivityHandler } from './middleware/connectivity';
 import { MinimumVersionHandler, sharedMinimumVersion, type MinimumVersionOptions } from './middleware/minimumVersion';
+import { ResponseMetadataHandler } from './middleware/responseMetadata';
 import { SessionOutcomeHandler, type SessionOutcome } from './middleware/sessionOutcome';
 
 export interface PlatformClientOptions {
@@ -44,6 +45,7 @@ export function createPlatformApi(options: PlatformClientOptions) {
     new ConnectivityHandler(options.onNetworkFailure),
     new SessionOutcomeHandler(options.onSessionOutcome),
     new AntiforgeryHeaderHandler(options.getAntiforgeryToken),
+    new ResponseMetadataHandler(),
     ...MiddlewareFactory.getDefaultMiddlewares(sameOriginFetch).map((m) =>
       m instanceof RetryHandler ? noRateLimitRetry() : m,
     ),

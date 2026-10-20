@@ -11,7 +11,8 @@ through approved changes.
     platform host and its ownership guidance.
 - [`src/clients/`](src/clients/README.md) contains the executable
     Web UI foundation (without offline mode), including its installable PWA shell and the
-    match triage conversations with Specialist Agents, under
+    match triage conversations with Specialist Agents and the Analyst Registry
+    administration for Club Admins, under
     `src/clients/web/`; the offline mode for coaches is planned.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.

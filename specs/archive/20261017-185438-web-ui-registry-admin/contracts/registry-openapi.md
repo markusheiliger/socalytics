@@ -1,7 +1,7 @@
 # Contract: Registry OpenAPI Schemas
 
 The 13 Registry operations of
-[Analyst Registry → Registry API](../../archive/20261012-152148-analyst-registry/contracts/registry-api.md)
+[Analyst Registry → Registry API](../../20261012-152148-analyst-registry/contracts/registry-api.md)
 keep their paths, methods, operation ids, statuses, problem codes, headers,
 authorization, and JSON bodies. This feature only describes their bodies in
 the OpenAPI document (research.md § R1), so the Web UI's generated client has
