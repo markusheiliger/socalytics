@@ -12,12 +12,17 @@ public static class AnalysisAuditEvents
     public const string OutOfScopeReason = "out-of-scope";
     public const string ResultRejectedEvent = "analysis.result-rejected";
     public const string ResultRejectedAction = "reject-result";
+    public const string RunCancelledEvent = "analysis.run-cancelled";
+    public const string RunCancelledAction = "cancel-analysis-run";
+    public const string RunResourceType = "analysis-run";
+    public const string PreviousStateDetail = "previousState";
     public const string AttemptResourceType = "analysis-attempt";
     public const string ForeignAttemptReason = "foreign-attempt";
 
     public const string ManagerIdDetail = "managerId";
     public const string LogicalJobIdDetail = "logicalJobId";
     public const string RunIdDetail = "runId";
+    public const string MatchIdDetail = "matchId";
 
     public static AuditEvent ResultRejected(Guid attemptId, Guid logicalJobId, Guid runId, Guid teamId, Guid managerId, string reason) =>
         new()
@@ -69,5 +74,22 @@ public static class AnalysisAuditEvents
                 [RunIdDetail] = runId.ToString(),
             },
             ActorOverride = new AuditActorOverride(AuditActorKind.AnalystManager, null),
+        };
+
+    // The cancellation reason is free text and is deliberately not part of the event.
+    public static AuditEvent RunCancelled(Guid runId, Guid matchId, Guid teamId, string previousState) =>
+        new()
+        {
+            EventType = RunCancelledEvent,
+            Action = RunCancelledAction,
+            Outcome = AuditOutcome.Succeeded,
+            Resource = new AuditResource(RunResourceType, runId.ToString()),
+            TeamId = teamId,
+            Details = new Dictionary<string, string>
+            {
+                [RunIdDetail] = runId.ToString(),
+                [MatchIdDetail] = matchId.ToString(),
+                [PreviousStateDetail] = previousState,
+            },
         };
 }

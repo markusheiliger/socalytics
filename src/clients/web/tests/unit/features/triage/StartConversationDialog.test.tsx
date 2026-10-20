@@ -25,6 +25,7 @@ const run = (runId: string, state: string, createdAt: string): AnalysisRunSummar
   workflowVersion: '1',
   state,
   createdAt: new Date(createdAt),
+  version: 1,
 });
 
 const runs = [

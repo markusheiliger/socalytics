@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-182600-analysis-run-cancellation` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-182600-analysis-run-cancellation/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-182600-analysis-run-cancellation/spec.md`
 
 ## Summary
 
@@ -123,7 +123,7 @@ tests across five test projects.
 
 | Principle | Status | Evidence |
 | --- | --- | --- |
-| I. Architecture is the design authority | Pass | Implements the accepted cancellation semantics of [Run State And Recovery](../../docs/architecture/job-processing.md#run-state-and-recovery) and the late-call rejection of [Execution Attempts, Heartbeats, And Recovery](../../docs/architecture/analyst-runtime-and-recovery.md#execution-attempts-heartbeats-and-recovery); the cancel action extends [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui). Design updates are applied now (see Architecture Updates). |
+| I. Architecture is the design authority | Pass | Implements the accepted cancellation semantics of [Run State And Recovery](../../../docs/architecture/job-processing.md#run-state-and-recovery) and the late-call rejection of [Execution Attempts, Heartbeats, And Recovery](../../../docs/architecture/analyst-runtime-and-recovery.md#execution-attempts-heartbeats-and-recovery); the cancel action extends [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui). Design updates are applied now (see Architecture Updates). |
 | II. Source-area ownership | Pass | Changes under `src/platform/` and `src/clients/web/`; the Manager under `src/analysts/manager/` gets no production change; no new `src/` child. |
 | III. API-first control plane | Pass | Cancellation is a member `/api/v1` operation in the OpenAPI document; the Web UI only calls it through an adapter; no media passes the control plane. |
 | IV. Evidence over claims | Pass | Integration, host, contract, end-to-end, unit, and browser tests (FR-021); nothing claims production readiness. |
@@ -137,7 +137,7 @@ Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 ### Documentation (this feature)
 
 ```text
-specs/20261017-182600-analysis-run-cancellation/
+specs/archive/20261017-182600-analysis-run-cancellation/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output
@@ -203,10 +203,10 @@ a match's runs; no new project or feature folder.
 
 ### Narratives
 
-- [Job Processing → Run State And Recovery](../../docs/architecture/job-processing.md#run-state-and-recovery): implements member-initiated cancellation with the accepted semantics; adds the terminal `Cancelled` state for nodes and logical jobs.
-- [Analyst Runtime and Recovery → Execution Attempts, Heartbeats, And Recovery](../../docs/architecture/analyst-runtime-and-recovery.md#execution-attempts-heartbeats-and-recovery): cancellation fences active attempts without consuming budget; the Manager's existing best-effort stop and cleanup apply.
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): the cancel action in the match page's run list.
-- [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md): unchanged; the `run-state-changed` contract already includes `Cancelled` (no contract change).
+- [Job Processing → Run State And Recovery](../../../docs/architecture/job-processing.md#run-state-and-recovery): implements member-initiated cancellation with the accepted semantics; adds the terminal `Cancelled` state for nodes and logical jobs.
+- [Analyst Runtime and Recovery → Execution Attempts, Heartbeats, And Recovery](../../../docs/architecture/analyst-runtime-and-recovery.md#execution-attempts-heartbeats-and-recovery): cancellation fences active attempts without consuming budget; the Manager's existing best-effort stop and cleanup apply.
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): the cancel action in the match page's run list.
+- [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md): unchanged; the `run-state-changed` contract already includes `Cancelled` (no contract change).
 
 ### Design updates (applied now, worded as decided but not implemented)
 

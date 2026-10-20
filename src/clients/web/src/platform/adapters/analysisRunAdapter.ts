@@ -12,11 +12,12 @@ import type { AnalysisRunStatus, NodeStatus, RunOutcome } from '../models/analys
 import type { Page, PageRequest } from '../models/matches';
 import type { AnalysisRunSummary } from '../models/recordings';
 import { pageQuery } from './matchAdapter';
-import { sendFor, type PlatformApi } from './kiota';
+import { sendFor, withIfMatch, withJson, type PlatformApi } from './kiota';
 
 export interface AnalysisRunAdapter {
   listByMatch(matchId: string, page?: PageRequest): Promise<Page<AnalysisRunSummary>>;
   getRun(runId: string): Promise<RunOutcome>;
+  cancel(runId: string, version: number, reason?: string): Promise<AnalysisRunSummary>;
 }
 
 function toNodeStatus(dto: AnalysisNodeStatusDto | undefined): NodeStatus {
@@ -70,8 +71,8 @@ export function toAnalysisRunStatus(dto: AnalysisRunStatusDto | undefined): Anal
   };
 }
 
-export function toAnalysisRun(dto: AnalysisRunSummaryDto | undefined): AnalysisRunSummary {
-  if (!dto || !dto.runId || !dto.recordingSetVersionId || !dto.workflowId || !dto.workflowVersion || !dto.state || !dto.createdAt) {
+export function toAnalysisRun(dto: AnalysisRunSummaryDto | AnalysisRunStatusDto | undefined): AnalysisRunSummary {
+  if (!dto || !dto.runId || !dto.recordingSetVersionId || !dto.workflowId || !dto.workflowVersion || !dto.state || !dto.createdAt || typeof dto.version !== 'number') {
     throw new PlatformFailure('incompatible');
   }
   return {
@@ -84,6 +85,12 @@ export function toAnalysisRun(dto: AnalysisRunSummaryDto | undefined): AnalysisR
     createdAt: dto.createdAt,
     runningAt: dto.runningAt ?? undefined,
     terminatedAt: dto.terminatedAt ?? undefined,
+    version: dto.version,
+    cancelledBy:
+      dto.cancelledBy?.memberId && dto.cancelledBy.accountName
+        ? { memberId: dto.cancelledBy.memberId.toString(), accountName: dto.cancelledBy.accountName }
+        : undefined,
+    cancellationReason: dto.cancellationReason ?? undefined,
   };
 }
 
@@ -105,6 +112,11 @@ export function createAnalysisRunAdapter(api: PlatformApi): AnalysisRunAdapter {
         if (error instanceof PlatformFailure && error.status === 404) return { kind: 'runNotFound' };
         throw error;
       }
+    },
+    cancel: async (runId, version, reason) => {
+      const body = { reason: reason ?? null };
+      const info = api.client.api.v1.analysis.runs.byRunId(runId as Guid).cancellation.toPostRequestInformation(body);
+      return toAnalysisRun(await sendFor<AnalysisRunStatusDto>(api, withIfMatch(withJson(info, body), version), runFactory));
     },
   };
 }

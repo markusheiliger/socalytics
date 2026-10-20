@@ -60,7 +60,7 @@ characters except line breaks.
 - Pending or failed `analysis.ready-work` outbox rows of the run →
   `discarded`.
 - One `analysis.run-state-changed` message
-  ([contract](../../../contracts/analysis/run-state-changed/v1/run-state-changed.schema.json),
+  ([contract](../../../../contracts/analysis/run-state-changed/v1/run-state-changed.schema.json),
   unchanged; new valid example `cancelled.json`), without the reason.
 - One audit event `analysis.run-cancelled`.
 
