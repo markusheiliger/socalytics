@@ -48,3 +48,7 @@ T006 depends on T001 to T005.
 ## Notes
 
 - Never skip, loosen, or remove an assertion; never change production code or tests that are not named
+
+## Phase 2: Convergence
+
+- [ ] T007 [US1] In `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Recordings/SecretHygieneTests.cs`, after `ExpireUploadSessionsHandler.HandleAsync` runs, add an assertion that the pending session (`pendingId`) has `state = 'expired'` and a non-null `expired_at` in `socalytics.recording_upload_sessions`, and that the first (completed) session is not expired, so a sweep that stops expiring sessions fails the test; change no other assertion and verify by running `SecretHygieneTests` alone and once with the expiry sweep temporarily disabled (probe removed afterward) per FR-001, US1/AC1, SC-002 (partial)
