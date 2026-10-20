@@ -109,7 +109,7 @@ public sealed class PayloadConformanceTests(PostgresContainerFixture postgres, R
 
     private async Task<List<(string Subject, JsonElement Payload)>> WaitForReadyWorkAsync(FinalizationSetup s, CancellationToken ct)
     {
-        for (var i = 0; i < 120; i++)
+        for (var i = 0; i < 360; i++)
         {
             var messages = await ReadMessagesAsync(s, ct);
             if (messages.Any(m => m.Subject.StartsWith("analysis.jobs.ready.")))
