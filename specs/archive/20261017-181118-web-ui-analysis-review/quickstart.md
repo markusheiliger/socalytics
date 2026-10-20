@@ -8,7 +8,7 @@ Validation guide for [spec.md](spec.md). Contracts:
 ## Prerequisites
 
 - The batch sibling
-  [Accepted Fact Indexing and Capability-Scoped Fact Queries](../archive/20261017-175648-fact-indexing-queries/spec.md)
+  [Accepted Fact Indexing and Capability-Scoped Fact Queries](../20261017-175648-fact-indexing-queries/spec.md)
   is merged, so the committed OpenAPI snapshot contains
   `listAnalysisRunFactStreams` and `listAnalysisRunFacts`.
 - Node.js 24, Kiota 1.36.0 on `PATH`, Playwright 1.63.0 Chromium; the .NET 10
