@@ -2,13 +2,16 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  chunkValidation,
   createValidationCommands,
   discoverMarkdownPaths,
   executableName,
   isRepositoryAuthoredMarkdown,
+  parseArguments,
   parseMarkdownPaths,
   resolveValidationCommand,
   runMarkdownChecks,
+  selectMarkdownPaths,
 } from './check-markdown.mjs';
 
 test('parses, normalizes, and sorts null-delimited Markdown paths', () => {
@@ -146,4 +149,36 @@ test('reports a missing validator with the setup instruction', () => {
     }),
     /Install the pinned repository tooling documented in README\.md/,
   );
+});
+
+test('splits long path lists into several runs and keeps the fixed link-check arguments', () => {
+  const [lint, links] = createValidationCommands(['a.md', 'bb.md', 'ccc.md'], 'linux');
+  assert.deepEqual(chunkValidation(lint, 14).map((chunk) => chunk.args), [[':a.md', ':bb.md'], [':ccc.md']]);
+  assert.deepEqual(chunkValidation(links, 12).map((chunk) => chunk.args), [
+    ['--quiet', '--config', '.markdown-link-check.json', 'a.md', 'bb.md'],
+    ['--quiet', '--config', '.markdown-link-check.json', 'ccc.md'],
+  ]);
+});
+
+test('checks only the listed Markdown files with --files', () => {
+  assert.deepEqual(parseArguments([]), { filesFrom: null });
+  assert.deepEqual(parseArguments(['--files', 'changed.txt']), { filesFrom: 'changed.txt' });
+  assert.throws(() => parseArguments(['--files']), /Usage/);
+  assert.deepEqual(selectMarkdownPaths(['README.md', 'docs/a.md', 'specs/f/spec.md'], ['docs\\a.md', 'src/x.cs', ' specs/f/spec.md ', '']), ['docs/a.md', 'specs/f/spec.md']);
+  const spawned = (files) => {
+    const calls = [];
+    runMarkdownChecks({
+      cwd: '/repo',
+      platform: 'linux',
+      files,
+      log() {},
+      spawn(command, args) {
+        calls.push({ command, args });
+        return command === 'git' ? { status: 0, stdout: 'README.md\0docs/a.md\0' } : { status: 0 };
+      },
+    });
+    return calls;
+  };
+  assert.deepEqual(spawned(['docs/a.md', 'src/x.cs']).map(({ command, args }) => [command, args.at(-1)]), [['git', '*.md'], ['markdownlint-cli2', ':docs/a.md'], ['markdown-link-check', 'docs/a.md']]);
+  assert.deepEqual(spawned(['src/x.cs']).map(({ command }) => command), ['git'], 'no changed Markdown, nothing to check');
 });

@@ -19,7 +19,9 @@ import {
   runCommandTarget,
   syncCommandDocs,
 } from './speckit-commands.mjs';
-import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
+import { diagnosisRepo, makeRepo, silent } from './speckit-test-helpers.mjs';
+import { renderTwinBody } from './speckit-prepare-core.mjs';
+import { resolveImplementRequester } from './speckit-prepare.mjs';
 
 const run = (github, body, { pull = 9, actor = 'dev', env = {} } = {}) => runCommand({
   client: github,
@@ -38,11 +40,14 @@ test('parses commands: the first word, the name, and the rest as flags and guida
   assert.equal(parseCommand('please /speckit retry'), null);
   assert.equal(parseCommand('/speckit-gha-diagnose'), null, 'a skill name is not a command');
   assert.match(renderHelp(), /`\/speckit <command> \[flags\] \[guidance\]`/);
-  assert.match(renderHelp(), /\| `\/speckit retry \[--force\] \[guidance\]` \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit fix \[guidance\]` \|[\s\S]*An amendment pull request[\s\S]*prerequisite spec pull request \(`speckit-spec\/<folder>`[\s\S]*skill `\/speckit-gha-diagnose`/);
+  assert.match(renderHelp(), /\| `\/speckit retry \[--force\] \[guidance\]` \| implementation pull request \| restart what stopped with a fresh attempt count while preserving the current phase base[\s\S]*\| `\/speckit specify \[guidance\]` \| implementation pull request \|[\s\S]*\| `\/speckit implement` \| spec twin issue \|[\s\S]*An amendment pull request[\s\S]*spec pull request authored by `\/speckit specify` \(`speckit-spec\/<folder>`[\s\S]*skill `\/speckit-gha-diagnose`/);
   assert.doesNotMatch(renderHelp(), /\/speckit resume/);
   assert.doesNotMatch(renderHelp(), /\/speckit diagnose/);
+  assert.doesNotMatch(renderHelp(), /\/speckit fix/);
   assert.equal(parseCommand('/speckit retry Rerun as is').name, 'retry');
-  assert.equal(parseCommand('/speckit fix Make the test robust').name, 'fix');
+  assert.equal(parseCommand('/speckit specify Make the test robust').name, 'specify');
+  assert.equal(parseCommand('/speckit fix Make the test robust').name, 'unknown', 'renamed to specify, without an alias');
+  assert.equal(parseCommand('/speckit implement').name, 'implement');
   assert.match(renderHelp(), /\/speckit sync \[guidance\]/);
 });
 
@@ -56,7 +61,7 @@ test('flags come right after the command, tolerate case and trailing punctuation
   assert.deepEqual([parseCommand('/speckit retry -- --force is guidance').flags, parseCommand('/speckit retry -- --force is guidance').guidance], [[], '--force is guidance']);
   assert.deepEqual(parseCommand('/speckit retry --forse Rerun').unknownFlags, ['--forse']);
   assert.deepEqual([parseCommand('/speckit sync --force').flags, parseCommand('/speckit sync --force').unknownFlags], [[], ['--force']], 'flags depend on the command');
-  assert.deepEqual(parseCommand('/speckit fix ---- not a flag').guidance, '---- not a flag');
+  assert.deepEqual(parseCommand('/speckit specify ---- not a flag').guidance, '---- not a flag');
 });
 
 test('unsupported flags are refused with the command usage instead of becoming guidance', async () => {
@@ -230,22 +235,108 @@ test('restarts that leave a stopped implementation unchanged are refused, unless
   assert.equal((await run(github, '/speckit retry')).outcome, 'retried');
 });
 
-test('fix starts the authoring of a prerequisite spec once, and refuses while one is pending', async () => {
+test('specify starts the authoring of a new spec once, and refuses while one is pending; fix is unknown', async () => {
   const github = diagnosisRepo();
-  const started = await run(github, '/speckit fix Make UploadSessionExpiryTests independent of runner load');
+  const started = await run(github, '/speckit specify Make UploadSessionExpiryTests independent of runner load');
   assert.equal(started.outcome, 'started');
   const check = github.repo.checkRuns.at(-1);
-  assert.deepEqual([check.name, check.external_id, check.status], ['Spec Kit fix spec', 'speckit:fix-authoring', 'in_progress'], 'its own check run, apart from the implementation');
+  assert.deepEqual([check.name, check.external_id, check.status], ['Spec Kit specify', 'speckit:fix-authoring', 'in_progress'], 'its own check run, apart from the implementation');
   const dispatched = github.repo.runs.at(-1);
-  assert.equal(dispatched.workflow, 'speckit-fix.lock.yml');
+  assert.equal(dispatched.workflow, 'speckit-specify.lock.yml');
   assert.deepEqual({ ...dispatched.inputs, stamp: 'x' }, { twin: '5', pull: '9', folder: 'f', guidance: 'Make UploadSessionExpiryTests independent of runner load', check_run: String(check.id), mode: 'author', amendment: '', round: '0', stalls: '0', findings: '', stamp: 'x' });
   assert.match(dispatched.inputs.stamp, /^\d{8}-\d{6}$/);
-  assert.match(github.comments.at(-1).body, /^<!-- speckit-fix:requested \{"by":"dev"[\s\S]*\*\*A prerequisite spec is being authored\*\*, requested by @dev[\s\S]*> Make UploadSessionExpiryTests/);
+  assert.match(github.comments.at(-1).body, /^<!-- speckit-fix:requested \{"by":"dev"[\s\S]*\*\*A new spec is being authored\*\*, requested by @dev[\s\S]*merged automatically[\s\S]*> Make UploadSessionExpiryTests/);
   assert.equal(parseGuidance(github.comments.at(-1).body), 'Make UploadSessionExpiryTests independent of runner load');
 
-  const again = await run(github, '/speckit fix');
+  const again = await run(github, '/speckit specify');
   assert.equal(again.outcome, 'refused');
-  assert.match(github.comments.at(-1).body, /^`\/speckit fix` cannot start: a prerequisite spec is already being authored\./);
+  assert.match(github.comments.at(-1).body, /^`\/speckit specify` cannot start: a new spec is already being authored\./);
+
+  const runs = github.repo.runs.length;
+  const renamed = await run(github, '/speckit fix Make it robust');
+  assert.equal(renamed.command, 'unknown');
+  assert.match(github.comments.at(-1).body, /^Unknown command `\/speckit fix`\.[\s\S]*`\/speckit specify \[guidance\]`/);
+  assert.equal(github.repo.runs.length, runs, 'nothing started');
+});
+
+// A spec twin #20 of `specs/<folder>` in a temporary repository with the default branch's spec folders.
+function twinRepo({ folder = 't', tasks = '## P\n- [ ] T001 Do it\n', checklists = { 'requirements.md': '- [x] Done\n' }, labels = [] } = {}) {
+  const root = makeRepo([{ folder, plan: true, tasks, checklists }]);
+  const github = diagnosisRepo({ amendment: false });
+  github.issues.push({ number: 20, id: 20000, node_id: 'I_20', state: 'open', title: 'T', body: renderTwinBody({ folder, title: 'T', summary: '' }, ['spec.md', 'plan.md', 'tasks.md'], { serverUrl: 'https://github.com', repository: 'octo/repo', branch: 'main' }), labels: [{ name: 'speckit:spec' }, ...labels.map((name) => ({ name }))] });
+  const onTwin = (body, { actor = 'dev', commentId = '601' } = {}) => runCommand({
+    client: github,
+    env: { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_PULL: '20', SPECKIT_TARGET: 'twin', SPECKIT_COMMENT_ID: commentId, SPECKIT_ACTOR: actor, SPECKIT_COMMENT_BODY: body },
+    log: silent,
+    now: () => github.clock,
+    rootDir: root,
+  });
+  return { root, github, onTwin, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+}
+
+test('/speckit implement on a twin records the requester, sets the implement stage, and starts the scheduler', async () => {
+  const { github, onTwin, cleanup } = twinRepo();
+  try {
+    github.edges.push([20, 5]);
+    const result = await onTwin('/speckit implement');
+    assert.equal(result.outcome, 'requested');
+    assert.deepEqual(result.blockers, [5]);
+    const record = github.comments.filter((comment) => comment.number === 20).at(-1);
+    assert.match(record.body, /^<!-- speckit:implement-requested \{"by":"dev","comment":601\} -->\n\*\*Implementation requested\*\* by @dev: `specs\/t` is `tasked`[\s\S]*It waits for its open prerequisites #5/);
+    assert.deepEqual(github.find(20).labels.map((label) => label.name), ['speckit:spec', 'speckit:stage:implement']);
+    assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-orchestrate.yml', {}]);
+    assert.deepEqual(github.reactions.at(-1), { commentId: 601, content: 'eyes' });
+    assert.equal((await resolveImplementRequester(github, 20)).login, 'dev', 'the record names the requester');
+
+    const runs = github.repo.runs.length;
+    const again = await onTwin('/speckit implement');
+    assert.equal(again.outcome, 'already requested');
+    assert.match(github.comments.at(-1).body, /^\*\*Already requested\*\*: this spec is at `speckit:stage:implement`/);
+    assert.equal(github.repo.runs.length, runs);
+    assert.equal((await onTwin('/speckit implement', { actor: 'stranger' })).handled, false, 'people without write access are ignored');
+  } finally {
+    cleanup();
+  }
+});
+
+test('/speckit implement is refused with the reasons and one next step unless the spec is tasked with checked checklists', async () => {
+  const open = twinRepo({ checklists: { 'requirements.md': '- [ ] Open item\n' } });
+  try {
+    assert.equal((await open.onTwin('/speckit implement')).outcome, 'refused');
+    const body = open.github.comments.at(-1).body;
+    assert.match(body, /^\*\*`\/speckit implement` was not accepted\*\*, @dev:\n\n- 1 checklist item\(s\) in `specs\/t\/checklists\/` are not checked[\s\S]*\*\*Recommended next step\*\*: Resolve the open items/);
+    assert.equal(body.match(/\*\*Recommended next step\*\*/g).length, 1);
+    assert.deepEqual(open.github.find(20).labels.map((label) => label.name), ['speckit:spec']);
+    assert.equal(open.github.repo.runs.length, 0);
+  } finally {
+    open.cleanup();
+  }
+  const started = twinRepo({ tasks: '## P\n- [x] T001 Done\n- [ ] T002 Next\n' });
+  try {
+    assert.equal((await started.onTwin('/speckit implement')).outcome, 'refused');
+    assert.match(started.github.comments.at(-1).body, /stage `implementing`[\s\S]*\*\*Recommended next step\*\*: Continue the implementation that already started/);
+  } finally {
+    started.cleanup();
+  }
+});
+
+test('commands outside their scope are refused with help: implement on a pull request, pull request commands on a twin', async () => {
+  const { github, onTwin, cleanup } = twinRepo();
+  try {
+    const onPull = await run(github, '/speckit implement');
+    assert.equal(onPull.rejected, 'wrong scope');
+    assert.match(github.comments.at(-1).body, /^\*\*`\/speckit implement` was not run\*\*: it works on a spec twin issue \(label `speckit:spec`\), not on a pull request\.[\s\S]*\*\*Spec Kit commands\*\*/);
+    for (const name of ['retry', 'sync', 'specify']) {
+      const result = await onTwin(`/speckit ${name}`);
+      assert.equal(result.rejected, 'wrong scope', name);
+      assert.match(github.comments.at(-1).body, new RegExp(`^\\*\\*\`/speckit ${name}\` was not run\\*\\*: it works on an implementation pull request`));
+    }
+    assert.equal((await onTwin('/speckit help')).command, 'help');
+    assert.equal(github.repo.runs.length, 0);
+    assert.equal(await runCommandTarget({ client: github, env: { SPECKIT_PULL: '20', SPECKIT_TARGET: 'twin', SPECKIT_COMMENT_BODY: '/speckit implement' } }), 20, 'a twin command locks the twin');
+  } finally {
+    cleanup();
+  }
 });
 test('commands need an open implementation pull request with a twin', async () => {
   const github = diagnosisRepo();
@@ -271,7 +362,7 @@ test('syncCommandDocs replaces only the marked block and requires the markers', 
   const text = `intro\n${COMMAND_DOCS_START}\nold table\n${COMMAND_DOCS_END}\noutro\n`;
   const synced = syncCommandDocs(text, [{ name: 'rebase', usage: '/speckit rebase', help: 'rebase the branch', flags: {} }]);
   assert.equal(synced, `intro\n${renderCommandDocs([{ name: 'rebase', usage: '/speckit rebase', help: 'rebase the branch', flags: {} }])}\noutro\n`);
-  assert.match(synced, /\| `\/speckit rebase` \| rebase the branch \| none \|/);
+  assert.match(synced, /\| `\/speckit rebase` \| implementation pull request \| rebase the branch \| none \|/);
   assert.doesNotMatch(synced, /old table/);
   assert.throws(() => syncCommandDocs('no markers'), CommandUsageError);
   assert.throws(() => syncCommandDocs(`${COMMAND_DOCS_END}\n${COMMAND_DOCS_START}`), CommandUsageError);
