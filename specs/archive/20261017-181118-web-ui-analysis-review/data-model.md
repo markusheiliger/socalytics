@@ -70,7 +70,7 @@ From `listAnalysisRunFacts`.
 | --- | --- | --- |
 | `run` | `{ runId, matchId, state }` | state at read time |
 | `stream` | `{ nodeKey, capability, schemaVersion, outputType, executionScope, provenance }` | |
-| `range` | `{ fromMs, toMs }` | the effective range the platform reports |
+| `range` | `{ fromMs?: number; toMs?: number }` | the range the platform echoes: a bound the request did not set is reported as `null` and mapped to absent; the adapter never rejects a page for an absent bound |
 | `items` | `Fact[]` | platform order |
 | `coverage` | `CoverageWindow[]` | full coverage for the range on every page |
 | `continuationToken` | string \| undefined | absent on the last page |
