@@ -426,6 +426,22 @@ exit 0
     return root;
   };
 
+  it('checks only the changed Markdown files in task mode and the whole repository otherwise', () => {
+    const record = path.join(temporary, `markdown-${counter++}.txt`);
+    const stub = path.join(temporary, `markdown-stub-${counter++}.mjs`);
+    writeFileSync(stub, `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(record)}, process.argv.slice(2).join(' ') + '\\n');\n`);
+    const argsOf = (mode) => {
+      writeFileSync(record, '');
+      const result = run(repository(), { mode, changed: ['docs/guide.md'], env: { MARKDOWN_CHECK: stub } });
+      assert.equal(result.status, 0, result.log);
+      assert.match(result.outputs.checks, /Markdown check/);
+      return readFileSync(record, 'utf8').trim();
+    };
+    assert.match(argsOf('task'), /^--files \S+changed\.txt$/);
+    assert.equal(argsOf('phase'), '');
+    assert.equal(argsOf('finalize'), '');
+  });
+
   it('runs the four exact stages in order with downloads disabled and the installed interpreter', () => {
     const root = sdkRepository();
     const result = run(root);

@@ -206,8 +206,8 @@ each digest-pinned Analyst image. It includes:
 - capability ID and version, Analyst tier, and independently declared execution
     scope (`segment` or `match`)
 - required upstream capability and schema versions, and per dependency whether
-    the capability permits partial upstream coverage and its minimum (decided,
-    not yet implemented; see
+    the capability permits partial upstream coverage and its minimum (implemented
+    as development evidence against the simulated Analyst; see
     [Readiness And Dependencies](job-processing.md#readiness-and-dependencies))
 - whether source video access is required, optional, or forbidden
 - output schema version and compatible Analyst-profile identities
@@ -237,7 +237,8 @@ Every tier emits a versioned result manifest containing:
     versions, and algorithm-qualified artifact digests
 - the input coverage used per upstream dependency, required for
     partial-coverage dependencies and compared with the job's input snapshot on
-    acceptance (decided, not yet implemented)
+    acceptance (implemented as development evidence against the simulated
+    Analyst)
 - output type (`foundational-facts` or `soccer-concepts`), confidence, and
     supporting evidence references
 - optional supporting video-segment identifiers that the API can resolve,
@@ -254,16 +255,19 @@ attempt's lease. The AM then completes through the API callback. Before
 acceptance, the API reads the manifest from storage and validates the current
 fenced attempt, the manifest's checksum and schema, team and match scope,
 pinned Analyst-profile, image and model digests, declared dependencies,
-complete lineage, the stored artifacts' digests, and that every emitted fact
+complete lineage, the reported input coverage against the job's input snapshot,
+the stored artifacts' digests, and that every emitted fact
 falls within the nominal half-open validity window. A manifest that fails any
 check ends the attempt as failed with a named reason, and the normal retry
 rules apply. The API then marks the result accepted and indexes queryable facts
 in stamp metadata. ACs never write metadata tables directly. The result write
 grants, the result-manifest contract, and this validation are implemented as
 development evidence against the simulated Analyst and against a real Analyst
-container on the Docker Desktop profile; fact indexing remains future work.
+container on the Docker Desktop profile, as are fact validation and indexing
+(development evidence against the simulated Analyst); capability-specific
+payload validation remains future work.
 
-Fact indexing is decided as follows and not yet implemented. Facts travel in
+Fact indexing is implemented as follows. Facts travel in
 result artifacts whose manifest media type is
 `application/vnd.socalytics.facts+json` and that follow the versioned
 `fact-artifact` contract in `contracts/analysis/`: a platform-owned envelope
@@ -305,10 +309,12 @@ Manager-mediated read, the staging, and the coverage are implemented as
 development evidence against the simulated Analyst, whose match-level lineage
 is built from the staged inputs; real Analyst execution is implemented on the
 Docker Desktop profile, while production evidence remains future work, as does
-source-video access for ACs. For a dependency that permits partial coverage,
+source-video access for ACs. The member fact read described below is implemented
+as development evidence against the simulated Analyst. For a dependency that permits partial coverage,
 the read reports the coverage recorded in the job's input snapshot together
 with the declared coverage mode, and members see each node's input coverage
-counts in the run status read (decided, not yet implemented).
+counts in the run status read (implemented as development evidence against the
+simulated Analyst).
 
 Only accepted results are visible. Every response and reference is constrained
 to the job's authorized team and match, and Analysts never query PostgreSQL
@@ -319,17 +325,19 @@ short-lived per-object read grants, as described in
 (decided, not yet implemented); the AC itself never receives presigned access,
 and video bytes do not pass through the API.
 
-The same capability-scoped pattern is decided, but not yet implemented, for
-people: members with read access to a run's team (Club Admins, and Coaches and
-Viewers of the team) read a run's indexed facts per capability, capability
-version, and output schema version through member-facing `/api/v1`
-operations, optionally narrowed to a match-time range and paginated in stable
+The same capability-scoped pattern is implemented for people (development
+evidence against the simulated Analyst; the Web UI analysis review is not
+implemented): members with read access to a run's team (Club Admins, and Coaches
+and Viewers of the team) read a run's indexed facts per capability, capability
+version, and output schema version through the member-facing `/api/v1`
+operation `listAnalysisRunFacts`, optionally narrowed to a match-time range and paginated in stable
 time order. Each response states the run's state, the run-pinned provenance
 (workflow, Analyst profile, image and model digests), and coverage for every
 expected execution unit as a half-open match-time window that is accepted,
 missing, failed, blocked, or skipped, without segment, recording, or storage
-identifiers. A listing names every capability node of the run with its fact
-count and coverage. Reads never cross runs.
+identifiers. The operation `listAnalysisRunFactStreams` names every capability
+node of the run with its fact count and coverage. Both reads carry a weak ETag
+and never cross runs.
 
 The evidence of those facts is decided, but not yet implemented, to be
 resolvable to video by the same members (see
@@ -405,8 +413,9 @@ adapter ships (the Docker Desktop adapter reaches a Linux engine only in
 Development and Test). The Velopack spike proves, unsigned first, per-user install, delta
 updates, forward-fix, uninstall that leaves the OCI runtime untouched, the FUSE
 and extract-and-run start modes on minimal server images, self-update in both,
-and the stamp-served update feed with attestation checks, minimum version, and
-drain before applying; a second round after the publisher decision proves
+and the stamp-served update feed with attestation checks and drain before
+applying (the minimum version is already enforced by the platform and the
+Manager); a second round after the publisher decision proves
 signing, macOS notarization, SmartScreen, and Gatekeeper. Implementation must
 also validate
 registration bootstrap, protected credential storage, rotation, and revocation; and measure concurrency control, queue-depth

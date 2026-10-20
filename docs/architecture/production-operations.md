@@ -54,7 +54,7 @@ Each stamp references one immutable profile version. A profile records:
 | Network | Ingress, internal networks, egress, DNS, TLS, exposed and denied endpoints |
 | Configuration | Non-secret source, schema/version, validation, reload or restart behavior |
 | Secrets | Source, scope, delivery, rotation, revocation, recovery, and audit behavior |
-| Email | Relay endpoint and credentials, relay residency, sender domain and address, SPF/DKIM/DMARC, bounce and complaint handling, delivery-record retention, rate limits, and the password-recovery link lifetime, minimum answer duration, and limits (decided, not yet implemented), and the invitation link lifetime, resend limit, and link-check limit (decided, not yet implemented) (see [Email Notifications](email-notifications.md#production-values)) |
+| Email | Relay endpoint and credentials, relay residency, sender domain and address, SPF/DKIM/DMARC, bounce and complaint handling, delivery-record retention, rate limits, and the password-recovery link lifetime, minimum answer duration, and limits (development values exist), and the invitation link lifetime, resend limit, and link-check limit (decided, not yet implemented) (see [Email Notifications](email-notifications.md#production-values)) |
 | Persistence | Volume, authority, durability, encryption, capacity, residency, retention, backup and recovery |
 | Objectives | Numeric value, unit, window, signal, owner, approval, alert and evidence |
 | Evidence | Preflight, restore, failure, capacity, upgrade, rollback and incident exercise references |
@@ -105,8 +105,8 @@ Portability rules that bind both profiles:
 
 - both profiles run the same cloud-neutral OCI images built from the same
   release;
-- the platform's images share one deployable contract (decided, not yet
-  implemented; see
+- the platform's images share one deployable contract (implemented as
+  development evidence, not production readiness; see
   [Platform Implementation](platform-implementation.md#source-and-runtime-baseline)):
   non-root users, a read-only root filesystem with `/tmp` as the only writable
   location, configuration through environment variables, HTTP health through

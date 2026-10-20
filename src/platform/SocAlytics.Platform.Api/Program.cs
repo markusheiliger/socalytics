@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
+using SocAlytics.Platform.Api.AgentOrchestration;
 using SocAlytics.Platform.Api.Bootstrap;
 using SocAlytics.Platform.Api.Endpoints.Club;
 using SocAlytics.Platform.Api.Endpoints.IdentityAccess;
@@ -22,7 +23,9 @@ builder.AddServiceDefaults();
 // The hosting request log would write the external sign-in callback's authorization code (query string) to the logs.
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 builder.AddRegistryApi();
+builder.Services.AddAgentWorkloadSecurity();
 builder.Services.AddEmailRateLimiting();
+builder.Services.AddPasswordRecoveryRateLimiting();
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure();
 builder.Services.AddHttpContextAccessor();
@@ -74,6 +77,7 @@ app.MapSessionEndpoints();
 app.MapExternalSignInEndpoints();
 app.MapSelfEndpoints();
 app.MapEmailEndpoints();
+app.MapPasswordRecoveryEndpoints();
 app.MapClubEndpoints();
 app.MapSeasonEndpoints();
 app.MapTeamEndpoints();
@@ -82,9 +86,12 @@ app.MapMemberEndpoints();
 app.MapCredentialEndpoints();
 app.MapRecordingEndpoints();
 app.MapAnalysisRunEndpoints();
+app.MapAnalysisFactEndpoints();
 app.MapWorkflowOperationsEndpoints();
 app.MapAnalystManagerEndpoints();
 app.MapRegistryEndpoints();
+app.MapAgentConversationEndpoints();
+app.MapAgentWorkloadEndpoints();
 
 app.Run();
 

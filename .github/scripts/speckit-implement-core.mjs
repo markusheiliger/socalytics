@@ -1,4 +1,4 @@
-import { artifactUrl, renderSpecLine, specDir } from './speckit-prepare-core.mjs';
+import { artifactUrl, isImplementRequested, renderSpecLine, specDir } from './speckit-prepare-core.mjs';
 
 export const BRANCH_PREFIX = 'speckit/';
 export const CHECK_RUN_NAME = 'Spec Kit implementation';
@@ -88,15 +88,23 @@ export const CHECK_DIAGNOSED = 'speckit:diagnosed';
 export const DIAGNOSIS_STALE_MS = 60 * 60 * 1000;
 export const DIAGNOSE_WORKFLOW_FILE = 'speckit-diagnose.lock.yml';
 export const AMEND_BRANCH_PREFIX = 'speckit-amend/';
-// Fix specs (`/speckit fix`): a small spec, authored by an agent for a cause outside the stopped spec, proposed as a pull
-// request from speckit-fix/<fix folder> against the default branch. Its own check run tracks the authoring on the
+// Specs authored by `/speckit specify`: an ordinary spec, authored by an agent for a cause outside the stopped spec,
+// proposed as a pull request from speckit-spec/<folder> against the default branch. Pull requests opened earlier use
+// speckit-fix/<folder> and are still recognized until they are settled. Its own check run tracks the authoring on the
 // implementation pull request's head, apart from the implementation's check runs.
+export const SPEC_BRANCH_PREFIX = 'speckit-spec/';
 export const FIX_BRANCH_PREFIX = 'speckit-fix/';
-export const FIX_WORKFLOW_FILE = 'speckit-fix.lock.yml';
-export const FIX_CHECK_NAME = 'Spec Kit fix spec';
+export const PREREQUISITE_BRANCH_PREFIXES = Object.freeze([SPEC_BRANCH_PREFIX, FIX_BRANCH_PREFIX]);
+export const FIX_WORKFLOW_FILE = 'speckit-specify.lock.yml';
+export const FIX_CHECK_NAME = 'Spec Kit specify';
 export const CHECK_FIX_AUTHORING = 'speckit:fix-authoring';
 export const CHECK_FIX_AUTHORED = 'speckit:fix-authored';
-export const FIX_TITLE_PREFIX = 'Fix spec: ';
+export const FIX_TITLE_PREFIX = 'Spec: ';
+// The title prefix of spec pull requests opened by earlier tooling; a rework renames them to FIX_TITLE_PREFIX, which
+// the rework's push requires.
+export const LEGACY_FIX_TITLE_PREFIX = 'Fix spec: ';
+// Architecture changes of a spec pull request may only come from the spec's design (docs/architecture/**).
+export const ARCHITECTURE_PREFIX = 'docs/architecture/';
 export const DIAGNOSIS_COMMENT_MARKER = '<!-- speckit-implement:diagnosis -->';
 
 export function diagnosisRunsUrl(env) {
@@ -119,31 +127,44 @@ export const AMEND_STATUS_END = '<!-- /speckit-amend:status -->';
 export const MAX_STALLED_ROUNDS = 3;
 export const MAX_CORRECTION_ROUNDS = 10;
 export const ANALYZE_WORKFLOW_FILE = 'speckit-analyze.lock.yml';
-// GitHub's default label for "Extra attention is needed": an implementation, amendment, or fix spec pull request
-// carries it while it waits for a person (stopped, a diagnosis or a fix spec outcome to decide on, or ready for review)
-// and loses it once a person's action puts automation back to work or closes the pull request. It is only added together
-// with a comment that recommends what to do, never while a diagnosis runs, and never on a blocked pull request.
+// GitHub's default label for "Extra attention is needed": an implementation, amendment, or prerequisite spec pull
+// request carries it while it waits for a person (stopped, a diagnosis or a prerequisite spec outcome to decide on, or
+// ready for review) and loses it once a person's action puts automation back to work or closes the pull request. It is
+// only added together with a comment that recommends what to do, never while a diagnosis runs, and never on a blocked
+// pull request.
 export const ATTENTION_LABEL = 'help wanted';
-// An implementation that waits for a prerequisite (a fix spec) carries BLOCKED_LABEL instead of ATTENTION_LABEL. It is
-// only added together with a comment that says what it waits for and how it is unblocked (setBlocked).
+// An implementation that waits for a prerequisite (an open blocked-by dependency of its twin, or a prerequisite spec
+// that is still being reviewed) carries BLOCKED_LABEL instead of ATTENTION_LABEL. It is only added together with a
+// comment that says what it waits for and how it is unblocked (setBlocked), and lifted by maintainDependencyBlock.
 export const BLOCKED_LABEL = 'blocked';
 const BLOCKED_MARKER_PATTERN = /<!-- speckit-implement:blocked (\{[^\n]*?\}) -->/g;
 export const renderBlockedMarker = (key) => `<!-- speckit-implement:blocked ${JSON.stringify(key)} -->`;
+// Ends a block: the comment that lifts it carries this marker, so the lift (and its retry) happens once per block.
+export const UNBLOCKED_MARKER = '<!-- speckit-implement:unblocked -->';
 
-// Whether a workflow comment already explains the block `key` (renderBlockedMarker).
-export function blockExplained(comments, key) {
-  const wanted = JSON.stringify(key);
+// The keys of the blocks explained since the block was last lifted (renderBlockedMarker, UNBLOCKED_MARKER), oldest
+// first; empty when the latest block is already lifted.
+export function currentBlocks(comments) {
+  let keys = [];
   for (const comment of comments ?? []) {
     if (comment.user?.login !== BOT_LOGIN) continue;
-    for (const match of String(comment.body ?? '').matchAll(BLOCKED_MARKER_PATTERN)) {
+    const body = String(comment.body ?? '');
+    if (body.includes(UNBLOCKED_MARKER)) keys = [];
+    for (const match of body.matchAll(BLOCKED_MARKER_PATTERN)) {
       try {
-        if (JSON.stringify(JSON.parse(match[1])) === wanted) return true;
+        keys.push(JSON.parse(match[1]));
       } catch {
         // A damaged marker explains nothing.
       }
     }
   }
-  return false;
+  return keys;
+}
+
+// Whether a workflow comment already explains the block `key` (renderBlockedMarker) since the block was last lifted.
+export function blockExplained(comments, key) {
+  const wanted = JSON.stringify(key);
+  return currentBlocks(comments).some((item) => JSON.stringify(item) === wanted);
 }
 export const MAX_WRITER_GUIDANCE = 4000;
 const GUIDANCE_PATTERN = /<!-- speckit-implement:guidance ([A-Za-z0-9+/=]+) -->/;
@@ -273,14 +294,21 @@ export function amendmentBranch(folder) {
   return `${AMEND_BRANCH_PREFIX}${folder}`;
 }
 
-export function fixBranch(folder) {
-  return `${FIX_BRANCH_PREFIX}${folder}`;
+// The branch of a new prerequisite spec pull request (`prefix` FIX_BRANCH_PREFIX for one opened earlier).
+export function fixBranch(folder, prefix = SPEC_BRANCH_PREFIX) {
+  return `${prefix}${folder}`;
 }
 
-// The spec folder of an implementation, amendment, or fix spec branch, or null.
+// Whether a branch carries a prerequisite spec pull request authored by `/speckit specify` (earlier `/speckit fix`), new or legacy.
+export function isPrerequisiteBranch(branch) {
+  const value = String(branch ?? '');
+  return PREREQUISITE_BRANCH_PREFIXES.some((prefix) => value.startsWith(prefix) && value.length > prefix.length);
+}
+
+// The spec folder of an implementation, amendment, or prerequisite spec branch, or null.
 export function folderOfBranch(branch) {
   const value = String(branch ?? '');
-  for (const prefix of [AMEND_BRANCH_PREFIX, FIX_BRANCH_PREFIX, BRANCH_PREFIX]) {
+  for (const prefix of [AMEND_BRANCH_PREFIX, ...PREREQUISITE_BRANCH_PREFIXES, BRANCH_PREFIX]) {
     if (value.startsWith(prefix) && value.length > prefix.length) return value.slice(prefix.length);
   }
   return null;
@@ -382,7 +410,7 @@ const renderRestartState = ({ head, base = null }) => `<!-- speckit-implement:re
 
 // The latest restarts by a person, newest first, as long as each recorded `head` as the implementation branch head:
 // the restarts since which the branch has not changed. A workflow restart without a recorded state (a merged
-// amendment, a landed fix spec) ends the run of unchanged restarts.
+// amendment, an implemented prerequisite) ends the run of unchanged restarts.
 export function unchangedRestarts(comments, head) {
   const restarts = [];
   const ordered = [...comments]
@@ -399,6 +427,59 @@ export function unchangedRestarts(comments, head) {
     restarts.push({ kind: 'retry', head: state.head, base: state.base ?? null, at: comment.created_at });
   }
   return restarts;
+}
+
+const STOP_PATTERN = /\*\*Implementation needs attention\*\*(?: @[A-Za-z0-9-]+)?: ([^\n]*)/;
+// Workflow and command links in a stop reason change with every run; they do not make two stops different.
+const stopReason = (body) => String(body ?? '').match(STOP_PATTERN)?.[1].replace(/\]\([^)]*\)/g, ']').replace(/https?:\/\/\S+/g, '').trim() ?? null;
+
+// The comment command that already failed the same way: the latest `/speckit retry` or `/speckit sync` recorded the
+// implementation branch head `head` (so nothing changed since), and the stop after it gave the same reason as the stop
+// before it. Recommending that command again would only repeat the failure. Returns { verb, reason } or null.
+export function repeatedFailure(comments, head) {
+  const ordered = [...comments]
+    .filter((comment) => comment.user?.login === BOT_LOGIN)
+    .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
+  const verbOf = (body) => (String(body).startsWith(SYNC_COMMENT_MARKER) ? 'sync' : RESTART_COMMENT_MARKERS.some((marker) => String(body).startsWith(marker)) ? 'retry' : null);
+  const restartAt = ordered.findLastIndex((comment) => verbOf(comment.body) && RESTART_STATE_PATTERN.test(String(comment.body)));
+  if (restartAt < 0) return null;
+  let state = null;
+  try {
+    state = JSON.parse(String(ordered[restartAt].body).match(RESTART_STATE_PATTERN)[1]);
+  } catch {
+    return null;
+  }
+  if (!state?.head || state.head !== head) return null;
+  const before = ordered.slice(0, restartAt).map((comment) => stopReason(comment.body)).filter(Boolean).at(-1);
+  const after = ordered.slice(restartAt + 1).map((comment) => stopReason(comment.body)).filter(Boolean)[0];
+  return before && after && before === after ? { verb: verbOf(ordered[restartAt].body), reason: after } : null;
+}
+
+// The reason of the latest stop for a person, or null.
+export function latestStopReason(comments) {
+  return [...comments]
+    .filter((comment) => comment.user?.login === BOT_LOGIN)
+    .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+    .map((comment) => stopReason(comment.body))
+    .filter(Boolean)
+    .at(-1) ?? null;
+}
+
+// Where the guidance of a `/speckit retry` or `/speckit sync` goes next, for the reply that acknowledges the command.
+// Guidance only steers an agent's prompt; it never changes which work runs, the checks, the limits, or verification.
+export function describeGuidanceReach(verb, { continuation = null, lastStop = null } = {}) {
+  if (verb === 'retry') {
+    if (continuation?.repair) return 'The guidance goes to the repair agent, which runs before the reverification (without guidance, the retry only reverifies).';
+    const next = continuation?.text ? ` (the implementation ${continuation.text})` : '';
+    return `The guidance is added to the prompt of the first work that runs${next} and ends after its first success or a person's push; it changes no check, limit, or verification.`;
+  }
+  if (verb === 'sync') {
+    const early = lastStop && /conflicts in protected paths/.test(lastStop)
+      ? ` The last stop came before any agent ran (${lastStop}), so the guidance alone cannot change that outcome.`
+      : '';
+    return `The guidance reaches Copilot only if conflicts remain after the merge (conflicts that archive reference rewrites cause under \`specs/\` are resolved by script); after a clean merge it goes to the first work that continues.${early}`;
+  }
+  return '';
 }
 
 // Extracts task checkboxes from tasks.md, keeping the headings (## to ####) that contain tasks.
@@ -611,7 +692,7 @@ export function isImplementRunOf(title, twin) {
 // Diagnose, analyze, and fix runs are named "<workflow> spec #<twin> · <why the run started>" like the implementation
 // chain (run-name in their workflow sources). Runs started earlier are named "<workflow> · spec #<twin> · …",
 // "[<workflow>] spec #<twin> · …", or "<workflow> #<twin> · …".
-const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze'], [FIX_WORKFLOW_FILE, 'Spec Kit fix']]);
+const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze'], [FIX_WORKFLOW_FILE, 'Spec Kit specify']]);
 
 export function isTwinRunOf(workflowFile, title, twin) {
   const workflow = TWIN_RUN_NAMES.get(workflowFile);
@@ -648,7 +729,7 @@ export async function setBlocked(client, number, blocked, { explain = null } = {
         await client.createComment(number, [renderBlockedMarker(explain.key), ...explain.lines].join('\n'));
       }
       if (!has) {
-        await client.ensureLabel({ name: BLOCKED_LABEL, color: 'd93f0b', description: 'Implementation is on hold waiting for a prerequisite fix' });
+        await client.ensureLabel({ name: BLOCKED_LABEL, color: 'd93f0b', description: 'Implementation is on hold waiting for a prerequisite' });
         await client.addLabels(number, [BLOCKED_LABEL]);
       }
       if (names.includes(ATTENTION_LABEL)) await client.removeLabel(number, ATTENTION_LABEL);
@@ -657,6 +738,113 @@ export async function setBlocked(client, number, blocked, { explain = null } = {
   } catch {
     // The label only signals the state; comments and check runs carry it.
   }
+}
+
+// Why an implementation waits for the open blocked-by dependencies of its twin, for setBlocked. `blockers` are twin
+// numbers or the twin issues; an issue without an implementation request (isImplementRequested) never starts by
+// itself, so the explanation then recommends requesting it with `/speckit implement` on that twin.
+export function dependencyBlock(blockers) {
+  const issues = new Map();
+  for (const blocker of blockers) {
+    const number = Number(typeof blocker === 'object' && blocker !== null ? blocker.number : blocker);
+    if (!issues.has(number) || typeof blocker === 'object') issues.set(number, typeof blocker === 'object' ? blocker : null);
+  }
+  const numbers = [...issues.keys()].sort((a, b) => a - b);
+  const unrequested = numbers.filter((number) => issues.get(number) && !isImplementRequested(issues.get(number)));
+  const list = numbers.map((number) => `#${number}`).join(', ');
+  const one = numbers.length === 1;
+  const [first, ...others] = unrequested;
+  const request = first
+    ? [
+      '',
+      `**Recommended next step**: Comment the following on spec twin #${first} to request its implementation.`,
+      '',
+      '```text',
+      '/speckit implement',
+      '```',
+      '',
+      `- **Why**: #${first} is not requested for implementation, so it never starts by itself, and this implementation waits for it.`,
+      `- **What it does**: Checks that #${first} is ready (\`tasked\`, checklists checked), records who requested it, and starts its implementation ahead of other specs. Running \`/speckit-implement <folder>\` locally for its folder does the same.`,
+      ...(others.length > 0 ? [`- ${others.map((number) => `#${number}`).join(', ')} ${others.length === 1 ? 'is' : 'are'} not requested either; comment the same there.`] : []),
+    ]
+    : [];
+  return {
+    key: { blockers: numbers, ...(unrequested.length > 0 ? { unrequested } : {}) },
+    lines: [
+      `**Blocked** by prerequisite ${list}: the spec twin of this implementation depends on ${one ? 'it' : 'them'}, so this implementation waits instead of continuing.${first ? '' : ' Nothing is needed on this pull request.'}`,
+      ...request,
+      '',
+      `- **Unblocks by itself** once ${list} ${one ? 'is' : 'are'} implemented: this implementation then continues with a fresh attempt count on its current phase base.`,
+      `- **To follow the prerequisite**: watch ${list} and ${one ? 'its' : 'their'} implementation pull request; if that implementation stops, it asks for help there.`,
+      '- **To stop waiting**: remove the dependency from the spec twin; the block is then lifted.',
+      '- If a prerequisite is closed without being implemented, the block is lifted and this pull request lists what you can do next.',
+    ],
+  };
+}
+
+// The open blocked-by twins of a spec twin.
+export async function openPrerequisites(client, twin) {
+  return (await client.listBlockedBy(twin)).filter((blocker) => blocker.state === 'open');
+}
+
+// Scheduler side, for an open implementation pull request of `twin`: blocks it while its twin has open blocked-by
+// dependencies, whoever added them. Once none is open (and `hold`, a prerequisite spec still under review, is false), a
+// block that is not lifted yet is lifted once (UNBLOCKED_MARKER): the implementation retries with a fresh attempt count
+// on its current phase base, or, when a prerequisite was closed without being implemented, asks for a person.
+export async function maintainDependencyBlock(client, env, { implementation, twin, hold = false }, { report = () => {} } = {}) {
+  const blockers = await client.listBlockedBy(twin);
+  const open = blockers.filter((blocker) => blocker.state === 'open');
+  if (open.length > 0) {
+    await setBlocked(client, implementation.number, true, { explain: dependencyBlock(open) });
+    return { outcome: 'blocked', blocked: true, blockers: open.map((blocker) => blocker.number) };
+  }
+  if (hold) return { outcome: 'held', blocked: true, blockers: [] };
+  const pull = await client.getPullRequest(implementation.number);
+  if (pull.state !== 'open' || !(pull.labels ?? []).some((label) => (label?.name ?? label) === BLOCKED_LABEL)) return { outcome: 'none', blocked: false, blockers: [] };
+  const comments = await client.listIssueComments(pull.number);
+  const blocks = currentBlocks(comments);
+  if (blocks.length === 0) {
+    await setBlocked(client, pull.number, false);
+    return { outcome: 'cleared', blocked: false, blockers: [] };
+  }
+  // The prerequisites of this block: those its explanations name, and the twins of linked prerequisite specs.
+  const named = new Set(blocks.flatMap((key) => (Array.isArray(key.blockers) ? key.blockers : [])));
+  for (const event of parseFixEvents(comments)) if (event.event === 'linked' && Number.isInteger(event.twin)) named.add(event.twin);
+  const closed = blockers.filter((blocker) => named.has(blocker.number));
+  const list = (items) => items.map((item) => `#${item.number}`).join(', ');
+  const notImplemented = closed.filter((blocker) => blocker.state_reason !== 'completed');
+  const implemented = closed.filter((blocker) => blocker.state_reason === 'completed');
+  const folder = folderOfBranch(pull.head?.ref);
+  if (notImplemented.length > 0) {
+    await client.createComment(pull.number, [
+      UNBLOCKED_MARKER,
+      `**A prerequisite was not implemented**: ${list(notImplemented)} was closed without being implemented. The block is lifted, and this implementation stays stopped.`,
+      '',
+      ...renderNextSteps({ diagnosed: true, ...(await nextStepContext(client, pull, folder)) }),
+    ].join('\n'));
+    await setBlocked(client, pull.number, false);
+    await setAttention(client, pull.number, true);
+    report(`- A prerequisite of #${pull.number} was not implemented (${list(notImplemented)} closed); it needs a person.`);
+    return { outcome: 'stopped', blocked: false, blockers: [] };
+  }
+  const lead = [
+    UNBLOCKED_MARKER,
+    implemented.length > 0
+      ? `**The block is lifted**: prerequisite ${list(implemented)} ${implemented.length === 1 ? 'is' : 'are'} implemented. The implementation retries with a fresh attempt count on its current phase base.`
+      : '**The block is lifted**: the spec twin has no open prerequisites anymore. The implementation retries with a fresh attempt count on its current phase base.',
+  ].join('\n');
+  const guidance = implemented.length > 0
+    ? `This implementation waited for the spec twin(s) ${list(implemented)}, which are now implemented on the base branch. Continue as planned; do not work around what they provide in this spec.`
+    : '';
+  await client.createComment(pull.number, renderRetryComment(lead, guidance));
+  await setBlocked(client, pull.number, false);
+  try {
+    await dispatchImplementation(client, env, { twin, pull: pull.number, title: specTitleOfPull(pull) });
+  } catch {
+    // The retry comment persists the request; the next scheduler run continues the implementation.
+  }
+  report(`- The prerequisites of #${pull.number} are implemented${implemented.length > 0 ? ` (${list(implemented)})` : ''}; lifted its block and retried it.`);
+  return { outcome: 'retried', blocked: false, blockers: [] };
 }
 
 // Implementation pull requests stay draft until the verified result is either merged immediately or deliberately
@@ -779,7 +967,9 @@ export function renderResolvePrompt({ folder, files, base, forkPoint = null, arc
     `may also make the smallest change to other files of \`${base}\` (for example add a setting this implementation`,
     'made required to a test that the base branch added); never delete them, and never weaken a test, assertion, or',
     'requirement on either side to make it pass. A person reviews such changes before the implementation merges. Do not',
-    'change anything under `.github/`, `.specify/`, or `specs/`. Build what the merge touches and run the tests that cover it;',
+    `change anything under \`.github/\`, \`.specify/\`, or \`specs/\`, except conflicted files of \`${spec}\` itself: combine both sides there, keep every`,
+    'task of the implementation branch, and keep every checked box checked (a person reviews these files before the merge).',
+    'Build what the merge touches and run the tests that cover it;',
     'the full verification runs after you. Do not run git commit, merge, checkout, reset, restore, stash, rebase, or push.',
   ].join(' ');
   return appendWriterGuidance(prompt, guidance);
@@ -1085,14 +1275,94 @@ export function syncPullRequestTaskList(body, { twinNumber, folder, tasksMarkdow
   return result.length > GITHUB_BODY_LIMIT ? syncPullRequestTicks(text, tasksMarkdown) : result;
 }
 
-// The commands a person can comment on an implementation pull request. An amendment pull request needs none: merging
-// it applies the amendment, closing it discards it, and a comment or review asks for a rework.
+// The comment commands, all in the form `/speckit <command> [flags] [guidance]`; `flags` lists the flags each command
+// supports, and `scope` where it works: `pr` on an implementation pull request (or an amendment pull request of it),
+// `twin` on a spec twin issue, `any` on both. An amendment pull request needs none: merging it applies the amendment,
+// closing it discards it, and a comment or review asks for a rework.
+// This list is the single source for everything that names the commands: the command router and its help, and the
+// diagnosis (which commands it may recommend, for which categories, and the command reference in its evidence).
+// `recommend` marks commands a diagnosis may recommend; `categories` the diagnosis categories they fit;
+// `whenToRecommend` and `guidanceScope` brief the diagnosis agent.
 export const PR_COMMANDS = [
-  { name: 'retry', usage: '/speckit retry [guidance]', help: 'restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless the guidance starts with `--force`' },
-  { name: 'sync', usage: '/speckit sync [guidance]', help: 'require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved' },
-  { name: 'fix', usage: '/speckit fix [guidance]', help: 'for a cause outside this spec: an agent authors a fix spec and opens it against the base branch for your review; once it is merged and implemented, this implementation retries by itself' },
-  { name: 'help', usage: '/speckit help', help: 'list these commands' },
+  {
+    name: 'retry',
+    usage: '/speckit retry [--force] [guidance]',
+    scope: 'pr',
+    flags: { [RESTART_FORCE_FLAG]: 'restart even after 2 restarts in a row that left the branch unchanged' },
+    help: 'restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt\'s prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given',
+    recommend: true,
+    categories: ['retry', 'decision'],
+    whenToRecommend: 'The artifacts are adequate and running the work again with concrete guidance is expected to pass (`retry`), or a person answers the questions of a trade-off (`decision`, the recommended answers as guidance). With a pending repair, add guidance only when a code change is needed: guidance runs a repair agent on the landed code, a bare command only reverifies. Use `--force` only when guidance that differs materially from what was tried can help after 2 unchanged restarts.',
+    guidanceScope: 'the first work that continues: the retried task group, the convergence, the repair, or the conflict resolution',
+  },
+  {
+    name: 'sync',
+    usage: '/speckit sync [guidance]',
+    scope: 'pr',
+    flags: {},
+    help: 'require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved',
+    recommend: true,
+    categories: ['outside'],
+    whenToRecommend: 'The fix of a cause outside this spec is already on the base branch, or tooling under `.github/` or a non-code cause was fixed there: the merge and its verification must happen before work continues.',
+    guidanceScope: 'the conflict resolution when the merge conflicts, otherwise the first prompted work after the clean merge (it is kept until that work succeeds)',
+  },
+  {
+    name: 'specify',
+    usage: '/speckit specify [guidance]',
+    scope: 'pr',
+    flags: {},
+    help: 'author a new spec for a cause outside this spec; it is checked and merged to the default branch automatically, and this implementation waits until that spec is signed off with `/speckit implement` on its twin and implemented',
+    recommend: true,
+    categories: ['outside'],
+    whenToRecommend: 'The cause lies in code, tests, or environment actions owned by another feature on the base branch and is not fixed there yet: the guidance says what to fix, where, and how.',
+    guidanceScope: 'the agent that authors the new spec',
+  },
+  {
+    name: 'implement',
+    usage: '/speckit implement',
+    scope: 'twin',
+    flags: {},
+    help: 'request the implementation of this spec: checks that it is `tasked` with all checklists checked, records who requested it, and starts it on GitHub (it waits for open prerequisites)',
+    recommend: false,
+    categories: [],
+  },
+  { name: 'help', usage: '/speckit help', scope: 'any', flags: {}, help: 'list these commands', recommend: false, categories: [] },
 ];
+export const COMMAND_SCOPES = Object.freeze({ pr: 'implementation pull request', twin: 'spec twin issue', any: 'anywhere' });
+
+// The commands a diagnosis may recommend, and those that fit a category.
+export const recommendableCommands = (commands = PR_COMMANDS) => commands.filter((command) => command.recommend).map((command) => command.name);
+export function commandsForCategory(category, commands = PR_COMMANDS) {
+  return commands.filter((command) => command.recommend && command.categories.includes(category)).map((command) => command.name);
+}
+export const RECOMMENDABLE_COMMANDS = Object.freeze(recommendableCommands());
+
+// Splits the text after `/speckit <command>` into flags and guidance. Flags are the leading words that start with
+// `--` (case-insensitive, trailing punctuation such as `--force;` or `--force,` tolerated); a bare `--` ends them, so
+// guidance can itself start with `--`. Everything after the flags is the guidance. `flags` holds the supported flags
+// of the command (lowercased, without duplicates), `unknownFlags` the others as given.
+const FLAG_PATTERN = /^(--[a-z][a-z0-9-]*)[.,;:!]*$/i;
+export function parseCommandArguments(name, argument) {
+  const supported = Object.keys(PR_COMMANDS.find((command) => command.name === name)?.flags ?? {});
+  const flags = [];
+  const unknownFlags = [];
+  let rest = String(argument ?? '').trim();
+  for (;;) {
+    const word = rest.match(/^\S+/)?.[0];
+    if (!word) break;
+    if (word === '--') {
+      rest = rest.slice(word.length).trim();
+      break;
+    }
+    const flag = word.match(FLAG_PATTERN)?.[1];
+    if (!flag) break;
+    const normalized = flag.toLowerCase();
+    if (!supported.includes(normalized)) unknownFlags.push(flag);
+    else if (!flags.includes(normalized)) flags.push(normalized);
+    rest = rest.slice(word.length).trim();
+  }
+  return { flags, unknownFlags, guidance: rest };
+}
 
 // What a diagnosis category means, for the person who decides how to continue.
 export const CATEGORY_MEANING = Object.freeze({
@@ -1103,10 +1373,13 @@ export const CATEGORY_MEANING = Object.freeze({
   unknown: 'The evidence is not enough to name a cause yet.',
 });
 
-// The verb and the text after it of a `/speckit <verb> [text]` command; null for anything else.
+// The verb, the text after it, and its flags and guidance (parseCommandArguments) of a
+// `/speckit <verb> [flags] [guidance]` command; null for anything else.
 export function parseNextCommand(command) {
   const match = String(command ?? '').trim().match(/^\/speckit ([a-z]+)(?:[ \t]+([\s\S]*))?$/);
-  return match ? { verb: match[1], argument: String(match[2] ?? '').trim() } : null;
+  if (!match) return null;
+  const argument = String(match[2] ?? '').trim();
+  return { verb: match[1], argument, ...parseCommandArguments(match[1], argument) };
 }
 
 // What a next step does, so a person knows the consequences before posting it. `baseBranch` is the implementation
@@ -1119,9 +1392,9 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
   const next = (typeof continuation === 'string' ? continuation : continuation?.text) ?? 'continues with what stopped';
   const mergesAnyway = typeof continuation === 'object' && continuation?.mergesBase === true;
   const attempts = `with a fresh attempt count (at most ${MAX_TASK_ATTEMPTS} failed attempts)`;
-  const forced = parsed.verb === 'retry' && /^--force(?:\s+|$)/i.test(parsed.argument);
-  const argument = forced ? parsed.argument.replace(/^--force(?:\s+|$)/i, '').trim() : parsed.argument;
-  const flag = forced ? ' `--force` is a flag that bypasses the unchanged-restart guard, not guidance.' : '';
+  const forced = parsed.verb === 'retry' && parsed.flags.includes(RESTART_FORCE_FLAG);
+  const argument = parsed.guidance;
+  const flag = forced ? ` \`${RESTART_FORCE_FLAG}\` is a flag that bypasses the unchanged-restart guard, not guidance.` : '';
   const guidance = (argument
     ? 'The text after the command goes into the next attempt\'s prompt as guidance.'
     : 'Text you add after the command goes into the next attempt\'s prompt as guidance.') + flag;
@@ -1135,14 +1408,51 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
       return mergesAnyway
         ? `The implementation ${next}, ${attempts}. That work merges ${base} first at its normal synchronization boundary. ${guidance}`
         : `Does not merge ${base}: the implementation ${next} on the branch as it is, ${attempts}. ${guidance}`;
-    case 'fix':
+    case 'specify':
       return [
-        `An agent authors a small fix spec for the cause${parsed.argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and then waits for your review.`,
-        `Once you merge it, the fix spec is implemented like any spec, this implementation waits for it, and then retries by itself on its current phase base, ${attempts}.`,
+        `An agent authors a new spec for the cause${argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and merged automatically (a change of \`docs/architecture/\` or a person's push waits for your review instead).`,
+        `This spec then depends on it; it starts once someone with write access signs it off with \`/speckit implement\` on its spec twin, this implementation waits for it, and then retries by itself on its current phase base, ${attempts}.`,
       ].join(' ');
     default:
       return null;
   }
+}
+
+// The command reference a diagnosis agent reads (evidence section "Commands you can recommend", and
+// `speckit-diagnose.mjs commands`). Generated from PR_COMMANDS and describeCommandEffect, so it never falls behind the
+// commands. With a pending `repair`, `retry` is described both with and without guidance.
+export const COMMAND_REFERENCE_TITLE = 'Commands you can recommend';
+export function renderCommandReference({ baseBranch = null, repair = null, commands = PR_COMMANDS } = {}) {
+  const lines = [
+    `## ${COMMAND_REFERENCE_TITLE}`,
+    '',
+    'Recommend exactly one of these, written as one line a person can post as it is: `/speckit <command> [flags] [guidance]`.',
+    `Flags come right after the command; everything after them is guidance (at most ${MAX_WRITER_GUIDANCE} characters). Put \`--\` before guidance that itself starts with \`--\`.`,
+    repair ? `A **${repair.scope} repair is pending** on this pull request${Array.isArray(repair.tasks) && repair.tasks.length > 0 ? ` (${repair.tasks.join(', ')})` : ''}.` : 'No repair is pending on this pull request.',
+    '',
+  ];
+  for (const command of commands.filter((item) => item.recommend)) {
+    const flags = Object.entries(command.flags ?? {});
+    lines.push(
+      `### \`${command.usage}\``,
+      '',
+      `- Fits the categories: ${command.categories.map((category) => `\`${category}\``).join(', ')}`,
+      `- When: ${command.whenToRecommend}`,
+      `- Flags: ${flags.length > 0 ? flags.map(([flag, help]) => `\`${flag}\` (${help})`).join('; ') : 'none'}`,
+      `- Guidance reaches: ${command.guidanceScope}`,
+    );
+    const effect = (text) => describeCommandEffect(text, { baseBranch, continuation: repair ? { repair } : null }) ?? command.help;
+    if (repair && command.name === 'retry') {
+      lines.push(
+        `- What it does with guidance: ${effect(`/speckit ${command.name} guidance`)}`,
+        `- What it does without guidance: ${effect(`/speckit ${command.name}`)}`,
+      );
+    } else {
+      lines.push(`- What it does: ${effect(`/speckit ${command.name} guidance`)}`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
 }
 
 // What comes next when a stopped implementation retries: `text` as "continues with …", and
@@ -1228,20 +1538,21 @@ export function renderAmendmentHowTo(implementationPull) {
   ];
 }
 
-// How a person handles a fix spec pull request; shown in its description and referenced from the implementation.
+// How a person handles a spec pull request authored by `/speckit specify`; shown in its description and referenced
+// from the implementation.
 export function renderFixHowTo(implementationPull, baseBranch = null) {
   const base = baseBranch ? `\`${baseBranch}\`` : 'the default branch';
   return [
     '**How to proceed** (people with write access):',
     '',
-    `- **Merge** this pull request to add the fix spec to ${base}. It becomes a spec twin, is requested for implementation on behalf of the person who asked for it, and is implemented like any spec. #${implementationPull} waits for it and retries by itself once the fix has landed.`,
-    '- **Comment**, or **submit a review** with *Comment* or *Request changes* (line comments included), to have the fix spec reworked with your feedback. It returns here, checked again, for your review.',
-    `- **Close** this pull request without merging to discard the fix spec; #${implementationPull} stays stopped and lists what you can do next.`,
+    `- **Merge** this pull request to add the spec to ${base}. It becomes a spec twin that the stopped spec depends on; it is implemented once someone signs it off with \`/speckit implement\` on its twin. #${implementationPull} waits for it and retries by itself once it is implemented.`,
+    '- **Comment**, or **submit a review** with *Comment* or *Request changes* (line comments included), to have the spec reworked with your feedback. It returns here, checked again.',
+    `- **Close** this pull request without merging to discard the spec; #${implementationPull} stays stopped and lists what you can do next.`,
   ];
 }
 
-// Links a fix spec pull request to the implementation pull request it unblocks. Only the workflow writes it into the
-// description; agent text never carries markers (neutralizeMarkers).
+// Links a prerequisite spec pull request opened by earlier tooling to the implementation pull request it unblocks
+// (legacy, read only; pull requests are now found through the `created` event on the implementation pull request).
 const FIX_FOR_PATTERN = /<!-- speckit-fix:for (\{[^\n]*?\}) -->/;
 export const renderFixFor = (data) => `<!-- speckit-fix:for ${JSON.stringify(data)} -->`;
 export function parseFixFor(body) {
@@ -1253,9 +1564,9 @@ export function parseFixFor(body) {
   }
 }
 
-// The lifecycle of a fix spec, recorded on the implementation pull request it unblocks by the workflow's comments:
-// requested, created, merged or discarded, linked (twin, dependency, and implementation request), landed (retried), or
-// stopped (the fix spec was not implemented).
+// The lifecycle of a prerequisite spec, recorded on the implementation pull request it unblocks by the workflow's
+// comments: requested, created, merged or discarded, and linked (twin dependency and implementation request). landed
+// and stopped were recorded by earlier tooling; lifting the block is now generic (maintainDependencyBlock).
 const FIX_EVENT_PATTERN = /<!-- speckit-fix:(requested|created|merged|discarded|linked|landed|stopped) (\{[^\n]*?\}) -->/g;
 export const renderFixEvent = (event, data = {}) => `<!-- speckit-fix:${event} ${JSON.stringify(data)} -->`;
 export function parseFixEvents(comments) {

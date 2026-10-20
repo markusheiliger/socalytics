@@ -304,6 +304,40 @@ internal sealed class AccountCredentialService(
         return new CredentialRedemptionResult(CredentialRedemptionOutcome.Succeeded, account.Id, purpose);
     }
 
+    public async Task<CredentialRedemptionOutcome> ResetPasswordByRecoveryAsync(
+        Guid accountId, string newPassword, CancellationToken cancellationToken)
+    {
+        if ((await ValidatePasswordAsync(newPassword, cancellationToken)).Count > 0)
+        {
+            return CredentialRedemptionOutcome.PolicyViolation;
+        }
+
+        var account = await users.FindByIdAsync(accountId.ToString());
+        if (account is null)
+        {
+            return CredentialRedemptionOutcome.Invalid;
+        }
+
+        account.PasswordChangeRequired = false;
+        if (account.PasswordHash is not null)
+        {
+            var removed = await users.RemovePasswordAsync(account);
+            if (!removed.Succeeded)
+            {
+                throw new InvalidOperationException("The password could not be removed.");
+            }
+        }
+
+        var added = await users.AddPasswordAsync(account, newPassword);
+        if (!added.Succeeded)
+        {
+            throw new InvalidOperationException("The password could not be set: " + string.Join(", ", added.Errors.Select(e => e.Code)));
+        }
+
+        await sessions.EndAllForAccountAsync(account.Id, "password-reset", null, time.GetUtcNow(), cancellationToken);
+        return CredentialRedemptionOutcome.Succeeded;
+    }
+
     public async Task SetTemporaryPasswordAsync(Guid accountId, string password, CancellationToken cancellationToken)
     {
         var account = await users.FindByIdAsync(accountId.ToString())

@@ -27,9 +27,13 @@ internal sealed record AnalysisRunSummaryDto(
 
 internal sealed record AnalysisJobCountsDto(int Waiting, int Ready, int Claimed, int Completed, int Failed, int Blocked, int Cancelled);
 
+internal sealed record AnalysisNodeInputCoverageDto(
+	string UpstreamNodeKey, string CoverageMode, decimal? MinimumAcceptedFraction, int Accepted, int Failed, int Blocked, int Skipped,
+	int Missing);
+
 internal sealed record AnalysisNodeStatusDto(
 	Guid NodeId, string NodeKey, string CapabilityId, string CapabilityVersion, string Tier, string ExecutionScope, string State,
-	string? BlockedByNodeKey, AnalysisJobCountsDto Jobs);
+	string? BlockedByNodeKey, AnalysisJobCountsDto Jobs, IReadOnlyList<AnalysisNodeInputCoverageDto>? InputCoverage);
 
 internal sealed record AnalysisRunStatusDto(
 	Guid RunId, Guid TeamId, Guid MatchId, Guid RecordingSetVersionId, string WorkflowId, string WorkflowVersion, string State,
@@ -46,7 +50,12 @@ internal sealed record AnalysisRunStatusDto(
 			AnalysisRunSummaryDto.MapCancelledBy(r.CancelledBy), r.CancellationReason, s.RequestedCapabilities,
 			[.. s.Nodes.Select(n => new AnalysisNodeStatusDto(
 				n.NodeId, n.NodeKey, n.CapabilityId, n.CapabilityVersion, n.Tier, n.ExecutionScope, n.State, n.BlockedByNodeKey,
-				new AnalysisJobCountsDto(n.Jobs.Waiting, n.Jobs.Ready, n.Jobs.Claimed, n.Jobs.Completed, n.Jobs.Failed, n.Jobs.Blocked, n.Jobs.Cancelled)))]);
+				new AnalysisJobCountsDto(n.Jobs.Waiting, n.Jobs.Ready, n.Jobs.Claimed, n.Jobs.Completed, n.Jobs.Failed, n.Jobs.Blocked, n.Jobs.Cancelled),
+				n.InputCoverage is null
+					? null
+					: [.. n.InputCoverage.Select(c => new AnalysisNodeInputCoverageDto(
+						c.UpstreamNodeKey, c.CoverageMode, c.MinimumAcceptedFraction, c.Accepted, c.Failed, c.Blocked, c.Skipped,
+						c.Missing))]))]);
 	}
 }
 

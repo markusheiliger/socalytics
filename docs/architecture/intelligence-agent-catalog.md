@@ -11,10 +11,14 @@ are **Provisional** until the governance, grounding, safety, quality, and cost
 gates below pass. This is an architecture catalog. The prompts in this document
 are design inputs, not executable agent definitions.
 
-The durable Agent Orchestration authority and canonical control-plane API are
-planned but not implemented. The catalog entries, prompt text, philosophy
-artifacts, model execution, MCP evidence tools, Hermes orchestration runtime,
-and user experiences are likewise design inputs rather than deployed behavior.
+The durable Agent Orchestration authority and canonical control-plane API exist
+for direct specialist invocations as development evidence, executed in
+Development and Test by a simulated agent workload; consultation and lifecycle
+operations remain planned. The Web UI's direct Specialist Agent triage
+conversation is implemented as development evidence. The catalog entries,
+prompt text, philosophy artifacts, model execution, MCP evidence tools, Hermes
+orchestration runtime, and the remaining user experiences are design inputs
+rather than deployed behavior.
 
 ## Catalog Rules
 
@@ -789,8 +793,10 @@ recommendation specific enough for staff to review and adapt with the player.
    catalog registry and not yet implemented; the test suites remain open.
 2. **Wave 1 - direct specialists:** evaluate direct user conversations with the
    tactics and video-analysis SAs against accepted evidence and unavailable-data
-   scenarios. The Hermes runtime that executes these direct conversations is
-   decided and not yet implemented (see
+   scenarios. The platform side of these direct conversations (conversations,
+   submission, claims, leases, lineage, and a Development and Test simulated
+   agent workload) is implemented as development evidence; the Hermes runtime
+   that executes them is decided and not yet implemented (see
    [Intelligence and Agents → Agent Orchestration Authority](intelligence-and-agents.md#agent-orchestration-authority));
    the evaluation suites remain open.
 3. **Wave 2 - remaining specialists:** add fitness, goalkeeping, scouting, and

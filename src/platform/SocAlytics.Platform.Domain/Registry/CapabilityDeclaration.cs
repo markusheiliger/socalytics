@@ -11,7 +11,10 @@ public static class VideoPolicies
     public static bool IsKnown(string? value) => value is Required or Optional or Forbidden;
 }
 
-public sealed record DeclaredUpstream(string CapabilityId, string CapabilityVersion, string SchemaVersion, DependencyKind Kind);
+public sealed record DeclaredUpstream(string CapabilityId, string CapabilityVersion, string SchemaVersion, DependencyKind Kind)
+{
+    public CoveragePolicy CoveragePolicy { get; init; } = CoveragePolicy.Complete;
+}
 
 public sealed record DeclaredRequirements(
     int MinMaxAttempts,

@@ -49,6 +49,25 @@ internal sealed class NatsTopology(
             },
             cancellationToken).ConfigureAwait(false);
 
+        await js.CreateOrUpdateStreamAsync(
+            new StreamConfig(o.AgentWorkStream, [o.AgentWorkSubject])
+            {
+                DuplicateWindow = window,
+                Retention = StreamConfigRetention.Workqueue,
+            },
+            cancellationToken).ConfigureAwait(false);
+        await js.CreateOrUpdateConsumerAsync(
+            o.AgentWorkStream,
+            new ConsumerConfig(o.AgentWorkConsumer)
+            {
+                DurableName = o.AgentWorkConsumer,
+                FilterSubject = o.AgentWorkSubject,
+                AckPolicy = ConsumerConfigAckPolicy.Explicit,
+                AckWait = work.Value.ConsumerAckWait,
+                MaxDeliver = -1,
+            },
+            cancellationToken).ConfigureAwait(false);
+
         if (workflows is null)
         {
             return;

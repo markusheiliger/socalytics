@@ -76,6 +76,24 @@ describe('fetch routing', () => {
     expect(classifyRequest({ method: 'GET', mode: 'cors', url: 'http://other.test/assets/app.js' }, origin)).toBeUndefined();
   });
 
+  it('does not handle triage conversation API paths for any method', () => {
+    const paths = [
+      '/api/v1/agent-catalog/agents',
+      '/api/v1/matches/3f2b8c1e-0000-4000-8000-000000000001/agent-conversations',
+      '/api/v1/agent-conversations/3f2b8c1e-0000-4000-8000-000000000002',
+      '/api/v1/agent-conversations/3f2b8c1e-0000-4000-8000-000000000002/participants',
+      '/api/v1/agent-conversations/3f2b8c1e-0000-4000-8000-000000000002/invocations',
+      '/api/v1/agent-conversations/3f2b8c1e-0000-4000-8000-000000000002/turns',
+      '/api/v1/agent-invocations/3f2b8c1e-0000-4000-8000-000000000003',
+      '/api/v1/agent-invocations/3f2b8c1e-0000-4000-8000-000000000003/lineage',
+    ];
+    for (const path of paths) {
+      for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+        expect(classify(path, 'cors', method), `${method} ${path}`).toBeUndefined();
+      }
+    }
+  });
+
   it('serves navigations from the cached index.html and falls back to the network', async () => {
     const { caches } = fakeCaches();
     const match = vi.mocked(caches.match);

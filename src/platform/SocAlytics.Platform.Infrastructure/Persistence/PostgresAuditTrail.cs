@@ -66,6 +66,14 @@ internal sealed class PostgresAuditTrail(
         "previousState",
         "provider",
         "cause",
+        "conversationId",
+        "invocationId",
+        "attemptId",
+        "attemptNumber",
+        "agentId",
+        "workloadClientId",
+        "disposition",
+        "reasonCode",
     };
 
     private const string InsertSql =
@@ -160,6 +168,7 @@ internal sealed class PostgresAuditTrail(
         AuditActorKind.System => "system",
         AuditActorKind.Anonymous => "anonymous",
         AuditActorKind.AnalystManager => "analyst-manager",
+        AuditActorKind.AgentWorkload => "agent-workload",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
     };
 }

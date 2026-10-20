@@ -2,6 +2,7 @@ using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Registry.Abstractions;
+using SocAlytics.Platform.Application.Registry.ManagerVersions;
 using SocAlytics.Platform.Domain.Registry;
 
 namespace SocAlytics.Platform.Application.Registry.QueueCredentials;
@@ -29,6 +30,7 @@ public sealed class IssueQueueCredentialsHandler(
     IQueueCredentialIssuer issuer,
     IWorkflowDefinitionResolver workflows,
     IOptions<AnalystWorkOptions> work,
+    ManagerVersionGate versionGate,
     TimeProvider time)
 {
     public async Task<OperationResult<IssuedQueueCredentials>> HandleAsync(
@@ -71,6 +73,13 @@ public sealed class IssueQueueCredentialsHandler(
         if (registration.State != RegistrationState.Active)
         {
             return OperationFailure.Forbidden("manager-not-active");
+        }
+
+        var refusal = await versionGate.CheckAsync(
+            registration, ManagerVersionGate.QueueCredentialsOperation, cancellationToken);
+        if (refusal is not null)
+        {
+            return refusal;
         }
 
         var recorded = await credentials.RecordIssuanceAsync(

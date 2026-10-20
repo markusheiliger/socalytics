@@ -18,14 +18,23 @@ public sealed class EndpointSecurityTests
     private const string ApiPrefix = "/api/v1";
     private const string SessionScheme = "SocAlyticsSession";
 
-    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "confirmEmail", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken", "listIdentityProviders", "startExternalSignIn", "completeExternalSignIn" };
+    private static readonly HashSet<string> AnonymousOperations = new(StringComparer.Ordinal) { "signIn", "redeemCredential", "confirmEmail", "getAnalystManagerStampDiscovery", "createAnalystManagerPairing", "getAnalystManagerPairingStatus", "activateAnalystManagerRegistration", "issueAnalystManagerAccessToken", "listIdentityProviders", "startExternalSignIn", "completeExternalSignIn", "requestPasswordRecovery", "checkPasswordRecovery", "completePasswordRecovery", "issueAgentWorkloadToken" };
 
     private const string ManagerScheme = "AnalystManagerDPoP";
+    private const string WorkloadScheme = "AgentWorkloadDPoP";
 
     private static readonly HashSet<string> SessionHolderOperations =
         new(StringComparer.Ordinal) { "getSession", "signOut", "getCurrentMember", "changeOwnPassword" };
 
-    private static readonly string[] ForbiddenPathSegments = ["bootstrap", "setup", "recovery"];
+    private static readonly string[] ForbiddenPathSegments = ["bootstrap", "setup"];
+
+    // The only recovery paths: the self-service password recovery operations, each at exactly one path.
+    private static readonly Dictionary<string, string> SelfServiceRecoveryPaths = new(StringComparer.Ordinal)
+    {
+        ["requestPasswordRecovery"] = ApiPrefix + "/password-recovery/requests",
+        ["checkPasswordRecovery"] = ApiPrefix + "/password-recovery/checks",
+        ["completePasswordRecovery"] = ApiPrefix + "/password-recovery/completions",
+    };
 
     [Fact]
     public async Task Every_api_endpoint_is_explicitly_classified()
@@ -54,6 +63,13 @@ public sealed class EndpointSecurityTests
                 segment => path.Contains(segment, StringComparison.OrdinalIgnoreCase),
                 $"{label} must not expose bootstrap, setup, or recovery paths.");
 
+            if (path.Contains("recovery", StringComparison.OrdinalIgnoreCase))
+            {
+                SelfServiceRecoveryPaths.TryGetValue(name, out var allowedPath).ShouldBeTrue(
+                    $"{label} must not expose bootstrap, setup, or recovery paths.");
+                path.ShouldBe(allowedPath, $"{label} must expose recovery only at {allowedPath}.");
+            }
+
             var anonymous = endpoint.Metadata.GetMetadata<IAllowAnonymous>() is not null;
             var authorizeData = endpoint.Metadata.GetOrderedMetadata<IAuthorizeData>();
 
@@ -79,6 +95,12 @@ public sealed class EndpointSecurityTests
             if (authorizeData.Any(data => data.Policy == "AnalystManager"))
             {
                 policy.AuthenticationSchemes.ShouldBe([ManagerScheme], $"{label} must use only the DPoP scheme.");
+                continue;
+            }
+
+            if (authorizeData.Any(data => data.Policy == "AgentWorkload"))
+            {
+                policy.AuthenticationSchemes.ShouldBe([WorkloadScheme], $"{label} must use only the workload DPoP scheme.");
                 continue;
             }
 
@@ -140,6 +162,11 @@ public sealed class EndpointSecurityTests
                 ["Analysis:Results:MaxObjectBytes"] = "104857600",
                 ["Analysis:Results:MaxAttemptBytes"] = "1073741824",
                 ["Analysis:Results:MaxManifestBytes"] = "1048576",
+                ["Analysis:Results:MaxFactArtifactBytes"] = "16777216",
+                ["Analysis:Results:MaxFactPayloadBytes"] = "16384",
+                ["Analysis:Results:MaxFactsPerResult"] = "50000",
+                ["Analysis:Facts:DefaultPageSize"] = "100",
+                ["Analysis:Facts:MaxPageSize"] = "500",
                 ["Analysis:Reads:GrantLifetime"] = "00:10:00",
                 ["Analysis:Reads:MaxPageSize"] = "100",
             }));

@@ -200,7 +200,13 @@ evidence, and influence on the Coach's synthesis remain visible and attributed.
 Agents access only accepted facts, concepts, evidence timestamps, and authorized
 clip references through MCP/API tools. The triage remains bound to its selected
 analysis run; a newer run requires a new triage until an explicit rebase design
-is introduced.
+is introduced. The platform side of direct `User -> SA` conversations bound to
+one terminal successful run is implemented as development evidence (see
+[Agent Orchestration Authority](#agent-orchestration-authority)), and the
+connected Web UI conversations with Specialist Agents are implemented as
+development evidence (see
+[Client Applications → Web UI](client-applications.md#web-ui)); Coach Agent
+conversations and consultations remain planned.
 
 ### Agent Orchestration Authority
 
@@ -211,19 +217,21 @@ commands, queries, PostgreSQL tables, migrations, projections, and outgoing
 events live in the platform's layers and stamp database. Other functional areas
 use its Application-layer handlers and must not write its tables directly.
 
-The planned control-plane API exposes versioned submission, private query,
-claim, lease, checkpoint, consultation, completion, and lifecycle operations.
-Agent Orchestration will use PostgreSQL, optimistic concurrency, idempotency,
-fencing, a transactional outbox, bounded recovery, and tombstone reapplication.
+The control-plane API exposes versioned submission, private query, claim,
+lease, checkpoint, completion, and failure operations for direct invocations
+as development evidence; consultation and lifecycle operations remain planned.
+Agent Orchestration uses PostgreSQL, optimistic concurrency, idempotency,
+fencing, a transactional outbox, and bounded recovery for direct invocations;
+tombstone reapplication remains planned.
 
-The first implementation is decided and not yet implemented: it covers direct
+The first implementation is development evidence: it covers direct
 `User -> SA` triage conversations for the Specialist Agents the stamp enables
 (the first catalog wave), with conversation creation, participants, submission,
-private conditional reads, and the workload claim, lease, checkpoint,
+private conditional reads, lineage, and the workload claim, lease, checkpoint,
 completion, and failure operations, executed in Development and Test by a
 simulated agent workload that stands in for Hermes. Consultations, Coach Agents,
 lifecycle operations, and tombstones remain later work. See
-`specs/20261017-204332-agent-orchestration-invocations`.
+`specs/archive/20261017-204332-agent-orchestration-invocations`.
 
 Hermes is a separate Python OCI service using Microsoft Agent Framework for
 agent execution and CA-to-SA orchestration. Framework-specific types remain
@@ -422,7 +430,7 @@ checkpoint, consultation, and completion replay idempotent. Only the current
 attempt and fencing token can mutate active state; an expired, duplicate, or
 late operation receives an explicit stale disposition.
 
-The workload identity is decided and not yet implemented: each agent runtime is
+The workload identity is implemented as development evidence: each agent runtime is
 a workload client configured in the stamp's protected deployment configuration
 with an ECDSA public key, not paired by members. It obtains short-lived access
 tokens from a minimal Agent Orchestration token endpoint with the OAuth 2.0
@@ -489,7 +497,7 @@ access. Exceptional governance review uses a separate purpose-limited
 operation and audits its actor, purpose, scope, affected resources, and outcome
 under Security and Data Governance.
 
-The role rules are decided and not yet implemented: Club Admins and Coaches of
+The role rules are implemented as development evidence: Club Admins and Coaches of
 the owning team may create conversations and submit; Viewers may not. Ordinary
 reads are granted to the initiating user while active and holding Club Admin or
 a Coach or Viewer role on the owning team. Execution authority requires the

@@ -28,6 +28,7 @@
     <ProjectReference Include="..\..\SocAlytics.Platform.Api\SocAlytics.Platform.Api.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" />
     <ProjectReference Include="..\..\SocAlytics.Platform.Migrator\SocAlytics.Platform.Migrator.csproj" />
+    <ProjectReference Include="..\SocAlytics.Platform.SimulatedAgentWorkload\SocAlytics.Platform.SimulatedAgentWorkload.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -43,5 +44,6 @@
     <None Include="..\..\..\..\contracts\recordings\recordings-finalized\v1\recordings-finalized.schema.json" Link="contracts\recordings\recordings-finalized\v1\recordings-finalized.schema.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\..\contracts\analyst-manager\queue-depth\v1\queue-depth.schema.json" Link="contracts\analyst-manager\queue-depth\v1\queue-depth.schema.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\..\contracts\analyst-manager\registration\v1\**" Link="contracts\analyst-manager\registration\v1\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\..\contracts\analyst-manager\status\v1\**" Link="contracts\analyst-manager\status\v1\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

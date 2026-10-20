@@ -246,15 +246,16 @@ foundational facts only for each segment's nominal logical window. Encoded
 overlap exists for decoding context and does not authorize duplicate facts
 outside that window.
 
-The API validates accepted low-level result manifests (implemented) and indexes
-their facts (future), then exposes
+The API validates accepted low-level result manifests and indexes
+their facts in the same transaction as the acceptance (both implemented as
+development evidence against the simulated Analyst), then exposes
 an ordered, match-wide fact stream to authorized high-level Analyst Containers.
 The stream preserves source time ranges, capability and schema versions, result
 identities, and confidence while hiding storage layout and segment boundaries
 that are irrelevant to football reasoning. High-level ACs execute at match
 scope and query this stream through team-authorized, match-scoped APIs.
-The stream is decided, but not yet implemented, to be readable by authorized
-members as well, per run and capability, as described in
+The stream is readable by authorized members as well, per run and capability
+(implemented as development evidence), as described in
 [Capability-Scoped Result Access](analysts-models-and-hardware.md#capability-scoped-result-access),
 with the Web UI's connected analysis review (decided, not yet implemented; see
 [Client Applications](client-applications.md#web-ui)) as its first consumer;

@@ -1,0 +1,22 @@
+{
+  "contractVersion": "1.0.0",
+  "capability": { "id": "player-detection", "version": "1.0.0" },
+  "schemaVersion": "1.0.0",
+  "outputType": "foundational-facts",
+  "facts": [
+    {
+      "kind": "player-detected",
+      "startMs": 120000,
+      "endMs": 120040,
+      "confidence": 0.93,
+      "payload": { "trackId": "t-7", "box": [0.41, 0.22, 0.05, 0.12] }
+    },
+    {
+      "kind": "player-detected",
+      "startMs": 120040,
+      "endMs": 120080,
+      "confidence": 0.91,
+      "payload": { "trackId": "t-7", "box": [0.42, 0.22, 0.05, 0.12] }
+    }
+  ]
+}

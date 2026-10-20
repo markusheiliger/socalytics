@@ -20,6 +20,16 @@ public sealed record AnalysisRunSummaryView(
 
 public sealed record AnalysisJobCountsView(int Waiting, int Ready, int Claimed, int Completed, int Failed, int Blocked, int Cancelled);
 
+public sealed record AnalysisNodeInputCoverageView(
+    string UpstreamNodeKey,
+    string CoverageMode,
+    decimal? MinimumAcceptedFraction,
+    int Accepted,
+    int Failed,
+    int Blocked,
+    int Skipped,
+    int Missing);
+
 public sealed record AnalysisNodeStatusView(
     Guid NodeId,
     string NodeKey,
@@ -29,7 +39,8 @@ public sealed record AnalysisNodeStatusView(
     string ExecutionScope,
     string State,
     string? BlockedByNodeKey,
-    AnalysisJobCountsView Jobs);
+    AnalysisJobCountsView Jobs,
+    IReadOnlyList<AnalysisNodeInputCoverageView>? InputCoverage = null);
 
 public sealed record AnalysisRunStatusView(
     AnalysisRunSummaryView Run,

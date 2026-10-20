@@ -26,8 +26,10 @@ import {
   renderSyncBarrierMarker,
   baseBranchOf,
   nextStepContext,
+  openPrerequisites,
   phaseNotStarted,
   decideNext,
+  dependencyBlock,
   describeParallelGroups,
   diagnosisRunsUrl,
   dispatchImplementation,
@@ -56,6 +58,7 @@ import {
   renderSyncSkippedMarker,
   renderTaskPrompt,
   setAttention,
+  setBlocked,
   specTitleOfPull,
   summarizeTask,
   syncPullRequestTaskList,
@@ -107,8 +110,8 @@ export async function decideForPull(client, { twin, folder, pullNumber, now = Da
   let decision = decideNext({ tasksMarkdown, checks, attempts, windowStart, done, resumedAt: latestRestart, now });
   const repair = unresolvedRepair(comments);
   if (repair) {
-    // Every failed repair attempt stops for a person, so each attempt follows a restart (retry, a merged
-    // amendment, or a landed fix spec) newer than the repair and its latest attempt. A restart gets a fresh attempt;
+    // Every failed repair attempt stops for a person, so each attempt follows a restart (retry, a merged amendment, or
+    // an implemented prerequisite) newer than the repair and its latest attempt. A restart gets a fresh attempt;
     // without one, the stop stands (and is reported once; a recorded stop or diagnosis is kept as it is).
     const repairAttempts = attempts.filter((attempt) => attempt.kind === 'repair' && Date.parse(attempt.at) >= Date.parse(repair.at));
     const latestRepairAttempt = repairAttempts.map((attempt) => Date.parse(attempt.at)).sort((a, b) => b - a)[0] ?? 0;
@@ -474,6 +477,14 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   }
   const orphaned = await closeOrphanedAttempts(client, listed);
   if (orphaned > 0) report.line(`Recorded ${orphaned} attempt(s) of an earlier run that ended without reporting as failed.`);
+  // An open dependency of the twin, also one a person added while the chain runs, ends the chain before its next work;
+  // the scheduler retries the implementation once the prerequisites are implemented (maintainDependencyBlock).
+  const prerequisites = await openPrerequisites(client, twin);
+  if (prerequisites.length > 0) {
+    await setBlocked(client, pullNumber, true, { explain: dependencyBlock(prerequisites) });
+    report.line(`Blocked: waits for the prerequisite(s) ${prerequisites.map((blocker) => `#${blocker.number}`).join(', ')}.`);
+    return finish('none');
+  }
 
   const decision = await decideForPull(client, { twin, folder, pullNumber, now: now(), context: contextFromEnv(env) });
   const { pull } = decision;

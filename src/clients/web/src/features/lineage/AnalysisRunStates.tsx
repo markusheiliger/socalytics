@@ -18,6 +18,19 @@ export const RUNS_KEY = (matchId: string) => ['matches', 'analysis-runs', matchI
 export const RUN_REFRESH_MS = 10_000;
 const MAX_PAGES = 20;
 
+/** All runs of a match across pages. */
+export async function loadAllRuns(adapter: ReturnType<typeof createAnalysisRunAdapter>, matchId: string): Promise<AnalysisRunSummary[]> {
+  const all: AnalysisRunSummary[] = [];
+  let token: string | undefined;
+  for (let i = 0; i < MAX_PAGES; i++) {
+    const page = await adapter.listByMatch(matchId, token ? { continuationToken: token } : undefined);
+    all.push(...page.items);
+    token = page.continuationToken;
+    if (!token) break;
+  }
+  return all;
+}
+
 const isUnfinished = (run: AnalysisRunSummary) => run.state === 'Requested' || run.state === 'Running';
 
 const cancelled = (run: AnalysisRunSummary) => run.state === 'Cancelled' && Boolean(run.cancelledBy);
@@ -37,17 +50,7 @@ export function AnalysisRunStates({ matchId, teamId }: { matchId: string; teamId
   const lineage = useQuery({ queryKey: LINEAGE_KEY(matchId), queryFn: () => lineageAdapter.getLineage(matchId), retry: false, refetchOnWindowFocus: false });
   const runs = useQuery({
     queryKey: RUNS_KEY(matchId),
-    queryFn: async () => {
-      const all: AnalysisRunSummary[] = [];
-      let token: string | undefined;
-      for (let i = 0; i < MAX_PAGES; i++) {
-        const page = await runAdapter.listByMatch(matchId, token ? { continuationToken: token } : undefined);
-        all.push(...page.items);
-        token = page.continuationToken;
-        if (!token) break;
-      }
-      return all;
-    },
+    queryFn: () => loadAllRuns(runAdapter, matchId),
     retry: false,
     refetchOnWindowFocus: false,
     // TanStack Query pauses interval refetching while the page is hidden.

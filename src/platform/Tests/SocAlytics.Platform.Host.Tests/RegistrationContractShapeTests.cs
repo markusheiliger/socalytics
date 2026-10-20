@@ -15,7 +15,8 @@ public sealed class RegistrationContractShapeTests
 		"registrationId", "managerId", "stampId", "state", "keyThumbprint", "deviceFingerprint", "deviceMetadata",
 		"pairingOrigin", "approvalNotice", "submittedBy", "submittedAt", "decidedBy", "decidedAt", "decisionReason",
 		"activatedAt", "endedAt", "endReason", "revokedBy", "pairingExpiresAt", "approvalExpiresAt",
-		"activationExpiresAt", "createdAt", "version", "status", "connectivity",
+		"activationExpiresAt", "createdAt", "version", "status", "connectivity", "minimumManagerVersion",
+		"belowMinimumVersion",
 	];
 
 	private static readonly string[] DeviceMetadataProperties =

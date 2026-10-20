@@ -54,6 +54,8 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.CancelAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListMatchAnalysisRunsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.ListRunFactsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Facts.ListRunFactStreamsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisOperationalSummaryHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListNotificationReceiptsHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.RunAnalysisReconciliationHandler>();
@@ -107,6 +109,13 @@ public static class ApplicationServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions.SectionName)
             .Validate(SocAlytics.Platform.Application.IdentityAccess.Email.EmailConfirmationOptions.IsValid, "Email:Confirmation:MaxPerHour and Email:Confirmation:AttemptsPerMinute must be greater than zero.")
             .ValidateOnStart();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.RequestPasswordRecoveryHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.CheckPasswordRecoveryHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.CompletePasswordRecoveryHandler>();
+        services.AddOptions<SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions.SectionName)
+            .Validate(SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery.PasswordRecoveryOptions.IsValid, "PasswordRecovery:LinkLifetime, MaxMessagesPerHour, RequestsPerMinute, TokenAttemptsPerMinute, and MinimumResponseDuration must be greater than zero.")
+            .ValidateOnStart();
         services.AddOptions<SocAlytics.Platform.Application.Notifications.NotificationOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Notifications.NotificationOptions.SectionName)
             .ValidateOnStart();
@@ -130,6 +139,41 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddEnumerable(ServiceDescriptor.Singleton<
             IValidateOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptions>,
             SocAlytics.Platform.Application.Analysis.Results.AnalysisReadOptionsValidator>());
+
+        services.AddOptions<SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions.SectionName)
+            .Validate(
+                SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions.IsValid,
+                "AgentOrchestration options are invalid: Agents:Enabled must list unique specialist agents; Execution, Workloads, and Monitor values must be positive; workload clients need a unique ClientId and, when enabled, a PublicJwk.")
+            .ValidateOnStart();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IInvocationScopeEvaluator, SocAlytics.Platform.Application.AgentOrchestration.InvocationScopeEvaluator>();
+
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadTokenHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.AuthenticateAgentWorkloadRequestHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Workloads.IssueAgentWorkloadQueueCredentialsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAvailableAgentsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.CreateAgentConversationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.ListAgentConversationsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.GetAgentConversationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Conversations.AddAgentConversationParticipantHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.SubmitAgentInvocationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.GetAgentInvocationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.ListAgentConversationTurnsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Invocations.GetAgentInvocationLineageHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.ClaimAgentInvocationHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.CompleteAgentAttemptHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.RenewAgentAttemptLeaseHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.RecordAgentCheckpointHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.FailAgentAttemptHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.MonitorAgentAttemptsHandler>();
+        services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.Execution.ReconcileAgentWorkHandler>();
+
+        services.AddOptions<SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Analysis.Facts.FactReadOptions>,
+            SocAlytics.Platform.Application.Analysis.Facts.FactReadOptionsValidator>());
 
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.StartPairingHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Registry.Pairing.GetPairingStatusHandler>();
@@ -170,6 +214,12 @@ public static class ApplicationServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StatusReporting.StatusReportingOptions.SectionName)
             .Validate(static o => o.Interval > TimeSpan.Zero, "Registry:StatusReporting:Interval must be positive.")
             .Validate(static o => o.MissedIntervalsBeforeOffline >= 1, "Registry:StatusReporting:MissedIntervalsBeforeOffline must be at least 1.");
+        services.AddOptions<SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.SectionName)
+            .Validate(SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.IsValid, SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionOptions.InvalidMessage)
+            .ValidateOnStart();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Registry.ManagerVersions.MinimumManagerVersionProvider>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Registry.ManagerVersions.ManagerVersionGate>();
         services.AddOptions<SocAlytics.Platform.Application.Registry.StampOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Registry.StampOptions.SectionName);
 

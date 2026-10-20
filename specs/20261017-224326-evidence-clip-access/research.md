@@ -15,7 +15,7 @@ versioned member resource.
 session anti-forgery filter (`SessionAntiforgeryFilter`) fits the member API conventions. The run is the scope that
 carries team authorization (`analysis-run` team scope), the recording-set version, and the pinned segmentation policy,
 so the route sits under the run like the fact reads of
-[Accepted Fact Indexing](../20261017-175648-fact-indexing-queries/contracts/member-fact-api.md). A future MCP
+[Accepted Fact Indexing](../archive/20261017-175648-fact-indexing-queries/contracts/member-fact-api.md). A future MCP
 `get_video_clip()` tool can call the same Application handler.
 
 **Alternatives considered**: `GET` with query parameters (rejected: it has side effects and responses must never be

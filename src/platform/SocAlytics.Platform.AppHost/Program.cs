@@ -1,3 +1,6 @@
+using System.Buffers.Text;
+using System.Security.Cryptography;
+using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 
 var builder = DistributedApplication.CreateBuilder(args);
@@ -102,6 +105,11 @@ var api = builder.AddProject<Projects.SocAlytics_Platform_Api>("api")
     .WithEnvironment("Analysis__Results__MaxObjectBytes", "104857600")
     .WithEnvironment("Analysis__Results__MaxAttemptBytes", "1073741824")
     .WithEnvironment("Analysis__Results__MaxManifestBytes", "1048576")
+    .WithEnvironment("Analysis__Results__MaxFactArtifactBytes", "16777216")
+    .WithEnvironment("Analysis__Results__MaxFactPayloadBytes", "16384")
+    .WithEnvironment("Analysis__Results__MaxFactsPerResult", "50000")
+    .WithEnvironment("Analysis__Facts__DefaultPageSize", "100")
+    .WithEnvironment("Analysis__Facts__MaxPageSize", "500")
     .WithEnvironment("Analysis__Reads__GrantLifetime", "00:10:00")
     .WithEnvironment("Analysis__Reads__MaxPageSize", "100")
     .WithHttpHealthCheck("/health")
@@ -150,15 +158,45 @@ if (e2eMode)
 }
 
 // The e2e mode keeps the HTTPS endpoint: the Manager endpoints require HTTPS, and the Web UI's proxy forwards to it.
+ReferenceExpression apiOrigin;
 if (builder.Configuration.GetValue("SocAlytics:ApiHttpsEndpoint", true))
 {
     api.WithHttpsEndpoint();
-    api.WithEnvironment("Stamp__PublicBaseUri", ReferenceExpression.Create($"{api.GetEndpoint("https").Property(EndpointProperty.Url)}"));
+    apiOrigin = ReferenceExpression.Create($"{api.GetEndpoint("https").Property(EndpointProperty.Url)}");
 }
 else
 {
-    api.WithEnvironment("Stamp__PublicBaseUri", ReferenceExpression.Create($"{api.GetEndpoint("http").Property(EndpointProperty.Url)}"));
+    apiOrigin = ReferenceExpression.Create($"{api.GetEndpoint("http").Property(EndpointProperty.Url)}");
 }
+
+api.WithEnvironment("Stamp__PublicBaseUri", apiOrigin);
+
+// The simulated agent workload authenticates with an ephemeral ECDSA P-256 key generated at every start; only the public
+// JWK reaches the API, so no workload credential is persisted or committed.
+const string WorkloadClientId = "simulated-agent-workload";
+using var workloadKey = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+var workloadPublic = workloadKey.ExportParameters(false);
+var workloadPublicJwk = JsonSerializer.Serialize(new Dictionary<string, string>
+{
+    ["kty"] = "EC",
+    ["crv"] = "P-256",
+    ["x"] = Base64Url.EncodeToString(workloadPublic.Q.X!),
+    ["y"] = Base64Url.EncodeToString(workloadPublic.Q.Y!),
+});
+var workloadPrivateKey = Convert.ToBase64String(workloadKey.ExportPkcs8PrivateKey());
+
+api.WithEnvironment("AgentOrchestration__Workloads__Clients__0__ClientId", WorkloadClientId)
+    .WithEnvironment("AgentOrchestration__Workloads__Clients__0__PublicJwk", workloadPublicJwk)
+    .WithEnvironment("AgentOrchestration__Workloads__Clients__0__Enabled", "true");
+
+builder.AddProject<Projects.SocAlytics_Platform_SimulatedAgentWorkload>("simulated-agent-workload")
+    .WithEnvironment("DOTNET_ENVIRONMENT", "Development")
+    .WithEnvironment("SimulatedAgentWorkload__ClientId", WorkloadClientId)
+    .WithEnvironment("SimulatedAgentWorkload__PrivateKey", workloadPrivateKey)
+    .WithEnvironment("SimulatedAgentWorkload__ApiBaseAddress", apiOrigin)
+    .WithEnvironment("SimulatedAgentWorkload__NatsUrl", natsUrl)
+    .WithReference(api)
+    .WaitFor(api);
 
 // The Web UI proxies /api and /alive to the API, so the browser sees one origin.
 const string webDirectory = "../../clients/web";

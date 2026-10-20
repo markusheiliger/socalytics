@@ -6,6 +6,7 @@ import { SetPasswordPage } from './features/set-password/SetPasswordPage';
 import { PasswordChangePage } from './features/account/PasswordChangePage';
 import { ClubPage } from './features/club/ClubPage';
 import { HomePage } from './features/home/HomePage';
+import { ConversationPage } from './features/triage/ConversationPage';
 import { FinalizePage } from './features/lineage/FinalizePage';
 import { RecordingVersionPage } from './features/lineage/RecordingVersionPage';
 import { MatchCreatePage } from './features/matches/MatchCreatePage';
@@ -20,6 +21,8 @@ import { MemberPage } from './features/members/MemberPage';
 import { MembersPage } from './features/members/MembersPage';
 import { SeasonPage } from './features/seasons/SeasonPage';
 import { SeasonsPage } from './features/seasons/SeasonsPage';
+import { PasswordRecoveryCompletePage } from './features/password-recovery/PasswordRecoveryCompletePage';
+import { PasswordRecoveryRequestPage } from './features/password-recovery/PasswordRecoveryRequestPage';
 import { SignInPage } from './features/sign-in/SignInPage';
 import { TeamPage } from './features/teams/TeamPage';
 import { TeamsPage } from './features/teams/TeamsPage';
@@ -50,7 +53,14 @@ const clubAdminOnly = (element: React.ReactNode) => <RequireRole allow={isClubAd
 
 /** Routes of contracts/routes-and-roles.md; every view is implemented. */
 export const appRoutes: RouteObject[] = [
-  { element: <RequireSignedOut routes={() => appRoutes} />, children: [{ path: '/sign-in', element: <SignInPage /> }] },
+  {
+    element: <RequireSignedOut routes={() => appRoutes} />,
+    children: [
+      { path: '/sign-in', element: <SignInPage /> },
+      { path: '/password-recovery', element: <PasswordRecoveryRequestPage /> },
+    ],
+  },
+  { path: '/password-recovery/complete', element: <PasswordRecoveryCompletePage /> },
   { path: '/set-password', element: <SetPasswordPage /> },
   { path: '/link-account', element: <LinkAccountPage /> },
   { path: '/email/confirm', element: <EmailConfirmPage /> },
@@ -73,6 +83,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/matches/:matchId/edit', element: <MatchEditPage /> },
           { path: '/matches/:matchId/finalize', element: <FinalizePage /> },
           { path: '/matches/:matchId/recordings/:recordingVersionId', element: <RecordingVersionPage /> },
+          { path: '/matches/:matchId/triage/:conversationId', element: <ConversationPage /> },
           { path: '/members', element: clubAdminOnly(<MembersPage />) },
           { path: '/members/:memberId', element: clubAdminOnly(<MemberPage />) },
           { path: '/analyst-managers', element: clubAdminOnly(<FleetPage />) },

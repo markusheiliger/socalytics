@@ -18,8 +18,12 @@ import {
   MAX_CORRECTION_ROUNDS,
   IMPLEMENT_WORKFLOW_FILE,
   MAX_STALLED_ROUNDS,
+  MAX_WRITER_GUIDANCE,
+  PR_COMMANDS,
+  RECOMMENDABLE_COMMANDS,
   amendmentBranch,
   baseBranchOf,
+  commandsForCategory,
   defaultBranchOf,
   diagnosisRunsUrl,
   implementationBranch,
@@ -30,8 +34,11 @@ import {
   nextTaskGroup,
   parseNextCommand,
   readSpecTasks,
+  renderCommandReference,
   renderNextSteps,
+  repeatedFailure,
   setAttention,
+  unresolvedRepair,
 } from './speckit-implement-core.mjs';
 
 export { checkAmendment, findAmendment };
@@ -39,11 +46,24 @@ export { checkAmendment, findAmendment };
 export const CATEGORIES = ['artifacts', 'retry', 'outside', 'decision', 'unknown'];
 export const CONFIDENCE = ['high', 'medium', 'low'];
 export const MODES = ['diagnose', 'fix', 'revise'];
-const COMMAND_PATTERN = /^\/speckit (retry|sync|fix)( [^\n]*)?$/;
+// Every command list of the diagnosis is derived from PR_COMMANDS, so a new, changed, or removed command needs no edit
+// here (see commandPatterns and categoryCommands).
+const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+export function commandPatterns(names = RECOMMENDABLE_COMMANDS) {
+  const verbs = names.map(escapeRegExp).join('|');
+  return {
+    command: new RegExp(`^\\/speckit (${verbs})( [^\\n]*)?$`),
+    inText: new RegExp(`[\`'"](\\/speckit (?:${verbs})(?: [^\`'"\\n]*)?)[\`'"]|(\\/speckit (?:${verbs}))\\b`),
+  };
+}
+const { command: COMMAND_PATTERN, inText: COMMAND_IN_TEXT } = commandPatterns();
+// A recommended command: the longest `/speckit <verb>` with all its flags, a space, and the guidance limit the
+// commands accept.
+export const MAX_RECOMMENDED_COMMAND = Math.max(...PR_COMMANDS.filter((command) => command.recommend)
+  .map((command) => `/speckit ${command.name} ${Object.keys(command.flags ?? {}).join(' ')} `.length)) + MAX_WRITER_GUIDANCE;
 // A placeholder an agent may copy from a usage line instead of writing the text: `<guidance>` or `<answers>`.
 // Only these words count, so code such as `IReadOnlyList<Recording>` or task tags such as `[P]` stay intact.
 const PLACEHOLDER_PATTERN = /<(?:concrete |your )?(?:guidance|answers?|guidance or answers|choice|first choice|what to examine next|what to fix[^<>\n]{0,60})>|\[(?:concrete |your )?(?:guidance|answers?|guidance or answers)\]/gi;
-const COMMAND_IN_TEXT = /[`'"](\/speckit (?:diagnose|retry|resume|sync|fix)(?: [^`'"\n]*)?)[`'"]|(\/speckit (?:diagnose|retry|resume|sync|fix))\b/;
 const MAX_EVIDENCE_BYTES = 200_000;
 const LOG_TAIL_LINES = 150;
 
@@ -182,6 +202,19 @@ export async function runEvidence({ client, env, log }) {
     for (const comment of comments.slice(-10)) sections.push(`### ${comment.user?.login ?? 'unknown'} at ${comment.created_at}`, '', clip(comment.body, 4000), '');
   } else {
     sections.push('## Guidance from the person who started this diagnosis', '', env.SPECKIT_GUIDANCE?.trim() ? env.SPECKIT_GUIDANCE.trim() : '_None._', '');
+    // The live command reference: what each command does on this pull request, generated from PR_COMMANDS.
+    sections.push(renderCommandReference({ baseBranch, repair: unresolvedRepair(comments) }));
+    const repeated = repeatedFailure(comments, pull.head.sha);
+    if (repeated) {
+      sections.push(
+        '## A command that already failed the same way',
+        '',
+        `The last \`/speckit ${repeated.verb}\` left the implementation branch at ${pull.head.sha} and stopped with the same reason as the stop before it: ${neutralizeMarkers(repeated.reason)}`,
+        '',
+        `Do not recommend \`/speckit ${repeated.verb}\` again: it would repeat the failure. Recommend a command that changes something, such as \`/speckit specify\` for a cause outside this spec. A recommendation of \`/speckit ${repeated.verb}\` is replaced at publication.`,
+        '',
+      );
+    }
   }
   sections.push(
     '## Check runs on the head (oldest first)',
@@ -275,7 +308,7 @@ export function validateReport(raw, { requireCategory = true } = {}) {
   for (const option of normalized.options) {
     if (!option.command) continue;
     const command = removePlaceholderArgument(option.command);
-    if (command === null || !COMMAND_PATTERN.test(command) || command.length > 600 || command.includes('```')) {
+    if (command === null || !COMMAND_PATTERN.test(command) || command.length > MAX_RECOMMENDED_COMMAND || command.includes('```') || parseNextCommand(command)?.unknownFlags.length) {
       reasons.push(`option "${option.title}" has an invalid command`);
       option.command = null;
     } else {
@@ -346,7 +379,7 @@ function readAgentItems(env, type) {
   }
 }
 
-// Diagnose reports its results as `speckit_diagnosis`; Spec Kit fix reports reworks of a fix spec as `speckit_fix`.
+// Diagnose reports its results as `speckit_diagnosis`; Spec Kit specify reports reworks of a spec it authored as `speckit_fix`.
 function readAgentReports(env) {
   return [...readAgentItems(env, 'speckit_diagnosis'), ...readAgentItems(env, 'speckit_fix')].map((item) => item.report ?? item);
 }
@@ -397,14 +430,11 @@ const CATEGORY_TEXT = {
 };
 
 // The commands that fit each category: a recommendation must use one of them, so the headline and the recommended
-// command never disagree. The first is the category's default.
-export const CATEGORY_COMMANDS = Object.freeze({
-  retry: ['retry'],
-  outside: ['fix', 'sync'],
-  artifacts: [],
-  decision: ['retry'],
-  unknown: [],
-});
+// command never disagree (defaultRecommendation chooses the fallback when none fits). Derived from PR_COMMANDS.
+export function categoryCommands(commands = PR_COMMANDS) {
+  return Object.freeze(Object.fromEntries(CATEGORIES.map((category) => [category, commandsForCategory(category, commands)])));
+}
+export const CATEGORY_COMMANDS = categoryCommands();
 
 // One line of guidance for the agent of the next attempt, from the diagnosis' findings.
 export function guidanceFrom(report, max = 500) {
@@ -427,9 +457,9 @@ function defaultRecommendation(report) {
       };
     case 'outside':
       return {
-        title: 'Fix the cause in a fix spec, then continue by itself',
+        title: 'Fix the cause in a new spec, then continue once it is implemented',
         why: `${report.summary} The cause lies outside this spec, so running the work here again cannot remove it.`,
-        command: `/speckit fix ${guidance}`,
+        command: `/speckit specify ${guidance}`,
       };
     case 'artifacts':
       return {
@@ -461,29 +491,37 @@ function defaultRecommendation(report) {
 // The options of a diagnosis comment with exactly one recommendation that fits the category: the agent's recommended
 // option when its command fits, else its first option that fits, else the category's default. An agent recommendation
 // that does not fit stays as another option, with a note. With an amendment, the amendment is the recommendation.
-export function recommendNextSteps(report, { amendment = null } = {}) {
+export function recommendNextSteps(report, { amendment = null, repeated = null } = {}) {
   const notes = [];
+  const adjusted = [];
   const options = report.options.map((option) => ({ ...option }));
   if (amendment) {
     for (const option of options) if (option.command) option.recommended = false;
-    return { options, notes };
+    return { options, notes, adjusted };
   }
-  const fits = (option) => Boolean(option.command) && CATEGORY_COMMANDS[report.category].includes(parseNextCommand(option.command)?.verb);
+  const repeats = (option) => Boolean(repeated) && parseNextCommand(option.command)?.verb === repeated.verb;
+  const fits = (option) => Boolean(option.command) && CATEGORY_COMMANDS[report.category].includes(parseNextCommand(option.command)?.verb) && !repeats(option);
   const agentPick = options.find((option) => option.recommended) ?? null;
-  if (agentPick && fits(agentPick)) return { options, notes };
+  if (agentPick && fits(agentPick)) return { options, notes, adjusted };
   if (agentPick) {
     agentPick.recommended = false;
-    notes.push(`the recommended option "${agentPick.title}" does not fit the category \`${report.category}\`, so it is listed under the other options`);
+    if (repeats(agentPick)) {
+      adjusted.push(`the recommended \`/speckit ${repeated.verb}\` already stopped the same way on the unchanged branch ("${clip(repeated.reason, 200)}"), so it is listed under the other options`);
+    } else {
+      notes.push(`the recommended option "${agentPick.title}" does not fit the category \`${report.category}\`, so it is listed under the other options`);
+    }
   }
   const fitting = options.find(fits);
   if (fitting) {
     fitting.recommended = true;
-    return { options: [fitting, ...options.filter((option) => option !== fitting)], notes };
+    return { options: [fitting, ...options.filter((option) => option !== fitting)], notes, adjusted };
   }
-  return { options: [{ ...defaultRecommendation(report), recommended: true }, ...options], notes };
+  const fallback = repeated ? defaultRecommendation({ ...report, category: 'outside' }) : defaultRecommendation(report);
+  if (repeated && parseNextCommand(fallback.command)?.verb === repeated.verb) return { options, notes, adjusted };
+  return { options: [{ ...fallback, recommended: true }, ...options], notes, adjusted };
 }
 
-export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null, baseBranch = null, continuation = null, diagnosisUrl = null }) {
+export function renderDiagnosisComment({ report, reasons = [], round, runUrl, amendment = null, behindBase = null, baseBranch = null, continuation = null, diagnosisUrl = null, repeated = null }) {
   const lines = [DIAGNOSIS_COMMENT_MARKER];
   const context = { behindBase, baseBranch, continuation, diagnosed: true, diagnosisUrl };
   if (!report) {
@@ -496,7 +534,7 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
     return lines.join('\n');
   }
   const safe = (value) => neutralizeMarkers(value);
-  const { options, notes } = recommendNextSteps(report, { amendment });
+  const { options, notes, adjusted: repeatNotes } = recommendNextSteps(report, { amendment, repeated });
   lines.push(
     `**Diagnosis${round > 1 ? ` (round ${round})` : ''}**: ${CATEGORY_TEXT[report.category]} (\`${report.category}\`, confidence ${report.confidence}).`,
     '',
@@ -532,7 +570,7 @@ export function renderDiagnosisComment({ report, reasons = [], round, runUrl, am
   const pending = amendment ? { number: amendment.number, title: amendment.title ?? null, html_url: amendment.html_url ?? null, status: 'being checked for consistency first' } : null;
   const shown = options.map((option) => ({ ...option, title: safe(option.title), why: safe(option.why ?? ''), command: option.command ? safe(option.command) : null }));
   lines.push('', ...renderNextSteps({ ...context, options: shown, amendment: pending }));
-  const adjusted = [...reasons, ...notes];
+  const adjusted = [...reasons, ...notes, ...repeatNotes];
   if (adjusted.length > 0) lines.push('', `_Parts of the report were adjusted: ${adjusted.map(safe).join('; ')}._`);
   if (runUrl) lines.push('', `<sub>[Diagnosis run](${runUrl})</sub>`);
   return lines.join('\n');
@@ -552,15 +590,17 @@ export async function runRecord({ client, env, log }) {
     ? { reasons: [`it was withheld because threat detection did not pass (result: ${detection})`], report: null }
     : reports.length > 0 ? validateReport(reports.at(-1)) : { reasons: ['the agent did not report'], report: null };
   const amendment = report?.category && reasons.length === 0 ? await createdAmendment(client, env, folder, reasons) : null;
-  const recommendationProblems = report?.category ? recommendNextSteps(report, { amendment }).notes : [];
+  const comments = await client.listIssueComments(pullNumber);
+  const implementation = await client.getPullRequest(pullNumber);
+  const repeated = repeatedFailure(comments, implementation.head?.sha);
+  const recommendationProblems = report?.category ? recommendNextSteps(report, { amendment, repeated }).notes : [];
   reasons.push(...recommendationProblems);
   if (report?.category && !amendment && !report.options.some((option) => option.recommended && option.command)) {
     reasons.push('the report must recommend one actionable command that fits its category');
   }
   const usable = report && report.category && reasons.length === 0 ? report : null;
-  const comments = await client.listIssueComments(pullNumber);
   const round = comments.filter((comment) => comment.user?.login === BOT_LOGIN && String(comment.body ?? '').startsWith(DIAGNOSIS_COMMENT_MARKER)).length + 1;
-  const context = await nextStepContext(client, await client.getPullRequest(pullNumber), folder);
+  const context = await nextStepContext(client, implementation, folder);
   const runUrl = env.GITHUB_RUN_ID ? `${(env.GITHUB_SERVER_URL || 'https://github.com').replace(/\/$/, '')}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}` : null;
   const repeat = !usable || usable.category === 'unknown' || (usable.category === 'artifacts' && !amendment);
   const comment = await client.createComment(pullNumber, renderDiagnosisComment({
@@ -569,6 +609,7 @@ export async function runRecord({ client, env, log }) {
     round,
     runUrl,
     amendment,
+    repeated,
     diagnosisUrl: diagnosisRunsUrl(env),
     ...context,
   }));
@@ -696,10 +737,14 @@ async function recordRework({ client, env, log, inputs }) {
 export async function main(argv, { env = process.env, log = console.log, client } = {}) {
   const [command, file] = argv;
   if (command === 'check-report') return checkReportFile(file, log);
+  if (command === 'commands') {
+    log(renderCommandReference());
+    return 0;
+  }
   const run = { client: client ?? createGitHubClient(env), env, log };
   if (command === 'evidence') return (await runEvidence(run)).exitCode;
   if (command === 'record') return (await runRecord(run)).exitCode;
-  throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs <evidence | record | check-report <report.json>>');
+  throw new DiagnoseUsageError('Usage: speckit-diagnose.mjs <evidence | record | check-report <report.json> | commands>');
 }
 
 // The agent's self-check before it reports: prints what validation changes and the comment a person would see. Exits

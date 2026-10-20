@@ -336,6 +336,17 @@ public sealed class LocalControlServer : IDisposable
             ["startedAt"] = a.StartedAt.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
             ["lastConfirmedHeartbeatAt"] = a.LastConfirmedHeartbeatAt?.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", System.Globalization.CultureInfo.InvariantCulture),
         })]);
+        node.Remove("updateRequired");
+        if (status.UpdateRequired is { } update)
+        {
+            node["update"] = new JsonObject
+            {
+                ["required"] = update.Required,
+                ["managerVersion"] = update.ManagerVersion,
+                ["minimumVersion"] = update.MinimumVersion,
+            };
+        }
+
         node["queueDepth"] = QueueDepthReport(status.QueueDepth);
         node["hostUtilization"] = new JsonObject
         {

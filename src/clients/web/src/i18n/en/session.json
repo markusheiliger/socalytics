@@ -5,6 +5,7 @@
     "password": "Password",
     "submit": "Sign in",
     "submitting": "Signing in…",
+    "forgotPassword": "Forgot your password?",
     "refused": "Sign-in was not possible. Check your sign-in name and password, or contact a Club Admin.",
     "cookiesRequired": "Your browser blocks cookies. Allow cookies for this site to sign in.",
     "unreachable": "The platform is not reachable. Try again in a moment.",

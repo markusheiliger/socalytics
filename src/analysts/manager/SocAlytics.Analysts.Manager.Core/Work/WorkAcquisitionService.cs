@@ -28,7 +28,8 @@ public sealed class WorkAcquisitionService(
     ILoggerFactory loggers,
     ResultPublisher? publisher = null,
     UpstreamStager? stager = null,
-    Runtime.Docker.DockerReconciliationService? reconciliation = null) : BackgroundService
+    Runtime.Docker.DockerReconciliationService? reconciliation = null,
+    Registration.MinimumVersionState? minimumVersion = null) : BackgroundService
 {
     public static readonly TimeSpan FetchWait = TimeSpan.FromSeconds(1);
 
@@ -155,7 +156,7 @@ public sealed class WorkAcquisitionService(
         if (_runner is null || !ReferenceEquals(adapter, _runnerAdapter))
         {
             _runnerAdapter = adapter;
-            _runner = new AttemptRunner(platform, adapter, time, loggers.CreateLogger<AttemptRunner>(), publisher: publisher, stager: stager);
+            _runner = new AttemptRunner(platform, adapter, time, loggers.CreateLogger<AttemptRunner>(), publisher: publisher, stager: stager, minimumVersion: minimumVersion);
         }
 
         var runner = _runner;

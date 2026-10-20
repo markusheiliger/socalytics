@@ -25,6 +25,18 @@ public static class CoverageBuilder
         return targets.Select(t => new CoverageEntry(t.SegmentId, StateOf(snapshotStatus, t))).ToList();
     }
 
+    // Partial barriers report the coverage fixed in the input snapshot, not the current job states.
+    public static IReadOnlyList<CoverageEntry> FromSnapshot(IEnumerable<SegmentCoverage> entries)
+    {
+        ArgumentNullException.ThrowIfNull(entries);
+        return entries.Select(e => new CoverageEntry(e.SegmentId, e.State switch
+        {
+            SegmentCoverageState.Accepted => CoverageState.Accepted,
+            SegmentCoverageState.Blocked => CoverageState.Blocked,
+            _ => CoverageState.Failed,
+        })).ToList();
+    }
+
     private static CoverageState StateOf(string snapshotStatus, CoverageTarget target)
     {
         if (target.CoveredBySnapshotResult)

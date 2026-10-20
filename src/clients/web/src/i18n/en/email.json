@@ -42,6 +42,7 @@
     "alwaysSent": "{{type}}: always sent.",
     "types": {
       "email-confirmation": "Email address confirmation",
+      "password-recovery": "Password recovery",
       "registration-pending": "A registration is waiting for approval"
     }
   },

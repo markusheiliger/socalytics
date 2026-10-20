@@ -212,6 +212,43 @@ public sealed class AnalysisValueObjectTests
 		}
 	}
 
+	[Theory]
+	[InlineData(null, 1, 1)]
+	[InlineData(null, 3, 1)]
+	[InlineData(null, 4, 1)]
+	[InlineData(0.5, 1, 1)]
+	[InlineData(0.5, 3, 2)]
+	[InlineData(0.5, 4, 2)]
+	[InlineData(1.0, 1, 1)]
+	[InlineData(1.0, 3, 3)]
+	[InlineData(1.0, 4, 4)]
+	public void Coverage_policy_computes_the_required_accepted_units(double? fraction, int expected, int required)
+	{
+		var policy = CoveragePolicy.Partial(fraction is null ? null : (decimal)fraction);
+		policy.Mode.ShouldBe(CoverageMode.Partial);
+		policy.RequiredAccepted(expected).ShouldBe(required);
+	}
+
+	[Fact]
+	public void Coverage_policy_defaults_to_complete()
+	{
+		CoveragePolicy.Complete.Mode.ShouldBe(CoverageMode.Complete);
+		CoveragePolicy.Complete.MinimumAcceptedFraction.ShouldBeNull();
+	}
+
+	[Theory]
+	[InlineData(0.0)]
+	[InlineData(-0.1)]
+	[InlineData(1.01)]
+	public void Coverage_policy_rejects_invalid_fractions(double fraction)
+	{
+		CoveragePolicy.IsValidFraction((decimal)fraction).ShouldBeFalse();
+		Should.Throw<ArgumentOutOfRangeException>(() => CoveragePolicy.Partial((decimal)fraction));
+	}
+
+	[Fact]
+	public void Coverage_policy_accepts_the_upper_bound() => CoveragePolicy.IsValidFraction(1m).ShouldBeTrue();
+
 	private static void AssertTransitions<T>(Func<T, T, bool> isAllowed, params (T From, T To)[] allowed)
 		where T : struct, Enum
 	{

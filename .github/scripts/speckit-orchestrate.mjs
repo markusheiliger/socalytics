@@ -31,12 +31,14 @@ import {
   CHECK_PROGRESS,
   CHECK_RUN_NAME,
   IMPLEMENT_WORKFLOW_FILE,
+  ORCHESTRATE_WORKFLOW_FILE,
   START_COMMENT_MARKER,
   baseBranchOf,
   checkRunOutput,
   decideLifecycle,
   defaultBranchOf,
   dispatchImplementation,
+  maintainDependencyBlock,
   extractTasks,
   implementationBranch,
   isImplementRunOf,
@@ -115,18 +117,12 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the amendment of #${issue.number}: ${error.message}`);
       }
-      // Fix specs: link a merged one to this implementation, and retry it once the fix has landed.
-      let blockedByFix = false;
-      try {
-        const fix = await maintainFixSpec(client, env, { folder, implementation: lifecycle.pull, twin: issue.number }, { now: now(), report: (line) => amendmentNotes.push(line) });
-        if (['rework', 'checking', 'linked', 'retried'].includes(fix.outcome)) amendmentActions += 1;
-        blockedByFix = fix.blocked === true;
-      } catch (error) {
-        amendmentNotes.push(`- Warning: could not check the fix spec of #${issue.number}: ${error.message}`);
-      }
+      // Prerequisites: a spec authored by `/speckit specify` holds the implementation until the twin depends on it;
+      // open dependencies of the twin block it, and once none is open, the implementation retries.
+      const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
       const active = await chainActive(client, issue.number, lifecycle.pull.created_at);
-      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active, blockedByFix });
+      inProgress.push({ number: issue.number, folder, pull: lifecycle.pull.number, requester: requester.login, decision, active, blocked: isBlocked, blockers });
       continue;
     }
     if (lifecycle.state === 'fallback') {
@@ -136,7 +132,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       await client.createComment(issue.number, [
         `Implementation pull request #${lifecycle.pull.number} was closed without merging, so the implementation request was removed.`,
         '',
-        `The twin is back at its computed stage \`${computedStage}\`. Flag it again to restart; the branch \`${implementationBranch(folder)}\` is then reset.`,
+        `The twin is back at its computed stage \`${computedStage}\`. Comment \`/speckit implement\` on this issue to restart; the branch \`${implementationBranch(folder)}\` is then reset.`,
       ].join('\n'));
       fallback.push({ number: issue.number, folder, pull: lifecycle.pull.number });
       continue;
@@ -144,12 +140,16 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
 
     const openBlocking = openBlockers(await client.listBlockedBy(issue.number));
     if (openBlocking.length > 0) blocked.push({ number: issue.number, folder, blockers: openBlocking });
-    else ready.push({ number: issue.number, folder, requester: requester.login, reset: lifecycle.reset, fix: Boolean(entry.fixFor) });
+    else ready.push({ number: issue.number, folder, requester: requester.login, reset: lifecycle.reset, prerequisite: false });
   }
   const unblocked = await sweepBlocked(client, env, { handled: new Set(inProgress.map((twin) => twin.pull)), now: now(), notes: amendmentNotes });
   amendmentActions += unblocked;
-  // Fix specs first: each unblocks an implementation that waits for it.
-  ready.sort((a, b) => Number(b.fix) - Number(a.fix));
+  // Requested prerequisites of running implementations first, however the dependency came about: each unblocks an
+  // implementation that waits for it. A prerequisite that is not requested never starts; the Blocked comment on the
+  // waiting implementation recommends `/speckit implement` on its twin.
+  const prerequisites = new Set(inProgress.flatMap((twin) => twin.blockers));
+  for (const twin of ready) twin.prerequisite = prerequisites.has(twin.number);
+  ready.sort((a, b) => Number(b.prerequisite) - Number(a.prerequisite));
 
   report.line('## Spec implementation selection');
   report.line();
@@ -176,9 +176,31 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   return { exitCode: 0, ready, blocked, inconsistent, inProgress, fallback, merged, amendmentActions };
 }
 
+// Maintains what holds an open implementation pull request: the spec `/speckit specify` authored for it (maintainFixSpec)
+// and the open dependencies of its twin (maintainDependencyBlock). Returns whether it is blocked and by which twins.
+async function maintainBlock(client, env, { implementation, twin }, { now, notes, count }) {
+  const report = (line) => notes.push(line);
+  let hold = false;
+  try {
+    const fix = await maintainFixSpec(client, env, { implementation, twin }, { now, report });
+    if (['rework', 'checking', 'linked'].includes(fix.outcome)) count();
+    hold = fix.blocked === true;
+  } catch (error) {
+    notes.push(`- Warning: could not check the prerequisite spec of #${implementation.number}: ${error.message}`);
+  }
+  try {
+    const dependency = await maintainDependencyBlock(client, env, { implementation, twin, hold }, { report });
+    if (['retried', 'stopped'].includes(dependency.outcome)) count();
+    return { blocked: dependency.blocked, blockers: dependency.blockers, outcome: dependency.outcome };
+  } catch (error) {
+    notes.push(`- Warning: could not check the prerequisites of #${implementation.number}: ${error.message}`);
+    return { blocked: hold, blockers: [], outcome: 'unknown' };
+  }
+}
+
 // Every open implementation pull request labelled BLOCKED_LABEL that the twin loop did not handle (for example because
-// its twin is inconsistent) gets its fix spec maintained as well, so a landed fix always lifts the block and retries it.
-// Returns the number of actions taken.
+// its twin is inconsistent) is maintained as well, so an implemented prerequisite always lifts the block and retries
+// it. Returns the number of actions taken.
 async function sweepBlocked(client, env, { handled, now, notes }) {
   let actions = 0;
   let pulls;
@@ -194,13 +216,8 @@ async function sweepBlocked(client, env, { handled, now, notes }) {
     if (!(pull.labels ?? []).some((label) => (typeof label === 'string' ? label : label.name) === BLOCKED_LABEL)) continue;
     const twin = Number(String(pull.body ?? '').match(/^Closes #(\d+)$/m)?.[1]);
     if (!twin) continue;
-    try {
-      const fix = await maintainFixSpec(client, env, { implementation: pull, twin }, { now, report: (line) => notes.push(line) });
-      if (fix.blocked !== true) notes.push(`- Lifted the block of #${pull.number} (${fix.outcome}).`);
-      if (['rework', 'checking', 'linked', 'retried'].includes(fix.outcome)) actions += 1;
-    } catch (error) {
-      notes.push(`- Warning: could not check the fix spec of #${pull.number}: ${error.message}`);
-    }
+    const result = await maintainBlock(client, env, { implementation: pull, twin }, { now, notes, count: () => { actions += 1; } });
+    if (!result.blocked) notes.push(`- Lifted the block of #${pull.number} (${result.outcome}).`);
   }
   return actions;
 }
@@ -250,7 +267,7 @@ async function finalizeMerged(client, env, issue, folder, pull) {
 function describeDecision(twin) {
   const { decision } = twin;
   if (twin.active) return 'its implementation run is active';
-  if (twin.blockedByFix) return 'blocked; it waits for its fix spec';
+  if (twin.blocked) return `blocked; it waits for ${twin.blockers.length > 0 ? `its prerequisites ${twin.blockers.map((number) => `#${number}`).join(', ')}` : 'its prerequisite spec'}`;
   switch (decision.action) {
     case 'wait': return 'a merge is running';
     case 'done': return 'implemented and waiting for review';
@@ -283,8 +300,8 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
   report.line();
   let actions = selection.amendmentActions ?? 0;
   const maxActive = parseMaxActiveSpecs(env.SPECKIT_MAX_ACTIVE_SPECS);
-  // A blocked implementation is not continued: it waits for its fix spec, which retries it.
-  const continues = (twin) => !twin.active && !twin.blockedByFix && needsRun(twin.decision, env);
+  // A blocked implementation is not continued: it waits for its prerequisites and retries once they are implemented.
+  const continues = (twin) => !twin.active && !twin.blocked && needsRun(twin.decision, env);
   let active = selection.inProgress.filter((twin) => twin.active || continues(twin)).length;
   for (const twin of selection.inProgress) {
     if (!continues(twin)) continue;
@@ -293,8 +310,9 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
     actions += 1;
   }
   for (const twin of selection.ready) {
-    // A fix spec starts even at the limit: the implementation it unblocks holds a slot while it waits for the fix.
-    if (active >= maxActive && !twin.fix) {
+    // A prerequisite of a running implementation starts even at the limit: the implementation it unblocks holds a slot
+    // while it waits.
+    if (active >= maxActive && !twin.prerequisite) {
       report.line(`- Waiting: #${twin.number} \`${twin.folder}\` starts when fewer than ${maxActive} implementations are active.`);
       continue;
     }
@@ -438,7 +456,8 @@ export function readSpecFromRef(git, ref, folder) {
   });
 }
 
-// Client side: checks a spec against the remote default branch and flags its twin for implementation.
+// Client side: checks a spec against the remote default branch and requests its implementation with
+// `/speckit implement` on its twin.
 export async function runRequest({ client, git, rootDir, env, folder, log }) {
   const name = resolveFolder({ folder, env, rootDir });
   // Implementation is requested for specs on the repository's default branch, which GitHub defines.
@@ -483,10 +502,12 @@ export async function runRequest({ client, git, rootDir, env, folder, log }) {
     for (const reason of reasons) log(`- ${reason}`);
     return { exitCode: 1 };
   }
-  await updateIssueWithLabels(client, twin, stageLabelChange(twin, IMPLEMENT_STAGE));
-  log(`Requested: ${url} is labelled ${implementLabel}. The Spec Kit prepare workflow validates the request on GitHub.`);
+  // Implementation is requested with the comment command on the twin (with the user's token), so the request is
+  // checked on GitHub and records who requested it.
+  const comment = await client.createComment(twin.number, '/speckit implement');
+  log(`Requested: posted \`/speckit implement\` on ${url}${comment?.html_url ? ` (${comment.html_url})` : ''}. The Spec Kit commands workflow checks it on GitHub, records you as the requester, and sets ${implementLabel}.`);
   await reportBlockers();
-  return { exitCode: 0 };
+  return { exitCode: 0, comment: comment ?? null };
 }
 
 function parseArgs(argv) {

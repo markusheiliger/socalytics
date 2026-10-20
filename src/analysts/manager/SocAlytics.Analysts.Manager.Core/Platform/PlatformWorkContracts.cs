@@ -16,7 +16,17 @@ public enum WorkResultKind
     Transient,
 }
 
-public sealed record WorkResult<T>(WorkResultKind Kind, T? Value = null, string? Code = null) where T : class;
+public sealed record WorkResult<T>(
+    WorkResultKind Kind, T? Value = null, string? Code = null, string? MinimumManagerVersion = null) where T : class
+{
+    /// <summary>The platform refused the operation because this Manager is below the stamp's minimum version.</summary>
+    public bool IsVersionRefusal => Kind == WorkResultKind.Refused && Code == VersionRefusal.Code;
+}
+
+public static class VersionRefusal
+{
+    public const string Code = "analyst-manager-version-below-minimum";
+}
 
 public sealed record QueueCapability(string Id, string Version);
 
@@ -80,7 +90,11 @@ public sealed record AttemptCompletion(
     string ExecutedImageDigest, string? ExecutedModelDigest, IReadOnlyList<string> AcceptedUpstreamResultIds,
     DateTimeOffset CompletedAt, CompletionCorrelation Correlation);
 
-public sealed record UpstreamDescriptor(QueueCapability Capability, string SchemaVersion, string EdgeKind);
+/// <summary>Coverage policy of a dependency edge (upstream-results 1.1.0); absent on 1.0.0 pages, which mean complete.</summary>
+public sealed record UpstreamCoveragePolicy(string Mode, double? MinimumAcceptedFraction = null);
+
+public sealed record UpstreamDescriptor(
+    QueueCapability Capability, string SchemaVersion, string EdgeKind, UpstreamCoveragePolicy? Coverage = null);
 
 /// <summary>A presigned read grant; the URL is a credential and is never logged.</summary>
 public sealed record UpstreamGrant(string Name, string Url, DateTimeOffset ExpiresAt)

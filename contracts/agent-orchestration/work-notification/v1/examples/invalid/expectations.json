@@ -1,0 +1,5 @@
+{
+  "carries-question.json": "additionalProperties",
+  "carries-advice.json": "additionalProperties",
+  "missing-invocation-id.json": "required"
+}

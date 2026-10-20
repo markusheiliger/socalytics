@@ -15,13 +15,12 @@ committed OpenAPI snapshot, and Vitest and Playwright tests. The AppHost
 composes it with the platform API on one origin as a Vite resource, without
 moving Web UI source under `src/platform`.
 
-The Web UI release is coordinated with the platform API and is intended to be
-built and deployed as a separate OCI container from `src/clients`. The service
-worker and installable PWA are implemented as development evidence; offline
-mode, the OCI container image, and Docker Compose deployment are not
-implemented yet.
+The Web UI release is coordinated with the platform API and is
+deployed as a separate OCI container whose image is built from `src/clients`.
+The service worker and installable PWA are implemented as development
+evidence; offline mode and Docker Compose deployment are not implemented yet.
 
-The Web UI image is decided but not implemented yet (see
+The Web UI image is implemented (see
 [Platform Implementation](platform-implementation.md#source-and-runtime-baseline)).
 It serves the built shell byte for byte, so every shell file keeps passing its
 integrity check, with the production security headers from the same policy
@@ -80,8 +79,9 @@ The React Web UI supports connected platform and club workflows, including:
   with the run that superseded it, and shows a run cancelled because it was
   superseded without a member (decided, not yet implemented)
 - team and match review, analytics, and agent conversations for coaches
-  (analysis review and agent conversations are not implemented yet; the
-  analysis review and the match triage conversations are decided, see below)
+  (the match triage conversations with Specialist Agents are implemented as
+  connected workflows, see below; the analysis review is decided and not yet
+  implemented, and so are the Coach Agent conversations and consultations)
 
 What a user sees is decided by their roles and team authorization, online and
 offline alike.
@@ -115,9 +115,9 @@ error states, and resolves again when a link expires. Links and media stay in
 memory only, the service worker never handles them, and playback is online
 only; downloads, sharing, and whole-recording playback are not offered.
 
-The connected match triage conversations are decided as follows and not yet
-implemented. From a match with a `Completed` or `PartiallyCompleted` analysis
-run, Club Admins and Coaches of the owning team start a triage conversation
+The connected match triage conversations are implemented as development
+evidence as follows. From a match with a `Completed` or `PartiallyCompleted`
+analysis run, Club Admins and Coaches of the owning team start a triage conversation
 for a run they choose, add Specialist Agents the stamp enables, and address a
 question to one of them. Members list and reopen their own conversations from
 the match view, see the bound run with a link to its review and whether it is
@@ -218,10 +218,10 @@ linked when the member redeems a Club Admin's link credential at the provider
 on the link-account page, which signs the member in at the provider and
 links that identity; unlinking is a Club Admin action on the member screen.
 SocAlytics offers no MFA for local accounts, so
-MFA comes from the external provider. The sign-in page will offer members with
+MFA comes from the external provider. The sign-in page offers members with
 a local password a "Forgot your password?" entry that leads to a public
 recovery request page and, from the emailed link, to a public page for setting
-a new password (decided, not yet implemented; see
+a new password (implemented as development evidence; see
 [Email Notifications](email-notifications.md#password-recovery)). Authentication tokens remain on the
 server; the browser receives a Secure, HttpOnly, SameSite cookie and uses CSRF
 protection for state-changing requests.
@@ -305,8 +305,8 @@ and receives `202 Accepted`, durable conversation and invocation identifiers, a
 status location, and retry guidance. The Web UI uses conditional REST polling
 for status, accepted advice, and lineage. It does not call Hermes, publish agent
 transport messages, or receive a separate completion semantic. The Web UI's
-retry and polling behavior is decided and not yet implemented: when the
-answer to a submission is lost, sending the unchanged question to the same
+retry and polling behavior is implemented for Specialist Agent submissions:
+when the answer to a submission is lost, sending the unchanged question to the same
 agent again reuses its idempotency key, and the Web UI checks status
 conditionally, starting at the platform's retry guidance and slowing down to
 a cap while nothing changes, pausing while the view is hidden or offline.

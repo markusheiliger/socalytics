@@ -13,7 +13,6 @@ extension with the ID `github`.
 | `speckit.gha.route` | `/speckit-gha-route` | Mandatory `before_implement` hook: choose local implementation or a GitHub request |
 | `speckit.gha.request` | `/speckit-gha-request [folder]` | Request implementation on GitHub directly |
 | `speckit.gha.diagnose` | `/speckit-gha-diagnose [pull request, twin, or folder] [notes]` | Diagnose why an implementation on GitHub stopped and decide how to continue; amend the spec artifacts only when they are the cause |
-| `speckit.gha.fix` | `/speckit-gha-fix [pull request] [guidance]` | Author or rework a fix spec for the cause of a stopped implementation outside its spec; locally it explains `/speckit fix` and offers to post it |
 | `speckit.gha.refine` | `/speckit-gha-refine [folder]` | Mandatory `after_tasks` hook: refine the `[P]` groups of the generated `tasks.md` so parallel tasks never change the same files |
 | `speckit.gha.archive` | `/speckit-gha-archive [folder]` | Optional `after_converge` hook: archive an implemented spec to `specs/archive/<folder>` and rewrite every reference to it before a local or manual merge |
 | `speckit.gha.architecture` | `/speckit-gha-architecture [folder]` | Mandatory `after_plan` hook: write the `## Architecture Updates` section of `plan.md` (narratives, design updates, status statements at merge) |
@@ -77,10 +76,10 @@ checklist item without the user's confirmation. Its additions are:
   extra spec ahead of the one that needs it), then records it as a dependency
   through `/speckit-clarify`.
 - **Publish checks:** stage `tasked`, no open clarification markers or checklist
-  items, a `specs/README.md` row, an `## Architecture Updates` section in
+  items, an `## Architecture Updates` section in
   `plan.md` with its documentation task, and a clean Markdown check.
 - **Last decision:** commit each spec separately (`Spec: <title>`) and push the
-  spec folders and their `specs/README.md` rows. Everything after the push
+  spec folders. Everything after the push
   belongs to the GitHub workflows. The closing report lists every spec's state
   and the decisions autopilot took, with one recommended next action.
 
@@ -122,23 +121,35 @@ feedback (`revise`). Locally it runs interactively and asks before it changes
 anything. Its report recommends exactly one command that fits its category and
 can be posted as it is, with the guidance written out; the agent checks it with
 `node .github/scripts/speckit-diagnose.mjs check-report <report.json>` first.
+What each command does comes from `PR_COMMANDS` in `speckit-implement-core.mjs`: every diagnosis' evidence carries
+a generated "Commands you can recommend" section (with what `/speckit retry` does while a repair is pending), and
+`node .github/scripts/speckit-diagnose.mjs commands` prints the same reference locally. The skill only says how to
+choose and word a command; the diagnose drift tests fail when it names an unknown command or misses a recommendable
+command or flag.
 Publication rejects inconsistent category/command recommendations instead of replacing them with a retry.
 When the required fix is already on the implementation pull request's base branch, the diagnosis uses `outside`
 and recommends `/speckit sync`: the existing Copilot conflict-resolution workflow must merge and verify the
 latest base before implementation can continue.
 
-`/speckit-gha-fix` is the method of the `Spec Kit fix` agentic workflow, which
-a person starts with `/speckit fix <what to fix>` when the cause lies outside
-the stopped spec. It authors a small fix spec against the default branch, which
-goes through the same consistency check and review as an amendment; once merged
-and implemented, the stopped implementation retries by itself.
+When the cause lies outside the stopped spec, a person comments
+`/speckit specify <what to fix>` on the implementation pull request. The
+`Spec Kit specify` agentic workflow then runs `/speckit-gha-author` itself
+(non-interactively, with every recommended choice) to author an ordinary spec,
+proposes it as a pull request against the default branch, and, once the
+independent analysis finds it consistent, merges it automatically (a spec that
+changes `docs/architecture/` waits for review and explains its design decisions).
+The stopped spec then depends on it like on any spec; it is implemented only after
+someone signs it off with `/speckit implement` on its twin, and the stopped
+implementation retries by itself when it is implemented.
 
 `speckit.gha.route` and `speckit.gha.request` both run
 `node .github/scripts/speckit-orchestrate.mjs request`, which
 checks the spec on the remote default branch (merged, stage `tasked`, all
-checklists checked), finds its twin issue, and adds the
-`speckit:stage:implement` label with the user's own GitHub token. The
-`Spec Kit prepare` workflow then validates the request on GitHub.
+checklists checked), finds its twin issue, and posts the comment
+`/speckit implement` on it with the user's own GitHub token, which records who
+requested the implementation. The `Spec Kit commands` workflow validates the
+request on GitHub and sets the stage label; `speckit:stage:*` labels are set only
+by the GitHub bot.
 
 ## Routing
 
@@ -166,7 +177,7 @@ without symlink support (the Git default on Windows), so commit them as regular
 files:
 
 ```powershell
-foreach ($name in 'speckit-gha-author', 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose', 'speckit-gha-fix', 'speckit-gha-refine', 'speckit-gha-archive', 'speckit-gha-architecture', 'speckit-gha-drift') {
+foreach ($name in 'speckit-gha-author', 'speckit-gha-route', 'speckit-gha-request', 'speckit-gha-diagnose', 'speckit-gha-refine', 'speckit-gha-archive', 'speckit-gha-architecture', 'speckit-gha-drift') {
     $skill = ".github/skills/$name/SKILL.md"
     $content = Get-Content -Raw ".specify/extensions/gha/.specify-dev/extension-skills/$name/SKILL.md"
     Remove-Item $skill -Force

@@ -6,7 +6,7 @@ tables and rules in [data-model.md](data-model.md).
 ## Prerequisites
 
 - .NET 10 SDK (`src/platform/global.json`) and a running Docker-compatible container runtime.
-- Agent Orchestration Direct Invocations (`specs/20261017-204332-agent-orchestration-invocations`) merged.
+- Agent Orchestration Direct Invocations (`specs/archive/20261017-204332-agent-orchestration-invocations`) merged.
 
 ## Automated checks
 

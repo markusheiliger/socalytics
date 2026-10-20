@@ -69,9 +69,9 @@ composition method and keep their implementation types internal.
 The persistence foundation adds a second host next to the API:
 `SocAlytics.Platform.Migrator`, a console application that depends on
 Infrastructure, applies pending migrations once, and exits with a success or
-failure outcome. It will ship as its own OCI image and will be the only
-component that ever receives database access able to create or alter data
-structures; the API image will contain no migration execution path.
+failure outcome. It ships as its own OCI image and is the only
+component that is meant to receive database access able to create or alter data
+structures; the API image contains no migration execution path.
 
 Executable components use or will use the native workspace and dependency tools
 of each ecosystem:
@@ -92,14 +92,18 @@ of each ecosystem:
 The platform API and control-plane baseline is ASP.NET Core on .NET 10 LTS; the
 initial host implements that runtime choice. The Python ecosystem tooling is
 future until its owning source area gains executable projects.
-Future deployables will use cloud-neutral OCI images. .NET Aspire owns local
+The platform API, the Migrator, and the Web UI are cloud-neutral OCI images;
+the Analyst images and Hermes keep their own status and are not yet built.
+.NET Aspire owns local
 development composition, service discovery, health checks, OpenTelemetry
 defaults, and developer dependencies. Aspire is not the production
 orchestrator.
 
-The images of the platform API, the Migrator, and the Web UI are decided but
-not implemented yet (see the
-[container-image contract](../../specs/20261018-092503-oci-images/contracts/container-images.md)).
+The images of the platform API, the Migrator, and the Web UI are implemented and
+verified by Docker-backed tests in `SocAlytics.Platform.Images.Tests`; they are
+neither deployment support nor production readiness, and no registry,
+publication, or production profile value is decided (see the
+[container-image contract](../../specs/archive/20261018-092503-oci-images/contracts/container-images.md)).
 Each has one Dockerfile next to the project it packages
 (`SocAlytics.Platform.Api`, `SocAlytics.Platform.Migrator`, and
 `src/clients/web`) with a Dockerfile-specific allow-list ignore file, and is
@@ -118,9 +122,10 @@ forwards `/api` and `/alive` to the API container, so every profile gets one
 origin from the two images.
 
 Docker Compose is the initial deployment mechanism. It will compose the
-platform API and Web UI as separate OCI containers: the API container will be
-built from the platform source area, while the Web UI container will be built
-from the client source area and release-coupled to the platform API. Future
+platform API and Web UI as separate OCI containers: the API image is built from
+the platform source area, while the Web UI image is built from the client source
+area and release-coupled to the platform API; only the Compose composition
+itself is not implemented. Future
 Compose deployments will also include PostgreSQL, NATS JetStream, and
 S3-compatible storage on durable stamp-dedicated logical resources, plus the
 Migrator as a one-shot service that every API service depends on with
@@ -234,8 +239,9 @@ retention remain governed by POL-009 in
 Table definitions and SQL live in the Infrastructure layer. The API references
 Application contracts rather than persistence types. Registry data includes the
 queryable Analyst manifest cache keyed by immutable image digest. Analysis data
-covers durable runs, DAG state, logical jobs, attempts, and accepted-result
-references. Segment materialization runs on demand within the control-plane
+covers durable runs, DAG state, logical jobs, attempts, accepted-result
+references, and the indexed facts of accepted results (immutable rows written in
+the acceptance transaction). Segment materialization runs on demand within the control-plane
 deployment unless measured scaling later justifies extraction; it is decided,
 not yet implemented, as a background worker of the API host that needs the
 pinned FFmpeg and ffprobe toolchain on the host (see
@@ -467,8 +473,8 @@ requires a password change at the next sign-in. It grants no roles and is
 audited. The platform never writes the credential to logs or diagnostics, and
 no API operation, authenticated or not, performs this break-glass recovery.
 Members who sign in with a local password and have a verified email address
-will also recover a forgotten password themselves through a single-use
-password-recovery account message (decided, not yet implemented; see
+also recover a forgotten password themselves through a single-use
+password-recovery account message (implemented as development evidence; see
 [Email Notifications](email-notifications.md#password-recovery)). Recovery
 never creates a local password, changes external identity links, grants roles,
 or reactivates an account, and completing it ends every session of the member.
@@ -486,9 +492,9 @@ types they receive. The API sends transactional notifications and account
 messages through a dedicated transactional email outbox table and a delivery
 worker that submits them with MailKit by authenticated, TLS-protected SMTP to
 the stamp's configured relay; the Aspire AppHost and tests use a Mailpit
-mail-catcher container. Self-service password
-recovery and invitations may use this channel through their own
-specifications. The channel is implemented as development evidence against
+mail-catcher container. Self-service password recovery uses this channel;
+invitations may use it through their own specification. The channel and
+password recovery are implemented as development evidence against
 Mailpit; see [Email Notifications](email-notifications.md).
 
 Analyst Manager registration uses browser device-code pairing initiated by a
@@ -515,8 +521,8 @@ The complete workflow is defined in the
 The Analyst Manager token endpoint is a minimal endpoint in the API's
 Registry functional area that supports only this grant; the platform does not
 run a general-purpose authorization server for machine clients. Agent workload
-clients will use a second minimal endpoint of the same kind in the Agent
-Orchestration functional area (decided, not yet implemented; see
+clients use a second minimal endpoint of the same kind in the Agent
+Orchestration functional area (development evidence; see
 [Agent Runtime](#agent-runtime)).
 
 Until a dedicated stamp-operator role is defined, operational workflow
@@ -527,7 +533,7 @@ use them from the Web UI's Operations area (decided, not yet implemented; see
 
 ### Agent Runtime
 
-Agent Orchestration will use the same Dapper, PostgreSQL, DbUp, logical CQRS,
+Agent Orchestration uses the same Dapper, PostgreSQL, DbUp, logical CQRS,
 optimistic-concurrency, and transactional-outbox baseline as the rest of the
 platform. Its state remains in the stamp database; this profile introduces
 neither a second agent database nor a special extraction rule. NATS JetStream
@@ -535,10 +541,11 @@ carries only minimal, at-least-once work notifications. Consumers claim durable
 work through the Agent Orchestration application handlers and remain idempotent
 under duplicate delivery.
 
-The planned control-plane surface includes canonical asynchronous submission,
-private conditional status/result/lineage reads, workload claim, lease,
-checkpoint, consultation and completion operations, lifecycle suppression,
-migration readiness, and bounded recovery/reconciliation.
+The control-plane surface for direct invocations includes canonical
+asynchronous submission, private conditional status/result/lineage reads,
+workload claim, lease, checkpoint, completion, and failure operations, and
+bounded recovery/reconciliation (development evidence). Consultation
+operations, lifecycle suppression, and migration readiness remain planned.
 
 Hermes is a planned separate Python OCI deployment with no direct database
 access. It uses Microsoft Agent Framework behind local adapters, authenticates
@@ -549,10 +556,11 @@ submission and conditional status, result, and lineage polling; it never calls
 Hermes directly. The complete persistence, transport, authorization, fencing,
 and recovery contract is defined by
 [Intelligence and Agents](intelligence-and-agents.md#agent-orchestration-authority).
-MCP tools, prompt/profile resolution, model execution, and Web UI agent
-workflows remain future implementation work.
+The Web UI's direct Specialist Agent triage conversations exist as development
+evidence. MCP tools, prompt/profile resolution, model execution, and the Web
+UI's Coach Agent and consultation workflows remain future implementation work.
 
-The first slice is decided and not yet implemented: an `AgentOrchestration`
+The first slice is implemented as development evidence: an `AgentOrchestration`
 folder in each platform layer stores conversations, participants, invocations,
 attempts, append-only lineage, accepted advice, and workload operation records
 in the stamp database; publishes `agent-invocation-ready` notifications from
@@ -644,7 +652,7 @@ React Router handles navigation, TanStack Query manages remote server state, and
 MUI supplies accessible components under a SocAlytics theme. A hand-written
 service worker precaches the integrity-verified application shell of one
 release, holds no user data, and is versioned with each release. The Web UI
-release is coordinated with the platform API and remains a separately
+release is coordinated with the platform API and is a separately
 containerized deployment unit built from `src/clients`, served from one origin.
 There is no second client application. See
 [Client Applications](client-applications.md).
@@ -662,8 +670,10 @@ keeps `style-src 'unsafe-inline'`, an accepted and recorded trade-off because
 MUI's Emotion runtime injects `<style>` elements and a nonce is not possible
 for statically hosted pages; scripts stay locked down. See
 [Security And Data Governance](security-and-data-governance.md). The service
-worker is implemented as development evidence; offline mode, the container
-image, and production server configuration are not implemented.
+worker is implemented as development evidence. The Web UI container image and
+its production server configuration, which applies the same policy through one
+policy module, are implemented; the production storage origin stays unresolved,
+and offline mode is not implemented.
 
 Future offline-mode implementation follows the decisions in
 [Client Applications](client-applications.md): an encrypted replica owned by a
@@ -695,8 +705,13 @@ AppImage for both profiles, mounted through FUSE when available and otherwise
 started in extract-and-run mode. Signing follows once the publisher is
 decided. Each stamp serves the update feed to its Managers as a proxy for the
 Manager's GitHub Releases, after verifying their build-provenance attestation;
-it offers the releases of its chosen channel, may pin a version, and declares a
-minimum Manager version. The fleet view, implemented in the Web UI, rests on a Manager status report,
+it offers the releases of its chosen channel and may pin a version; the feed,
+channels, and pinning stay planned after the Velopack spike. The minimum
+Manager version is implemented through deployment configuration
+(`Registry:ManagerVersion:Minimum`, empty by default): the status report
+response carries it to each Manager, and the platform refuses queue credentials
+and new claims below it. The fleet view, implemented in the Web UI and marking
+Managers below the minimum, rests on a Manager status report,
 sent with the periodic registration check and stored as the latest snapshot
 only, and a fleet read operation for Club Admins.
 
@@ -812,13 +827,28 @@ current and non-current migration states; and
   per-object read grants, coverage), digest-verified staging with cleanup in the
   Analyst Manager, and simulated match-level lineage equal to the staged
   results; and
+- integration and end-to-end tests cover partial-coverage match barriers
+  (declaration import and seeding, the readiness rule with a minimum, snapshot-
+  fixed coverage in the upstream read and staging, the coverage check of result
+  acceptance, and the input coverage counts of the run status read) with a
+  simulated Analyst that fails one segment; and
+- integration and end-to-end tests cover fact validation (the twelfth ordered
+  manifest check), atomic and idempotent fact indexing at acceptance, and the
+  member reads `listAnalysisRunFacts` and `listAnalysisRunFactStreams`
+  (authorization, keyset paging, range overlap, coverage, provenance, weak
+  ETags), including an end-to-end read-back of the simulated Analyst's facts
+  and a rejected out-of-window fact artifact; and
 - Web UI browser tests cover Analyst Manager pairing, the Club Admin decision
   view, and the fleet view with revocation, and the match workflow and
   recording upload (match creation and editing, direct multipart upload with
   resume, timeline mapping, finalization, run cancellation from the match
   page, and the development CORS access to RustFS): the `simulated` project against a simulated API and a fake object
   store, and the `platform` project against the real platform with a scripted
-  Manager and RustFS; and
+  Manager and RustFS; and the match triage conversations (starting a
+  conversation for a run, adding specialists, asking, polling, and reading
+  advice with its disclosure and lineage) in the `simulated` project and in the
+  `platform-triage` project against the real platform with the simulated agent
+  workload; and
 - a Host test verifies the development CORS allow-list and the storage origin
   the AppHost passes to the Web UI; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
@@ -857,21 +887,26 @@ choice or reveals a material operational tradeoff:
 - **Prototype, measurement, or implementation evidence supports the choice —
   partially met.** The .NET 10 host, Aspire local composition, operational
   API surface, layer composition methods, structural tests, the persistence
-  foundation (migrations, Migrator, units of work, version triggers), domain
+  foundation (migrations, Migrator, units of work, version triggers), the
+  platform API, Migrator, and Web UI OCI images with their Docker-backed
+  container tests (not deployment support or production readiness), domain
   persistence, outbox publication to NATS JetStream, local-account BFF
   sessions, S3-compatible upload, Analyst Manager registration, member email addresses with verified, outbox-backed transactional delivery to the Mailpit mail catcher, and result
   write grants with validated result acceptance against a simulated Analyst and a real Analyst container on the Docker Desktop profile (Linux engine), and the Manager-mediated
-  read and staging of accepted upstream results are
+  read and staging of accepted upstream results, fact indexing, and the member
+  fact reads are
   implemented, and the online-only Web UI foundation exists as development
   evidence, including the Analyst Manager pairing, approval, and fleet views
-  and the match workflow with recording upload and finalization. External
+  the match workflow with recording upload and finalization, and the match
+  triage conversations with Specialist Agents. External
   OpenID Connect sign-in with Club Admin linking, unlinking, and coexistence
   with local accounts is evidenced by Integration and Playwright tests against
   a test provider (`mock-oauth2-server`), with production provider values,
   secret custody, and lifetimes (`GOV-CRED-006`) still unresolved. The
   production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
   updates through its service worker as development evidence on Chromium), the other
-  Web UI client workflows (analysis review and agent conversations),
+  Web UI client workflows (the analysis review and the Coach Agent and
+  consultation conversations),
   cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
   profile on a Linux engine (Windows automation, Podman, and the other

@@ -158,7 +158,7 @@ remains Provisional; inclusion here does not promote it to Accepted.
 | THR-009 | Accidental or malicious deletion removes authoritative evidence or leaves unauthorized orphan copies | CTL-009, CTL-010 | Deletion request, authorization, copy inventory, purge result, tombstone, backup-expiry, and hold events | Asynchronous deletion and immutable backups delay physical removal; approved policy and restore suppression are required | Open / Blocking |
 | THR-010 | Shared storage, replica, cache, index, backup, or telemetry infrastructure leaks data | CTL-001, CTL-008, CTL-010, CTL-012 | Configuration evidence, access denials, copy inventory, residency and encryption checks | Provider/operator defects remain; deployment evidence and residual-risk acceptance are required | Open / Blocking |
 | THR-011 | Lifecycle policy is bypassed through an untracked copy or unsupported restore | CTL-009, CTL-010 | Periodic inventory reconciliation, orphan detection, restore suppression, and expiry evidence | Unknown copies cannot be governed; production deployment must enumerate every copy class | Open / Blocking |
-| THR-012 | Platform email across BND-010 is spoofed, misdirected, or discloses data to an unintended recipient | CTL-008, CTL-009 | Address change, verification, and preference audit events with masked addresses; password-recovery request, issue, completion, and refusal events with masked addresses (decided, not yet implemented); invitation creation, issue, resend, revocation, acceptance, and refusal events with masked addresses (decided, not yet implemented); delivery outcomes without full addresses or bodies | Copies at the relay and in mailboxes are outside stamp control; sender authentication, bounce handling, and relay residency are unresolved; minimal content limits exposure; a password-recovery link lets whoever controls a verified mailbox set a new local password until it expires or is used; an invitation link lets whoever controls the invited mailbox create the invited account with its team roles until it expires, is revoked, or is used | Open / Blocking |
+| THR-012 | Platform email across BND-010 is spoofed, misdirected, or discloses data to an unintended recipient | CTL-008, CTL-009 | Address change, verification, and preference audit events with masked addresses; password-recovery request, issue, completion, and refusal events with masked addresses (development evidence); invitation creation, issue, resend, revocation, acceptance, and refusal events with masked addresses (decided, not yet implemented); delivery outcomes without full addresses or bodies | Copies at the relay and in mailboxes are outside stamp control; sender authentication, bounce handling, and relay residency are unresolved; minimal content limits exposure; a password-recovery link lets whoever controls a verified mailbox set a new local password until it expires or is used; an invitation link lets whoever controls the invited mailbox create the invited account with its team roles until it expires, is revoked, or is used | Open / Blocking |
 
 ## Encryption And Secret Handling
 
@@ -246,11 +246,11 @@ not yet implemented),
 attempt rejection and acceptance, policy changes, data export, deletion,
 retention expiry, hold lifecycle, restore suppression, vulnerability decisions,
 email address and notification-preference changes (with masked addresses),
-password recovery (with masked addresses; decided, not yet implemented),
+password recovery (with masked addresses),
 member invitations (with masked addresses; decided, not yet implemented),
 agent conversation creation, invocation submission, workload claims,
 completions, failures, lease expiries, and scope-loss outcomes (identifiers
-only, never question or advice text; decided, not yet implemented),
+only, never question or advice text; development evidence),
 agent catalog registration, approval, retirement, and enablement changes
 (identifiers and digests only, never prompt, rationale, or provenance text;
 decided, not yet implemented),
@@ -695,9 +695,9 @@ must be rejected rather than recorded as a candidate approval.
 
 | Entry | Credential class | Required unresolved decisions |
 | --- | --- | --- |
-| `GOV-CRED-001` | Human sessions | Issuance, bounded lifetime, renewal, revocation, recovery; self-service password recovery by email (single-use, hashed, short-lived links that end every session) is decided development scope, not yet implemented, with production link lifetime and limits unresolved; member invitations by email (single-use, hashed, expiring links that create the invited account) are decided development scope, not yet implemented, with production link lifetime and limits unresolved |
+| `GOV-CRED-001` | Human sessions | Issuance, bounded lifetime, renewal, revocation, recovery; self-service password recovery by email (single-use, hashed, short-lived links that end every session) is implemented as development evidence, with production link lifetime and limits unresolved; member invitations by email (single-use, hashed, expiring links that create the invited account) are decided development scope, not yet implemented, with production link lifetime and limits unresolved |
 | `GOV-CRED-002` | Device keys | Protected issuance, non-exportability, rotation, revocation, replacement, and production approval of key stores; the stamp exception for software-backed keys on headless Linux servers without a TPM is enforced in development evidence (`headless-server-only`), with production values unresolved |
-| `GOV-CRED-003` | Manager/workload tokens | Proof binding, bounded lifetime, renewal, immediate revocation, recovery; agent workload clients configured with a public key and DPoP-bound tokens are decided development scope, not yet implemented, with production lifetime and key custody unresolved; the MCP server's own workload client and the agent runtime's shared secret for the MCP server are likewise decided development scope, not yet implemented, with production custody, rotation, and lifetime unresolved; Hermes' own workload client and its model provider credentials, read only from mounted files, are likewise decided development scope, not yet implemented, with production custody, rotation, and lifetime unresolved |
+| `GOV-CRED-003` | Manager/workload tokens | Proof binding, bounded lifetime, renewal, immediate revocation, recovery; agent workload clients configured with a public key and DPoP-bound tokens are implemented as development evidence, with production lifetime and key custody unresolved; the MCP server's own workload client and the agent runtime's shared secret for the MCP server are likewise decided development scope, not yet implemented, with production custody, rotation, and lifetime unresolved; Hermes' own workload client and its model provider credentials, read only from mounted files, are likewise decided development scope, not yet implemented, with production custody, rotation, and lifetime unresolved |
 | `GOV-CRED-004` | NATS credentials | Stamp/subject scope, bounded lifetime, rotation, revocation, recovery |
 | `GOV-CRED-005` | Object grants | Object/action scope, bounded lifetime, one-time or replay rules, revocation |
 | `GOV-CRED-006` | External identity credentials | Trust scope, lifetime, renewal, rotation, revocation, provider failure; development evidence: explicit per-provider trust configuration, link credentials, unlinking that ends sessions, no provider token kept, and provider discovery failure refused against a test provider; production values, client secret custody, and rotation remain unresolved |
@@ -994,7 +994,9 @@ injects `<style>` elements, and a nonce is not possible for statically hosted
 pages. It permits injected styles, but `connect-src` (limited to the
 application and object-storage origins) and `img-src 'self' data:` mitigate CSS-based data exfiltration, and scripts stay
 fully locked down. It can be revisited with build-time CSS extraction. The
-production server configuration is not implemented and remains deferred.
+Web UI image applies the same policy as its production server configuration;
+only the object storage origin is runtime-configurable, and the production
+storage origin remains unresolved.
 
 REST delta synchronization and offline entitlement are bound to the current
 user, one club stamp, authorized teams and matches, roles, policy version, and

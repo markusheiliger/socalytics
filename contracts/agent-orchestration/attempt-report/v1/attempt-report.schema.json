@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-orchestration/attempt-report/v1/attempt-report.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent attempt report v1",
+  "description": "Request body of the agent attempt operations: a checkpoint (POST .../attempts/{attemptId}/checkpoints), a completion (.../completion), or a failure (.../failure). Every report carries the caller-chosen operationId that makes it idempotent and the opaque fencing token of the attempt. A completion declares the opaque execution references (runtime, model provider, model, deployment, prompt, tool policy, and safety policy) that produced the advice; they are never resolved by the platform. Additional properties are refused, so no credentials, prompts, or media can be added.",
+  "oneOf": [
+    { "$ref": "#/$defs/checkpoint" },
+    { "$ref": "#/$defs/completion" },
+    { "$ref": "#/$defs/failure" }
+  ],
+  "$defs": {
+    "operationId": {
+      "description": "Caller-chosen idempotency key of one attempt operation.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._\\-]{1,128}$"
+    },
+    "fencingToken": {
+      "description": "Opaque fencing token of the attempt, as returned by the claim.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9._~+/=\\-]+$"
+    },
+    "text": {
+      "description": "Non-empty free text; the effective length limit is the execution policy's.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100000
+    },
+    "executionReference": {
+      "description": "Opaque string, 1 to 200 characters.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operationId", "fencingToken", "kind", "note"],
+      "properties": {
+        "operationId": { "$ref": "#/$defs/operationId" },
+        "fencingToken": { "$ref": "#/$defs/fencingToken" },
+        "kind": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "note": { "$ref": "#/$defs/text" }
+      }
+    },
+    "completion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operationId", "fencingToken", "advice", "executionReferences"],
+      "properties": {
+        "operationId": { "$ref": "#/$defs/operationId" },
+        "fencingToken": { "$ref": "#/$defs/fencingToken" },
+        "advice": { "$ref": "#/$defs/text" },
+        "executionReferences": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["runtime", "modelProvider", "model", "deployment", "promptRef", "toolPolicyRef", "safetyPolicyRef"],
+          "properties": {
+            "runtime": { "$ref": "#/$defs/executionReference" },
+            "modelProvider": { "$ref": "#/$defs/executionReference" },
+            "model": { "$ref": "#/$defs/executionReference" },
+            "deployment": { "$ref": "#/$defs/executionReference" },
+            "promptRef": { "$ref": "#/$defs/executionReference" },
+            "toolPolicyRef": { "$ref": "#/$defs/executionReference" },
+            "safetyPolicyRef": { "$ref": "#/$defs/executionReference" }
+          }
+        }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operationId", "fencingToken", "reasonCode", "retryable"],
+      "properties": {
+        "operationId": { "$ref": "#/$defs/operationId" },
+        "fencingToken": { "$ref": "#/$defs/fencingToken" },
+        "reasonCode": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "retryable": { "type": "boolean" }
+      }
+    }
+  }
+}

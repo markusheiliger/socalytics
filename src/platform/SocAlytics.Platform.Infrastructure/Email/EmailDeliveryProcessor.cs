@@ -1,20 +1,24 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
 using SocAlytics.Platform.Application.Club;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Application.IdentityAccess.Email;
+using SocAlytics.Platform.Application.IdentityAccess.PasswordRecovery;
 using SocAlytics.Platform.Application.Notifications;
 using SocAlytics.Platform.Domain.IdentityAccess;
 
 namespace SocAlytics.Platform.Infrastructure.Email;
 
-/// <summary>Claims due messages, re-checks eligibility, issues confirmation tokens, sends, and records the outcome. Logs message id, type, and state only.</summary>
+/// <summary>Claims due messages, re-checks eligibility, issues confirmation and recovery tokens, sends, and records the outcome. Logs message id, type, and state only, never a token or an address.</summary>
 internal sealed class EmailDeliveryProcessor(
     IUnitOfWork unitOfWork,
     IEmailMessageStore messages,
     IMemberEmailAddressStore addresses,
     IEmailConfirmationStore confirmations,
+    IPasswordRecoveryStore recoveries,
+    IAuditTrail audit,
     INotificationPreferenceStore preferences,
     IMemberAccountStore accounts,
     IClubHierarchyStore clubs,
@@ -22,10 +26,15 @@ internal sealed class EmailDeliveryProcessor(
     IEmailRenderer renderer,
     IOptions<EmailOptions> emailOptions,
     IOptions<NotificationOptions> notificationOptions,
+    IOptions<PasswordRecoveryOptions> recoveryOptions,
     TimeProvider timeProvider,
     ILogger<EmailDeliveryProcessor> logger)
 {
     public const int BatchSize = 5;
+
+    private const string PasswordRecoveryIssuedEventType = "password-recovery.issued";
+    private const string PendingState = "pending";
+    private const string IssuedState = "issued";
 
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromHours(1);
 
@@ -99,6 +108,11 @@ internal sealed class EmailDeliveryProcessor(
 
         if (!eligible)
         {
+            if (message.PasswordRecoveryId is { } staleRecoveryId)
+            {
+                await recoveries.MarkInvalidatedAsync(staleRecoveryId, cancellationToken);
+            }
+
             await DiscardAsync(message, cancellationToken);
             return null;
         }
@@ -129,6 +143,59 @@ internal sealed class EmailDeliveryProcessor(
             clubName = (await clubs.GetClubAsync(cancellationToken))?.DisplayName.Value;
         }
 
+        if (type.Code == NotificationTypes.PasswordRecoveryCode)
+        {
+            var recovery = message.PasswordRecoveryId is { } recoveryId ? await recoveries.FindAsync(recoveryId, cancellationToken) : null;
+            if (recovery is null)
+            {
+                await DiscardAsync(message, cancellationToken);
+                return null;
+            }
+
+            if (!EmailAddress.TryCreate(stored!.Address, out var recoveryAddress, out _))
+            {
+                await DiscardAsync(message, cancellationToken);
+                return null;
+            }
+
+            var current = recovery.AccountId == message.AccountId
+                && recovery.State is PendingState or IssuedState
+                && recovery.AddressHash == message.AddressHash
+                && await HasLocalPasswordAsync(message.AccountId, recoveryAddress.Normalized, cancellationToken);
+            if (!current)
+            {
+                if (recovery.State is PendingState or IssuedState)
+                {
+                    await recoveries.MarkInvalidatedAsync(recovery.Id, cancellationToken);
+                }
+
+                await DiscardAsync(message, cancellationToken);
+                return null;
+            }
+
+            // Each attempt issues a fresh token, so a link of an earlier attempt stops working.
+            var token = ConfirmationTokens.Generate();
+            lifetime = recoveryOptions.Value.LinkLifetime;
+            if (!await recoveries.IssueAsync(recovery.Id, ConfirmationTokens.Hash(token), now, now + lifetime.Value, cancellationToken))
+            {
+                await DiscardAsync(message, cancellationToken);
+                return null;
+            }
+
+            link += "#token=" + token;
+            await audit.RecordAsync(
+                new AuditEvent
+                {
+                    EventType = PasswordRecoveryIssuedEventType,
+                    Action = "issue-password-recovery",
+                    Outcome = AuditOutcome.Succeeded,
+                    Resource = new AuditResource("member", message.AccountId.ToString()),
+                    Details = new Dictionary<string, string> { ["maskedAddress"] = recoveryAddress.Masked },
+                    ActorOverride = new AuditActorOverride(AuditActorKind.System, null),
+                },
+                cancellationToken);
+        }
+
         try
         {
             var rendered = renderer.Render(type.Code, new EmailRenderModel(clubName, link, lifetime));
@@ -140,6 +207,12 @@ internal sealed class EmailDeliveryProcessor(
             LogState(message, EmailMessageStates.Failed);
             return null;
         }
+    }
+
+    private async Task<bool> HasLocalPasswordAsync(Guid accountId, string addressNormalized, CancellationToken cancellationToken)
+    {
+        var candidates = await recoveries.ListCandidatesAsync(addressNormalized, cancellationToken);
+        return candidates.Any(candidate => candidate.AccountId == accountId && candidate.HasPassword);
     }
 
     private async Task DiscardAsync(StoredEmailMessage message, CancellationToken cancellationToken)

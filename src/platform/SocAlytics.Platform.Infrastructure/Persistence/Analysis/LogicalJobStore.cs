@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Dapper;
 using SocAlytics.Platform.Application.Analysis.Stores;
 using SocAlytics.Platform.Domain.Analysis;
@@ -190,6 +191,55 @@ internal sealed class LogicalJobStore(IDbSession session, TimeProvider time) : I
             transaction,
             cancellationToken: cancellationToken));
         return inserted == 1;
+    }
+
+    public Task<bool> TryInsertInputSnapshotAsync(Guid jobId, IReadOnlyList<InputSnapshotEntry> entries, CancellationToken cancellationToken) =>
+        TryInsertInputsAsync(jobId, JsonSerializer.Serialize(entries.Select(ToJson)), cancellationToken);
+
+    private static object ToJson(InputSnapshotEntry e) => new
+    {
+        upstreamNodeKey = e.UpstreamNodeKey,
+        edgeKind = AnalysisPersistedNames.ToPersistedName(e.EdgeKind),
+        status = e.Status,
+        acceptedResultIds = e.AcceptedResultIds,
+        coverageMode = AnalysisPersistedNames.ToPersistedName(e.CoverageMode),
+        minimumAcceptedFraction = e.MinimumAcceptedFraction,
+        coverage = e.Coverage?.Select(c => new { segmentId = c.SegmentId, state = c.State }).ToList(),
+    };
+
+    public async Task<IReadOnlyList<InputSnapshotEntry>> LoadInputSnapshotAsync(Guid jobId, CancellationToken cancellationToken)
+    {
+        var entries = new List<InputSnapshotEntry>();
+        if (await LoadInputsAsync(jobId, cancellationToken) is not { } json)
+        {
+            return entries;
+        }
+
+        using var doc = JsonDocument.Parse(json);
+        foreach (var e in doc.RootElement.EnumerateArray())
+        {
+            AnalysisPersistedNames.TryParseDependencyKind(e.GetProperty("edgeKind").GetString(), out var kind);
+            var mode = CoverageMode.Complete;
+            if (e.TryGetProperty("coverageMode", out var m) && m.ValueKind == JsonValueKind.String)
+            {
+                AnalysisPersistedNames.TryParseCoverageMode(m.GetString(), out mode);
+            }
+
+            decimal? fraction = e.TryGetProperty("minimumAcceptedFraction", out var f) && f.ValueKind == JsonValueKind.Number ? f.GetDecimal() : null;
+            List<SegmentCoverage>? coverage = e.TryGetProperty("coverage", out var c) && c.ValueKind == JsonValueKind.Array
+                ? c.EnumerateArray().Select(x => new SegmentCoverage(x.GetProperty("segmentId").GetString()!, x.GetProperty("state").GetString()!)).ToList()
+                : null;
+            entries.Add(new InputSnapshotEntry(
+                e.GetProperty("upstreamNodeKey").GetString()!,
+                kind,
+                e.GetProperty("status").GetString()!,
+                e.GetProperty("acceptedResultIds").EnumerateArray().Select(x => x.GetGuid()).ToList(),
+                mode,
+                fraction,
+                coverage));
+        }
+
+        return entries;
     }
 
     public async Task<string?> LoadInputsAsync(Guid jobId, CancellationToken cancellationToken)

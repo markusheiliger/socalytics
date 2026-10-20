@@ -34,7 +34,10 @@ public sealed record WorkflowNodeRecord(
     DateTimeOffset UpdatedAt,
     string SnapshotJson);
 
-public sealed record DependencyEdgeRecord(Guid UpstreamNodeId, Guid DependentNodeId, DependencyKind Kind, string? PredicateJson);
+public sealed record DependencyEdgeRecord(Guid UpstreamNodeId, Guid DependentNodeId, DependencyKind Kind, string? PredicateJson)
+{
+    public CoveragePolicy CoveragePolicy { get; init; } = CoveragePolicy.Complete;
+}
 
 public sealed record NewAnalysisRun(
     Guid TeamId,

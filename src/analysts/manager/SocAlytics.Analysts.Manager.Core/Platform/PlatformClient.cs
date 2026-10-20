@@ -203,7 +203,10 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
         // The proof binds the path without the query string.
         var request = Authenticated(HttpMethod.Get, uri, session);
         request.RequestUri = new Uri(uri.AbsoluteUri + query);
-        return await ExecuteAsync<UpstreamResultsPage>(request, cancellationToken);
+        var result = await ExecuteAsync<UpstreamResultsPage>(request, cancellationToken);
+        return result.Value is { ContractVersion: not ("1.0.0" or "1.1.0") }
+            ? new(WorkResultKind.Refused, Code: "upstream-contract-version-unsupported")
+            : result;
     }
 
     public Task<PlatformResponse> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken = default)
@@ -271,20 +274,22 @@ public sealed class PlatformClient(HttpClient http, ProofFactory proofs, Inactiv
                 return new(WorkResultKind.Transient);
         }
 
-        var code = ReadCode(response.Body);
+        var problem = ReadProblem(response.Body);
+        var code = problem?.Code;
         return code switch
         {
+            VersionRefusal.Code => new(WorkResultKind.Refused, Code: code, MinimumManagerVersion: problem?.MinimumManagerVersion),
             "claim-obsolete" or "attempt-obsolete" => new(WorkResultKind.Obsolete, Code: code),
             _ when response.Status == System.Net.HttpStatusCode.Conflict => new(WorkResultKind.Conflict, Code: code),
             _ => new(WorkResultKind.Refused, Code: code),
         };
     }
 
-    private static string? ReadCode(string body)
+    private static Problem? ReadProblem(string body)
     {
         try
         {
-            return string.IsNullOrEmpty(body) ? null : JsonSerializer.Deserialize<Problem>(body, PlatformJson.Options)?.Code;
+            return string.IsNullOrEmpty(body) ? null : JsonSerializer.Deserialize<Problem>(body, PlatformJson.Options);
         }
         catch (JsonException)
         {

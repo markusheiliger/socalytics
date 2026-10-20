@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/analysis/fact-artifact/v1/fact-artifact.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Analysis fact artifact v1",
+  "description": "Content of a result artifact whose manifest media type is application/vnd.socalytics.facts+json. It carries the header of the producing capability and a list of time-ranged facts in match time. The platform validates the envelope only; the payload of each fact is owned by the capability and opaque to the platform. The artifact contains no URLs, credentials, or inline media.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "capability", "schemaVersion", "outputType", "facts"],
+  "properties": {
+    "contractVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1" },
+    "capability": { "$ref": "../../../common/v1/common.schema.json#/$defs/capabilityRef" },
+    "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+    "outputType": { "enum": ["foundational-facts", "soccer-concepts"] },
+    "facts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/fact" }
+    }
+  },
+  "$defs": {
+    "fact": {
+      "description": "One fact with a half-open match-time range [startMs, endMs). The platform additionally checks endMs > startMs.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "startMs", "endMs", "confidence", "payload"],
+      "properties": {
+        "kind": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "startMs": { "type": "integer", "minimum": 0 },
+        "endMs": { "type": "integer", "minimum": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "payload": {
+          "description": "Capability-owned content, opaque to the platform.",
+          "type": "object"
+        }
+      }
+    }
+  }
+}

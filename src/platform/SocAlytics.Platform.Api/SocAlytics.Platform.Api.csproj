@@ -5,6 +5,10 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<ProjectReference Include="..\SocAlytics.Platform.Application\SocAlytics.Platform.Application.csproj" />
 		<ProjectReference Include="..\SocAlytics.Platform.Infrastructure\SocAlytics.Platform.Infrastructure.csproj" />
 		<ProjectReference Include="..\SocAlytics.Platform.ServiceDefaults\SocAlytics.Platform.ServiceDefaults.csproj" />

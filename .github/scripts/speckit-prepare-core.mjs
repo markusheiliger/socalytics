@@ -5,7 +5,7 @@ export const STAGES = {
   specified: { color: 'c5def5', description: 'Spec twin stage: spec.md exists, no plan yet' },
   planned: { color: '7fb8e8', description: 'Spec twin stage: plan.md exists, no task list yet' },
   tasked: { color: '1d76db', description: 'Spec twin stage: tasks.md exists, no task completed on the default branch' },
-  implement: { color: '5319e7', description: 'Spec twin stage: requested by a human; waiting for the speckit-orchestrate workflow to start it' },
+  implement: { color: '5319e7', description: 'Spec twin stage: requested with /speckit implement; waiting for the speckit-orchestrate workflow to start it' },
   implementing: { color: 'f9d0c4', description: 'Spec twin stage: implementation pull request open, or some tasks completed on the default branch' },
   implemented: { color: '0e8a16', description: 'Spec twin stage: all tasks completed on the default branch' },
   discarded: { color: 'cfd3d7', description: 'Spec twin stage: spec folder was removed; twin closed as not planned' },
@@ -47,8 +47,8 @@ export function isValidFolderName(folder) {
   return typeof folder === 'string' && FOLDER_PATTERN.test(folder) && folder !== '.' && folder !== '..';
 }
 
-// A fix spec (`/speckit fix`) names the implementation pull request it unblocks in spec.md: "**Fix for**: #75 …". It
-// skips dependency inference (the tooling links it to the spec it unblocks) and starts ahead of the scheduler's limit.
+// Specs authored by earlier `/speckit fix` tooling named the implementation pull request they unblock in spec.md
+// ("**Fix for**: #75 …"). Read for compatibility only; it has no effect on the twin.
 const FIX_FOR_LINE = /^\*\*Fix for\*\*:[^\n]*?#(\d+)/m;
 export function parseFixForLine(specMarkdown) {
   const match = String(specMarkdown ?? '').match(FIX_FOR_LINE);
@@ -149,6 +149,18 @@ export function renderTwinBody(spec, artifacts, context, { archived = false } = 
     '',
     ...links,
     '',
+    ...(archived
+      ? []
+      : [
+        '## Request implementation',
+        '',
+        'People with write access comment this once the spec is `tasked` and its checklists are checked; the command checks that and records who requested it.',
+        '',
+        '```text',
+        '/speckit implement',
+        '```',
+        '',
+      ]),
   ].join('\n');
 }
 
@@ -328,7 +340,7 @@ export function planSync({ specs, issues, context }) {
     }
     if (!twin) {
       if (unreadable.length > 0) plan.skippedCreates.push({ folder, title });
-      else plan.create.push({ folder, title, body, stage: deriveStage(artifacts, tasks), fix: entry.fixFor !== null && entry.fixFor !== undefined });
+      else plan.create.push({ folder, title, body, stage: deriveStage(artifacts, tasks) });
       continue;
     }
     if (twin.state === 'closed') {

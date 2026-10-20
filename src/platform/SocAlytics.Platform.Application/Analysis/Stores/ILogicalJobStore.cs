@@ -68,6 +68,12 @@ public interface ILogicalJobStore
     // Returns false when the inputs were already recorded.
     Task<bool> TryInsertInputsAsync(Guid jobId, string inputsJson, CancellationToken cancellationToken);
 
+    // Writes the entries, including coverage, as the job's input snapshot; returns false when already recorded.
+    Task<bool> TryInsertInputSnapshotAsync(Guid jobId, IReadOnlyList<InputSnapshotEntry> entries, CancellationToken cancellationToken);
+
+    // Snapshots written without coverage fields are read as complete.
+    Task<IReadOnlyList<InputSnapshotEntry>> LoadInputSnapshotAsync(Guid jobId, CancellationToken cancellationToken);
+
     Task<string?> LoadInputsAsync(Guid jobId, CancellationToken cancellationToken);
 
     // Assigns the next sequence (1, 2, …) for the job and returns it.

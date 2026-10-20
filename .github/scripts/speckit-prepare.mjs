@@ -6,27 +6,33 @@ import {
   ARCHIVE_DIR,
   DISCARDED_STAGE,
   IMPLEMENT_STAGE,
+  IMPLEMENTABLE_STAGE,
   IMPLEMENTING_STAGE,
   LABELS,
   PENDING_LABEL,
   SPECS_DIR,
+  STAGE_PREFIX,
   TWIN_LABEL,
   buildPrompt,
   buildSpecEntry,
+  deriveStage,
   hasLabel,
+  implementBlockers,
   isImplementRequested,
   isValidFolderName,
   parseInferenceOutput,
-  planImplementRequest,
+  parseTwinFolder,
   planSync,
+  requesterBlockers,
   resolveTwins,
   specDir,
   stageLabel,
+  stageLabelChange,
   validateLinks,
 } from './speckit-prepare-core.mjs';
 import { createGitHubClient, createReporter, setOutput } from './speckit-script-runtime.mjs';
 
-// The workflow token's user, which sets the implement flag on a fix spec for the person who asked for it.
+// The workflow token's user, which records implementation requests and sets the stage labels.
 const BOT_LOGIN = 'github-actions[bot]';
 function readOptional(filePath) {
   return existsSync(filePath) ? readFileSync(filePath, 'utf8') : null;
@@ -138,19 +144,17 @@ function revocationComment(item) {
     '',
     ...item.revoked.map((reason) => `- ${reason}`),
     '',
-    `The twin is back at its computed stage \`${item.stage}\`. Request implementation again once the conditions hold.`,
+    `The twin is back at its computed stage \`${item.stage}\`. Comment \`/speckit implement\` on this issue again once the conditions hold.`,
   ].join('\n');
 }
 
 async function applyPlan(client, plan, issues) {
   for (const label of LABELS) await client.ensureLabel(label);
   for (const item of plan.create) {
-    // A fix spec gets no dependency inference: the tooling links it to the spec it unblocks, and an inferred
-    // dependency on that spec would make each wait for the other.
     item.issue = await client.createIssue({
       title: item.title,
       body: item.body,
-      labels: [TWIN_LABEL, ...(item.fix ? [] : [PENDING_LABEL]), stageLabel(item.stage)],
+      labels: [TWIN_LABEL, PENDING_LABEL, stageLabel(item.stage)],
     });
     issues.push(item.issue);
   }
@@ -234,16 +238,27 @@ export function canWrite(permission) {
   return WRITE_ROLES.has(permission?.role_name) || WRITE_ROLES.has(permission?.permission);
 }
 
-// Finds who most recently added the implement label, using the issue's event history rather than the
-// workflow trigger, so a flag counts only if its actual author has write access. A flag the workflow set for a fix
-// spec counts for the person it names in its own comment on the twin (renderFlaggedFor), who asked for the fix.
+// Who requested the implementation of a twin. `/speckit implement` records the requester in a workflow comment on the
+// twin (renderImplementRequested), the only way to request it; the latest such comment counts. Twins requested before
+// that fall back to who most recently added the implement label (the issue's event history rather than the workflow
+// trigger, so a flag counts only if its actual author has write access), and a flag the workflow set for a prerequisite
+// to the person it names in its own comment on the twin (renderFlaggedFor). `labeledAt` is when the request was made.
 export async function resolveImplementRequester(client, issueNumber, fallbackLogin = null) {
+  const comments = await client.listIssueComments(issueNumber);
+  const recorded = comments
+    .filter((comment) => comment.user?.login === BOT_LOGIN)
+    .map((comment) => ({ comment, data: parseImplementRequested(comment.body) }))
+    .filter((item) => item.data)
+    .at(-1);
+  if (recorded) {
+    const login = recorded.data.by;
+    return { login, canWrite: canWrite(await client.getPermission(login)), labeledAt: recorded.comment.created_at ?? null, source: 'record' };
+  }
   const implementLabel = stageLabel(IMPLEMENT_STAGE);
   const events = await client.listIssueEvents(issueNumber);
   const last = events.filter((event) => event.event === 'labeled' && event.label?.name === implementLabel).at(-1);
   let login = last?.actor?.login ?? fallbackLogin;
   if (login === BOT_LOGIN) {
-    const comments = await client.listIssueComments(issueNumber);
     login = comments
       .filter((comment) => comment.user?.login === BOT_LOGIN)
       .map((comment) => String(comment.body ?? '').match(FLAGGED_FOR_PATTERN)?.[1])
@@ -251,46 +266,96 @@ export async function resolveImplementRequester(client, issueNumber, fallbackLog
       .at(-1) ?? login;
   }
   if (!login) return null;
-  return { login, canWrite: canWrite(await client.getPermission(login)), labeledAt: last?.created_at ?? null };
+  return { login, canWrite: canWrite(await client.getPermission(login)), labeledAt: last?.created_at ?? null, source: 'label' };
 }
 
 // Only at the start of the workflow's own comment, so text it quotes from elsewhere cannot name another requester.
 const FLAGGED_FOR_PATTERN = /^<!-- speckit:flagged-for ([A-Za-z0-9-]+) -->/;
+// Written by earlier tooling only; read for twins it requested.
 export const renderFlaggedFor = (login) => `<!-- speckit:flagged-for ${login} -->`;
+// The record of a `/speckit implement` request: who requested it and the comment that did.
+const IMPLEMENT_REQUESTED_PATTERN = /^<!-- speckit:implement-requested (\{[^\n]*?\}) -->/;
+export const renderImplementRequested = ({ by, comment = null }) => `<!-- speckit:implement-requested ${JSON.stringify({ by, comment })} -->`;
+export function parseImplementRequested(body) {
+  const match = String(body ?? '').match(IMPLEMENT_REQUESTED_PATTERN);
+  if (!match) return null;
+  try {
+    const data = JSON.parse(match[1]);
+    return typeof data?.by === 'string' && /^[A-Za-z0-9-]+(\[bot\])?$/.test(data.by) ? { by: data.by, comment: Number.isInteger(data.comment) ? data.comment : null } : null;
+  } catch {
+    return null;
+  }
+}
 
-export async function runValidateImplement({ client, rootDir, env, issueNumber, actor, log }) {
+const GUARD_MARKER = '<!-- speckit:stage-restored -->';
+
+// The stage labels of a twin are generated: from the spec folder on the default branch, and `implement` or
+// `implementing` from the implementation request (`/speckit implement`) and the implementation pull request. When a
+// person adds or removes one (`action` labeled or unlabeled, `label` its name), the computed set is restored and one
+// comment says why and how to change the state instead; for an added `implement` label it recommends
+// `/speckit implement`. Changes by the workflow are kept.
+export async function runGuardStage({ client, rootDir, env, issueNumber, actor, action, label, log }) {
   const report = createReporter(env, log);
-  report.line(`## Implementation request on #${issueNumber}`);
+  report.line(`## Stage label change on #${issueNumber}`);
   report.line();
-  const implementLabel = stageLabel(IMPLEMENT_STAGE);
-  const issue = await client.getIssue(issueNumber);
-  if (!hasLabel(issue, implementLabel)) {
-    report.line(`The \`${implementLabel}\` label is no longer present; nothing to validate.`);
+  if (!String(label ?? '').startsWith(STAGE_PREFIX) || actor === BOT_LOGIN || String(actor ?? '').endsWith('[bot]')) {
+    report.line(`Kept: \`${label}\` was changed by @${actor}.`);
     report.flush();
-    return { exitCode: 0, decision: null };
+    return { exitCode: 0, outcome: 'kept' };
   }
-  const folder = resolveTwins([issue]).byFolder.keys().next().value;
-  const entry = folder ? readSpecFolder(rootDir, folder) : null;
-  const requester = folder && entry ? await resolveImplementRequester(client, issueNumber, actor) : null;
-  const decision = planImplementRequest({ issue, entry, requester });
-  const mention = requester?.login ?? actor;
-
-  await updateIssueWithLabels(client, issue, decision.labels);
-  if (decision.action === 'accept') {
-    report.line(`Accepted: #${issueNumber} (\`${decision.folder}\`) is flagged \`${implementLabel}\` and waits for the \`speckit-implement\` workflow.`);
-  } else {
-    const fallback = decision.stage ? ` The twin is back at its computed stage \`${decision.stage}\`.` : '';
-    await client.createComment(issueNumber, [
-      `@${mention}, the \`${implementLabel}\` request was not accepted:`,
-      '',
-      ...decision.reasons.map((reason) => `- ${reason}`),
-      '',
-      `${fallback.trim()} Request implementation again once the conditions hold.`.trim(),
-    ].join('\n'));
-    report.line(`Rejected: ${decision.reasons.join('; ')}`);
+  const issue = await client.getIssue(issueNumber);
+  const folder = hasLabel(issue, TWIN_LABEL) ? parseTwinFolder(issue.body) : null;
+  if (!folder) {
+    report.line('Not a spec twin; nothing to restore.');
+    report.flush();
+    return { exitCode: 0, outcome: 'ignored' };
   }
+  const implementLabel = stageLabel(IMPLEMENT_STAGE);
+  const entry = readSpecFolder(rootDir, folder);
+  const archived = entry ? null : readSpecFolder(rootDir, folder, { archived: true });
+  let stage;
+  if (archived || (issue.state === 'closed' && issue.state_reason === 'completed')) stage = 'implemented';
+  else if (!entry || (issue.state === 'closed' && issue.state_reason === 'not_planned')) stage = DISCARDED_STAGE;
+  else if (issue.state !== 'open') stage = deriveStage(entry.artifacts, entry.tasks);
+  else {
+    const computed = deriveStage(entry.artifacts, entry.tasks);
+    // Whether the twin was requested before the person's change: the change itself is undone.
+    const wasRequested = label === implementLabel ? action === 'unlabeled' : hasLabel(issue, implementLabel);
+    const openPull = (await client.listPullRequestsForHead(`speckit/${folder}`)).some((pull) => pull.state === 'open');
+    const requester = wasRequested || openPull ? await resolveImplementRequester(client, issueNumber) : undefined;
+    const valid = requesterBlockers(requester).length === 0
+      && implementBlockers({ folder, computedStage: computed, openChecklistItems: entry.openChecklistItems ?? 0 }).length === 0;
+    stage = openPull && computed === IMPLEMENTABLE_STAGE && valid ? IMPLEMENTING_STAGE : wasRequested && valid ? IMPLEMENT_STAGE : computed;
+  }
+  const change = stageLabelChange(issue, stage);
+  await updateIssueWithLabels(client, issue, change);
+  const addedImplement = action === 'labeled' && label === implementLabel && stage !== IMPLEMENT_STAGE;
+  const body = addedImplement
+    ? [
+      GUARD_MARKER,
+      `@${actor}, the \`${implementLabel}\` label was removed: stage labels are generated, and implementation is requested with a comment, so it is checked and records who requested it.`,
+      '',
+      '**Recommended next step**: Comment this on this issue (people with write access):',
+      '',
+      '```text',
+      '/speckit implement',
+      '```',
+      '',
+      `- **Why**: The command checks that the spec is \`${IMPLEMENTABLE_STAGE}\` with all checklists checked, records you as the requester, and sets \`${implementLabel}\` itself.`,
+      '- **What it does**: The scheduler opens the implementation pull request, assigned to you, once its prerequisites are implemented. `/speckit-implement <folder>` locally does the same.',
+    ]
+    : [
+      GUARD_MARKER,
+      `@${actor}, the change of \`${label}\` was undone: stage labels are generated from the spec folder on the default branch and the implementation request, so this twin is back at \`${stageLabel(stage)}\`.`,
+      '',
+      'To change the state, change the spec on the default branch, request implementation with `/speckit implement` on this issue, or close its implementation pull request to stop an implementation.',
+    ];
+  const last = (await client.listIssueComments(issueNumber)).at(-1);
+  const repeated = last?.user?.login === BOT_LOGIN && last.body === body.join('\n');
+  if (!repeated && (change.add.length > 0 || change.remove.length > 0 || addedImplement)) await client.createComment(issueNumber, body.join('\n'));
+  report.line(`Restored \`${stageLabel(stage)}\` after @${actor} ${action} \`${label}\`.`);
   report.flush();
-  return { exitCode: 0, decision };
+  return { exitCode: 0, outcome: 'restored', stage };
 }
 
 export async function runApply({ client, rootDir, env, outputFile, log }) {
@@ -378,6 +443,8 @@ function parseArgs(argv) {
     else if (arg === '--output-file') options.outputFile = rest[++index];
     else if (arg === '--issue') options.issue = Number(rest[++index]);
     else if (arg === '--actor') options.actor = rest[++index];
+    else if (arg === '--action') options.action = rest[++index];
+    else if (arg === '--label') options.label = rest[++index];
     else throw new Error(`Unknown argument: ${arg}`);
   }
   return options;
@@ -395,13 +462,13 @@ export async function main(argv, { env = process.env, rootDir = process.cwd(), l
     if (!options.outputFile) throw new Error('apply requires --output-file');
     return (await runApply({ client: githubClient, rootDir, env, outputFile: options.outputFile, log })).exitCode;
   }
-  if (options.command === 'validate-implement') {
-    if (!Number.isInteger(options.issue) || options.issue <= 0 || !options.actor) {
-      throw new Error('validate-implement requires --issue <number> and --actor <login>');
+  if (options.command === 'guard-stage') {
+    if (!Number.isInteger(options.issue) || options.issue <= 0 || !options.actor || !['labeled', 'unlabeled'].includes(options.action) || !options.label) {
+      throw new Error('guard-stage requires --issue <number>, --actor <login>, --action <labeled | unlabeled>, and --label <name>');
     }
-    return (await runValidateImplement({ client: githubClient, rootDir, env, issueNumber: options.issue, actor: options.actor, log })).exitCode;
+    return (await runGuardStage({ client: githubClient, rootDir, env, issueNumber: options.issue, actor: options.actor, action: options.action, label: options.label, log })).exitCode;
   }
-  throw new Error('Usage: speckit-prepare.mjs <sync [--dry-run] --prompt-file <file> | apply --output-file <file> | validate-implement --issue <number> --actor <login>>');
+  throw new Error('Usage: speckit-prepare.mjs <sync [--dry-run] --prompt-file <file> | apply --output-file <file> | guard-stage --issue <number> --actor <login> --action <labeled | unlabeled> --label <name>>');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

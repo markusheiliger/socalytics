@@ -1,21 +1,29 @@
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-import { canWrite } from './speckit-prepare.mjs';
+import { IMPLEMENT_STAGE, IMPLEMENTING_STAGE, TWIN_LABEL, deriveStage, hasLabel, implementBlockers, isImplementRequested, parseTwinFolder, specDir, stageLabel, stageLabelChange } from './speckit-prepare-core.mjs';
+import { canWrite, readSpecFolder, renderImplementRequested, updateIssueWithLabels } from './speckit-prepare.mjs';
 import { startFixAuthoring } from './speckit-fix.mjs';
 import { createGitHubClient } from './speckit-script-runtime.mjs';
 import {
   ATTENTION_LABEL,
   BOT_LOGIN,
+  COMMAND_SCOPES,
   MAX_UNCHANGED_RESTARTS,
+  ORCHESTRATE_WORKFLOW_FILE,
   PR_COMMANDS,
   RESTART_FORCE_FLAG,
   baseBranchOf,
+  continuationOf,
+  defaultBranchOf,
+  describeGuidanceReach,
   dispatchImplementation,
   describeCommandEffect,
   folderOfBranch,
   implementationBranch,
+  latestStopReason,
   neutralizeMarkers,
+  parseCommandArguments,
   renderRetryComment,
   renderSyncComment,
   setAttention,
@@ -28,27 +36,43 @@ export class CommandUsageError extends Error {}
 
 const COMMAND_NAMES = PR_COMMANDS.map((command) => command.name);
 
-// Parses a pull request comment like "/speckit retry use the existing helper". The command must be the first word;
-// the rest of the comment (first line and following lines) is its argument.
+// Parses a pull request comment in the form `/speckit <command> [flags] [guidance]`, like
+// "/speckit retry --force use the existing helper". The command must be the first word; the rest of the comment (first
+// line and following lines) is its argument, split into the flags and the guidance (parseCommandArguments).
 export function parseCommand(body) {
   const text = String(body ?? '').replace(/^\s+/, '');
   const match = text.match(/^\/speckit(?:[ \t]+([A-Za-z-]+))?(?=\s|$)([\s\S]*)$/);
   if (!match) return null;
   const name = (match[1] ?? 'help').toLowerCase();
-  return { name: COMMAND_NAMES.includes(name) ? name : 'unknown', given: match[1] ?? '', argument: match[2].trim() };
+  const known = COMMAND_NAMES.includes(name) ? name : 'unknown';
+  const argument = match[2].trim();
+  return { name: known, given: match[1] ?? '', argument, ...parseCommandArguments(known, argument) };
+}
+
+const describeFlags = (command) => {
+  const flags = Object.entries(command.flags ?? {});
+  return flags.length > 0 ? flags.map(([flag, help]) => `\`${flag}\`: ${help}`).join('; ') : 'none';
+};
+
+export function renderCommandTable(commands = PR_COMMANDS) {
+  return [
+    '| Command | Where | What it does | Flags |',
+    '| --- | --- | --- | --- |',
+    ...commands.map((command) => `| \`${command.usage}\` | ${COMMAND_SCOPES[command.scope ?? 'pr'] ?? command.scope} | ${command.help} | ${describeFlags(command)} |`),
+  ].join('\n');
 }
 
 export function renderHelp() {
   return [
-    '**Spec Kit commands** — comment one of these on an implementation pull request (`speckit/<folder>`). Only people with write access can use them; the command must be the first word of the comment.',
+    '**Spec Kit commands** — comment one of these on an implementation pull request (`speckit/<folder>`) or, where the table says so, on a spec twin issue. Only people with write access can use them; the command must be the first word of the comment.',
     '',
-    '| Command | What it does |',
-    '| --- | --- |',
-    ...PR_COMMANDS.map((command) => `| \`${command.usage}\` | ${command.help} |`),
+    'Every command has the form `/speckit <command> [flags] [guidance]`: flags start with `--` and come right after the command (each command supports its own), and everything after them is guidance for the next agent. Put `--` before guidance that itself starts with `--`.',
     '',
-    'An amendment pull request (`speckit-amend/<folder>`) or fix spec pull request (`speckit-fix/<folder>`) needs no commands: merge it to apply it, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
+    renderCommandTable(),
     '',
-    'These are pull request comment commands, not skills. To walk through a stop locally in VS Code, use the skill `/speckit-gha-diagnose`.',
+    'An amendment pull request (`speckit-amend/<folder>`) or a spec pull request authored by `/speckit specify` (`speckit-spec/<folder>`, earlier `speckit-fix/<folder>`) needs no commands: merge it to apply it, comment or submit a review (*Comment* or *Request changes*) to have it reworked, or close it to discard it.',
+    '',
+    'These are comment commands, not skills. To walk through a stop locally in VS Code, use the skill `/speckit-gha-diagnose`.',
   ].join('\n');
 }
 
@@ -70,15 +94,20 @@ async function resolveTarget(client, env, number) {
   return { folder, implementation: full, twin };
 }
 
-// Resolve an amendment comment to its implementation before acquiring the publication lock.
+// Resolve an amendment comment to its implementation before acquiring the publication lock. Commands on a spec twin
+// lock the twin.
 export async function runCommandTarget({ client, env }) {
   const number = Number(env.SPECKIT_PULL);
   if (!Number.isInteger(number) || number <= 0) throw new CommandUsageError('Expected SPECKIT_PULL.');
+  if (onTwin(env)) return number;
   const command = parseCommand(env.SPECKIT_COMMENT_BODY);
   if (!command || ['help', 'unknown'].includes(command.name)) return number;
   const target = await resolveTarget(client, env, number);
   return target.implementation?.number ?? number;
 }
+
+// Whether the comment was posted on an issue (a spec twin) rather than a pull request.
+const onTwin = (env) => env.SPECKIT_TARGET === 'twin';
 
 // Starts a new attempt window: the retry comment persists the request (and the guidance), so a replaced
 // pending run cannot lose it; starting the implementation chain only makes it happen right away.
@@ -86,6 +115,10 @@ async function retryImplementation(client, env, { implementation, twin, folder }
   const repair = unresolvedRepair(await client.listIssueComments(implementation.number));
   if (repair) {
     lead = `${lead.split(';')[0]}; ${describeCommandEffect(`/speckit retry${guidance ? ` ${guidance}` : ''}`, { baseBranch: baseBranchOf(implementation), continuation: { repair } })}`;
+  }
+  if (guidance) {
+    const continuation = repair ? { repair } : await continuationOf(client, { folder, pull: implementation });
+    lead = `${lead} ${describeGuidanceReach('retry', { continuation })}`;
   }
   await client.createComment(implementation.number, renderRetryComment(lead, guidance, state));
   await setAttention(client, implementation.number, false);
@@ -97,12 +130,14 @@ async function retryImplementation(client, env, { implementation, twin, folder }
 }
 
 // Command router (issue_comment): validates the author and the command, reacts, and performs the command. Comments
-// by bots never get here; the workflow filters them.
-export async function runCommand({ client, env, log, now = Date.now }) {
+// by bots never get here; the workflow filters them. SPECKIT_TARGET `twin` marks a comment on a spec twin issue; every
+// other comment is on a pull request. A command posted where its scope does not allow it is refused with help.
+export async function runCommand({ client, env, log, now = Date.now, rootDir = env.SPECKIT_ROOT_DIR || process.cwd() }) {
   const number = Number(env.SPECKIT_PULL);
   const commentId = Number(env.SPECKIT_COMMENT_ID);
   const actor = String(env.SPECKIT_ACTOR ?? '');
   const command = parseCommand(env.SPECKIT_COMMENT_BODY);
+  const twinComment = onTwin(env);
   if (!command || !Number.isInteger(number)) {
     log('Not a Spec Kit command.');
     return { exitCode: 0, handled: false };
@@ -125,6 +160,30 @@ export async function runCommand({ client, env, log, now = Date.now }) {
     ]);
     return { exitCode: 0, handled: true, command: command.name };
   }
+  const definition = PR_COMMANDS.find((item) => item.name === command.name);
+  if (command.unknownFlags.length > 0) {
+    const supported = Object.keys(definition.flags ?? {});
+    await reply(client, number, [
+      `**\`/speckit ${command.name}\` was not run**: it does not support ${command.unknownFlags.map((flag) => `\`${neutralizeMarkers(flag)}\``).join(', ')}. ${supported.length > 0 ? `Its flags: ${describeFlags(definition)}.` : 'It supports no flags.'}`,
+      '',
+      `Use \`${definition.usage}\`; put \`--\` before guidance that itself starts with \`--\`.`,
+    ]);
+    return { exitCode: 0, handled: true, command: command.name, rejected: 'unsupported flag' };
+  }
+  const scope = definition.scope ?? 'pr';
+  if (scope !== 'any' && (scope === 'twin') !== twinComment) {
+    await reply(client, number, [
+      `**\`/speckit ${command.name}\` was not run**: it works on ${scope === 'twin' ? 'a spec twin issue (label `speckit:spec`), not on a pull request' : 'an implementation pull request (`speckit/<folder>`), not on a spec twin issue'}.`,
+      '',
+      renderHelp(),
+    ]);
+    return { exitCode: 0, handled: true, command: command.name, rejected: 'wrong scope' };
+  }
+  if (twinComment) {
+    const result = await TWIN_HANDLERS[command.name]({ client, env, actor, number, commentId, rootDir });
+    log(`/speckit ${command.name} by @${actor} on #${number}: ${result.outcome}`);
+    return { exitCode: 0, handled: true, command: command.name, ...result };
+  }
   const target = await resolveTarget(client, env, number);
   if (target.reason) {
     await reply(client, number, `\`/speckit ${command.name}\` cannot run here: ${target.reason}.`);
@@ -135,13 +194,13 @@ export async function runCommand({ client, env, log, now = Date.now }) {
     return { exitCode: 0, handled: true, command: command.name, rejected: 'publication target changed' };
   }
   const handler = HANDLERS[command.name];
-  const result = await handler({ client, env, actor, number, argument: command.argument, now, ...target });
+  const result = await handler({ client, env, actor, number, flags: command.flags, guidance: command.guidance.slice(0, 4000), now, ...target });
   log(`/speckit ${command.name} by @${actor}: ${result.outcome}`);
   return { exitCode: 0, handled: true, command: command.name, ...result };
 }
 
-async function handleRetry({ client, env, actor, number, argument, folder, implementation, twin }) {
-  const { force, guidance } = restartArgument(argument);
+async function handleRetry({ client, env, actor, number, flags, guidance, folder, implementation, twin }) {
+  const force = flags.includes(RESTART_FORCE_FLAG);
   const state = await restartState(client, implementation);
   if (!force && (await refuseUnchangedRestart(client, { name: 'retry', number, implementation, folder, state }))) return { outcome: 'refused' };
   await retryImplementation(client, env, { implementation, twin, folder }, `Implementation retried by @${actor}; what stopped restarts with a fresh attempt count while preserving the current phase base.`, guidance, state);
@@ -149,10 +208,11 @@ async function handleRetry({ client, env, actor, number, argument, folder, imple
   return { outcome: 'retried' };
 }
 
-async function handleSync({ client, env, actor, number, argument, implementation, twin }) {
+async function handleSync({ client, env, actor, number, guidance, implementation, twin }) {
+  const reach = guidance ? ` ${describeGuidanceReach('sync', { lastStop: latestStopReason(await client.listIssueComments(implementation.number)) })}` : '';
   await client.createComment(implementation.number, renderSyncComment(
-    `Required synchronization requested by @${actor}; merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.`,
-    argument,
+    `Required synchronization requested by @${actor}; merge \`${baseBranchOf(implementation)}\` and pass full verification before continuing. Pending repair scope and attempt limits are unchanged.${reach}`,
+    guidance,
     await restartState(client, implementation),
   ));
   await setAttention(client, implementation.number, false);
@@ -163,12 +223,6 @@ async function handleSync({ client, env, actor, number, argument, implementation
   }
   if (number !== implementation.number) await reply(client, number, `Synchronization requested; progress is reported on #${implementation.number}.`);
   return { outcome: 'sync requested' };
-}
-
-// `--force` as the first word of a retry skips the unchanged-restart guard; the rest is the guidance.
-function restartArgument(argument) {
-  const match = argument.match(/^--force(?:\s+|$)([\s\S]*)$/i);
-  return { force: Boolean(match), guidance: (match ? match[1] : argument).trim().slice(0, 4000) };
 }
 
 async function restartState(client, implementation) {
@@ -197,7 +251,7 @@ async function refuseUnchangedRestart(client, { name, number, implementation, fo
     '',
     '<details><summary>Other options</summary>',
     '',
-    `- If the diagnosis locates the cause on \`${base}\`, post \`/speckit fix\` with its concrete findings to author a prerequisite fix spec.`,
+    `- If the diagnosis locates the cause on \`${base}\`, post \`/speckit specify\` with its concrete findings to author a new spec for it.`,
     `- Only if the cause has already cleared (for example an outage has ended), insist with \`/speckit ${name} ${RESTART_FORCE_FLAG}\`; add the evidence after the command as guidance.`,
     '',
     '</details>',
@@ -205,25 +259,144 @@ async function refuseUnchangedRestart(client, { name, number, implementation, fo
   return true;
 }
 
-async function handleFix({ client, env, actor, number, argument, now, implementation, twin }) {
-  const started = await startFixAuthoring(client, env, { twin, implementation, guidance: argument.slice(0, 4000), actor, now: now() });
+async function handleSpecify({ client, env, actor, number, guidance, now, implementation, twin }) {
+  const started = await startFixAuthoring(client, env, { twin, implementation, guidance, actor, now: now() });
   if (!started.started) {
-    await reply(client, number, `\`/speckit fix\` cannot start: ${neutralizeMarkers(started.reason)}.`);
+    await reply(client, number, `\`/speckit specify\` cannot start: ${neutralizeMarkers(started.reason)}.`);
     return { outcome: 'refused' };
   }
-  if (number !== implementation.number) await reply(client, number, `A fix spec is being authored; its progress is reported on #${implementation.number}.`);
+  if (number !== implementation.number) await reply(client, number, `A new spec is being authored; its progress is reported on #${implementation.number}.`);
   return { outcome: 'started' };
 }
 
 const HANDLERS = {
   retry: handleRetry,
   sync: handleSync,
-  fix: handleFix,
+  specify: handleSpecify,
 };
 
-export async function main(argv, { env = process.env, log = console.log, client } = {}) {
-  const [command] = argv;
-  if (!['command', 'target'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target> (inputs come from SPECKIT_* environment variables)');
+// The one next step for a twin whose implementation cannot be requested yet.
+function implementNextStep(folder, computedStage, openChecklistItems) {
+  if (['specified', 'planned'].includes(computedStage)) {
+    return [
+      `**Recommended next step**: Complete the spec with \`/speckit-gha-author ${folder}\` in Copilot Chat (plan, tasks, checks), merge it to the default branch, and comment \`/speckit implement\` here again.`,
+      '',
+      '- **Why**: Implementation can only be requested for a spec with its task list (`tasked`).',
+    ];
+  }
+  if (computedStage === 'tasked' && openChecklistItems > 0) {
+    return [
+      `**Recommended next step**: Resolve the open items in \`specs/${folder}/checklists/\`, merge the checked checklists to the default branch, and comment \`/speckit implement\` here again.`,
+      '',
+      '- **Why**: An open checklist item means the spec is not signed off yet.',
+    ];
+  }
+  return [
+    `**Recommended next step**: Continue the implementation that already started: tasks of \`specs/${folder}/tasks.md\` are checked on the default branch, so it is implemented locally (\`/speckit-implement ${folder}\`).`,
+    '',
+    '- **Why**: GitHub automation only starts specs whose tasks are all unchecked on the default branch.',
+  ];
+}
+
+// `/speckit implement` on a spec twin: the only way to request an implementation. Checks the spec on the default
+// branch (this job's checkout) like `speckit-orchestrate.mjs request`, records who requested it in a workflow comment
+// (renderImplementRequested, read by resolveImplementRequester), sets the implement stage, and starts the scheduler.
+async function handleImplement({ client, env, actor, number, commentId, rootDir }) {
+  const issue = await client.getIssue(number);
+  const folder = hasLabel(issue, TWIN_LABEL) ? parseTwinFolder(issue.body) : null;
+  const refuse = async (reasons, next = []) => {
+    await reply(client, number, [
+      `**\`/speckit implement\` was not accepted**, @${actor}:`,
+      '',
+      ...reasons.map((reason) => `- ${reason}`),
+      ...(next.length > 0 ? ['', ...next] : []),
+    ]);
+    return { outcome: 'refused', reasons };
+  };
+  if (!folder) return refuse(['this issue is not a spec twin']);
+  if (issue.state !== 'open') return refuse(['the spec twin is closed']);
+  const entry = readSpecFolder(rootDir, folder);
+  if (!entry) {
+    if (readSpecFolder(rootDir, folder, { archived: true })) return refuse([`the spec is already implemented and archived in \`${specDir(folder, { archived: true })}\``]);
+    return refuse([`\`specs/${folder}\` does not exist on the default branch`], [`**Recommended next step**: Merge the spec folder to the default branch, wait for this twin to be updated, and comment \`/speckit implement\` here again.`]);
+  }
+  const computedStage = deriveStage(entry.artifacts, entry.tasks);
+  const openBlockers = (await client.listBlockedBy(number)).filter((blocker) => blocker.state === 'open');
+  const waits = openBlockers.length > 0
+    ? `It waits for its open prerequisites ${openBlockers.map((blocker) => `#${blocker.number}`).join(', ')} and starts once they are implemented.`
+    : 'It has no open prerequisites and starts as soon as an implementation slot is free.';
+  if (isImplementRequested(issue, computedStage)) {
+    const stage = hasLabel(issue, stageLabel(IMPLEMENT_STAGE)) ? IMPLEMENT_STAGE : IMPLEMENTING_STAGE;
+    await reply(client, number, `**Already requested**: this spec is at \`${stageLabel(stage)}\`, so nothing changed. ${stage === IMPLEMENT_STAGE ? waits : 'Its implementation pull request is open; follow it there.'}`);
+    return { outcome: 'already requested' };
+  }
+  const reasons = implementBlockers({ folder, computedStage, openChecklistItems: entry.openChecklistItems });
+  if (reasons.length > 0) return refuse(reasons, implementNextStep(folder, computedStage, entry.openChecklistItems));
+  await client.createComment(number, [
+    renderImplementRequested({ by: actor, comment: Number.isInteger(commentId) && commentId > 0 ? commentId : null }),
+    `**Implementation requested** by @${actor}: \`specs/${folder}\` is \`tasked\` and its checklists are checked on the default branch. ${waits} Its implementation pull request is opened by the scheduler and assigned to @${actor}.`,
+  ].join('\n'));
+  await updateIssueWithLabels(client, issue, stageLabelChange(issue, IMPLEMENT_STAGE));
+  try {
+    await client.dispatchWorkflow(ORCHESTRATE_WORKFLOW_FILE, defaultBranchOf(env), {});
+  } catch {
+    // The hourly scheduler run starts it.
+  }
+  return { outcome: 'requested', blockers: openBlockers.map((blocker) => blocker.number) };
+}
+
+const TWIN_HANDLERS = {
+  implement: handleImplement,
+};
+
+export const COMMAND_DOCS_FILE = '.github/workflows/README.md';
+export const COMMAND_DOCS_START = '<!-- speckit-commands:start -->';
+export const COMMAND_DOCS_END = '<!-- speckit-commands:end -->';
+const COMMAND_DOCS_REFRESH = 'node .github/scripts/speckit-commands.mjs docs --write';
+
+export function renderCommandDocs(commands = PR_COMMANDS) {
+  return [
+    COMMAND_DOCS_START,
+    `<!-- Generated from PR_COMMANDS in .github/scripts/speckit-implement-core.mjs; refresh with \`${COMMAND_DOCS_REFRESH}\`. -->`,
+    '',
+    renderCommandTable(commands),
+    '',
+    COMMAND_DOCS_END,
+  ].join('\n');
+}
+
+// Replaces the generated block between the markers; the rest of the document stays as it is.
+export function syncCommandDocs(text, commands = PR_COMMANDS) {
+  const start = text.indexOf(COMMAND_DOCS_START);
+  const end = text.indexOf(COMMAND_DOCS_END);
+  if (start < 0 || end < start) throw new CommandUsageError(`${COMMAND_DOCS_FILE} has no ${COMMAND_DOCS_START} … ${COMMAND_DOCS_END} block.`);
+  return text.slice(0, start) + renderCommandDocs(commands) + text.slice(end + COMMAND_DOCS_END.length);
+}
+
+function runDocs(args, { file = new URL('../workflows/README.md', import.meta.url), log }) {
+  const unknown = args.filter((arg) => arg !== '--write');
+  if (unknown.length > 0) throw new CommandUsageError(`Unknown docs argument: ${unknown.join(' ')}`);
+  const label = typeof file === 'string' ? file : COMMAND_DOCS_FILE;
+  const current = readFileSync(file, 'utf8');
+  const eol = current.includes('\r\n') ? '\r\n' : '\n';
+  const synced = syncCommandDocs(current.replace(/\r\n/g, '\n')).replace(/\n/g, eol);
+  if (synced === current) {
+    log(`${label}: the command table is current.`);
+    return 0;
+  }
+  if (args.includes('--write')) {
+    writeFileSync(file, synced);
+    log(`${label}: the command table was refreshed.`);
+    return 0;
+  }
+  log(`${label}: the command table is stale; run \`${COMMAND_DOCS_REFRESH}\`.`);
+  return 1;
+}
+
+export async function main(argv, { env = process.env, log = console.log, client, docsFile } = {}) {
+  const [command, ...args] = argv;
+  if (command === 'docs') return runDocs(args, { file: docsFile, log });
+  if (!['command', 'target'].includes(command)) throw new CommandUsageError('Usage: speckit-commands.mjs <command | target | docs [--write]> (command and target take their inputs from SPECKIT_* environment variables)');
   const github = client ?? createGitHubClient(env);
   if (command === 'target') {
     const pull = await runCommandTarget({ client: github, env });

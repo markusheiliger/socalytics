@@ -51,7 +51,9 @@ provider (providers under `IdentityAccess:ExternalProviders:<id>` with
 `TokenEndpointAuthMethod`, plus `IdentityAccess:ExternalSignIn:WebUiBaseUrl`
 and `PendingLifetime`); members are linked only through Club Admin link
 credentials, and SocAlytics offers no MFA for local accounts (a club that needs
-MFA uses a provider that enforces it). Self-service recovery, clients, Analyst Manager identity,
+MFA uses a provider that enforces it). Self-service password recovery by
+email is implemented as development evidence against the Mailpit mail catcher.
+Invitations, clients, Analyst Manager identity,
 production values for POL-001, POL-002, and POL-009, deployment, and
 production readiness remain deferred.
 
@@ -183,7 +185,7 @@ The durable analysis workflow is implemented as development evidence (outbox,
 NATS JetStream publication, run creation from finalized recording sets,
 readiness, fenced attempts, member-initiated run cancellation
 (`POST /api/v1/analysis/runs/{runId}/cancellation`, `cancelAnalysisRun`;
-migration `0021_analysis_run_cancellation.sql`), Analyst job and completion
+migration `0026_analysis_run_cancellation.sql`), Analyst job and completion
 contracts). Result
 write grants and validated result acceptance are implemented against the
 simulated Analyst as development evidence (migrations
@@ -219,6 +221,45 @@ without disclosure (`analysis.upstream-read-refused` audit events). Options
 (100) are development values. Contract:
 `contracts/analysis/upstream-results/v1/`.
 
+Agent Orchestration direct invocations are implemented as development evidence
+(migrations `0024_agentorchestration_conversations_and_invocations.sql` and
+`0025_agentorchestration_outbox_message_type.sql`): members who are Club Admins
+or Coaches of the owning team create private `User -> SA` conversations bound to
+one terminal successful analysis run, add enabled Specialist Agents, and submit
+questions asynchronously (`202`, conditional polling of turns, invocation, and
+lineage under `/api/v1`); the initiating user alone reads them.
+
+- Workloads authenticate as configured clients (`AgentOrchestration:Workloads:Clients`
+  with `ClientId`, `PublicJwk`, and `Enabled`) through a minimal token endpoint
+  with `private_key_jwt` and DPoP (`AgentWorkload` policy), obtain scoped NATS
+  queue credentials, and claim, renew, checkpoint, complete, or fail fenced
+  attempts. The contracts are `contracts/agent-orchestration/`
+  (`work-notification`, `execution-envelope`, `attempt-report`).
+- The outbox publishes content-free `agent-invocation-ready` notifications to a
+  JetStream work queue; the attempt monitor (lease expiry, deadlines, scope
+  loss) and the reconciliation worker run in the API host. Options:
+  `AgentOrchestration:Agents:Enabled`, `Execution` (attempt, lease, history,
+  length, and unfinished-invocation limits), `Workloads`, and `Monitor`; the
+  values are development values, not adopted production values.
+- `Tests/SocAlytics.Platform.SimulatedAgentWorkload` is the Development and Test
+  simulated agent workload that stands in for Hermes with deterministic advice;
+  the AppHost starts it with an ephemeral key. It is not an agent runtime.
+- Hermes, consultations, Coach Agents, MCP tools, lifecycle operations, the
+  Web UI, and production values remain deferred.
+
+Partial-coverage match barriers are implemented as development evidence
+against the simulated Analyst. A match-scoped capability declares partial
+coverage per required or conditional dependency on a segment-scoped upstream in
+its Analyst manifest (`upstream[].coverage`, with a minimum of at least one
+accepted segment and an optional minimum accepted fraction). The job becomes
+ready once every expected upstream segment job is final and the accepted
+segments meet the minimum, and is blocked otherwise. Its input snapshot fixes
+each segment's state, the upstream read reports that coverage, result
+acceptance rejects a manifest whose `inputCoverage` differs
+(`result-coverage-mismatch`), and the run status read reports input coverage
+counts per node. A run that bridged failed or blocked segments ends
+`PartiallyCompleted`.
+
 Real Analyst execution is implemented on the Manager's `docker-desktop`
 profile and verified against a Linux engine; Docker Desktop on Windows awaits
 manual evidence. Production transport values and production readiness remain
@@ -234,6 +275,22 @@ deferred.
   `0016_registry_queue_credentials.sql`) and pushes account revocations through
   the system account, with a retrying revocation worker. Production key custody
   and lifetimes are unresolved under `GOV-CRED-004`.
+- `Registry:ManagerVersion:Minimum` (default empty, meaning no minimum): the
+  minimum Analyst Manager version, shaped `MAJOR.MINOR.PATCH`, validated on
+  start and applied on configuration reload. The status report response
+  carries it as `minimumManagerVersion` (`null` without a minimum) and the
+  registration list and detail read by Club Admins carry it with
+  `belowMinimumVersion`. While a registration's latest reported version (before
+  its first report, the version claimed at pairing) is below it, queue
+  credentials and new claims are refused with `403` and the problem
+  `urn:socalytics:problem:analyst-manager-version-below-minimum` (extension
+  member `minimumManagerVersion`); heartbeats, result grants, and completion of
+  attempts already held continue. Each refusal increments the counter
+  `socalytics.analysis.manager_version_refusals` (tag `operation`:
+  `queue-credentials` or `claim`; no registration identifiers, no audit event).
+  The update feed, installers, and self-update do not exist yet; a Manager is
+  updated by installing a newer build by hand. The status contract is
+  `contracts/analyst-manager/status/v1` (`1.1.0`).
 - `WebUi:MinimumVersion` (default empty): the minimum Web UI release version,
   shaped `YYYY.MMDD.HHMMSS`, validated on start. When set, every `/api/**`
   response carries it in the `SocAlytics-Minimum-Web-Version` header so an older
@@ -324,6 +381,35 @@ Local database credentials are generated development-only values kept in the
 AppHost user secrets. To reset local data, stop the AppHost and run
 `docker volume rm socalytics-postgres-data`. This removes development data
 only.
+
+## Container Images
+
+The API and the Migrator each have a Dockerfile that builds a cloud-neutral OCI image from the repository root. Both
+builds require the arguments `SOCALYTICS_REVISION` and `SOCALYTICS_VERSION` (see the root
+[README](../../README.md#container-images) for the three build commands):
+
+```powershell
+docker build -f src/platform/SocAlytics.Platform.Api/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-api:local .
+docker build -f src/platform/SocAlytics.Platform.Migrator/Dockerfile --build-arg SOCALYTICS_REVISION=$revision --build-arg SOCALYTICS_VERSION=$version -t socalytics-migrator:local .
+```
+
+| Property | API image | Migrator image |
+| --- | --- | --- |
+| User | numeric `1654` (non-root; any non-root UID works) | numeric `1654` |
+| Port | `8080` (HTTP; TLS terminates outside the image) | none |
+| Hosting environment | `Production` | `Production` |
+| Writable location | tmpfs at `/tmp` (root filesystem can be read-only) | tmpfs at `/tmp` |
+| Health probe | none (`/alive` and `/health` are probed by the orchestrator) | none |
+| Lifetime | long-running | one run, then exit; do not restart after success |
+
+Configuration is read only from environment variables. The API takes its existing options, for example
+`ConnectionStrings__socalytics`, `ConnectionStrings__nats`, `Nats__Authentication__*`, `ObjectStorage__*`,
+`Email__*`, `Stamp__*`, `ClubBootstrap__*`, `IdentityAccess__*`, `WebUi__MinimumVersion`, and
+`ASPNETCORE_FORWARDEDHEADERS_ENABLED`; invalid options stop the host at start. The Migrator takes
+`ConnectionStrings__socalytics-migrator` and the optional `Migrator__*` timeouts and exits with the codes of the
+Migrator Contract. The API image contains no Migrator or DbUp, and neither image contains secret or development
+values. The images are not deployment support or production readiness; `dotnet test
+src/platform/Tests/SocAlytics.Platform.Images.Tests` (Docker required) is their evidence.
 
 ## Migrator Contract
 

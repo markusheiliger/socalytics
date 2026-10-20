@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -124,35 +125,87 @@ export function discoverMarkdownPaths(cwd, spawn = spawnSync) {
   return parseMarkdownPaths(result.stdout);
 }
 
+// Command lines stay below Windows' 32,767-character limit; the path arguments are split into several runs.
+const MAX_ARGUMENT_CHARS = 24_000;
+const FIXED_ARGUMENTS = new Map([['markdown-link-check', 3]]);
+
+export function chunkValidation(validation, maxChars = MAX_ARGUMENT_CHARS) {
+  const fixed = validation.args.slice(0, FIXED_ARGUMENTS.get(validation.tool) ?? 0);
+  const paths = validation.args.slice(fixed.length);
+  const chunks = [];
+  let current = [];
+  let length = 0;
+  for (const arg of paths) {
+    if (current.length > 0 && length + arg.length + 1 > maxChars) {
+      chunks.push(current);
+      current = [];
+      length = 0;
+    }
+    current.push(arg);
+    length += arg.length + 1;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks.map((chunk) => ({ ...validation, args: [...fixed, ...chunk] }));
+}
+
+// The paths of a newline-separated list (for example the changed files of a task) that are discovered Markdown files.
+export function selectMarkdownPaths(markdownPaths, listedPaths) {
+  const listed = new Set(listedPaths.map((file) => normalizePath(file.trim())).filter(Boolean));
+  return markdownPaths.filter((file) => listed.has(file));
+}
+
 export function runMarkdownChecks({
   cwd = process.cwd(),
   platform = process.platform,
   spawn = spawnSync,
+  files = null,
+  log = console.log,
 } = {}) {
-  const markdownPaths = discoverMarkdownPaths(cwd, spawn);
-  if (markdownPaths.length === 0) {
+  const discovered = discoverMarkdownPaths(cwd, spawn);
+  if (discovered.length === 0) {
     throw new Error('Markdown validation found no Markdown files.');
+  }
+  const markdownPaths = files === null ? discovered : selectMarkdownPaths(discovered, files);
+  if (files !== null) {
+    log(markdownPaths.length > 0
+      ? `Checking ${markdownPaths.length} changed Markdown file(s): ${markdownPaths.join(', ')}`
+      : 'No changed Markdown files to check.');
+    if (markdownPaths.length === 0) return;
   }
 
   for (const validation of createValidationCommands(markdownPaths, platform)) {
     if (validation.args.length === 0) continue;
-    const resolved = resolveValidationCommand(validation, {
-      cwd,
-      platform,
-      spawn,
-    });
-    const result = spawn(resolved.command, resolved.args, {
-      cwd,
-      stdio: 'inherit',
-      windowsHide: true,
-    });
-    requireSuccessfulProcess(result, validation.label, validation.command);
+    for (const chunk of chunkValidation(validation)) {
+      if (chunk.args.length === (FIXED_ARGUMENTS.get(chunk.tool) ?? 0)) continue;
+      const resolved = resolveValidationCommand(chunk, {
+        cwd,
+        platform,
+        spawn,
+      });
+      const result = spawn(resolved.command, resolved.args, {
+        cwd,
+        stdio: 'inherit',
+        windowsHide: true,
+      });
+      requireSuccessfulProcess(result, validation.label, validation.command);
+    }
   }
+}
+
+// `--files <list>` checks only the Markdown files named in the newline-separated list file.
+export function parseArguments(argv) {
+  const index = argv.indexOf('--files');
+  if (index < 0) return { filesFrom: null };
+  const filesFrom = argv[index + 1];
+  if (!filesFrom) throw new Error('Usage: check-markdown.mjs [--files <newline-separated list of paths>]');
+  return { filesFrom };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    runMarkdownChecks();
+    const { filesFrom } = parseArguments(process.argv.slice(2));
+    const files = filesFrom === null ? null : (existsSync(filesFrom) ? readFileSync(filesFrom, 'utf8').split(/\r?\n/) : []);
+    runMarkdownChecks({ files });
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;
