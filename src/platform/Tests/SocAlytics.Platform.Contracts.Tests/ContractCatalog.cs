@@ -15,6 +15,9 @@ public static class ContractCatalog
     private const string SchemaSuffix = ".schema.json";
     private static readonly string Root = Path.Combine(AppContext.BaseDirectory, "contracts");
 
+    public static IReadOnlyList<string> AnalysisExampleContracts { get; } =
+        ["analyst-job", "analyst-attempt", "attempt-completion", "run-state-changed", "result-manifest", "result-grants", "upstream-results", "fact-artifact"];
+
     public static IReadOnlyList<ContractSchema> Schemas
     {
         get

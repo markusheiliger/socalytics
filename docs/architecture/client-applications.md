@@ -63,18 +63,19 @@ The React Web UI supports connected platform and club workflows, including:
   Club Admins create, resend, and revoke in the members area and that invitees
   accept on a public invitation page (decided, not yet implemented; see
   [Email Notifications](email-notifications.md#member-invitations))
-- platform configuration and administration (the Analyst Registry
-  administration, the workflow operations area, and the agent catalog
-  administration for Club Admins are decided, not yet implemented; see below)
+- platform configuration and administration: the Analyst Registry
+  administration for Club Admins is implemented (connected workflow; see
+  below); the workflow operations area and the agent catalog administration
+  for Club Admins are decided, not yet implemented
 - Analyst Manager pairing for Registrars and the fleet view for Club Admins
   (implemented): registration approval, rejection, and revocation, and each
   Manager's connectivity, operating state, and activity (see
   [Analyst Manager](analyst-manager.md#fleet-visibility-in-the-web-ui))
 - match creation, recording uploads, and upload finalization (implemented as
-  connected workflows); the match page's analysis run list will offer Club
+  connected workflows); the match page's analysis run list offers Club
   Admins and Coaches of the owning team a confirmed cancel action with an
   optional reason for requested and running runs, and shows cancelled runs
-  with who cancelled them, when, and why (decided, not yet implemented); the
+  with who cancelled them, when, and why (implemented); the
   run list will also mark the match's current run and each superseded run
   with the run that superseded it, and shows a run cancelled because it was
   superseded without a member (decided, not yet implemented)
@@ -144,8 +145,8 @@ disagreed with it, a conflict marked as a disagreement; the Agent Catalog area
 shows and registers consultation policies and lets Coach Agent versions
 reference one.
 
-The Analyst Registry administration is decided as follows and not yet
-implemented. Club Admins, the only role that operates the Registry, see the
+The Analyst Registry administration is implemented as a connected workflow
+as follows. Club Admins, the only role that operates the Registry, see the
 stamp's default workflow and browse the registered Analyst images with their
 imported declarations, the Analyst profile versions with their states, and the
 workflow versions with their nodes and dependency edges as readable lists.

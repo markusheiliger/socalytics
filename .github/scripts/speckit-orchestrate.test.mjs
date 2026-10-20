@@ -5,10 +5,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { TWIN_LABEL } from './speckit-prepare-core.mjs';
-import { runSync } from './speckit-prepare.mjs';
-import { UsageError, main, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
+import { renderImplementRequested, runSync } from './speckit-prepare.mjs';
+import { UsageError, main, maintainFlakyTests, parseFlakyThreshold, resolveFolder, runOrchestrate, runRequest, runSelect, runStart } from './speckit-orchestrate.mjs';
 import { decideForPull, phaseNotStarted, runContinue, runDecide, runPlanPhase, runSync as runSyncBase } from './speckit-spec.mjs';
-import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
+import { ATTENTION_LABEL, BLOCKED_LABEL, CHECK_CONFLICT, CHECK_LIMIT, CHECK_MERGE, CHECK_PROGRESS, CHECK_RUN_NAME, CHECK_SYNC_CONFLICT, DONE_COMMENT_MARKER, RETRY_COMMENT_MARKER, START_COMMENT_MARKER, continuationOf, describeCommandEffect, parseGuidance, renderAttemptMarker, renderFixEvent, renderFlakyLines, renderFlakySpecMarker, renderRepairMarker, renderRetryComment } from './speckit-implement-core.mjs';
 import { FakeGitHub, SPEC_TEMPLATE, envFor, makeRepo, silent } from './speckit-test-helpers.mjs';
 import { CHECK_DIAGNOSING, DIAGNOSIS_STALE_MS, renderSyncComment, renderSyncBarrierMarker, renderSyncSkippedMarker, syncBarrier, unresolvedRepair } from './speckit-implement-core.mjs';
 
@@ -364,18 +364,22 @@ test('resolves the folder from the argument, environment, or feature.json', () =
   }
 });
 
-test('request flags a tasked twin with complete checklists in one update', async () => {
+test('request comments /speckit implement on a tasked twin with complete checklists, with the user\'s token', async () => {
   const { root, github } = await twinsFor([{ folder: 'a', plan: true, tasks: TASKS_OPEN }]);
   try {
     const lines = [];
     const git = fakeGit(remoteFiles('a'));
+    github.commentAuthor = 'dev';
     const result = await runRequest({ client: github, git, rootDir: root, env: {}, folder: 'a', log: (line) => lines.push(line) });
     assert.equal(result.exitCode, 0);
     const issue = github.issues[0];
-    assert.deepEqual(issue.labels.map((label) => label.name), [TWIN_LABEL, 'speckit:deps-pending', IMPLEMENT]);
-    assert.equal(github.updates.length, 1);
+    assert.deepEqual(issue.labels.map((label) => label.name), [TWIN_LABEL, 'speckit:deps-pending', 'speckit:stage:tasked'], 'the command sets the label on GitHub, not the client');
+    assert.equal(github.updates.length, 0);
+    const posted = github.comments.at(-1);
+    assert.deepEqual([posted.number, posted.body, posted.user.login], [issue.number, '/speckit implement', 'dev']);
+    assert.equal(result.comment.html_url, posted.html_url);
     assert.deepEqual(git.calls[0], ['fetch', '--quiet', 'origin', 'main']);
-    assert.match(lines.join('\n'), /Requested: .*speckit:stage:implement[\s\S]*No open blockers/);
+    assert.match(lines.join('\n'), new RegExp(`Requested: posted \`/speckit implement\` on #${issue.number} \\(${posted.html_url.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}\\)[\\s\\S]*No open blockers`));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -416,11 +420,15 @@ test('request reports blockers, already flagged twins, and failed pre-checks', a
     assert.equal(requested.code, 0);
     assert.match(requested.text, new RegExp(`Open blockers: #${b.number}`));
 
+    // The commands workflow accepted the request and set the label.
+    a.labels = [...a.labels.filter((label) => !label.name.startsWith('speckit:stage:')), { name: IMPLEMENT }];
     github.updates = [];
+    const comments = github.comments.length;
     const again = await run(remoteFiles('a'));
     assert.equal(again.code, 0);
     assert.match(again.text, /Already requested/);
     assert.equal(github.updates.length, 0);
+    assert.equal(github.comments.length, comments, 'no second request');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -512,7 +520,7 @@ test('orchestrate does not continue an implementation that is blocked by its pre
     assert.equal(chainRuns(github).length, 1, 'neither a diagnosis nor a retry starts while the prerequisite is pending');
     assert.match(blocked.text, /blocked; it waits for its prerequisite spec/);
     assert.ok(github.repo.pulls[0].labels.some((label) => label.name === BLOCKED_LABEL));
-    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"pull":99,"stage":"implement"\} -->\n\*\*Blocked\*\* by prerequisite spec #99/);
+    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"pull":99,"stage":"implement"\} -->\n\*\*Blocked\*\* by spec #99/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -606,7 +614,7 @@ test('a running implementation with a hand-added open blocker is blocked, not co
     assert.equal(chainRuns(github).length, 1, 'a blocked implementation is not continued');
     assert.ok(pull.labels.some((label) => label.name === BLOCKED_LABEL));
     assert.match(blocked.text, /blocked; it waits for its prerequisites #77/);
-    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"blockers":\[77\]\} -->\n\*\*Blocked\*\* by prerequisite #77: [\s\S]*Nothing is needed on this pull request\.[\s\S]*- \*\*Unblocks by itself\*\* once #77 is implemented/);
+    assert.match(github.comments.at(-1).body, /^<!-- speckit-implement:blocked \{"blockers":\[77\],"unrequested":\[77\]\} -->\n\*\*Blocked\*\* by prerequisite #77: [^\n]*waits instead of continuing\.\n\n\*\*Recommended next step\*\*: Comment the following on spec twin #77 to request its implementation\.\n\n```text\n\/speckit implement\n```[\s\S]*- \*\*Unblocks by itself\*\* once #77 is implemented/);
     const explained = github.comments.length;
     await orchestrate(github, root);
     assert.equal(github.comments.length, explained, 'the block is explained once');
@@ -621,7 +629,7 @@ test('a running implementation with a hand-added open blocker is blocked, not co
     const retry = github.comments.filter((comment) => comment.number === pull.number).at(-1);
     assert.ok(retry.body.startsWith(RETRY_COMMENT_MARKER), 'a fresh attempt count on the current phase base');
     assert.match(retry.body, /<!-- speckit-implement:unblocked -->\n\*\*The block is lifted\*\*: prerequisite #77 is implemented/);
-    assert.match(parseGuidance(retry.body), /prerequisite spec twin\(s\) #77/);
+    assert.match(parseGuidance(retry.body), /the spec twin\(s\) #77/);
     const retries = () => github.comments.filter((comment) => comment.body.includes('<!-- speckit-implement:unblocked -->')).length;
     await orchestrate(github, root);
     github.completeRun(github.repo.runs.at(-1).id, 'success');
@@ -649,7 +657,7 @@ test('a blocker closed as not planned lifts the block and asks for a person inst
   }
 });
 
-test('an open blocker of a running implementation is requested on behalf of its requester and starts at SPECKIT_MAX_ACTIVE_SPECS', async () => {
+test('an unrequested blocker of a running implementation never starts; once requested with /speckit implement it starts first at SPECKIT_MAX_ACTIVE_SPECS', async () => {
   const tasks = '## Phase 1\n\n- [ ] T001 one\n';
   const root = makeRepo([{ folder: 'a', plan: true, tasks }, { folder: 'b', plan: true, tasks }]);
   try {
@@ -657,26 +665,28 @@ test('an open blocker of a running implementation is requested on behalf of its 
     const github = new FakeGitHub();
     await runSync({ client: github, rootDir: root, env: envFor(root), dryRun: false, promptFile: path.join(root, 'prompt.txt'), log: silent });
     const [a, b] = github.issues;
-    assert.ok(b.labels.some((label) => label.name === 'speckit:deps-pending'), 'a prerequisite spec gets dependency inference like any spec, even with an earlier Fix for line');
+    assert.ok(b.labels.some((label) => label.name === 'speckit:deps-pending'), 'a spec authored for a stop gets dependency inference like any spec, even with an earlier Fix for line');
     b.labels = b.labels.filter((label) => label.name !== 'speckit:deps-pending');
     github.permissions.dev = 'write';
+    github.permissions.lead = 'write';
     flag(github, a);
     await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
     assert.equal(chainRuns(github).length, 1);
     github.edges.push([a.number, b.number]);
 
-    const requested = await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
-    assert.match(requested.text, new RegExp(`Requested prerequisite #${b.number} on behalf of @dev; #${a.number} waits for it`));
-    assert.deepEqual(stagesOf(github.find(b.number)), [IMPLEMENT]);
-    assert.match(github.comments.find((comment) => comment.number === b.number).body, /^<!-- speckit:flagged-for dev -->\nImplementation requested on behalf of @dev/);
-    assert.equal(github.repo.runs.at(-1).workflow, 'speckit-orchestrate.yml', 'the scheduler starts it right away');
-    // The workflow token set the flag; it counts for the requester of the waiting implementation.
-    github.events.push({ issue: b.number, event: 'labeled', label: { name: IMPLEMENT }, actor: { login: 'github-actions[bot]' }, created_at: github.tick() });
+    const waiting = await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    assert.deepEqual(stagesOf(github.find(b.number)), ['speckit:stage:tasked'], 'never requested automatically');
+    assert.equal(github.comments.filter((comment) => comment.number === b.number).length, 0);
+    assert.equal(chainRuns(github).length, 1, 'an unrequested blocker never starts');
+    assert.doesNotMatch(waiting.text, /Requested prerequisite/);
 
+    // Someone signs it off with /speckit implement on its twin (Spec Kit commands records it and sets the label).
+    await github.createComment(b.number, `${renderImplementRequested({ by: 'lead', comment: 1 })}\n**Implementation requested** by @lead.`);
+    github.find(b.number).labels = [...github.find(b.number).labels.filter((label) => !label.name.startsWith('speckit:stage:')), { name: IMPLEMENT }];
     const started = await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
-    assert.equal(chainRuns(github).at(-1).display_title, `Spec Kit implement spec #${b.number} · b title`, 'the prerequisite starts although the limit is reached');
+    assert.equal(chainRuns(github).at(-1).display_title, `Spec Kit implement spec #${b.number} · b title`, 'a requested blocker of a running implementation starts although the limit is reached');
     assert.match(started.text, new RegExp(`Started the implementation of #${b.number}`));
-    assert.equal(github.comments.filter((comment) => comment.number === b.number && comment.body.includes('speckit:flagged-for')).length, 1, 'requested once');
+    assert.deepEqual(github.repo.pulls.find((pull) => pull.head.ref === 'speckit/b').assignees, ['lead'], 'assigned to the person who signed it off');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -948,6 +958,7 @@ test('required sync survives replacement, disabled/skipped automatic sync, and b
     github.getBranchSha = getBase;
     assert.equal((await inspect()).kind, 'task');
     assert.equal(syncBarrier(github.comments), null);
+    assert.match(github.comments.at(-1).body, /\*\*Required synchronization complete\*\*: `release` at `[0-9a-z-]{1,7}` is merged and verified/, 'the release is visible, not only a marker');
     assert.equal((await inspect()).kind, 'task', 'release is durable across later runs');
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -1285,13 +1296,68 @@ test('chain: continue starts the next run, and reports a failed phase verificati
     assert.deepEqual([github.repo.runs.at(-1).workflow, github.repo.runs.at(-1).inputs], ['speckit-implement-spec.yml', { twin: String(twin.number), pull: String(pull.number), title: 'a title' }]);
     assert.equal(github.repo.runs.at(-1).display_title, `Spec Kit implement spec #${twin.number} · a title`);
     assert.equal(github.repo.checkRuns.some((check) => check.external_id === CHECK_LIMIT), false);
+    const comments = github.comments.length;
+    await runContinue({ client: github, env: { ...env, SPECKIT_PHASE_CHECK: 'success', SPECKIT_PHASE: 'Phase 1: Setup', SPECKIT_VERIFY_FLAKY: 'Ns.A.Works' }, log: silent });
+    assert.equal(github.comments.length, comments + 1, 'a passed phase verification reports only its flaky tests');
+    assert.match(github.comments.at(-1).body, /^\*\*The phase verification passed\*\* for Phase 1: Setup on `[^`]+`\.\n\n- Flaky \(passed on rerun\): `Ns\.A\.Works`\n<!-- speckit-implement:flaky \{"tests":\["Ns\.A\.Works"\]\} -->$/);
 
-    await runContinue({ client: github, env: { ...env, SPECKIT_PHASE_CHECK: 'failure' }, log: silent });
+    await runContinue({ client: github, env: { ...env, SPECKIT_PHASE_CHECK: 'failure', SPECKIT_VERIFY_FLAKY: 'Ns.B.Works' }, log: silent });
     const stop = github.repo.checkRuns.at(-1);
     assert.deepEqual([stop.external_id, stop.conclusion, stop.output.title], [CHECK_LIMIT, 'failure', 'The phase verification failed']);
-    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: the full verification at the end of the phase failed[\s\S]*actions\/runs\/42[\s\S]*covers only the tests it touched/);
-    assert.equal(github.repo.runs.filter((run) => run.workflow === 'speckit-implement-spec.yml').length, 2, 'the next run reports the stop and starts a diagnosis');
+    assert.match(github.comments.at(-1).body, /Implementation needs attention\*\* @dev: the full verification at the end of the phase failed[\s\S]*actions\/runs\/42[\s\S]*covers only the tests it touched[^\n]*\n\n- Flaky \(passed on rerun\): `Ns\.B\.Works`\n<!-- speckit-implement:flaky/);
+    assert.equal(github.repo.runs.filter((run) => run.workflow === 'speckit-implement-spec.yml').length, 3, 'the next run reports the stop and starts a diagnosis');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('the flaky-test ledger starts one non-blocking spec per test that is flaky in enough implementations', async () => {
+  const github = new FakeGitHub([5, 6, 7].map((number) => ({ number, id: number * 1000, node_id: `I_${number}`, state: 'open', title: `T${number}`, body: '', labels: [] })));
+  github.permissions.dev = 'write';
+  github.humanLabel(6, IMPLEMENT, 'dev');
+  const day = 24 * 60 * 60 * 1000;
+  const pull = (number, ref, twin, fields = {}) => {
+    github.repo.branches[ref] = `sha-${number}`;
+    github.repo.pulls.push({ number, node_id: `PR_${number}`, title: `Implement: ${ref}`, body: `Closes #${twin}\n`, draft: true, state: 'open', merged_at: null, base: { ref: 'main', repo: { full_name: 'octo/repo' } }, head: { ref, sha: `sha-${number}`, repo: { full_name: 'octo/repo' } }, user: { login: 'dev' }, created_at: github.tick(), ...fields });
+  };
+  const flaky = (number, tests) => github.createComment(number, [`**T001 implemented** (attempt 1)`, '', ...renderFlakyLines(tests)].join('\n'));
+  pull(20, 'speckit/a', 5);
+  pull(22, 'speckit/c', 7, { state: 'closed', merged_at: new Date(github.clock - 2 * day).toISOString(), updated_at: new Date(github.clock - 2 * day).toISOString() });
+  pull(23, 'speckit/d', 7, { state: 'closed', merged_at: new Date(github.clock - 20 * day).toISOString(), updated_at: new Date(github.clock - 20 * day).toISOString() });
+  pull(24, 'speckit-amend/a', 5);
+  pull(21, 'speckit/b', 6);
+  for (const number of [23, 22, 20]) await flaky(number, ['Ns.Store.Saves', 'Ns.Covered.Test']);
+  await flaky(24, ['Ns.Store.Saves']);
+  github.commentAuthor = 'mallory';
+  for (const number of [20, 21, 22]) await flaky(number, ['Ns.Forged.Test']);
+  github.commentAuthor = undefined;
+  await github.createComment(22, renderFlakySpecMarker('Ns.Covered.Test'));
+  const env = { GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main' };
+
+  const below = await maintainFlakyTests(github, env, { now: github.clock });
+  assert.deepEqual(below.started, [], 'only two implementations in the window (the old merge and the amendment do not count)');
+
+  await flaky(21, ['Ns.Store.Saves', 'Ns.Covered.Test']);
+  await flaky(20, ['Ns.Other.Test']);
+  const result = await maintainFlakyTests(github, env, { now: github.clock });
+  assert.deepEqual(result.started, [{ test: 'Ns.Store.Saves', pull: 21, pulls: [21, 20, 22] }], 'started on the open pull request where it was flaky most recently');
+  assert.match(result.lines.join('\n'), /`Ns\.Store\.Saves` was flaky in #20, #21, #22; started a spec to make it deterministic on #21\./);
+  const specify = github.repo.runs.filter((run) => run.workflow === 'speckit-specify.lock.yml');
+  assert.equal(specify.length, 1);
+  assert.deepEqual([specify[0].inputs.twin, specify[0].inputs.pull, specify[0].inputs.mode], ['6', '21', 'author']);
+  assert.match(specify[0].inputs.guidance, /The test `Ns\.Store\.Saves` failed and then passed on its one rerun in the verifications of 3 implementation pull requests \(#20, #21, #22\)[\s\S]*Do not weaken, skip, or delete the test/);
+  const onPull = github.comments.filter((comment) => comment.number === 21);
+  assert.match(onPull.at(-2).body, /^<!-- speckit-fix:requested \{"by":"dev","stamp":"\d{8}-\d{6}","link":false\} -->/);
+  assert.match(onPull.at(-1).body, /^<!-- speckit-implement:flaky-spec \{"test":"Ns\.Store\.Saves"\} -->\n\*\*Flaky test\*\* `Ns\.Store\.Saves` passed only on its rerun in 3 implementations/);
+  assert.ok(!(github.repo.pulls.find((item) => item.number === 21).labels ?? []).some((label) => [BLOCKED_LABEL, ATTENTION_LABEL].includes(label.name)));
+
+  github.repo.checkRuns.at(-1).status = 'completed';
+  const again = await maintainFlakyTests(github, env, { now: github.clock });
+  assert.deepEqual(again.started, [], 'a test is started once');
+  assert.equal(github.repo.runs.filter((run) => run.workflow === 'speckit-specify.lock.yml').length, 1);
+  assert.equal(parseFlakyThreshold('2'), 2);
+  assert.equal(parseFlakyThreshold(''), 3);
+  assert.equal(parseFlakyThreshold('x'), 3);
+  const lower = await maintainFlakyTests(github, { ...env, SPECKIT_FLAKY_THRESHOLD: '1' }, { now: github.clock });
+  assert.match(lower.lines.join('\n'), /`Ns\.Other\.Test` was flaky in #20; started a spec/);
 });

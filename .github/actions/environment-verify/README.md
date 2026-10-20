@@ -2,7 +2,15 @@
 
 `environment-verify` is the optional composite action the Spec Kit workflows run to verify a change. This page describes only what the action executes today. It is build-environment behavior, not product documentation, and it neither approves a product nor shows production readiness.
 
-The action keeps its inputs (`workspace`, `mode`, `changed-files`, `log-file`) and outputs (`checks`, `uncovered`). It runs in a read-only job without token environment variables, because the checks execute agent-written code. Its header in [`action.yml`](action.yml) is the authoritative description of the platform, Analyst Manager, and Web UI checks; this page adds the Analyst Python check, the environment action tests, and the shared coverage rules.
+The action keeps its inputs (`workspace`, `mode`, `changed-files`, `log-file`) and outputs (`checks`, `uncovered`, `flaky`). It runs in a read-only job without token environment variables, because the checks execute agent-written code. Its header in [`action.yml`](action.yml) is the authoritative description of the platform, Analyst Manager, and Web UI checks; this page adds the Analyst Python check, the environment action tests, the rerun of failed tests, and the shared coverage rules.
+
+## Rerun of failed tests
+
+Every .NET test project runs with a TRX log (`--logger trx --results-directory <temporary folder>`), in task mode with the task's test filter. When a project fails, the action reads the fully qualified names of its failed tests from the log (the `className` and `name` of each failed test's definition). When at most 10 tests failed, only those run once more with `dotnet test <project> --no-build --filter "FullyQualifiedName=A|FullyQualifiedName=B"` (filter special characters escaped). When that rerun passes, the project passes and the tests are recorded as flaky; otherwise the project fails as before. More than 10 failed tests, or a log that names none, fail the project without a rerun. A failing project still does not stop the later projects.
+
+The Web UI browser tests run as `npm run test:e2e -- --retries=1`, so Playwright retries a failed test once; the tests that its list or line reporter shows under `N flaky` are recorded as flaky.
+
+The `flaky` output lists the recorded tests once each, comma-separated (a comma inside a name becomes a semicolon), and the log and the step summary list them too. The Spec Kit workflows show them in their verification comments and track tests that are flaky in several implementations.
 
 ## Analyst Python projects
 
@@ -70,6 +78,8 @@ The check "Environment action tests" runs `node --test` over [`analyst-projects.
 ## Check order and coverage
 
 Checks run in this order and stop at the first failing check: platform build and tests, Analyst Manager build and tests, Web UI build and tests, Analyst Python projects, Environment action tests, and Markdown check. The `checks` output lists the checks that ran, and after a failure the last one failed.
+
+The Markdown check runs when a Markdown file changed and in `finalize` mode. In `task` mode (a task or a parallel group) it checks only the changed Markdown files (`check-markdown.mjs --files`), so a broken file elsewhere on the base branch does not fail the task; `phase` and `finalize` check every Markdown file of the repository.
 
 The `uncovered` output lists changed files that no check covers, and the workflows hold such changes for review. These paths are covered:
 

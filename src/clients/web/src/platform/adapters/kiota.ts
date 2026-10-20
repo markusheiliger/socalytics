@@ -7,6 +7,7 @@ import {
 import { createProblemDetailsFromDiscriminatorValue } from '../../generated/platform-api/models';
 import type { PlatformApiClient } from '../../generated/platform-api/platformApiClient';
 import { toPlatformFailure } from '../failure';
+import { ResponseMetadataOption } from '../middleware/responseMetadata';
 
 export interface PlatformApi {
   adapter: RequestAdapter;
@@ -47,6 +48,24 @@ export async function sendFor<T extends Parsable>(
   } catch (error) {
     throw toPlatformFailure(error);
   }
+}
+
+export interface ResponseWithMetadata<T> {
+  body: T;
+  status: number | undefined;
+  etag: string | undefined;
+}
+
+/** Like `sendFor`, and also returns the response status and `ETag` header (research.md § R3). */
+export async function sendWithMetadataFor<T extends Parsable>(
+  api: PlatformApi,
+  info: RequestInformation,
+  factory: ParsableFactory<T>,
+): Promise<ResponseWithMetadata<T>> {
+  const option = new ResponseMetadataOption();
+  info.addRequestOptions([option]);
+  const body = await sendFor(api, info, factory);
+  return { body, status: option.status, etag: option.etag };
 }
 
 export async function sendNoContentFor(api: PlatformApi, info: RequestInformation): Promise<void> {

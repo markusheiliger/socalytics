@@ -298,4 +298,5 @@ jobs:
           SPECKIT_PHASE_CHECK: ${{ needs.phase.outputs.verified }}
           SPECKIT_PHASE: ${{ needs.phase.outputs.phase }}
           SPECKIT_ORDER: ${{ needs.phase.outputs.order }}
+          SPECKIT_VERIFY_FLAKY: ${{ needs.phase.outputs.flaky }}
         run: node .github/scripts/speckit-spec.mjs continue
