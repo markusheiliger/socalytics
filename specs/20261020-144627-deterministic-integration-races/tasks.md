@@ -29,7 +29,7 @@ description: "Task list for Bounded Wait for the Simulated Agent Workload Advice
 
 ### Hardening
 
-- [ ] T001 [US1] Replace the 30-second runner cancellation and polling deadline of `RunnerClaimsAndCompletesASubmittedInvocationSoTheOwnerReadsSimulatedAdvice` with one generous limit (120 seconds) for the polling deadline and the same limit plus a small margin (for example 5 seconds) for the runner's `CancelAfter`, in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadTests.cs`, so the runner outlives the wait and the test returns as soon as the advice is readable; leave every assertion and the other tests unchanged (FR-001 to FR-003)
+- [x] T001 [US1] Replace the 30-second runner cancellation and polling deadline of `RunnerClaimsAndCompletesASubmittedInvocationSoTheOwnerReadsSimulatedAdvice` with one generous limit (120 seconds) for the polling deadline and the same limit plus a small margin (for example 5 seconds) for the runner's `CancelAfter`, in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/AgentOrchestration/SimulatedAgentWorkloadTests.cs`, so the runner outlives the wait and the test returns as soon as the advice is readable; leave every assertion and the other tests unchanged (FR-001 to FR-003)
 
 ### Verification
 
