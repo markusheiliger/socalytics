@@ -17,11 +17,14 @@ Otherwise leave `FOLDER` empty so the active feature from `.specify/feature.json
    - `node .github/scripts/speckit-orchestrate.mjs request --folder <FOLDER>` when `FOLDER` is set;
    - `node .github/scripts/speckit-orchestrate.mjs request` otherwise.
 
-   Do not edit files, create commits, or change labels yourself; the command does everything.
+   Do not edit files, create commits, or change labels yourself; the command does everything: after its checks it
+   posts the comment `/speckit implement` on the spec twin with your GitHub token, which records who requested the
+   implementation (the `speckit:stage:*` labels are set only by the GitHub bot).
 
 2. Report the command output to the user, interpreting its exit code:
-   - **0**: the spec twin is flagged `speckit:stage:implement` (or already was). Share the issue link and say that the
-     Spec Kit prepare workflow validates the request on GitHub. List any open blockers it reported; the
+   - **0**: `/speckit implement` was posted on the spec twin (or the twin was already requested). Share the comment
+     or issue link and say that the `Spec Kit commands` workflow validates the request on GitHub, records it, and
+     starts the implementation. List any open blockers it reported; the
      speckit-orchestrate workflow starts after they are closed.
    - **1**: the request was not made. Explain every reason it printed and the next step, for example:
      - spec not merged to the default branch, or no twin yet: merge the spec, plan, and tasks first; the twin appears after the merge;
