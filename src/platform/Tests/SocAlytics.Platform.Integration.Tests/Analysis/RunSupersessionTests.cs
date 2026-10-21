@@ -456,4 +456,237 @@ public sealed class RunSupersessionTests(PostgresContainerFixture postgres, Nats
 		(await ScalarAsync<string>(db, $"SELECT cancellation_cause FROM socalytics.analysis_runs WHERE id = '{older}'", ct)).ShouldBe("superseded");
 		(await ScalarAsync<Guid>(db, $"SELECT superseding_run_id FROM socalytics.analysis_run_supersessions WHERE run_id = '{older}'", ct)).ShouldBe(newer);
 	}
+
+	private static async Task<Guid> SeedEndedAsync(
+		IsolatedDatabase db, ClubHierarchy hierarchy, Guid recordingSet, DateTimeOffset finalizedAt, string state, string workflow, CancellationToken ct)
+	{
+		var run = Guid.NewGuid();
+		var node = Guid.NewGuid();
+		var at = DateTimeOffset.UtcNow.AddMinutes(-1);
+		var terminal = state is "PartiallyCompleted" or "Failed";
+		await using var c = await OpenAsync(db, ct);
+		await c.ExecuteAsync(new CommandDefinition(
+			"""
+			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities, completion_policy, state, failure_reason, created_at, running_at, terminated_at, updated_at)
+			VALUES (@run, @team, @match, @set, @fin, @wf, '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', @state, @failure, @at, @running, @terminated, @at);
+			INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
+			VALUES (@node, @run, 'm1', 'cap-a', '1.0.0', 'high-level', 'match', 0, 'Active', @at);
+			INSERT INTO socalytics.analysis_logical_jobs (id, run_id, node_id, execution_scope, state, updated_at)
+			VALUES (gen_random_uuid(), @run, @node, 'match', 'Waiting', @at);
+			""",
+			new
+			{
+				run, node, team = hierarchy.TeamId, match = hierarchy.MatchId, set = recordingSet, fin = finalizedAt, wf = workflow, state, at,
+				failure = state == "Failed" ? "capability-failed" : null,
+				running = state == "Requested" ? (DateTimeOffset?)null : at,
+				terminated = terminal ? at : (DateTimeOffset?)null,
+			},
+			cancellationToken: ct));
+		return run;
+	}
+
+	private static async Task<HttpResponseMessage> CancelAsync(ApiSession session, Guid run, long version, CancellationToken ct)
+	{
+		var request = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/analysis/runs/{run}/cancellation");
+		request.Headers.Add("X-CSRF-Token", session.AntiforgeryToken);
+		request.Headers.TryAddWithoutValidation("If-Match", $"\"{version}\"");
+		request.Content = JsonContent.Create(new { reason = "Wrong recordings." });
+		return await session.Client.SendAsync(request, ct);
+	}
+
+	private static async Task<JsonElement> GetJsonAsync(ApiSession session, string url, CancellationToken ct)
+	{
+		using var response = await session.Client.GetAsync(url, ct);
+		response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync(ct));
+		return await response.Content.ReadFromJsonAsync<JsonElement>(ct);
+	}
+
+	private static async Task<(JsonElement Status, JsonElement Item)> ReadRunAsync(ApiSession session, ClubHierarchy hierarchy, Guid run, CancellationToken ct)
+	{
+		var status = await GetJsonAsync(session, $"/api/v1/analysis/runs/{run}", ct);
+		var list = await GetJsonAsync(session, $"/api/v1/matches/{hierarchy.MatchId}/analysis-runs", ct);
+		var item = list.GetProperty("items").EnumerateArray().Single(i => i.GetProperty("runId").GetGuid() == run);
+		return (status, item);
+	}
+
+	private static bool IsNull(JsonElement e, string name) => !e.TryGetProperty(name, out var v) || v.ValueKind == JsonValueKind.Null;
+
+	[Fact]
+	public async Task EndedRunsKeepTheirRecordsAndReportSupersessionThroughReads()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (host, db, coach, hierarchy, _) = await StartAsync(ct);
+		await using var _ = host;
+		var sink = new List<(string Name, Dictionary<string, object?> Tags)>();
+		using var listener = Listen(sink);
+
+		(await GetJsonAsync(coach, $"/api/v1/matches/{hierarchy.MatchId}/analysis-runs", ct)).GetProperty("items").GetArrayLength().ShouldBe(0);
+
+		var setA = await RecordingFinalizationHelper.FinalizeAsync(coach, hierarchy.MatchId, 1, ct);
+		var finalizedAt = await FinalizedAtAsync(host, setA.RecordingSetVersionId, ct);
+		var seeded = await SeedRunningAsync(host, db, hierarchy, setA.RecordingSetVersionId, ct);
+		var completed = seeded.Run;
+		await using (var c = await OpenAsync(db, ct))
+		{
+			await c.ExecuteAsync(new CommandDefinition(
+				"UPDATE socalytics.analysis_runs SET state = 'Completed', terminated_at = now() WHERE id = @completed", new { completed }, cancellationToken: ct));
+		}
+
+		var partial = await SeedEndedAsync(db, hierarchy, setA.RecordingSetVersionId, finalizedAt, "PartiallyCompleted", "wf-partial", ct);
+		var failed = await SeedEndedAsync(db, hierarchy, setA.RecordingSetVersionId, finalizedAt, "Failed", "wf-failed", ct);
+		var cancelled = await SeedEndedAsync(db, hierarchy, setA.RecordingSetVersionId, finalizedAt, "Running", "wf-cancelled", ct);
+		var cancelVersion = await ScalarAsync<long>(db, $"SELECT version FROM socalytics.analysis_runs WHERE id = '{cancelled}'", ct);
+		using (var cancel = await CancelAsync(coach, cancelled, cancelVersion, ct))
+		{
+			cancel.StatusCode.ShouldBe(HttpStatusCode.OK, await cancel.Content.ReadAsStringAsync(ct));
+		}
+
+		var ended = new[] { completed, partial, failed, cancelled };
+		var states = new Dictionary<Guid, string> { [completed] = "Completed", [partial] = "PartiallyCompleted", [failed] = "Failed", [cancelled] = "Cancelled" };
+		var before = new Dictionary<Guid, string>();
+		var outboxBefore = new Dictionary<Guid, long>();
+		var statusBefore = new Dictionary<Guid, JsonElement>();
+		foreach (var run in ended)
+		{
+			before[run] = await RunSnapshotAsync(db, run, ct);
+			outboxBefore[run] = await ScalarAsync<long>(db, $"SELECT count(*) FROM socalytics.outbox_messages WHERE message_type = 'analysis.run-state-changed' AND run_id = '{run}'", ct);
+			statusBefore[run] = (await ReadRunAsync(coach, hierarchy, run, ct)).Status;
+			(await ScalarAsync<long>(db, $"SELECT count(*) FROM socalytics.analysis_run_supersessions WHERE run_id = '{run}'", ct)).ShouldBe(0);
+		}
+
+		var acceptedBefore = await RowsAsync(db, $"SELECT * FROM socalytics.analysis_accepted_results WHERE run_id = '{completed}'", ct);
+		var auditBefore = await ScalarAsync<long>(db, "SELECT count(*) FROM socalytics.security_audit_event WHERE event_type = 'analysis.run-superseded'", ct);
+		var cancelledAuditBefore = await ScalarAsync<long>(db, $"SELECT count(*) FROM socalytics.security_audit_event WHERE resource_id = '{cancelled}'", ct);
+		host.Time.Advance(TimeSpan.FromSeconds(5));
+
+		var setB = await RecordingFinalizationHelper.FinalizeAsync(coach, hierarchy.MatchId, 1, ct);
+		var newer = await HandleAsync(host, await NotificationAsync(host, setB.RecordingSetVersionId, ct), ct);
+
+		foreach (var run in ended)
+		{
+			var snapshotAfter = await RunSnapshotAsync(db, run, ct);
+			snapshotAfter.ShouldBe(before[run]);
+
+			await using var c = await OpenAsync(db, ct);
+			var supersession = await c.QuerySingleAsync<(Guid By, DateTimeOffset At, string Previous)>(new CommandDefinition(
+				"SELECT superseding_run_id, superseded_at, previous_state FROM socalytics.analysis_run_supersessions WHERE run_id = @run",
+				new { run }, cancellationToken: ct));
+			supersession.By.ShouldBe(newer);
+			supersession.Previous.ShouldBe(states[run], StringCompareShould.IgnoreCase);
+			(await c.ExecuteScalarAsync<long>(new CommandDefinition(
+				"SELECT count(*) FROM socalytics.outbox_messages WHERE message_type = 'analysis.run-state-changed' AND run_id = @run",
+				new { run }, cancellationToken: ct))).ShouldBe(outboxBefore[run]);
+
+			var (status, item) = await ReadRunAsync(coach, hierarchy, run, ct);
+			foreach (var view in new[] { status, item })
+			{
+				view.GetProperty("state").GetString().ShouldBe(states[run]);
+				view.GetProperty("isCurrent").GetBoolean().ShouldBeFalse();
+				view.GetProperty("supersededBy").GetProperty("runId").GetGuid().ShouldBe(newer);
+				view.GetProperty("supersededBy").GetProperty("recordingSetVersionId").GetGuid().ShouldBe(setB.RecordingSetVersionId);
+				view.GetProperty("supersededBy").GetProperty("recordingSetFinalizedAt").ValueKind.ShouldBe(JsonValueKind.String);
+				view.GetProperty("supersededAt").GetDateTimeOffset().ShouldBe(supersession.At);
+				view.GetProperty("terminatedAt").ValueKind.ShouldBe(JsonValueKind.String);
+				view.GetProperty("version").GetInt64().ShouldBe(statusBefore[run].GetProperty("version").GetInt64());
+				view.GetProperty("terminatedAt").GetDateTimeOffset().ShouldBe(statusBefore[run].GetProperty("terminatedAt").GetDateTimeOffset());
+				if (run == failed)
+				{
+					view.GetProperty("failureReason").GetString().ShouldBe("capability-failed");
+				}
+
+				if (run == cancelled)
+				{
+					view.GetProperty("cancellationCause").GetString().ShouldBe("member");
+					view.GetProperty("cancelledBy").GetProperty("accountName").GetString().ShouldBe("coach-1");
+					view.GetProperty("cancellationReason").GetString().ShouldBe("Wrong recordings.");
+				}
+				else
+				{
+					IsNull(view, "cancellationCause").ShouldBeTrue();
+					IsNull(view, "cancelledBy").ShouldBeTrue();
+				}
+			}
+		}
+
+		(await ScalarAsync<long>(db, "SELECT count(*) FROM socalytics.security_audit_event WHERE event_type = 'analysis.run-superseded'", ct)).ShouldBe(auditBefore);
+		(await ScalarAsync<long>(db, $"SELECT count(*) FROM socalytics.security_audit_event WHERE resource_id = '{cancelled}'", ct)).ShouldBe(cancelledAuditBefore);
+		(await RowsAsync(db, $"SELECT * FROM socalytics.analysis_accepted_results WHERE run_id = '{completed}'", ct)).ShouldBe(acceptedBefore);
+		lock (sink)
+		{
+			sink.Count(m => m.Name == "socalytics.analysis.runs_superseded" && (string?)m.Tags["previous"] == "ended").ShouldBe(4);
+			sink.ShouldNotContain(m => m.Name == "socalytics.analysis.runs_superseded" && (string?)m.Tags["previous"] == "active");
+		}
+
+		// Results of superseded runs stay readable through the existing reads.
+		(await ScalarAsync<long>(db, $"SELECT count(*) FROM socalytics.analysis_accepted_results WHERE run_id = '{completed}'", ct)).ShouldBe(1);
+		(await GetJsonAsync(coach, $"/api/v1/analysis/runs/{completed}", ct)).GetProperty("state").GetString().ShouldBe("Completed");
+
+		// The cancellation feature's idempotent answer works because the run's version did not change.
+		var cancelledVersion = statusBefore[cancelled].GetProperty("version").GetInt64();
+		using (var repeat = await CancelAsync(coach, cancelled, cancelledVersion, ct))
+		{
+			repeat.StatusCode.ShouldBe(HttpStatusCode.OK, await repeat.Content.ReadAsStringAsync(ct));
+			var body = await repeat.Content.ReadFromJsonAsync<JsonElement>(ct);
+			body.GetProperty("version").GetInt64().ShouldBe(cancelledVersion);
+			body.GetProperty("cancellationCause").GetString().ShouldBe("member");
+			body.GetProperty("state").GetString().ShouldBe("Cancelled");
+		}
+
+		(await ScalarAsync<long>(db, $"SELECT version FROM socalytics.analysis_runs WHERE id = '{cancelled}'", ct)).ShouldBe(cancelledVersion);
+		(await ScalarAsync<long>(db, $"SELECT count(*) FROM socalytics.security_audit_event WHERE resource_id = '{cancelled}'", ct)).ShouldBe(cancelledAuditBefore);
+
+		// Exactly one run of the match is current.
+		var list = await GetJsonAsync(coach, $"/api/v1/matches/{hierarchy.MatchId}/analysis-runs", ct);
+		var current = list.GetProperty("items").EnumerateArray().Where(i => i.GetProperty("isCurrent").GetBoolean()).ToList();
+		current.Count.ShouldBe(1);
+		current[0].GetProperty("runId").GetGuid().ShouldBe(newer);
+		IsNull(current[0], "supersededBy").ShouldBeTrue();
+		IsNull(current[0], "supersededAt").ShouldBeTrue();
+
+		// Members without a role on the owning team get not found.
+		await TestMembers.SeedAsync(db, "outsider-1", cancellationToken: ct);
+		var outsider = await ApiSession.SignInAsync(host.Factory, "outsider-1", TestMembers.DefaultPassword, ct);
+		using var hiddenRun = await outsider.Client.GetAsync($"/api/v1/analysis/runs/{completed}", ct);
+		hiddenRun.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+		using var hiddenList = await outsider.Client.GetAsync($"/api/v1/matches/{hierarchy.MatchId}/analysis-runs", ct);
+		hiddenList.StatusCode.ShouldBe(HttpStatusCode.NotFound);
+	}
+
+	[Fact]
+	public async Task SupersededCancellationReportsCauseWithoutMemberAndCurrentRunMovesWithNewerVersions()
+	{
+		var ct = TestContext.Current.CancellationToken;
+		var (host, db, coach, hierarchy, _) = await StartAsync(ct);
+		await using var _ = host;
+
+		var setA = await RecordingFinalizationHelper.FinalizeAsync(coach, hierarchy.MatchId, 1, ct);
+		var older = await SeedRequestedAsync(host, db, hierarchy, setA.RecordingSetVersionId, ct);
+		host.Time.Advance(TimeSpan.FromSeconds(5));
+
+		var setB = await RecordingFinalizationHelper.FinalizeAsync(coach, hierarchy.MatchId, 1, ct);
+		var middle = await HandleAsync(host, await NotificationAsync(host, setB.RecordingSetVersionId, ct), ct);
+
+		var (status, item) = await ReadRunAsync(coach, hierarchy, older, ct);
+		foreach (var view in new[] { status, item })
+		{
+			view.GetProperty("state").GetString().ShouldBe("Cancelled");
+			view.GetProperty("cancellationCause").GetString().ShouldBe("superseded");
+			IsNull(view, "cancelledBy").ShouldBeTrue();
+			IsNull(view, "cancellationReason").ShouldBeTrue();
+			view.GetProperty("isCurrent").GetBoolean().ShouldBeFalse();
+			view.GetProperty("supersededBy").GetProperty("runId").GetGuid().ShouldBe(middle);
+			view.GetProperty("supersededAt").ValueKind.ShouldBe(JsonValueKind.String);
+		}
+
+		host.Time.Advance(TimeSpan.FromSeconds(5));
+		var setC = await RecordingFinalizationHelper.FinalizeAsync(coach, hierarchy.MatchId, 1, ct);
+		var newest = await HandleAsync(host, await NotificationAsync(host, setC.RecordingSetVersionId, ct), ct);
+
+		var list = await GetJsonAsync(coach, $"/api/v1/matches/{hierarchy.MatchId}/analysis-runs", ct);
+		var items = list.GetProperty("items").EnumerateArray().ToList();
+		items.Count.ShouldBe(3);
+		items.Where(i => i.GetProperty("isCurrent").GetBoolean()).Select(i => i.GetProperty("runId").GetGuid()).ShouldBe([newest]);
+		items.Single(i => i.GetProperty("runId").GetGuid() == middle).GetProperty("supersededBy").GetProperty("runId").GetGuid().ShouldBe(newest);
+		items.Single(i => i.GetProperty("runId").GetGuid() == older).GetProperty("supersededBy").GetProperty("runId").GetGuid().ShouldBe(middle);
+	}
 }
