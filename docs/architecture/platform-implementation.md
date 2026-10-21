@@ -563,8 +563,11 @@ Hermes directly. The complete persistence, transport, authorization, fencing,
 and recovery contract is defined by
 [Intelligence and Agents](intelligence-and-agents.md#agent-orchestration-authority).
 The Web UI's direct Specialist Agent triage conversations exist as development
-evidence. MCP tools, prompt/profile resolution, model execution, and the Web
-UI's Coach Agent and consultation workflows remain future implementation work.
+evidence. The agent catalog registry, pinning at submission, and the
+attempt-scoped artifact read exist as development evidence (see below); prompt
+and profile rendering, MCP tools, model execution, the Web UI's catalog
+administration, and the Web UI's Coach Agent and consultation workflows remain
+future implementation work.
 
 The first slice is implemented as development evidence: an `AgentOrchestration`
 folder in each platform layer stores conversations, participants, invocations,
@@ -579,7 +582,7 @@ Test and is started by the AppHost, executes direct specialist invocations with
 deterministic simulated advice in place of Hermes. See
 [Intelligence and Agents](intelligence-and-agents.md#client-transport-and-runtime-protocol).
 
-The agent catalog registry is decided and not yet implemented: a `Catalog`
+The agent catalog registry is implemented as development evidence: a `Catalog`
 folder inside the Agent Orchestration functional area of each layer stores
 immutable agent catalog artifacts (`agent_catalog_artifacts`), agent versions
 with their draft, approved, and retired lifecycle (`agent_versions`), one
@@ -587,11 +590,12 @@ enablement row per catalog agent identifier (`agent_enablements`), and the
 references pinned into each invocation at submission (`agent_invocation_pins`).
 Records are validated at runtime against the embedded `contracts/agent-catalog/`
 schemas and addressed by the SHA-256 digest of their canonical JSON. The
-catalog enablement replaces the configured list of enabled specialists, and in
+catalog enablement replaces the former configured list of enabled specialists, and in
 Development and Test a seed registers and enables `specialist-tactics` and
 `specialist-video-analysis` from the catalog's first-draft prompts with a
-simulated model provider. Club Admins will operate the catalog from the Web
-UI's Agent Catalog area (decided, not yet implemented; see
+simulated model provider. Club Admins operate the catalog through the `/api/v1`
+agent catalog operations and will operate it from the Web UI's Agent Catalog
+area (decided, not yet implemented; see
 [Client Applications → Web UI](client-applications.md#web-ui)). See
 [Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance).
 

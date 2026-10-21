@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "philosophy-profile",
+  "id": "coach-pep-guardiola",
+  "version": "1.0.0",
+  "dimensionSet": { "id": "coach-philosophy-dimensions", "version": "1.0.0" },
+  "weights": {
+    "pressing-intensity": { "weight": 15, "rationale": "Provisional hypothesis: pressing to regain possession quickly.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "possession-control": { "weight": 20, "rationale": "Provisional hypothesis: control of possession and phases as a primary attention share.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "positional-structure": { "weight": 20, "rationale": "Provisional hypothesis: positional shape and spacing as a primary attention share.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "spatial-compactness": { "weight": 10, "rationale": "Provisional hypothesis: occupation of space supports the structure.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "transition-threat": { "weight": 10, "rationale": "Provisional hypothesis: transitions are managed rather than sought.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "set-play-leverage": { "weight": 5, "rationale": "Provisional hypothesis: restarts receive a small attention share.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "vertical-progression": { "weight": 10, "rationale": "Provisional hypothesis: progression through structured build-up.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "game-state-adaptation": { "weight": 10, "rationale": "Provisional hypothesis: adjustments to opponent behavior and phase.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." }
+  },
+  "author": "SocAlytics architecture",
+  "reviewers": { "architecture": ["architecture-review"], "footballDomain": ["football-domain-review"] }
+}

@@ -1,5 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
+using NATS.Client.Core;
+using NATS.Client.JetStream;
 using Testcontainers.Nats;
 using Xunit;
 
@@ -30,7 +32,33 @@ public sealed class NatsContainerFixture : IAsyncLifetime
 
     public Task StopAsync() => _container!.StopAsync();
 
-    public Task StartAsync() => _container!.StartAsync();
+    public async Task StartAsync()
+    {
+        await _container!.StartAsync();
+        await WaitForJetStreamAsync();
+    }
+
+    // A restarted container still holds its earlier "ready" log line, so the wait strategy
+    // returns before the server accepts JetStream requests again.
+    private async Task WaitForJetStreamAsync()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (true)
+        {
+            try
+            {
+                using var attempt = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+                await using var connection = new NatsConnection(new NatsOpts { Url = ConnectionString });
+                await connection.ConnectAsync();
+                await new NatsJSContext(connection).GetAccountInfoAsync(attempt.Token);
+                return;
+            }
+            catch (Exception) when (DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(200);
+            }
+        }
+    }
 
     /// <summary>Replaces the container with an empty one on the same host port.</summary>
     public async Task ReplaceAsync()

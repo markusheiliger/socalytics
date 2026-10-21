@@ -1,0 +1,6 @@
+{
+  "carries-api-key.json": "additionalProperties",
+  "deployment-with-at.json": "pattern",
+  "temperature-above-two.json": "maximum",
+  "unknown-provider.json": "enum"
+}

@@ -1,6 +1,6 @@
-using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.AgentOrchestration.Catalog;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Domain.AgentOrchestration;
 using SocAlytics.Platform.Domain.IdentityAccess;
@@ -11,7 +11,7 @@ public sealed class ListAvailableAgentsHandler(
     IUnitOfWork unitOfWork,
     IMemberAccountStore accounts,
     IRequestContext requestContext,
-    IOptions<AgentOrchestrationOptions> options)
+    IAgentEnablementStore enablements)
 {
     public async Task<OperationResult<IReadOnlyList<AvailableAgentView>>> HandleAsync(CancellationToken cancellationToken)
     {
@@ -37,12 +37,14 @@ public sealed class ListAvailableAgentsHandler(
             return OperationFailure.Forbidden();
         }
 
-        var enabled = options.Value.Agents.Enabled;
+        var records = await enablements.ListAsync(cancellationToken);
         IReadOnlyList<AvailableAgentView> agents =
         [
-            .. AgentCatalogIds.Specialists
-                .Where(id => enabled.Contains(id, StringComparer.Ordinal))
-                .Select(id => new AvailableAgentView(id, "specialist", AgentCatalogIds.SpecialistDomains[id])),
+            .. records
+                .Where(r => r.AgentVersion is not null && AgentCatalogIds.IsSpecialist(r.AgentId))
+                .Select(r => new AvailableAgentView(
+                    r.AgentId, AgentCatalogIds.GroupSpecialist, AgentCatalogIds.SpecialistDomains[r.AgentId],
+                    AgentCatalogIds.DisplayNames[r.AgentId], r.AgentVersion!)),
         ];
         return OperationResult<IReadOnlyList<AvailableAgentView>>.Success(agents);
     }

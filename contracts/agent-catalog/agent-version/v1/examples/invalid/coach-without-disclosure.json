@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "agent-version",
+  "agentId": "coach-jurgen-klopp",
+  "group": "coach",
+  "displayName": "Jürgen Klopp (simulated)",
+  "artifacts": {
+    "promptTemplate": {
+      "id": "coach-prompt",
+      "version": "1.0.0",
+      "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000021"
+    },
+    "modelSelection": {
+      "id": "simulated-default-model",
+      "version": "1.0.0",
+      "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000002"
+    },
+    "toolPolicy": {
+      "id": "coach-tools",
+      "version": "1.0.0",
+      "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000023"
+    },
+    "safetyPolicy": {
+      "id": "coach-safety",
+      "version": "1.0.0",
+      "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000024"
+    },
+    "philosophyProfile": {
+      "id": "coach-jurgen-klopp",
+      "version": "1.0.0",
+      "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000025"
+    },
+    "modifierPolicy": {
+      "id": "coach-modifier-policy",
+      "version": "1.0.0",
+      "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000026"
+    }
+  }
+}

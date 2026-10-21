@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "safety-policy",
+  "id": "coach-safety",
+  "version": "1.0.0",
+  "group": "coach",
+  "routes": ["user-to-coach"],
+  "hardBoundaries": [
+    "State that the coach is a simulation and not the named person.",
+    "Never fabricate evidence or quotations.",
+    "Never make autonomous decisions for the team."
+  ],
+  "escalationCategories": ["medical", "safeguarding", "welfare"],
+  "refusalCategories": ["sensitive-traits", "unauthorized-data", "autonomous-decision"],
+  "rules": ["simulation-disclosure", "non-impersonation", "non-fabrication"]
+}

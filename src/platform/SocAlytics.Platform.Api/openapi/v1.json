@@ -15,6 +15,93 @@
         ],
         "type": "object"
       },
+      "AgentCatalogArtifactDto": {
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "distances": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileDistanceDto"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "document": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "registeredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "version",
+          "digest",
+          "registeredAt",
+          "document"
+        ],
+        "type": "object"
+      },
+      "AgentCatalogArtifactListDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentCatalogArtifactSummaryDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "AgentCatalogArtifactSummaryDto": {
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "registeredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "registeredBy": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "version",
+          "digest",
+          "registeredBy",
+          "registeredAt"
+        ],
+        "type": "object"
+      },
       "AgentCheckpointResponseDto": {
         "properties": {
           "attemptId": {
@@ -149,6 +236,61 @@
         ],
         "type": "object"
       },
+      "AgentEnablementDto": {
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "changedAt": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "changedBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "enabledVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "etag": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agentId",
+          "group",
+          "enabledVersion",
+          "changedBy",
+          "changedAt",
+          "etag"
+        ],
+        "type": "object"
+      },
+      "AgentEnablementListDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentEnablementDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "AgentInvocationAcceptedDto": {
         "properties": {
           "conversationId": {
@@ -185,6 +327,16 @@
             "type": [
               "null",
               "string"
+            ]
+          },
+          "agent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentPinDto"
+              }
             ]
           },
           "agentId": {
@@ -250,7 +402,8 @@
           "advice",
           "submittedAt",
           "endedAt",
-          "retryAfterSeconds"
+          "retryAfterSeconds",
+          "agent"
         ],
         "type": "object"
       },
@@ -263,6 +416,16 @@
               },
               {
                 "$ref": "#/components/schemas/AgentLineageAdviceDto"
+              }
+            ]
+          },
+          "agent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentPinDto"
               }
             ]
           },
@@ -284,7 +447,8 @@
           "invocationId",
           "policyVersion",
           "entries",
-          "advice"
+          "advice",
+          "agent"
         ],
         "type": "object"
       },
@@ -407,6 +571,51 @@
         ],
         "type": "object"
       },
+      "AgentPinArtifactDto": {
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "version",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "AgentPinDto": {
+        "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/AgentPinArtifactDto"
+            },
+            "type": "array"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "digest",
+          "artifacts"
+        ],
+        "type": "object"
+      },
       "AgentTurnDto": {
         "properties": {
           "advice": {
@@ -476,6 +685,153 @@
         "required": [
           "turns",
           "nextCursor"
+        ],
+        "type": "object"
+      },
+      "AgentVersionDto": {
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "approvedAt": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "approvedBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "differentiationAcknowledged": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "digest": {
+            "type": "string"
+          },
+          "distances": {
+            "items": {
+              "$ref": "#/components/schemas/ProfileDistanceDto"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "document": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "group": {
+            "type": "string"
+          },
+          "registeredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "registeredBy": {
+            "type": "string"
+          },
+          "retiredAt": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "retiredBy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "selfApproval": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agentId",
+          "version",
+          "digest",
+          "group",
+          "state",
+          "enabled",
+          "document",
+          "registeredBy",
+          "registeredAt",
+          "approvedBy",
+          "approvedAt",
+          "selfApproval",
+          "differentiationAcknowledged",
+          "retiredBy",
+          "retiredAt"
+        ],
+        "type": "object"
+      },
+      "AgentVersionListDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentVersionSummaryDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "AgentVersionSummaryDto": {
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "group": {
+            "type": "string"
+          },
+          "registeredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agentId",
+          "version",
+          "digest",
+          "group",
+          "state",
+          "enabled",
+          "registeredAt"
         ],
         "type": "object"
       },
@@ -1858,12 +2214,32 @@
         ],
         "type": "object"
       },
+      "ApproveAgentVersionRequestDto": {
+        "properties": {
+          "differentiationReviewAcknowledged": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        },
+        "required": [
+          "differentiationReviewAcknowledged"
+        ],
+        "type": "object"
+      },
       "AvailableAgentDto": {
         "properties": {
           "agentId": {
             "type": "string"
           },
+          "displayName": {
+            "type": "string"
+          },
           "domain": {
+            "type": "string"
+          },
+          "enabledVersion": {
             "type": "string"
           },
           "group": {
@@ -1873,7 +2249,9 @@
         "required": [
           "agentId",
           "group",
-          "domain"
+          "domain",
+          "displayName",
+          "enabledVersion"
         ],
         "type": "object"
       },
@@ -1902,6 +2280,69 @@
         },
         "required": [
           "reason"
+        ],
+        "type": "object"
+      },
+      "CatalogBaselineAgentDto": {
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "domain": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "permittedTools": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "agentId",
+          "group",
+          "domain",
+          "displayName",
+          "permittedTools"
+        ],
+        "type": "object"
+      },
+      "CatalogBaselineDto": {
+        "properties": {
+          "agents": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogBaselineAgentDto"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "schemaVersion": {
+            "type": "string"
+          },
+          "toolAllowlist": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "kind",
+          "version",
+          "toolAllowlist",
+          "agents"
         ],
         "type": "object"
       },
@@ -3375,6 +3816,74 @@
         ],
         "type": "object"
       },
+      "PinnedAgentArtifactsDto": {
+        "properties": {
+          "agentVersion": {
+            "$ref": "#/components/schemas/PinnedAgentVersionDto"
+          },
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/PinnedArtifactDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "agentVersion",
+          "artifacts"
+        ],
+        "type": "object"
+      },
+      "PinnedAgentVersionDto": {
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "document": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agentId",
+          "version",
+          "digest",
+          "document"
+        ],
+        "type": "object"
+      },
+      "PinnedArtifactDto": {
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "document": {
+            "$ref": "#/components/schemas/JsonElement"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "version",
+          "digest",
+          "document"
+        ],
+        "type": "object"
+      },
       "ProblemDetails": {
         "properties": {
           "detail": {
@@ -3411,6 +3920,42 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "ProfileDistanceDto": {
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "agentVersion": {
+            "type": "string"
+          },
+          "distance": {
+            "format": "double",
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ]
+          },
+          "profileId": {
+            "type": "string"
+          },
+          "profileVersion": {
+            "type": "string"
+          },
+          "reviewRequired": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "agentId",
+          "agentVersion",
+          "profileId",
+          "profileVersion",
+          "distance",
+          "reviewRequired"
+        ],
         "type": "object"
       },
       "ReasonRequest": {
@@ -3852,6 +4397,20 @@
           "passwordChangeRequired",
           "antiforgeryToken",
           "member"
+        ],
+        "type": "object"
+      },
+      "SetAgentEnablementRequestDto": {
+        "properties": {
+          "version": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "version"
         ],
         "type": "object"
       },
@@ -4727,6 +5286,414 @@
   },
   "openapi": "3.1.1",
   "paths": {
+    "/api/v1/agent-catalog/agent-versions": {
+      "get": {
+        "operationId": "listAgentVersions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "agentId",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentVersionListDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "tags": [
+          "Agent catalog"
+        ]
+      },
+      "post": {
+        "operationId": "registerAgentVersion",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "version",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentVersionDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentVersionDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Agent catalog"
+        ]
+      }
+    },
+    "/api/v1/agent-catalog/agent-versions/{agentId}/versions/{version}": {
+      "get": {
+        "operationId": "getAgentVersion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentVersionDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "304": {
+            "description": "Not Modified"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "tags": [
+          "Agent catalog"
+        ]
+      }
+    },
+    "/api/v1/agent-catalog/agent-versions/{agentId}/versions/{version}/approval": {
+      "post": {
+        "operationId": "approveAgentVersion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveAgentVersionRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentVersionDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Required"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Agent catalog"
+        ]
+      }
+    },
+    "/api/v1/agent-catalog/agent-versions/{agentId}/versions/{version}/retirement": {
+      "post": {
+        "operationId": "retireAgentVersion",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentVersionDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Required"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Agent catalog"
+        ]
+      }
+    },
     "/api/v1/agent-catalog/agents": {
       "get": {
         "operationId": "listAvailableAgents",
@@ -4764,6 +5731,392 @@
         },
         "tags": [
           "Agent conversations"
+        ]
+      }
+    },
+    "/api/v1/agent-catalog/artifacts/{kind}": {
+      "get": {
+        "operationId": "listAgentCatalogArtifacts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCatalogArtifactListDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "tags": [
+          "Agent catalog"
+        ]
+      },
+      "post": {
+        "operationId": "registerAgentCatalogArtifact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonElement"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCatalogArtifactDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCatalogArtifactDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Agent catalog"
+        ]
+      }
+    },
+    "/api/v1/agent-catalog/artifacts/{kind}/{id}/versions/{version}": {
+      "get": {
+        "operationId": "getAgentCatalogArtifact",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "version",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCatalogArtifactDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "304": {
+            "description": "Not Modified"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "tags": [
+          "Agent catalog"
+        ]
+      }
+    },
+    "/api/v1/agent-catalog/baseline": {
+      "get": {
+        "operationId": "getAgentCatalogBaseline",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogBaselineDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "tags": [
+          "Agent catalog"
+        ]
+      }
+    },
+    "/api/v1/agent-catalog/enablements": {
+      "get": {
+        "operationId": "listAgentEnablements",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentEnablementListDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          }
+        },
+        "tags": [
+          "Agent catalog"
+        ]
+      }
+    },
+    "/api/v1/agent-catalog/enablements/{agentId}": {
+      "put": {
+        "operationId": "setAgentEnablement",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agentId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAgentEnablementRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentEnablementDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Required"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Agent catalog"
         ]
       }
     },
@@ -5407,6 +6760,83 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AgentLeaseResponseDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
+        "tags": [
+          "Agent workload"
+        ]
+      }
+    },
+    "/api/v1/agent-orchestration/attempts/{attemptId}/pinned-artifacts": {
+      "post": {
+        "operationId": "readPinnedAgentArtifacts",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "attemptId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentLeaseRequestDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinnedAgentArtifactsDto"
                 }
               }
             },
@@ -13156,6 +14586,9 @@
     },
     {
       "name": "Agent conversations"
+    },
+    {
+      "name": "Agent catalog"
     }
   ]
 }

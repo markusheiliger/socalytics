@@ -1,0 +1,6 @@
+{
+  "coach-without-non-fabrication.json": "contains",
+  "coach-routes-to-specialist.json": "const",
+  "unknown-category.json": "enum",
+  "no-hard-boundaries.json": "minItems"
+}

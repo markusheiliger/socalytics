@@ -1,0 +1,29 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "agent-version",
+  "agentId": "specialist-tactics",
+  "group": "specialist",
+  "displayName": "Tactics Specialist",
+  "artifacts": {
+    "promptTemplate": {
+      "id": "specialist-tactics-prompt",
+      "version": "1.0.0",
+      "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    "modelSelection": {
+      "id": "simulated-default-model",
+      "version": "1.0.0",
+      "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000002"
+    },
+    "toolPolicy": {
+      "id": "specialist-tactics-tools",
+      "version": "1.0.0",
+      "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000003"
+    },
+    "safetyPolicy": {
+      "id": "specialist-safety",
+      "version": "1.0.0",
+      "digest": "sha-256:0000000000000000000000000000000000000000000000000000000000000004"
+    }
+  }
+}

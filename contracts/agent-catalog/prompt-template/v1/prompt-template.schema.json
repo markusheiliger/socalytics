@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-catalog/prompt-template/v1/prompt-template.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent prompt template v1",
+  "description": "Immutable, digest-addressed Agent Catalog prompt template artifact. Declared slots are the only placeholders ({{slot}}) the text may contain; each declared placeholder occurs in the text exactly once and an undeclared one never does (checked by the registry, which the schema cannot express). A Coach Agent template declares the philosophy_profile slot and the dimension-set major it renders; a Specialist Agent template declares no dimension-set major.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "id", "version", "group", "responseContract", "text", "slots"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "kind": { "const": "prompt-template" },
+    "id": { "type": "string", "minLength": 3, "maxLength": 100, "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "version": {
+      "type": "string",
+      "maxLength": 100,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\\+[0-9A-Za-z.-]+)?$"
+    },
+    "group": { "enum": ["coach", "specialist"] },
+    "responseContract": { "const": "agent-response/1" },
+    "text": { "type": "string", "minLength": 1, "maxLength": 32000 },
+    "slots": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["agent_id", "display_name", "philosophy_profile", "tool_policy", "evidence_context"] }
+    },
+    "dimensionSetMajor": { "type": "integer", "minimum": 1 }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "group": { "const": "coach" } }, "required": ["group"] },
+      "then": {
+        "required": ["dimensionSetMajor"],
+        "properties": { "slots": { "contains": { "const": "philosophy_profile" } } }
+      },
+      "else": {
+        "not": { "required": ["dimensionSetMajor"] }
+      }
+    }
+  ]
+}

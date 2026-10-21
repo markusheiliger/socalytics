@@ -127,7 +127,7 @@ A maintainer reviews a verification result before deciding whether a pull reques
 - [Analyst and Media Verification Environment](../archive/20261017-163801-analyst-media-environment/spec.md) provides the pinned interpreter and dependency tool, the locked command sequence, the project convention, and the Analyst Python check that this feature reuses and preserves; it is implemented.
 - [Environment Verification Coverage](../archive/20261007-115855-environment-verification-coverage/spec.md) provides the setup and verification extension points; it is implemented.
 - The MCP Server and the Hermes agent runtime specs of this batch are downstream consumers, not prerequisites. This feature MUST merge before their implementation adds agent projects.
-- The shared agent contracts are added by [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/spec.md) and [Agent Evidence Tools](../20261018-104924-agent-evidence-tools/spec.md) of this batch and by [Agent Orchestration Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md), which is published and being implemented; the trigger rule applies whether or not those folders exist yet.
+- The shared agent contracts are added by [Agent Catalog Registry](../archive/20261018-101517-agent-catalog-registry/spec.md) and [Agent Evidence Tools](../20261018-104924-agent-evidence-tools/spec.md) of this batch and by [Agent Orchestration Invocations](../archive/20261017-204332-agent-orchestration-invocations/spec.md), which is published and being implemented; the trigger rule applies whether or not those folders exist yet.
 
 ### Architecture Alignment
 

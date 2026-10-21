@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-orchestration/execution-envelope/v1/execution-envelope.schema.json",
+  "x-socalytics-version": "1.1.0",
+  "title": "Agent execution envelope v1",
+  "description": "Bounded execution envelope returned by a successful agent invocation claim (POST /api/v1/agent-orchestration/invocations/{invocationId}/claims). It carries only what one execution attempt needs: the identifiers, the route and addressed agent, the optional pinned agent version with the identities and digests of its catalog artifacts, the question, the conversation's earlier succeeded turns (newest first, up to the configured bound, each attributed to its agent), the team, match, and analysis run scope, the lease, and the execution limits. The fencing token is opaque to the workload, must accompany every attempt operation, and is never logged. The envelope never carries credentials, URLs, prompts, tool or safety policies, or media.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "invocationId",
+    "conversationId",
+    "attemptId",
+    "attemptNumber",
+    "fencingToken",
+    "leaseExpiresAt",
+    "leaseSeconds",
+    "deadlineAt",
+    "correlationId",
+    "route",
+    "agentId",
+    "question",
+    "history",
+    "scope",
+    "limits"
+  ],
+  "properties": {
+    "schemaVersion": { "$ref": "../../../common/v1/common.schema.json#/$defs/contractVersionV1" },
+    "invocationId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "conversationId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "attemptId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "attemptNumber": { "$ref": "../../../common/v1/common.schema.json#/$defs/attemptNumber" },
+    "fencingToken": {
+      "description": "Opaque fencing token of this attempt; compared for equality by the platform only.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[A-Za-z0-9._~+/=\\-]+$"
+    },
+    "leaseExpiresAt": { "$ref": "../../../common/v1/common.schema.json#/$defs/timestamp" },
+    "leaseSeconds": { "$ref": "../../../common/v1/common.schema.json#/$defs/positiveSeconds" },
+    "deadlineAt": {
+      "description": "End of the maximum attempt duration; the attempt cannot be renewed beyond it.",
+      "$ref": "../../../common/v1/common.schema.json#/$defs/timestamp"
+    },
+    "correlationId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+    "route": {
+      "description": "Direct User to Specialist Agent route; later routes are added by a new contract version.",
+      "type": "string",
+      "enum": ["user-to-specialist"]
+    },
+    "agentId": {
+      "description": "Agent catalog identifier of the addressed agent.",
+      "$ref": "../../../common/v1/common.schema.json#/$defs/key"
+    },
+    "agent": { "$ref": "#/$defs/pinnedAgent" },
+    "question": { "$ref": "#/$defs/text" },
+    "history": {
+      "description": "Earlier succeeded turns of all participants, newest first, bounded by the execution policy.",
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/historyEntry" }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["teamId", "matchId", "analysisRunId"],
+      "properties": {
+        "teamId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "matchId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "analysisRunId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["maxAdviceCharacters", "maxCheckpointNoteCharacters"],
+      "properties": {
+        "maxAdviceCharacters": { "type": "integer", "minimum": 1 },
+        "maxCheckpointNoteCharacters": { "type": "integer", "minimum": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "text": {
+      "description": "Non-empty free text; the effective length limit is the execution policy's.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100000
+    },
+    "pinnedAgent": {
+      "description": "Agent version pinned when the invocation was submitted, with the pinned catalog artifacts. Digests only; the artifact content is never part of the envelope.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["agentId", "version", "digest", "artifacts"],
+      "properties": {
+        "agentId": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "version": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+        "digest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" },
+        "artifacts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": { "$ref": "#/$defs/pinnedArtifact" }
+        }
+      }
+    },
+    "pinnedArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "version", "digest"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "prompt-template",
+            "model-selection",
+            "tool-policy",
+            "safety-policy",
+            "dimension-set",
+            "philosophy-profile",
+            "modifier-policy"
+          ]
+        },
+        "id": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "version": { "$ref": "../../../common/v1/common.schema.json#/$defs/semanticVersion" },
+        "digest": { "$ref": "../../../common/v1/common.schema.json#/$defs/digest" }
+      }
+    },
+    "historyEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["invocationId", "agentId", "question", "advice"],
+      "properties": {
+        "invocationId": { "$ref": "../../../common/v1/common.schema.json#/$defs/identifier" },
+        "agentId": { "$ref": "../../../common/v1/common.schema.json#/$defs/key" },
+        "question": { "$ref": "#/$defs/text" },
+        "advice": { "$ref": "#/$defs/text" }
+      }
+    }
+  }
+}
