@@ -83,3 +83,153 @@ test.describe('Summary', () => {
     expect(api.requests.filter((request) => request.path.startsWith('/operations'))).toEqual([]);
   });
 });
+
+const messageId = (n: number) => `00000000-0000-4000-8000-${String(7000 + n).padStart(12, '0')}`;
+const rows = (page: Page) => page.getByRole('list', { name: 'Outgoing messages' }).getByRole('listitem');
+const openLinks = (page: Page) => page.getByRole('list', { name: 'Outgoing messages' }).getByRole('link');
+const listedIds = async (page: Page) =>
+  (await openLinks(page).evaluateAll((links) => links.map((link) => link.getAttribute('aria-label') ?? ''))).map((label) =>
+    label.replace('Open message ', ''),
+  );
+const ids = (from: number, to: number) => Array.from({ length: to - from + 1 }, (_, i) => messageId(from + i));
+
+test.describe('Outgoing messages', () => {
+  test('filters by state, by type, and both, with the filters in the address (US2, FR-008, FR-009)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations/outbox-messages');
+    await expect(page.getByRole('heading', { level: 1, name: 'Outgoing messages' })).toBeVisible();
+    await expect(rows(page)).toHaveCount(5);
+
+    await page.getByLabel('State').selectOption('failed');
+    await expect(page).toHaveURL(/\?state=failed$/);
+    await expect(rows(page)).toHaveCount(3);
+    expect(await listedIds(page)).toEqual(ids(7, 9));
+
+    await page.getByRole('button', { name: 'Clear filters' }).first().click();
+    await expect(page).not.toHaveURL(/state=/);
+    await page.getByLabel('Message type').selectOption('analysis.ready-work');
+    await expect(page).toHaveURL(/\?messageType=analysis\.ready-work$/);
+    await expect(rows(page)).toHaveCount(4);
+    expect(await listedIds(page)).toEqual([2, 5, 8, 11].map(messageId));
+
+    await page.getByLabel('State').selectOption('failed');
+    await expect(page).toHaveURL(/state=failed/);
+    await expect(page).toHaveURL(/messageType=analysis\.ready-work/);
+    await expect(rows(page)).toHaveCount(1);
+    expect(await listedIds(page)).toEqual([messageId(8)]);
+    await expectNoAxeViolations(page);
+
+    await page.goto('/operations/outbox-messages?state=failed&messageType=analysis.ready-work');
+    await expect(page.getByLabel('State')).toHaveValue('failed');
+    await expect(page.getByLabel('Message type')).toHaveValue('analysis.ready-work');
+    await expect(rows(page)).toHaveCount(1);
+  });
+
+  test('an unknown address value is ignored (FR-008)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations/outbox-messages?state=bogus&messageType=nonsense');
+    await expect(rows(page)).toHaveCount(5);
+    await expect(page.getByLabel('State')).toHaveValue('');
+    await expect(page.getByLabel('Message type')).toHaveValue('');
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+
+  test('pages forward and back over two fixture pages without skips or repeats, and refresh returns to the first page (FR-009, SC-002)', async ({
+    page,
+    api,
+  }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations/outbox-messages');
+    const nextPage = page.getByRole('button', { name: 'Next page' });
+    const previousPage = page.getByRole('button', { name: 'Previous page' });
+    await expect(rows(page)).toHaveCount(5);
+    expect(await listedIds(page)).toEqual(ids(1, 5));
+    await expect(previousPage).toBeDisabled();
+
+    await nextPage.click();
+    await expect(page.getByRole('link', { name: `Open message ${messageId(6)}` })).toBeVisible();
+    expect(await listedIds(page)).toEqual(ids(6, 10));
+    await expect(previousPage).toBeEnabled();
+
+    await nextPage.click();
+    await expect(page.getByRole('link', { name: `Open message ${messageId(11)}` })).toBeVisible();
+    expect(await listedIds(page)).toEqual(ids(11, 12));
+    await expect(nextPage).toBeDisabled();
+
+    await previousPage.click();
+    await expect(page.getByRole('link', { name: `Open message ${messageId(6)}` })).toBeVisible();
+    expect(await listedIds(page)).toEqual(ids(6, 10));
+    await previousPage.click();
+    await expect(page.getByRole('link', { name: `Open message ${messageId(1)}` })).toBeVisible();
+    expect(await listedIds(page)).toEqual(ids(1, 5));
+
+    await nextPage.click();
+    await expect(page.getByRole('link', { name: `Open message ${messageId(6)}` })).toBeVisible();
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    await expect(page.getByRole('link', { name: `Open message ${messageId(1)}` })).toBeVisible();
+    expect(await listedIds(page)).toEqual(ids(1, 5));
+    await expect(previousPage).toBeDisabled();
+  });
+
+  test('a rejected continuation token shows the expired-position explanation and the first page (FR-009)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations/outbox-messages');
+    await expect(rows(page)).toHaveCount(5);
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(page.getByRole('link', { name: `Open message ${messageId(6)}` })).toBeVisible();
+
+    api.operationsSwitches.set('listOutboxMessages', 'invalid-token');
+    await page.getByRole('button', { name: 'Next page' }).click();
+    await expect(page.getByText('The list position expired; showing the first page again')).toBeVisible();
+    await expect(page.getByRole('link', { name: `Open message ${messageId(1)}` })).toBeVisible();
+    expect(await listedIds(page)).toEqual(ids(1, 5));
+  });
+
+  test('a message opens with every field, the markup subject as text, and the unknown failure category raw (FR-010, FR-011, FR-022)', async ({
+    page,
+    api,
+  }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations/outbox-messages?state=failed');
+    await page.getByRole('link', { name: `Open message ${messageId(7)}` }).click();
+    await expect(page).toHaveURL(new RegExp(`/operations/outbox-messages/${messageId(7)}$`));
+    await expect(page.getByRole('heading', { level: 1, name: 'Outgoing message' })).toBeVisible();
+
+    await expect(value(page, 'Message ID')).toContainText(messageId(7));
+    await expect(value(page, 'Message type')).toHaveText('Recordings finalized');
+    await expect(value(page, 'Contract version')).toHaveText('1');
+    await expect(value(page, 'Subject')).toHaveText('<img src=x onerror="alert(1)">analysis.markup');
+    await expect(page.locator('img[src="x"]')).toHaveCount(0);
+    await expect(value(page, 'State')).toHaveText('Failed');
+    await expect(value(page, 'Attempt count')).toHaveText('4');
+    await expect(value(page, 'Publication round')).toHaveText('1');
+    await expect(value(page, 'Last attempt')).not.toHaveText('absent');
+    await expect(value(page, 'Next attempt')).not.toHaveText('absent');
+    await expect(value(page, 'Failure category')).toHaveText('transport-unavailable');
+    await expect(value(page, 'Created')).not.toHaveText('absent');
+    await expect(value(page, 'Published')).toHaveText('absent');
+    await expect(value(page, 'Age')).not.toHaveText('absent');
+    await expect(value(page, 'Publication lag')).toHaveText('absent');
+    await expect(value(page, 'Run ID')).toHaveText('absent');
+    await expect(value(page, 'Logical job ID')).toHaveText('absent');
+    await expect(value(page, 'Capability ID')).toHaveText('absent');
+    await expectNoAxeViolations(page);
+
+    await page.goto(`/operations/outbox-messages/${messageId(8)}`);
+    await expect(value(page, 'Failure category')).toHaveText('quantum-flux');
+    await expect(value(page, 'Message type')).toHaveText('Ready work');
+    await expect(value(page, 'Run ID')).toContainText('00000000-0000-4000-8000-000000003001');
+    await expect(value(page, 'Capability ID')).toContainText('player-detection');
+  });
+
+  test('an unknown and a malformed identifier show the not-found view (FR-010)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto(`/operations/outbox-messages/${messageId(99)}`);
+    await expect(page.getByText('This page does not exist.')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Outgoing message' })).toHaveCount(0);
+
+    await page.goto('/operations/outbox-messages/not-an-identifier');
+    await expect(page.getByText('This page does not exist.')).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Outgoing message' })).toHaveCount(0);
+  });
+});
