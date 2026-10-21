@@ -52,6 +52,7 @@ public static class ApplicationServiceCollectionExtensions
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.ReconcileAnalysisPublicationHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Messaging.PurgeOutboxMessagesHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.RunCancellationEffects>();
+        services.TryAddScoped<SocAlytics.Platform.Application.Analysis.RunSupersession>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Commands.CancelAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.GetAnalysisRunHandler>();
         services.TryAddScoped<SocAlytics.Platform.Application.Analysis.Queries.ListMatchAnalysisRunsHandler>();
