@@ -18,7 +18,9 @@ moving Web UI source under `src/platform`.
 The Web UI release is coordinated with the platform API and is
 deployed as a separate OCI container whose image is built from `src/clients`.
 The service worker and installable PWA are implemented as development
-evidence; offline mode and Docker Compose deployment are not implemented yet.
+evidence; offline mode is not implemented. The self-hosted Docker Compose
+evaluation composition serves the Web UI image next to the platform API as
+development evidence; production deployment stays unresolved.
 
 The Web UI image is implemented (see
 [Platform Implementation](platform-implementation.md#source-and-runtime-baseline)).

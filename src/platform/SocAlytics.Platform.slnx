@@ -6,8 +6,10 @@
   <Project Path="SocAlytics.Platform.Infrastructure/SocAlytics.Platform.Infrastructure.csproj" />
   <Project Path="SocAlytics.Platform.Migrator/SocAlytics.Platform.Migrator.csproj" />
   <Project Path="SocAlytics.Platform.ServiceDefaults/SocAlytics.Platform.ServiceDefaults.csproj" />
+  <Project Path="SocAlytics.Platform.StampSetup/SocAlytics.Platform.StampSetup.csproj" />
   <Folder Name="/Tests/">
     <Project Path="Tests/SocAlytics.Platform.Architecture.Tests/SocAlytics.Platform.Architecture.Tests.csproj" />
+    <Project Path="Tests/SocAlytics.Platform.Compose.Tests/SocAlytics.Platform.Compose.Tests.csproj" />
     <Project Path="Tests/SocAlytics.Platform.Contracts.Tests/SocAlytics.Platform.Contracts.Tests.csproj" />
     <Project Path="Tests/SocAlytics.Platform.EndToEnd.Tests/SocAlytics.Platform.EndToEnd.Tests.csproj" />
     <Project Path="Tests/SocAlytics.Platform.Host.Tests/SocAlytics.Platform.Host.Tests.csproj" />

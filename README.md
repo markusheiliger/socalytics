@@ -36,7 +36,8 @@ through approved changes.
 
 The agents source area remains a non-executable ownership scaffold. The
 platform, the Web UI, and the Analyst Manager contain the repository's current
-application projects and tests. No deployment manifests or product automation exist yet.
+application projects and tests. The only deployment artifact is the Docker Compose evaluation stamp under
+`src/platform/deploy/compose/`; no production deployment manifests or product automation exist yet.
 
 ## Development
 
@@ -209,10 +210,35 @@ contract:
 dotnet test src/platform/Tests/SocAlytics.Platform.Images.Tests
 ```
 
-The images are not deployment support or production readiness: registries, publication, the composed stamp, and the
-production profile values remain unresolved. Their runtime contract is described in
+The images are not deployment support or production readiness: registries, publication, and the production profile
+values remain unresolved. Their runtime contract is described in
 [`src/platform/README.md`](src/platform/README.md#container-images) and
 [`src/clients/README.md`](src/clients/README.md#container-image).
+
+### Evaluation stamp (Docker Compose)
+
+A Docker Compose definition runs one self-hosted stamp (PostgreSQL, NATS, S3-compatible storage, the one-off
+Migrator, the API, and the Web UI) for evaluation. It needs Docker with the Compose v2 plugin and the three images of
+one release built as above. From the repository root, the setup console writes a stamp directory outside any Git
+working tree (it must not exist yet) and generates every secret; fill the empty operator values in its `stamp.env`,
+then start and remove the stamp with a Compose project name of your choice:
+
+```powershell
+$stampDir = Join-Path $HOME 'socalytics-stamps/club-a'
+dotnet run --project src/platform/SocAlytics.Platform.StampSetup -- --output $stampDir
+docker compose -f src/platform/deploy/compose/compose.yaml -p club-a --env-file "$stampDir/stamp.env" up -d
+docker compose -f src/platform/deploy/compose/compose.yaml -p club-a --env-file "$stampDir/stamp.env" down --volumes --remove-orphans
+```
+
+The evidence is the Docker-backed Compose test project:
+
+```powershell
+dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests
+```
+
+The values, the lifecycle commands, and the limitations are in
+[`src/platform/deploy/compose/README.md`](src/platform/deploy/compose/README.md). The evaluation stamp is not
+deployment support or production readiness: it is not a production profile and passes no production preflight.
 
 ### Analyst Manager
 
