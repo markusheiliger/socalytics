@@ -13,7 +13,9 @@ the persistence, club and identity, recording lineage and upload, durable
 analysis workflow, and Analyst Manager registration foundations described
 below, with host, architecture, contract, and integration tests. Analyst
 execution exists on the Docker Desktop runtime profile; the Web UI's
-offline mode, deployment configuration, and production-readiness evidence do not exist yet.
+offline mode, production deployment configuration, and production-readiness evidence do not exist yet. A
+self-hosted Docker Compose evaluation composition of one stamp exists as development evidence; it is not a
+production profile.
 External OpenID Connect sign-in with Club Admin linking exists as development
 evidence against a test provider. The
 Web UI's installable PWA shell and service worker exist as development evidence.
@@ -122,16 +124,16 @@ The API image contains neither the Migrator nor DbUp. The Web UI image itself
 forwards `/api` and `/alive` to the API container, so every profile gets one
 origin from the two images.
 
-Docker Compose is the initial deployment mechanism. It will compose the
+Docker Compose is the initial deployment mechanism. It composes the
 platform API and Web UI as separate OCI containers: the API image is built from
 the platform source area, while the Web UI image is built from the client source
-area and release-coupled to the platform API; only the Compose composition
-itself is not implemented. Future
-Compose deployments will also include PostgreSQL, NATS JetStream, and
+area and release-coupled to the platform API; only the evaluation composition
+described below exists, and no production Compose profile does. Compose
+deployments also include PostgreSQL, NATS JetStream, and
 S3-compatible storage on durable stamp-dedicated logical resources, plus the
 Migrator as a one-shot service that every API service depends on with
 `condition: service_completed_successfully`, so it runs once per deployment
-regardless of the API replica count. Locally, the Aspire AppHost will mirror
+regardless of the API replica count. Locally, the Aspire AppHost mirrors
 that order: PostgreSQL, then the Migrator, then the API, which waits for the
 Migrator to complete and for the S3-compatible RustFS container to report
 healthy. The local PostgreSQL container provisions both database roles from
@@ -141,9 +143,10 @@ a named development volume; these local values are not production values, and
 production credentials, role-to-identity mapping, and the scheduling of the
 Migrator remain unresolved.
 
-A self-hosted evaluation composition of one stamp is decided but not
-implemented yet (see the
-[Compose stamp contract](../../specs/20261018-094332-compose-stamp/contracts/compose-stamp.md)).
+A self-hosted evaluation composition of one stamp is implemented as development
+evidence, verified by Docker-backed tests in `SocAlytics.Platform.Compose.Tests`
+(see the
+[Compose stamp contract](../../specs/archive/20261018-094332-compose-stamp/contracts/compose-stamp.md)).
 It lives in `src/platform/deploy/compose/` as one Compose file, an environment
 file template, and its documentation, and is started under one Compose project
 name per stamp; it fixes no container, network, or volume name. It runs the
@@ -165,7 +168,9 @@ stamp reports healthy only once its Registry holds a resolvable default
 analysis workflow, and the browser's direct recording uploads are unavailable
 because object storage is not published. The composition is an evaluation
 aid: it is not a production profile, passes no production preflight, and
-does not replace the Aspire AppHost as the supported local entry point.
+does not replace the Aspire AppHost as the supported local entry point. TLS,
+Analyst Manager connectivity, browser recording uploads, backup and restore,
+and every production profile value stay unresolved.
 
 Azure Container Apps is the Provisional target cloud profile, and Compose
 remains supported as the self-hostable profile. Both run the same cloud-neutral

@@ -9,7 +9,8 @@ The architecture remains **Provisional / Blocking production**. Docker Compose
 is the selected initial profile and Azure Container Apps the Provisional target
 cloud profile, but no profile is production-ready until its owners, values,
 approvals, and live exercise evidence are complete. This topic does not provide
-deployment manifests.
+deployment manifests; the self-hosted evaluation composition lives with the
+platform source and is not a production profile.
 
 ## Scope and Invariants
 
@@ -83,8 +84,8 @@ one-shot service that every API service depends on with
 `condition: service_completed_successfully`, so migrations complete once per
 deployment before any API replica starts.
 
-A self-hosted evaluation composition of one stamp (decided, not yet
-implemented; see
+A self-hosted evaluation composition of one stamp (implemented as development
+evidence; see
 [Platform Implementation](platform-implementation.md#source-and-runtime-baseline))
 applies these fixed architecture choices but approves no profile value: its
 loopback-only ingress without TLS, secrets in an operator-held environment
@@ -437,7 +438,8 @@ They cannot satisfy live recovery, capacity, objective, production-readiness,
 or production-acceptance gates.
 
 Production acceptance requires serious evaluation of deployment and recovery
-alternatives, a real Compose deployment, approved
+alternatives, a real production Compose deployment (the evaluation
+composition does not count), approved
 data-governance policy values (`DAT-008`, `POL-008`, and related authorities in
 [Security and Data Governance](security-and-data-governance.md)) and operational
 owners, measured objectives and capacity, and successful live preflight,

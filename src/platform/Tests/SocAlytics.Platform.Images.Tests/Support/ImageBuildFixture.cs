@@ -10,6 +10,9 @@ public sealed class ImageBuildCollection : ICollectionFixture<ImageBuildFixture>
     public const string Name = "OCI images";
 }
 
+/// <summary>The tags of the three platform images and the release version they were built with.</summary>
+public sealed record BuiltImages(string ApiTag, string MigratorTag, string WebTag, string Version);
+
 /// <summary>Builds each requested image once per run with the documented <c>docker build</c> command and removes the images afterwards.</summary>
 public sealed class ImageBuildFixture : IAsyncLifetime
 {
@@ -48,6 +51,15 @@ public sealed class ImageBuildFixture : IAsyncLifetime
         {
             await RunDockerAsync(RepositoryRoot, "rmi", "--force", tag);
         }
+    }
+
+    /// <summary>Builds the API, Migrator, and Web UI images once per run and returns their tags and the fixed test release version.</summary>
+    public async Task<BuiltImages> BuildAllAsync()
+    {
+        var api = await BuildAsync("src/platform/SocAlytics.Platform.Api/Dockerfile");
+        var migrator = await BuildAsync("src/platform/SocAlytics.Platform.Migrator/Dockerfile");
+        var web = await BuildAsync("src/clients/web/Dockerfile");
+        return new BuiltImages(api, migrator, web, TestVersion);
     }
 
     /// <summary>Builds the image of <paramref name="dockerfile"/> (repository-relative) once and returns its unique tag.</summary>
@@ -142,7 +154,7 @@ public sealed class ImageBuildFixture : IAsyncLifetime
         }
     }
 
-    private static string LocateRepositoryRoot()
+    public static string LocateRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         while (directory is not null)

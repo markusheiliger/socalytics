@@ -8,7 +8,7 @@ decisions are in [research.md](research.md). This is not a production profile an
 - Docker Engine with the Compose v2 plugin (`docker compose version`).
 - The .NET SDK pinned by `src/platform/global.json` (for the setup console and the evidence).
 - The API, Migrator, and Web UI images of one release, built with the commands of
-  [the image quickstart](../archive/20261018-092503-oci-images/quickstart.md), for example `socalytics-api:local`,
+  [the image quickstart](../20261018-092503-oci-images/quickstart.md), for example `socalytics-api:local`,
   `socalytics-migrator:local`, and `socalytics-web:local`.
 
 ## Create and start one stamp (repository root, PowerShell)
