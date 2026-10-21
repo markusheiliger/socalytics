@@ -4,6 +4,8 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions.ObjectStorage;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.Analysis;
+using SocAlytics.Platform.Application.Analysis.Stores;
 using SocAlytics.Platform.Domain.Recordings;
 using SocAlytics.Platform.Domain.Segments;
 
@@ -38,7 +40,9 @@ public sealed class MaterializeSegmentHandler(
     SegmentManifestBuilder manifestBuilder,
     IOptions<SegmentMaterializationOptions> options,
     TimeProvider time,
-    ILogger<MaterializeSegmentHandler> logger)
+    ILogger<MaterializeSegmentHandler> logger,
+    IAnalysisRunStore? runs = null,
+    RunReadinessCoordinator? readiness = null)
 {
     public const string MediaFileName = "segment.mp4";
     public const string ManifestFileName = "segment-manifest.json";
@@ -222,6 +226,17 @@ public sealed class MaterializeSegmentHandler(
                 await using (var scope = await unitOfWork.BeginAsync(cancellationToken))
                 {
                     published = await store.TryPublishAsync(segment.Id, candidateId, association, cancellationToken);
+                    if (published && runs is not null && readiness is not null)
+                    {
+                        // Waiting jobs are re-evaluated in the publishing unit of work, run by run in id order.
+                        var waiting = await store.ListWaitingJobsAsync(identity, cancellationToken);
+                        foreach (var runId in waiting.Select(w => w.RunId).Distinct().Order())
+                        {
+                            await runs.LockRunAsync(runId, cancellationToken);
+                            await readiness.ApplyAsync(runId, cancellationToken);
+                        }
+                    }
+
                     await scope.CommitAsync(cancellationToken);
                 }
 

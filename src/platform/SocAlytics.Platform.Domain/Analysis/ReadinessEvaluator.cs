@@ -105,7 +105,7 @@ public static class ReadinessEvaluator
 					continue;
 				}
 
-				if (!RequiredSatisfied(job, state, nodes, jobs, requested))
+				if (job.AwaitsSegmentMedia || !RequiredSatisfied(job, state, nodes, jobs, requested))
 				{
 					continue;
 				}

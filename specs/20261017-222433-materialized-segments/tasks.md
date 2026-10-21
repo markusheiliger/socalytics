@@ -194,7 +194,7 @@ segments become `available` once, manifests validate, and the jobs become ready 
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentWorkerTests.cs` for processing demanded
   rows and reclaiming an expired `materializing` lease after a simulated restart without publishing the old candidate
   (FR-001, FR-006)
-- [ ] T018 [US1] Gate readiness on segment media: request demand at run creation in
+- [x] T018 [US1] Gate readiness on segment media: request demand at run creation in
   `src/platform/SocAlytics.Platform.Application/Analysis/Commands/HandleRecordingsFinalizedNotification.cs` for
   segment-scoped jobs whose node `videoPolicy` is `required` or `optional` (never `forbidden`), recording a rejected
   request's reason in `logical_jobs.segment_rejection_reason` through
