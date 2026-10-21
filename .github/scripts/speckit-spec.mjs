@@ -30,7 +30,7 @@ import {
   openPrerequisites,
   phaseNotStarted,
   decideNext,
-  dependencyBlock,
+  explainDependencyBlock,
   describeParallelGroups,
   diagnosisRunsUrl,
   dispatchImplementation,
@@ -486,7 +486,7 @@ export async function runDecide({ client, env, log, now = Date.now }) {
   // the scheduler retries the implementation once the prerequisites are implemented (maintainDependencyBlock).
   const prerequisites = await openPrerequisites(client, twin);
   if (prerequisites.length > 0) {
-    await setBlocked(client, pullNumber, true, { explain: dependencyBlock(prerequisites) });
+    await setBlocked(client, pullNumber, true, { explain: await explainDependencyBlock(client, prerequisites) });
     report.line(`Blocked: waits for the prerequisite(s) ${prerequisites.map((blocker) => `#${blocker.number}`).join(', ')}.`);
     return finish('none');
   }

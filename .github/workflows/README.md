@@ -389,7 +389,8 @@ dependency inference, or a person), and while a spec that `/speckit specify` aut
 or reviewed. GitHub has no default label for an on-hold state. The label is only added together with a comment that
 starts with **Blocked**: it names what the implementation waits for, what a person needs to do (for each blocker that
 is not requested yet, the ready-to-paste `/speckit implement` for its twin; otherwise nothing while the blockers are
-implemented), and how it continues (marker `speckit-implement:blocked`); when the
+implemented), which open implementation pull request of each blocker has to be merged first (posted again when a
+blocker's implementation pull request opens), and how it continues (marker `speckit-implement:blocked`); when the
 scheduler reconciles the label on an implementation whose block is not explained yet, it posts the explanation once.
 A blocked implementation never gets `help wanted`; the scheduler does not continue its chain, and a running chain stops
 before its next unit (no retry, no diagnosis) while it waits. The label is removed when the last blocker is
