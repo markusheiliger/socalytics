@@ -17,13 +17,14 @@ import teams from './en/teams.json';
 import triage from './en/triage.json';
 import uploads from './en/uploads.json';
 import registry from './en/registry.json';
+import agentCatalog from './en/agentCatalog.json';
 
 void i18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'managers', 'matches', 'uploads', 'lineage', 'triage', 'email', 'registry', 'passwordRecovery', 'analysis'],
-  resources: { en: { common, session, account, shell, club, seasons, teams, members, managers, matches, uploads, lineage, triage, email, registry, passwordRecovery, analysis } },
+  ns: ['common', 'session', 'account', 'shell', 'club', 'seasons', 'teams', 'members', 'managers', 'matches', 'uploads', 'lineage', 'triage', 'email', 'registry', 'passwordRecovery', 'analysis', 'agentCatalog'],
+  resources: { en: { common, session, account, shell, club, seasons, teams, members, managers, matches, uploads, lineage, triage, email, registry, passwordRecovery, analysis, agentCatalog } },
   interpolation: { escapeValue: false },
 });
 
