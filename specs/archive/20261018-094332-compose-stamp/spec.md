@@ -256,16 +256,16 @@ default, every open profile value is an explicit placeholder, and the non-produc
 
 - Dependencies: Cloud-Neutral OCI Images (batch sibling `specs/archive/20261018-092503-oci-images`, authored, not yet merged)
   provides the API, Migrator, and Web UI images and their contract; Platform Persistence Foundation
-  ([archived](../archive/20261005-130700-platform-persistence-foundation/spec.md)) provides the Migrator, the roles, and
-  readiness; Analyst Manager Work Execution ([archived](../archive/20261012-141233-manager-work-execution/spec.md))
+  ([archived](../20261005-130700-platform-persistence-foundation/spec.md)) provides the Migrator, the roles, and
+  readiness; Analyst Manager Work Execution ([archived](../20261012-141233-manager-work-execution/spec.md))
   provides NATS JWT authentication; Recording Lineage and Upload
-  ([archived](../archive/20261005-130702-recording-lineage-upload/spec.md)) provides object storage configuration; and
+  ([archived](../20261005-130702-recording-lineage-upload/spec.md)) provides object storage configuration; and
   Member Email Addresses and Pending-Request Notifications
-  ([archived](../archive/20261013-140140-email-notifications/spec.md)) provides the SMTP configuration.
+  ([archived](../20261013-140140-email-notifications/spec.md)) provides the SMTP configuration.
 - Production preflight, backup and restore, TLS termination and certificates, Azure Container Apps, Analyst Managers,
   registries and publishing, monitoring stacks, scaling beyond one replica, and production values are out of scope; the
   profile values stay **Open / Blocking** as
-  [Production Deployment and Operations](../../docs/architecture/production-operations.md#versioned-production-profile)
+  [Production Deployment and Operations](../../../docs/architecture/production-operations.md#versioned-production-profile)
   defines.
 - The first Club Admin is created by the existing club bootstrap from configured values; no development seed is used.
 - The evidence runs on the build host's CPU architecture with the container engine and Compose support the repository's

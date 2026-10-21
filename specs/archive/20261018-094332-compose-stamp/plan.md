@@ -2,7 +2,7 @@
 
 **Branch**: `20261018-094332-compose-stamp` | **Date**: 2026-10-18 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261018-094332-compose-stamp/spec.md`
+**Input**: Feature specification from `specs/archive/20261018-094332-compose-stamp/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -25,7 +25,7 @@ restart, isolation of a second project, and leak-free teardown (see [research.md
 Docker CLI's Compose v2 plugin; POSIX shell only inside container health checks.
 
 **Primary Dependencies**: The API, Migrator, and Web UI images of the batch sibling
-[`specs/archive/20261018-092503-oci-images`](../archive/20261018-092503-oci-images/contracts/container-images.md); infrastructure images
+[`specs/archive/20261018-092503-oci-images`](../20261018-092503-oci-images/contracts/container-images.md); infrastructure images
 `postgres:18`, `nats:2.14-alpine`, and `rustfs/rustfs:1.0.1`, each pinned by digest; the existing roles script
 `src/platform/SocAlytics.Platform.AppHost/PostgresInit/01-socalytics-roles.sh`; `NATS.Jwt` 1.0.1 and `NATS.NKeys` 1.0.2
 (already pinned); xUnit v3 and Shouldly for the evidence. No new package.
@@ -57,7 +57,7 @@ evidence-only override file, and documentation.
 
 | Principle | Check | Result |
 | --- | --- | --- |
-| I. Architecture is the design authority | Implements the Compose parts of [platform implementation](../../docs/architecture/platform-implementation.md#source-and-runtime-baseline), the [initial profile](../../docs/architecture/production-operations.md#versioned-production-profile) and [invariants](../../docs/architecture/production-operations.md#scope-and-invariants), and [tenancy](../../docs/architecture/tenancy-and-technology.md#initial-production-profile); the evaluation choices it adds are recorded under Architecture Updates; profile values stay Open / Blocking. | Pass |
+| I. Architecture is the design authority | Implements the Compose parts of [platform implementation](../../../docs/architecture/platform-implementation.md#source-and-runtime-baseline), the [initial profile](../../../docs/architecture/production-operations.md#versioned-production-profile) and [invariants](../../../docs/architecture/production-operations.md#scope-and-invariants), and [tenancy](../../../docs/architecture/tenancy-and-technology.md#initial-production-profile); the evaluation choices it adds are recorded under Architecture Updates; profile values stay Open / Blocking. | Pass |
 | II. Source-area ownership | Composition, template, and setup console in `src/platform/`; tests in `src/platform/Tests`; no new `src/` child. | Pass |
 | III. API-first control plane | No business logic outside the API; video bytes never pass through the API or the Web UI (uploads are unavailable rather than proxied). | Pass |
 | IV. Evidence over claims | Docker-backed tests prove every requirement; the documentation states that the composition is not a production profile and passes no preflight. | Pass |
@@ -70,18 +70,18 @@ Post-design re-check: Pass; no violation needs Complexity Tracking.
 
 ### Narratives
 
-- [Platform Implementation — Source And Runtime Baseline](../../docs/architecture/platform-implementation.md#source-and-runtime-baseline):
+- [Platform Implementation — Source And Runtime Baseline](../../../docs/architecture/platform-implementation.md#source-and-runtime-baseline):
   the Compose composition of the platform API and Web UI, PostgreSQL, NATS JetStream, S3-compatible storage, and the
   one-shot Migrator.
-- [Production Deployment and Operations — Versioned Production Profile](../../docs/architecture/production-operations.md#versioned-production-profile)
-  and [Scope and Invariants](../../docs/architecture/production-operations.md#scope-and-invariants): one project
+- [Production Deployment and Operations — Versioned Production Profile](../../../docs/architecture/production-operations.md#versioned-production-profile)
+  and [Scope and Invariants](../../../docs/architecture/production-operations.md#scope-and-invariants): one project
   namespace per stamp, internal networks, declared ingress and egress, the Migrator's
   `service_completed_successfully` ordering, and the profile values that stay Open / Blocking.
-- [Production Deployment and Operations — Validation and Promotion Evidence](../../docs/architecture/production-operations.md#validation-and-promotion-evidence):
+- [Production Deployment and Operations — Validation and Promotion Evidence](../../../docs/architecture/production-operations.md#validation-and-promotion-evidence):
   the evaluation composition is not "a real Compose deployment" for production acceptance.
-- [Deployment and Technology — Initial Production Profile](../../docs/architecture/tenancy-and-technology.md#initial-production-profile):
+- [Deployment and Technology — Initial Production Profile](../../../docs/architecture/tenancy-and-technology.md#initial-production-profile):
   the Compose project namespace as one stamp on stamp-dedicated volumes and networks.
-- [Client Applications — Source Ownership And Delivery](../../docs/architecture/client-applications.md#source-ownership-and-delivery):
+- [Client Applications — Source Ownership And Delivery](../../../docs/architecture/client-applications.md#source-ownership-and-delivery):
   "Docker Compose deployment are not implemented yet".
 
 ### Design updates (applied now, worded as decided but not implemented)
@@ -134,7 +134,7 @@ and restore, TLS, Analyst Manager connectivity, and Azure Container Apps explici
 ### Documentation (this feature)
 
 ```text
-specs/20261018-094332-compose-stamp/
+specs/archive/20261018-094332-compose-stamp/
 ├── plan.md
 ├── research.md
 ├── data-model.md

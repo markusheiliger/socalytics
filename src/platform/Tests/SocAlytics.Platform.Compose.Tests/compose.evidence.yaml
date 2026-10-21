@@ -1,0 +1,12 @@
+# Evidence-only override for the Compose stamp tests. It is never part of a stamp: it publishes the PostgreSQL port on an
+# ephemeral loopback port so the test process can arrange the default workflow and read the club and the migration journal.
+# Ports cannot be published from the internal data network, so PostgreSQL also joins a network that is not internal.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1::5432"
+    networks:
+      - evidence
+
+networks:
+  evidence: {}
