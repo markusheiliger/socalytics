@@ -147,7 +147,7 @@ segments become `available` once, manifests validate, and the jobs become ready 
 
 ### Extraction, manifest, and node snapshot
 
-- [ ] T012 [P] [US1] Implement `ISegmentExtractor` (`src/platform/SocAlytics.Platform.Application/Segments/ISegmentExtractor.cs`)
+- [x] T012 [P] [US1] Implement `ISegmentExtractor` (`src/platform/SocAlytics.Platform.Application/Segments/ISegmentExtractor.cs`)
   with `src/platform/SocAlytics.Platform.Infrastructure/Segments/FfmpegSegmentExtractor.cs` and
   `src/platform/SocAlytics.Platform.Infrastructure/Segments/ToolchainProbe.cs` per research R3: input seeking on a
   presigned source read URL that is never logged, `-copyts`, `-map 0:v:0`, stream copy, no metadata, MP4 with

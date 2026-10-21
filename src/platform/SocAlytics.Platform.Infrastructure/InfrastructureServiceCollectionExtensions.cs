@@ -100,6 +100,8 @@ public static class InfrastructureServiceCollectionExtensions
             .Validate(static o => !string.IsNullOrWhiteSpace(o.Bucket), "ObjectStorage:Bucket is required.")
             .ValidateOnStart();
         services.TryAddSingleton<IObjectStorage, S3ObjectStorage>();
+        services.TryAddSingleton<SocAlytics.Platform.Infrastructure.Segments.ToolchainProbe>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Segments.ISegmentExtractor, SocAlytics.Platform.Infrastructure.Segments.FfmpegSegmentExtractor>();
         services.AddHostedService<DevelopmentBucketInitializer>();
         services.AddHostedService<UploadSessionExpiryWorker>();
 
