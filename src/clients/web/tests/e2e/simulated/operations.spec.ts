@@ -233,3 +233,98 @@ test.describe('Outgoing messages', () => {
     await expect(page.getByRole('heading', { level: 1, name: 'Outgoing message' })).toHaveCount(0);
   });
 });
+
+const receiptId = (n: number) => `00000000-0000-4000-8000-${String(8000 + n).padStart(12, '0')}`;
+const receiptRows = (page: Page) => page.getByRole('list', { name: 'Notification receipts' }).getByRole('listitem');
+const receiptIds = async (page: Page) =>
+  (await receiptRows(page).evaluateAll((items) => items.map((item) => item.querySelector('dd')?.textContent ?? ''))).map((text) =>
+    text.trim().slice(0, 36),
+  );
+
+test.describe('Notification receipts', () => {
+  test('each outcome filter shows exactly the matching receipts with their fields, and the filter is in the address (US3, FR-012)', async ({
+    page,
+    api,
+  }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations/notification-receipts');
+    await expect(page.getByRole('heading', { level: 1, name: 'Notification receipts' })).toBeVisible();
+    await expect(receiptRows(page)).toHaveCount(5);
+
+    await page.getByLabel('Outcome').selectOption('run-created');
+    await expect(page).toHaveURL(/\?outcome=run-created$/);
+    await expect(receiptRows(page)).toHaveCount(4);
+    expect(await receiptIds(page)).toEqual([1, 4, 7, 10].map(receiptId));
+    await expect(receiptRows(page).first()).toContainText('Run created');
+    await expect(receiptRows(page).first()).toContainText('Recordings finalized');
+    await expect(receiptRows(page).first()).toContainText('00000000-0000-4000-8000-000000003001');
+    await expect(receiptRows(page).first().getByText('Rejection category')).toHaveCount(0);
+
+    await page.getByLabel('Outcome').selectOption('run-exists');
+    await expect(page).toHaveURL(/\?outcome=run-exists$/);
+    await expect(receiptRows(page)).toHaveCount(4);
+    expect(await receiptIds(page)).toEqual([2, 5, 8, 11].map(receiptId));
+    await expect(receiptRows(page).first()).toContainText('Run already exists');
+
+    await page.getByLabel('Outcome').selectOption('rejected');
+    await expect(page).toHaveURL(/\?outcome=rejected$/);
+    await expect(receiptRows(page)).toHaveCount(4);
+    expect(await receiptIds(page)).toEqual([3, 6, 9, 12].map(receiptId));
+    await expect(receiptRows(page).first()).toContainText('Rejected');
+    await expect(receiptRows(page).first()).toContainText('unrecognized-reason');
+    await expect(receiptRows(page).nth(1)).toContainText('recording-set-not-found');
+    await expect(receiptRows(page).first()).toContainText('absent');
+    await expectNoAxeViolations(page);
+
+    await page.goto('/operations/notification-receipts?outcome=bogus');
+    await expect(page.getByLabel('Outcome')).toHaveValue('');
+    await expect(receiptRows(page)).toHaveCount(5);
+  });
+
+  test('pages forward and back over two fixture pages without skips or repeats (FR-013, SC-002)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations/notification-receipts');
+    const nextPage = page.getByRole('button', { name: 'Next page' });
+    const previousPage = page.getByRole('button', { name: 'Previous page' });
+    await expect(receiptRows(page)).toHaveCount(5);
+    expect(await receiptIds(page)).toEqual([1, 2, 3, 4, 5].map(receiptId));
+    await expect(previousPage).toBeDisabled();
+
+    await nextPage.click();
+    await expect(receiptRows(page).first()).toContainText(receiptId(6));
+    expect(await receiptIds(page)).toEqual([6, 7, 8, 9, 10].map(receiptId));
+    await expect(previousPage).toBeEnabled();
+
+    await nextPage.click();
+    await expect(receiptRows(page).first()).toContainText(receiptId(11));
+    expect(await receiptIds(page)).toEqual([11, 12].map(receiptId));
+    await expect(nextPage).toBeDisabled();
+
+    await previousPage.click();
+    await expect(receiptRows(page).first()).toContainText(receiptId(6));
+    await previousPage.click();
+    await expect(receiptRows(page).first()).toContainText(receiptId(1));
+    expect(await receiptIds(page)).toEqual([1, 2, 3, 4, 5].map(receiptId));
+  });
+
+  test('the rejected count on the summary links to the rejected receipts (FR-012)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations');
+    await page.getByRole('link', { name: 'Show rejected notifications' }).click();
+    await expect(page).toHaveURL(/\/operations\/notification-receipts\?outcome=rejected$/);
+    await expect(page.getByLabel('Outcome')).toHaveValue('rejected');
+    await expect(receiptRows(page)).toHaveCount(4);
+  });
+
+  test('an empty result states that no receipt matches, and clearing the filter restores the list (FR-012)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    api.notificationReceipts = api.notificationReceipts.filter((receipt) => receipt.outcome !== 'rejected');
+    await page.goto('/operations/notification-receipts?outcome=rejected');
+    await expect(page.getByText('No notification receipt matches')).toBeVisible();
+    await expect(receiptRows(page)).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Clear filters' }).first().click();
+    await expect(page).not.toHaveURL(/outcome=/);
+    await expect(receiptRows(page)).toHaveCount(5);
+  });
+});

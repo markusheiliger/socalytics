@@ -28,6 +28,7 @@ import { RegistryOverviewPage } from './features/registry/RegistryOverviewPage';
 import { WorkflowCreatePage } from './features/registry/WorkflowCreatePage';
 import { WorkflowsPage } from './features/registry/WorkflowsPage';
 import { WorkflowVersionPage } from './features/registry/WorkflowVersionPage';
+import { NotificationReceiptsPage } from './features/operations/NotificationReceiptsPage';
 import { OperationsSummaryPage } from './features/operations/OperationsSummaryPage';
 import { OutboxMessagePage } from './features/operations/OutboxMessagePage';
 import { OutboxMessagesPage } from './features/operations/OutboxMessagesPage';
@@ -109,6 +110,7 @@ export const appRoutes: RouteObject[] = [
           { path: '/operations', element: clubAdminOnly(<OperationsSummaryPage />) },
           { path: '/operations/outbox-messages', element: clubAdminOnly(<OutboxMessagesPage />) },
           { path: '/operations/outbox-messages/:messageId', element: clubAdminOnly(<OutboxMessagePage />) },
+          { path: '/operations/notification-receipts', element: clubAdminOnly(<NotificationReceiptsPage />) },
           { path: '/registry', element: clubAdminOnly(<RegistryOverviewPage />) },
           { path: '/registry/images', element: clubAdminOnly(<ImagesPage />) },
           { path: '/registry/images/register', element: clubAdminOnly(<RegisterImagePage />) },

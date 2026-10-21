@@ -87,7 +87,7 @@ description: "Task list for Web UI Workflow Operations for Club Admins"
 **Independent Test**: In the `simulated` project each outcome filter shows exactly the matching fixture receipts with their fields, paging works, and an empty result states that no receipt matches.
 
 - [x] T015 [US3] Create `src/clients/web/src/features/operations/NotificationReceiptsPage.tsx` (route `/operations/notification-receipts`): the outcome filter from the address, rows with message identifier, type, recording-set version identifier, outcome, rejection category (worded when known, raw otherwise), run identifier, and receipt time, identifiers as plain copyable text, paging and refresh through `useContinuationPages.ts`, empty, loading, error, and not-permitted states; with `src/clients/web/tests/unit/features/operations/receipts.test.tsx` (FR-012, FR-013, FR-021, FR-022)
-- [ ] T016 [US3] Add the route `/operations/notification-receipts` behind `clubAdminOnly` to `src/clients/web/src/router.tsx` and the `Notification receipts` block to `src/clients/web/tests/e2e/simulated/operations.spec.ts`: each outcome filter, paging over two fixture pages, the rejected-count link from the summary, and the empty state (FR-012, FR-013; SC-002)
+- [x] T016 [US3] Add the route `/operations/notification-receipts` behind `clubAdminOnly` to `src/clients/web/src/router.tsx` and the `Notification receipts` block to `src/clients/web/tests/e2e/simulated/operations.spec.ts`: each outcome filter, paging over two fixture pages, the rejected-count link from the summary, and the empty state (FR-012, FR-013; SC-002)
 
 **Checkpoint**: Receipts are visible and filterable.
 
