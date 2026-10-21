@@ -1,6 +1,7 @@
 using System.Text.Json;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.AgentOrchestration.Catalog;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Domain.AgentOrchestration;
 
@@ -21,12 +22,14 @@ public sealed record AgentLineageEntryView(
 public sealed record AgentInvocationLineageView(
     AgentInvocationRecord Invocation,
     IReadOnlyList<AgentLineageEntryView> Entries,
-    AgentAcceptedAdviceRecord? Advice);
+    AgentAcceptedAdviceRecord? Advice,
+    AgentPinView? Agent = null);
 
 public sealed class GetAgentInvocationLineageHandler(
     IUnitOfWork unitOfWork,
     IAgentInvocationStore invocations,
     IAgentAttemptStore attempts,
+    IAgentInvocationPinStore pins,
     IAccessAuthorizer authorizer,
     IRequestContext requestContext)
 {
@@ -79,7 +82,7 @@ public sealed class GetAgentInvocationLineageHandler(
                 ReadDetails(entry.PayloadJson)))
             .ToList();
 
-        return new AgentInvocationLineageView(invocation, entries, lineage.Advice);
+        return new AgentInvocationLineageView(invocation, entries, lineage.Advice, await AgentPins.ReadAsync(pins, invocation, cancellationToken));
     }
 
     private static Dictionary<string, JsonElement> ReadDetails(string payloadJson)

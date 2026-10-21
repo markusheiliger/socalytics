@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "model-selection",
+  "id": "simulated-model",
+  "version": "0.1.0",
+  "provider": "simulated",
+  "model": "simulated",
+  "deployment": "simulated"
+}

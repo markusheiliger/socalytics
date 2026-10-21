@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "1.1.0",
+  "invocationId": "inv-0004",
+  "conversationId": "conv-0002",
+  "attemptId": "att-0008",
+  "attemptNumber": 1,
+  "fencingToken": "ft_5c2a8e74f31b6c491d0b",
+  "leaseExpiresAt": "2026-10-18T10:15:00Z",
+  "leaseSeconds": 60,
+  "deadlineAt": "2026-10-18T10:25:00Z",
+  "correlationId": "corr-0004",
+  "route": "user-to-specialist",
+  "agentId": "specialist-tactics",
+  "agent": {
+    "agentId": "specialist-tactics",
+    "version": "1.0.0",
+    "digest": "sha-256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "artifacts": [
+      {
+        "kind": "prompt-template",
+        "id": "specialist-tactics-prompt",
+        "version": "1.0.0",
+        "digest": "sha-256:1123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      {
+        "kind": "model-selection",
+        "id": "specialist-tactics-model",
+        "version": "1.0.0",
+        "digest": "sha-256:2123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      {
+        "kind": "tool-policy",
+        "id": "specialist-tactics-tools",
+        "version": "1.0.0",
+        "digest": "sha-256:3123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      {
+        "kind": "safety-policy",
+        "id": "specialist-tactics-safety",
+        "version": "1.0.0",
+        "digest": "sha-256:4123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      }
+    ]
+  },
+  "question": "How did the team defend against counterattacks in the second half?",
+  "history": [],
+  "scope": { "teamId": "team-0001", "matchId": "match-0001", "analysisRunId": "run-0001" },
+  "limits": { "maxAdviceCharacters": 4000, "maxCheckpointNoteCharacters": 500 }
+}

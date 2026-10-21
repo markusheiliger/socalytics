@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "philosophy-profile",
+  "id": "coach-jose-mourinho",
+  "version": "1.0.0",
+  "dimensionSet": { "id": "coach-philosophy-dimensions", "version": "1.0.0" },
+  "weights": {
+    "pressing-intensity": { "weight": 8, "rationale": "Provisional hypothesis: selective pressing rather than constant pressing.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "possession-control": { "weight": 7, "rationale": "Provisional hypothesis: possession is secondary to control of risk.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "positional-structure": { "weight": 12, "rationale": "Provisional hypothesis: disciplined shape without front-line priority.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "spatial-compactness": { "weight": 18, "rationale": "Provisional hypothesis: compact collective distances as a primary attention share.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "transition-threat": { "weight": 18, "rationale": "Provisional hypothesis: transition threat as a primary attention share.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "set-play-leverage": { "weight": 15, "rationale": "Provisional hypothesis: restarts as a meaningful attention share.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "vertical-progression": { "weight": 7, "rationale": "Provisional hypothesis: advancement is opportunistic.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." },
+    "game-state-adaptation": { "weight": 15, "rationale": "Provisional hypothesis: adaptation to score, time, and opponent behavior.", "provenance": "Intelligence Agent Catalog, Base Philosophy Profiles (provisional)." }
+  },
+  "author": "SocAlytics architecture",
+  "reviewers": { "architecture": ["architecture-review"], "footballDomain": ["football-domain-review"] }
+}

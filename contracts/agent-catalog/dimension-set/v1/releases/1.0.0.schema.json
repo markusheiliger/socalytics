@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://socalytics.invalid/contracts/agent-catalog/dimension-set/v1/dimension-set.schema.json",
+  "x-socalytics-version": "1.0.0",
+  "title": "Agent catalog dimension set v1",
+  "description": "A versioned, immutable set of Coach philosophy dimensions. Dimension ids and meanings are stable within a major version; every dimension names the allowlisted MCP tools that count as accepted evidence for it. The set carries no weights, credentials, or URLs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "id", "version", "dimensions"],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "kind": { "const": "dimension-set" },
+    "id": { "$ref": "#/$defs/kebabId" },
+    "version": { "$ref": "#/$defs/semVer" },
+    "dimensions": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 32,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "meaning", "acceptedEvidence"],
+        "properties": {
+          "id": { "$ref": "#/$defs/kebabId" },
+          "meaning": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "acceptedEvidence": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 11,
+            "uniqueItems": true,
+            "items": { "$ref": "#/$defs/toolId" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "kebabId": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 100,
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+    },
+    "semVer": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "toolId": {
+      "enum": [
+        "get_match",
+        "get_player_stats",
+        "find_counter_attacks",
+        "find_turnovers",
+        "get_heatmap",
+        "find_ball_actions",
+        "find_set_plays",
+        "get_formations",
+        "find_pressing_phases",
+        "get_tactical_phases",
+        "get_video_clip"
+      ]
+    }
+  }
+}

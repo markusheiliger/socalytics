@@ -241,14 +241,32 @@ lineage under `/api/v1`); the initiating user alone reads them.
 - The outbox publishes content-free `agent-invocation-ready` notifications to a
   JetStream work queue; the attempt monitor (lease expiry, deadlines, scope
   loss) and the reconciliation worker run in the API host. Options:
-  `AgentOrchestration:Agents:Enabled`, `Execution` (attempt, lease, history,
-  length, and unfinished-invocation limits), `Workloads`, and `Monitor`; the
+  `Execution` (attempt, lease, history,
+  length, and unfinished-invocation limits), `Workloads`, and `Monitor` (enabled
+  agents come from the Agent Catalog enablement, not configuration); the
   values are development values, not adopted production values.
 - `Tests/SocAlytics.Platform.SimulatedAgentWorkload` is the Development and Test
   simulated agent workload that stands in for Hermes with deterministic advice;
   the AppHost starts it with an ephemeral key. It is not an agent runtime.
 - Hermes, consultations, Coach Agents, MCP tools, lifecycle operations, the
   Web UI, and production values remain deferred.
+
+The agent catalog registry is implemented as development evidence (migration
+`0028_agentorchestration_agent_catalog.sql`, a `Catalog` folder in each layer):
+Club Admins register immutable, content-addressed artifacts (prompt template,
+model selection, tool policy, safety policy, dimension set, philosophy profile,
+modifier policy) and agent versions, approve and retire versions, and enable one
+approved version per agent identifier under `/api/v1/agent-catalog`; records are
+validated against the `contracts/agent-catalog/` schemas, and approval,
+retirement, and enablement changes are audited with identifiers and digests
+only. Submission pins the enabled version and every artifact digest into the
+invocation (`agent_invocation_pins`), the claim's execution envelope carries the
+references, and the workload reads the pinned artifacts through the
+attempt-scoped `readPinnedAgentArtifacts` operation with the current fencing
+token. In Development and Test a seed registers and enables the two direct
+Specialist Agents with a simulated model provider. Evaluation gates, Coach Agent
+enablement, Hermes, MCP tools, the Web UI's catalog administration, and
+production values remain deferred.
 
 Partial-coverage match barriers are implemented as development evidence
 against the simulated Analyst. A match-scoped capability declares partial

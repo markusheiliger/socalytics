@@ -164,11 +164,10 @@ public sealed class SubmissionTests(PostgresContainerFixture postgres)
 		using var noKey = await SubmitAsync(coach, conversation, null, Tactics, Question, ct);
 		await AssertProblemAsync(noKey, HttpStatusCode.BadRequest, "idempotency-key-missing", ct);
 
-		var enabled = f.Factory.Services.GetRequiredService<IOptionsMonitor<AgentOrchestrationOptions>>().CurrentValue.Agents.Enabled;
-		enabled.Remove(Video).ShouldBeTrue();
+		await f.ScalarAsync($"UPDATE socalytics.agent_enablements SET agent_version = NULL WHERE agent_id = '{Video}'", ct);
 		using var disabled = await SubmitAsync(coach, conversation, "k-4", Video, Question, ct);
 		await AssertProblemAsync(disabled, HttpStatusCode.Conflict, "agent-not-available", ct);
-		enabled.Add(Video);
+		await f.ScalarAsync($"UPDATE socalytics.agent_enablements SET agent_version = '0.1.0' WHERE agent_id = '{Video}'", ct);
 
 		await f.ScalarAsync($"UPDATE socalytics.team_role_assignment SET role = 'viewer' WHERE team_id = '{f.Hierarchy.TeamId}'", ct);
 		using var viewer = await SubmitAsync(coach, conversation, "k-5", Tactics, Question, ct);

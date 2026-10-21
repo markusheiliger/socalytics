@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "model-selection",
+  "id": "temperature-above-two",
+  "version": "1.0.0",
+  "provider": "github-models",
+  "model": "gpt-4.1",
+  "deployment": "specialist-default",
+  "parameters": { "temperature": 2.5 }
+}

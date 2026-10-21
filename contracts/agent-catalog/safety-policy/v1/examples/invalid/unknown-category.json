@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "safety-policy",
+  "id": "unknown-category",
+  "version": "1.0.0",
+  "group": "specialist",
+  "routes": ["user-to-specialist"],
+  "hardBoundaries": ["Answer only from evidence."],
+  "escalationCategories": ["weather"],
+  "refusalCategories": [],
+  "rules": []
+}

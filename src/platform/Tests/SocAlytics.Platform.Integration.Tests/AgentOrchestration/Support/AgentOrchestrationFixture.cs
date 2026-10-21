@@ -59,7 +59,8 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 	public DateTimeOffset Now => Factory.Time.GetUtcNow();
 
 	public static async Task<AgentOrchestrationFixture> StartAsync(
-		PostgresContainerFixture postgres, CancellationToken ct, Action<Dictionary<string, string?>>? settings = null)
+		PostgresContainerFixture postgres, CancellationToken ct, Action<Dictionary<string, string?>>? settings = null,
+		Action<IServiceCollection>? configureServices = null)
 	{
 		var db = await postgres.CreateDatabaseAsync(ct);
 		(await MigratorHarness.RunAsync(db, TestMigrationCatalogs.Platform(), ct)).ExitCode.ShouldBe(MigratorExitCode.Success);
@@ -67,8 +68,6 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 		var disabled = new TestAgentWorkload(DisabledClientId);
 		var extra = new Dictionary<string, string?>
 		{
-			["AgentOrchestration:Agents:Enabled:0"] = "specialist-tactics",
-			["AgentOrchestration:Agents:Enabled:1"] = "specialist-video-analysis",
 			["AgentOrchestration:Execution:LeaseSeconds"] = "2",
 			["AgentOrchestration:Execution:MaxAttemptSeconds"] = "10",
 			["AgentOrchestration:Workloads:TokenLifetime"] = "00:05:00",
@@ -91,15 +90,19 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 				["FirstClubAdmin:AccountName"] = "agent-admin",
 				["FirstClubAdmin:InitialPassword"] = "Initial-Admin-Pass-1234",
 			},
-			configureServices: services => services.Configure<RegistryOptions>(o =>
+			configureServices: services =>
 			{
-				o.SoftwareKeys = SoftwareKeyPolicy.All;
-				o.RateLimits.PairingCreationPerMinute = 10_000;
-				o.RateLimits.StatusPerMinute = 10_000;
-				o.RateLimits.ActivationPerMinute = 10_000;
-				o.RateLimits.CodeSubmissionPerMinute = 10_000;
-				o.RateLimits.TokenPerMinute = 10_000;
-			}),
+				configureServices?.Invoke(services);
+				services.Configure<RegistryOptions>(o =>
+				{
+					o.SoftwareKeys = SoftwareKeyPolicy.All;
+					o.RateLimits.PairingCreationPerMinute = 10_000;
+					o.RateLimits.StatusPerMinute = 10_000;
+					o.RateLimits.ActivationPerMinute = 10_000;
+					o.RateLimits.CodeSubmissionPerMinute = 10_000;
+					o.RateLimits.TokenPerMinute = 10_000;
+				});
+			},
 			extraSettings: extra);
 		factory.Time.Set(DateTimeOffset.UtcNow);
 		await factory.WaitUntilHealthyAsync(ct);
