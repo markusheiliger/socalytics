@@ -121,7 +121,7 @@ description: "Task list for Analysis Run Supersession"
 
 ### Run list markers
 
-- [ ] T017 [US4] In `src/clients/web/src/features/lineage/AnalysisRunStates.tsx`, add to each run line the text marker "Current run" for `isCurrent` and "Superseded by the run of the recording set finalized {time} · {supersession time}" for `supersededBy` (times through the existing `formatKickoff`), show a run with cause superseded as "Cancelled (superseded)" without member, reason, or cancel action, keep the cancellation feature's member details for cause member alongside the superseded marker, keep every run listed in its recording set's group without hiding or collapsing, and keep the markers inside the line's existing `role="status"` semantics, never color alone; add the keys to `src/clients/web/src/i18n/en/lineage.json` (contracts/web-ui-supersession-markers.md; FR-019–FR-021)
+- [x] T017 [US4] In `src/clients/web/src/features/lineage/AnalysisRunStates.tsx`, add to each run line the text marker "Current run" for `isCurrent` and "Superseded by the run of the recording set finalized {time} · {supersession time}" for `supersededBy` (times through the existing `formatKickoff`), show a run with cause superseded as "Cancelled (superseded)" without member, reason, or cancel action, keep the cancellation feature's member details for cause member alongside the superseded marker, keep every run listed in its recording set's group without hiding or collapsing, and keep the markers inside the line's existing `role="status"` semantics, never color alone; add the keys to `src/clients/web/src/i18n/en/lineage.json` (contracts/web-ui-supersession-markers.md; FR-019–FR-021)
 
 ### Tests for User Story 4
 

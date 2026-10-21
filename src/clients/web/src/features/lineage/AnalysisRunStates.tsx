@@ -34,7 +34,9 @@ export async function loadAllRuns(adapter: ReturnType<typeof createAnalysisRunAd
 
 const isUnfinished = (run: AnalysisRunSummary) => run.state === 'Requested' || run.state === 'Running';
 
-const cancelled = (run: AnalysisRunSummary) => run.state === 'Cancelled' && Boolean(run.cancelledBy);
+const cancelledBySupersession = (run: AnalysisRunSummary) => run.state === 'Cancelled' && run.cancellationCause === 'superseded';
+
+const cancelled = (run: AnalysisRunSummary) => run.state === 'Cancelled' && Boolean(run.cancelledBy) && !cancelledBySupersession(run);
 
 /** Finalized recording-set versions with the state of the analysis runs created from them (FR-022, FR-023); no results. */
 export function AnalysisRunStates({ matchId, teamId }: { matchId: string; teamId?: string }) {
@@ -132,9 +134,17 @@ export function AnalysisRunStates({ matchId, teamId }: { matchId: string; teamId
                         <span role="status">
                           {cancelled(run)
                             ? t('runs.cancelledBy', { name: run.cancelledBy?.accountName })
-                            : t('runs.stateLabel', { state: t(`runs.state.${run.state}`, { defaultValue: run.state }) })}
+                            : cancelledBySupersession(run)
+                              ? t('runs.cancelledSuperseded')
+                              : t('runs.stateLabel', { state: t(`runs.state.${run.state}`, { defaultValue: run.state }) })}
                           {cancelled(run) && run.terminatedAt && ` · ${formatKickoff(run.terminatedAt)}`}
                           {cancelled(run) && run.cancellationReason && ` · ${run.cancellationReason}`}
+                          {run.isCurrent && ` · ${t('runs.current')}`}
+                          {run.supersededBy &&
+                            ` · ${t('runs.supersededBy', {
+                              set: formatKickoff(run.supersededBy.recordingSetFinalizedAt),
+                              time: run.supersededAt ? formatKickoff(run.supersededAt) : '',
+                            })}`}
                         </span>
                         {' · '}
                         {t('runs.run', { workflow: run.workflowId, version: run.workflowVersion })}
