@@ -366,7 +366,7 @@ refused and in-use segments are kept.
   future-tense, or "decided, not yet implemented" wording anywhere in `docs/architecture/`, treating the plan's
   rewrites as examples rather than the whole job; keep storage cost, policy migration at scale, POL-004, and production
   toolchain and storage values explicitly unresolved; run `node .github/scripts/check-markdown.mjs` (FR-030)
-- [ ] T031 [P] Update `README.md` (toolchain prerequisite for the API host and toolchain-dependent tests), `AGENTS.md`
+- [x] T031 [P] Update `README.md` (toolchain prerequisite for the API host and toolchain-dependent tests), `AGENTS.md`
   (Current State: Segment Service, media mount, segment options, member and Manager operations, the first Manager
   version that stages media and the minimum Manager version to set), `src/platform/README.md`,
   `src/analysts/README.md`, `src/analysts/sdk/README.md` (media access with an example), and the Manager documentation

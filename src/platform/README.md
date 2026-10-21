@@ -281,6 +281,42 @@ acceptance rejects a manifest whose `inputCoverage` differs
 counts per node. A run that bridged failed or blocked segments ends
 `PartiallyCompleted`.
 
+The Segment Service (the `Segments` folders of the layers) is implemented as
+development evidence. A leased background worker in the API host materializes
+the segments that run creation requests for nodes whose pinned video policy is
+`required` or `optional`: it extracts the primary video stream of the requested
+interval by stream copy with the `ffmpeg` and `ffprobe` found through
+`Segments:Toolchain` (`FfmpegPath`, `FfprobePath`, `ExpectedVersionPrefix`;
+Development expects `n8.1`), writes the media and a manifest under
+candidate-specific object keys, verifies the stored digest, and publishes one
+association per identity in the versioned `materialized_segments` table.
+Readiness waits for the segments and pins the association into the job's input
+snapshot; a failed segment fails `required` jobs with `segment-unavailable` and
+readies `optional` jobs without media. A missing or mismatched toolchain fails
+materialization with a sanitized, non-retryable reason and does not stop other
+work.
+
+- `Segments:Materialization` (development values): `PollInterval` 5 seconds,
+  `LeaseDuration` 5 minutes, `MaxConcurrentPerInstance` 2, `MaxAttempts` 3,
+  `RetryDelay` 30 seconds, `ExecutionTimeout` 10 minutes, `MaxSegmentBytes`
+  2 GiB, and `WorkingDirectory`; invalid values stop the host at start.
+- `getAnalysisSegmentMedia` (`GET /api/v1/analysis/attempts/{attemptId}/segment-media`,
+  Manager authentication) returns the pinned association's per-object read
+  grants for the Manager's own active attempt; they expire no later than the
+  attempt lease, and stale, fenced, foreign, and not-applicable requests are
+  refused and audited. No operation reads or relays media bytes. Contracts:
+  `contracts/segments/segment-manifest/v1/`, `contracts/analysis/segment-media/v1/`,
+  and `contracts/analysis/analyst-job/v1/` 1.2.0 (`segmentMedia`).
+- `listMaterializedSegments` and `purgeMaterializedSegments`
+  (`GET` and `POST …/purge` under `/api/v1/matches/{matchId}/materialized-segments`)
+  let Club Admins of the owning club list a match's segments and purge them;
+  segments in use by a non-final run are kept, and a purged segment
+  rematerializes for a later run. There is no automatic eviction.
+- Managers older than the first build that stages media (`0.1.0`) are kept
+  from new work through `Registry:ManagerVersion:Minimum`, not by the Segment
+  Service. Storage cost, policy migration at scale, `POL-004`, and production
+  toolchain and storage values remain unresolved.
+
 Real Analyst execution is implemented on the Manager's `docker-desktop`
 profile and verified against a Linux engine; Docker Desktop on Windows awaits
 manual evidence. Production transport values and production readiness remain
@@ -379,7 +415,10 @@ readiness.
 ## Development
 
 A running Docker-compatible container runtime is required to run the AppHost
-and the Host and Integration tests. Run the supported workflow from the
+and the Host and Integration tests. The API host and the tests that materialize
+segments (Integration and end-to-end) also need `ffmpeg` and `ffprobe` 8.1 on
+`PATH` or at the paths of `SOCALYTICS_FFMPEG_PATH` and `SOCALYTICS_FFPROBE_PATH`
+(see `Segments:Toolchain`). Run the supported workflow from the
 repository root:
 
 ```powershell

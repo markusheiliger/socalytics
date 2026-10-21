@@ -55,6 +55,36 @@ exits. `output_type` is `foundational-facts` or `soccer-concepts`. `root` exists
 `context.result.add_fact`, `add_artifact`, `set_validity_window`, `set_confidence`, and `add_evidence_reference`;
 `finalize` belongs to `run`. When at least one fact is added, `set_confidence` is required.
 
+## Media access
+
+`context.media` is `None` unless the job carries `segmentMedia`, which the platform sets only for nodes whose pinned
+video policy provides media and whose segment was materialized. The Analyst Manager has already verified and staged the
+files, and the SDK verifies them again on load against the job's `segmentMedia` and the segment manifest. `media.path`
+is the read-only `segment.mp4` (the primary video stream, stream-copied, so it contains no audio), `media.manifest` is the typed
+`segments/segment-manifest`, and `media.to_match_ms(media_ms)` maps a media time to match time through the manifest's
+timeline spans (half-open; `None` outside every span). A job with an `optional` policy can run without media, so check
+for `None`:
+
+```python
+from socalytics_analyst import AnalystContext, Fact, run
+
+
+def analyse(context: AnalystContext) -> None:
+    media = context.media
+    if media is None:
+        return
+    match_ms = media.to_match_ms(0)
+    if match_ms is not None:
+        context.result.add_fact(Fact(kind="media-start", start_ms=match_ms, end_ms=match_ms + 1, confidence=1.0, payload={}))
+        context.result.set_confidence(1.0)
+    with media.path.open("rb") as video:
+        video.read(16)
+
+
+if __name__ == "__main__":
+    run(analyse, output_type="foundational-facts")
+```
+
 ## Exit statuses and error categories
 
 | Exit status | Meaning |
