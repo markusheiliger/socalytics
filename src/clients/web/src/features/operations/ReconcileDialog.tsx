@@ -10,6 +10,7 @@ import { useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createOperationsAdapter } from '../../platform/adapters/operationsAdapter';
 import { toPlatformFailure } from '../../platform/failure';
+import { useConnectivity } from '../../connectivity/useConnectivity';
 import { useSession } from '../../session/sessionContext';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { FailureAlert } from '../shared/FailureAlert';
@@ -25,6 +26,8 @@ interface Props {
 /** Confirms and sends exactly one reconciliation request, then shows its outcome or refusal (FR-014 to FR-017). */
 export function ReconcileDialog({ open, onClose, onCompleted }: Props) {
   const { t } = useTranslation('operations');
+  const { t: ts } = useTranslation('shell');
+  const { isUnreachable } = useConnectivity();
   const { platform } = useSession();
   const adapter = useMemo(() => createOperationsAdapter(platform), [platform]);
   const sent = useRef(false);
@@ -38,7 +41,7 @@ export function ReconcileDialog({ open, onClose, onCompleted }: Props) {
   if (failure?.kind === 'notPermitted') return <NotPermittedPage />;
 
   const confirm = () => {
-    if (sent.current) return;
+    if (sent.current || isUnreachable) return;
     sent.current = true;
     mutation.mutate();
   };
@@ -65,6 +68,11 @@ export function ReconcileDialog({ open, onClose, onCompleted }: Props) {
               {t('reconcile.mayTakeAWhile')} {t('reconcile.audited')}
             </DialogContentText>
           </>
+        )}
+        {isUnreachable && !finished && (
+          <Alert severity="warning" role="alert" sx={{ mt: 2 }}>
+            {ts('connectivity.connectionRequired')}
+          </Alert>
         )}
         {mutation.isPending && (
           <DialogContentText role="status" sx={{ mt: 2 }}>
@@ -106,7 +114,7 @@ export function ReconcileDialog({ open, onClose, onCompleted }: Props) {
             <Button onClick={close} disabled={mutation.isPending}>
               {t('reconcile.cancel')}
             </Button>
-            <Button variant="contained" onClick={confirm} disabled={mutation.isPending}>
+            <Button variant="contained" onClick={confirm} disabled={mutation.isPending || isUnreachable}>
               {t('reconcile.confirm')}
             </Button>
           </>

@@ -1,7 +1,8 @@
 import type { Page } from '@playwright/test';
 import { expectNoAxeViolations } from '../support/axe';
 import { expect, test } from '../support/fixtures';
-import { operationalSummaryFixture } from '../support/simulatedApi';
+import { expectAllReachableByKeyboard } from '../support/keyboard';
+import { operationalSummaryFixture, problem } from '../support/simulatedApi';
 
 const NOT_PERMITTED = 'You are not permitted to open this page.';
 
@@ -405,5 +406,279 @@ test.describe('Reconciliation', () => {
 
     await expect(page.getByText(NOT_PERMITTED)).toBeVisible();
     expect(api.reconciliationRequests).toBe(1);
+  });
+});
+
+const operationsResponses = /\/api\/v1\/operations\//;
+
+async function holdOperationsResponses(page: Page): Promise<() => void> {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route(operationsResponses, async (route) => {
+    await gate;
+    await route.fallback();
+  });
+  return release;
+}
+
+async function failOperationsResponses(page: Page): Promise<void> {
+  await page.route(operationsResponses, (route) =>
+    route.fulfill({ status: 500, contentType: 'application/problem+json', body: JSON.stringify(problem(500, 'Server error')) }),
+  );
+}
+
+async function operationsInBrowserStorage(page: Page): Promise<{ cacheApi: string[]; text: string }> {
+  return page.evaluate(async () => {
+    const cacheApi: string[] = [];
+    for (const name of await caches.keys()) {
+      cacheApi.push(
+        ...(await (await caches.open(name)).keys()).map((request) => new URL(request.url).pathname).filter((p) => p.startsWith('/api/')),
+      );
+    }
+    const entries: string[] = [];
+    for (const storage of [localStorage, sessionStorage]) {
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i) ?? '';
+        entries.push(`${key}=${storage.getItem(key) ?? ''}`);
+      }
+    }
+    for (const info of (await indexedDB.databases?.()) ?? []) {
+      if (!info.name) continue;
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const open = indexedDB.open(info.name as string);
+        open.onsuccess = () => resolve(open.result);
+        open.onerror = () => reject(open.error);
+      });
+      for (const store of Array.from(db.objectStoreNames)) {
+        const rows = await new Promise<unknown[]>((resolve, reject) => {
+          const request = db.transaction(store).objectStore(store).getAll();
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        entries.push(`${info.name}/${store}=${JSON.stringify(rows)}`);
+      }
+      db.close();
+    }
+    return { cacheApi, text: entries.join('\n') };
+  });
+}
+
+const views = [
+  { name: 'summary', path: '/operations', operation: 'getAnalysisOperationalSummary', loading: undefined },
+  { name: 'outgoing messages', path: '/operations/outbox-messages', operation: 'listOutboxMessages', loading: 'Loading…' },
+  { name: 'outgoing message', path: `/operations/outbox-messages/${messageId(7)}`, operation: 'getOutboxMessage', loading: 'Loading…' },
+  { name: 'notification receipts', path: '/operations/notification-receipts', operation: 'listNotificationReceipts', loading: 'Loading…' },
+] as const;
+
+test.describe('Quality', () => {
+  for (const view of views) {
+    test(`the ${view.name} view has no WCAG 2.2 AA violations while loading, with data, when refused, and on error (FR-020, FR-021, SC-005)`, async ({
+      page,
+      api,
+    }) => {
+      api.signInAs('ClubAdmin');
+      const release = await holdOperationsResponses(page);
+      await page.goto(view.path);
+      await expect(page.getByText('Loading…')).toBeVisible();
+      await expectNoAxeViolations(page);
+      release();
+      await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+      await expect(page.getByText('Loading…')).toHaveCount(0);
+      await expectNoAxeViolations(page);
+      await page.unroute(operationsResponses);
+
+      await failOperationsResponses(page);
+      await page.reload();
+      await expect(page.getByRole('alert')).toBeVisible();
+      await expectNoAxeViolations(page);
+      await page.unroute(operationsResponses);
+
+      api.operationsSwitches.set(view.operation, 'forbidden');
+      await page.reload();
+      await expect(page.getByText(NOT_PERMITTED)).toBeVisible();
+      await expectNoAxeViolations(page);
+    });
+  }
+
+  test('the lists have no violations in their empty state (FR-021, SC-005)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    api.outboxMessages = [];
+    api.notificationReceipts = [];
+    await page.goto('/operations/outbox-messages');
+    await expect(page.getByText('No outgoing messages yet')).toBeVisible();
+    await expectNoAxeViolations(page);
+    await page.goto('/operations/notification-receipts');
+    await expect(page.getByText('No notification receipts yet')).toBeVisible();
+    await expectNoAxeViolations(page);
+  });
+
+  test('every view, filter, paging control, and copy control works with the keyboard alone and shows focus (FR-020, SC-005)', async ({
+    page,
+    api,
+    context,
+  }) => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations');
+    await expect(value(page, 'Running')).toBeVisible();
+    await expectAllReachableByKeyboard(page, page.locator('main'));
+
+    await page.goto('/operations/outbox-messages');
+    await expect(rows(page)).toHaveCount(5);
+    await expectAllReachableByKeyboard(page, page.locator('main'));
+    const state = page.getByLabel('State');
+    await state.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(page).toHaveURL(/\?state=/);
+    await expectAllReachableByKeyboard(page, page.locator('main'));
+    const clear = page.getByRole('button', { name: 'Clear filters' }).first();
+    await clear.focus();
+    await page.keyboard.press('Enter');
+    await expect(page).not.toHaveURL(/state=/);
+    await expect(rows(page)).toHaveCount(5);
+    const next = page.getByRole('button', { name: 'Next page' });
+    await expect(next).toBeEnabled();
+    await next.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('link', { name: `Open message ${messageId(6)}` })).toBeVisible();
+    const previous = page.getByRole('button', { name: 'Previous page' });
+    await previous.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('link', { name: `Open message ${messageId(1)}` })).toBeVisible();
+
+    const open = page.getByRole('link', { name: `Open message ${messageId(1)}` });
+    await open.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('heading', { level: 1, name: 'Outgoing message' })).toBeVisible();
+    await expectAllReachableByKeyboard(page, page.locator('main'));
+    const copy = page.getByRole('button', { name: `Copy ${messageId(1)}` });
+    await copy.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('status').filter({ hasText: 'Copied' })).toBeVisible();
+    await expectNoAxeViolations(page);
+
+    await page.goto('/operations/notification-receipts');
+    await expect(receiptRows(page)).toHaveCount(5);
+    await expectAllReachableByKeyboard(page, page.locator('main'));
+    await page.getByLabel('Outcome').focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(page).toHaveURL(/\?outcome=/);
+    await expectAllReachableByKeyboard(page, page.locator('main'));
+    await page.getByRole('button', { name: 'Clear filters' }).first().focus();
+    await page.keyboard.press('Enter');
+    await expect(receiptRows(page)).toHaveCount(5);
+    await expect(page.getByRole('button', { name: 'Next page' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Next page' }).focus();
+    await page.keyboard.press('Enter');
+    await expect(receiptRows(page).first()).toContainText(receiptId(6));
+    await page.getByRole('button', { name: 'Previous page' }).focus();
+    await page.keyboard.press('Enter');
+    await expect(receiptRows(page).first()).toContainText(receiptId(1));
+  });
+
+  test('the reconciliation dialog is keyboard operable and has no violations in confirmation, progress, outcome, and refusal (FR-020, SC-005)', async ({
+    page,
+    api,
+  }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations');
+    await expect(value(page, 'Running')).toBeVisible();
+    const trigger = page.getByRole('button', { name: 'Run reconciliation' });
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog', { name: 'Run reconciliation' });
+    await expect(dialog).toBeVisible();
+    await expectNoAxeViolations(page);
+    await expectAllReachableByKeyboard(page, dialog);
+
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    expect(api.reconciliationRequests).toBe(0);
+
+    const release = await holdOperationsResponses(page);
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    await dialog.getByRole('button', { name: 'Run reconciliation' }).focus();
+    await page.keyboard.press('Enter');
+    await expect(dialog.getByRole('status').filter({ hasText: 'Reconciliation is running' })).toBeVisible();
+    await expectNoAxeViolations(page);
+    release();
+    await expect(dialog).toContainText('2 ready jobs and 1 notifications were queued again');
+    await expectNoAxeViolations(page);
+    await expectAllReachableByKeyboard(page, dialog);
+    await dialog.getByRole('button', { name: 'Close' }).focus();
+    await page.keyboard.press('Enter');
+    await expect(dialog).toHaveCount(0);
+    await page.unroute(operationsResponses);
+
+    api.operationsSwitches.set('reconcileAnalysisPublication', 'unavailable');
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    await dialog.getByRole('button', { name: 'Run reconciliation' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('The reconciliation did not complete');
+    await expectNoAxeViolations(page);
+    await expectAllReachableByKeyboard(page, dialog);
+  });
+
+  test('no operations response is left in Cache Storage, localStorage, sessionStorage, or IndexedDB (FR-019, SC-006)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations');
+    await expect(value(page, 'Running')).toBeVisible();
+    await page.getByRole('button', { name: 'Run reconciliation' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Run reconciliation' }).click();
+    await expect(page.getByRole('dialog')).toContainText('queued again');
+    await page.getByRole('button', { name: 'Close' }).click();
+    await page.goto('/operations/outbox-messages?state=failed');
+    await expect(rows(page)).toHaveCount(3);
+    await page.getByRole('link', { name: `Open message ${messageId(7)}` }).click();
+    await expect(value(page, 'Failure category')).toHaveText('transport-unavailable');
+    await page.goto('/operations/notification-receipts');
+    await expect(receiptRows(page)).toHaveCount(5);
+
+    const stored = await operationsInBrowserStorage(page);
+    expect(stored.cacheApi).toEqual([]);
+    for (const marker of [messageId(7), receiptId(1), 'transport-unavailable', 'analysis.markup', 'profile-not-approved', 'unrecognized-reason']) {
+      expect(stored.text, `storage holds ${marker}`).not.toContain(marker);
+    }
+  });
+
+  test('offline, /operations and the confirmation show the connection-required state and send nothing (FR-019, SC-006)', async ({
+    page,
+    api,
+    context,
+  }) => {
+    api.signInAs('ClubAdmin');
+    await page.goto('/operations');
+    await expect(value(page, 'Running')).toBeVisible();
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.ready;
+    });
+    await page.reload();
+    await expect(value(page, 'Running')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Run reconciliation' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Run reconciliation' });
+    await expect(dialog).toBeVisible();
+    const before = api.requests.length;
+    await context.setOffline(true);
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await expect(dialog.getByText(/A connection is required/)).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Run reconciliation' })).toBeDisabled();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    expect(api.reconciliationRequests).toBe(0);
+    expect(api.requests.slice(before).filter((request) => request.path.startsWith('/operations'))).toEqual([]);
+
+    const attempted: string[] = [];
+    await page.route('**/api/v1/**', (route) => {
+      attempted.push(new URL(route.request().url()).pathname);
+      return route.abort('internetdisconnected');
+    });
+    await page.goto('/operations');
+    await expect(page.getByText(/A connection is required/).first()).toBeVisible();
+    await expect(value(page, 'Running')).toHaveCount(0);
+    expect(attempted.filter((path) => path.startsWith('/api/v1/operations'))).toEqual([]);
+    expect(api.reconciliationRequests).toBe(0);
   });
 });
