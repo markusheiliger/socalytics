@@ -69,7 +69,6 @@ jobs:
     needs: prepare
     strategy:
       fail-fast: false
-      max-parallel: ${{ fromJSON(vars.SPECKIT_MAX_PARALLEL_TASKS || '3') }}
       matrix: ${{ fromJSON(inputs.order)[inputs.index] }}
     uses: ./.github/workflows/speckit-implement-task.yml
     permissions:

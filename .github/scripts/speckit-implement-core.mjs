@@ -49,8 +49,6 @@ export const DONE_COMMENT_MARKER = '<!-- speckit-implement:done -->';
 const REPAIR_MARKER_PATTERN = /<!-- speckit-implement:repair ([A-Za-z0-9+/=]+) -->/;
 export const BOT_LOGIN = 'github-actions[bot]';
 export const MAX_TASK_ATTEMPTS = 2;
-// Default number of `[P]` tasks of one spec that run at the same time (repository variable SPECKIT_MAX_PARALLEL_TASKS).
-export const DEFAULT_MAX_PARALLEL_TASKS = 3;
 export const MAX_CONVERGE_ROUNDS = 3;
 // A merge check run still in progress after this long belongs to a cancelled or crashed run.
 export const MERGE_STALE_MS = 2 * 60 * 60 * 1000;
@@ -693,12 +691,6 @@ export function describeParallelGroups(tasksMarkdown) {
     return { phase: headingText(key), done: list.length - open.length, open: open.length, order };
   });
   return { phases: result, warnings };
-}
-
-// Parses SPECKIT_MAX_PARALLEL_TASKS; anything but a positive integer falls back to the default.
-export function parseMaxParallel(value) {
-  const number = Number(String(value ?? '').trim());
-  return Number.isInteger(number) && number > 0 ? number : DEFAULT_MAX_PARALLEL_TASKS;
 }
 
 // Parses SPECKIT_MAX_ACTIVE_SPECS; anything but a positive integer falls back to the default.

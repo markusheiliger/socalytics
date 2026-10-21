@@ -88,7 +88,6 @@ import {
   nextTask,
   nextTaskGroup,
   parseGuidance,
-  parseMaxParallel,
   isImplementRunOf,
   isTwinRunOf,
   phaseSubject,
@@ -462,7 +461,6 @@ test('groups consecutive unticked [P] tasks under one heading', () => {
   assert.deepEqual(ids(PARALLEL_TASKS.replace(/- \[ \] T00[2-7]/g, (line) => line.replace('[ ]', '[x]')), 3), ['T008'], 'a group never crosses a heading');
   assert.deepEqual(ids('- [ ] T001 Not [P] in the text\n- [ ] T002 [P] x\n', 3), ['T001'], 'only leading tags count');
   assert.deepEqual(ids('- [x] T001 done\n', 3), []);
-  assert.deepEqual([parseMaxParallel(undefined), parseMaxParallel(''), parseMaxParallel('1'), parseMaxParallel(' 5 '), parseMaxParallel('0'), parseMaxParallel('x')], [3, 3, 1, 5, 3, 3]);
 });
 
 test('plans the task order of a phase: single tasks, and [P] tasks that run in parallel', () => {
@@ -762,6 +760,7 @@ test('the implementation workflows give task, group, repair, convergence, confli
   assert.match(groups, /uses: \.\/\.github\/workflows\/speckit-implement-group\.yml/);
   const groupTasks = job(group, 'tasks');
   assert.match(groupTasks, /matrix: \$\{\{ fromJSON\(inputs\.order\)\[inputs\.index\] \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-task\.yml/);
+  assert.doesNotMatch(groupTasks, /max-parallel/, 'all [P] tasks of a group run at once');
   assert.doesNotMatch(job(task, 'work'), /strategy:|matrix\./, 'a task workflow implements exactly one task');
   assert.match(job(task, 'work'), /SPECKIT_TASK: \$\{\{ inputs\.task \}\}/);
   assert.match(phase, /verified:[\s\S]*?value: \$\{\{ jobs\.verify\.result \}\}/);
