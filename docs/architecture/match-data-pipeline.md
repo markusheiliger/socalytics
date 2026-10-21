@@ -37,7 +37,7 @@ sequenceDiagram
   the set used by an analysis run. A later recording addition or correction
   creates a new recording-set version and a new run rather than overwriting
   accepted evidence; once the new run exists, it supersedes the match's older
-  runs (decided, not yet implemented; see
+  runs (see
   [Run State And Recovery](job-processing.md#run-state-and-recovery)).
 
   Every recording upload is one multipart upload of one platform-chosen
@@ -67,12 +67,13 @@ authorization are resolved through the Club and Identity and Access application
 handlers; downstream validation uses a typed Recordings lineage query rather
 than reading Recordings tables directly. The recording-set versions of a match
 are ordered by finalization time with the version identity as tie-break;
-analysis run supersession uses this order (decided, not yet implemented).
+analysis run supersession uses this order.
 
 Its integration tests cover immutable metadata and mapping revisions,
 mapping/recording mismatch, missing Match and unauthorized Team access, empty
 or cross-scope sets, atomic finalization and rollback, replay behavior, one
-canonical finalized event, and revision through a new recording-set identity.
+canonical finalized event, and revision through a new recording-set identity, which supersedes the
+older run of the match.
 
 ---
 
