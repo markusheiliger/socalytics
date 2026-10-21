@@ -76,7 +76,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 ### Segment domain, schema, storage, and options
 
-- [ ] T005 [P] Implement the `Segments` domain in `src/platform/SocAlytics.Platform.Domain/Segments/`
+- [x] T005 [P] Implement the `Segments` domain in `src/platform/SocAlytics.Platform.Domain/Segments/`
   (`MaterializedSegmentIdentity` with all four fields required and `segmentNumber > 0`; `SegmentWindowCalculator` for
   the nominal window `[(n-1)·D, n·D)`, the intersection with mapped spans, the requested source interval as the
   smallest contiguous media interval covering every non-empty intersection, the intersected `timelineSpans`, and
