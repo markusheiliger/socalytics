@@ -302,7 +302,7 @@ observe recovery, contained failure, and refusal.
   immediately; candidates are never visible between attempts; a new demand for a `failed` identity starts a new cycle;
   tests with an injected extractor and storage in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentFailureTests.cs` (FR-008)
-- [ ] T026 [US3] Propagate segment failure in `src/platform/SocAlytics.Platform.Application/Analysis/RunReadinessCoordinator.cs`:
+- [x] T026 [US3] Propagate segment failure in `src/platform/SocAlytics.Platform.Application/Analysis/RunReadinessCoordinator.cs`:
   when a segment ends `failed`, or a job carries a `segment_rejection_reason`, fail waiting `required` jobs with reason
   `segment-unavailable` (blocking follows the
   normal required, optional, conditional, and partial-coverage rules) and make waiting `optional` jobs ready without

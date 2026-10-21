@@ -34,6 +34,7 @@ public sealed class RunReadinessCoordinator(
     private const string ContractVersion = "1.0.0";
     private const string JobContractVersion = "1.1.0";
     private const string MediaJobContractVersion = "1.2.0";
+    private const string SegmentUnavailableReason = "segment-unavailable";
 
     private static string JobVersion(SegmentMediaPin? pin) => pin is null ? JobContractVersion : MediaJobContractVersion;
 
@@ -63,6 +64,7 @@ public sealed class RunReadinessCoordinator(
         }
 
         var jobRecords = await jobs.LoadByRunAsync(runId, cancellationToken);
+        jobRecords = await FailUnavailableSegmentJobsAsync(jobRecords, hierarchy.Nodes.ToDictionary(n => n.Id), cancellationToken);
         var accepted = await results.ListByRunAsync(runId, cancellationToken);
         var acceptedById = accepted.ToDictionary(a => a.Id);
         var nodesByKey = hierarchy.Nodes.ToDictionary(n => n.NodeKey, StringComparer.Ordinal);
@@ -387,6 +389,43 @@ public sealed class RunReadinessCoordinator(
         }
 
         return JsonSerializer.SerializeToElement(payload);
+    }
+
+    // A waiting required job whose segment ended failed, or whose materialization request was rejected, fails with
+    // segment-unavailable; dependents then follow the normal blocking and coverage rules.
+    private async Task<IReadOnlyList<LogicalJobRecord>> FailUnavailableSegmentJobsAsync(
+        IReadOnlyList<LogicalJobRecord> jobRecords, Dictionary<Guid, WorkflowNodeRecord> nodesById, CancellationToken ct)
+    {
+        List<LogicalJobRecord>? updated = null;
+        for (var i = 0; i < jobRecords.Count; i++)
+        {
+            var j = jobRecords[i];
+            if (j.State != LogicalJobState.Waiting || ToSegment(j) is not { } segment
+                || nodesById[j.NodeId].State is not (WorkflowNodeState.Waiting or WorkflowNodeState.Active)
+                || VideoPolicyOf(nodesById[j.NodeId]) != VideoPolicies.Required)
+            {
+                continue;
+            }
+
+            if (j.SegmentRejectionReason is null)
+            {
+                var identity = new MaterializedSegmentIdentity(
+                    segment.RecordingVersionId, segment.TimelineMappingDigest, segment.SegmentationPolicyDigest, segment.SegmentNumber);
+                if (await segments.FindAsync(identity, ct) is not { State: MaterializedSegmentState.Failed })
+                {
+                    continue;
+                }
+            }
+
+            if (await jobs.TryTransitionAsync(j.Id, LogicalJobState.Waiting, LogicalJobState.Failed, SegmentUnavailableReason, null, ct))
+            {
+                logger?.LogWarning("Analysis job {LogicalJobId} of run {RunId} failed: {Reason}.", j.Id, j.RunId, SegmentUnavailableReason);
+                updated ??= [.. jobRecords];
+                updated[i] = j with { State = LogicalJobState.Failed, FailureReason = SegmentUnavailableReason };
+            }
+        }
+
+        return updated ?? jobRecords;
     }
 
     private sealed record MediaState(bool Awaiting, SegmentMediaPin? Pin);

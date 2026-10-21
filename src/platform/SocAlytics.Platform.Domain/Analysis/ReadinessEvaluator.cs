@@ -120,7 +120,7 @@ public static class ReadinessEvaluator
 			{
 				var own = jobs.Where(j => j.NodeKey == node.NodeKey).ToList();
 				var current = node;
-				if (current.State == WorkflowNodeState.Waiting && own.Any(j => j.State is LogicalJobState.Ready or LogicalJobState.Claimed))
+				if (current.State == WorkflowNodeState.Waiting && own.Any(j => j.State is LogicalJobState.Ready or LogicalJobState.Claimed or LogicalJobState.Failed))
 				{
 					transitions.Add(new NodeTransition(current.NodeKey, current.State, WorkflowNodeState.Active));
 					current = current with { State = WorkflowNodeState.Active };
@@ -129,7 +129,7 @@ public static class ReadinessEvaluator
 
 				if (current.State == WorkflowNodeState.Active)
 				{
-					WorkflowNodeState? next = own.Any(j => j.State == LogicalJobState.Failed) ? WorkflowNodeState.Failed
+					WorkflowNodeState? next = own.Any(j => j.State == LogicalJobState.Failed) && !own.Any(j => j.State == LogicalJobState.Waiting && j.AwaitsSegmentMedia) ? WorkflowNodeState.Failed
 						: own.Count > 0 && own.All(j => j.State == LogicalJobState.Completed) ? WorkflowNodeState.Completed
 						: null;
 					if (next is { } target)

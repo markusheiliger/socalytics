@@ -228,13 +228,7 @@ public sealed class MaterializeSegmentHandler(
                     published = await store.TryPublishAsync(segment.Id, candidateId, association, cancellationToken);
                     if (published && runs is not null && readiness is not null)
                     {
-                        // Waiting jobs are re-evaluated in the publishing unit of work, run by run in id order.
-                        var waiting = await store.ListWaitingJobsAsync(identity, cancellationToken);
-                        foreach (var runId in waiting.Select(w => w.RunId).Distinct().Order())
-                        {
-                            await runs.LockRunAsync(runId, cancellationToken);
-                            await readiness.ApplyAsync(runId, cancellationToken);
-                        }
+                        await ReapplyWaitingJobsAsync(identity, cancellationToken);
                     }
 
                     await scope.CommitAsync(cancellationToken);
@@ -259,6 +253,22 @@ public sealed class MaterializeSegmentHandler(
                 await DeleteCandidateObjectsAsync(identity, candidateId, CancellationToken.None);
                 return await RetryOrExhaustAsync(segment, candidateId, SegmentFailureReasons.StorageUnavailable, cancellationToken);
             }
+        }
+    }
+
+    // Waiting jobs are re-evaluated in the caller's unit of work, run by run in id order.
+    private async Task ReapplyWaitingJobsAsync(MaterializedSegmentIdentity identity, CancellationToken cancellationToken)
+    {
+        if (runs is null || readiness is null)
+        {
+            return;
+        }
+
+        var waiting = await store.ListWaitingJobsAsync(identity, cancellationToken);
+        foreach (var runId in waiting.Select(w => w.RunId).Distinct().Order())
+        {
+            await runs.LockRunAsync(runId, cancellationToken);
+            await readiness.ApplyAsync(runId, cancellationToken);
         }
     }
 
@@ -293,6 +303,11 @@ public sealed class MaterializeSegmentHandler(
         await using (var scope = await unitOfWork.BeginAsync(cancellationToken))
         {
             failed = await store.TryFailAsync(segment.Id, candidateId, reason, cancellationToken);
+            if (failed)
+            {
+                await ReapplyWaitingJobsAsync(segment.Identity, cancellationToken);
+            }
+
             await scope.CommitAsync(cancellationToken);
         }
 
