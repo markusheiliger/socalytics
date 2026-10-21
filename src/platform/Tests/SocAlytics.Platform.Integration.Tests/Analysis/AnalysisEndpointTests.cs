@@ -376,7 +376,7 @@ public sealed class AnalysisEndpointTests(PostgresContainerFixture postgres, Rus
 		(await reader.ReadAsync(ct)).ShouldBeTrue();
 		reader.GetString(0).ShouldBe("club");
 		var details = JsonDocument.Parse(reader.GetString(1)).RootElement;
-		details.EnumerateObject().Select(p => p.Name).Order().ToArray().ShouldBe(["notificationsRepublished", "readyJobsRepublished"]);
+		details.EnumerateObject().Select(p => p.Name).Order().ToArray().ShouldBe(["notificationsRepublished", "readyJobsRepublished", "runsSuperseded"]);
 		(await reader.ReadAsync(ct)).ShouldBeFalse();
 	}
 }
