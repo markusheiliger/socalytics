@@ -67,9 +67,6 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 		var disabled = new TestAgentWorkload(DisabledClientId);
 		var extra = new Dictionary<string, string?>
 		{
-			["AgentOrchestration:Catalog:SeedEnabled"] = "false",
-			["AgentOrchestration:Agents:Enabled:0"] = "specialist-tactics",
-			["AgentOrchestration:Agents:Enabled:1"] = "specialist-video-analysis",
 			["AgentOrchestration:Execution:LeaseSeconds"] = "2",
 			["AgentOrchestration:Execution:MaxAttemptSeconds"] = "10",
 			["AgentOrchestration:Workloads:TokenLifetime"] = "00:05:00",

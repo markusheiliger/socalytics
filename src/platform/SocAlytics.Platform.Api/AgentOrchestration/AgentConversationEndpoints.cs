@@ -12,7 +12,7 @@ using SocAlytics.Platform.Domain.AgentOrchestration;
 
 namespace SocAlytics.Platform.Api.AgentOrchestration;
 
-internal sealed record AvailableAgentDto(string AgentId, string Group, string Domain);
+internal sealed record AvailableAgentDto(string AgentId, string Group, string Domain, string DisplayName, string EnabledVersion);
 
 internal sealed record AvailableAgentsDto(IReadOnlyList<AvailableAgentDto> Agents);
 
@@ -164,7 +164,7 @@ internal static class AgentConversationEndpoints
 	{
 		var result = await handler.HandleAsync(cancellationToken);
 		return result.IsSuccess
-			? Results.Ok(new AvailableAgentsDto([.. result.Value.Select(a => new AvailableAgentDto(a.AgentId, a.Group, a.Domain))]))
+			? Results.Ok(new AvailableAgentsDto([.. result.Value.Select(a => new AvailableAgentDto(a.AgentId, a.Group, a.Domain, a.DisplayName, a.EnabledVersion))]))
 			: ProblemResults.From(result.Failure);
 	}
 

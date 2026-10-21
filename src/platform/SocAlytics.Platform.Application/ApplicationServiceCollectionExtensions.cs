@@ -144,7 +144,7 @@ public static class ApplicationServiceCollectionExtensions
             .BindConfiguration(SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions.SectionName)
             .Validate(
                 SocAlytics.Platform.Application.AgentOrchestration.AgentOrchestrationOptions.IsValid,
-                "AgentOrchestration options are invalid: Agents:Enabled must list unique specialist agents; Execution, Workloads, and Monitor values must be positive; workload clients need a unique ClientId and, when enabled, a PublicJwk.")
+                "AgentOrchestration options are invalid: Execution, Workloads, and Monitor values must be positive; workload clients need a unique ClientId and, when enabled, a PublicJwk.")
             .ValidateOnStart();
         services.TryAddScoped<SocAlytics.Platform.Application.AgentOrchestration.IInvocationScopeEvaluator, SocAlytics.Platform.Application.AgentOrchestration.InvocationScopeEvaluator>();
 

@@ -7,8 +7,6 @@ public sealed class AgentOrchestrationOptions
 {
     public const string SectionName = "AgentOrchestration";
 
-    public AgentsOptions Agents { get; set; } = new();
-
     public ExecutionOptions Execution { get; set; } = new();
 
     public WorkloadOptions Workloads { get; set; } = new();
@@ -17,21 +15,13 @@ public sealed class AgentOrchestrationOptions
 
     public static bool IsValid(AgentOrchestrationOptions options)
     {
-        var enabled = options.Agents?.Enabled;
         var execution = options.Execution;
         var workloads = options.Workloads;
         var monitor = options.Monitor;
 
-        if (enabled is null
-            || execution is null
+        if (execution is null
             || workloads?.Clients is null
             || monitor is null)
-        {
-            return false;
-        }
-
-        if (enabled.Any(id => !AgentCatalogIds.IsSpecialist(id))
-            || enabled.Distinct(StringComparer.Ordinal).Count() != enabled.Count)
         {
             return false;
         }
@@ -63,11 +53,6 @@ public sealed class AgentOrchestrationOptions
         return monitor.MonitorInterval > TimeSpan.Zero
             && monitor.ReconciliationInterval > TimeSpan.Zero
             && monitor.RepublishBound > TimeSpan.Zero;
-    }
-
-    public sealed class AgentsOptions
-    {
-        public List<string> Enabled { get; set; } = [];
     }
 
     public sealed class ExecutionOptions

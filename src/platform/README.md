@@ -238,8 +238,9 @@ lineage under `/api/v1`); the initiating user alone reads them.
 - The outbox publishes content-free `agent-invocation-ready` notifications to a
   JetStream work queue; the attempt monitor (lease expiry, deadlines, scope
   loss) and the reconciliation worker run in the API host. Options:
-  `AgentOrchestration:Agents:Enabled`, `Execution` (attempt, lease, history,
-  length, and unfinished-invocation limits), `Workloads`, and `Monitor`; the
+  `Execution` (attempt, lease, history,
+  length, and unfinished-invocation limits), `Workloads`, and `Monitor` (enabled
+  agents come from the Agent Catalog enablement, not configuration); the
   values are development values, not adopted production values.
 - `Tests/SocAlytics.Platform.SimulatedAgentWorkload` is the Development and Test
   simulated agent workload that stands in for Hermes with deterministic advice;

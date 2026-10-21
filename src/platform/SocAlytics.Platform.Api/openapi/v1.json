@@ -2066,7 +2066,13 @@
           "agentId": {
             "type": "string"
           },
+          "displayName": {
+            "type": "string"
+          },
           "domain": {
+            "type": "string"
+          },
+          "enabledVersion": {
             "type": "string"
           },
           "group": {
@@ -2076,7 +2082,9 @@
         "required": [
           "agentId",
           "group",
-          "domain"
+          "domain",
+          "displayName",
+          "enabledVersion"
         ],
         "type": "object"
       },

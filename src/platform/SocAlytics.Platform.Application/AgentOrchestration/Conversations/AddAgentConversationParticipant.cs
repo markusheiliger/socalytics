@@ -1,6 +1,6 @@
-using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.AgentOrchestration.Catalog;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Domain.AgentOrchestration;
 
@@ -14,7 +14,7 @@ public sealed class AddAgentConversationParticipantHandler(
     IAccessAuthorizer authorizer,
     IRequestContext requestContext,
     IAuditTrail audit,
-    IOptions<AgentOrchestrationOptions> options,
+    IAgentEnablementStore enablements,
     TimeProvider time)
 {
     public async Task<OperationResult<AgentConversationView>> HandleAsync(
@@ -54,7 +54,8 @@ public sealed class AddAgentConversationParticipantHandler(
         }
 
         var agentId = command.AgentId;
-        if (!AgentCatalogIds.IsSpecialist(agentId) || !options.Value.Agents.Enabled.Contains(agentId, StringComparer.Ordinal))
+        if (!AgentCatalogIds.IsSpecialist(agentId)
+            || (await enablements.FindAsync(agentId, false, cancellationToken))?.AgentVersion is null)
         {
             return OperationFailure.Conflict("agent-not-available");
         }

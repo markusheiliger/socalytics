@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using SocAlytics.Platform.Application.Abstractions;
 using SocAlytics.Platform.Application.Abstractions.Persistence;
+using SocAlytics.Platform.Application.AgentOrchestration.Catalog;
 using SocAlytics.Platform.Application.AgentOrchestration.Execution;
 using SocAlytics.Platform.Application.IdentityAccess;
 using SocAlytics.Platform.Application.Messaging;
@@ -27,6 +28,7 @@ public sealed class SubmitAgentInvocationHandler(
     IUnitOfWork unitOfWork,
     IAgentConversationStore conversations,
     IAgentInvocationStore invocations,
+    IAgentEnablementStore enablementStore,
     IAccessAuthorizer authorizer,
     IRequestContext requestContext,
     IOutbox outbox,
@@ -119,7 +121,7 @@ public sealed class SubmitAgentInvocationHandler(
                 AgentSubmissionCodes.AgentNotParticipant, cancellationToken);
         }
 
-        if (!options.CurrentValue.Agents.Enabled.Contains(agentId, StringComparer.Ordinal))
+        if ((await enablementStore.FindAsync(agentId, true, cancellationToken))?.AgentVersion is null)
         {
             return await RefuseAsync(
                 scope, conversation, agentId, OperationFailure.Conflict(AgentSubmissionCodes.AgentNotAvailable),

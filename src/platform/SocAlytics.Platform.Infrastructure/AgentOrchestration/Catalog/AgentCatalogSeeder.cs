@@ -48,6 +48,13 @@ internal sealed class AgentCatalogSeeder(
 
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
+        if ((environment.IsDevelopment() || environment.IsEnvironment("Test"))
+            && configuration.GetSection("AgentOrchestration:Agents:Enabled").Exists())
+        {
+            logger.LogWarning(
+                "AgentOrchestration:Agents:Enabled is no longer used and is ignored; enable agent versions through the Agent Catalog");
+        }
+
         if (Enabled)
         {
             using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
