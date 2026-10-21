@@ -76,6 +76,54 @@ describe('fetch routing', () => {
     expect(classifyRequest({ method: 'GET', mode: 'cors', url: 'http://other.test/assets/app.js' }, origin)).toBeUndefined();
   });
 
+  it('leaves the analysis run, fact stream, and fact reads unhandled for every method', () => {
+    const runId = '0b0c5f4e-6d3a-4a53-9a0e-6f3c2a1d9b11';
+    const urls = [
+      `/api/v1/analysis/runs/${runId}`,
+      `/api/v1/analysis/runs/${runId}/fact-streams`,
+      `/api/v1/analysis/runs/${runId}/facts`,
+      `/api/v1/analysis/runs/${runId}/facts?stream=lineups&limit=50`,
+    ];
+    for (const url of urls) {
+      for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']) {
+        expect(classify(url, 'cors', method), `${method} ${url}`).toBeUndefined();
+        expect(classify(url, 'navigate', method), `${method} ${url} (navigate)`).toBeUndefined();
+      }
+    }
+  });
+
+  it('passes registry API requests to the network and never caches them', () => {
+    const registryPaths = [
+      '/api/v1/registry/analyst-images',
+      '/api/v1/registry/analyst-images?pageSize=20',
+      '/api/v1/registry/analyst-profiles/2f6c1c52-0d0b-4a53-9a3f-5c1f3c1c8e11',
+      '/api/v1/registry/workflows/2f6c1c52-0d0b-4a53-9a3f-5c1f3c1c8e11',
+      '/api/v1/registry/default-workflow',
+    ];
+    for (const path of registryPaths) {
+      expect(classify(path)).toBeUndefined();
+      expect(classify(path, 'navigate')).toBeUndefined();
+    }
+  });
+
+  it('does not handle triage conversation API paths for any method', () => {
+    const paths = [
+      '/api/v1/agent-catalog/agents',
+      '/api/v1/matches/3f2b8c1e-0000-4000-8000-000000000001/agent-conversations',
+      '/api/v1/agent-conversations/3f2b8c1e-0000-4000-8000-000000000002',
+      '/api/v1/agent-conversations/3f2b8c1e-0000-4000-8000-000000000002/participants',
+      '/api/v1/agent-conversations/3f2b8c1e-0000-4000-8000-000000000002/invocations',
+      '/api/v1/agent-conversations/3f2b8c1e-0000-4000-8000-000000000002/turns',
+      '/api/v1/agent-invocations/3f2b8c1e-0000-4000-8000-000000000003',
+      '/api/v1/agent-invocations/3f2b8c1e-0000-4000-8000-000000000003/lineage',
+    ];
+    for (const path of paths) {
+      for (const method of ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']) {
+        expect(classify(path, 'cors', method), `${method} ${path}`).toBeUndefined();
+      }
+    }
+  });
+
   it('serves navigations from the cached index.html and falls back to the network', async () => {
     const { caches } = fakeCaches();
     const match = vi.mocked(caches.match);

@@ -62,7 +62,9 @@ public sealed class AnalysisValueObjectTests
 			(AnalysisRunState.Requested, AnalysisRunState.Running),
 			(AnalysisRunState.Running, AnalysisRunState.Completed),
 			(AnalysisRunState.Running, AnalysisRunState.PartiallyCompleted),
-			(AnalysisRunState.Running, AnalysisRunState.Failed));
+			(AnalysisRunState.Running, AnalysisRunState.Failed),
+			(AnalysisRunState.Requested, AnalysisRunState.Cancelled),
+			(AnalysisRunState.Running, AnalysisRunState.Cancelled));
 
 	[Fact]
 	public void Node_transitions_match_the_state_machine() =>
@@ -71,7 +73,9 @@ public sealed class AnalysisValueObjectTests
 			(WorkflowNodeState.Waiting, WorkflowNodeState.Blocked),
 			(WorkflowNodeState.Active, WorkflowNodeState.Completed),
 			(WorkflowNodeState.Active, WorkflowNodeState.Blocked),
-			(WorkflowNodeState.Active, WorkflowNodeState.Failed));
+			(WorkflowNodeState.Active, WorkflowNodeState.Failed),
+			(WorkflowNodeState.Waiting, WorkflowNodeState.Cancelled),
+			(WorkflowNodeState.Active, WorkflowNodeState.Cancelled));
 
 	[Fact]
 	public void Job_transitions_match_the_state_machine() =>
@@ -82,7 +86,10 @@ public sealed class AnalysisValueObjectTests
 			(LogicalJobState.Ready, LogicalJobState.Blocked),
 			(LogicalJobState.Claimed, LogicalJobState.Completed),
 			(LogicalJobState.Claimed, LogicalJobState.Ready),
-			(LogicalJobState.Claimed, LogicalJobState.Failed));
+			(LogicalJobState.Claimed, LogicalJobState.Failed),
+			(LogicalJobState.Waiting, LogicalJobState.Cancelled),
+			(LogicalJobState.Ready, LogicalJobState.Cancelled),
+			(LogicalJobState.Claimed, LogicalJobState.Cancelled));
 
 	[Fact]
 	public void Attempt_transitions_match_the_state_machine() =>
@@ -91,16 +98,83 @@ public sealed class AnalysisValueObjectTests
 			(ExecutionAttemptState.Active, ExecutionAttemptState.Accepted),
 			(ExecutionAttemptState.Active, ExecutionAttemptState.Failed),
 			(ExecutionAttemptState.Active, ExecutionAttemptState.Rejected),
-			(ExecutionAttemptState.Active, ExecutionAttemptState.Stale));
+			(ExecutionAttemptState.Active, ExecutionAttemptState.Stale),
+			(ExecutionAttemptState.Active, ExecutionAttemptState.Cancelled));
 
 	[Fact]
-	public void Nothing_transitions_into_cancelled()
+	public void Nothing_leaves_cancelled()
 	{
-		foreach (var from in Enum.GetValues<AnalysisRunState>())
+		foreach (var to in Enum.GetValues<AnalysisRunState>())
 		{
-			AnalysisStateTransitions.IsAllowed(from, AnalysisRunState.Cancelled).ShouldBeFalse();
+			AnalysisStateTransitions.IsAllowed(AnalysisRunState.Cancelled, to).ShouldBeFalse();
+		}
+
+		foreach (var to in Enum.GetValues<WorkflowNodeState>())
+		{
+			AnalysisStateTransitions.IsAllowed(WorkflowNodeState.Cancelled, to).ShouldBeFalse();
+		}
+
+		foreach (var to in Enum.GetValues<LogicalJobState>())
+		{
+			AnalysisStateTransitions.IsAllowed(LogicalJobState.Cancelled, to).ShouldBeFalse();
+		}
+
+		foreach (var to in Enum.GetValues<ExecutionAttemptState>())
+		{
+			AnalysisStateTransitions.IsAllowed(ExecutionAttemptState.Cancelled, to).ShouldBeFalse();
 		}
 	}
+
+	[Theory]
+	[InlineData(null, null)]
+	[InlineData("", null)]
+	[InlineData("   \t ", null)]
+	[InlineData("  wrong recording  ", "wrong recording")]
+	[InlineData("line one\nline two", "line one\nline two")]
+	[InlineData("line one\r\nline two", "line one\r\nline two")]
+	public void Cancellation_reason_is_trimmed_and_empty_becomes_null(string? reason, string? expected)
+	{
+		RunCancellation.TryNormalizeReason(reason, out var normalized, out var violation).ShouldBeTrue();
+		normalized.ShouldBe(expected);
+		violation.ShouldBeNull();
+	}
+
+	[Fact]
+	public void Cancellation_reason_length_limit_is_500_characters()
+	{
+		RunCancellation.TryNormalizeReason(new string('x', 500), out var normalized, out _).ShouldBeTrue();
+		normalized!.Length.ShouldBe(500);
+		RunCancellation.TryNormalizeReason("  " + new string('x', 500) + "  ", out normalized, out _).ShouldBeTrue();
+		normalized!.Length.ShouldBe(500);
+
+		RunCancellation.TryNormalizeReason(new string('x', 501), out normalized, out var violation).ShouldBeFalse();
+		normalized.ShouldBeNull();
+		violation.ShouldNotBeNull();
+		violation.Field.ShouldBe("reason");
+	}
+
+	[Theory]
+	[InlineData("a\tb")]
+	[InlineData("a\rb")]
+	[InlineData("a\0b")]
+	[InlineData("a\u001Bb")]
+	[InlineData("a\u0085b")]
+	public void Cancellation_reason_refuses_control_characters_other_than_line_breaks(string reason)
+	{
+		RunCancellation.TryNormalizeReason(reason, out var normalized, out var violation).ShouldBeFalse();
+		normalized.ShouldBeNull();
+		violation.ShouldNotBeNull();
+		violation.Field.ShouldBe("reason");
+	}
+
+	[Theory]
+	[InlineData(5L, 5L, true)]
+	[InlineData(5L, 4L, true)]
+	[InlineData(5L, 3L, false)]
+	[InlineData(5L, 6L, false)]
+	[InlineData(1L, 0L, true)]
+	public void Cancellation_repeat_is_idempotent_for_the_current_or_previous_version(long current, long ifMatch, bool expected) =>
+		RunCancellation.IsIdempotentRepeatVersion(current, ifMatch).ShouldBe(expected);
 
 	[Fact]
 	public void Scope_and_tier_names_round_trip()

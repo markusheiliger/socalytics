@@ -1,16 +1,16 @@
 name: Spec Kit commands
 
 # Handles people's input on Spec Kit pull requests:
-# - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): retry, sync, fix,
-#     help.
-#   - Feedback on amendment pull requests (speckit-amend/<folder>) and prerequisite spec pull requests
+# - `/speckit <command>` comments on implementation pull requests (speckit/<folder>): retry, sync, specify, help;
+#   and on spec twin issues (label speckit:spec): implement (the only way to request an implementation), help.
+#   - Feedback on amendment pull requests (speckit-amend/<folder>) and authored spec pull requests
 #     (speckit-spec/<folder>, earlier speckit-fix/<folder>): a comment, or a review with Comment or Request changes,
-#     has it reworked (Spec Kit diagnose or Spec Kit fix, mode revise) and checked again (Spec Kit analyze).
-#   - Closing an amendment pull request: merged (the implementation continues) or discarded; closing a prerequisite spec
+#     has it reworked (Spec Kit diagnose or Spec Kit specify, mode revise) and checked again (Spec Kit analyze).
+#   - Closing an amendment pull request: merged (the implementation continues) or discarded; closing an authored spec
 #     pull request: merged (its twin is implemented next, and the stopped implementation, which depends on it, retries
 #     once it is implemented) or discarded. A person's push to such a branch is checked again.
 #   - Guard: Spec Kit pull requests are removed from pull request stacks, an amendment's base branch is set back to
-#     its implementation branch, and a prerequisite spec's to the default branch (the scheduler, Spec Kit orchestrate,
+#     its implementation branch, and an authored spec's to the default branch (the scheduler, Spec Kit orchestrate,
 #     does the same on every run, also for events this job cannot see).
 # Only people with write access are heard; comments and reviews by bots never trigger. Reviews arrive through a small
 # forwarder job, because GitHub runs pull_request_review workflows from the pull request's merge ref; it only
@@ -36,7 +36,7 @@ jobs:
     name: Resolve the command publication target
     if: >-
       github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
+      (github.event.issue.pull_request || contains(github.event.issue.labels.*.name, 'speckit:spec')) &&
       github.event.comment.user.type != 'Bot' &&
       startsWith(github.event.comment.body, '/speckit')
     runs-on: ubuntu-latest
@@ -63,6 +63,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SPECKIT_PULL: ${{ github.event.issue.number }}
+          SPECKIT_TARGET: ${{ github.event.issue.pull_request && 'pull' || 'twin' }}
           SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
         run: node .github/scripts/speckit-commands.mjs target
 
@@ -72,7 +73,7 @@ jobs:
     # issue_comment always uses this workflow from the default branch; no job checks out pull request code.
     if: >-
       github.event_name == 'issue_comment' &&
-      github.event.issue.pull_request &&
+      (github.event.issue.pull_request || contains(github.event.issue.labels.*.name, 'speckit:spec')) &&
       github.event.comment.user.type != 'Bot' &&
       startsWith(github.event.comment.body, '/speckit')
     runs-on: ubuntu-latest
@@ -110,10 +111,11 @@ jobs:
           SPECKIT_ACTOR: ${{ github.event.comment.user.login }}
           SPECKIT_COMMENT_BODY: ${{ github.event.comment.body }}
           SPECKIT_PUBLICATION_PULL: ${{ needs.target.outputs.pull }}
+          SPECKIT_TARGET: ${{ github.event.issue.pull_request && 'pull' || 'twin' }}
         run: node .github/scripts/speckit-commands.mjs command
 
   feedback:
-    name: Handle amendment or prerequisite spec feedback
+    name: Handle amendment or authored spec feedback
     if: >-
       (github.event_name == 'issue_comment' &&
       github.event.issue.pull_request &&
@@ -145,7 +147,7 @@ jobs:
         with:
           node-version: 24
 
-      # The script ignores pull requests that are not amendments or prerequisite specs, and people without write access.
+      # The script ignores pull requests that are not amendments or authored specs, and people without write access.
       - name: Handle the feedback
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -156,7 +158,7 @@ jobs:
         run: node .github/scripts/speckit-amend.mjs feedback
 
   forward-review:
-    name: Forward amendment or prerequisite spec review
+    name: Forward amendment or authored spec review
     # Runs from the pull request's merge ref; it only hands the review to this workflow on the default branch.
     if: >-
       github.event_name == 'pull_request_review' &&
@@ -179,8 +181,8 @@ jobs:
         run: gh workflow run speckit-commands.yml --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH" -f pull="$PULL"
 
   amendment:
-    name: Handle amendment or prerequisite spec push or close
-    # A person merged or closed an amendment or prerequisite spec pull request, or pushed to its branch. Pushes and
+    name: Handle amendment or authored spec push or close
+    # A person merged or closed an amendment or authored spec pull request, or pushed to its branch. Pushes and
     # closes by the workflow token raise no events.
     if: >-
       github.event_name == 'pull_request_target' &&

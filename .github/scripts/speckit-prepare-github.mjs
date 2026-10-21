@@ -209,6 +209,19 @@ export class GitHubClient {
     return this.paginate(this.repoPath('/pulls?state=open'));
   }
 
+  // Closed pull requests updated since `since` (ISO time), most recently updated first; stops paging at older ones.
+  async listClosedPullRequestsSince(since) {
+    const items = [];
+    let url = `${this.apiUrl}${this.repoPath('/pulls?state=closed&sort=updated&direction=desc')}&per_page=100`;
+    while (url) {
+      const { data, headers } = await this.request('GET', url);
+      const recent = data.filter((pull) => Date.parse(pull.updated_at) >= Date.parse(since));
+      items.push(...recent);
+      url = recent.length === data.length ? nextLink(headers.get('link')) : null;
+    }
+    return items;
+  }
+
   // Throws GitHubError with GitHub's message when the pull request cannot be created (for example, when one is
   // already open for the branch, or the body is too long).
   async createPullRequest(fields) {
@@ -377,7 +390,11 @@ export class GitHubClient {
   }
 
   async createComment(number, body) {
-    await this.request('POST', this.repoPath(`/issues/${number}/comments`), { body });
+    return (await this.request('POST', this.repoPath(`/issues/${number}/comments`), { body })).data;
+  }
+
+  async updateComment(commentId, body) {
+    return (await this.request('PATCH', this.repoPath(`/issues/comments/${encodeURIComponent(commentId)}`), { body })).data;
   }
 
   async listBlockedBy(number) {

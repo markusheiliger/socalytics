@@ -4,7 +4,7 @@ import { activateWithKeyboard, expectAllReachableByKeyboard } from '../support/k
 import type { SimulatedRole } from '../support/simulatedApi';
 
 const NAVIGATION: Record<Exclude<SimulatedRole, 'Registrar'>, string[]> = {
-  ClubAdmin: ['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Pair a Manager', 'Account'],
+  ClubAdmin: ['Home', 'Club', 'Seasons', 'Teams', 'Members', 'Analyst Managers', 'Analyst Registry', 'Pair a Manager', 'Account'],
   Coach: ['Home', 'Teams', 'Account'],
   Viewer: ['Home', 'Teams', 'Account'],
 };

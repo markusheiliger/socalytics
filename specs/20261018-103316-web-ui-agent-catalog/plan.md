@@ -9,7 +9,7 @@
 Add a connected Agent Catalog area for Club Admins to the Web UI at `src/clients/web/`, over the agent catalog member
 operations of [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md), with
 the navigation, page, confirmation, refusal, and response-metadata patterns of
-[Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/plan.md).
+[Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/plan.md).
 
 - **Platform (OpenAPI description only)**: where the snapshot describes record documents as free-form objects,
   schema-only DTO records add per-kind document schemas (discriminator `kind`) as `Accepts`/`Produces` metadata; request

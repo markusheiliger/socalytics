@@ -183,7 +183,10 @@ evidence (migration `0019_identityaccess_email_notifications.sql`):
 
 The durable analysis workflow is implemented as development evidence (outbox,
 NATS JetStream publication, run creation from finalized recording sets,
-readiness, fenced attempts, Analyst job and completion contracts). Result
+readiness, fenced attempts, member-initiated run cancellation
+(`POST /api/v1/analysis/runs/{runId}/cancellation`, `cancelAnalysisRun`;
+migration `0026_analysis_run_cancellation.sql`), Analyst job and completion
+contracts). Result
 write grants and validated result acceptance are implemented against the
 simulated Analyst as development evidence (migrations
 `0017_analysis_result_manifests.sql` and
@@ -407,6 +410,23 @@ Configuration is read only from environment variables. The API takes its existin
 Migrator Contract. The API image contains no Migrator or DbUp, and neither image contains secret or development
 values. The images are not deployment support or production readiness; `dotnet test
 src/platform/Tests/SocAlytics.Platform.Images.Tests` (Docker required) is their evidence.
+
+## Evaluation Composition
+
+`deploy/compose/` holds a Docker Compose definition (`compose.yaml`, `stamp.env.template`, and its
+[README](deploy/compose/README.md)) that runs one self-hosted stamp for evaluation from the three images above:
+PostgreSQL, NATS, S3-compatible storage, the one-off Migrator, the API, and the Web UI, of which only the Web UI
+publishes a port, on `127.0.0.1`. `SocAlytics.Platform.StampSetup` is the setup console that writes a stamp
+directory (`stamp.env`, `nats.conf`) outside any Git working tree and generates every secret. The evidence project is
+`Tests/SocAlytics.Platform.Compose.Tests` (Docker with the Compose v2 plugin required):
+
+```powershell
+dotnet run --project src/platform/SocAlytics.Platform.StampSetup -- --output <new directory outside a Git working tree>
+dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests
+```
+
+The composition is not deployment support or production readiness: it is not a production profile and passes no
+production preflight.
 
 ## Migrator Contract
 

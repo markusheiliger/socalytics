@@ -18,7 +18,9 @@ moving Web UI source under `src/platform`.
 The Web UI release is coordinated with the platform API and is
 deployed as a separate OCI container whose image is built from `src/clients`.
 The service worker and installable PWA are implemented as development
-evidence; offline mode and Docker Compose deployment are not implemented yet.
+evidence; offline mode is not implemented. The self-hosted Docker Compose
+evaluation composition serves the Web UI image next to the platform API as
+development evidence; production deployment stays unresolved.
 
 The Web UI image is implemented (see
 [Platform Implementation](platform-implementation.md#source-and-runtime-baseline)).
@@ -63,30 +65,33 @@ The React Web UI supports connected platform and club workflows, including:
   Club Admins create, resend, and revoke in the members area and that invitees
   accept on a public invitation page (decided, not yet implemented; see
   [Email Notifications](email-notifications.md#member-invitations))
-- platform configuration and administration (the Analyst Registry
-  administration, the workflow operations area, and the agent catalog
-  administration for Club Admins are decided, not yet implemented; see below)
+- platform configuration and administration: the Analyst Registry
+  administration for Club Admins is implemented (connected workflow; see
+  below); the workflow operations area and the agent catalog administration
+  for Club Admins are decided, not yet implemented
 - Analyst Manager pairing for Registrars and the fleet view for Club Admins
   (implemented): registration approval, rejection, and revocation, and each
   Manager's connectivity, operating state, and activity (see
   [Analyst Manager](analyst-manager.md#fleet-visibility-in-the-web-ui))
 - match creation, recording uploads, and upload finalization (implemented as
-  connected workflows); the match page's analysis run list will offer Club
+  connected workflows); the match page's analysis run list offers Club
   Admins and Coaches of the owning team a confirmed cancel action with an
   optional reason for requested and running runs, and shows cancelled runs
-  with who cancelled them, when, and why (decided, not yet implemented); the
+  with who cancelled them, when, and why (implemented); the
   run list will also mark the match's current run and each superseded run
   with the run that superseded it, and shows a run cancelled because it was
   superseded without a member (decided, not yet implemented)
-- team and match review, analytics, and agent conversations for coaches
-  (analysis review and agent conversations are not implemented yet; the
-  analysis review and the match triage conversations are decided, see below)
+- team and match review, analytics, and agent conversations for coaches (the
+  connected analysis review and the match triage conversations with Specialist
+  Agents are implemented, see below; analytics beyond the review, such as
+  visualizations and comparison, and the Coach Agent conversations and
+  consultations are not implemented yet)
 
 What a user sees is decided by their roles and team authorization, online and
 offline alike.
 
-The connected analysis review is decided as follows and not yet implemented.
-From a match, members who may read it (Club Admins, and Coaches and Viewers of
+The connected analysis review is implemented as development evidence (the
+`simulated` and `platform` browser-test projects). From a match, members who may read it (Club Admins, and Coaches and Viewers of
 the owning team) open the review of one analysis run: its state, timestamps,
 failure reason, workflow, and each capability node's tier, scope, state,
 blocking node, and job counts, refreshed while the run is in progress. For
@@ -114,9 +119,9 @@ error states, and resolves again when a link expires. Links and media stay in
 memory only, the service worker never handles them, and playback is online
 only; downloads, sharing, and whole-recording playback are not offered.
 
-The connected match triage conversations are decided as follows and not yet
-implemented. From a match with a `Completed` or `PartiallyCompleted` analysis
-run, Club Admins and Coaches of the owning team start a triage conversation
+The connected match triage conversations are implemented as development
+evidence as follows. From a match with a `Completed` or `PartiallyCompleted`
+analysis run, Club Admins and Coaches of the owning team start a triage conversation
 for a run they choose, add Specialist Agents the stamp enables, and address a
 question to one of them. Members list and reopen their own conversations from
 the match view, see the bound run with a link to its review and whether it is
@@ -143,8 +148,8 @@ disagreed with it, a conflict marked as a disagreement; the Agent Catalog area
 shows and registers consultation policies and lets Coach Agent versions
 reference one.
 
-The Analyst Registry administration is decided as follows and not yet
-implemented. Club Admins, the only role that operates the Registry, see the
+The Analyst Registry administration is implemented as a connected workflow
+as follows. Club Admins, the only role that operates the Registry, see the
 stamp's default workflow and browse the registered Analyst images with their
 imported declarations, the Analyst profile versions with their states, and the
 workflow versions with their nodes and dependency edges as readable lists.
@@ -304,8 +309,8 @@ and receives `202 Accepted`, durable conversation and invocation identifiers, a
 status location, and retry guidance. The Web UI uses conditional REST polling
 for status, accepted advice, and lineage. It does not call Hermes, publish agent
 transport messages, or receive a separate completion semantic. The Web UI's
-retry and polling behavior is decided and not yet implemented: when the
-answer to a submission is lost, sending the unchanged question to the same
+retry and polling behavior is implemented for Specialist Agent submissions:
+when the answer to a submission is lost, sending the unchanged question to the same
 agent again reuses its idempotency key, and the Web UI checks status
 conditionally, starting at the platform's retry guidance and slowing down to
 a cap while nothing changes, pausing while the view is hidden or offline.

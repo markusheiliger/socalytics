@@ -3,7 +3,7 @@
 All Technical Context items are resolved; no `NEEDS CLARIFICATION` remains. Each decision cites the spec, contract, or
 code it rests on. The platform operations come from
 [Agent Catalog Registry](../20261018-101517-agent-catalog-registry/contracts/agent-catalog-api.md); the Web UI patterns
-come from [Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/plan.md).
+come from [Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/plan.md).
 
 ## R1. OpenAPI schemas for the catalog operations and their record documents
 
@@ -35,7 +35,7 @@ typed server-side serialization (could reorder or drop fields of a digest-bearin
 ## R2. Response metadata: `ETag` and created versus replayed
 
 **Decision**: Reuse the `ResponseMetadataHandler`, `ResponseMetadataOption`, and `sendWithMetadataFor` that
-[Web UI Analyst Registry Administration](../20261017-185438-web-ui-registry-admin/research.md#r3-reading-etag-and-the-created-status-in-the-web-ui)
+[Web UI Analyst Registry Administration](../archive/20261017-185438-web-ui-registry-admin/research.md#r3-reading-etag-and-the-created-status-in-the-web-ui)
 adds under `src/clients/web/src/platform/`. The adapter reads the `ETag` of `getAgentVersion`, `approveAgentVersion`,
 `retireAgentVersion`, and `setAgentEnablement` for the next `If-Match`, takes the enablement `etag` from
 `listAgentEnablements` items, and tells `201 Created` from `200 OK` on registrations ("already registered, nothing
@@ -106,7 +106,7 @@ and `listAvailableAgents` (`GET /api/v1/agent-catalog/agents`, which Club Admins
 version" or, for Coach Agents, "not available in conversations yet" (clarification 4).
 
 **Rationale**: The available-agents read is what the triage conversation views use
-([Web UI Match Triage Conversations](../20261017-210231-web-ui-triage-conversations/research.md)), so the area shows
+([Web UI Match Triage Conversations](../archive/20261017-210231-web-ui-triage-conversations/research.md)), so the area shows
 exactly what members are offered, and needs no change when Coach Agents become available.
 
 ## R7. Version proposal and starting from an existing record

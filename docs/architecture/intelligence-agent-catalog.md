@@ -14,9 +14,11 @@ are design inputs, not executable agent definitions.
 The durable Agent Orchestration authority and canonical control-plane API exist
 for direct specialist invocations as development evidence, executed in
 Development and Test by a simulated agent workload; consultation and lifecycle
-operations remain planned. The catalog entries, prompt text, philosophy
-artifacts, model execution, MCP evidence tools, Hermes orchestration runtime,
-and user experiences are design inputs rather than deployed behavior.
+operations remain planned. The Web UI's direct Specialist Agent triage
+conversation is implemented as development evidence. The catalog entries,
+prompt text, philosophy artifacts, model execution, MCP evidence tools, Hermes
+orchestration runtime, and the remaining user experiences are design inputs
+rather than deployed behavior.
 
 ## Catalog Rules
 

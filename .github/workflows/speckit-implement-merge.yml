@@ -185,6 +185,7 @@ jobs:
           SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
           SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+          SPECKIT_VERIFY_FLAKY: ${{ steps.verify.outputs.flaky }}
           SPECKIT_SELFTEST_OUTCOME: >-
             ${{ steps.selftest-setup.outcome == 'failure' && 'failure' || steps.selftest-verify.outcome }}
         run: node "$SPECKIT_TOOLING/.github/scripts/speckit-merge.mjs" verdict

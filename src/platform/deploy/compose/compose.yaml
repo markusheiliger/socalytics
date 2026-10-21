@@ -1,0 +1,198 @@
+# SocAlytics Compose evaluation stamp. Not a production profile: see README.md.
+# Run with an operator-owned environment file (see stamp.env.template), for example:
+#   docker compose -f src/platform/deploy/compose/compose.yaml -p <stamp> --env-file <stamp dir>/stamp.env up -d
+
+services:
+  postgres:
+    image: postgres:18@sha256:74935e72241653ca55e0414067e6d8763aceb8a810eb51b452253ec3dcfc4336
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: socalytics
+      POSTGRES_PASSWORD: ${SOCALYTICS_POSTGRES_PASSWORD:?SOCALYTICS_POSTGRES_PASSWORD is required}
+      SOCALYTICS_MIGRATOR_PASSWORD: ${SOCALYTICS_MIGRATOR_DB_PASSWORD:?SOCALYTICS_MIGRATOR_DB_PASSWORD is required}
+      SOCALYTICS_APP_PASSWORD: ${SOCALYTICS_APP_DB_PASSWORD:?SOCALYTICS_APP_DB_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - type: bind
+        source: ../../SocAlytics.Platform.AppHost/PostgresInit/01-socalytics-roles.sh
+        target: /docker-entrypoint-initdb.d/01-socalytics-roles.sh
+        read_only: true
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "socalytics"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks:
+      - data
+
+  nats:
+    image: nats:2.14-alpine@sha256:f9512b17aae6d41b6a615a7afad7b328633639ddae025744623e69b26fe686be
+    restart: unless-stopped
+    command: ["-c", "/etc/nats/nats.conf"]
+    volumes:
+      - type: bind
+        source: ${SOCALYTICS_STAMP_DIR:?SOCALYTICS_STAMP_DIR is required}/nats.conf
+        target: /etc/nats/nats.conf
+        read_only: true
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8222/healthz?js-enabled-only=true"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    networks:
+      - data
+
+  storage:
+    image: rustfs/rustfs:1.0.1@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${SOCALYTICS_STORAGE_ACCESS_KEY:?SOCALYTICS_STORAGE_ACCESS_KEY is required}
+      RUSTFS_SECRET_KEY: ${SOCALYTICS_STORAGE_SECRET_KEY:?SOCALYTICS_STORAGE_SECRET_KEY is required}
+    volumes:
+      - storage-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks:
+      - data
+
+  migrator:
+    image: ${SOCALYTICS_MIGRATOR_IMAGE:?SOCALYTICS_MIGRATOR_IMAGE is required}
+    restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      ConnectionStrings__socalytics-migrator: Host=postgres;Port=5432;Username=socalytics_migrator;Password=${SOCALYTICS_MIGRATOR_DB_PASSWORD:?SOCALYTICS_MIGRATOR_DB_PASSWORD is required};Database=socalytics
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - data
+
+  api:
+    image: ${SOCALYTICS_API_IMAGE:?SOCALYTICS_API_IMAGE is required}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      ConnectionStrings__socalytics: Host=postgres;Port=5432;Username=socalytics_app;Password=${SOCALYTICS_APP_DB_PASSWORD:?SOCALYTICS_APP_DB_PASSWORD is required};Database=socalytics
+      ConnectionStrings__nats: nats://nats:4222
+      AnalystWork__QueueUrl: nats://nats:4222
+      Nats__Authentication__Mode: Jwt
+      Nats__Authentication__OperatorSeed: ${SOCALYTICS_NATS_OPERATOR_SEED:?SOCALYTICS_NATS_OPERATOR_SEED is required}
+      Nats__Authentication__AccountSeed: ${SOCALYTICS_NATS_ACCOUNT_SEED:?SOCALYTICS_NATS_ACCOUNT_SEED is required}
+      Nats__Authentication__SystemAccountSeed: ${SOCALYTICS_NATS_SYSTEM_ACCOUNT_SEED:?SOCALYTICS_NATS_SYSTEM_ACCOUNT_SEED is required}
+      Messaging__Nats__ProvisionTopology: "true"
+      ObjectStorage__ServiceUrl: http://storage:9000
+      ObjectStorage__AccessKey: ${SOCALYTICS_STORAGE_ACCESS_KEY:?SOCALYTICS_STORAGE_ACCESS_KEY is required}
+      ObjectStorage__SecretKey: ${SOCALYTICS_STORAGE_SECRET_KEY:?SOCALYTICS_STORAGE_SECRET_KEY is required}
+      ObjectStorage__Bucket: socalytics-recordings
+      ObjectStorage__Region: us-east-1
+      ObjectStorage__EnsureBucketOnStartup: "true"
+      WebUi__MinimumVersion: ${SOCALYTICS_RELEASE_VERSION:?SOCALYTICS_RELEASE_VERSION is required}
+      Stamp__Id: ${SOCALYTICS_STAMP_ID:?SOCALYTICS_STAMP_ID is required}
+      Stamp__PublicBaseUri: ${SOCALYTICS_PUBLIC_BASE_URI:?SOCALYTICS_PUBLIC_BASE_URI is required}
+      Notifications__WebUiBaseUri: http://localhost:${SOCALYTICS_WEB_PORT:?SOCALYTICS_WEB_PORT is required}
+      Registry__Pairing__VerificationBaseUri: ${SOCALYTICS_PUBLIC_BASE_URI:?SOCALYTICS_PUBLIC_BASE_URI is required}
+      IdentityAccess__Session__IdleTimeout: "00:30:00"
+      IdentityAccess__Session__AbsoluteLifetime: "08:00:00"
+      IdentityAccess__Lockout__MaxFailedAccessAttempts: "5"
+      IdentityAccess__Lockout__LockoutDuration: "00:15:00"
+      IdentityAccess__Password__RequiredLength: "12"
+      IdentityAccess__OneTimeCredential__Lifetime: "1.00:00:00"
+      ClubBootstrap__ClubDisplayName: ${SOCALYTICS_CLUB_DISPLAY_NAME:?SOCALYTICS_CLUB_DISPLAY_NAME is required}
+      ClubBootstrap__FirstClubAdmin__AccountName: ${SOCALYTICS_FIRST_CLUB_ADMIN_ACCOUNT_NAME:?SOCALYTICS_FIRST_CLUB_ADMIN_ACCOUNT_NAME is required}
+      ClubBootstrap__FirstClubAdmin__InitialPassword: ${SOCALYTICS_FIRST_CLUB_ADMIN_INITIAL_PASSWORD:?SOCALYTICS_FIRST_CLUB_ADMIN_INITIAL_PASSWORD is required}
+      Email__Smtp__Host: ${SOCALYTICS_SMTP_HOST:?SOCALYTICS_SMTP_HOST is required}
+      Email__Smtp__Port: ${SOCALYTICS_SMTP_PORT:?SOCALYTICS_SMTP_PORT is required}
+      Email__Smtp__Security: ${SOCALYTICS_SMTP_SECURITY:?SOCALYTICS_SMTP_SECURITY is required}
+      Email__Smtp__UserName: ${SOCALYTICS_SMTP_USERNAME:-}
+      Email__Smtp__Password: ${SOCALYTICS_SMTP_PASSWORD:-}
+      Email__SenderAddress: ${SOCALYTICS_SENDER_ADDRESS:?SOCALYTICS_SENDER_ADDRESS is required}
+      Email__SenderName: ${SOCALYTICS_SENDER_NAME:?SOCALYTICS_SENDER_NAME is required}
+      Email__Confirmation__Lifetime: 1.00:00:00
+      Email__Confirmation__MaxPerHour: "3"
+      Email__Confirmation__AttemptsPerMinute: "10"
+      Email__Delivery__MaxAttempts: "8"
+      Email__Delivery__PollInterval: "00:00:05"
+      Email__Delivery__LeaseDuration: "00:02:00"
+      Notifications__CoalescingWindow: "00:15:00"
+      Recordings__Upload__SessionLifetime: "00:30:00"
+      Recordings__Upload__GrantLifetime: "00:15:00"
+      Recordings__Upload__ExpirySweepInterval: "00:01:00"
+      Recordings__Upload__MaxObjectSizeBytes: "5497558138880"
+      Recordings__Upload__MinPartSizeBytes: "5242880"
+      Recordings__Upload__MaxPartSizeBytes: "5368709120"
+      Recordings__Upload__MaxPartCount: "10000"
+      Recordings__Upload__MaxGrantsPerRequest: "1000"
+      Recordings__Upload__AllowedContentTypes__0: video/mp4
+      Recordings__Upload__AllowedContentTypes__1: video/quicktime
+      Analysis__Results__GrantLifetime: "00:10:00"
+      Analysis__Results__MaxObjectsPerAttempt: "16"
+      Analysis__Results__MaxObjectBytes: "104857600"
+      Analysis__Results__MaxAttemptBytes: "1073741824"
+      Analysis__Results__MaxManifestBytes: "1048576"
+      Analysis__Results__MaxFactArtifactBytes: "16777216"
+      Analysis__Results__MaxFactPayloadBytes: "16384"
+      Analysis__Results__MaxFactsPerResult: "50000"
+      Analysis__Facts__DefaultPageSize: "100"
+      Analysis__Facts__MaxPageSize: "500"
+      Analysis__Reads__GrantLifetime: "00:10:00"
+      Analysis__Reads__MaxPageSize: "100"
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      storage:
+        condition: service_healthy
+    networks:
+      - data
+      - app
+      - egress
+
+  web:
+    image: ${SOCALYTICS_WEB_IMAGE:?SOCALYTICS_WEB_IMAGE is required}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    environment:
+      SOCALYTICS_API_UPSTREAM: http://api:8080
+    ports:
+      - "127.0.0.1:${SOCALYTICS_WEB_PORT:?SOCALYTICS_WEB_PORT is required}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    depends_on:
+      api:
+        condition: service_started
+    networks:
+      - app
+      - edge
+
+networks:
+  data:
+    internal: true
+  app:
+    internal: true
+  edge: {}
+  egress: {}
+
+volumes:
+  postgres-data: {}
+  nats-data: {}
+  storage-data: {}

@@ -41,6 +41,9 @@ on:
       verified:
         description: Result of the phase verification (success, failure, or skipped)
         value: ${{ jobs.verify.result }}
+      flaky:
+        description: Comma-separated tests that passed only on their rerun in the phase verification
+        value: ${{ jobs.verify.outputs.flaky }}
       order:
         description: The ordered units planned for this phase run
         value: ${{ jobs.plan.outputs.order }}
@@ -128,6 +131,8 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: read
+    outputs:
+      flaky: ${{ steps.verify.outputs.flaky }}
     env:
       SPECKIT_WORKSPACE: ${{ github.workspace }}/workspace
       SPECKIT_RESULT_DIR: ${{ github.workspace }}/speckit-result
@@ -172,6 +177,7 @@ jobs:
       - name: Verify the phase
         if: hashFiles('tooling/.github/actions/environment-verify/action.yml') != ''
         uses: ./tooling/.github/actions/environment-verify
+        id: verify
         with:
           workspace: ${{ env.SPECKIT_WORKSPACE }}
           mode: phase

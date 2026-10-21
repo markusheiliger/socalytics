@@ -10,13 +10,16 @@ through approved changes.
 - [`src/platform/`](src/platform/README.md) contains the executable control-plane
     platform host and its ownership guidance.
 - [`src/clients/`](src/clients/README.md) contains the executable
-    Web UI foundation (without offline mode), including its installable PWA shell, under
+    Web UI foundation (without offline mode), including its installable PWA shell and the
+    match triage conversations with Specialist Agents and the Analyst Registry
+    administration for Club Admins, under
     `src/clients/web/`; the offline mode for coaches is planned.
 - [`src/agents/`](src/agents/README.md) records the planned intelligence-agent
     runtime and tooling ownership boundary.
 - [`src/analysts/`](src/analysts/README.md) contains the executable Analyst
-    Manager desktop app under `src/analysts/manager/` and records the planned
-    Analyst SDK and Analyst capability ownership boundary.
+    Manager desktop app under `src/analysts/manager/`, the executable Python
+    Analyst SDK under `src/analysts/sdk/`, and records the planned Analyst
+    capability ownership boundary.
 - [`docs/`](docs/README.md) indexes architecture, component, and operational documentation.
 - [`contracts/`](contracts/README.md) holds the canonical machine-readable
     contracts (JSON Schema 2020-12), the golden-fixture set shared by the
@@ -25,15 +28,16 @@ through approved changes.
     constitution, templates, and helper scripts; `.github/skills/speckit-*`
     holds the generated Spec Kit skills for GitHub Copilot.
 - [`specs/`](specs/README.md) holds one UTC-timestamped folder per Spec Kit
-    feature, implemented features under `specs/archive/`, and an index of
-    feature dependency order.
+    feature, implemented features under `specs/archive/`, and the authoring
+    guide; the spec twin issues are the index of features and their order.
 - [`AGENTS.md`](AGENTS.md) defines repository guidance for coding agents.
 - [`LICENSE`](LICENSE) contains the project license.
 - `.editorconfig` provides stack-neutral text-file defaults.
 
 The agents source area remains a non-executable ownership scaffold. The
 platform, the Web UI, and the Analyst Manager contain the repository's current
-application projects and tests. No deployment manifests or product automation exist yet.
+application projects and tests. The only deployment artifact is the Docker Compose evaluation stamp under
+`src/platform/deploy/compose/`; no production deployment manifests or product automation exist yet.
 
 ## Development
 
@@ -206,10 +210,35 @@ contract:
 dotnet test src/platform/Tests/SocAlytics.Platform.Images.Tests
 ```
 
-The images are not deployment support or production readiness: registries, publication, the composed stamp, and the
-production profile values remain unresolved. Their runtime contract is described in
+The images are not deployment support or production readiness: registries, publication, and the production profile
+values remain unresolved. Their runtime contract is described in
 [`src/platform/README.md`](src/platform/README.md#container-images) and
 [`src/clients/README.md`](src/clients/README.md#container-image).
+
+### Evaluation stamp (Docker Compose)
+
+A Docker Compose definition runs one self-hosted stamp (PostgreSQL, NATS, S3-compatible storage, the one-off
+Migrator, the API, and the Web UI) for evaluation. It needs Docker with the Compose v2 plugin and the three images of
+one release built as above. From the repository root, the setup console writes a stamp directory outside any Git
+working tree (it must not exist yet) and generates every secret; fill the empty operator values in its `stamp.env`,
+then start and remove the stamp with a Compose project name of your choice:
+
+```powershell
+$stampDir = Join-Path $HOME 'socalytics-stamps/club-a'
+dotnet run --project src/platform/SocAlytics.Platform.StampSetup -- --output $stampDir
+docker compose -f src/platform/deploy/compose/compose.yaml -p club-a --env-file "$stampDir/stamp.env" up -d
+docker compose -f src/platform/deploy/compose/compose.yaml -p club-a --env-file "$stampDir/stamp.env" down --volumes --remove-orphans
+```
+
+The evidence is the Docker-backed Compose test project:
+
+```powershell
+dotnet test src/platform/Tests/SocAlytics.Platform.Compose.Tests
+```
+
+The values, the lifecycle commands, and the limitations are in
+[`src/platform/deploy/compose/README.md`](src/platform/deploy/compose/README.md). The evaluation stamp is not
+deployment support or production readiness: it is not a production profile and passes no production preflight.
 
 ### Analyst Manager
 
@@ -241,6 +270,26 @@ SoftHSM2 (`softhsm2`); Windows and macOS key-store tests are skipped elsewhere
 and verified manually. No production container-runtime integration ships, so a
 Manager stays Runtime unavailable. This is development evidence, not production
 readiness.
+
+### Analyst SDK
+
+The Python Analyst SDK lives in `src/analysts/sdk/` (Python 3.12, `uv`) and
+implements the Analyst container interface. From `src/analysts/sdk/`, run the
+locked build and tests (author documentation: `src/analysts/sdk/README.md`):
+
+```text
+UV_PYTHON_DOWNLOADS=never
+uv sync --locked --all-groups --no-install-local --no-build
+uv sync --locked --all-groups --no-build-isolation
+uv build --wheel --no-build-isolation --python .venv/bin/python
+uv run --no-sync pytest
+uv run --no-sync python scripts/sync_contracts.py --check
+```
+
+On Windows use `.venv\Scripts\python.exe` for the build. The SDK carries a copy
+of the canonical schemas; `scripts/sync_contracts.py` refreshes it after a
+contract change. This is development evidence, not a published package or
+production readiness.
 
 ### Contracts
 
@@ -280,7 +329,7 @@ Run the skills in GitHub Copilot Chat, one at a time, reviewing each result:
 
 1. `/speckit-specify <what and why>` creates `specs/<YYYYMMDD-HHMMSS>-<feature>/spec.md`,
     prefixed with the UTC creation time; see [specs/README.md](specs/README.md)
-    for the naming rule and feature dependency order.
+    for the naming rule; dependency order lives on the spec twin issues.
 2. `/speckit-clarify` (optional) resolves ambiguities before planning.
 3. `/speckit-plan <technical direction>` creates the plan and design artifacts
     and checks them against the constitution.
@@ -336,7 +385,13 @@ dry runs unless `dry_run` is unchecked.
     feature branches, so the computed implementation stages only reflect merged work. The
     `**Status**` line in `spec.md` is not used. A twin's stage, state, title, and
     description change in a single request, so no intermediate label state is
-    ever visible; labels the workflow does not own are preserved.
+    ever visible; labels the workflow does not own are preserved. Only the
+    GitHub bot sets or removes `speckit:stage:*` labels: when a person adds or
+    removes one, `Spec Kit prepare` restores the generated set and explains it
+    once in a comment.
+- Every twin of a spec that is not archived ends with a **Request
+    implementation** section holding a code block with `/speckit implement`,
+    ready to copy into a new comment.
 - If any `speckit:spec` issue lacks a readable `**Spec**` line, the run creates
     no new twins and fails, listing the affected issues. Restore the line from
     the issue's edit history, or remove the label.
@@ -350,23 +405,26 @@ dry runs unless `dry_run` is unchecked.
 
 ### Requesting Implementation on GitHub
 
-`speckit:stage:implement` sits between `tasked` and `implementing` and is a
-"ready to act" flag that only people set; the sync never sets it. A flagged
-twin may still be blocked: the `Spec Kit orchestrate` workflow
+Implementation is requested only with the comment command `/speckit implement`
+on the spec twin issue, so the twin documents who requested it and when. The
+command sets `speckit:stage:implement`, which sits between `tasked` and
+`implementing` and is a "ready to act" request; the sync never sets it on its
+own. A requested twin may still be blocked: the `Spec Kit orchestrate` workflow
 (`.github/workflows/speckit-orchestrate.yml`) picks up flagged twins once all
 their "blocked by" issues are closed. A requested twin moves through
 `implement` (waiting to start) >> `implementing` (its implementation pull
 request is open) >> `implemented` (merged): the scheduler sets
 `speckit:stage:implementing` when it opens the pull request (or finds one
 open), and the merge sets `speckit:stage:implemented`. Who requested the
-implementation and when stays in the label history of `implement`.
+implementation and when stays in the record comment that `/speckit implement`
+posts.
 
-- When someone adds the label, the `validate-implement` job of
-    `Spec Kit prepare` accepts it only if the person has at least write access,
-    the twin is open and its folder exists on the default branch, the computed
-    stage is `tasked`, and every checkbox in `specs/<folder>/checklists/*.md`
-    there is checked. Otherwise the twin falls back to its computed stage, which may
-    come before or after `implement`, and gets a comment with the reasons.
+- `Spec Kit commands` accepts `/speckit implement` only from a person with at
+    least write access, when the twin is open and its folder exists on the
+    default branch, the computed stage is `tasked`, and every checkbox in
+    `specs/<folder>/checklists/*.md` there is checked. Otherwise it answers
+    with the reasons and the next step. A label added by hand is removed with
+    a comment that recommends the command.
 - Later syncs keep a valid flag, and a valid `implementing` stage while the
     default branch has no task checked, and revoke either one, with a comment,
     once the stage or checklist conditions no longer hold, for example when all
@@ -378,7 +436,8 @@ implementation and when stays in the label history of `implement`.
     `speckit/**` pull request is closed or a person pushes to it, hourly as a
     safety net, and on demand. Dependency edits on GitHub trigger nothing, so
     they apply with the next trigger. It starts implementations while fewer
-    than `SPECKIT_MAX_ACTIVE_SPECS` (default 3) are active, and continues an
+    than `SPECKIT_MAX_ACTIVE_SPECS` (default 3) are active (a requested twin
+    that blocks a running implementation starts regardless, and first), and continues an
     implementation whose chain broke (no run active, but something to do). It
     never drives tasks itself.
 - For every ready twin it prepares an implementation workspace:
@@ -612,13 +671,11 @@ makes this available from GitHub Copilot:
     request is made and `/speckit-implement` stops). Set
     `SPECKIT_IMPLEMENT_MODE=local` or `SPECKIT_IMPLEMENT_MODE=remote` to skip the
     question; inside GitHub Actions it always implements locally.
-- `/speckit-gha-request [folder]` requests implementation directly.
+- `/speckit-gha-request [folder]` requests implementation directly by posting
+    `/speckit implement` on the twin with your `gh` token.
 - `/speckit-gha-diagnose [pull request, twin, or folder] [guidance]` walks you
     through a stopped implementation locally; see
     [When an implementation stops](#when-an-implementation-stops).
-- `/speckit-gha-fix [pull request] [guidance]` explains prerequisite specs and
-    offers to post `/speckit fix` with guidance from the latest diagnosis; see
-    [Prerequisite specs](#prerequisite-specs).
 - `/speckit-tasks` ends with `/speckit-gha-refine [folder]`, a mandatory
     `after_tasks` hook that refines the `[P]` groups of the new `tasks.md` (see
     the `[P]` paragraph under the implementation workflow). Run it on its own
@@ -633,9 +690,9 @@ makes this available from GitHub Copilot:
 The route and request commands both run `node .github/scripts/speckit-orchestrate.mjs request [--folder <folder>]`,
 which checks the spec on the remote default branch (asked from GitHub) with the
 same rules, finds its twin, and
-adds the label with your own `gh` token, so the request is validated on GitHub.
-Adding the label in the GitHub web interface or with
-`gh issue edit <number> --add-label speckit:stage:implement` works the same way.
+posts `/speckit implement` on it with your own `gh` token, so the request is
+validated and recorded on GitHub. Commenting `/speckit implement` on the twin in
+the GitHub web interface works the same way.
 
 The tooling tests run with:
 
@@ -678,7 +735,7 @@ every stop is a spec problem, so the next step starts with a diagnosis:
     | --- | --- | --- |
     | `artifacts` | the spec, plan, research, data model, contracts, or tasks are wrong or incomplete (also a code fix inside this feature, as a corrective task before the stuck one) | review and merge the linked **amendment pull request** (below) |
     | `retry` | a transient failure, or the agent took a poor approach while the artifacts are fine | `/speckit retry <guidance>` |
-    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit fix <what to fix>` for code, tests, or the environment actions (a **prerequisite spec**, below); `/speckit sync` once a fix is on the base branch, or after an action the comment names |
+    | `outside` | another feature's code or tests on the base branch, the environment actions, tooling, permissions, quotas, or an external service | `/speckit specify <what to fix>` for code, tests, or the environment actions (a **new spec**, below); `/speckit sync` once a fix is on the base branch, or after an action the comment names |
     | `decision` | a trade-off only a person can make | `/speckit retry 1. … 2. …`, prefilled with the recommended answers as guidance |
     | `unknown` | not enough evidence | another diagnosis starts automatically with the previous findings as context |
 
@@ -752,49 +809,51 @@ merges and closes that no event reported, picks up feedback that no event
 delivered, checks pushes that no event reported, and closes checks that never
 finished.
 
-#### Prerequisite Specs
+#### New Specs for Causes Outside the Spec
 
 When the cause lies outside the stopped spec (`outside`), for example a flaky
-test of another feature on the base branch, `/speckit fix <what to fix>` keeps
-the fix inside Spec Kit instead of patching around it. It does not create a
-special kind of spec: it authors an ordinary spec that the stopped spec depends
-on, and the usual dependency handling does the rest.
+test of another feature on the base branch, `/speckit specify <what to fix>`
+keeps the fix inside Spec Kit instead of patching around it. It creates an
+ordinary spec, treated like any other.
 
-1. The `Spec Kit fix` agentic workflow
-    ([`speckit-fix.md`](.github/workflows/speckit-fix.md)) follows the skill
-    `/speckit-gha-fix` and authors a complete spec (spec, plan, tasks,
-    checklist, and its row in `specs/README.md`) in a normal
-    `specs/<timestamp>-<name>/` folder. It is proposed as a draft pull request
-    `speckit-spec/<folder>` → the default branch that may only add that spec
-    folder. When an open or merged spec already removes the cause, it writes
-    nothing and reuses that one. When a spec cannot remove the cause (tooling
-    under `.github/`, permissions, quotas, external services), it changes
-    nothing and says why. A cause in the environment actions gets an
-    environment spec, which is always held for review.
-2. Like an amendment, it is checked by an independent `/speckit-analyze` with
-    correction rounds and then handed to the person who asked for it; comments
-    and reviews rework it, closing discards it.
-3. Merging it adds the spec to the default branch, where it gets a twin and
-    dependency inference like any spec. The scheduler makes the stopped spec's
-    twin depend on it.
+1. The `Spec Kit specify` agentic workflow
+    ([`speckit-specify.md`](.github/workflows/speckit-specify.md)) runs
+    `/speckit-gha-author` itself, without asking (every recommended choice),
+    with a feature description from the stop, the diagnosis, and your
+    guidance: specify, clarify, plan, tasks, analyze, and the publish checks.
+    The spec lands in a normal `specs/<timestamp>-<name>/` folder and is
+    proposed as a draft pull request `speckit-spec/<folder>` → the default
+    branch that may only change that folder and `docs/architecture/`. When an
+    open or merged spec already removes the cause, it writes nothing and
+    reuses that one. When a spec cannot remove the cause (tooling under
+    `.github/`, permissions, quotas, external services), it changes nothing
+    and says why.
+2. An independent `/speckit-analyze` checks it, with correction rounds. Once
+    it is consistent, the pull request is merged automatically. It waits for
+    your review instead when it changes `docs/architecture/` (a **Design
+    decisions** comment explains each decision) or when a person pushed to it.
+3. On the default branch it gets a twin and dependency inference like any
+    spec, and the stopped spec's twin is made to depend on it. Nothing
+    requests its implementation automatically: sign it off with
+    `/speckit implement` on its twin (the **Blocked** comment on the stopped
+    implementation recommends exactly that). Once requested, it starts even
+    when `SPECKIT_MAX_ACTIVE_SPECS` implementations are active, because it
+    blocks a running one.
 4. Blocking is generic: any running implementation whose twin has open
     blocked-by twins, however the dependency was added, gets the `blocked`
-    label and waits. Each such blocker is requested for implementation on
-    behalf of the person who requested the blocked implementation and starts
-    even when `SPECKIT_MAX_ACTIVE_SPECS` implementations are active.
-5. Once its last blocker is implemented, the waiting implementation retries by
-    itself: it merges the base branch and continues with a fresh attempt count.
-    If a blocker or the prerequisite spec pull request is closed without being
-    implemented, the implementation pull request lists the next steps again.
+    label and waits. Once its last blocker is implemented, it retries by
+    itself: it merges the base branch and continues with a fresh attempt
+    count. If a blocker is closed without being implemented, the
+    implementation pull request lists the next steps again.
 
 The implementation pull request records every step in a comment.
 
 These pull request comment commands are not skills. To walk through a stop
 locally, run the skill `/speckit-gha-diagnose [pull request, twin, or folder]`
 in GitHub Copilot: it uses the same method, asks you the decisions, and pushes
-the result. The diagnose, analyze, and fix workflows are compiled with GitHub
+the result. The diagnose, analyze, and specify workflows are compiled with GitHub
 Agentic Workflows; after editing `speckit-diagnose.md`, `speckit-analyze.md`, or
-`speckit-fix.md`, install the extension (`gh extension install github/gh-aw`)
+`speckit-specify.md`, install the extension (`gh extension install github/gh-aw`)
 and run `gh aw compile`.
 Do not edit the generated `.lock.yml` files. Their Copilot engine uses the
 workflow token with the `copilot-requests` permission, so no secret is needed.
