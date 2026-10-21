@@ -5,7 +5,7 @@ description: "Task list for Agent Catalog Registry"
 
 # Tasks: Agent Catalog Registry
 
-**Input**: Design documents from `specs/20261018-101517-agent-catalog-registry/`
+**Input**: Design documents from `specs/archive/20261018-101517-agent-catalog-registry/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 

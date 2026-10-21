@@ -102,7 +102,7 @@ historical invocations. Club Admins operate the catalog through the `/api/v1`
 agent catalog operations; they will operate it from the Web UI's
 Agent Catalog area (decided, not yet implemented; see
 [Client Applications → Web UI](client-applications.md#web-ui)). See
-`specs/20261018-101517-agent-catalog-registry`.
+`specs/archive/20261018-101517-agent-catalog-registry`.
 
 Prompt text describes expected conduct but is not an authorization boundary.
 Hermes restricts interaction paths; MCP and the API enforce tool, team, match, and

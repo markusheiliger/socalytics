@@ -2,7 +2,7 @@
 
 **Branch**: `20261018-101517-agent-catalog-registry` | **Date**: 2026-10-18 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `/specs/20261018-101517-agent-catalog-registry/spec.md`
+**Input**: Feature specification from `/specs/archive/20261018-101517-agent-catalog-registry/spec.md`
 
 **Note**: This template is filled in by the `/speckit-plan` command; its definition describes the execution workflow.
 
@@ -65,7 +65,7 @@ contract revision.
 
 | Principle | Gate | Result |
 | --- | --- | --- |
-| I. Architecture Is the Design Authority | The feature implements the catalog-authority parts of [Intelligence Agent Catalog](../../docs/architecture/intelligence-agent-catalog.md) and [Intelligence and Agents](../../docs/architecture/intelligence-and-agents.md); decisions not yet stated there (catalog registry in Agent Orchestration, pinning at submission, attempt-scoped artifact read, registry approval versus evaluation evidence) are applied now as decided but not implemented (see Architecture Updates). | Pass |
+| I. Architecture Is the Design Authority | The feature implements the catalog-authority parts of [Intelligence Agent Catalog](../../../docs/architecture/intelligence-agent-catalog.md) and [Intelligence and Agents](../../../docs/architecture/intelligence-and-agents.md); decisions not yet stated there (catalog registry in Agent Orchestration, pinning at submission, attempt-scoped artifact read, registry approval versus evaluation evidence) are applied now as decided but not implemented (see Architecture Updates). | Pass |
 | II. Respect Source-Area Ownership | Production code lives in the existing platform layers inside the Agent Orchestration functional area; `src/agents/` stays reserved for Hermes; no new first-level area or project. | Pass |
 | III. API-First Control Plane | Club Admins and the workload use only `/api/v1` operations in the OpenAPI document; nine JSON Schema 2020-12 contracts are authoritative for the records and validated at runtime from the embedded contract catalog. | Pass |
 | IV. Evidence Over Claims | Integration, Domain, contract, Host, and architecture tests cover every requirement (FR-028); registry approval is not presented as evaluation or promotion evidence or production readiness. | Pass |
@@ -78,29 +78,29 @@ Post-design re-check: unchanged, all gates pass. No Complexity Tracking entries.
 
 **Narratives** (implemented or changed by this feature):
 
-- [Intelligence Agent Catalog](../../docs/architecture/intelligence-agent-catalog.md): introduction,
-  [Catalog Rules](../../docs/architecture/intelligence-agent-catalog.md#catalog-rules),
-  [Prompt And Advice Governance](../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance),
-  [Base Philosophy Profiles](../../docs/architecture/intelligence-agent-catalog.md#base-philosophy-profiles),
-  [Context Modifiers](../../docs/architecture/intelligence-agent-catalog.md#context-modifiers),
-  [Adding Or Revising A Coach Agent](../../docs/architecture/intelligence-agent-catalog.md#adding-or-revising-a-coach-agent),
-  [MCP Tool Policy](../../docs/architecture/intelligence-agent-catalog.md#mcp-tool-policy),
-  [Implementation Waves](../../docs/architecture/intelligence-agent-catalog.md#implementation-waves), and
-  [Validation And Promotion Gates](../../docs/architecture/intelligence-agent-catalog.md#validation-and-promotion-gates):
+- [Intelligence Agent Catalog](../../../docs/architecture/intelligence-agent-catalog.md): introduction,
+  [Catalog Rules](../../../docs/architecture/intelligence-agent-catalog.md#catalog-rules),
+  [Prompt And Advice Governance](../../../docs/architecture/intelligence-agent-catalog.md#prompt-and-advice-governance),
+  [Base Philosophy Profiles](../../../docs/architecture/intelligence-agent-catalog.md#base-philosophy-profiles),
+  [Context Modifiers](../../../docs/architecture/intelligence-agent-catalog.md#context-modifiers),
+  [Adding Or Revising A Coach Agent](../../../docs/architecture/intelligence-agent-catalog.md#adding-or-revising-a-coach-agent),
+  [MCP Tool Policy](../../../docs/architecture/intelligence-agent-catalog.md#mcp-tool-policy),
+  [Implementation Waves](../../../docs/architecture/intelligence-agent-catalog.md#implementation-waves), and
+  [Validation And Promotion Gates](../../../docs/architecture/intelligence-agent-catalog.md#validation-and-promotion-gates):
   the registry of versioned artifacts, their formats and validation, approval and enablement, and Wave 0's artifact
   formats.
-- [Intelligence and Agents → Client, Transport, And Runtime Protocol](../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)
-  and [Agent Orchestration Authority](../../docs/architecture/intelligence-and-agents.md#agent-orchestration-authority):
+- [Intelligence and Agents → Client, Transport, And Runtime Protocol](../../../docs/architecture/intelligence-and-agents.md#client-transport-and-runtime-protocol)
+  and [Agent Orchestration Authority](../../../docs/architecture/intelligence-and-agents.md#agent-orchestration-authority):
   pinning at submission, the envelope's pinned references, the attempt-scoped artifact read, and how Hermes resolves
   artifacts.
-- [Platform Implementation Profile → Agent Runtime](../../docs/architecture/platform-implementation.md#agent-runtime)
-  and [Data Organization](../../docs/architecture/platform-implementation.md#data-organization): the catalog folder
+- [Platform Implementation Profile → Agent Runtime](../../../docs/architecture/platform-implementation.md#agent-runtime)
+  and [Data Organization](../../../docs/architecture/platform-implementation.md#data-organization): the catalog folder
   and tables.
-- [Tenancy and Technology → AI](../../docs/architecture/tenancy-and-technology.md#ai): where Hermes' versioned
+- [Tenancy and Technology → AI](../../../docs/architecture/tenancy-and-technology.md#ai): where Hermes' versioned
   artifacts come from.
-- [Security and Data Governance](../../docs/architecture/security-and-data-governance.md):
-  [Data Classes](../../docs/architecture/security-and-data-governance.md#data-classes) (`DAT-007`) and
-  [Audit Events](../../docs/architecture/security-and-data-governance.md#audit-events).
+- [Security and Data Governance](../../../docs/architecture/security-and-data-governance.md):
+  [Data Classes](../../../docs/architecture/security-and-data-governance.md#data-classes) (`DAT-007`) and
+  [Audit Events](../../../docs/architecture/security-and-data-governance.md#audit-events).
 
 **Design updates** (applied now to the owning narratives, worded as decided but not yet implemented; the
 implementation turns each into present tense)
@@ -171,7 +171,7 @@ versions are resolved); the rewrites listed above are examples, not the whole jo
 ### Documentation (this feature)
 
 ```text
-specs/20261018-101517-agent-catalog-registry/
+specs/archive/20261018-101517-agent-catalog-registry/
 ├── plan.md
 ├── research.md
 ├── data-model.md
