@@ -20,6 +20,9 @@ on:
         type: boolean
         default: true
 
+# Every run says what started it: GitHub would otherwise name it after the commit message or the issue title alone.
+run-name: "${{ github.event_name == 'push' && format('Spec Kit prepare · push to {0}', github.ref_name) || github.event_name == 'issues' && format('Spec Kit prepare · #{0} {1} {2} · {3}', github.event.issue.number, github.event.action, github.event.label.name, github.event.issue.title) || inputs.dry_run && 'Spec Kit prepare · dry run' || 'Spec Kit prepare' }}"
+
 permissions: {}
 
 # Label events run in their own group so they never displace a queued sync; only the
