@@ -64,7 +64,7 @@ public sealed class CancelAnalysisRunHandler(
         }
 
         var actor = requestContext.MemberAccountId!.Value;
-        if (!await runs.TryCancelAsync(run.Id, run.State, actor, reason, cancellationToken))
+        if (!await runs.TryCancelAsync(run.Id, run.State, CancellationCause.Member, actor, reason, cancellationToken))
         {
             throw new InvalidOperationException("The locked run changed state concurrently.");
         }

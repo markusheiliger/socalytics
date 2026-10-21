@@ -203,8 +203,15 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
     }
 
     public async Task<bool> TryCancelAsync(
-        Guid runId, AnalysisRunState expectedState, Guid cancelledByAccountId, string? cancellationReason, CancellationToken cancellationToken)
+        Guid runId, AnalysisRunState expectedState, CancellationCause cause, Guid? cancelledByAccountId, string? cancellationReason,
+        CancellationToken cancellationToken)
     {
+        var member = cause == CancellationCause.Member;
+        if (member != cancelledByAccountId.HasValue || (!member && cancellationReason is not null))
+        {
+            throw new ArgumentException("Only a member cancellation records a member and a reason.");
+        }
+
         var transaction = session.RequireTransaction();
         var connection = await session.GetConnectionAsync(cancellationToken);
         var now = time.GetUtcNow();
@@ -213,16 +220,25 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
             UPDATE socalytics.analysis_runs
             SET state = 'Cancelled',
                 terminated_at = @now,
-                cancellation_cause = 'member',
+                cancellation_cause = @cause,
                 cancelled_by_account_id = @cancelledByAccountId,
                 cancellation_reason = @cancellationReason,
                 updated_at = @now
             WHERE id = @runId AND state = @expectedState
             """,
-            new { runId, expectedState = expectedState.ToString(), cancelledByAccountId, cancellationReason, now },
+            new { runId, expectedState = expectedState.ToString(), cause = AnalysisPersistedNames.ToPersistedName(cause), cancelledByAccountId, cancellationReason, now },
             transaction,
             cancellationToken: cancellationToken));
         return changed == 1;
+    }
+
+    public async Task LockMatchRunsAsync(Guid matchId, CancellationToken cancellationToken)
+    {
+        var transaction = session.RequireTransaction();
+        var connection = await session.GetConnectionAsync(cancellationToken);
+        await connection.ExecuteAsync(new CommandDefinition(
+            "SELECT pg_advisory_xact_lock(hashtextextended('analysis-match-runs:' || @matchId::text, 0))",
+            new { matchId = matchId.ToString() }, transaction, cancellationToken: cancellationToken));
     }
 
     public async Task<int> CancelUnfinishedNodesAsync(Guid runId, CancellationToken cancellationToken)
