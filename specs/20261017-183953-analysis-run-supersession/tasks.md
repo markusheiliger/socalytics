@@ -81,7 +81,7 @@ description: "Task list for Analysis Run Supersession"
 ### API
 
 - [x] T011 [US2] Add the additive fields `isCurrent`, `supersededBy { runId, recordingSetVersionId, recordingSetFinalizedAt }`, `supersededAt`, and `cancellationCause` (`member`, `superseded`, or null) to `AnalysisRunSummaryDto` and `AnalysisRunStatusDto` in `src/platform/SocAlytics.Platform.Api/Analysis/AnalysisRunEndpoints.cs`, keeping both operations' authorization unchanged (contracts/analysis-run-reads-api.md; FR-015, FR-016, FR-018)
-- [ ] T012 [US2] Refresh the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests` and confirm `OpenApiSnapshotTests` and `OpenApiContractTests` in `src/platform/Tests/SocAlytics.Platform.Host.Tests/` pass with the additive fields (FR-015)
+- [x] T012 [US2] Refresh the committed OpenAPI snapshot `src/platform/SocAlytics.Platform.Api/openapi/v1.json` with `SOCALYTICS_UPDATE_OPENAPI_SNAPSHOT=1 dotnet test src/platform/Tests/SocAlytics.Platform.Host.Tests --filter OpenApiSnapshotTests` and confirm `OpenApiSnapshotTests` and `OpenApiContractTests` in `src/platform/Tests/SocAlytics.Platform.Host.Tests/` pass with the additive fields (FR-015)
 
 ### Tests for User Story 2
 
