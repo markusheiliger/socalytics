@@ -99,7 +99,7 @@ description: "Task list for Analysis Run Supersession"
 
 ### Reconciliation
 
-- [ ] T014 [US3] In `src/platform/SocAlytics.Platform.Application/Analysis/Commands/ReconcileAnalysisPublication.cs`, before the ready-work pass, list matches through `IRunSupersessionStore.ListMatchesNeedingSupersessionAsync` in batches of `AnalysisReconciliationOptions.BatchSize` and apply `RunSupersession.ApplyAsync` per match in its own unit of work after `LockMatchRunsAsync`; add `RunsSuperseded` to `ReconciliationResult`, the detail `runsSuperseded` to the `analysis.publication-reconciled` audit event in `src/platform/SocAlytics.Platform.Application/Analysis/Commands/RunAnalysisReconciliation.cs`, and the count to the log message in `src/platform/SocAlytics.Platform.Infrastructure/Workers/PublicationReconciliationWorker.cs` (research R10; FR-014)
+- [x] T014 [US3] In `src/platform/SocAlytics.Platform.Application/Analysis/Commands/ReconcileAnalysisPublication.cs`, before the ready-work pass, list matches through `IRunSupersessionStore.ListMatchesNeedingSupersessionAsync` in batches of `AnalysisReconciliationOptions.BatchSize` and apply `RunSupersession.ApplyAsync` per match in its own unit of work after `LockMatchRunsAsync`; add `RunsSuperseded` to `ReconciliationResult`, the detail `runsSuperseded` to the `analysis.publication-reconciled` audit event in `src/platform/SocAlytics.Platform.Application/Analysis/Commands/RunAnalysisReconciliation.cs`, and the count to the log message in `src/platform/SocAlytics.Platform.Infrastructure/Workers/PublicationReconciliationWorker.cs` (research R10; FR-014)
 
 ### Tests for User Story 3
 

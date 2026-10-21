@@ -16,17 +16,18 @@ public sealed class RunSupersession(
     IAuditTrail audit,
     TimeProvider time)
 {
-    public async Task ApplyAsync(Guid matchId, CancellationToken cancellationToken)
+    public async Task<int> ApplyAsync(Guid matchId, CancellationToken cancellationToken)
     {
         var entries = await supersessions.ListMatchRunsAsync(matchId, cancellationToken);
         var current = RecordingSetVersionOrder.SelectCurrent(entries, entry => entry.OrderKey);
         if (current is null)
         {
-            return;
+            return 0;
         }
 
         var now = time.GetUtcNow();
         var older = RecordingSetVersionOrder.SelectOlderThanCurrent(entries, entry => entry.OrderKey, entry => entry.RunId);
+        var superseded = 0;
         foreach (var entry in older.Where(entry => !entry.HasSupersession))
         {
             var run = await runs.LockRunAsync(entry.RunId, cancellationToken)
@@ -43,6 +44,9 @@ public sealed class RunSupersession(
 
             await supersessions.InsertAsync(new NewRunSupersession(run.Id, run.MatchId, current.RunId, now, previousState), cancellationToken);
             AnalysisMetrics.RunSuperseded(active ? "active" : "ended");
+            superseded++;
         }
+
+        return superseded;
     }
 }
