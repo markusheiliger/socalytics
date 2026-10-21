@@ -21,7 +21,7 @@ COMMON_ID = "https://socalytics.invalid/contracts/common/v1/common.schema.json"
 
 # Document kind -> (folder under contracts/analysis, schema file stem, supported versions per research R5).
 KINDS: dict[str, tuple[str, str, tuple[str, ...]]] = {
-    "analyst-job": ("analyst-job", "analyst-job", ("1.0.0", "1.1.0")),
+    "analyst-job": ("analyst-job", "analyst-job", ("1.0.0", "1.1.0", "1.2.0")),
     "analyst-attempt": ("analyst-attempt", "analyst-attempt", ("1.0.0",)),
     "upstream-results": ("upstream-results", "upstream-results", ("1.0.0", "1.1.0")),
     "result-manifest": ("result-manifest", "result-manifest", ("1.0.0", "1.1.0")),

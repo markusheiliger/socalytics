@@ -35,7 +35,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
   `specs/20261017-222433-materialized-segments/contracts/segment-contracts.md` (`mediaType` const `video/mp4`, policy
   `version` const `1`, `segmentNumber` minimum 1, `timelineSpans` minItems 1, shared definitions from
   `contracts/common/v1/common.schema.json`)
-- [ ] T002 [P] Add `analysis/analyst-job` 1.2.0 to `contracts/analysis/analyst-job/v1/analyst-job.schema.json` on top
+- [x] T002 [P] Add `analysis/analyst-job` 1.2.0 to `contracts/analysis/analyst-job/v1/analyst-job.schema.json` on top
   of 1.1.0: optional `segmentMedia` (`videoPolicy` enum `required`/`optional`, `manifestChecksum` sha-256 digest), the
   `allOf` rule that forbids it for `executionScope = match`, `releases/1.2.0.schema.json`,
   `examples/valid/segment-job-with-media.json`, `examples/invalid/segment-media-on-match-job.json` and

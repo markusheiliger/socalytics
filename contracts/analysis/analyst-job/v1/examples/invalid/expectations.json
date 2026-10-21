@@ -7,5 +7,7 @@
   "carries-stamp-discriminator.json": "additionalProperties",
   "carries-club-discriminator.json": "additionalProperties",
   "segment-window-on-match-job.json": "not",
-  "segment-window-unknown-property.json": "additionalProperties"
+  "segment-window-unknown-property.json": "additionalProperties",
+  "segment-media-on-match-job.json": "not",
+  "segment-media-forbidden-policy.json": "enum"
 }

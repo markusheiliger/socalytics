@@ -21,6 +21,7 @@ MODELS: dict[str, dict[str, type[BaseModel]]] = {
         "#/properties/capability": CAPABILITY,
         "#/properties/segment": common.AnalysisSegmentReference,
         "#/properties/segmentWindow": job.SegmentWindow,
+        "#/properties/segmentMedia": job.SegmentMedia,
         "#/properties/workflow": job.WorkflowRef,
         "#/properties/inputs/items": job.InputEntry,
         "#/properties/inputs/items/properties/capability": CAPABILITY,
