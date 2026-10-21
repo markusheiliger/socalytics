@@ -54,10 +54,14 @@ on:
         description: The tracked findings this correction round fixes, as JSON (fix)
         required: false
         type: string
+      stop:
+        description: What stopped the implementation, such as "T013 reached the attempt limit", for the run name (diagnose, optional)
+        required: false
+        type: string
   # Only the Spec Kit workflows dispatch this workflow, with the repository's token; dispatching already requires
   # write access.
   roles: all
-run-name: "Spec Kit diagnose spec #${{ inputs.twin }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the amendment, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the amendment with review feedback' || 'Diagnose why the implementation stopped' }}"
+run-name: "Spec Kit diagnose spec #${{ inputs.twin }} · ${{ inputs.mode == 'fix' && format('Fix consistency findings of the amendment, round {0}', inputs.round) || inputs.mode == 'revise' && 'Revise the amendment with review feedback' || inputs.stop || 'Diagnose why the implementation stopped' }}"
 # One run per twin at a time; runs for different twins run side by side.
 concurrency:
   group: speckit-diagnose-${{ inputs.twin }}

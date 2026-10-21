@@ -22,7 +22,7 @@ import {
   SPEC_BRANCH_PREFIX,
   baseBranchOf,
   defaultBranchOf,
-  dependencyBlock,
+  explainDependencyBlock,
   fixBranch,
   folderOfBranch,
   isPrerequisiteBranch,
@@ -80,7 +80,7 @@ export function fixStamp(now = Date.now()) {
 
 // Why an implementation is blocked by the spec `/speckit specify` authored for it before the dependency exists, for
 // setBlocked: `review` while the spec pull request is open, `implement` once it is merged and its twin is not linked
-// yet. Once the twin depends on it, the generic dependency block (dependencyBlock) explains the wait.
+// yet. Once the twin depends on it, the generic dependency block (explainDependencyBlock) explains the wait.
 export function fixBlock({ stage, fixPull, fixTwin = null, baseBranch }) {
   const base = baseBranch ? `\`${baseBranch}\`` : 'the default branch';
   const twin = fixTwin ? `#${fixTwin}` : 'its spec twin';
@@ -877,7 +877,7 @@ export async function maintainFixSpec(client, env, { implementation, twin }, { n
   // Like every spec, the new twin starts only once someone signs it off with `/speckit implement`; the comment names
   // the twin with that command, and the block it explains is the generic dependency block.
   const requester = state.requested?.by ?? null;
-  const block = dependencyBlock((await client.listBlockedBy(twin)).filter((blocker) => blocker.state === 'open'));
+  const block = await explainDependencyBlock(client, (await client.listBlockedBy(twin)).filter((blocker) => blocker.state === 'open'));
   await client.createComment(implementation.number, [
     renderFixEvent('linked', { pull: pull.number, folder: fixFolder, twin: prerequisite.number }),
     renderBlockedMarker(block.key),

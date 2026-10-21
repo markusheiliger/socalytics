@@ -687,6 +687,18 @@ test('an unrequested blocker of a running implementation never starts; once requ
     assert.equal(chainRuns(github).at(-1).display_title, `Spec Kit implement spec #${b.number} · b title`, 'a requested blocker of a running implementation starts although the limit is reached');
     assert.match(started.text, new RegExp(`Started the implementation of #${b.number}`));
     assert.deepEqual(github.repo.pulls.find((pull) => pull.head.ref === 'speckit/b').assignees, ['lead'], 'assigned to the person who signed it off');
+
+    const implementationA = github.repo.pulls.find((pull) => pull.head.ref === 'speckit/a');
+    const implementationB = github.repo.pulls.find((pull) => pull.head.ref === 'speckit/b');
+    const blockedComments = () => github.comments.filter((comment) => comment.number === implementationA.number && comment.body.includes('speckit-implement:blocked'));
+    assert.doesNotMatch(blockedComments().at(-1).body, /to finish first/, 'no implementation pull request of the blocker existed yet');
+    await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    const explained = blockedComments().at(-1).body;
+    assert.match(explained, new RegExp(`^<!-- speckit-implement:blocked \\{"blockers":\\[${b.number}\\],"pulls":\\[${implementationB.number}\\]\\} -->`));
+    assert.match(explained, new RegExp(`\\*\\*Implementation pull request to finish first\\*\\*:\\n\\n- #${implementationB.number} implements #${b.number}; this implementation resumes once it is merged\\.`));
+    const count = blockedComments().length;
+    await orchestrate(github, root, { SPECKIT_MAX_ACTIVE_SPECS: '1' });
+    assert.equal(blockedComments().length, count, 'the blocking pull request is explained once');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

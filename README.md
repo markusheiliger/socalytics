@@ -462,7 +462,12 @@ posts.
   `Spec Kit implement spec` (`speckit-implement-spec.yml`), one at a time per
   spec, each started by the previous one and named after the spec, for example
   `Spec Kit implement spec #35 · Recording Lineage and Upload` (the spec title
-  from the pull request title). Every run decides what comes next from the
+  from the pull request title). Every other Spec Kit run is named
+  `Spec Kit <workflow> …` as well: a diagnosis after the stop it diagnoses
+  (for example `Spec Kit diagnose spec #35 · T013 reached the attempt limit`),
+  and a run that reacts to a pull request, comment, or issue after that item
+  by number (for example
+  `Spec Kit orchestrate · pull request #214 synchronize · Implement: …`). Every run decides what comes next from the
   state on GitHub (job `decide`, shown as `Decide what comes next`),
   runs it, and starts the next run (job `continue`, shown as
   `Start the next run`), until the implementation is merged, waits for
@@ -595,8 +600,8 @@ posts.
   5. Specs that need the new tooling name the environment spec under
       Assumptions → Dependencies, so dependency inference blocks them until it
       is merged (or add the "blocked by" link on GitHub).
-- Tasks marked `[P]` run through `Spec Kit implement group` in parallel, up to `SPECKIT_MAX_PARALLEL_TASKS`
-  (default 3) at a time. Consecutive unchecked `[P]` tasks under the same
+- Tasks marked `[P]` run through `Spec Kit implement group` in parallel, all at
+  once, since they change disjoint files. Consecutive unchecked `[P]` tasks under the same
   heading run together; an unchecked task without `[P]` or a new heading
   ends them. Each task is verified and landed by its own task workflow. A task
   whose siblings landed first is rebuilt on the new head (its change without
@@ -612,7 +617,6 @@ posts.
   not count as a failed attempt, but every task has at most six attempts. A
   push that is refused although the branch did not move counts as a failed
   attempt.
-  `SPECKIT_MAX_PARALLEL_TASKS=1` runs `[P]` tasks one after another.
   `/speckit-tasks` sets `[P]` from the task texts alone, so its
   `/speckit-gha-refine` hook checks each group against the files its tasks
   will really change (including registrations, project files, and shared
@@ -867,7 +871,6 @@ place. The workflows and scripts need no changes for any of it.
 | --- | --- | --- | --- |
 | `SPECKIT_AUTO_MERGE` | repository variable | `true` | `false` holds every implementation for review instead of merging it automatically |
 | `SPECKIT_TASK_AI_CREDITS` | repository variable | `1000` | Copilot CLI credit cap per agent run (tasks, convergence, conflict resolution) |
-| `SPECKIT_MAX_PARALLEL_TASKS` | repository variable | `3` | how many consecutive `[P]` tasks run at the same time; `1` runs them one after another |
 | `SPECKIT_MAX_ACTIVE_SPECS` | repository variable | `3` | how many specs the scheduler implements at the same time; a spec waiting for review or for a person does not count |
 | `.github/actions/environment-setup` | composite action, optional | not run | installs the SDKs and tools for building, testing, and verifying |
 | `.github/actions/environment-verify` | composite action, optional | no verification | runs the checks for changed paths (modes `task`: only the touched tests; `phase` and `finalize`: all tests) and reports files no check covers |

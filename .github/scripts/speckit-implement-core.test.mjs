@@ -88,7 +88,6 @@ import {
   nextTask,
   nextTaskGroup,
   parseGuidance,
-  parseMaxParallel,
   isImplementRunOf,
   isTwinRunOf,
   phaseSubject,
@@ -462,7 +461,6 @@ test('groups consecutive unticked [P] tasks under one heading', () => {
   assert.deepEqual(ids(PARALLEL_TASKS.replace(/- \[ \] T00[2-7]/g, (line) => line.replace('[ ]', '[x]')), 3), ['T008'], 'a group never crosses a heading');
   assert.deepEqual(ids('- [ ] T001 Not [P] in the text\n- [ ] T002 [P] x\n', 3), ['T001'], 'only leading tags count');
   assert.deepEqual(ids('- [x] T001 done\n', 3), []);
-  assert.deepEqual([parseMaxParallel(undefined), parseMaxParallel(''), parseMaxParallel('1'), parseMaxParallel(' 5 '), parseMaxParallel('0'), parseMaxParallel('x')], [3, 3, 1, 5, 3, 3]);
 });
 
 test('plans the task order of a phase: single tasks, and [P] tasks that run in parallel', () => {
@@ -726,6 +724,19 @@ test('the implementation workflows give task, group, repair, convergence, confli
   assert.match(resolve, /^name: Spec Kit implement conflict resolution\n/);
   assert.match(merge, /^name: Spec Kit implement merge\n/);
   assert.match(spec, /^run-name: "Spec Kit implement spec #\$\{\{ inputs\.twin \}\}\$\{\{ inputs\.title && format\(' · \{0\}', inputs\.title\) \|\| '' \}\}"$/m);
+  // Every Spec Kit workflow that an event starts names its runs "Spec Kit <workflow> …"; GitHub would otherwise name
+  // pull request, comment, and push runs after a title or commit message that does not say they belong to Spec Kit.
+  for (const file of readdirSync(new URL('../workflows/', import.meta.url)).filter((name) => /^speckit-.*\.(yml|md)$/.test(name) && !name.endsWith('.lock.yml'))) {
+    const source = read(file);
+    const triggers = source.match(/^on:\n[\s\S]*?(?=^\S)/m)?.[0] ?? '';
+    if (/^ {2}workflow_call:/m.test(triggers)) continue;
+    const runName = source.match(/^run-name: "(.*)"$/m)?.[1] ?? '';
+    const literals = [...runName.matchAll(/'([^']*)'/g)].map((match) => match[1]).filter((text) => /^Spec Kit /.test(text));
+    assert.ok(runName.startsWith('Spec Kit ') || literals.length > 0, `${file} names its runs after Spec Kit`);
+    for (const event of ['issue_comment', 'pull_request_review', 'pull_request_target', 'issues']) {
+      if (new RegExp(`^ {2}${event}:`, 'm').test(triggers)) assert.match(runName, new RegExp(`github\\.event_name == '${event}' && format\\('Spec Kit [^']*#\\{0\\}`), `${file} references the ${event} item by number`);
+    }
+  }
   assert.match(job(spec, 'phase'), /name: \$\{\{ needs\.decide\.outputs\.action == 'implement' && needs\.decide\.outputs\.job_name \|\| 'Implement a phase' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-phase\.yml/);
   assert.match(job(spec, 'repair'), /needs\.decide\.outputs\.action == 'repair'[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-repair\.yml/);
   assert.match(job(spec, 'converge'), /name: \$\{\{ needs\.decide\.outputs\.action == 'converge' && needs\.decide\.outputs\.job_name \|\| 'Convergence' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-converge\.yml/);
@@ -762,6 +773,7 @@ test('the implementation workflows give task, group, repair, convergence, confli
   assert.match(groups, /uses: \.\/\.github\/workflows\/speckit-implement-group\.yml/);
   const groupTasks = job(group, 'tasks');
   assert.match(groupTasks, /matrix: \$\{\{ fromJSON\(inputs\.order\)\[inputs\.index\] \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-task\.yml/);
+  assert.doesNotMatch(groupTasks, /max-parallel/, 'all [P] tasks of a group run at once');
   assert.doesNotMatch(job(task, 'work'), /strategy:|matrix\./, 'a task workflow implements exactly one task');
   assert.match(job(task, 'work'), /SPECKIT_TASK: \$\{\{ inputs\.task \}\}/);
   assert.match(phase, /verified:[\s\S]*?value: \$\{\{ jobs\.verify\.result \}\}/);

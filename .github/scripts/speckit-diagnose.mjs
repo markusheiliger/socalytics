@@ -14,6 +14,7 @@ import {
   CHECK_AMEND_INCONSISTENT,
   CHECK_DIAGNOSED,
   CHECK_DIAGNOSING,
+  CHECK_LIMIT,
   CHECK_RUN_NAME,
   DIAGNOSE_WORKFLOW_FILE,
   DIAGNOSIS_COMMENT_MARKER,
@@ -32,6 +33,7 @@ import {
   isImplementRunOf,
   isTwinRunOf,
   latestHumanCommit,
+  latestCheckRun,
   neutralizeMarkers,
   nextStepContext,
   nextTaskGroup,
@@ -77,9 +79,23 @@ const clip = (text, max) => {
 
 export class DiagnoseUsageError extends Error {}
 
+// Longest stop description in a diagnose run name.
+export const MAX_STOP_SUBJECT = 120;
+
+// What stopped the implementation, for the diagnose run name: the title of the latest stop check run (CHECK_LIMIT) on
+// `head`, such as "T013 reached the attempt limit" or "The phase verification failed"; empty when there is none.
+export async function stopSubject(client, head) {
+  try {
+    const stop = latestCheckRun((await client.listCheckRuns(head, CHECK_RUN_NAME)).filter((check) => check.external_id === CHECK_LIMIT));
+    return clip(String(stop?.output?.title ?? '').replace(/\s+/g, ' ').trim(), MAX_STOP_SUBJECT);
+  } catch {
+    return '';
+  }
+}
+
 // Starts a diagnosis of the implementation pull request `pull`: a check run on the head marks the implementation as
-// waiting for the diagnosis, and the agentic diagnose workflow is dispatched. A dispatch failure leaves an unfinished
-// diagnosis check so the implementation controller starts it again.
+// waiting for the diagnosis, and the agentic diagnose workflow is dispatched (its run is named after the stop). A
+// dispatch failure leaves an unfinished diagnosis check so the implementation controller starts it again.
 export async function startDiagnosis(client, env, { twin, pull, folder, head, guidance = '', previous = '', actor = null, auto = false }) {
   // A new diagnosis supersedes an earlier amendment; its branch must not exist when the new run proposes one.
   const superseded = await findAmendment(client, folder);
@@ -97,6 +113,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, gu
     auto ? 'Started automatically because the implementation stopped.' : `Started by @${actor}.`,
     ...(guidance ? ['', `Guidance: ${clip(guidance, 2000)}`] : []),
   ].join('\n');
+  const stop = await stopSubject(client, head);
   const check = await client.createCheckRun({
     name: CHECK_RUN_NAME,
     head_sha: head,
@@ -116,6 +133,7 @@ export async function startDiagnosis(client, env, { twin, pull, folder, head, gu
       mode: 'diagnose',
       amendment: '',
       round: '0',
+      stop,
     });
     await setAttention(client, pull, false);
     return { started: true, check };
