@@ -67,7 +67,8 @@ internal sealed class EndToEndHarness : IAsyncDisposable
     public IManagerControl Control => Manager.Services.GetRequiredService<IManagerControl>();
 
     /// <summary>Starts the platform; returns null when SoftHSM2 (needed for the Manager's device key) is unavailable.</summary>
-    public static async Task<EndToEndHarness?> StartAsync(CancellationToken ct, IReadOnlyDictionary<string, string?>? registrySettings = null)
+    public static async Task<EndToEndHarness?> StartAsync(CancellationToken ct, IReadOnlyDictionary<string, string?>? registrySettings = null,
+        IReadOnlyDictionary<string, string?>? additionalSettings = null)
     {
         var token = SoftHsmToken.TryCreate();
         if (token is null)
@@ -99,6 +100,11 @@ internal sealed class EndToEndHarness : IAsyncDisposable
             ["ObjectStorage:Bucket"] = store.Bucket,
         };
         foreach (var (key, value) in registrySettings ?? new Dictionary<string, string?>())
+        {
+            settings[key] = value;
+        }
+
+        foreach (var (key, value) in additionalSettings ?? new Dictionary<string, string?>())
         {
             settings[key] = value;
         }

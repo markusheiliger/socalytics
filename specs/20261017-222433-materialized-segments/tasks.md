@@ -272,7 +272,7 @@ results are accepted, media is verified, and nothing remains after the attempt.
   `AttemptDirectoryTests.cs`, and `AttemptCleanupTests.cs` under
   `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/` (mount present only with media, other mounts and
   no-network rules unchanged, media deleted when the attempt ends and at Manager start) (FR-019, FR-020)
-- [ ] T024 [US2] Add end-to-end evidence: a `media` mode in
+- [x] T024 [US2] Add end-to-end evidence: a `media` mode in
   `src/platform/Tests/SocAlytics.Platform.EndToEnd.Tests/TestAnalyst/analyst.py` that reads
   `/socalytics/media/segment-manifest.json` and `segment.mp4`, verifies the digest, and writes a result inside the
   nominal window; a manifest variant with `videoAccess` `required` and image support in

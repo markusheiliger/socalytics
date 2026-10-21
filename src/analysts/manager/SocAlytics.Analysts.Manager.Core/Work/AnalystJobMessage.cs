@@ -20,10 +20,14 @@ public sealed record AnalystJobMessage(
     CompletionCorrelation Correlation,
     string? RecordingSetVersionId = null,
     JobSegment? Segment = null,
-    JobSegmentMedia? SegmentMedia = null);
+    JobSegmentMedia? SegmentMedia = null,
+    JobSegmentWindow? SegmentWindow = null);
 
 /// <summary>The pinned materialized segment media of a segment-scoped job (analyst-job 1.2.0).</summary>
 public sealed record JobSegmentMedia(string VideoPolicy, string ManifestChecksum);
+
+/// <summary>The platform's segment identity and the half-open nominal window of a segment-scoped job.</summary>
+public sealed record JobSegmentWindow(string SegmentId, long StartMs, long EndMs);
 
 public sealed record JobSegment(string RecordingVersionId, int SegmentNumber);
 

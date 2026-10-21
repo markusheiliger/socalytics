@@ -57,11 +57,12 @@ internal static class SimulatedResultWriter
         long end = MatchWindowMs;
         if (segment is not null)
         {
-            start = SegmentStartMs(segment.SegmentNumber);
-            end = segment.SegmentNumber * SegmentWindowMs;
+            var window = job.SegmentWindow;
+            start = window?.StartMs ?? SegmentStartMs(segment.SegmentNumber);
+            end = window?.EndMs ?? segment.SegmentNumber * SegmentWindowMs;
             scope["segment"] = new Dictionary<string, object?>
             {
-                ["segmentId"] = $"{segment.RecordingVersionId}-{segment.SegmentNumber}",
+                ["segmentId"] = window?.SegmentId ?? $"{segment.RecordingVersionId}-{segment.SegmentNumber}",
                 ["windowStartMs"] = start,
                 ["windowEndMs"] = end,
             };
