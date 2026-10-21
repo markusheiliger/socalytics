@@ -100,8 +100,8 @@ public sealed class RunCancellationFencingTests(PostgresContainerFixture postgre
 		await using var c = await OpenAsync(db, ct);
 		await c.ExecuteAsync(new CommandDefinition(
 			"""
-			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
-			VALUES (@run, @team, @match, @set, @wf, @wfv, ARRAY['cap-a'], 'all-requested-capabilities', 'Running', @at, @at, @at);
+			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
+			VALUES (@run, @team, @match, @set, now(), @wf, @wfv, ARRAY['cap-a'], 'all-requested-capabilities', 'Running', @at, @at, @at);
 			INSERT INTO socalytics.analysis_run_snapshots (run_id, snapshot, snapshot_digest) VALUES (@run, '{}'::jsonb, 'sha-256:a');
 			INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
 			VALUES (@n0, @run, 'm0', 'cap-a', '1.0.0', 'high-level', 'match', 0, 'Active', @at),

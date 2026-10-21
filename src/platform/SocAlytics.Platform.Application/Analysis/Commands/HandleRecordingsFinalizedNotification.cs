@@ -165,7 +165,7 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
         if (!validation.IsValid)
         {
             runId = await runs.InsertAsync(new NewAnalysisRun(
-                lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, definition.WorkflowId, definition.WorkflowVersion,
+                lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, lineage.FinalizedAt, definition.WorkflowId, definition.WorkflowVersion,
                 definition.RequestedCapabilities, definition.CompletionPolicy, AnalysisRunState.Failed, validation.Reason,
                 snapshot, [], []), ct);
             return await Record("run-created", null, runId);
@@ -186,7 +186,7 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
         }).ToList();
 
         runId = await runs.InsertAsync(new NewAnalysisRun(
-            lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, definition.WorkflowId, definition.WorkflowVersion,
+            lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, lineage.FinalizedAt, definition.WorkflowId, definition.WorkflowVersion,
             definition.RequestedCapabilities, definition.CompletionPolicy, AnalysisRunState.Requested, null, snapshot, nodes, edges), ct);
         await jobs.InsertAsync(planned.Select(p => new NewLogicalJob(
             Guid.CreateVersion7(), runId, byKey[p.NodeKey].Id, p.Scope,

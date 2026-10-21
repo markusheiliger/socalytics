@@ -9,6 +9,7 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
     private const string RunSelect =
         """
         SELECT id AS Id, team_id AS TeamId, match_id AS MatchId, recording_set_version_id AS RecordingSetVersionId,
+               recording_set_finalized_at AS RecordingSetFinalizedAt,
                workflow_id AS WorkflowId, workflow_version AS WorkflowVersion,
                to_jsonb(requested_capabilities)::text AS RequestedCapabilities, completion_policy AS CompletionPolicy,
                state AS State, failure_reason AS FailureReason, created_at AS CreatedAt, running_at AS RunningAt,
@@ -17,7 +18,7 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
         """;
 
     private sealed record RunRow(
-        Guid Id, Guid TeamId, Guid MatchId, Guid RecordingSetVersionId, string WorkflowId, string WorkflowVersion,
+        Guid Id, Guid TeamId, Guid MatchId, Guid RecordingSetVersionId, DateTime RecordingSetFinalizedAt, string WorkflowId, string WorkflowVersion,
         string RequestedCapabilities, string CompletionPolicy, string State, string? FailureReason,
         DateTime CreatedAt, DateTime? RunningAt, DateTime? TerminatedAt, DateTime UpdatedAt, long Version);
 
@@ -37,7 +38,7 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
         s is AnalysisRunState.PartiallyCompleted or AnalysisRunState.Completed or AnalysisRunState.Failed or AnalysisRunState.Cancelled;
 
     private static AnalysisRunRecord ToRecord(RunRow r) => new(
-        r.Id, r.TeamId, r.MatchId, r.RecordingSetVersionId, r.WorkflowId, r.WorkflowVersion, System.Text.Json.JsonSerializer.Deserialize<string[]>(r.RequestedCapabilities)!,
+        r.Id, r.TeamId, r.MatchId, r.RecordingSetVersionId, Utc(r.RecordingSetFinalizedAt), r.WorkflowId, r.WorkflowVersion, System.Text.Json.JsonSerializer.Deserialize<string[]>(r.RequestedCapabilities)!,
         r.CompletionPolicy, Enum.Parse<AnalysisRunState>(r.State), r.FailureReason, Utc(r.CreatedAt), Utc(r.RunningAt),
         Utc(r.TerminatedAt), Utc(r.UpdatedAt), r.Version);
 
@@ -51,9 +52,9 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
         await connection.ExecuteAsync(new CommandDefinition(
             """
             INSERT INTO socalytics.analysis_runs
-                (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities,
+                (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities,
                  completion_policy, state, failure_reason, created_at, running_at, terminated_at, updated_at)
-            VALUES (@id, @teamId, @matchId, @setId, @workflowId, @workflowVersion, @capabilities,
+            VALUES (@id, @teamId, @matchId, @setId, @finalizedAt, @workflowId, @workflowVersion, @capabilities,
                     @policy, @state, @failure, @now, @runningAt, @terminatedAt, @now)
             """,
             new
@@ -62,6 +63,7 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
                 teamId = run.TeamId,
                 matchId = run.MatchId,
                 setId = run.RecordingSetVersionId,
+                finalizedAt = run.RecordingSetFinalizedAt,
                 workflowId = run.WorkflowId,
                 workflowVersion = run.WorkflowVersion,
                 capabilities = run.RequestedCapabilities.ToArray(),
@@ -211,6 +213,7 @@ internal sealed class AnalysisRunStore(IDbSession session, TimeProvider time) : 
             UPDATE socalytics.analysis_runs
             SET state = 'Cancelled',
                 terminated_at = @now,
+                cancellation_cause = 'member',
                 cancelled_by_account_id = @cancelledByAccountId,
                 cancellation_reason = @cancellationReason,
                 updated_at = @now
