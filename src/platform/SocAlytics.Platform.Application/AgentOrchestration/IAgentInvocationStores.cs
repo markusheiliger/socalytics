@@ -27,7 +27,9 @@ public sealed record AgentInvocationRecord(
     DateTimeOffset SubmittedAt,
     DateTimeOffset? EndedAt,
     long ProgressVersion,
-    long Version);
+    long Version,
+    string? AgentVersion = null,
+    string? AgentVersionDigest = null);
 
 // A new invocation starts queued with its first ready occurrence and no attempt.
 public sealed record NewAgentInvocation(
@@ -45,7 +47,9 @@ public sealed record NewAgentInvocation(
     Guid CorrelationId,
     string PolicyVersion,
     string ExecutionPolicyJson,
-    DateTimeOffset SubmittedAt);
+    DateTimeOffset SubmittedAt,
+    string? AgentVersion = null,
+    string? AgentVersionDigest = null);
 
 public sealed record AgentInvocationRef(Guid InvocationId, int ReadyOccurrence);
 

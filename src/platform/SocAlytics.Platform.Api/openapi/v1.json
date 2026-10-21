@@ -320,6 +320,16 @@
               "string"
             ]
           },
+          "agent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentPinDto"
+              }
+            ]
+          },
           "agentId": {
             "type": "string"
           },
@@ -383,7 +393,8 @@
           "advice",
           "submittedAt",
           "endedAt",
-          "retryAfterSeconds"
+          "retryAfterSeconds",
+          "agent"
         ],
         "type": "object"
       },
@@ -396,6 +407,16 @@
               },
               {
                 "$ref": "#/components/schemas/AgentLineageAdviceDto"
+              }
+            ]
+          },
+          "agent": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AgentPinDto"
               }
             ]
           },
@@ -417,7 +438,8 @@
           "invocationId",
           "policyVersion",
           "entries",
-          "advice"
+          "advice",
+          "agent"
         ],
         "type": "object"
       },
@@ -537,6 +559,51 @@
         "required": [
           "agentId",
           "addedAt"
+        ],
+        "type": "object"
+      },
+      "AgentPinArtifactDto": {
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "version",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "AgentPinDto": {
+        "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/AgentPinArtifactDto"
+            },
+            "type": "array"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "digest",
+          "artifacts"
         ],
         "type": "object"
       },

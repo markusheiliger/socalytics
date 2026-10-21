@@ -29,6 +29,9 @@ public sealed class SubmitAgentInvocationHandler(
     IAgentConversationStore conversations,
     IAgentInvocationStore invocations,
     IAgentEnablementStore enablementStore,
+    IAgentVersionStore agentVersions,
+    IAgentCatalogArtifactStore catalogArtifacts,
+    IAgentInvocationPinStore pinStore,
     IAccessAuthorizer authorizer,
     IRequestContext requestContext,
     IOutbox outbox,
@@ -121,7 +124,9 @@ public sealed class SubmitAgentInvocationHandler(
                 AgentSubmissionCodes.AgentNotParticipant, cancellationToken);
         }
 
-        if ((await enablementStore.FindAsync(agentId, true, cancellationToken))?.AgentVersion is null)
+        var enabledVersion = (await enablementStore.FindAsync(agentId, true, cancellationToken))?.AgentVersion;
+        var agentVersion = enabledVersion is null ? null : await agentVersions.FindAsync(agentId, enabledVersion, cancellationToken);
+        if (agentVersion is null)
         {
             return await RefuseAsync(
                 scope, conversation, agentId, OperationFailure.Conflict(AgentSubmissionCodes.AgentNotAvailable),
@@ -142,8 +147,10 @@ public sealed class SubmitAgentInvocationHandler(
             new NewAgentInvocation(
                 invocationId, conversation.Id, teamId, conversation.MatchId, conversation.AnalysisRunId, ownerId, agentId,
                 AgentRoute.UserToSpecialist, command.Question!, key!, hash, correlationId, policy.Version,
-                JsonSerializer.Serialize(policy, PolicyOptions), now),
+                JsonSerializer.Serialize(policy, PolicyOptions), now, agentVersion.AgentVersion, agentVersion.Digest),
             cancellationToken);
+        await pinStore.InsertAsync(
+            invocationId, await AgentPins.ResolveAsync(catalogArtifacts, agentVersion.Document, cancellationToken), cancellationToken);
         await invocations.AppendLineageAsync(
             new NewAgentLineageEntry(
                 invocationId, "submitted", null,
