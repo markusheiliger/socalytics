@@ -110,6 +110,8 @@ src/clients/web/
     ├── unit/features/operations/format.test.ts
     ├── unit/features/operations/filters.test.ts
     ├── unit/shell/navigation.test.tsx           # extended: Operations entry and position
+    ├── e2e/simulated/navigation.spec.ts         # extended: Operations in the Club Admin link list
+    ├── e2e/platform/navigation.spec.ts          # extended: Operations in the Club Admin link list
     ├── unit/serviceWorker/shellWorker.test.ts   # extended: operations requests never cached
     ├── e2e/support/simulatedApi.ts              # operational fixtures and handlers
     ├── e2e/simulated/operations.spec.ts
