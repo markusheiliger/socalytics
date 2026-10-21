@@ -185,7 +185,10 @@ The durable analysis workflow is implemented as development evidence (outbox,
 NATS JetStream publication, run creation from finalized recording sets,
 readiness, fenced attempts, member-initiated run cancellation
 (`POST /api/v1/analysis/runs/{runId}/cancellation`, `cancelAnalysisRun`;
-migration `0026_analysis_run_cancellation.sql`), Analyst job and completion
+migration `0026_analysis_run_cancellation.sql`), automatic supersession of
+older runs by the run of a newer recording-set version (migration
+`0027_analysis_run_supersession.sql`; additive `isCurrent`, `supersededBy`,
+`supersededAt`, and `cancellationCause` fields of the run reads), Analyst job and completion
 contracts). Result
 write grants and validated result acceptance are implemented against the
 simulated Analyst as development evidence (migrations
@@ -249,7 +252,7 @@ lineage under `/api/v1`); the initiating user alone reads them.
   Web UI, and production values remain deferred.
 
 The agent catalog registry is implemented as development evidence (migration
-`0027_agentorchestration_agent_catalog.sql`, a `Catalog` folder in each layer):
+`0028_agentorchestration_agent_catalog.sql`, a `Catalog` folder in each layer):
 Club Admins register immutable, content-addressed artifacts (prompt template,
 model selection, tool policy, safety policy, dimension set, philosophy profile,
 modifier policy) and agent versions, approve and retire versions, and enable one

@@ -1179,6 +1179,12 @@
       },
       "AnalysisRunStatusDto": {
         "properties": {
+          "cancellationCause": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "cancellationReason": {
             "type": [
               "null",
@@ -1204,6 +1210,9 @@
               "null",
               "string"
             ]
+          },
+          "isCurrent": {
+            "type": "boolean"
           },
           "matchId": {
             "format": "uuid",
@@ -1238,6 +1247,23 @@
           },
           "state": {
             "type": "string"
+          },
+          "supersededAt": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "supersededBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnalysisRunSupersededByDto"
+              }
+            ]
           },
           "teamId": {
             "format": "uuid",
@@ -1280,6 +1306,10 @@
           "version",
           "cancelledBy",
           "cancellationReason",
+          "cancellationCause",
+          "isCurrent",
+          "supersededBy",
+          "supersededAt",
           "requestedCapabilities",
           "nodes"
         ],
@@ -1287,6 +1317,12 @@
       },
       "AnalysisRunSummaryDto": {
         "properties": {
+          "cancellationCause": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "cancellationReason": {
             "type": [
               "null",
@@ -1313,6 +1349,9 @@
               "string"
             ]
           },
+          "isCurrent": {
+            "type": "boolean"
+          },
           "matchId": {
             "format": "uuid",
             "type": "string"
@@ -1334,6 +1373,23 @@
           },
           "state": {
             "type": "string"
+          },
+          "supersededAt": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "supersededBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnalysisRunSupersededByDto"
+              }
+            ]
           },
           "teamId": {
             "format": "uuid",
@@ -1375,7 +1431,11 @@
           "terminatedAt",
           "version",
           "cancelledBy",
-          "cancellationReason"
+          "cancellationReason",
+          "cancellationCause",
+          "isCurrent",
+          "supersededBy",
+          "supersededAt"
         ],
         "type": "object"
       },
@@ -1397,6 +1457,28 @@
         "required": [
           "items",
           "continuationToken"
+        ],
+        "type": "object"
+      },
+      "AnalysisRunSupersededByDto": {
+        "properties": {
+          "recordingSetFinalizedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "recordingSetVersionId": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "runId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "runId",
+          "recordingSetVersionId",
+          "recordingSetFinalizedAt"
         ],
         "type": "object"
       },

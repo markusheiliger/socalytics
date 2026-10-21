@@ -78,9 +78,9 @@ The React Web UI supports connected platform and club workflows, including:
   Admins and Coaches of the owning team a confirmed cancel action with an
   optional reason for requested and running runs, and shows cancelled runs
   with who cancelled them, when, and why (implemented); the
-  run list will also mark the match's current run and each superseded run
-  with the run that superseded it, and shows a run cancelled because it was
-  superseded without a member (decided, not yet implemented)
+  run list also marks the match's current run and each superseded run with
+  the run that superseded it, and shows a run cancelled because it was
+  superseded without a member (implemented)
 - team and match review, analytics, and agent conversations for coaches (the
   connected analysis review and the match triage conversations with Specialist
   Agents are implemented, see below; analytics beyond the review, such as

@@ -10,16 +10,23 @@ namespace SocAlytics.Platform.Api.Analysis;
 
 internal sealed record AnalysisRunCancelledByDto(Guid MemberId, string AccountName);
 
+internal sealed record AnalysisRunSupersededByDto(Guid RunId, Guid RecordingSetVersionId, DateTimeOffset RecordingSetFinalizedAt);
+
 internal sealed record CancelAnalysisRunRequest(string? Reason);
 
 internal sealed record AnalysisRunSummaryDto(
 	Guid RunId, Guid TeamId, Guid MatchId, Guid RecordingSetVersionId, string WorkflowId, string WorkflowVersion, string State,
 	string? FailureReason, DateTimeOffset CreatedAt, DateTimeOffset? RunningAt, DateTimeOffset? TerminatedAt, long Version,
-	AnalysisRunCancelledByDto? CancelledBy, string? CancellationReason)
+	AnalysisRunCancelledByDto? CancelledBy, string? CancellationReason, string? CancellationCause, bool IsCurrent,
+	AnalysisRunSupersededByDto? SupersededBy, DateTimeOffset? SupersededAt)
 {
 	public static AnalysisRunSummaryDto From(AnalysisRunSummaryView v) => new(
 		v.RunId, v.TeamId, v.MatchId, v.RecordingSetVersionId, v.WorkflowId, v.WorkflowVersion, v.State, v.FailureReason,
-		v.CreatedAt, v.RunningAt, v.TerminatedAt, v.Version, MapCancelledBy(v.CancelledBy), v.CancellationReason);
+		v.CreatedAt, v.RunningAt, v.TerminatedAt, v.Version, MapCancelledBy(v.CancelledBy), v.CancellationReason,
+		v.CancellationCause, v.IsCurrent, MapSupersededBy(v.SupersededBy), v.SupersededAt);
+
+	internal static AnalysisRunSupersededByDto? MapSupersededBy(AnalysisRunSupersededByView? v) =>
+		v is null ? null : new(v.RunId, v.RecordingSetVersionId, v.RecordingSetFinalizedAt);
 
 	internal static AnalysisRunCancelledByDto? MapCancelledBy(AnalysisRunCancelledByView? v) =>
 		v is null ? null : new(v.MemberId, v.AccountName);
@@ -38,7 +45,8 @@ internal sealed record AnalysisNodeStatusDto(
 internal sealed record AnalysisRunStatusDto(
 	Guid RunId, Guid TeamId, Guid MatchId, Guid RecordingSetVersionId, string WorkflowId, string WorkflowVersion, string State,
 	string? FailureReason, DateTimeOffset CreatedAt, DateTimeOffset? RunningAt, DateTimeOffset? TerminatedAt, long Version,
-	AnalysisRunCancelledByDto? CancelledBy, string? CancellationReason,
+	AnalysisRunCancelledByDto? CancelledBy, string? CancellationReason, string? CancellationCause, bool IsCurrent,
+	AnalysisRunSupersededByDto? SupersededBy, DateTimeOffset? SupersededAt,
 	IReadOnlyList<string> RequestedCapabilities, IReadOnlyList<AnalysisNodeStatusDto> Nodes)
 {
 	public static AnalysisRunStatusDto From(AnalysisRunStatusView s)
@@ -47,7 +55,8 @@ internal sealed record AnalysisRunStatusDto(
 		return new(
 			r.RunId, r.TeamId, r.MatchId, r.RecordingSetVersionId, r.WorkflowId, r.WorkflowVersion, r.State, r.FailureReason,
 			r.CreatedAt, r.RunningAt, r.TerminatedAt, r.Version,
-			AnalysisRunSummaryDto.MapCancelledBy(r.CancelledBy), r.CancellationReason, s.RequestedCapabilities,
+			AnalysisRunSummaryDto.MapCancelledBy(r.CancelledBy), r.CancellationReason,
+			r.CancellationCause, r.IsCurrent, AnalysisRunSummaryDto.MapSupersededBy(r.SupersededBy), r.SupersededAt, s.RequestedCapabilities,
 			[.. s.Nodes.Select(n => new AnalysisNodeStatusDto(
 				n.NodeId, n.NodeKey, n.CapabilityId, n.CapabilityVersion, n.Tier, n.ExecutionScope, n.State, n.BlockedByNodeKey,
 				new AnalysisJobCountsDto(n.Jobs.Waiting, n.Jobs.Ready, n.Jobs.Claimed, n.Jobs.Completed, n.Jobs.Failed, n.Jobs.Blocked, n.Jobs.Cancelled),
