@@ -34,7 +34,7 @@ description: "Task list for Analysis Run Supersession"
 
 ### Domain tests
 
-- [ ] T003 Cover the version order (finalization time first, the version id as tie-break for equal times, equal versions never older), current-run selection (newest run of the latest version, newest created run within a version, none for no runs), and the cancellation cause names in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Domain/AnalysisValueObjectTests.cs` (FR-001, FR-004, FR-016)
+- [x] T003 Cover the version order (finalization time first, the version id as tie-break for equal times, equal versions never older), current-run selection (newest run of the latest version, newest created run within a version, none for no runs), and the cancellation cause names in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/Domain/AnalysisValueObjectTests.cs` (FR-001, FR-004, FR-016)
 
 ### Stores and read models
 
