@@ -85,7 +85,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
   `src/platform/SocAlytics.Platform.Infrastructure/Analysis/LineageAnalysisSegmentSource.cs` numbering, with tests in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/Domain/SegmentWindowCalculatorTests.cs` (boundary
   ownership at exactly `n·D`, clipping, multi-span coverage, empty intersection, nonpositive values) (FR-002, FR-007)
-- [ ] T006 [P] Add `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/NNNN_segments_materialized_segments.sql`
+- [x] T006 [P] Add `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Migrations/NNNN_segments_materialized_segments.sql`
   creating `socalytics.materialized_segments` exactly as in `data-model.md` (unique identity over
   `recording_version_id, timeline_mapping_digest, segmentation_policy_digest, segment_number`; check constraints:
   `segment_number > 0`, `duration_seconds > 0`, `state IN ('absent','materializing','available','failed')`,
