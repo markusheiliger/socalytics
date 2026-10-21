@@ -138,7 +138,7 @@ public sealed class ClaimAgentInvocationHandler(
         var reason = AgentPersistedNames.ToPersistedName(AgentFailureReason.AgentNotAvailable);
         await invocations.AppendLineageAsync(
             new NewAgentLineageEntry(
-                invocation.Id, reason, null, JsonSerializer.Serialize(new { attemptId = (Guid?)null, reason }), now),
+                invocation.Id, "failed", null, JsonSerializer.Serialize(new { attemptId = (Guid?)null, reason, retryable = false }), now),
             cancellationToken);
         await audit.RecordAsync(
             AgentOrchestrationAuditEvents.ClaimRefused(invocation.Id, invocation.TeamId, invocation.AgentId, clientId, reason),
