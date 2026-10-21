@@ -328,7 +328,7 @@ refused and in-use segments are kept.
 
 ### List and purge
 
-- [ ] T028 [US4] Implement `src/platform/SocAlytics.Platform.Application/Segments/ListMaterializedSegments.cs`,
+- [x] T028 [US4] Implement `src/platform/SocAlytics.Platform.Application/Segments/ListMaterializedSegments.cs`,
   `src/platform/SocAlytics.Platform.Application/Segments/PurgeMaterializedSegments.cs`, and
   `src/platform/SocAlytics.Platform.Application/Segments/SegmentAuditEvents.cs` per
   `specs/20261017-222433-materialized-segments/contracts/member-operations.md`: Club Admin authorization through
