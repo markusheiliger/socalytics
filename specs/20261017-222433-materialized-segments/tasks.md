@@ -309,7 +309,7 @@ observe recovery, contained failure, and refusal.
   `segmentMedia`, re-applied for every affected run in the failing unit of work; tests in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Analysis/SegmentFailureReadinessTests.cs` showing other
   segments' jobs reach their normal outcome (FR-013, FR-014, SC-005)
-- [ ] T027 [US3] Refuse invalid bytes: when an `available` association's attested checksum or size differs on a cache
+- [x] T027 [US3] Refuse invalid bytes: when an `available` association's attested checksum or size differs on a cache
   hit in `src/platform/SocAlytics.Platform.Application/Segments/MaterializeSegment.cs` or on a media read in
   `src/platform/SocAlytics.Platform.Application/Analysis/Results/GetSegmentMedia.cs`, refuse it
   (`segment-media-invalid`), delete its objects, and set the row `failed` so it is never handed to a new job; tests in
