@@ -239,10 +239,13 @@ src/clients/web/
     ├── unit/
     │   ├── platform/adapters/agentCatalogAdapter.test.ts
     │   ├── features/agent-catalog/fixtures.ts      # shared view-test fixtures and fake adapter
+    │   ├── i18n/keys.test.ts                       # shell.nav key list gains agentCatalog
     │   ├── features/agent-catalog/*.test.ts(x)
     │   └── serviceWorker/shellWorker.test.ts       # agent catalog paths stay unhandled
     └── e2e/
         ├── support/simulatedApi.ts                 # agent catalog routes and state
+        ├── simulated/navigation.spec.ts            # Club Admin list gains Agent catalog
+        ├── platform/navigation.spec.ts             # Club Admin list gains Agent catalog
         ├── simulated/agent-catalog.spec.ts
         ├── simulated/agent-catalog-coach.spec.ts
         ├── simulated/agent-catalog-access.spec.ts
