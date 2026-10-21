@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0.0",
+  "kind": "safety-policy",
+  "id": "specialist-tactics-safety",
+  "version": "0.1.0",
+  "group": "specialist",
+  "routes": ["user-to-specialist", "coach-to-specialist"],
+  "hardBoundaries": [
+    "Do not invent shape or role assignments where calibration, identity, or formation evidence is incomplete.",
+    "Answer only from evidence returned by permitted tools and never access raw detections.",
+    "Never reveal raw recordings or unauthorized team data."
+  ],
+  "escalationCategories": ["medical", "safeguarding", "welfare"],
+  "refusalCategories": ["privacy", "raw-data-access", "unauthorized-data"],
+  "rules": ["evidence-citation", "tool-allowlist-only", "no-raw-data-access"]
+}

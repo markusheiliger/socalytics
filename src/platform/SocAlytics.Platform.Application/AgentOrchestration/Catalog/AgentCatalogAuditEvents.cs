@@ -44,10 +44,11 @@ public static class AgentCatalogAuditEvents
     public static AuditEvent RecordRefused(string kind, string? id, string? version, IEnumerable<string> violationCodes, string reason) =>
         Registration(AuditOutcome.Refused, kind, id, version, null, violationCodes, reason, false);
 
-    public static AuditEvent VersionApproved(string agentId, string version, string digest, bool selfApproval, bool differentiationAcknowledged) =>
+    public static AuditEvent VersionApproved(string agentId, string version, string digest, bool selfApproval, bool differentiationAcknowledged, bool system = false) =>
         Build(VersionApprovedEvent, "approve-agent-version", AuditOutcome.Succeeded, AgentVersionResourceType, agentId, null,
             Pairs((AgentIdDetail, agentId), (ArtifactVersionDetail, version), (DigestDetail, digest),
-                (SelfApprovalDetail, Flag(selfApproval)), (DifferentiationAcknowledgedDetail, Flag(differentiationAcknowledged))));
+                (SelfApprovalDetail, Flag(selfApproval)), (DifferentiationAcknowledgedDetail, Flag(differentiationAcknowledged))),
+            system ? SystemActor : null);
 
     public static AuditEvent VersionRetired(string agentId, string version, string digest) =>
         Build(VersionRetiredEvent, "retire-agent-version", AuditOutcome.Succeeded, AgentVersionResourceType, agentId, null,
