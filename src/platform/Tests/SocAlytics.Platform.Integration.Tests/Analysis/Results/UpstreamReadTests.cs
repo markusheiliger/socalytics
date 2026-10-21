@@ -51,8 +51,8 @@ public sealed class UpstreamReadTests(PostgresContainerFixture postgres, NatsCon
         await c.OpenAsync(ct);
         await ExecAsync(c,
             """
-            INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
-            VALUES (@run, @g, @g, @g, 'wf', '1.0.0', ARRAY['cap-high'], 'all-requested-capabilities', 'Running', @at, @at, @at);
+            INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, updated_at)
+            VALUES (@run, @g, @g, @g, now(), 'wf', '1.0.0', ARRAY['cap-high'], 'all-requested-capabilities', 'Running', @at, @at, @at);
             INSERT INTO socalytics.analysis_workflow_nodes (id, run_id, node_key, capability_id, capability_version, tier, execution_scope, ordinal, state, updated_at)
             VALUES (@low, @run, 'low', 'cap-low', '1.0.0', 'low-level', 'segment', 0, 'Active', @at),
                    (@high, @run, 'high', 'cap-high', '1.0.0', 'high-level', 'match', 1, 'Active', @at);

@@ -218,6 +218,10 @@ export const analysisRun: AnalysisRunSummaryDto = {
   failureReason: null,
   cancelledBy: null,
   cancellationReason: null,
+  cancellationCause: null,
+  isCurrent: false,
+  supersededBy: null,
+  supersededAt: null,
   version: 1,
 };
 
@@ -1766,8 +1770,27 @@ export class SimulatedApi {
     run.terminatedAt = new Date();
     run.cancelledBy = { memberId: member.id, accountName: member.accountName };
     run.cancellationReason = body?.reason ?? null;
+    run.cancellationCause = 'member';
     run.version = (run.version ?? 0) + 1;
     return json(200, run);
+  }
+
+  /** Marks `runId` as superseded by `byRunId`, as the platform does when a run of a newer recording set starts; an unfinished run is cancelled without a member. */
+  supersedeAnalysisRun(runId: string, byRunId: string, at = new Date()): void {
+    const run = this.analysisRuns.find((r) => r.runId === runId);
+    const by = this.analysisRuns.find((r) => r.runId === byRunId);
+    const set = this.recordingSetVersions.find((s) => s.id === by?.recordingSetVersionId);
+    if (!run || !by || !set) throw new Error('Unknown run or recording set for supersession');
+    run.isCurrent = false;
+    by.isCurrent = true;
+    run.supersededBy = { runId: by.runId, recordingSetVersionId: set.id, recordingSetFinalizedAt: set.finalizedAt };
+    run.supersededAt = at;
+    if (run.state === 'Requested' || run.state === 'Running') {
+      run.state = 'Cancelled';
+      run.terminatedAt = at;
+      run.cancellationCause = 'superseded';
+    }
+    run.version = (run.version ?? 0) + 1;
   }
 
   private handleMatchReads(path: string, json: (status: number, body: unknown) => Promise<void>) {

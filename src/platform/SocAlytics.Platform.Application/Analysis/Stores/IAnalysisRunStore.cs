@@ -7,6 +7,7 @@ public sealed record AnalysisRunRecord(
     Guid TeamId,
     Guid MatchId,
     Guid RecordingSetVersionId,
+    DateTimeOffset RecordingSetFinalizedAt,
     string WorkflowId,
     string WorkflowVersion,
     IReadOnlyList<string> RequestedCapabilities,
@@ -43,6 +44,7 @@ public sealed record NewAnalysisRun(
     Guid TeamId,
     Guid MatchId,
     Guid RecordingSetVersionId,
+    DateTimeOffset RecordingSetFinalizedAt,
     string WorkflowId,
     string WorkflowVersion,
     IReadOnlyList<string> RequestedCapabilities,
@@ -83,13 +85,18 @@ public interface IAnalysisRunStore
         Guid? blockedByNodeId,
         CancellationToken cancellationToken);
 
-    // Moves a locked Requested or Running run to Cancelled and records who cancelled it and why; false when the run is no longer in expectedState.
+    // Moves a locked Requested or Running run to Cancelled and records the cause; the member and reason are written only for cause Member.
+    // False when the run is no longer in expectedState.
     Task<bool> TryCancelAsync(
         Guid runId,
         AnalysisRunState expectedState,
-        Guid cancelledByAccountId,
+        CancellationCause cause,
+        Guid? cancelledByAccountId,
         string? cancellationReason,
         CancellationToken cancellationToken);
+
+    // Serializes run creation and supersession of one match for the rest of the transaction.
+    Task LockMatchRunsAsync(Guid matchId, CancellationToken cancellationToken);
 
     // Moves the run's Waiting and Active nodes to Cancelled in id order and returns how many changed.
     Task<int> CancelUnfinishedNodesAsync(Guid runId, CancellationToken cancellationToken);

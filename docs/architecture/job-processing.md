@@ -291,8 +291,9 @@ accepted before the cancellation remain immutable, readable history. A
 cancelled run never transitions again, cancelling another terminal run is
 refused, and repeating a cancellation is idempotent.
 
-Automatic supersession of older runs is decided as follows and not yet
-implemented. When the run of a newer finalized recording-set version of a
+Automatic supersession of older runs is implemented as follows (migration
+`0027_analysis_run_supersession.sql`). When the run of a newer finalized
+recording-set version of a
 match is created, every older run of that match that has not been superseded
 is superseded by the match's current run in the same transaction. Recording-set
 versions are ordered by finalization time with the version identity as

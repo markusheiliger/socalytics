@@ -2,7 +2,7 @@
 
 **Branch**: `20261017-183953-analysis-run-supersession` | **Date**: 2026-10-17 | **Spec**: [spec.md](spec.md)
 
-**Input**: Feature specification from `specs/20261017-183953-analysis-run-supersession/spec.md`
+**Input**: Feature specification from `specs/archive/20261017-183953-analysis-run-supersession/spec.md`
 
 ## Summary
 
@@ -120,7 +120,7 @@ tests across three platform test projects (Integration, Host, EndToEnd) and the 
 
 | Principle | Status | Evidence |
 | --- | --- | --- |
-| I. Architecture is the design authority | Pass | Implements the "new run for changed source input" rule of [Run State And Recovery](../../docs/architecture/job-processing.md#run-state-and-recovery) and the recording-set revision of [Upload](../../docs/architecture/match-data-pipeline.md#upload), keeps [Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access) run-scoped, and extends [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui); the undecided supersession behavior is decided now in those narratives (see Architecture Updates). |
+| I. Architecture is the design authority | Pass | Implements the "new run for changed source input" rule of [Run State And Recovery](../../../docs/architecture/job-processing.md#run-state-and-recovery) and the recording-set revision of [Upload](../../../docs/architecture/match-data-pipeline.md#upload), keeps [Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access) run-scoped, and extends [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui); the undecided supersession behavior is decided now in those narratives (see Architecture Updates). |
 | II. Source-area ownership | Pass | Changes under `src/platform/` and `src/clients/web/`; no Manager production change; no new `src/` child. |
 | III. API-first control plane | Pass | Supersession is exposed through additive fields of the existing `/api/v1` reads in the OpenAPI document; the Web UI only reads them through its adapter; no media passes the control plane. |
 | IV. Evidence over claims | Pass | Integration, host, end-to-end, unit, and browser tests (FR-022); nothing claims production readiness. |
@@ -134,7 +134,7 @@ Post-design re-check: Pass (no violations; Complexity Tracking is empty).
 ### Documentation (this feature)
 
 ```text
-specs/20261017-183953-analysis-run-supersession/
+specs/archive/20261017-183953-analysis-run-supersession/
 ├── plan.md              # This file
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output
@@ -203,12 +203,12 @@ folder.
 
 ### Narratives
 
-- [Job Processing → Run State And Recovery](../../docs/architecture/job-processing.md#run-state-and-recovery): implements automatic supersession of older runs by the run of a newer recording-set version; decides what happens to active and ended older runs and how reads identify the current run.
-- [Match Data Pipeline → Upload](../../docs/architecture/match-data-pipeline.md#upload) and [Recording-Lineage Foundation](../../docs/architecture/match-data-pipeline.md#recording-lineage-foundation): the recording-set revision now supersedes the match's older runs; the version order is finalization time with the version identity as tie-break.
-- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access): "supersession applies only across runs" is made concrete; superseded runs' accepted results stay readable through their own run-scoped reads.
-- [Client Applications → Web UI](../../docs/architecture/client-applications.md#web-ui): current and superseded markers in the match page's run list.
-- [Contracts and Compatibility](../../docs/architecture/contracts-and-compatibility.md): unchanged; no contract changes (the `run-state-changed` contract is reused as is).
-- [Security and Data Governance](../../docs/architecture/security-and-data-governance.md) (`POL-005`, "Active, superseded, and source-deletion dependency periods"): unchanged; this feature defines when a run's results become superseded but sets no retention value, which stays `Open / Blocking`.
+- [Job Processing → Run State And Recovery](../../../docs/architecture/job-processing.md#run-state-and-recovery): implements automatic supersession of older runs by the run of a newer recording-set version; decides what happens to active and ended older runs and how reads identify the current run.
+- [Match Data Pipeline → Upload](../../../docs/architecture/match-data-pipeline.md#upload) and [Recording-Lineage Foundation](../../../docs/architecture/match-data-pipeline.md#recording-lineage-foundation): the recording-set revision now supersedes the match's older runs; the version order is finalization time with the version identity as tie-break.
+- [Analysts, Models, and Hardware → Capability-Scoped Result Access](../../../docs/architecture/analysts-models-and-hardware.md#capability-scoped-result-access): "supersession applies only across runs" is made concrete; superseded runs' accepted results stay readable through their own run-scoped reads.
+- [Client Applications → Web UI](../../../docs/architecture/client-applications.md#web-ui): current and superseded markers in the match page's run list.
+- [Contracts and Compatibility](../../../docs/architecture/contracts-and-compatibility.md): unchanged; no contract changes (the `run-state-changed` contract is reused as is).
+- [Security and Data Governance](../../../docs/architecture/security-and-data-governance.md) (`POL-005`, "Active, superseded, and source-deletion dependency periods"): unchanged; this feature defines when a run's results become superseded but sets no retention value, which stays `Open / Blocking`.
 
 ### Design updates (applied now, worded as decided but not implemented)
 

@@ -123,8 +123,9 @@ internal sealed class AgentOrchestrationFixture : IAsyncDisposable
 		await connection.OpenAsync(ct);
 		await using var command = new NpgsqlCommand(
 			"""
-			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, terminated_at, updated_at, cancelled_by_account_id)
-			VALUES (@run, @team, @match, @set, 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', @state, @at, @at, @terminated, @at,
+			INSERT INTO socalytics.analysis_runs (id, team_id, match_id, recording_set_version_id, recording_set_finalized_at, workflow_id, workflow_version, requested_capabilities, completion_policy, state, created_at, running_at, terminated_at, updated_at, cancellation_cause, cancelled_by_account_id)
+			VALUES (@run, @team, @match, @set, now(), 'wf', '1.0.0', ARRAY['cap-a'], 'all-requested-capabilities', @state, @at, @at, @terminated, @at,
+			        CASE WHEN @state = 'Cancelled' THEN 'member' END,
 			        CASE WHEN @state = 'Cancelled' THEN (SELECT id FROM socalytics.member_account ORDER BY created_at LIMIT 1) END);
 			INSERT INTO socalytics.analysis_run_snapshots (run_id, snapshot, snapshot_digest) VALUES (@run, '{}'::jsonb, 'sha-256:a');
 			""",
