@@ -125,7 +125,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 ### Segment composition
 
-- [ ] T011 Register the Segments options (bound and validated at start), `ISegmentStore`, and the time and storage
+- [x] T011 Register the Segments options (bound and validated at start), `ISegmentStore`, and the time and storage
   dependencies in `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs` and
   `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs`; add development
   values to `src/platform/SocAlytics.Platform.Api/appsettings.Development.json` (`MaxConcurrentPerInstance` 2,
