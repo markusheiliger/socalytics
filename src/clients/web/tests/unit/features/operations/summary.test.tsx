@@ -6,7 +6,7 @@ import { vi, type Mock } from 'vitest';
 import '../../../../src/i18n';
 import { OperationsSummaryPage } from '../../../../src/features/operations/OperationsSummaryPage';
 import { PlatformFailure } from '../../../../src/platform/failure';
-import type { OperationalSummary } from '../../../../src/platform/models/operations';
+import type { OperationalSummary, ReconciliationOutcome } from '../../../../src/platform/models/operations';
 
 const summary = (over: Partial<OperationalSummary> = {}): OperationalSummary => ({
   workflowDefinition: { state: 'resolvable' },
@@ -26,10 +26,11 @@ const summary = (over: Partial<OperationalSummary> = {}): OperationalSummary => 
 });
 
 let summaryFn: Mock<() => Promise<OperationalSummary>>;
+let reconcileFn: Mock<() => Promise<ReconciliationOutcome>>;
 
 vi.mock('../../../../src/session/sessionContext', () => ({ useSession: () => ({ platform: {} }) }));
 vi.mock('../../../../src/platform/adapters/operationsAdapter', () => ({
-  createOperationsAdapter: () => ({ summary: () => summaryFn() }),
+  createOperationsAdapter: () => ({ summary: () => summaryFn(), reconcile: () => reconcileFn() }),
 }));
 
 function renderPage() {
@@ -122,5 +123,51 @@ describe('OperationsSummaryPage', () => {
     renderPage();
     expect(await screen.findByRole('alert')).toHaveTextContent(/permission|not permitted|not allowed/i);
     expect(screen.queryByRole('button', { name: 'Refresh' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['zero', summary({ staleAttempts: 0, runsWithBlockedNodes: 0, rejectedNotifications: 0, outboxPending: 0, outboxFailed: 0, runsByState: [] })],
+    ['non-zero', summary()],
+  ])('always offers Run reconciliation with %s counts', async (_name, value) => {
+    summaryFn = vi.fn<() => Promise<OperationalSummary>>(async () => value);
+    renderPage();
+    await screen.findByText('Stale attempts');
+    expect(screen.getByRole('button', { name: 'Run reconciliation' })).toBeEnabled();
+  });
+
+  it('offers Run reconciliation when the summary cannot be read', async () => {
+    summaryFn = vi.fn<() => Promise<OperationalSummary>>().mockRejectedValue(new PlatformFailure('unexpected', { status: 500 }));
+    renderPage();
+    await screen.findByRole('alert');
+    expect(screen.getByRole('button', { name: 'Run reconciliation' })).toBeInTheDocument();
+  });
+
+  it('reads the summary again after a successful reconciliation', async () => {
+    summaryFn = vi.fn<() => Promise<OperationalSummary>>().mockResolvedValueOnce(summary()).mockResolvedValueOnce(summary({ staleAttempts: 9 }));
+    reconcileFn = vi.fn(async () => ({
+      readyJobsRepublished: 1,
+      notificationsRepublished: 0,
+      startedAt: new Date('2030-01-01T10:00:00Z'),
+      completedAt: new Date('2030-01-01T10:00:05Z'),
+    }));
+    renderPage();
+    await screen.findByText('Stale attempts');
+    await userEvent.click(screen.getByRole('button', { name: 'Run reconciliation' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Run reconciliation' }));
+    expect(await screen.findByText('1 ready jobs and 0 notifications were queued again')).toBeInTheDocument();
+    expect(await screen.findByText('9')).toBeInTheDocument();
+    expect(reconcileFn).toHaveBeenCalledTimes(1);
+    expect(summaryFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not read the summary again when the reconciliation is cancelled or refused', async () => {
+    summaryFn = vi.fn<() => Promise<OperationalSummary>>(async () => summary());
+    reconcileFn = vi.fn<() => Promise<ReconciliationOutcome>>().mockRejectedValue(new PlatformFailure('unexpected', { status: 500 }));
+    renderPage();
+    await screen.findByText('Stale attempts');
+    await userEvent.click(screen.getByRole('button', { name: 'Run reconciliation' }));
+    await userEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Run reconciliation' }));
+    expect(await screen.findByText(/The reconciliation did not complete/)).toBeInTheDocument();
+    expect(summaryFn).toHaveBeenCalledTimes(1);
   });
 });

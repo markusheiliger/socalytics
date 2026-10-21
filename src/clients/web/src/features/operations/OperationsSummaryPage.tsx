@@ -3,8 +3,8 @@ import Button from '@mui/material/Button';
 import Container from '@mui/material/Container';
 import Stack from '@mui/material/Stack';
 import Typography from '@mui/material/Typography';
-import { useQuery } from '@tanstack/react-query';
-import { useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { useConnectivity } from '../../connectivity/useConnectivity';
@@ -15,6 +15,7 @@ import { useSession } from '../../session/sessionContext';
 import { NotPermittedPage } from '../../shell/NotPermittedPage';
 import { FailureAlert } from '../shared/FailureAlert';
 import { enumerationText, formatDuration, formatTimestamp } from './formatOperations';
+import { ReconcileDialog } from './ReconcileDialog';
 
 export const OPERATIONS_SUMMARY_KEY = ['operations', 'summary'] as const;
 
@@ -27,6 +28,8 @@ export function OperationsSummaryPage() {
   const { platform } = useSession();
   const { isUnreachable } = useConnectivity();
   const adapter = useMemo(() => createOperationsAdapter(platform), [platform]);
+  const queryClient = useQueryClient();
+  const [reconcileOpen, setReconcileOpen] = useState(false);
   const query = useQuery({
     queryKey: OPERATIONS_SUMMARY_KEY,
     queryFn: () => adapter.summary(),
@@ -55,6 +58,14 @@ export function OperationsSummaryPage() {
         </Alert>
       ) : (
         <>
+          <Button variant="contained" sx={{ mt: 2 }} onClick={() => setReconcileOpen(true)}>
+            {t('summary.reconcile')}
+          </Button>
+          <ReconcileDialog
+            open={reconcileOpen}
+            onClose={() => setReconcileOpen(false)}
+            onCompleted={() => void queryClient.invalidateQueries({ queryKey: OPERATIONS_SUMMARY_KEY })}
+          />
           {query.isPending && <Typography sx={{ mt: 2 }}>{t('common.loading')}</Typography>}
           {failure && (
             <Stack spacing={1} alignItems="flex-start" sx={{ mt: 2 }}>
