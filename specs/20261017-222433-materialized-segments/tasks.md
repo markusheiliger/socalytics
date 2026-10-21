@@ -341,7 +341,7 @@ refused and in-use segments are kept.
   repeat, rematerialization of a purged segment for a later run with the same validation (SC-007)) and
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentAccessTests.cs` (Coach, Viewer, and other
   club's Club Admin refused without disclosure) (FR-011, FR-024 to FR-027)
-- [ ] T029 [US4] Map `listMaterializedSegments` and `purgeMaterializedSegments` with `MapMemberApi()` and
+- [x] T029 [US4] Map `listMaterializedSegments` and `purgeMaterializedSegments` with `MapMemberApi()` and
   `ProblemResults` in `src/platform/SocAlytics.Platform.Api/Segments/MaterializedSegmentEndpoints.cs`, call the new
   mapping method from `src/platform/SocAlytics.Platform.Api/Program.cs`, refresh
   `src/platform/SocAlytics.Platform.Api/openapi/v1.json` with
