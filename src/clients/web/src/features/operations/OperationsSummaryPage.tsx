@@ -61,11 +61,6 @@ export function OperationsSummaryPage() {
           <Button variant="contained" sx={{ mt: 2 }} onClick={() => setReconcileOpen(true)}>
             {t('summary.reconcile')}
           </Button>
-          <ReconcileDialog
-            open={reconcileOpen}
-            onClose={() => setReconcileOpen(false)}
-            onCompleted={() => void queryClient.invalidateQueries({ queryKey: OPERATIONS_SUMMARY_KEY })}
-          />
           {query.isPending && <Typography sx={{ mt: 2 }}>{t('common.loading')}</Typography>}
           {failure && (
             <Stack spacing={1} alignItems="flex-start" sx={{ mt: 2 }}>
@@ -78,6 +73,11 @@ export function OperationsSummaryPage() {
           {summary && <SummaryValues summary={summary} fetching={fetching} onRefresh={() => void query.refetch()} />}
         </>
       )}
+      <ReconcileDialog
+        open={reconcileOpen}
+        onClose={() => setReconcileOpen(false)}
+        onCompleted={() => void queryClient.invalidateQueries({ queryKey: OPERATIONS_SUMMARY_KEY })}
+      />
     </Container>
   );
 }

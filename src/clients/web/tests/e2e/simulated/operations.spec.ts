@@ -328,3 +328,82 @@ test.describe('Notification receipts', () => {
     await expect(receiptRows(page)).toHaveCount(5);
   });
 });
+
+test.describe('Reconciliation', () => {
+  const openDialog = async (page: Page) => {
+    await page.goto('/operations');
+    await page.getByRole('button', { name: 'Run reconciliation' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Run reconciliation' });
+    await expect(dialog).toBeVisible();
+    return dialog;
+  };
+
+  test('cancelling sends nothing (US4, FR-014, FR-015)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    const dialog = await openDialog(page);
+    await expect(dialog).toContainText('never authorizes work');
+    await expect(dialog).toContainText('recorded in the audit trail');
+    await expectNoAxeViolations(page);
+
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(dialog).toHaveCount(0);
+    expect(api.reconciliationRequests).toBe(0);
+  });
+
+  test('confirming with a double click sends one request, shows the outcome, and reads the summary again (FR-015, FR-016, SC-004)', async ({
+    page,
+    api,
+  }) => {
+    api.signInAs('ClubAdmin');
+    const observed = page.getByRole('status').filter({ hasText: 'Observed at' });
+    await page.goto('/operations');
+    await expect(observed).toBeVisible();
+    const first = await observed.innerText();
+
+    api.operationalSummary.observedAt = new Date(api.operationalSummary.observedAt.getTime() + 300_000);
+    await page.getByRole('button', { name: 'Run reconciliation' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Run reconciliation' });
+    await dialog.getByRole('button', { name: 'Run reconciliation' }).dblclick();
+
+    await expect(dialog).toContainText('2 ready jobs and 1 notifications were queued again');
+    await expect(dialog).toContainText('Started');
+    await expect(dialog).toContainText('Completed');
+    expect(api.reconciliationRequests).toBe(1);
+
+    await dialog.getByRole('button', { name: 'Close' }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(observed).not.toHaveText(first);
+    expect(api.reconciliationRequests).toBe(1);
+  });
+
+  test('an outcome without queued work says nothing needed to be queued again (FR-016)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    api.reconciliationResult = { ...api.reconciliationResult, readyJobsRepublished: 0, notificationsRepublished: 0 };
+    const dialog = await openDialog(page);
+    await dialog.getByRole('button', { name: 'Run reconciliation' }).click();
+    await expect(dialog).toContainText('Nothing needed to be queued again');
+    expect(api.reconciliationRequests).toBe(1);
+  });
+
+  test('a 503 shows the refusal explanation without a second request (FR-017)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    api.operationsSwitches.set('reconcileAnalysisPublication', 'unavailable');
+    const dialog = await openDialog(page);
+        await dialog.getByRole('button', { name: 'Run reconciliation' }).click();
+
+    await expect(dialog.getByRole('alert')).toContainText('The reconciliation did not complete; nothing was changed by the Web UI');
+    await expect(dialog.getByRole('button', { name: 'Run reconciliation' })).toHaveCount(0);
+    await page.waitForTimeout(500);
+    expect(api.reconciliationRequests).toBe(1);
+  });
+
+  test('a 403 shows the not-permitted view (FR-017)', async ({ page, api }) => {
+    api.signInAs('ClubAdmin');
+    api.operationsSwitches.set('reconcileAnalysisPublication', 'forbidden');
+    const dialog = await openDialog(page);
+    await dialog.getByRole('button', { name: 'Run reconciliation' }).click();
+
+    await expect(page.getByText(NOT_PERMITTED)).toBeVisible();
+    expect(api.reconciliationRequests).toBe(1);
+  });
+});
