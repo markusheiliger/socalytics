@@ -109,7 +109,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 ### Segment store and synthetic test media
 
-- [ ] T009 [P] Define `ISegmentStore` in `src/platform/SocAlytics.Platform.Application/Segments/ISegmentStore.cs` and implement
+- [x] T009 [P] Define `ISegmentStore` in `src/platform/SocAlytics.Platform.Application/Segments/ISegmentStore.cs` and implement
   `src/platform/SocAlytics.Platform.Infrastructure/Persistence/Segments/SegmentStore.cs` with Dapper: demand upsert
   (`INSERT … ON CONFLICT DO NOTHING`, re-demand of `failed` resets `attempts_used`), claim with
   `FOR UPDATE SKIP LOCKED` of demanded `absent` rows due for an attempt and of `materializing` rows with expired
