@@ -465,8 +465,8 @@ and context, consulted agents, MCP calls, evidence references, and any applied
 philosophy modifiers. The catalog defines the required lineage fields; the
 Agent Orchestration functional area owns their durable representation.
 
-Decided and not yet implemented: Hermes does not choose agent or artifact
-versions. Agent Orchestration pins the enabled agent version and every artifact
+Implemented as development evidence on the platform side (Hermes itself stays
+planned): Hermes does not choose agent or artifact versions. Agent Orchestration pins the enabled agent version and every artifact
 digest from the platform's agent catalog into the invocation at submission
 ([Intelligence Agent Catalog → Prompt And Advice Governance](intelligence-agent-catalog.md#prompt-and-advice-governance)),
 the claim's execution envelope carries those references, and the workload reads

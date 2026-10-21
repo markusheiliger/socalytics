@@ -9,16 +9,23 @@ access remain owned by [Intelligence and Agents](intelligence-and-agents.md).
 All agent identities, prompt drafts, model selections, and rollout thresholds
 are **Provisional** until the governance, grounding, safety, quality, and cost
 gates below pass. This is an architecture catalog. The prompts in this document
-are design inputs, not executable agent definitions.
+are design inputs, not executable agent definitions; executable agent
+definitions are the versions registered in the platform's agent catalog
+registry (see [Prompt And Advice Governance](#prompt-and-advice-governance)).
 
 The durable Agent Orchestration authority and canonical control-plane API exist
 for direct specialist invocations as development evidence, executed in
 Development and Test by a simulated agent workload; consultation and lifecycle
 operations remain planned. The Web UI's direct Specialist Agent triage
-conversation is implemented as development evidence. The catalog entries,
-prompt text, philosophy artifacts, model execution, MCP evidence tools, Hermes
-orchestration runtime, and the remaining user experiences are design inputs
-rather than deployed behavior.
+conversation is implemented as development evidence. The agent catalog
+registry (catalog records, artifact formats and their validation, philosophy
+artifact validation, approval, enablement, and pinning into invocations) is
+implemented as development evidence, with a Development and Test seed of the
+two direct Specialist Agents. The catalog entries, prompt drafts, profile
+values, and model choices in this document remain Provisional design inputs;
+model execution, MCP evidence tools, the Hermes orchestration runtime, and the
+remaining user experiences (including the Web UI's catalog administration) are
+design inputs rather than deployed behavior.
 
 ## Catalog Rules
 
@@ -32,11 +39,11 @@ All nine agents are part of the initial post-analysis triage catalog. Each
 requires versioned prompt, tool-policy, safety-policy, model/deployment, and
 evaluation artifacts before implementation can make it selectable.
 
-The platform's agent catalog registry is decided as follows and not yet
-implemented. Approving an agent version in the registry records an accountable
-decision only. The evaluation artifacts and promotion gates below remain
-required before an agent version is selectable in production and are not yet
-enforced; Development and Test may enable approved versions without them.
+The platform's agent catalog registry is implemented as development evidence.
+Approving an agent version in the registry records an accountable decision only.
+The evaluation artifacts and promotion gates below remain required before an
+agent version is selectable in production and are not enforced by the registry;
+Development and Test may enable approved versions without them.
 
 Supported interaction paths are:
 
@@ -70,8 +77,8 @@ authorization, recovery, and replay contract are owned by
 Historical lineage retains the exact rendered profile and modifier snapshot for
 every successful or failed attempt.
 
-The agent catalog registry is decided and not yet implemented: the platform's
-Agent Orchestration functional area becomes the authority for immutable,
+The agent catalog registry is implemented as development evidence: the
+platform's Agent Orchestration functional area is the authority for immutable,
 content-addressed agent versions and their prompt-template, model-selection,
 tool-policy, safety-policy, dimension-set, philosophy-profile, and
 modifier-policy artifacts. Their formats are JSON Schema contracts in
@@ -91,7 +98,8 @@ consultations (decided, not yet implemented; see
 `specs/20261018-121958-agent-consultations`). A submission pins the
 enabled agent version and every artifact
 digest into its invocation, so later catalog changes never alter running or
-historical invocations. Club Admins will operate the catalog from the Web UI's
+historical invocations. Club Admins operate the catalog through the `/api/v1`
+agent catalog operations; they will operate it from the Web UI's
 Agent Catalog area (decided, not yet implemented; see
 [Client Applications → Web UI](client-applications.md#web-ui)). See
 `specs/20261018-101517-agent-catalog-registry`.
@@ -189,8 +197,10 @@ expert review and behavioral evaluation and are not biographical facts.
 
 The initial immutable profile IDs are
 `coach-jurgen-klopp/1.0.0`, `coach-pep-guardiola/1.0.0`, and
-`coach-jose-mourinho/1.0.0`. Their eventual artifact digests are assigned at
-promotion rather than invented in this architecture document.
+`coach-jose-mourinho/1.0.0`. Their artifact digests are computed by the agent
+catalog registry at registration rather than invented in this architecture
+document; no seed registers the three profiles, and the weights stay
+Provisional.
 
 Normalized Manhattan distance makes profiles comparable:
 
@@ -257,8 +267,8 @@ Every new CA architecture record contains:
 - optional superseded-profile reference
 
 Source records summarize public ideas without quotations or protected-text
-reproduction. A future machine-oriented profile uses dimension IDs as keys, not
-a positional array, so reordering cannot change meaning.
+reproduction. The machine-oriented `philosophy-profile` contract uses dimension
+IDs as keys, not a positional array, so reordering cannot change meaning.
 
 To add another CA:
 
@@ -789,8 +799,8 @@ recommendation specific enough for staff to review and adapt with the player.
 1. **Wave 0 - governance and evaluation:** define prompt, model, tool-policy,
    and safety-policy artifact formats; establish disclosure, grounding, safety,
    privacy, consultation, latency, and cost test suites. The artifact formats
-   are decided as the `contracts/agent-catalog/` contracts of the agent
-   catalog registry and not yet implemented; the test suites remain open.
+   are defined as the `contracts/agent-catalog/` contracts of the agent
+   catalog registry; the test suites remain open.
 2. **Wave 1 - direct specialists:** evaluate direct user conversations with the
    tactics and video-analysis SAs against accepted evidence and unavailable-data
    scenarios. The platform side of these direct conversations (conversations,
