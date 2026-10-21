@@ -61,7 +61,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 ### Functional Requirements
 
-- **FR-001**: The implementation MUST first establish the cause of the intermittent failure with evidence (repeated runs with and without CPU load, and the logs of the failing runs) and record it in the pull request.
+- **FR-001**: The implementation MUST first establish the cause of the intermittent failure with evidence (repeated runs with and without CPU load, and the logs of the failing runs) and record it in a code comment next to the fix and in the commit message.
 - **FR-002**: The cause MUST be removed where it lives (the test, its shared support, the NATS test fixture, or platform code) by controlling the racing input, isolating shared state, or waiting on the awaited condition, not by retrying the test, skipping, or lengthening a fixed limit.
 - **FR-003**: Every assertion of the test (no receipt, no run, unhealthy check while unresolvable; exactly one run, healthy check, exactly one receipt after recovery) MUST remain, and no assertion, expected value, or test of the class MAY be removed, loosened, or skipped.
 - **FR-004**: Production behavior MUST NOT be weakened: any platform change MUST keep the postponement, redelivery, idempotency, and single-run semantics of the analysis notification workflow documented in `docs/architecture/`.
@@ -74,7 +74,7 @@ A maintainer running the Integration suite, or the verification of any implement
 
 - **SC-001**: The test passes in 100% of at least 20 consecutive runs alone and in at least 5 consecutive runs of its class under CPU load.
 - **SC-002**: A probe that creates a run while the workflow is unresolvable, and a probe that creates two runs after recovery, each make the test fail on its assertions; the probes are removed afterward.
-- **SC-003**: The pull request names the evidenced cause and changes only the files that cause lives in plus this spec folder; no assertion is textually removed.
+- **SC-003**: The code comment and commit message name the evidenced cause and changes only the files that cause lives in plus this spec folder; no assertion is textually removed.
 - **SC-004** (post-merge evidence, observed when #184 retries and not verified by a task of this spec): the verification of #184 reports no flaky `WorkflowAvailabilityTests` test.
 
 ## Assumptions
