@@ -5,7 +5,7 @@ description: "Task list for Analysis Run Supersession"
 
 # Tasks: Analysis Run Supersession
 
-**Input**: Design documents from `specs/20261017-183953-analysis-run-supersession/`
+**Input**: Design documents from `specs/archive/20261017-183953-analysis-run-supersession/`
 
 **Prerequisites**: [plan.md](plan.md), [spec.md](spec.md), [research.md](research.md), [data-model.md](data-model.md), [contracts/](contracts/), [quickstart.md](quickstart.md)
 
