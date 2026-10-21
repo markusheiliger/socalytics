@@ -5,7 +5,7 @@ name: Spec Kit commands
 #   and on spec twin issues (label speckit:spec): implement (the only way to request an implementation), help.
 #   - Feedback on amendment pull requests (speckit-amend/<folder>) and authored spec pull requests
 #     (speckit-spec/<folder>, earlier speckit-fix/<folder>): a comment, or a review with Comment or Request changes,
-#     has it reworked (Spec Kit diagnose or Spec Kit specify, mode revise) and checked again (Spec Kit analyze).
+#     has it reworked (Spec Kit diagnose or Spec Kit author, mode revise) and checked again (Spec Kit analyze).
 #   - Closing an amendment pull request: merged (the implementation continues) or discarded; closing an authored spec
 #     pull request: merged (its twin is implemented next, and the stopped implementation, which depends on it, retries
 #     once it is implemented) or discarded. A person's push to such a branch is checked again.

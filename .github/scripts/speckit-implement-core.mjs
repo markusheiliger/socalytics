@@ -93,15 +93,15 @@ export const CHECK_DIAGNOSED = 'speckit:diagnosed';
 export const DIAGNOSIS_STALE_MS = 60 * 60 * 1000;
 export const DIAGNOSE_WORKFLOW_FILE = 'speckit-diagnose.lock.yml';
 export const AMEND_BRANCH_PREFIX = 'speckit-amend/';
-// Specs authored by `/speckit specify`: an ordinary spec, authored by an agent for a cause outside the stopped spec,
-// proposed as a pull request from speckit-spec/<folder> against the default branch. Pull requests opened earlier use
-// speckit-fix/<folder> and are still recognized until they are settled. Its own check run tracks the authoring on the
-// implementation pull request's head, apart from the implementation's check runs.
+// Specs authored by `/speckit author`: an ordinary spec, authored by the Spec Kit workflow `author` for a cause outside
+// the stopped spec, proposed as a pull request from speckit-spec/<folder> against the default branch. Pull requests
+// opened earlier use speckit-fix/<folder> and are still recognized until they are settled. Its own check run tracks the
+// authoring on the implementation pull request's head, apart from the implementation's check runs.
 export const SPEC_BRANCH_PREFIX = 'speckit-spec/';
 export const FIX_BRANCH_PREFIX = 'speckit-fix/';
 export const PREREQUISITE_BRANCH_PREFIXES = Object.freeze([SPEC_BRANCH_PREFIX, FIX_BRANCH_PREFIX]);
-export const FIX_WORKFLOW_FILE = 'speckit-specify.lock.yml';
-export const FIX_CHECK_NAME = 'Spec Kit specify';
+export const FIX_WORKFLOW_FILE = 'speckit-author.yml';
+export const FIX_CHECK_NAME = 'Spec Kit author';
 export const CHECK_FIX_AUTHORING = 'speckit:fix-authoring';
 export const CHECK_FIX_AUTHORED = 'speckit:fix-authored';
 export const FIX_TITLE_PREFIX = 'Spec: ';
@@ -352,7 +352,7 @@ export function fixBranch(folder, prefix = SPEC_BRANCH_PREFIX) {
   return `${prefix}${folder}`;
 }
 
-// Whether a branch carries a prerequisite spec pull request authored by `/speckit specify` (earlier `/speckit fix`), new or legacy.
+// Whether a branch carries a prerequisite spec pull request authored by `/speckit author` (earlier `/speckit fix`), new or legacy.
 export function isPrerequisiteBranch(branch) {
   const value = String(branch ?? '');
   return PREREQUISITE_BRANCH_PREFIXES.some((prefix) => value.startsWith(prefix) && value.length > prefix.length);
@@ -739,7 +739,7 @@ export function isImplementRunOf(title, twin) {
 // Diagnose, analyze, and fix runs are named "<workflow> spec #<twin> · <why the run started>" like the implementation
 // chain (run-name in their workflow sources). Runs started earlier are named "<workflow> · spec #<twin> · …",
 // "[<workflow>] spec #<twin> · …", or "<workflow> #<twin> · …".
-const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze'], [FIX_WORKFLOW_FILE, 'Spec Kit specify']]);
+const TWIN_RUN_NAMES = new Map([[DIAGNOSE_WORKFLOW_FILE, 'Spec Kit diagnose'], [ANALYZE_WORKFLOW_FILE, 'Spec Kit analyze'], [FIX_WORKFLOW_FILE, 'Spec Kit author']]);
 
 export function isTwinRunOf(workflowFile, title, twin) {
   const workflow = TWIN_RUN_NAMES.get(workflowFile);
@@ -1387,15 +1387,15 @@ export const PR_COMMANDS = [
     guidanceScope: 'the conflict resolution when the merge conflicts, otherwise the first prompted work after the clean merge (it is kept until that work succeeds)',
   },
   {
-    name: 'specify',
-    usage: '/speckit specify [guidance]',
+    name: 'author',
+    usage: '/speckit author [guidance]',
     scope: 'pr',
     flags: {},
-    help: 'author a new spec for a cause outside this spec; it is checked and merged to the default branch automatically, and this implementation waits until that spec is signed off with `/speckit implement` on its twin and implemented',
+    help: 'author a new spec for a cause outside this spec with the Spec Kit workflow `author`; it is checked and merged to the default branch automatically, and this implementation waits until that spec is signed off with `/speckit implement` on its twin and implemented',
     recommend: true,
     categories: ['outside'],
     whenToRecommend: 'The cause lies in code, tests, or environment actions owned by another feature on the base branch and is not fixed there yet: the guidance says what to fix, where, and how.',
-    guidanceScope: 'the agent that authors the new spec',
+    guidanceScope: 'the decision step that turns the cause into the feature description of the new spec',
   },
   {
     name: 'implement',
@@ -1488,9 +1488,9 @@ export function describeCommandEffect(command, { baseBranch = null, continuation
       return mergesAnyway
         ? `The implementation ${next}, ${attempts}. That work merges ${base} first at its normal synchronization boundary. ${guidance}`
         : `Does not merge ${base}: the implementation ${next} on the branch as it is, ${attempts}. ${guidance}`;
-    case 'specify':
+    case 'author':
       return [
-        `An agent authors a new spec for the cause${argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and merged automatically (a change of \`docs/architecture/\` or a person's push waits for your review instead).`,
+        `The Spec Kit workflow \`author\` writes a new spec for the cause${argument ? ', guided by the text after the command,' : ''} and opens it as a pull request against ${base}; it is checked for consistency and merged automatically (a change of \`docs/architecture/\` or a person's push waits for your review instead).`,
         `This spec then depends on it; it starts once someone with write access signs it off with \`/speckit implement\` on its spec twin, this implementation waits for it, and then retries by itself on its current phase base, ${attempts}.`,
       ].join(' ');
     default:
@@ -1618,7 +1618,7 @@ export function renderAmendmentHowTo(implementationPull) {
   ];
 }
 
-// How a person handles a spec pull request authored by `/speckit specify`; shown in its description and referenced
+// How a person handles a spec pull request authored by `/speckit author`; shown in its description and referenced
 // from the implementation.
 export function renderFixHowTo(implementationPull, baseBranch = null) {
   const base = baseBranch ? `\`${baseBranch}\`` : 'the default branch';

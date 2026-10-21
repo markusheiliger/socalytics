@@ -10,14 +10,14 @@ name: Spec Kit orchestrate
 #     (the chain broke, a person pushed, or a diagnosis went stale);
 #   - finalizes implementations a person merged, and sends twins whose pull request was closed without merging back to
 #     their computed stage;
-#   - settles amendment pull requests and spec pull requests of `/speckit specify` and keeps Spec Kit pull requests
+#   - settles amendment pull requests and spec pull requests of `/speckit author` and keeps Spec Kit pull requests
 #     out of pull request stacks;
-#   - links a merged spec of `/speckit specify` to the implementation it unblocks (a dependency; the spec starts once
+#   - links a merged spec of `/speckit author` to the implementation it unblocks (a dependency; the spec starts once
 #     someone signs it off with `/speckit implement` on its twin), and retries that implementation once it landed;
 #   - starts requested prerequisites of running implementations first, regardless of the limit.
 #   - lifts the block of every implementation pull request labelled `blocked` whose fix landed, also when its twin is
 #     not in progress.
-#   - starts one non-blocking `/speckit specify` spec per test that passed only on its rerun (flaky) in at least
+#   - starts one non-blocking `/speckit author` spec per test that passed only on its rerun (flaky) in at least
 #     SPECKIT_FLAKY_THRESHOLD (repository variable, default 3) implementation pull requests, open or merged in the last
 #     14 days, on the open one where it was flaky most recently.
 # Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows, so the merge and

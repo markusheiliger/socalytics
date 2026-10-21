@@ -29,7 +29,7 @@ flowchart TD
 
     subgraph amend["Amendment and new spec loop · spec artifact defects and causes outside the spec"]
         diagnose["<b>🤖 Spec Kit diagnose</b> (agentic)<br/>diagnose | fix | revise"]
-        fixspec["<b>🤖✍ Spec Kit specify</b> (agentic)<br/>author with /speckit-gha-author | fix | revise"]
+        fixspec["<b>✍ Spec Kit author</b><br/>decision step + Spec Kit workflow author | fix | revise"]
         analyze["<b>🤖 Spec Kit analyze</b> (agentic)<br/>read-only consistency check"]
     end
 
@@ -98,7 +98,7 @@ They become ready only after final verification, immediately before an automatic
 | Workflow | File | Triggered by | Does |
 | --- | --- | --- | --- |
 | Spec Kit prepare | [speckit-prepare.yml](speckit-prepare.yml) | Push to `specs/**`, stage label changes (restored when a person made them), manual | Keeps one twin issue per spec folder, infers dependencies between new twins, validates implement requests; a dispatched, applying run then dispatches `Spec Kit orchestrate`. |
-| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; requested twins that block running implementations start regardless and first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit specify`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
+| Spec Kit orchestrate | [speckit-orchestrate.yml](speckit-orchestrate.yml) | Prepare completed, twin closed or reopened, `speckit/*` pull request closed or pushed, dispatched by every automatic merge and every dispatched, applying prepare run, twice an hour as a fallback, manual | Starts implementation chains up to `SPECKIT_MAX_ACTIVE_SPECS` (default 3; requested twins that block running implementations start regardless and first), restarts broken chains, finalizes merged implementations, settles amendments and spec pull requests authored by `/speckit author`, blocks running implementations whose twin has open blocked-by twins, and lifts the block and retries once they are implemented. Events caused by the workflow token (an automatic merge, the twin it closes) start no workflows except dispatches, so the explicit dispatches are the main path after a merge. |
 | Spec Kit implement spec | [speckit-implement-spec.yml](speckit-implement-spec.yml) | Orchestrate, itself, commands | One per run: a phase, a guided repair, the convergence, a conflict resolution, or the merge; then dispatches its next run. |
 | Spec Kit implement phase | [speckit-implement-phase.yml](speckit-implement-phase.yml) | Implement spec (`workflow_call`) | Plans one phase's ordered units and calls the group workflow for them serially; verifies the phase after its last unit. |
 | Spec Kit implement group | [speckit-implement-group.yml](speckit-implement-group.yml) | Implement phase (`workflow_call`) | Calls the single-task workflow once for a singleton or in parallel for consecutive `[P]` tasks. A multi-task group is verified together (affected tests of the group's changes) only when a landing had to merge a sibling's edits to the same files; otherwise each task's own verification and the phase verification cover it, and the report only shows the next unit. Singleton groups add no duplicate work. |
@@ -107,10 +107,10 @@ They become ready only after final verification, immediately before an automatic
 | Spec Kit implement convergence | [speckit-implement-converge.yml](speckit-implement-converge.yml) | Implement spec (`workflow_call`) | Runs `/speckit-converge` against the completed implementation with the strong model, validates the tasks-only result, then commits and pushes it. |
 | Spec Kit implement conflict resolution | [speckit-implement-resolve.yml](speckit-implement-resolve.yml) | Implement spec (`workflow_call`) | Integrates the base branch, lets Copilot resolve unprotected conflicts when needed, runs final verification, then validates, commits, and pushes the resolution. |
 | Spec Kit implement merge | [speckit-implement-merge.yml](speckit-implement-merge.yml) | Implement spec (`workflow_call`) | Archives the spec, builds and verifies the prospective merged tree with a read-only token, then squash-merges the pull request or deliberately hands it to a person for review. |
-| Spec Kit commands | [speckit-commands.yml](speckit-commands.yml) | Pull request comments, reviews, and events | Handles `/speckit` commands (`retry`, `sync`, `specify`, and `implement` on twin issues, `help`) and feedback on amendments and authored spec pull requests; keeps Spec Kit pull requests out of stacks. |
+| Spec Kit commands | [speckit-commands.yml](speckit-commands.yml) | Pull request comments, reviews, and events | Handles `/speckit` commands (`retry`, `sync`, `author`, and `implement` on twin issues, `help`) and feedback on amendments and authored spec pull requests; keeps Spec Kit pull requests out of stacks. |
 | Spec Kit diagnose | [speckit-diagnose.md](speckit-diagnose.md) ([lock](speckit-diagnose.lock.yml)) | Implement spec, analyze | Automatically explains why an implementation stopped and recommends one ready-to-post command that fits the category, chosen from the "Commands you can recommend" reference its evidence generates from `PR_COMMANDS`; for spec artifact defects opens and reworks an amendment pull request. |
-| Spec Kit specify | [speckit-specify.md](speckit-specify.md) ([lock](speckit-specify.lock.yml)) | Commands (`/speckit specify`), analyze | Runs `/speckit-gha-author` non-interactively to author an ordinary spec for a cause outside the stopped spec and proposes it against the default branch, or reuses an existing spec that already removes the cause (one cause, one spec); reworks it after findings or feedback. A consistent spec pull request is merged automatically unless it changes `docs/architecture/` (with a **Design decisions** comment) or a person pushed to it. |
-| Spec Kit analyze | [speckit-analyze.md](speckit-analyze.md) ([lock](speckit-analyze.lock.yml)) | Diagnose, specify, commands | Runs a read-only `/speckit-analyze` of the amended spec folder or the new spec and decides between a correction round, a rework, or human review. |
+| Spec Kit author | [speckit-author.yml](speckit-author.yml) | Commands (`/speckit author`), analyze | One decision step (reuse, refuse, or a feature description), then the Spec Kit workflow `author` unattended to author an ordinary spec for a cause outside the stopped spec and propose it against the default branch (one cause, one spec); reworks it after findings or feedback from the stage they concern. A consistent spec pull request is merged automatically unless it changes `docs/architecture/` (with a **Design decisions** comment from its plan) or a person pushed to it. |
+| Spec Kit analyze | [speckit-analyze.md](speckit-analyze.md) ([lock](speckit-analyze.lock.yml)) | Diagnose, author, commands | Runs a read-only `/speckit-analyze` of the amended spec folder or the new spec and decides between a correction round, a rework, or human review. |
 
 The six implementation work entry points use typed command scripts (`speckit-task.mjs`, `speckit-group.mjs`,
 `speckit-repair.mjs`, `speckit-converge.mjs`, `speckit-resolve.mjs`, and `speckit-merge.mjs`). Attempt accounting,
@@ -152,7 +152,7 @@ The verification reruns failing tests once: a .NET test project with at most 10 
 the Web UI browser tests run with `--retries=1`. A test that passes on the rerun lets the check pass but is reported as
 **flaky** in the comment (marker `speckit-implement:flaky`); a test that fails twice fails the check. After each
 scheduler run, a test that was flaky in `SPECKIT_FLAKY_THRESHOLD` (repository variable, default 3) implementation pull
-requests within 14 days gets one `/speckit specify` run, started on the latest open implementation pull request where
+requests within 14 days gets one `/speckit author` run, started on the latest open implementation pull request where
 it was flaky (marker `speckit-implement:flaky-spec`) and without blocking it; the spec makes the test deterministic
 and is implemented once someone signs it off with `/speckit implement` on its twin.
 Reverification uses the original failure artifact's changed files together with repair changes, not just the diff since
@@ -210,7 +210,7 @@ started from a branch other than the default branch.
 
 People with write access steer a stopped or running implementation by commenting on its implementation pull request
 (`speckit/<folder>`); the command must be the first word of the comment, and `Spec Kit commands` handles it. Amendment
-pull requests (`speckit-amend/<folder>`) and spec pull requests authored by `/speckit specify` (`speckit-spec/<folder>`) need no commands: merge one
+pull requests (`speckit-amend/<folder>`) and spec pull requests authored by `/speckit author` (`speckit-spec/<folder>`) need no commands: merge one
 to apply it, comment or review it (*Comment* or *Request changes*) to have it reworked, or close it to discard it.
 
 `PR_COMMANDS` in `.github/scripts/speckit-implement-core.mjs` is the single source of the commands, their flags, and
@@ -225,7 +225,7 @@ diagnosis evidence file are generated from it, and a test fails when this table 
 | --- | --- | --- | --- |
 | `/speckit retry [--force] [guidance]` | implementation pull request | restart what stopped with a fresh attempt count while preserving the current phase base; guidance goes into the next attempt's prompt. Refused after 2 restarts in a row that left the branch unchanged, unless `--force` is given | `--force`: restart even after 2 restarts in a row that left the branch unchanged |
 | `/speckit sync [guidance]` | implementation pull request | require merging the current pull request base and successful verification before any work continues, even when automatic sync is disabled or was skipped; Copilot resolves conflicts. Pending repair scope and attempt limits are preserved | none |
-| `/speckit specify [guidance]` | implementation pull request | author a new spec for a cause outside this spec; it is checked and merged to the default branch automatically, and this implementation waits until that spec is signed off with `/speckit implement` on its twin and implemented | none |
+| `/speckit author [guidance]` | implementation pull request | author a new spec for a cause outside this spec with the Spec Kit workflow `author`; it is checked and merged to the default branch automatically, and this implementation waits until that spec is signed off with `/speckit implement` on its twin and implemented | none |
 | `/speckit implement` | spec twin issue | request the implementation of this spec: checks that it is `tasked` with all checklists checked, records who requested it, and starts it on GitHub (it waits for open prerequisites) | none |
 | `/speckit help` | anywhere | list these commands | none |
 
@@ -240,7 +240,7 @@ refuses the command instead of becoming guidance. An unknown command is answered
 
 ### Guidance
 
-Writer-supplied text after `/speckit retry`, `/speckit sync`, or `/speckit specify` and their flags is called
+Writer-supplied text after `/speckit retry`, `/speckit sync`, or `/speckit author` and their flags is called
 **guidance**. Retry and sync guidance is stored in a bot-authored pull request marker so a replaced dispatch or
 scheduled continuation cannot lose it. Copilot-bound guidance is whitespace-normalized, capped at 4,000 characters, and
 added to every task in the first retried group, or to the first convergence, repair, or conflict-resolution prompt.
@@ -270,14 +270,23 @@ implementation branch head and the base branch head. While the implementation is
 `Spec Kit commands` refuses a `retry` after `MAX_UNCHANGED_RESTARTS` (2) restarts in a row on the same implementation
 branch head, because it would most likely stop the same way again; the flag `--force`
 (`/speckit retry --force [guidance]`) insists. The refusal points to a push, retry guidance based on the diagnosis, or
-`/speckit specify`.
+`/speckit author`.
 
-### Specify
+### Author
 
-`/speckit specify [guidance]` handles a cause outside the stopped spec: another feature's code or tests on the base
-branch, or the environment actions. The `Spec Kit specify` workflow runs `/speckit-gha-author` non-interactively
-(every recommended choice) to author an ordinary spec that removes the cause, proposed as a pull request
-`speckit-spec/<folder>` against the default branch, or reuses an open or merged spec that already removes it. Once the
+`/speckit author [guidance]` handles a cause outside the stopped spec: another feature's code or tests on the base
+branch, or the environment actions. The `Spec Kit author` workflow ([speckit-author.yml](speckit-author.yml)) is a
+regular workflow without an agent of its own. Its job `author` (read-only token) collects the evidence, lets one
+decision step (Copilot CLI) write `decision.json`: reuse an open or merged spec that already removes the cause, refuse
+when no spec can remove it, or author one with a feature description. It then runs the deterministic Spec Kit
+workflow `author` unattended (every recommended choice, `publish=commit`, the time stamp of the request as folder
+prefix), whose agent steps call Copilot CLI through `speckit-copilot.mjs exec` (the level of `models.json` and the
+Spec Kit deny-list, never `--yolo`). Its job `land` (write token, never runs agent-written code) accepts only changes
+to the new spec folder and `docs/architecture/`, pushes `speckit-spec/<folder>`, and opens the draft pull request
+against the default branch. Correction rounds (`fix`) and reworks after review (`revise`) run the same workflow on
+the spec branch: the earliest artifact the findings or feedback name chooses the stage the run starts again at
+(`spec.md`: clarify, plan files: plan, `tasks.md`: tasks), and `land` pushes the result to the pull request. The
+**Design decisions** comment comes from the `## Architecture Updates` section of the spec's plan. Once the
 analysis finds it consistent and its changed Markdown passes the Markdown check (the record job runs
 `check-markdown.mjs` on it, and every problem is a finding for the correction rounds; amendments get the same
 check), the pull request is merged automatically; it waits for review when it changes
@@ -325,7 +334,7 @@ recommends `sync`; inconsistent category/command reports are rejected at publica
 A diagnosis never recommends a command that already failed the same way: when the last `/speckit retry` or
 `/speckit sync` left the implementation branch at the same head and the stop after it has the same reason as the stop
 before it (`repeatedFailure`), the evidence tells the agent, and a recommendation of that command is moved to the other
-options at publication, with `/speckit specify` as the fallback.
+options at publication, with `/speckit author` as the fallback.
 
 Architecture impact: none. This changes repository automation, not the product design in `docs/architecture/`.
 
@@ -349,7 +358,7 @@ the `copilot` engine of GitHub Agentic Workflows.
 | Archive, merge verification, squash merge | Spec Kit implement merge | none (script) | never |
 | Comment commands | Spec Kit commands | none (script) | stores the guidance in a marker for the work above |
 | Diagnosis, amendment correction and rework | Spec Kit diagnose | agentic (`copilot` engine) | never (it reads recent comments as context; rework rounds use analysis findings and review feedback) |
-| New spec authoring (`/speckit specify`), correction and rework | Spec Kit specify | agentic (`copilot` engine) | `specify`: the authoring evidence |
+| New spec authoring (`/speckit author`), correction and rework | Spec Kit author | Copilot CLI, level `standard`: one decision step, then the agent steps of the Spec Kit workflow `author` | `author`: the decision step (the guidance shapes the feature description) |
 | Consistency check of amendments and authored specs | Spec Kit analyze | agentic (`copilot` engine), read-only | never |
 <!-- speckit-ai:end -->
 
@@ -374,7 +383,7 @@ Every label comes with a comment that explains it. `help wanted` is only added t
 exactly one next step (a diagnosis, an outcome to decide on, or a review); a stop whose diagnosis is still running
 waits without it, so the label never appears before the recommendation does.
 
-When an amendment passes its consistency check (or a spec pull request authored by `/speckit specify` is held for review) and correction rounds are finished, its description,
+When an amendment passes its consistency check (or a spec pull request authored by `/speckit author` is held for review) and correction rounds are finished, its description,
 review handoff comment, and notification on the stopped implementation explicitly recommend **Review and merge** the
 pull request. They explain why and what merging triggers: an amendment resumes the implementation; a new spec is added
 to the default branch, where it waits for `/speckit implement` on its twin, and the stopped implementation resumes once
@@ -384,8 +393,8 @@ restarts rework and analysis. Starting new work replaces the previous recommenda
 or abandoned run replaces that wait with the recovery action in both the description and its comment.
 
 An implementation that waits for another spec carries the separate custom `blocked` label instead of `help wanted`.
-It waits whenever its twin has open blocked-by twins, however the dependency came about (`/speckit specify`,
-dependency inference, or a person), and while a spec that `/speckit specify` authored is still being written, checked,
+It waits whenever its twin has open blocked-by twins, however the dependency came about (`/speckit author`,
+dependency inference, or a person), and while a spec that `/speckit author` authored is still being written, checked,
 or reviewed. GitHub has no default label for an on-hold state. The label is only added together with a comment that
 starts with **Blocked**: it names what the implementation waits for, what a person needs to do (for each blocker that
 is not requested yet, the ready-to-paste `/speckit implement` for its twin; otherwise nothing while the blockers are
@@ -400,19 +409,22 @@ steps with `help wanted`), or when the implementation pull request closes.
 
 | Pull request | Labeled when | Unlabeled when |
 | --- | --- | --- |
-| Implementation | It stopped, a diagnosis reported without an amendment, an amendment or authored spec was discarded or misdirected, a spec could not be authored or was not implemented, or it is held for review. | An automatic diagnosis, `/speckit specify`, `/speckit retry`, or a person's push gets it going again, an amendment was merged, it is blocked by another spec, or it was merged or closed. |
+| Implementation | It stopped, a diagnosis reported without an amendment, an amendment or authored spec was discarded or misdirected, a spec could not be authored or was not implemented, or it is held for review. | An automatic diagnosis, `/speckit author`, `/speckit retry`, or a person's push gets it going again, an amendment was merged, it is blocked by another spec, or it was merged or closed. |
 | Amendment or authored spec | It is presented for review, or a check or rework could not start or did not finish. | A rework starts after feedback, a check starts after a push, or it was merged, closed, or superseded. |
 
-The workflow run titles of Spec Kit diagnose, analyze, and specify follow Spec Kit implement spec: `Spec Kit <workflow>
-spec #<twin> · <why the run started>`, for example `Spec Kit specify spec #66 · Write a spec that unblocks the
+The workflow run titles of Spec Kit diagnose, analyze, and author follow Spec Kit implement spec: `Spec Kit <workflow>
+spec #<twin> · <why the run started>`, for example `Spec Kit author spec #66 · Write a new spec that unblocks the
 implementation`.
 
 ## Copilot CLI and model levels
 
 Every Copilot CLI run of these workflows goes through the composite action
 [speckit-copilot](../actions/speckit-copilot/action.yml), loaded from the trusted default-branch checkout, so an agent
-cannot change its own model, flags, or deny lists. The agentic workflows (diagnose, analyze, specify) use gh-aw's own engine
-settings instead.
+cannot change its own model, flags, or deny lists. The agentic workflows (diagnose, analyze) use gh-aw's own engine
+settings instead. The Spec Kit workflow `author`, which Spec Kit author runs, calls Copilot CLI itself for its agent
+steps; on GitHub its executable is `speckit-copilot.mjs exec` (`SPECKIT_INTEGRATION_COPILOT_EXECUTABLE`), which applies
+the level in `SPECKIT_LEVEL` and the same arguments and deny lists as the action, and drops the `--yolo` and model the
+workflow engine passes.
 
 Callers choose a strength level, not a model. The levels and their models live in
 [models.json](../actions/speckit-copilot/models.json) next to the action, the only place to change models; a new level
