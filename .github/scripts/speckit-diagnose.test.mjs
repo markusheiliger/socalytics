@@ -5,8 +5,8 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { pendingFeedback, renderFeedback } from './speckit-amend.mjs';
-import { ATTENTION_LABEL, AUTO_CONTINUE_MARKER, IMPLEMENT_WORKFLOW_FILE, RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER, parseGuidance, renderRetryComment, syncBarrier, unchangedRestarts, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker, renderSyncComment, repeatedFailure } from './speckit-implement-core.mjs';
-import { CATEGORIES, CATEGORY_COMMANDS, MAX_RECOMMENDED_COMMAND, categoryCommands, checkReportFile, commandPatterns, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
+import { ATTENTION_LABEL, AUTO_CONTINUE_MARKER, IMPLEMENT_WORKFLOW_FILE, RETRY_COMMENT_MARKER, SYNC_COMMENT_MARKER, parseGuidance, renderRetryComment, syncBarrier, unchangedRestarts, CHECK_DIAGNOSED, CHECK_DIAGNOSING, CHECK_RUN_NAME, COMMAND_REFERENCE_TITLE, DIAGNOSIS_COMMENT_MARKER, MAX_WRITER_GUIDANCE, PR_COMMANDS, RECOMMENDABLE_COMMANDS, renderCommandReference, renderRepairMarker, renderSyncComment, repeatedFailure, isTwinRunOf } from './speckit-implement-core.mjs';
+import { CATEGORIES, CATEGORY_COMMANDS, MAX_RECOMMENDED_COMMAND, MAX_STOP_SUBJECT, categoryCommands, checkReportFile, commandPatterns, main, recommendNextSteps, removePlaceholderArgument, renderDiagnosisComment, runEvidence, runRecord, startDiagnosis, validateReport } from './speckit-diagnose.mjs';
 import { diagnosisRepo, silent } from './speckit-test-helpers.mjs';
 
 const env = (extra = {}) => ({ GITHUB_REPOSITORY: 'octo/repo', SPECKIT_DEFAULT_BRANCH: 'main', SPECKIT_TWIN: '5', SPECKIT_PULL: '9', SPECKIT_FOLDER: 'f', ...extra });
@@ -35,7 +35,7 @@ test('starts a diagnosis with a linked check and dispatch, and leaves a failed d
   assert.deepEqual([check.external_id, check.status, check.output.title], [CHECK_DIAGNOSING, 'in_progress', 'Diagnosis in progress']);
   assert.equal(check.details_url, 'https://github.com/octo/repo/actions/workflows/speckit-diagnose.lock.yml');
   assert.match(check.output.summary, /Started by @dev\.\n\nGuidance: look at R6/);
-  assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', guidance: 'look at R6', previous: '', check_run: String(check.id), mode: 'diagnose', amendment: '', round: '0' });
+  assert.deepEqual(github.repo.runs.at(-1).inputs, { twin: '5', pull: '9', folder: 'f', guidance: 'look at R6', previous: '', check_run: String(check.id), mode: 'diagnose', amendment: '', round: '0', stop: '' });
   assert.equal(github.repo.runs.at(-1).workflow, 'speckit-diagnose.lock.yml');
   const attention = () => (github.repo.pulls.find((pull) => pull.number === 9).labels ?? []).some((label) => label.name === ATTENTION_LABEL);
   assert.equal(attention(), false, 'a running diagnosis does not need attention');
@@ -46,6 +46,22 @@ test('starts a diagnosis with a linked check and dispatch, and leaves a failed d
   const failedCheck = github.repo.checkRuns.at(-1);
   assert.deepEqual([failedCheck.external_id, failedCheck.status, failedCheck.conclusion, failedCheck.output.title], [CHECK_DIAGNOSING, 'completed', 'failure', 'Diagnosis could not start']);
   assert.equal(attention(), false, 'a diagnosis that could not start remains automation-owned and retryable');
+});
+
+test('names the diagnose run after the latest stop on the head', async () => {
+  const github = diagnosisRepo();
+  const stopCheck = (title) => github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-impl', status: 'completed', conclusion: 'failure', external_id: 'speckit:limit', output: { title, summary: 'stopped' } });
+  await stopCheck('T002 reached the attempt limit');
+  await stopCheck('The phase\nverification failed');
+  await github.createCheckRun({ name: CHECK_RUN_NAME, head_sha: 'sha-impl', status: 'completed', conclusion: 'success', external_id: 'speckit:attempt:task:T003:1', output: { title: 'T003 attempt 1 succeeded' } });
+  await startDiagnosis(github, env(), { twin: 5, pull: 9, folder: 'f', head: 'sha-impl', auto: true });
+  const run = github.repo.runs.at(-1);
+  assert.equal(run.inputs.stop, 'The phase verification failed', 'the latest stop, on one line; other check runs do not count');
+  assert.equal(run.display_title, 'Spec Kit diagnose spec #5 · The phase verification failed');
+  assert.ok(isTwinRunOf('speckit-diagnose.lock.yml', run.display_title, 5), 'the run is still found for its twin');
+  await stopCheck(`T004 ${'x'.repeat(300)}`);
+  await startDiagnosis(github, env(), { twin: 5, pull: 9, folder: 'f', head: 'sha-impl', auto: true });
+  assert.equal(github.repo.runs.at(-1).inputs.stop.length, MAX_STOP_SUBJECT + 1, 'a long stop is clipped');
 });
 
 test('collects evidence: checks, comments, failed run logs, branch state, and notes', async () => {

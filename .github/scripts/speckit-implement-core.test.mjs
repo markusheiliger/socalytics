@@ -724,6 +724,19 @@ test('the implementation workflows give task, group, repair, convergence, confli
   assert.match(resolve, /^name: Spec Kit implement conflict resolution\n/);
   assert.match(merge, /^name: Spec Kit implement merge\n/);
   assert.match(spec, /^run-name: "Spec Kit implement spec #\$\{\{ inputs\.twin \}\}\$\{\{ inputs\.title && format\(' · \{0\}', inputs\.title\) \|\| '' \}\}"$/m);
+  // Every Spec Kit workflow that an event starts names its runs "Spec Kit <workflow> …"; GitHub would otherwise name
+  // pull request, comment, and push runs after a title or commit message that does not say they belong to Spec Kit.
+  for (const file of readdirSync(new URL('../workflows/', import.meta.url)).filter((name) => /^speckit-.*\.(yml|md)$/.test(name) && !name.endsWith('.lock.yml'))) {
+    const source = read(file);
+    const triggers = source.match(/^on:\n[\s\S]*?(?=^\S)/m)?.[0] ?? '';
+    if (/^ {2}workflow_call:/m.test(triggers)) continue;
+    const runName = source.match(/^run-name: "(.*)"$/m)?.[1] ?? '';
+    const literals = [...runName.matchAll(/'([^']*)'/g)].map((match) => match[1]).filter((text) => /^Spec Kit /.test(text));
+    assert.ok(runName.startsWith('Spec Kit ') || literals.length > 0, `${file} names its runs after Spec Kit`);
+    for (const event of ['issue_comment', 'pull_request_review', 'pull_request_target', 'issues']) {
+      if (new RegExp(`^ {2}${event}:`, 'm').test(triggers)) assert.match(runName, new RegExp(`github\\.event_name == '${event}' && format\\('Spec Kit [^']*#\\{0\\}`), `${file} references the ${event} item by number`);
+    }
+  }
   assert.match(job(spec, 'phase'), /name: \$\{\{ needs\.decide\.outputs\.action == 'implement' && needs\.decide\.outputs\.job_name \|\| 'Implement a phase' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-phase\.yml/);
   assert.match(job(spec, 'repair'), /needs\.decide\.outputs\.action == 'repair'[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-repair\.yml/);
   assert.match(job(spec, 'converge'), /name: \$\{\{ needs\.decide\.outputs\.action == 'converge' && needs\.decide\.outputs\.job_name \|\| 'Convergence' \}\}[\s\S]*uses: \.\/\.github\/workflows\/speckit-implement-converge\.yml/);

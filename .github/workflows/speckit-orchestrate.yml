@@ -37,6 +37,10 @@ on:
     - cron: "47 * * * *"
   workflow_dispatch:
 
+# Every run says what started it, and which pull request or spec twin it reacts to: GitHub would otherwise name it
+# after the pull request or issue title alone ("Implement: …", "Amend: …").
+run-name: "${{ github.event_name == 'pull_request_target' && format('Spec Kit orchestrate · pull request #{0} {1} · {2}', github.event.pull_request.number, github.event.action, github.event.pull_request.title) || github.event_name == 'issues' && format('Spec Kit orchestrate · #{0} {1} · {2}', github.event.issue.number, github.event.action, github.event.issue.title) || github.event_name == 'workflow_run' && format('Spec Kit orchestrate · after {0}', github.event.workflow_run.name) || github.event_name == 'schedule' && 'Spec Kit orchestrate · scheduled' || 'Spec Kit orchestrate' }}"
+
 permissions: {}
 
 jobs:

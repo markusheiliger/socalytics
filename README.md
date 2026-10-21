@@ -462,7 +462,12 @@ posts.
   `Spec Kit implement spec` (`speckit-implement-spec.yml`), one at a time per
   spec, each started by the previous one and named after the spec, for example
   `Spec Kit implement spec #35 · Recording Lineage and Upload` (the spec title
-  from the pull request title). Every run decides what comes next from the
+  from the pull request title). Every other Spec Kit run is named
+  `Spec Kit <workflow> …` as well: a diagnosis after the stop it diagnoses
+  (for example `Spec Kit diagnose spec #35 · T013 reached the attempt limit`),
+  and a run that reacts to a pull request, comment, or issue after that item
+  by number (for example
+  `Spec Kit orchestrate · pull request #214 synchronize · Implement: …`). Every run decides what comes next from the
   state on GitHub (job `decide`, shown as `Decide what comes next`),
   runs it, and starts the next run (job `continue`, shown as
   `Start the next run`), until the implementation is merged, waits for
