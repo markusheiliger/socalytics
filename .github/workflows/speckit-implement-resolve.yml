@@ -180,6 +180,7 @@ jobs:
           SPECKIT_VERIFY_OUTCOME: ${{ steps.verify.outcome }}
           SPECKIT_VERIFY_CHECKS: ${{ steps.verify.outputs.checks }}
           SPECKIT_VERIFY_UNCOVERED: ${{ steps.verify.outputs.uncovered }}
+          SPECKIT_VERIFY_FLAKY: ${{ steps.verify.outputs.flaky }}
           SPECKIT_VERIFY_MODE: finalize
           SPECKIT_SYNC_SETUP_OUTCOME: ${{ steps.sync_setup.outcome }}
           SPECKIT_SYNC_VERIFY_OUTCOME: ${{ steps.sync_verify.outcome }}

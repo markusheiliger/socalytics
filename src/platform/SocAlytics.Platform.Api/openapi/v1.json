@@ -535,6 +535,14 @@
               "string"
             ]
           },
+          "cancelled": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
           "claimed": {
             "format": "int32",
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -582,7 +590,8 @@
           "claimed",
           "completed",
           "failed",
-          "blocked"
+          "blocked",
+          "cancelled"
         ],
         "type": "object"
       },
@@ -796,8 +805,40 @@
         ],
         "type": "object"
       },
+      "AnalysisRunCancelledByDto": {
+        "properties": {
+          "accountName": {
+            "type": "string"
+          },
+          "memberId": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "memberId",
+          "accountName"
+        ],
+        "type": "object"
+      },
       "AnalysisRunStatusDto": {
         "properties": {
+          "cancellationReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cancelledBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnalysisRunCancelledByDto"
+              }
+            ]
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -881,6 +922,8 @@
           "runningAt",
           "terminatedAt",
           "version",
+          "cancelledBy",
+          "cancellationReason",
           "requestedCapabilities",
           "nodes"
         ],
@@ -888,6 +931,22 @@
       },
       "AnalysisRunSummaryDto": {
         "properties": {
+          "cancellationReason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "cancelledBy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnalysisRunCancelledByDto"
+              }
+            ]
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -958,7 +1017,9 @@
           "createdAt",
           "runningAt",
           "terminatedAt",
-          "version"
+          "version",
+          "cancelledBy",
+          "cancellationReason"
         ],
         "type": "object"
       },
@@ -980,6 +1041,122 @@
         "required": [
           "items",
           "continuationToken"
+        ],
+        "type": "object"
+      },
+      "AnalystImageCapabilityDto": {
+        "properties": {
+          "executionScope": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "tier": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "tier",
+          "executionScope"
+        ],
+        "type": "object"
+      },
+      "AnalystImageDto": {
+        "properties": {
+          "capability": {
+            "$ref": "#/components/schemas/AnalystImageCapabilityDto"
+          },
+          "imageDigest": {
+            "type": "string"
+          },
+          "manifest": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            ]
+          },
+          "manifestDigest": {
+            "type": "string"
+          },
+          "modelDigest": {
+            "type": "string"
+          },
+          "registeredAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "registeredBy": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "repository": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "imageDigest",
+          "repository",
+          "manifestDigest",
+          "capability",
+          "modelDigest",
+          "manifest",
+          "source",
+          "registeredAt",
+          "registeredBy"
+        ],
+        "type": "object"
+      },
+      "AnalystImageListDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnalystImageListItemDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "AnalystImageListItemDto": {
+        "properties": {
+          "capabilityId": {
+            "type": "string"
+          },
+          "capabilityVersion": {
+            "type": "string"
+          },
+          "imageDigest": {
+            "type": "string"
+          },
+          "registeredAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "imageDigest",
+          "capabilityId",
+          "capabilityVersion",
+          "registeredAt"
         ],
         "type": "object"
       },
@@ -1298,6 +1475,307 @@
         ],
         "type": "object"
       },
+      "AnalystProfileContentDto": {
+        "properties": {
+          "accelerators": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "capabilityId": {
+            "type": "string"
+          },
+          "capabilityVersion": {
+            "type": "string"
+          },
+          "executionTimeoutSeconds": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "inputSchemaVersions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "leaseSeconds": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "maxAttempts": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "modelDigest": {
+            "type": "string"
+          },
+          "outputSchemaVersion": {
+            "type": "string"
+          },
+          "resources": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "runtimeConstraints": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "staleTimeoutSeconds": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "videoPolicy": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "capabilityId",
+          "capabilityVersion",
+          "modelDigest",
+          "runtimeConstraints",
+          "accelerators",
+          "resources",
+          "maxAttempts",
+          "leaseSeconds",
+          "staleTimeoutSeconds",
+          "executionTimeoutSeconds",
+          "videoPolicy",
+          "inputSchemaVersions",
+          "outputSchemaVersion"
+        ],
+        "type": "object"
+      },
+      "AnalystProfileContentRequest": {
+        "properties": {
+          "accelerators": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "capabilityId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "capabilityVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "executionTimeoutSeconds": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "inputSchemaVersions": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "leaseSeconds": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "maxAttempts": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "modelDigest": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "outputSchemaVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "resources": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "object"
+            ]
+          },
+          "runtimeConstraints": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "staleTimeoutSeconds": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "videoPolicy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "capabilityId",
+          "capabilityVersion",
+          "modelDigest",
+          "runtimeConstraints",
+          "accelerators",
+          "resources",
+          "maxAttempts",
+          "leaseSeconds",
+          "staleTimeoutSeconds",
+          "executionTimeoutSeconds",
+          "videoPolicy",
+          "inputSchemaVersions",
+          "outputSchemaVersion"
+        ],
+        "type": "object"
+      },
+      "AnalystProfileDto": {
+        "properties": {
+          "approvedAt": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "approvedBy": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "content": {
+            "$ref": "#/components/schemas/AnalystProfileContentDto"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdBy": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "imageDigest": {
+            "type": "string"
+          },
+          "profileDigest": {
+            "type": "string"
+          },
+          "profileId": {
+            "type": "string"
+          },
+          "retiredAt": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "retiredBy": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "version": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "profileId",
+          "version",
+          "profileDigest",
+          "imageDigest",
+          "state",
+          "content",
+          "createdAt",
+          "createdBy",
+          "approvedAt",
+          "approvedBy",
+          "retiredAt",
+          "retiredBy"
+        ],
+        "type": "object"
+      },
+      "AnalystProfileListDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnalystProfileDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
       "AvailableAgentDto": {
         "properties": {
           "agentId": {
@@ -1328,6 +1806,20 @@
         },
         "required": [
           "agents"
+        ],
+        "type": "object"
+      },
+      "CancelAnalysisRunRequest": {
+        "properties": {
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "reason"
         ],
         "type": "object"
       },
@@ -1505,6 +1997,38 @@
         ],
         "type": "object"
       },
+      "CreateAnalystProfileRequest": {
+        "properties": {
+          "content": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AnalystProfileContentRequest"
+              }
+            ]
+          },
+          "imageDigest": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "profileId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "profileId",
+          "imageDigest",
+          "content"
+        ],
+        "type": "object"
+      },
       "CurrentMemberDto": {
         "properties": {
           "accountName": {
@@ -1565,6 +2089,103 @@
           "teamName",
           "seasonId",
           "role"
+        ],
+        "type": "object"
+      },
+      "DefaultWorkflowDto": {
+        "properties": {
+          "changedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "changedBy": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "workflowVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflowId",
+          "workflowVersion",
+          "changedAt",
+          "changedBy"
+        ],
+        "type": "object"
+      },
+      "DefineWorkflowRequest": {
+        "properties": {
+          "completionPolicy": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowEdgeRequest"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNodeRequest"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "requestedCapabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "null",
+              "array"
+            ]
+          },
+          "segmentationPolicy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkflowSegmentationRequest"
+              }
+            ]
+          },
+          "workflowId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "workflowVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "workflowId",
+          "workflowVersion",
+          "requestedCapabilities",
+          "completionPolicy",
+          "segmentationPolicy",
+          "nodes",
+          "edges"
         ],
         "type": "object"
       },
@@ -2244,6 +2865,7 @@
         "type": "object"
       },
       "JsonElement": {},
+      "JsonNode": {},
       "LeaseRenewedDto": {
         "properties": {
           "attemptId": {
@@ -3104,6 +3726,56 @@
         ],
         "type": "object"
       },
+      "RegisterAnalystImageRequest": {
+        "properties": {
+          "reference": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "reference"
+        ],
+        "type": "object"
+      },
+      "RegistryWorkflowDefinitionDto": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdBy": {
+            "format": "uuid",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "definition": {
+            "$ref": "#/components/schemas/WorkflowDefinitionContentDto"
+          },
+          "definitionDigest": {
+            "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "workflowVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflowId",
+          "workflowVersion",
+          "definitionDigest",
+          "definition",
+          "createdAt",
+          "createdBy"
+        ],
+        "type": "object"
+      },
       "ResultGrantDto": {
         "properties": {
           "expiresAt": {
@@ -3254,6 +3926,27 @@
           "passwordChangeRequired",
           "antiforgeryToken",
           "member"
+        ],
+        "type": "object"
+      },
+      "SetDefaultWorkflowRequest": {
+        "properties": {
+          "workflowId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "workflowVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "workflowId",
+          "workflowVersion"
         ],
         "type": "object"
       },
@@ -3745,6 +4438,42 @@
         ],
         "type": "object"
       },
+      "WorkflowDefinitionContentDto": {
+        "properties": {
+          "completionPolicy": {
+            "type": "string"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowEdgeDto"
+            },
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowNodeDto"
+            },
+            "type": "array"
+          },
+          "requestedCapabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "segmentationPolicy": {
+            "$ref": "#/components/schemas/WorkflowSegmentationDto"
+          }
+        },
+        "required": [
+          "requestedCapabilities",
+          "completionPolicy",
+          "segmentationPolicy",
+          "nodes",
+          "edges"
+        ],
+        "type": "object"
+      },
       "WorkflowDefinitionDto": {
         "properties": {
           "category": {
@@ -3768,6 +4497,285 @@
           "state",
           "category",
           "since"
+        ],
+        "type": "object"
+      },
+      "WorkflowEdgeDto": {
+        "properties": {
+          "dependentNodeKey": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "predicate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkflowPredicateDto"
+              }
+            ]
+          },
+          "upstreamNodeKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "upstreamNodeKey",
+          "dependentNodeKey",
+          "kind",
+          "predicate"
+        ],
+        "type": "object"
+      },
+      "WorkflowEdgeRequest": {
+        "properties": {
+          "dependentNodeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "predicate": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/WorkflowPredicateRequest"
+              }
+            ]
+          },
+          "upstreamNodeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "upstreamNodeKey",
+          "dependentNodeKey",
+          "kind",
+          "predicate"
+        ],
+        "type": "object"
+      },
+      "WorkflowListDto": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowListItemDto"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "type": "object"
+      },
+      "WorkflowListItemDto": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "definitionDigest": {
+            "type": "string"
+          },
+          "workflowId": {
+            "type": "string"
+          },
+          "workflowVersion": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workflowId",
+          "workflowVersion",
+          "definitionDigest",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "WorkflowNodeDto": {
+        "properties": {
+          "nodeKey": {
+            "type": "string"
+          },
+          "profileDigest": {
+            "type": "string"
+          },
+          "profileId": {
+            "type": "string"
+          },
+          "profileVersion": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "nodeKey",
+          "profileId",
+          "profileVersion",
+          "profileDigest"
+        ],
+        "type": "object"
+      },
+      "WorkflowNodeRequest": {
+        "properties": {
+          "nodeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "profileId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "profileVersion": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "nodeKey",
+          "profileId",
+          "profileVersion"
+        ],
+        "type": "object"
+      },
+      "WorkflowPredicateDto": {
+        "properties": {
+          "capabilityId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "nodeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "capabilityId",
+          "nodeKey"
+        ],
+        "type": "object"
+      },
+      "WorkflowPredicateRequest": {
+        "properties": {
+          "capabilityId": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "kind": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "nodeKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "capabilityId",
+          "nodeKey"
+        ],
+        "type": "object"
+      },
+      "WorkflowSegmentationDto": {
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "durationSeconds": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "version",
+          "durationSeconds",
+          "digest"
+        ],
+        "type": "object"
+      },
+      "WorkflowSegmentationRequest": {
+        "properties": {
+          "digest": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "durationSeconds": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          },
+          "version": {
+            "format": "int32",
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "version",
+          "durationSeconds",
+          "digest"
         ],
         "type": "object"
       }
@@ -5186,6 +6194,123 @@
             "description": "Not Found"
           }
         },
+        "tags": [
+          "Analysis runs"
+        ]
+      }
+    },
+    "/api/v1/analysis/runs/{runId}/cancellation": {
+      "post": {
+        "operationId": "cancelAnalysisRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "runId",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelAnalysisRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisRunStatusDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Required"
+          }
+        },
+        "security": [
+          {
+            "antiforgeryHeader": [],
+            "sessionCookie": []
+          }
+        ],
         "tags": [
           "Analysis runs"
         ]
@@ -10279,7 +11404,44 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystImageListDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
           }
         },
         "tags": [
@@ -10288,9 +11450,96 @@
       },
       "post": {
         "operationId": "registerAnalystImage",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterAnalystImageRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystImageDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystImageDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -10319,7 +11568,54 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystImageDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
           }
         },
         "tags": [
@@ -10348,7 +11644,44 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystProfileListDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
           }
         },
         "tags": [
@@ -10357,9 +11690,96 @@
       },
       "post": {
         "operationId": "createAnalystProfile",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAnalystProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystProfileDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystProfileDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
           }
         },
         "security": [
@@ -10398,7 +11818,54 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystProfileDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
           }
         },
         "tags": [
@@ -10431,7 +11898,84 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystProfileDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Required"
           }
         },
         "security": [
@@ -10470,7 +12014,84 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalystProfileDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Required"
           }
         },
         "security": [
@@ -10489,7 +12110,54 @@
         "operationId": "getDefaultWorkflow",
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultWorkflowDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
           }
         },
         "tags": [
@@ -10498,9 +12166,86 @@
       },
       "put": {
         "operationId": "setDefaultWorkflow",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDefaultWorkflowRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultWorkflowDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Failed"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Precondition Required"
           }
         },
         "security": [
@@ -10519,7 +12264,44 @@
         "operationId": "listWorkflows",
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowListDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
           }
         },
         "tags": [
@@ -10528,9 +12310,76 @@
       },
       "post": {
         "operationId": "defineWorkflow",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefineWorkflowRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
-          "200": {
-            "description": "OK"
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryWorkflowDefinitionDto"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
           }
         },
         "security": [
@@ -10567,7 +12416,54 @@
         ],
         "responses": {
           "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryWorkflowDefinitionDto"
+                }
+              }
+            },
             "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "Not Found"
           }
         },
         "tags": [

@@ -1,0 +1,159 @@
+{
+  "page": {
+    "title": "Analysis review",
+    "back": "Back to the match",
+    "reload": "Reload",
+    "loading": "Loading the analysis…"
+  },
+  "run": {
+    "title": "Run details",
+    "state": "State",
+    "requested": "Requested",
+    "started": "Started",
+    "ended": "Ended",
+    "failureReason": "Failure reason",
+    "workflow": "Workflow",
+    "workflowValue": "{{id}} {{version}}",
+    "notYet": "Not yet",
+    "stateChanged": "The run is now {{state}}.",
+    "stateName": {
+      "Requested": "Requested",
+      "Running": "Running",
+      "PartiallyCompleted": "Partially completed",
+      "Completed": "Completed",
+      "Failed": "Failed",
+      "Cancelled": "Cancelled"
+    }
+  },
+  "nodes": {
+    "title": "Capability nodes",
+    "listLabel": "Capability nodes of the run",
+    "nodeKey": "Node key",
+    "capability": "Capability",
+    "capabilityValue": "{{id}} {{version}}",
+    "tier": "Tier",
+    "scope": "Execution scope",
+    "state": "State",
+    "blockedBy": "Blocked by",
+    "jobs": "Jobs",
+    "jobCounts": {
+      "waiting": "Waiting",
+      "ready": "Ready",
+      "claimed": "Claimed",
+      "completed": "Completed",
+      "failed": "Failed",
+      "blocked": "Blocked"
+    },
+    "jobCount": "{{label}}: {{count}}",
+    "empty": "This run has no capability nodes.",
+    "stateName": {
+      "Waiting": "Waiting",
+      "Active": "Active",
+      "Completed": "Completed",
+      "Failed": "Failed",
+      "Blocked": "Blocked"
+    },
+    "tierName": {
+      "LowLevel": "Low level",
+      "HighLevel": "High level"
+    },
+    "scopeName": {
+      "Segment": "Segment",
+      "Match": "Match"
+    }
+  },
+  "streams": {
+    "title": "Fact streams",
+    "listLabel": "Fact streams of the run",
+    "empty": "This run has no fact streams.",
+    "capability": "Capability",
+    "capabilityValue": "{{id}} {{version}}",
+    "schemaVersion": "Schema version",
+    "outputType": "Output type",
+    "factCount": "Facts",
+    "coverage": "Coverage",
+    "coverageCount": "{{state}}: {{count}}",
+    "selected": "Selected",
+    "select": "Show facts of {{key}}",
+    "outputTypeName": {
+      "foundational-facts": "Foundational facts",
+      "soccer-concepts": "Soccer concepts",
+      "raw-video": "Raw video"
+    }
+  },
+  "facts": {
+    "title": "Facts",
+    "listLabel": "Facts of the selected stream",
+    "range": "Range",
+    "kind": "Kind",
+    "confidence": "Confidence",
+    "payloadSummary": "Summary",
+    "showPayload": "Show full payload",
+    "hidePayload": "Hide full payload",
+    "payloadLabel": "Full payload of the fact",
+    "previous": "Previous page",
+    "next": "Next page",
+    "pageLabel": "Fact pages",
+    "firstPage": "This is the first page.",
+    "lastPage": "This is the last page.",
+    "moreFacts": "More facts exist.",
+    "page": "Page {{page}}",
+    "incompleteNote": "These results are incomplete. Facts accepted so far are shown, and later results can change them.",
+    "continuationRestart": "The platform no longer accepts the position in the list, so the list restarted at the first page.",
+    "newResults": "New results are available for this stream.",
+    "reloadResults": "Reload the facts"
+  },
+  "range": {
+    "title": "Match-time range",
+    "from": "From",
+    "to": "To",
+    "apply": "Apply range",
+    "clear": "Clear range",
+    "hint": "Use m:ss or m:ss.SSS, for example 12:30 or 12:30.500.",
+    "invalidTime": "Enter a time as m:ss or m:ss.SSS.",
+    "negative": "The time must not be negative.",
+    "notIncreasing": "The end must be after the start."
+  },
+  "coverage": {
+    "title": "Coverage",
+    "listLabel": "Coverage windows",
+    "windowValue": "{{range}}: {{state}}",
+    "empty": "The platform reports no coverage windows for this selection.",
+    "stateName": {
+      "accepted": "Accepted",
+      "missing": "Missing",
+      "failed": "Failed",
+      "blocked": "Blocked",
+      "skipped": "Skipped"
+    }
+  },
+  "provenance": {
+    "title": "Provenance",
+    "workflow": "Workflow",
+    "workflowValue": "{{id}} {{version}}",
+    "analystProfile": "Analyst profile",
+    "analystProfileValue": "{{id}} ({{digest}})",
+    "imageDigest": "Image digest",
+    "modelDigest": "Model digest",
+    "showDigest": "Show full digest",
+    "hideDigest": "Hide full digest",
+    "fullDigest": "Full digest",
+    "copy": "Copy",
+    "copied": "Copied to the clipboard.",
+    "copyFailed": "Copying failed. Select the digest and copy it by hand."
+  },
+  "states": {
+    "connectionRequired": "A connection is required to review analysis results. SocAlytics shows no analysis data while the platform is not reachable.",
+    "notFound": "This analysis run was not found for this match.",
+    "notPermitted": "You are not permitted to review the analysis of this match.",
+    "capabilityNotInRun": "The chosen capability is not part of this run. Choose one of the run's fact streams.",
+    "invalidRange": "The match-time range is not valid. Use m:ss or m:ss.SSS with a start that is not negative and an end after the start.",
+    "error": "The analysis could not be loaded.",
+    "loading": "Loading facts…",
+    "noFactsInRange": "No facts overlap this range.",
+    "inProgress": "The analysis is still in progress; no facts yet.",
+    "incomplete": "The analysis is incomplete. Some windows are not accepted.",
+    "completeWithoutFacts": "The analysis is complete and produced no facts.",
+    "nonAcceptedWindows": "Windows that are not accepted"
+  }
+}

@@ -29,8 +29,9 @@ SocAlytics uses one `src` root with these first-level ownership areas:
 - `src/agents` owns future intelligence-agent runtimes and agent-specific
   integration code
 - `src/analysts` owns the Analyst Manager, whose first desktop slice is
-  executable under `src/analysts/manager`, and the future Analyst SDK and
-  Analyst capability implementations across their required runtimes
+  executable under `src/analysts/manager`, and the Analyst SDK, executable
+  under `src/analysts/sdk`; Analyst capability implementations across their
+  required runtimes remain future
 
 The executable platform projects are peers under `src/platform`, except for the
 test projects grouped under `src/platform/Tests`:
@@ -746,9 +747,9 @@ minor version when native or vendor compatibility requires it.
 
 Versioned JSON Schema documents are canonical for Analyst job and result
 contracts (`contracts/analysis/`); the platform and the Analyst Manager validate
-result manifests against them. The planned internal Analyst SDK exposes Pydantic
-models and validates input and output at the container boundary, and the
-platform independently validates the same schemas. Runtime-specific OCI images use locked dependencies and record
+result manifests against them. The internal Analyst SDK (`src/analysts/sdk`) exposes
+Pydantic models and validates input and output at the container boundary, and
+the platform independently validates the same schemas. Runtime-specific OCI images use locked dependencies and record
 their immutable image, model, and package provenance. Preprocessing and
 postprocessing implementation is traced through the immutable OCI image rather
 than selected as a separate job artifact.
@@ -800,13 +801,17 @@ current and non-current migration states; and
   team-scoped authorization, and audit evidence; idempotent recording upload,
   immutable recording lineage, and S3 conformance against RustFS; Analyst
   Manager pairing, approval, activation, revocation, and DPoP authentication;
-  and analysis run creation, readiness, claims, fenced completion,
+  and analysis run creation, readiness, claims, fenced completion, run
+  cancellation with fencing of queued and active work,
   state-plus-outbox atomicity, outbox publication and retention, and recovery
   from NATS outage, restart, and duplicate notifications; and
 - integration, host, and browser tests cover member email addresses and their
   verification, notification preferences, transactional email delivery through
   the dedicated outbox including a relay outage, the pending-request
   notification, self-service password recovery, and member invitations, using the Mailpit mail catcher; and
+- end-to-end tests cover run cancellation during an active simulated attempt:
+  the attempt is closed without consuming budget, its later calls are refused
+  as obsolete, and the Analyst Manager cleans up; and
 - integration and end-to-end tests cover per-object result write grants and
   validated result acceptance (eleven ordered manifest checks, storage-attested
   checksums, rejected manifests ending the attempt as failed, and immutable
@@ -837,14 +842,24 @@ current and non-current migration states; and
 - Web UI browser tests cover Analyst Manager pairing, the Club Admin decision
   view, and the fleet view with revocation, and the match workflow and
   recording upload (match creation and editing, direct multipart upload with
-  resume, timeline mapping, finalization, and the development CORS access to
-  RustFS): the `simulated` project against a simulated API and a fake object
+  resume, timeline mapping, finalization, run cancellation from the match
+  page, and the development CORS access to RustFS) and the analysis review
+  (run status, fact streams, range filtering, paging, coverage, provenance,
+  explicit empty, incomplete, and unavailable states, access by role,
+  accessibility checks, and the online-only rule): the `simulated` project
+  against a simulated API and a fake object
   store, and the `platform` project against the real platform with a scripted
   Manager and RustFS; and the match triage conversations (starting a
   conversation for a run, adding specialists, asking, polling, and reading
   advice with its disclosure and lineage) in the `simulated` project and in the
   `platform-triage` project against the real platform with the simulated agent
-  workload; and
+  workload; and the Analyst Registry administration for Club Admins (browsing
+  the default workflow, images, profile versions, and workflow versions;
+  registering images; creating, approving, and retiring profile versions;
+  defining workflow versions; and changing the default workflow, with
+  confirmations and refusals) in the `simulated` and `platform` projects; and
+- a Host test verifies that every Registry operation carries OpenAPI schemas
+  from which the Web UI client is generated (`AnalystRegistryOpenApiTests`); and
 - a Host test verifies the development CORS allow-list and the storage origin
   the AppHost passes to the Web UI; and
 - contract tests validate the canonical schemas, examples, and golden fixtures
@@ -875,8 +890,8 @@ choice or reveals a material operational tradeoff:
 - **Consequences and operational tradeoffs understood — partially met.**
   Layer dependency rules, host composition with PostgreSQL, NATS, RustFS, and
   the Migrator, local transaction boundaries, local database and broker
-  unavailability, duplicate delivery, and analysis restart recovery are
-  exercised. Production database access control, backup/restore, lifecycle
+  unavailability, duplicate delivery, analysis restart recovery, and run cancellation
+  are exercised. Production database access control, backup/restore, lifecycle
   controls, service objectives, and capacity remain unevidenced; workflow
   failure behavior with real Analyst execution is evidenced on the Docker
   Desktop profile against a Linux engine only.
@@ -892,8 +907,10 @@ choice or reveals a material operational tradeoff:
   read and staging of accepted upstream results, fact indexing, and the member
   fact reads are
   implemented, and the online-only Web UI foundation exists as development
-  evidence, including the Analyst Manager pairing, approval, and fleet views
-  the match workflow with recording upload and finalization, and the match
+  evidence, including the Analyst Manager pairing, approval, and fleet views,
+  the Analyst Registry administration views, the match workflow with recording
+  upload and finalization, the connected analysis review of a run's status and
+  indexed facts, and the match
   triage conversations with Specialist Agents. External
   OpenID Connect sign-in with Club Admin linking, unlinking, and coexistence
   with local accounts is evidenced by Integration and Playwright tests against
@@ -901,8 +918,7 @@ choice or reveals a material operational tradeoff:
   secret custody, and lifetimes (`GOV-CRED-006`) still unresolved. The
   production email relay, sender authentication, and bounce handling (Open / Blocking), the Web UI's offline mode (the PWA installs and
   updates through its service worker as development evidence on Chromium), the other
-  Web UI client workflows (the analysis review and the Coach Agent and
-  consultation conversations),
+  Web UI client workflows (the Coach Agent and consultation conversations),
   cross-runtime schema agreement, reproducible Analyst
   images, and the Avalonia/OCI platform matrix beyond the Docker Desktop
   profile on a Linux engine (Windows automation, Podman, and the other
@@ -936,8 +952,9 @@ implementation-proven, evidence must demonstrate:
   (installation and service-worker updates are evidenced on Chromium; the
   offline-mode rows stay open)
 - JSON Schema validation agrees at .NET and Python boundaries (the platform
-  and the Analyst Manager already agree on result manifests at the .NET
-  boundary)
+  and the Analyst Manager agree on result manifests at the .NET boundary, and
+  the Analyst SDK's conformance tests evidence the Python boundary over the
+  same examples; real Analyst images remain open)
 - locked Analyst images rebuild reproducibly and emit valid manifests
 - Avalonia and OCI-runtime spikes satisfy the platform matrix in the
   [Analyst Manager architecture](analyst-manager.md)

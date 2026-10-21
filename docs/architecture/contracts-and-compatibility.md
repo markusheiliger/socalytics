@@ -76,9 +76,9 @@ result-manifest and result-grants contracts under `contracts/analysis/`, and
 Analysis Result Read for Jobs added the upstream-results envelope for accepted
 upstream facts. Fact Indexing and Queries added the `fact-artifact` envelope for
 the facts inside result artifacts under `contracts/analysis/fact-artifact/`. The Python
-Analyst SDK will add the `analyst-attempt` contract for the attempt context in
+Analyst SDK added the `analyst-attempt` contract for the attempt context in
 the Analyst container and the additive Analyst job version 1.1.0 with the run's
-workflow and the segment window (decided, not yet implemented). Materialized
+workflow and the segment window. Materialized
 Video Segments will add the segment manifest contract under
 `contracts/segments/segment-manifest/v1/`, the Manager-facing
 `analysis/segment-media` response, and the additive Analyst job version 1.2.0
@@ -170,8 +170,9 @@ that add further contract kinds will extend the same command with
 unique-identifier checks, OpenAPI linting and bundling, and same-major
 compatibility checks. It also checks every schema against its immutable
 released copies in the same major version and fails on removed or renamed
-properties, newly required inputs, narrowed values, or newly closed objects. The same fixture corpus will also be validated independently at
-.NET and Python boundaries. Kiota generation and compilation for TypeScript,
+properties, newly required inputs, narrowed values, or newly closed objects. The same fixture corpus is also validated independently at
+the .NET and Python boundaries for the analysis contracts the Analyst SDK
+implements (its conformance tests validate every example). Kiota generation and compilation for TypeScript,
 C#, and Python will provide transport-consumer evidence without making
 generated code authoritative.
 

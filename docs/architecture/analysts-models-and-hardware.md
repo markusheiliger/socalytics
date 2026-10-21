@@ -62,9 +62,9 @@ reproducible execution without runtime artifact downloads or credentials.
 External digest-pinned model artifacts remain a future optimization.
 
 The packaging convention for Analyst authors, enforced when an image is
-registered by digest (`POST /api/v1/registry/analyst-images`; Club Admins will
-also register images from the Web UI's Registry administration, decided but
-not yet implemented, see [Web UI](client-applications.md#web-ui)):
+registered by digest (`POST /api/v1/registry/analyst-images`; Club Admins also
+register images from the Web UI's Registry administration, see
+[Web UI](client-applications.md#web-ui)):
 
 - `analyst-manifest.json` sits beside the Dockerfile and is validated against
   the released manifest schema `contracts/analysis/analyst-manifest/v1/`.
@@ -122,12 +122,14 @@ select the newest Python release independently of the validated runtime matrix.
 
 The versioned JSON Schema documents for job inputs and result manifests in
 `contracts/analysis/` are canonical; the platform and the Analyst Manager
-validate result manifests against them. The shared internal Analyst SDK will
-expose Pydantic models and validate both boundaries; it and cross-runtime
-schema agreement remain future work. The platform validates the same schemas
-independently rather than treating Python types as cross-language authority.
+validate result manifests against them. The shared internal Analyst SDK exposes
+Pydantic models and validates both boundaries; cross-runtime schema agreement
+is evidenced by the shared contract examples that the platform, the Analyst
+Manager, and the SDK's conformance tests all validate. The platform validates
+the same schemas independently rather than treating Python types as
+cross-language authority.
 
-The Analyst SDK is decided as follows and not yet implemented. It is the
+The Analyst SDK is the
 independently locked Python project `src/analysts/sdk/` (distribution
 `socalytics-analyst-sdk`, package `socalytics_analyst`), whose major version
 follows the contracts' major version. It carries a byte-identical, test-verified
@@ -326,9 +328,10 @@ short-lived per-object read grants, as described in
 and video bytes do not pass through the API.
 
 The same capability-scoped pattern is implemented for people (development
-evidence against the simulated Analyst; the Web UI analysis review is not
-implemented): members with read access to a run's team (Club Admins, and Coaches
-and Viewers of the team) read a run's indexed facts per capability, capability
+evidence against the simulated Analyst; the Web UI's connected analysis review
+is its consumer, see [Web UI](client-applications.md#web-ui)): members with
+read access to a run's team (Club Admins, and Coaches and Viewers of the team)
+read a run's indexed facts per capability, capability
 version, and output schema version through the member-facing `/api/v1`
 operation `listAnalysisRunFacts`, optionally narrowed to a match-time range and paginated in stable
 time order. Each response states the run's state, the run-pinned provenance

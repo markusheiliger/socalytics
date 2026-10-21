@@ -5,5 +5,7 @@
   "names-accelerator-model.json": "additionalProperties",
   "names-preprocessing-tile.json": "additionalProperties",
   "carries-stamp-discriminator.json": "additionalProperties",
-  "carries-club-discriminator.json": "additionalProperties"
+  "carries-club-discriminator.json": "additionalProperties",
+  "segment-window-on-match-job.json": "not",
+  "segment-window-unknown-property.json": "additionalProperties"
 }

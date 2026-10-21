@@ -409,6 +409,7 @@ exit 0
     const outputs = Object.fromEntries(readFileSync(files.output, 'utf8').split('\n').filter(Boolean).map((line) => line.split(/=(.*)/s).slice(0, 2)));
     return {
       status: result.status, outputs, log: readFileSync(files.log, 'utf8'),
+      summary: existsSync(files.summary) ? readFileSync(files.summary, 'utf8') : '',
       calls: readFileSync(files.calls, 'utf8').split('\n').filter(Boolean).map((line) => line.split('|')),
     };
   }
@@ -425,6 +426,22 @@ exit 0
     project(root, sdkRoot, { name: 'sdk' });
     return root;
   };
+
+  it('checks only the changed Markdown files in task mode and the whole repository otherwise', () => {
+    const record = path.join(temporary, `markdown-${counter++}.txt`);
+    const stub = path.join(temporary, `markdown-stub-${counter++}.mjs`);
+    writeFileSync(stub, `import { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(record)}, process.argv.slice(2).join(' ') + '\\n');\n`);
+    const argsOf = (mode) => {
+      writeFileSync(record, '');
+      const result = run(repository(), { mode, changed: ['docs/guide.md'], env: { MARKDOWN_CHECK: stub } });
+      assert.equal(result.status, 0, result.log);
+      assert.match(result.outputs.checks, /Markdown check/);
+      return readFileSync(record, 'utf8').trim();
+    };
+    assert.match(argsOf('task'), /^--files \S+changed\.txt$/);
+    assert.equal(argsOf('phase'), '');
+    assert.equal(argsOf('finalize'), '');
+  });
 
   it('runs the four exact stages in order with downloads disabled and the installed interpreter', () => {
     const root = sdkRepository();
@@ -577,7 +594,9 @@ exit 0
       python: 'Analyst Python projects',
       markdown: 'Markdown check',
     };
-    const commands = (result, tool) => result.calls.filter((call) => call[1] === tool).map((call) => call[2]);
+    // The trx logger arguments name a temporary folder, so they are compared without it.
+    const commands = (result, tool) => result.calls.filter((call) => call[1] === tool)
+      .map((call) => call.slice(2).join('|').replace(/ --logger trx --results-directory \S+/, ''));
 
     it('keeps the established checks, order, and sequential platform tests in finalize mode', () => {
       const root = fullRepository();
@@ -592,8 +611,10 @@ exit 0
         'build SocAlytics.Analysts.Manager.slnx --no-restore',
         `test ${managerTest.replace('src/analysts/manager/', '')} --no-build`,
       ]);
-      assert.deepEqual(commands(result, 'npm'), ['ci', 'run build', 'test', 'run test:e2e']);
+      assert.deepEqual(commands(result, 'npm'), ['ci', 'run build', 'test', 'run test:e2e -- --retries=1']);
       assert.equal(result.outputs.uncovered, '');
+      assert.equal(result.outputs.flaky, '');
+      assert.ok(result.calls.filter((call) => call[1] === 'dotnet' && call[2].startsWith('test ')).every((call) => / --logger trx --results-directory \S+$/.test(call[2])));
     });
 
     it('never overlaps the platform test projects', () => {
@@ -635,6 +656,134 @@ exit 0
       assert.match(result.log, /stub failure/);
       assert.match(result.log, /exit: 4; command: dotnet test/);
       assert.equal(result.outputs.uncovered, 'src/analysts/other/x.py');
+    });
+
+    describe('reruns of failed tests', () => {
+      const xml = (text) => text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      // A TRX log with the failed tests (fully qualified names; a display name may add arguments) and passed ones.
+      function trx(failed, passed = ['Ns.Passing.Works']) {
+        const tests = [...failed.map((name) => [name, 'Failed']), ...passed.map((name) => [name, 'Passed'])]
+          .map(([name, outcome], index) => ({ id: `0000-${index}`, name, outcome, type: name.slice(0, name.lastIndexOf('.')), method: name.slice(name.lastIndexOf('.') + 1) }));
+        return [
+          '<?xml version="1.0" encoding="utf-8"?>',
+          '<TestRun id="r" name="run" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">',
+          '  <Results>',
+          ...tests.map((test) => `    <UnitTestResult executionId="e${test.id}" testId="${test.id}" testName="${xml(test.name)}(value: 1)" computerName="c" outcome="${test.outcome}" />`),
+          '  </Results>',
+          '  <TestDefinitions>',
+          ...tests.map((test) => `    <UnitTest name="${xml(test.name)}" storage="x.dll" id="${test.id}">\n      <Execution id="e${test.id}" />\n      <TestMethod codeBase="x.dll" adapterTypeName="executor://xunit/VsTestRunner3/netcore/" className="${xml(test.type)}, Tests" name="${xml(test.method)}" />\n    </UnitTest>`),
+          '  </TestDefinitions>',
+          '</TestRun>',
+        ].join('\n');
+      }
+
+      // dotnet writes `trx` into its results directory and fails for projects matching TRX_FAIL; a rerun (a
+      // FullyQualifiedName= filter) fails only with RERUN_FAIL. npm prints PLAYWRIGHT_OUTPUT for the browser tests.
+      function rerunBin({ failed = [], passed } = {}) {
+        const bin = toolBin();
+        const log = path.join(bin, 'result.trx');
+        writeFileSync(log, trx(failed, passed));
+        writeFileSync(path.join(bin, 'dotnet'), `#!/bin/bash
+echo "$PWD|dotnet|$*" >> "$UV_CALLS"
+args=("$@")
+dir=""
+filter=""
+for ((i = 0; i < \${#args[@]}; i++)); do
+  case "\${args[$i]}" in
+    --results-directory) dir="\${args[$((i + 1))]}" ;;
+    --filter) filter="\${args[$((i + 1))]}" ;;
+  esac
+done
+if [ "$1" = test ] && [[ "$filter" == FullyQualifiedName=* ]]; then
+  [ -n "$RERUN_FAIL" ] && { echo "rerun failure"; exit 5; }
+  exit 0
+fi
+if [ "$1" = test ] && [ -n "$TRX_FAIL" ] && [[ "$*" == *"$TRX_FAIL"* ]]; then
+  mkdir -p "$dir/nested"
+  cp ${JSON.stringify(log)} "$dir/nested/result.trx"
+  echo "stub failure"
+  exit 4
+fi
+exit 0
+`, { mode: 0o755 });
+        writeFileSync(path.join(bin, 'npm'), `#!/bin/bash
+echo "$PWD|npm|$*" >> "$UV_CALLS"
+if [ "$*" = "run test:e2e -- --retries=1" ] && [ -n "$PLAYWRIGHT_OUTPUT" ]; then printf '%b' "$PLAYWRIGHT_OUTPUT"; fi
+exit 0
+`, { mode: 0o755 });
+        return bin;
+      }
+      const integration = platformTests[1];
+      const reruns = (result) => commands(result, 'dotnet').filter((command) => command.includes('--filter FullyQualifiedName='));
+
+      it('reruns only the failed tests once, passes, and reports them as flaky', () => {
+        const failed = ['Ns.Database.Connects', 'Ns.Outer+Inner.Retries'];
+        const result = run(fullRepository({ manager: false, web: false, python: false }), {
+          mode: 'phase', changed: ['src/platform/a.cs'], bin: rerunBin({ failed }), env: { TRX_FAIL: 'Integration.Tests.csproj' },
+        });
+        assert.equal(result.status, 0, result.log);
+        assert.deepEqual(reruns(result), [`test ${integration} --no-build --filter FullyQualifiedName=Ns.Database.Connects|FullyQualifiedName=Ns.Outer+Inner.Retries`]);
+        assert.equal(result.outputs.flaky, failed.join(','));
+        assert.match(result.log, /Rerunning the 2 failed test\(s\) of \S+Integration\.Tests\.csproj once/);
+        assert.match(result.log, /Flaky tests \(passed on rerun\): Ns\.Database\.Connects,Ns\.Outer\+Inner\.Retries/);
+        assert.match(result.summary, /### Flaky tests \(passed on rerun\)\n- `Ns\.Database\.Connects`\n- `Ns\.Outer\+Inner\.Retries`/);
+      });
+
+      it('escapes filter characters and keeps the task filter on the first run', () => {
+        const root = fullRepository({ manager: false, web: false, python: false });
+        const testFile = 'src/platform/Tests/SocAlytics.Platform.Integration.Tests/StoreTests.cs';
+        touch(root, testFile, 'public sealed class StoreTests\n{\n}\n');
+        const result = run(root, {
+          mode: 'task', changed: [testFile], bin: rerunBin({ failed: ['Ns.StoreTests.Is=Equal'] }), env: { TRX_FAIL: 'Integration.Tests.csproj' },
+        });
+        assert.equal(result.status, 0, result.log);
+        assert.ok(commands(result, 'dotnet').includes(`test ${integration} --no-build --filter FullyQualifiedName~StoreTests`));
+        assert.deepEqual(reruns(result), [`test ${integration} --no-build --filter FullyQualifiedName=Ns.StoreTests.Is\\=Equal`]);
+        assert.equal(result.outputs.flaky, 'Ns.StoreTests.Is=Equal');
+      });
+
+      it('does not rerun more than 10 failed tests', () => {
+        const failed = Array.from({ length: 11 }, (_, index) => `Ns.Many.Test${index}`);
+        const result = run(fullRepository({ manager: false, web: false, python: false }), {
+          mode: 'phase', changed: ['src/platform/a.cs'], bin: rerunBin({ failed }), env: { TRX_FAIL: 'Integration.Tests.csproj' },
+        });
+        assert.equal(result.status, 1);
+        assert.deepEqual(reruns(result), []);
+        assert.match(result.log, /No rerun of \S+Integration\.Tests\.csproj: 11 tests failed \(more than 10\)/);
+        assert.equal(result.outputs.flaky, '');
+      });
+
+      it('fails when the rerun fails again, and still runs the later projects', () => {
+        const result = run(fullRepository({ manager: false, web: false, python: false }), {
+          mode: 'phase', changed: ['src/platform/a.cs'], bin: rerunBin({ failed: ['Ns.Database.Connects'] }), env: { TRX_FAIL: 'Architecture.Tests.csproj', RERUN_FAIL: '1' },
+        });
+        assert.equal(result.status, 1);
+        assert.equal(result.outputs.checks, names.platform);
+        assert.deepEqual(reruns(result), [`test ${platformTests[0]} --no-build --filter FullyQualifiedName=Ns.Database.Connects`]);
+        assert.ok(commands(result, 'dotnet').includes(`test ${integration} --no-build`));
+        assert.match(result.log, /rerun failure/);
+        assert.equal(result.outputs.flaky, '');
+        assert.doesNotMatch(result.summary, /Flaky tests/);
+      });
+
+      it('retries the browser tests once and reports the flaky ones Playwright lists', () => {
+        const output = [
+          'Running 4 tests using 1 worker',
+          '',
+          '  1 flaky',
+          '    \\033[33m[simulated] › tests/sign-in.spec.ts:12:3 › signs in, then out ─────────────\\033[39m',
+          '    [platform] › tests/upload.spec.ts:40:5 › uploads a recording',
+          '  3 passed (12.4s)',
+          '',
+        ].join('\\n');
+        const result = run(fullRepository({ platform: false, manager: false, python: false }), {
+          mode: 'phase', changed: ['src/clients/web/a.ts'], bin: rerunBin(), env: { PLAYWRIGHT_OUTPUT: output },
+        });
+        assert.equal(result.status, 0, result.log);
+        assert.deepEqual(commands(result, 'npm'), ['ci', 'run build', 'test', 'run test:e2e -- --retries=1']);
+        assert.equal(result.outputs.flaky, '[simulated] › tests/sign-in.spec.ts:12:3 › signs in; then out,[platform] › tests/upload.spec.ts:40:5 › uploads a recording');
+        assert.match(result.summary, /- `\[platform\] › tests\/upload\.spec\.ts:40:5 › uploads a recording`/);
+      });
     });
 
     it('stops at the first failing Web UI step and still writes every output', () => {

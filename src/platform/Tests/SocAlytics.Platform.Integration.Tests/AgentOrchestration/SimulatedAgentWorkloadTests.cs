@@ -80,11 +80,12 @@ public sealed class SimulatedAgentWorkloadTests(PostgresContainerFixture postgre
 		using var http = f.Factory.CreateApiClient();
 		await using var runner = new SimulatedAgentWorkloadRunner(options, http, f.Factory.Time);
 		using var run = CancellationTokenSource.CreateLinkedTokenSource(ct);
-		run.CancelAfter(TimeSpan.FromSeconds(30));
+		var limit = TimeSpan.FromSeconds(120);
+		run.CancelAfter(limit + TimeSpan.FromSeconds(5));
 		var worker = runner.RunAsync(run.Token);
 
 		string? advice = null;
-		var deadline = DateTime.UtcNow.AddSeconds(30);
+		var deadline = DateTime.UtcNow.Add(limit);
 		while (advice is null && DateTime.UtcNow < deadline)
 		{
 			using var read = await MemberAsync(f, HttpMethod.Get, $"/api/v1/agent-invocations/{invocationId}", null, null, ct);

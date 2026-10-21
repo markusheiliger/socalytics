@@ -251,9 +251,9 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.equal(isImplementRunOf('Spec Kit diagnose #38', 38), false);
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose spec #38 · Diagnose why the implementation stopped', 38), true);
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose spec #381 · Revise the amendment with review feedback', 38), false);
-  assert.equal(isTwinRunOf('speckit-fix.lock.yml', 'Spec Kit fix spec #38 · Write a fix spec that unblocks the implementation', 38), true);
+  assert.equal(isTwinRunOf('speckit-specify.lock.yml', 'Spec Kit specify spec #38 · Write a new spec that unblocks the implementation', 38), true);
   assert.equal(isTwinRunOf('speckit-analyze.lock.yml', 'Spec Kit diagnose spec #38 · Diagnose why the implementation stopped', 38), false);
-  assert.equal(isTwinRunOf('speckit-fix.lock.yml', '[Spec Kit fix] spec #38 · Author a fix spec for the cause outside the stopped implementation (#41)', 38), true, 'runs named with brackets');
+  assert.equal(isTwinRunOf('speckit-specify.lock.yml', '[Spec Kit specify] spec #38 · Author a spec for the cause outside the stopped implementation (#41)', 38), true, 'runs named with brackets');
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #38 · why #41 stopped', 38), true, 'runs named before the spec reference');
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #38', 38), true, 'runs named before the mode was added');
   assert.equal(isTwinRunOf('speckit-diagnose.lock.yml', 'Spec Kit diagnose #381 · fix #82 round 1', 38), false);
@@ -280,7 +280,7 @@ test('renders the chain run name, attempt markers, and prompts', () => {
   assert.deepEqual(parseAttemptCheckId('speckit:attempt:converge::1'), { kind: 'converge', task: null, attempt: 1 });
   assert.deepEqual(parseAttemptCheckId('speckit:attempt:repair::2'), { kind: 'repair', task: null, attempt: 2 });
   assert.equal(parseAttemptCheckId(CHECK_ATTEMPT), null);
-  assert.equal(renderTaskPrompt('T004'), `/speckit-implement Implement only task T004. Do not implement any other task. Do not commit and do not push. ${TASK_TEST_SCOPE}`);
+  assert.equal(renderTaskPrompt('T004'), `/speckit-implement Implement only task T004. Do not implement any other task. Do not edit \`tasks.md\`: the tooling checks the task's box after verification. Do not commit and do not push. ${TASK_TEST_SCOPE}`);
   assert.match(TASK_TEST_SCOPE, /Do not run the whole test suite/);
   assert.match(renderTaskPrompt('T004', 'f'), /^\/speckit-implement Implement only task T004 of the spec in `specs\/f\/` \(its `tasks\.md`\); ignore the other specs\. Do not implement any other task\./);
   assert.match(renderConvergePrompt(), /^\/speckit-converge /);
@@ -353,7 +353,7 @@ test('renders the next steps a person can take', () => {
   }
   const howTo = renderAmendmentHowTo(49).join('\n');
   assert.match(howTo, /\*\*Merge\*\* this pull request[\s\S]*continues on #49[\s\S]*\*Request changes\*[\s\S]*\*\*Close\*\*/);
-  assert.match(renderFixHowTo(75, 'main').join('\n'), /\*\*Merge\*\* this pull request to add the prerequisite spec to `main`[\s\S]*#75 waits for it and retries by itself[\s\S]*\*\*Close\*\*/);
+  assert.match(renderFixHowTo(75, 'main').join('\n'), /\*\*Merge\*\* this pull request to add the spec to `main`[\s\S]*signs it off with `\/speckit implement`[\s\S]*#75 waits for it and retries by itself[\s\S]*\*\*Close\*\*/);
   const status = setAmendmentStatus('Body from the agent.', ['⏳ checking']);
   assert.equal(status, '<!-- speckit-amend:status -->\n⏳ checking\n<!-- /speckit-amend:status -->\n\nBody from the agent.');
   assert.equal(setAmendmentStatus(status, ['✅ done']), '<!-- speckit-amend:status -->\n✅ done\n<!-- /speckit-amend:status -->\n\nBody from the agent.');
@@ -376,7 +376,8 @@ test('describes what each command does and what a restart continues with', () =>
   assert.equal(parseNextCommand('please /speckit retry'), null);
   assert.match(describeCommandEffect('/speckit retry', { baseBranch: 'main', continuation: 'continues with the convergence' }), /^Does not merge `main`: the implementation continues with the convergence on the branch as it is[\s\S]*Text you add after the command/);
   assert.equal(describeCommandEffect('/speckit resume Use x', { baseBranch: 'main' }), null);
-  assert.match(describeCommandEffect('/speckit fix Make it robust', { baseBranch: 'main' }), /authors a small prerequisite spec for the cause, guided by the text after the command, and opens it as a pull request against `main`[\s\S]*retries by itself on its current phase base/);
+  assert.match(describeCommandEffect('/speckit specify Make it robust', { baseBranch: 'main' }), /authors a new spec for the cause, guided by the text after the command, and opens it as a pull request against `main`; it is checked for consistency and merged automatically[\s\S]*signs it off with `\/speckit implement`[\s\S]*retries by itself on its current phase base/);
+  assert.equal(describeCommandEffect('/speckit fix Make it robust', { baseBranch: 'main' }), null, 'fix is no command anymore');
   assert.equal(describeCommandEffect('/speckit help'), null);
   for (const verb of ['artifacts', 'retry', 'outside', 'decision', 'unknown']) assert.ok(CATEGORY_MEANING[verb]);
 
@@ -659,7 +660,7 @@ test('detects conflict markers and appends convergence tasks to the pull request
   );
 });
 
-test('accepts only the target task tick in tasks.md and no protected paths', () => {
+test('accepts an untouched tasks.md or only the target task tick, and no protected paths', () => {
   const folder = 'f';
   const before = '# Tasks\n\n- [ ] T001 One\n- [ ] T002 Two\n';
   const ticked = before.replace('- [ ] T001', '- [X] T001');
@@ -667,7 +668,7 @@ test('accepts only the target task tick in tasks.md and no protected paths', () 
 
   assert.deepEqual(check({}), []);
   assert.deepEqual(check({ after: before.replace('- [ ] T001', '- [x] T001') }), []);
-  assert.match(check({ after: before }).join(), /T001 was not checked/);
+  assert.deepEqual(check({ after: before, changedPaths: ['src/a.cs'] }), [], 'the land job checks the task');
   assert.match(check({ after: before.replace('- [ ] T002', '- [x] T002') }).join(), /may only change by checking T001/);
   assert.match(check({ after: ticked.replace('One', 'Uno') }).join(), /may only change by checking T001/);
   assert.match(check({ after: `${ticked}\n- [ ] T003 New\n` }).join(), /may only change by checking T001/);

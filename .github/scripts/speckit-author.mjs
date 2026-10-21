@@ -62,7 +62,6 @@ export function publishBlockers(facts) {
   const stage = deriveStage(facts.artifacts, facts.tasksMarkdown);
   const reasons = implementBlockers({ folder: facts.folder, computedStage: stage, openChecklistItems: facts.openChecklistItems });
   if (facts.openClarificationMarkers > 0) reasons.push(`spec.md still contains ${facts.openClarificationMarkers} [NEEDS CLARIFICATION] marker(s)`);
-  if (!facts.listedInSpecsReadme) reasons.push(`specs/README.md does not list specs/${facts.folder} yet`);
   // `architecture` is present once plan.md exists.
   if (facts.architecture && !facts.architecture.present) {
     reasons.push('plan.md has no `## Architecture Updates` section (constitution Principle I); run /speckit-gha-architecture');
@@ -73,7 +72,7 @@ export function publishBlockers(facts) {
 }
 
 function gitFacts(git, folder, env) {
-  const paths = [specDir(folder), 'specs/README.md'];
+  const paths = [specDir(folder)];
   const run = (args) => {
     try {
       return git(args);
@@ -116,7 +115,6 @@ export function collectFacts({ rootDir, folder, git, env = {} }) {
   const checklistDir = path.join(dir, 'checklists');
   const checklistFiles = existsSync(checklistDir) ? readdirSync(checklistDir).filter((name) => name.endsWith('.md')).sort() : [];
   const checklists = checklistFiles.map((name) => ({ name, open: countOpenChecklistItems([readFileSync(path.join(checklistDir, name), 'utf8')]) }));
-  const readme = path.join(rootDir, 'specs', 'README.md');
   const planMarkdown = read('plan.md');
   const hasPlan = planMarkdown !== null;
   return {
@@ -132,7 +130,6 @@ export function collectFacts({ rootDir, folder, git, env = {} }) {
     openClarificationMarkers: specMarkdown ? (specMarkdown.match(NEEDS_CLARIFICATION) ?? []).length : 0,
     checklists,
     openChecklistItems: checklists.reduce((sum, checklist) => sum + checklist.open, 0),
-    listedInSpecsReadme: existsSync(readme) && readFileSync(readme, 'utf8').includes(`${folder}/`),
     git: git ? gitFacts(git, folder, env) : null,
   };
 }
