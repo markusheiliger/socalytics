@@ -126,6 +126,19 @@ public static class ApplicationServiceCollectionExtensions
         services.AddOptions<RecordingSetOptions>().BindConfiguration(RecordingSetOptions.SectionName).ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RecordingSetOptions>, RecordingSetOptionsValidator>());
 
+        services.AddOptions<SocAlytics.Platform.Application.Segments.SegmentMaterializationOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Segments.SegmentMaterializationOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Segments.SegmentMaterializationOptions>,
+            SocAlytics.Platform.Application.Segments.SegmentMaterializationOptionsValidator>());
+        services.AddOptions<SocAlytics.Platform.Application.Segments.SegmentToolchainOptions>()
+            .BindConfiguration(SocAlytics.Platform.Application.Segments.SegmentToolchainOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IValidateOptions<SocAlytics.Platform.Application.Segments.SegmentToolchainOptions>,
+            SocAlytics.Platform.Application.Segments.SegmentToolchainOptionsValidator>());
+
         services.AddOptions<SocAlytics.Platform.Application.Analysis.Results.AnalysisResultOptions>()
             .BindConfiguration(SocAlytics.Platform.Application.Analysis.Results.AnalysisResultOptions.SectionName)
             .ValidateOnStart();

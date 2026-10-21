@@ -101,7 +101,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
   integration test against the RustFS test container in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Recordings/` or the existing object-storage test file
   (FR-004)
-- [ ] T008 [P] Add `src/platform/SocAlytics.Platform.Application/Segments/SegmentOptions.cs` binding `Segments:Materialization`
+- [x] T008 [P] Add `src/platform/SocAlytics.Platform.Application/Segments/SegmentOptions.cs` binding `Segments:Materialization`
   (`PollInterval`, `LeaseDuration`, `MaxConcurrentPerInstance`, `MaxAttempts`, `RetryDelay`, `ExecutionTimeout`,
   `MaxSegmentBytes`, `WorkingDirectory`) and `Segments:Toolchain` (`FfmpegPath`, `FfprobePath`,
   `ExpectedVersionPrefix`) with validation (positive durations and counts, non-empty paths) and unit tests in
