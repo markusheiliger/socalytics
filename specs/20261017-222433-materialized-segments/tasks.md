@@ -165,7 +165,7 @@ segments become `available` once, manifests validate, and the jobs become ready 
   `src/platform/SocAlytics.Platform.Application/ApplicationServiceCollectionExtensions.cs`, with tests in
   `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentManifestBuilderTests.cs` validating the
   output against the schema (FR-004, SC-001)
-- [ ] T014 [P] [US1] Add the run-pinned profile's `videoPolicy` to the node snapshot in
+- [x] T014 [P] [US1] Add the run-pinned profile's `videoPolicy` to the node snapshot in
   `src/platform/SocAlytics.Platform.Application/Analysis/WorkflowSnapshotMapper.cs` (read from the resolved Analyst
   profile content, carrying it through `src/platform/SocAlytics.Platform.Application/Registry/ResolvedWorkflowDefinition.cs`
   and the resolvers in `src/platform/SocAlytics.Platform.Infrastructure/Registry/` when they do not expose it yet), with
