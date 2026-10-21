@@ -39,7 +39,14 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
   of 1.1.0: optional `segmentMedia` (`videoPolicy` enum `required`/`optional`, `manifestChecksum` sha-256 digest), the
   `allOf` rule that forbids it for `executionScope = match`, `releases/1.2.0.schema.json`,
   `examples/valid/segment-job-with-media.json`, `examples/invalid/segment-media-on-match-job.json` and
-  `segment-media-forbidden-policy.json` with `expectations.json` entries; earlier releases stay unchanged
+  `segment-media-forbidden-policy.json` with `expectations.json` entries; earlier releases stay unchanged. In the same
+  task, keep the SDK suite green (the SDK embeds a copy of the analysis contracts, and its tests validate every
+  example): refresh the copy with `src/analysts/sdk/scripts/sync_contracts.py`, add `1.2.0` to the supported
+  `analyst-job` versions in `src/analysts/sdk/src/socalytics_analyst/schemas.py`, add the optional `segmentMedia`
+  field (`videoPolicy`, `manifestChecksum`) to `LogicalJob` in `src/analysts/sdk/src/socalytics_analyst/models/job.py`
+  so the model matches the schema, and extend the SDK job tests for it; run `uv run --no-sync pytest` and
+  `uv run --no-sync python scripts/sync_contracts.py --check` in `src/analysts/sdk` (the verification runs the SDK
+  tests, which failed twice when only the contract changed)
 
 ### Segment media response schema
 
@@ -233,15 +240,18 @@ results are accepted, media is verified, and nothing remains after the attempt.
   against `analysis/segment-media` 1.0.0, refusals mapped like the upstream read) and parse `segmentMedia` in
   `src/analysts/manager/SocAlytics.Analysts.Manager.Core/Work/AnalystJobMessage.cs`, with tests in
   `src/analysts/manager/Tests/SocAlytics.Analysts.Manager.Tests/Platform/SegmentMediaClientTests.cs` (FR-016, FR-023)
-- [ ] T021 [P] [US2] Extend the SDK in `src/analysts/sdk/`: copy the segment manifest schema and analyst-job 1.2.0
-  into `src/analysts/sdk/src/socalytics_analyst/contracts/` (byte-identical, test-verified), add
+- [ ] T021 [P] [US2] Extend the SDK in `src/analysts/sdk/`: copy the segment manifest schema into
+  `src/analysts/sdk/src/socalytics_analyst/contracts/` (byte-identical, test-verified; analyst-job 1.2.0 with its
+  `segmentMedia` model field already arrived with T002) by extending `src/analysts/sdk/scripts/sync_contracts.py`
+  (and its SDK test) to include `segments/segment-manifest/v1` so the copy stays byte-identical and
+  `uv run --no-sync python scripts/sync_contracts.py --check` passes, add
   `src/analysts/sdk/src/socalytics_analyst/models/segment.py` (`SegmentManifest`), add
   `src/analysts/sdk/src/socalytics_analyst/media.py` (`SegmentMedia` with `manifest`, `path`, `to_match_ms`), set
   `AnalystContext.media` in `src/analysts/sdk/src/socalytics_analyst/context.py`, and raise the input errors
   `segment-media-missing`, `segment-media-unexpected`, `segment-manifest-mismatch`, `segment-media-digest-mismatch`,
   `segment-manifest-invalid`, and `unsupported-version` (exit 2) per
   `specs/20261017-222433-materialized-segments/contracts/container-interface.md`; tests in
-  `src/analysts/sdk/tests/test_media.py` and the contract example tests; run `uv run pytest` (FR-021)
+  `src/analysts/sdk/tests/test_media.py` and the contract example tests; run `uv run --no-sync pytest` (FR-021)
 
 ### Manager staging and mount
 
@@ -367,7 +377,7 @@ refused and in-use segments are kept.
 - [ ] T032 Run the quickstart validation: `dotnet restore`, `dotnet build --no-restore`, and
   `dotnet test --no-build` for `src/platform/SocAlytics.Platform.slnx` and
   `src/analysts/manager/SocAlytics.Analysts.Manager.slnx`, `dotnet test src/platform/Tests/SocAlytics.Platform.Contracts.Tests`,
-  `uv run pytest` in `src/analysts/sdk`, and `npm ci`, `npm run build`, and `npm test` in `src/clients/web` (the
+  `uv run --no-sync pytest` in `src/analysts/sdk`, and `npm ci`, `npm run build`, and `npm test` in `src/clients/web` (the
   OpenAPI snapshot changed); fix failures in the files of the tasks above
 
 ---
