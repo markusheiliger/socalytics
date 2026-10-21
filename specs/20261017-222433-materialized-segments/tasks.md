@@ -94,7 +94,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
   `socalytics.attach_version_trigger`, indexes for claiming (`state`, `demanded`, `next_attempt_at`,
   `lease_expires_at`) and recording-version lookup, the nullable column `segment_rejection_reason` (text) on
   `socalytics.logical_jobs`, and grants for `socalytics_app` as in existing migrations
-- [ ] T007 [P] Add a streaming put with a full-object SHA-256 checksum and content length to
+- [x] T007 [P] Add a streaming put with a full-object SHA-256 checksum and content length to
   `src/platform/SocAlytics.Platform.Application/Abstractions/ObjectStorage/IObjectStorage.cs` and implement it in
   `src/platform/SocAlytics.Platform.Infrastructure/ObjectStorage/S3ObjectStorage.cs` (the store must reject bytes that
   do not match), updating every test double that implements `IObjectStorage` under `src/platform/Tests/`, with an

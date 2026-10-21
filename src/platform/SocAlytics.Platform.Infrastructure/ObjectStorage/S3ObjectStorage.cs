@@ -200,6 +200,26 @@ internal sealed class S3ObjectStorage : IObjectStorage, IDisposable
             expiresAt);
     }
 
+    public async Task PutObjectAsync(
+        string objectKey, string contentType, Stream content, long contentLength, Sha256Digest digest, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        ArgumentOutOfRangeException.ThrowIfNegative(contentLength);
+
+        var request = new PutObjectRequest
+        {
+            BucketName = _bucket,
+            Key = objectKey,
+            ContentType = contentType,
+            InputStream = content,
+            ChecksumAlgorithm = ChecksumAlgorithm.SHA256,
+            ChecksumSHA256 = digest.ToBase64(),
+            UseChunkEncoding = false,
+        };
+        request.Headers.ContentLength = contentLength;
+        await CallAsync(() => _client.PutObjectAsync(request, cancellationToken));
+    }
+
     public ObjectReadGrant PresignGetObject(string objectKey, DateTimeOffset expiresAt)
     {
         var request = new GetPreSignedUrlRequest
