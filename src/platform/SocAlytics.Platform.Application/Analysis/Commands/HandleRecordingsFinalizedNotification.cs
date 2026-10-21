@@ -48,6 +48,7 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
     IAnalysisSegmentSource segmentSource,
     WorkflowSnapshotMapper mapper,
     RunReadinessCoordinator coordinator,
+    RunSupersession supersession,
     TimeProvider time)
 {
     private const string MessageType = "recordings-finalized";
@@ -152,6 +153,7 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
         }
 
         var definition = resolved.Definition;
+        await runs.LockMatchRunsAsync(lineage.MatchId, ct);
         var existingId = await runs.FindRunIdAsync(lineage.RecordingSetVersionId, definition.WorkflowId, definition.WorkflowVersion, ct);
         if (existingId is { } found)
         {
@@ -168,6 +170,7 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
                 lineage.TeamId, lineage.MatchId, lineage.RecordingSetVersionId, lineage.FinalizedAt, definition.WorkflowId, definition.WorkflowVersion,
                 definition.RequestedCapabilities, definition.CompletionPolicy, AnalysisRunState.Failed, validation.Reason,
                 snapshot, [], []), ct);
+            await supersession.ApplyAsync(lineage.MatchId, ct);
             return await Record("run-created", null, runId);
         }
 
@@ -196,8 +199,13 @@ public sealed class HandleRecordingsFinalizedNotificationHandler(
                 p.Snapshot.MaxAttempts, p.Snapshot.LeaseSeconds, p.Snapshot.StaleTimeoutSeconds, p.Snapshot.ExecutionTimeoutSeconds,
                 p.Snapshot.AnalystProfileDigest.ToString(), p.Snapshot.ImageDigest.ToString(), p.Snapshot.ModelDigest?.ToString(),
                 JsonSerializer.Serialize(p.Snapshot.Resources), p.Snapshot.SchemaVersion))).ToList(), ct);
-        await runs.LockRunAsync(runId, ct);
-        await coordinator.ApplyAsync(runId, ct);
+        await supersession.ApplyAsync(lineage.MatchId, ct);
+        var created = await runs.LockRunAsync(runId, ct);
+        if (created?.State == AnalysisRunState.Requested)
+        {
+            await coordinator.ApplyAsync(runId, ct);
+        }
+
         return await Record("run-created", null, runId);
     }
 

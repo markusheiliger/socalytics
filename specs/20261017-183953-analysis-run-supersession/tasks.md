@@ -61,7 +61,7 @@ description: "Task list for Analysis Run Supersession"
 
 ### Run creation
 
-- [ ] T008 [US1] In `src/platform/SocAlytics.Platform.Application/Analysis/Commands/HandleRecordingsFinalizedNotification.cs`, take `LockMatchRunsAsync(lineage.MatchId)` before `FindRunIdAsync`, call `RunSupersession.ApplyAsync` after inserting the run in both the valid and the `Failed` (invalid workflow) branch, and call `RunReadinessCoordinator.ApplyAsync` only when the new run is still `Requested`, so a run of an older version than an existing run is created already superseded and `Cancelled` with no ready-work ever written; the receipt outcomes stay unchanged (research R9; FR-002, FR-003, FR-006, FR-013)
+- [x] T008 [US1] In `src/platform/SocAlytics.Platform.Application/Analysis/Commands/HandleRecordingsFinalizedNotification.cs`, take `LockMatchRunsAsync(lineage.MatchId)` before `FindRunIdAsync`, call `RunSupersession.ApplyAsync` after inserting the run in both the valid and the `Failed` (invalid workflow) branch, and call `RunReadinessCoordinator.ApplyAsync` only when the new run is still `Requested`, so a run of an older version than an existing run is created already superseded and `Cancelled` with no ready-work ever written; the receipt outcomes stay unchanged (research R9; FR-002, FR-003, FR-006, FR-013)
 
 ### Tests for User Story 1
 
