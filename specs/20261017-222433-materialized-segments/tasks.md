@@ -117,7 +117,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
   lookups by identity and by recording versions, waiting-job queries joined with `logical_jobs`, and purge locking;
   tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/SegmentStoreTests.cs` (state constraints,
   concurrent claims, stale candidate refusal, version trigger) (FR-005, FR-006)
-- [ ] T010 [P] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Support/SyntheticMedia.cs` that creates a
+- [x] T010 [P] Add `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Support/SyntheticMedia.cs` that creates a
   10-second, 64×64, keyframe-every-second MPEG-4 MP4 with `testsrc2` through the configured `ffmpeg` in a test-owned
   directory and uploads and finalizes it through the existing recording upload handlers with a two-span or single-span
   timeline mapping; it fails visibly with a named message when the toolchain is missing, like Docker-dependent tests
