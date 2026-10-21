@@ -64,6 +64,7 @@ internal sealed class PostgresAuditTrail(
         "logicalJobId",
         "runId",
         "previousState",
+        "supersedingRunId",
         "provider",
         "cause",
         "conversationId",
