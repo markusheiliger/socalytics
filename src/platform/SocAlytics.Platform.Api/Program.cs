@@ -52,6 +52,7 @@ builder.Services.AddOpenApi("v1", options =>
 		return Task.CompletedTask;
 	});
 	options.AddDocumentTransformer<OpenApiSecuritySchemesTransformer>();
+	options.AddSchemaTransformer(AgentCatalogDocumentSchemas.TransformAsync);
 });
 
 builder.Services.AddAuthentication(SessionAuthenticationHandler.SchemeName)
