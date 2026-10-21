@@ -73,7 +73,7 @@ description: "Task list for Web UI Workflow Operations for Club Admins"
 
 ### Outgoing message wiring
 
-- [ ] T013 [US2] Add the routes `/operations/outbox-messages` and `/operations/outbox-messages/:messageId` behind `clubAdminOnly` to `src/clients/web/src/router.tsx` (FR-001; contracts/routes-and-roles.md § Routes)
+- [x] T013 [US2] Add the routes `/operations/outbox-messages` and `/operations/outbox-messages/:messageId` behind `clubAdminOnly` to `src/clients/web/src/router.tsx` (FR-001; contracts/routes-and-roles.md § Routes)
 - [ ] T014 [US2] Add the `Outgoing messages` block to `src/clients/web/tests/e2e/simulated/operations.spec.ts`: filter by state, by type, and both, with the filters in the address and an unknown address value ignored; page forward and back over two fixture pages without skips or repeats; refresh returns to the first page; the invalid-token switch shows the expired-position explanation and the first page; open a message and see every field, the markup subject as text, and the unknown failure category raw; an unknown and a malformed identifier show the not-found view (FR-002, FR-008 to FR-011, FR-022; SC-001, SC-002)
 
 **Checkpoint**: Stuck publications are visible without raw API calls.
