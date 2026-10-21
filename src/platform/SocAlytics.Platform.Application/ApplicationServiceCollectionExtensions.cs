@@ -14,6 +14,7 @@ public static class ApplicationServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<ApplicationLayerMarker>();
+        services.TryAddSingleton<SocAlytics.Platform.Application.Segments.SegmentManifestBuilder>();
         services.TryAddScoped<ITeamScopeResolver, TeamScopeResolver>();
         services.TryAddScoped<IAccessAuthorizer, AccessAuthorizer>();
         services.TryAddScoped<ApplyBreakGlassRecoveryHandler>();

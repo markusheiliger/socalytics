@@ -158,7 +158,7 @@ segments become `available` once, manifests validate, and the jobs become ready 
   registering both in `src/platform/SocAlytics.Platform.Infrastructure/InfrastructureServiceCollectionExtensions.cs`;
   tests in `src/platform/Tests/SocAlytics.Platform.Integration.Tests/Segments/FfmpegSegmentExtractorTests.cs` with
   `SyntheticMedia` (covered interval, keyframe start, only one video stream, missing toolchain) (FR-003)
-- [ ] T013 [P] [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/SegmentManifestBuilder.cs` that builds
+- [x] T013 [P] [US1] Implement `src/platform/SocAlytics.Platform.Application/Segments/SegmentManifestBuilder.cs` that builds
   the segment manifest 1.0.0 (identity, policy version and duration, nominal window, requested source interval,
   encoded interval, timeline spans, media reference, `video/mp4`, media digest and size, producer toolchain, UTC
   creation time) and its canonical bytes and SHA-256 checksum, registered in
