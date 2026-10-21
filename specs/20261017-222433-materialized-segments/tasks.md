@@ -50,7 +50,7 @@ description: "Task list for Materialized Video Segments and Analyst Input Stagin
 
 ### Segment media response schema
 
-- [ ] T003 Create `contracts/analysis/segment-media/v1/segment-media.schema.json` 1.0.0 with
+- [x] T003 Create `contracts/analysis/segment-media/v1/segment-media.schema.json` 1.0.0 with
   `releases/1.0.0.schema.json`, `examples/valid/segment-media.json`, `examples/invalid/` (`missing-grants.json`,
   `write-grant-name.json`, `single-grant.json`), and `expectations.json`, referencing the segment manifest schema, as
   specified in `specs/20261017-222433-materialized-segments/contracts/segment-contracts.md` (exactly two grants named
