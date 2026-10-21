@@ -123,7 +123,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
       } catch (error) {
         amendmentNotes.push(`- Warning: could not check the amendment of #${issue.number}: ${error.message}`);
       }
-      // Prerequisites: a spec authored by `/speckit specify` holds the implementation until the twin depends on it;
+      // Prerequisites: a spec authored by `/speckit author` holds the implementation until the twin depends on it;
       // open dependencies of the twin block it, and once none is open, the implementation retries.
       const { blocked: isBlocked, blockers } = await maintainBlock(client, env, { implementation: lifecycle.pull, twin: issue.number }, { now: now(), notes: amendmentNotes, count: () => { amendmentActions += 1; } });
       const decision = await decideForPull(client, { twin: issue.number, folder, pullNumber: lifecycle.pull.number, now: now(), context: contextFromEnv(env) });
@@ -182,7 +182,7 @@ export async function runSelect({ client, rootDir, env, log, now = Date.now }) {
   return { exitCode: 0, ready, blocked, inconsistent, inProgress, fallback, merged, amendmentActions };
 }
 
-// Maintains what holds an open implementation pull request: the spec `/speckit specify` authored for it (maintainFixSpec)
+// Maintains what holds an open implementation pull request: the spec `/speckit author` authored for it (maintainFixSpec)
 // and the open dependencies of its twin (maintainDependencyBlock). Returns whether it is blocked and by which twins.
 async function maintainBlock(client, env, { implementation, twin }, { now, notes, count }) {
   const report = (line) => notes.push(line);
@@ -343,7 +343,7 @@ export async function runOrchestrate({ client, rootDir, env, log, now = Date.now
 
 // Flaky-test ledger: a test that passed only on its rerun (the flaky markers of verification comments) in at least
 // SPECKIT_FLAKY_THRESHOLD (default 3) distinct implementation pull requests (the open ones and those merged in the last
-// FLAKY_WINDOW_MS) gets one spec that makes it deterministic. It is started with `/speckit specify`'s authoring entry on
+// FLAKY_WINDOW_MS) gets one spec that makes it deterministic. It is started with `/speckit author`'s authoring entry on
 // the open implementation pull request where the test was flaky most recently, without blocking that implementation
 // (`link: false`), and recorded there with a flaky-spec marker, so the test is never started again while that marker
 // is in the window. Returns the summary lines and the tests it started specs for.

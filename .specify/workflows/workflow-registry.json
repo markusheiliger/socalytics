@@ -1,13 +1,13 @@
 {
   "schema_version": "1.0",
   "workflows": {
-    "speckit": {
-      "name": "Full SDD Cycle",
-      "version": "1.0.1",
-      "description": "Runs specify \u2192 plan \u2192 tasks \u2192 implement with review gates",
-      "source": "bundled",
-      "installed_at": "2026-10-05T12:52:00.193908+00:00",
-      "updated_at": "2026-10-05T12:52:00.193922+00:00"
+    "author": {
+      "name": "Author a ready-to-implement spec",
+      "version": "1.2.0",
+      "description": "Authors one spec through specify, clarify, plan, tasks, and analyze until it is ready to implement, then commits and pushes the spec folder so the GitHub automation takes over. Every decision comes from .github/scripts/speckit-author-flow.mjs; agent steps only run Spec Kit commands and write the files it checks.",
+      "source": ".specify/extensions/gha/workflows/author",
+      "installed_at": "2026-10-21T12:22:13.055281+00:00",
+      "updated_at": "2026-10-21T13:34:51.443499+00:00"
     }
   }
 }

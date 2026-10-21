@@ -2,14 +2,13 @@
   "schema_version": "1.0",
   "extensions": {
     "gha": {
-      "version": "1.11.0",
+      "version": "2.0.0",
       "source": "local",
-      "manifest_hash": "sha256:eada952d8860f67802bf62172148fbbd3910ea77bbe4402928ae652ad8a94e29",
+      "manifest_hash": "sha256:35545488a5fcba9b326d9bc925d2a3c73a6dc71d906927f4c83b418fb8052107",
       "enabled": true,
       "priority": 10,
       "registered_commands": {},
       "registered_skills": [
-        "speckit-gha-author",
         "speckit-gha-route",
         "speckit-gha-request",
         "speckit-gha-diagnose",
@@ -18,7 +17,7 @@
         "speckit-gha-architecture",
         "speckit-gha-drift"
       ],
-      "installed_at": "2026-10-20T15:27:44.762218+00:00"
+      "installed_at": "2026-10-21T13:34:49.449810+00:00"
     }
   }
 }

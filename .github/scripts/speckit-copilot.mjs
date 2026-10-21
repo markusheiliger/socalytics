@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -115,6 +116,54 @@ export function isRejection(text) {
   return REJECTION.some((pattern) => pattern.test(text ?? ''));
 }
 
+// The Copilot CLI arguments for a call the Spec Kit workflow engine makes (`-p <prompt> [--yolo] [--model <id>]
+// [--output-format json] [--agent <name>]`), when this script stands in for the `copilot` executable
+// (SPECKIT_INTEGRATION_COPILOT_EXECUTABLE): the prompt, the agent, and the output format are kept; the permissions and
+// the model always come from the level (SPECKIT_LEVEL) and the deny-list, like every other Copilot CLI run of the
+// Spec Kit workflows, so `--yolo` and a model of the caller are dropped.
+export function execArgs(incoming, { levels, env, auto = false }) {
+  const valueOf = (flag) => {
+    const index = incoming.indexOf(flag);
+    return index >= 0 ? incoming[index + 1] : undefined;
+  };
+  const prompt = valueOf('-p') ?? valueOf('--prompt');
+  if (typeof prompt !== 'string') throw new CopilotUsageError('exec needs the prompt as -p <prompt>.');
+  const agent = valueOf('--agent');
+  const { model, effort } = resolveSelection(levels, env);
+  return [
+    '-p',
+    prompt,
+    ...(agent ? ['--agent', agent] : []),
+    ...buildArgs({
+      mode: 'agent',
+      model: auto ? '' : model,
+      effort: auto ? '' : effort,
+      denyTools: env.SPECKIT_DENY_TOOLS ?? '',
+      aiCredits: env.SPECKIT_AI_CREDITS ?? '',
+      outputFormat: valueOf('--output-format') === 'json' ? 'json' : 'text',
+    }),
+  ];
+}
+
+// Runs one Copilot CLI call for the workflow engine; standard error is passed through after the run, so a rejected
+// model or effort can be retried once with the CLI's default model, as the action does.
+function exec(incoming, { env, modelsFile, spawn = spawnSync }) {
+  const levels = loadLevels(modelsFile);
+  const binary = env.SPECKIT_COPILOT_BINARY || 'copilot';
+  const run = (auto) => {
+    const result = spawn(binary, execArgs(incoming, { levels, env, auto }), { stdio: ['inherit', 'inherit', 'pipe'], encoding: 'utf8' });
+    process.stderr.write(result.stderr ?? '');
+    return result;
+  };
+  let result = run(false);
+  if (result.status !== 0 && isRejection(result.stderr)) {
+    process.stderr.write('::warning::Copilot CLI rejected the configured model or reasoning effort; retrying once with its default model.\n');
+    result = run(true);
+  }
+  if (result.error) throw new CopilotUsageError(`Cannot run ${binary}: ${result.error.message}`);
+  return result.status ?? 1;
+}
+
 function readIfPresent(file) {
   return file && existsSync(file) ? readFileSync(file, 'utf8') : '';
 }
@@ -147,7 +196,8 @@ export function main(argv, { env = process.env, modelsFile = MODELS_FILE, log = 
   if (command === 'rejected') {
     return rest.some((file) => isRejection(readIfPresent(file))) ? 0 : 1;
   }
-  throw new CopilotUsageError('Usage: speckit-copilot.mjs resolve [--models <file>] | args --out <file> [--auto] | rejected <file>...');
+  if (command === 'exec') return exec(rest, { env, modelsFile });
+  throw new CopilotUsageError('Usage: speckit-copilot.mjs resolve [--models <file>] | args --out <file> [--auto] | rejected <file>... | exec -p <prompt> [...]');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

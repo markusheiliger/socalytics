@@ -1354,7 +1354,7 @@ test('the flaky-test ledger starts one non-blocking spec per test that is flaky 
   const result = await maintainFlakyTests(github, env, { now: github.clock });
   assert.deepEqual(result.started, [{ test: 'Ns.Store.Saves', pull: 21, pulls: [21, 20, 22] }], 'started on the open pull request where it was flaky most recently');
   assert.match(result.lines.join('\n'), /`Ns\.Store\.Saves` was flaky in #20, #21, #22; started a spec to make it deterministic on #21\./);
-  const specify = github.repo.runs.filter((run) => run.workflow === 'speckit-specify.lock.yml');
+  const specify = github.repo.runs.filter((run) => run.workflow === 'speckit-author.yml');
   assert.equal(specify.length, 1);
   assert.deepEqual([specify[0].inputs.twin, specify[0].inputs.pull, specify[0].inputs.mode], ['6', '21', 'author']);
   assert.match(specify[0].inputs.guidance, /The test `Ns\.Store\.Saves` failed and then passed on its one rerun in the verifications of 3 implementation pull requests \(#20, #21, #22\)[\s\S]*Do not weaken, skip, or delete the test/);
@@ -1366,7 +1366,7 @@ test('the flaky-test ledger starts one non-blocking spec per test that is flaky 
   github.repo.checkRuns.at(-1).status = 'completed';
   const again = await maintainFlakyTests(github, env, { now: github.clock });
   assert.deepEqual(again.started, [], 'a test is started once');
-  assert.equal(github.repo.runs.filter((run) => run.workflow === 'speckit-specify.lock.yml').length, 1);
+  assert.equal(github.repo.runs.filter((run) => run.workflow === 'speckit-author.yml').length, 1);
   assert.equal(parseFlakyThreshold('2'), 2);
   assert.equal(parseFlakyThreshold(''), 3);
   assert.equal(parseFlakyThreshold('x'), 3);
